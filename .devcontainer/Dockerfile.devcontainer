@@ -13,7 +13,7 @@ WORKDIR /workspace
 
 COPY ../ /workspace/ 
 
-RUN poetry install
+RUN poetry lock && poetry install
 
 #RUN poetry run start --host="0.0.0.0"
 # Make port 5000 available to the world outside this container
