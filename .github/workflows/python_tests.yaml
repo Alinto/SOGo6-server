@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  build:
+  testing:
 
     runs-on: ubuntu-latest
 
@@ -32,8 +32,9 @@ jobs:
     - name: Test with pytest
       run: |
         poetry run pytest --doctest-modules --junitxml=junit/test-results.xml --cov=app --cov-report=xml --cov-report=html
-    - name: Test Reports
-      uses: xportation/junit-coverage-report@main
+
+    - name: Pytest coverage comment
+      uses: MishaKav/pytest-coverage-comment@main
       with:
-        junit-path: ./junit/test-results.xml 
-        coverage-path: ./coverage.xml
+        pytest-xml-coverage-path: ./coverage.xml
+        junitxml-path: ./junit/test-results.xml
