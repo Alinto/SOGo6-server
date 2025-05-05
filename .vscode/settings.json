@@ -1,0 +1,22 @@
+{
+    "black-formatter.args": [
+        "--line-length",
+        "160"
+    ],
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+        "source.organizeImports": "explicit"
+    },
+    "javascript.format.insertSpaceBeforeFunctionParenthesis": true,
+    "[python]": {
+        "editor.defaultFormatter": "ms-python.black-formatter"
+    },
+    "python.testing.pytestArgs": [
+        "app"
+    ],
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestEnabled": true,
+    "[html]": {
+        "editor.formatOnSave": false
+    }
+}

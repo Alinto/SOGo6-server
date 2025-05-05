@@ -1,0 +1,1 @@
+Here explain how to contribute to sogo

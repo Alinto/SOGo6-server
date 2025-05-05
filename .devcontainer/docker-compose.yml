@@ -1,0 +1,22 @@
+name: sogo
+
+services:
+  redis:
+    image: redis:7
+
+  sogo-server:
+    build:
+      context: ../
+      dockerfile: .devcontainer/Dockerfile.devcontainer
+    ports:
+      - "5000:5000"
+    # command: poetry run start --host='0.0.0.0'
+    command: tail -f /dev/null
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - FLASK_PORT=5000
+      - FLASK_SWAGGER=true
+    volumes:
+      - ..:/workspace
+    depends_on:
+      - redis

@@ -1,0 +1,40 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: Flask",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "flask",
+            "env": {
+                "FLASK_APP": "run.py",
+                "FLASK_ENV": "development",
+                "FLASK_DEBUG": "1",
+                "MAINTENANCE_DATE": "2025-01-31 09:00",
+                "TZ": "Europe/Paris",
+                "HOME_PAGE": "/maintenance"
+            },
+            "args": [
+                "run"
+            ],
+            "jinja": true
+        },
+        {
+            "name": "Python: Current File",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "purpose": [
+                "debug-test"
+            ],
+            "python": "${command:python.interpreterPath}",
+            "stopOnEntry": false,
+            "justMyCode": false,
+            "console": "integratedTerminal",
+            "cwd": "${workspaceRoot}",
+            "args": [
+                "-vv"
+            ]
+        },
+    ]
+}

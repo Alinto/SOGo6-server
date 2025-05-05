@@ -1,0 +1,77 @@
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[project]
+name = "SOGo"
+description = "SOGo 6 backend server"
+authors = [
+    {name = "Quentin Hivert", email = "quentin.hivert.fr@gmail.com"},
+]
+license = { text = "GPL-3.0-or-later" }
+readme = "README.md"
+dynamic = [ "version" ]
+requires-python = ">=3.13"
+keywords = ["sogo", "webmail", "mail", "calendar"]
+dependencies = [
+    "click",
+    "flask",
+    "flask-compress",
+    "flask-smorest",
+    "marshmallow",
+    "pydantic",
+    "pydantic-settings",
+]
+
+
+[tool.poetry]
+version = "6.0.0"  # base version
+packages = [
+    { include = "app" },
+    { include = "agent" },
+]
+exclude = ["tests"]
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.0.0"
+black = "^25.1"
+pylint = "^3.0.0"
+pre-commit = "^4.2.0"
+
+
+[tool.poetry.requires-plugins]
+poetry-plugin-export = ">=1.8"
+
+[tool.poetry.scripts]
+# poetry run start
+start = "app.run:main"
+# poetry run format src
+format = "black:main"
+# poetry run lint src
+lint = "pylint.__main__:run"
+# poetry run pytest
+test = "tests.main:main"
+# Install pre-commit
+# poetry run pre-commit install
+
+[tool.pytest.ini_options]
+testpaths = [
+    "tests"
+]
+
+[tool.pylint.basic]
+module-naming-style="any"
+class-naming-style="PascalCase"
+method-naming-style="snake_case"
+attr-naming-style="camelCase"
+function-naming-style="snake_case"
+variable-naming-style="snake_case"
+argument-naming-style="camelCase"
+disable= [
+    "missing-module-docstring"
+]
+max-line-length=240
+
+[tool.black]
+line-length = 120
+exclude = 'app/templates'
