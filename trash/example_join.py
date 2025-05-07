@@ -51,23 +51,23 @@ def publish_call():
 
     return results
 
-start = time.time()
-print("Start thread")
-c = publish_thread()
-print(c)
-end = time.time()
-print(f"Took f{end-start}s")
-
 # start = time.time()
-# print("Start call")
-# c = publish_call()
+# print("Start thread")
+# c = publish_thread()
 # print(c)
 # end = time.time()
 # print(f"Took f{end-start}s")
 
 start = time.time()
 print("Start call")
+c = publish_call()
+print(c)
+end = time.time()
+print(f"Call Took f{end-start}s")
+
+start = time.time()
+print("Start thread")
 c = publish_thread_2()
 print(c)
 end = time.time()
-print(f"Took f{end-start}s")
+print(f"thread Took f{end-start}s")

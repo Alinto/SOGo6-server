@@ -4,7 +4,7 @@ services:
   redis:
     image: redis:7
 
-  sogo-server:
+  server:
     build:
       context: ../
       dockerfile: .devcontainer/Dockerfile.devcontainer
@@ -14,9 +14,29 @@ services:
     command: tail -f /dev/null
     environment:
       - REDIS_URL=redis://redis:6379
-      - FLASK_PORT=5000
-      - FLASK_SWAGGER=true
+      - SECRET_KEY="29630f23ca7c8557c75704935b6aa14a39ff28c437fcdbc10a370a4d461d0f52"
     volumes:
       - ..:/workspace
     depends_on:
       - redis
+
+  openldap:
+    image: bitnami/openldap:2.6
+    restart: unless-stopped
+    ports:
+      - "389:389"
+    environment:
+      LDAP_PORT_NUMBER: 389
+      LDAP_ADMIN_USERNAME: admin
+      LDAP_ADMIN_PASSWORD: password
+      LDAP_BIND_PASSWORD: password
+      LDAP_ROOT: dc=example,dc=org
+      LDAP_ADMIN_DN: cn=admin,dc=example,dc=org
+      LDAP_CUSTOM_LDIF_DIR: /ldifs
+      LDAP_EXTRA_SCHEMAS: cosine,inetorgperson,nis,custom
+      BITNAMI_DEBUG: true
+    volumes:
+      - ./conf/ldap/users.ldif:/ldifs/users.ldif
+      - ./conf/ldap/schemas/custom.schema:/opt/bitnami/openldap/etc/schema/custom.schema
+      - ./conf/ldap/schemas/custom.ldif:/opt/bitnami/openldap/etc/schema/custom.ldif
+      - ./conf/ldap/tmp:/tmp/bitnami

@@ -22,7 +22,7 @@
 {
   "name": "SOGo6 DevContainer",
   "dockerComposeFile": "docker-compose.yml",
-  "service": "sogo-server",
+  "service": "server",
   "workspaceFolder": "/workspace",
   "customizations": {
     "vscode": {

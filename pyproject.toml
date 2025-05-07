@@ -21,6 +21,7 @@ dependencies = [
     "marshmallow",
     "pydantic",
     "pydantic-settings",
+    "flask-wtf (>=1.2.2,<2.0.0)",
 ]
 
 
@@ -67,7 +68,7 @@ method-naming-style="snake_case"
 attr-naming-style="camelCase"
 function-naming-style="snake_case"
 variable-naming-style="snake_case"
-argument-naming-style="camelCase"
+argument-naming-style="snake_case"
 disable= [
     "missing-module-docstring"
 ]

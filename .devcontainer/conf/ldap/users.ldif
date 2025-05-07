@@ -1,0 +1,228 @@
+# extended LDIF
+#
+# LDAPv3
+# base <dc=example,dc=org> with scope subtree
+# filter: (objectclass=*)
+# requesting: ALL
+#
+
+# example.org
+dn: dc=example,dc=org
+objectClass: dcObject
+objectClass: organization
+dc: example
+o: example
+
+# users, example.org
+dn: ou=users,dc=example,dc=org
+objectClass: organizationalUnit
+ou: users
+
+dn: ou=groups,dc=example,dc=org
+objectClass: organizationalUnit
+ou: groups
+
+dn: uid=sogo,ou=users,dc=example,dc=org
+uid: sogo
+cn: Sogo
+sn: Sogo
+mail: sogo@example.org
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+objectClass: custom
+myattr1: banane
+myattr2: poire
+myattr3: fraise
+userPassword:: c29nbw==
+uidNumber: 1000
+gidNumber: 1000
+homeDirectory: /home/sogo
+
+dn: uid=cyrus,ou=users,dc=example,dc=org
+uid: cyrus
+cn: cyrus
+sn: cyrus
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+userPassword:: c29nbw==
+uidNumber: 1000
+gidNumber: 1000
+homeDirectory: /home/cyrus
+
+dn: uid=sogo-tests1@example.org,ou=users,dc=example,dc=org
+uid: sogo-tests1@example.org
+cn: Didy
+sn: Love
+givenName: Didy
+homePhone: +1 (123) 456-7890
+l: Vladivostok
+telephoneNumber: +1 (120) 987-6543
+mail: sogo-tests1@example.org
+homePostalAddress: dude@sogo.alinto
+homePostalAddress: dude2@sogo.alinto
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+userPassword:: c29nbw==
+uidNumber: 1000
+gidNumber: 1000
+homeDirectory: /home/sogo-tests1
+
+dn: uid=sogo-ex1@example2.org,ou=users,dc=example,dc=org
+uid: sogo-ex1@example2.org
+cn: Bertrand
+sn: Love
+givenName: Bertrand
+homePhone: +1 (123) 456-7890
+l: Vladivostok
+telephoneNumber: +1 (120) 987-6543
+mail: sogo-ex1@example.2org
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+userPassword:: c29nbw==
+uidNumber: 1000
+gidNumber: 1000
+homeDirectory: /home/sogo-ex1
+
+dn: uid=sogo-tests2@example.org,ou=users,dc=example,dc=org
+uid: sogo-tests2@example.org
+cn: Hewill
+sn: Crashit
+givenName: Hewill
+homePhone: +1 (123) 456-7890
+l: Vladivostok
+telephoneNumber: +1 (120) 987-6543
+mail: sogo-tests2@example.org
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+userPassword:: c29nbw==
+uidNumber: 1000
+gidNumber: 1000
+homeDirectory: /home/sogo-tests2
+
+dn: uid=sogo-tests3@example.org,ou=users,dc=example,dc=org
+uid: sogo-tests3@example.org
+cn: Ithas
+sn: Exploded
+givenName: Ithas
+homePhone: +1 (123) 456-7890
+l: Vladivostok
+telephoneNumber: +1 (120) 987-6543
+mail: sogo-tests3@example.org
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+userPassword:: c29nbw==
+uidNumber: 1000
+gidNumber: 1000
+homeDirectory: /home/sogo-tests3
+
+dn: uid=sogo-tests-super,ou=users,dc=example,dc=org
+uid: sogo-tests-super
+cn: John Doe
+sn: Doe
+givenName: John
+homePhone: +1 (123) 456-7890
+l: Vladivostok
+telephoneNumber: +1 (120) 987-6543
+mail: sogo-tests-super@example.org
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+userPassword:: c29nbw==
+uidNumber: 1000
+gidNumber: 1000
+homeDirectory: /home/sogo-tests-super
+
+dn: uid=res,ou=users,dc=example,dc=org
+uid: res
+cn: resource No Overbook
+sn: source
+departmentNumber: 1
+description: location
+givenName: res
+mail: res@example.org
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+userPassword:: c29nbw==
+uidNumber: 1000
+gidNumber: 1000
+homeDirectory: /home/res
+
+dn: uid=res-nolimit,ou=users,dc=example,dc=org
+uid: res-nolimit
+cn: resource No Overbook
+sn: source
+departmentNumber: 0
+description: location
+givenName: res-nolimit
+mail: res-nolimit@example.org
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+userPassword:: c29nbw==
+uidNumber: 1000
+gidNumber: 1000
+homeDirectory: /home/res-nolimit
+
+# readers, users, example.org
+dn: uid=readers,ou=users,dc=example,dc=org
+objectClass: extensibleObject
+objectClass: groupOfNames
+cn: readers
+mail: readers@example.org
+member: uid=sogo-tests1@example.org,ou=users,dc=example,dc=org
+member: uid=sogo-tests2@example.org,ou=users,dc=example,dc=org
+member: uid=sogo-tests3@example.org,ou=users,dc=example,dc=org
+memberUid: sogo-tests1@example.org
+
+# users, example.org
+dn: ou=sogo.com,dc=example,dc=org
+objectClass: organizationalUnit
+ou: sogo.com
+
+dn: uid=sogo1@sogo.com,ou=sogo.com,dc=example,dc=org
+uid: sogo1@sogo.com
+cn: Paul
+sn: Exploded
+givenName: Paul
+homePhone: +1 (123) 456-7890
+l: Vladivostok
+telephoneNumber: +1 (120) 987-6543
+mail: sogo1@sogo.com
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+userPassword:: c29nbw==
+uidNumber: 1000
+gidNumber: 1000
+homeDirectory: /home/sogo1
+
+dn: uid=sogo2@sogo.com,ou=sogo.com,dc=example,dc=org
+uid: sogo2@sogo.com
+cn: Michel
+sn: Exploded
+givenName: Michel
+homePhone: +1 (123) 456-7890
+l: Vladivostok
+telephoneNumber: +1 (120) 987-6543
+mail: sogo2@sogo.com
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+userPassword:: c29nbw==
+uidNumber: 1000
+gidNumber: 1000
+homeDirectory: /home/sogo2
+
+# search result
+search: 2
+result: 0 Success
+
+# numResponses: 14
+# numEntries: 13
