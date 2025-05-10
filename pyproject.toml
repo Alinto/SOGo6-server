@@ -22,6 +22,7 @@ dependencies = [
     "pydantic",
     "pydantic-settings",
     "flask-wtf (>=1.2.2,<2.0.0)",
+    "python-ldap (>=3.4.4,<4.0.0)",
 ]
 
 
@@ -47,6 +48,7 @@ poetry-plugin-export = ">=1.8"
 [tool.poetry.scripts]
 # poetry run start
 start = "app.run:main"
+
 # poetry run format src
 format = "black:main"
 # poetry run lint src

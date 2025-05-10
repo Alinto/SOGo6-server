@@ -44,7 +44,8 @@ class SogoConfig(FlaskConfig):
     """
     Contains all SOGo relative settings
     """
-    REDIS_URL: str = "redis://redis:6379"
+    SOGO_S_REDIS_URL: str = "redis://redis:6379"
+    SOGO_S_REDIS_TTL: int = "300" # Time to live of cached key. See https://redis.io/docs/latest/commands/ttl/
 
 
 

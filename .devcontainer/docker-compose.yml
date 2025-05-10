@@ -13,7 +13,7 @@ services:
     # command: poetry run start --host='0.0.0.0'
     command: tail -f /dev/null
     environment:
-      - REDIS_URL=redis://redis:6379
+      - SOGO_S_REDIS_URL=redis://redis:6379
       - SECRET_KEY="29630f23ca7c8557c75704935b6aa14a39ff28c437fcdbc10a370a4d461d0f52"
     volumes:
       - ..:/workspace
@@ -34,9 +34,8 @@ services:
       LDAP_ADMIN_DN: cn=admin,dc=example,dc=org
       LDAP_CUSTOM_LDIF_DIR: /ldifs
       LDAP_EXTRA_SCHEMAS: cosine,inetorgperson,nis,custom
-      BITNAMI_DEBUG: true
+      #BITNAMI_DEBUG: true
     volumes:
       - ./conf/ldap/users.ldif:/ldifs/users.ldif
       - ./conf/ldap/schemas/custom.schema:/opt/bitnami/openldap/etc/schema/custom.schema
       - ./conf/ldap/schemas/custom.ldif:/opt/bitnami/openldap/etc/schema/custom.ldif
-      - ./conf/ldap/tmp:/tmp/bitnami

@@ -25,3 +25,8 @@ A launcher start the project on http://localhost:5000/
 *    utils............All relative to tools and parsers
 * docs................All documentation about installation, configuration and devellopers' contribution
 * tests...............Contains all code for testing the web application
+
+## Install
+
+* for module python-ldap you'll need the openldap libraries that wont be install with poetry/pip. On debian wookworm, meanin this libldap2-dev, libsasl2-dev and ldap-utils.
+
