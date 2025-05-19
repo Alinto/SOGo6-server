@@ -13,7 +13,7 @@ services:
     # command: poetry run start --host='0.0.0.0'
     command: tail -f /dev/null
     environment:
-      - SOGO_S_REDIS_URL=redis://redis:6379
+      - SOGO_P_REDIS_URL=redis://redis:6379
       - SECRET_KEY="29630f23ca7c8557c75704935b6aa14a39ff28c437fcdbc10a370a4d461d0f52"
     volumes:
       - ..:/workspace

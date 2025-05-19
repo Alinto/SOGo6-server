@@ -21,3 +21,5 @@ class DomainSettings(Schema):
 
     #Folders
     SOGO_U_FOLDER_CREATION_NOTIF = fields.Boolean(load_default=True, dump_default=True) #Send mail notification when user create a calenanr or addrebook
+
+    

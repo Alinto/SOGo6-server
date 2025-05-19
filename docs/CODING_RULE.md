@@ -19,5 +19,6 @@ If you need to ass any sogo parameters/settings plus use this format
 ```
 SOGO_{X}_{NAME}
 ```
-* X being S, D or U for respectively system, domain ann user settings
+* X being P, S, D or U for respectively process (ENV var and needed to start sogo), system (affects whole application), domain (affect domains) and user (affect user) settings
 * NAME is the parameter name and must be uppercase snake_case
+

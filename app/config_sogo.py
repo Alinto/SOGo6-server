@@ -44,8 +44,10 @@ class SogoConfig(FlaskConfig):
     """
     Contains all SOGo relative settings
     """
-    SOGO_S_REDIS_URL: str = "redis://redis:6379"
-    SOGO_S_REDIS_TTL: int = "300" # Time to live of cached key. See https://redis.io/docs/latest/commands/ttl/
+    SOGO_P_REDIS_URL: str = "redis://redis:6379"
+    SOGO_P_REDIS_TTL: int = "300" # Time to live of cached key. See https://redis.io/docs/latest/commands/ttl/
+
+    SOGO_P_SECRET: str = "secret_is_a_32_characters_string" #TODO no default value and set length -> https://docs.pydantic.dev/latest/concepts/pydantic_settings/#usage
 
 
 
