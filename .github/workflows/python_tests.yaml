@@ -32,7 +32,7 @@ jobs:
           poetry-version: latest
 
     - name: Install package dependencies
-      run: apt install -y libldap2-dev libsasl2-dev
+      run: sudo apt install -y libldap2-dev libsasl2-dev
 
     - name: Install python dependencies
       run: poetry install
