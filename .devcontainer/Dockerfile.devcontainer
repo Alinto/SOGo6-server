@@ -1,6 +1,30 @@
 #base debian bookworm
 FROM python:3.13-slim
 
+# The standard user with which vscode-server will be executed
+ENV DEBIAN_FRONTEND=noninteractive
+ARG USERNAME=vscode
+ARG WORKSPACE=/workspace
+ARG USER_ID=1000
+ARG GROUP_ID=1000
+
+RUN apt-get update && apt-get install -y \
+    sudo \
+    git \
+    openssh-client \
+    curl \
+    procps
+
+RUN groupadd --system --gid "${GROUP_ID}" "${USERNAME}" && \
+    useradd --system --create-home --uid "${USER_ID}" --gid "${GROUP_ID}" "${USERNAME}" && \
+    echo "${USERNAME} ALL=(ALL) NOPASSWD: ALL" > "/etc/sudoers.d/${USERNAME}" && \
+    chmod 0440 "/etc/sudoers.d/${USERNAME}"
+
+RUN curl -o- https://raw.githubusercontent.com/transifex/cli/master/install.sh | bash
+
+RUN mv /tx /usr/local/bin
+
+RUN mkdir -p ${WORKSPACE} && chown -R ${USERNAME}:${USERNAME} ${WORKSPACE}
 
 #    libldap2-dev libsasl2-dev ldap-utils \
 RUN apt-get update && apt-get install -y \

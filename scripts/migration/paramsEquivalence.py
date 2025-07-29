@@ -26,9 +26,20 @@ system_526 = {
         "SOGoSAML2LogoutURL":              "",
         "SOGoSAML2PrivateKeyLocation":     "",
 
+        #Auth OpenId
+        "OCSOpenIdURL":                 None, #This table is no more needed in SOGo6
+        "SOGoOpenIdConfigUrl":          "SOGO_D_OPENID_CONFIG_URL", #contains the well-known configuration like https://myopenid.net/.well-known/openid-configuration
+        "SOGoOpenIdClient":             "SOGO_D_OPENID_CLIENT_NAME", #Name of the openid client
+        "SOGoOpenIdClientSecret":       "SOGO_D_OPENID_CLIENT_SECRET", #Secret of the openid client
+        "SOGoOpenIdScope":              "SOGO_D_OPENID_SCOPE", #Scope of the openid client
+        "SOGoOpenIdEmailParam":         "SOGO_D_OPENID_EMAIL", #Paramester from USerProfile that contains the mail of the user
+        "SOGoOpenIdEnableRefreshToken": None, #autodetected by sogo 6
+        "SOGoOpenIdTokenCheckInterval": "SOGO_D_OPENID_TOKEN_CHECK_INTERVAL", #Once the token is check valid, don't do it for this number of seconds
+        "SOGoOpenIdLogoutEnabled":      None, #Autodetected by sogo
+
     # Authentication made by a proxy and sogo trust it
-    "SOGoTrustProxyAuthentication": "#TODO", #see backArchi info in Authentication chapter
-    "SOGoEncryptionKey":            "#TODO",
+    "SOGoTrustProxyAuthentication": "", #TODO see backArchi info in Authentication chapter
+    "SOGoEncryptionKey":            "",
 
     # Cache system, change from memcached to redis
     "SOGoCacheCleanupInterval": "SOGO_P_REDIS_TTL", # ENV, but do we set it for all params????
@@ -63,12 +74,23 @@ system_526 = {
     "SOGoMaximumSubmissionInterval":      "SOGO_D_MAIL_MAX_SUBMISSION_INTERVAL", #Interval for SOGO_D_MAIL_MAX_SUBMISSION
     "SOGoMessageSubmissionBlockInterval": "SOGO_D_MAIL_MAX_SUBMISSION_BLOCK_INTERVAl", #Number of seoncds when a user is forbid to send mail after SOGO_D_MAIL_MAX_SUBMISSION
 
-    #Passwords
-    "SOGoPasswordRecoveryEnabled": "SOGO_D_PWD_RECOVERY", #Allow user to set a method to recover passwords
-    "SOGoPasswordRecoveryDomains": None, #Allow domains that enable password recovery if SOGoPasswordRecoveryEnabled not set
-                                         #Moving those to domains, so only SOGO_D_PWD_RECOVERY is used, there were also SOGoPasswordRecoveryFrom already in domain
+    #Mailing - only sogo for this one
+    "SOGoEnableMailCleaning": "SOGO_D_MAIL_ALLOW_PURGE", #Allow or not users to purge their folders (clean all before a date) BEware default value change
 
-    "SOGoJWTSecret": None, #Token used encrypt/decrypt word used in secondary email passsword recovery. No need to migrate
+    #CALDAV
+    "SOGoDisableOrganizerEventCheck": "SOGO_U_DAV_FORCE_SYNC_FROM_CLIENT", #If the event is already in the database and caldav push the same event in a previous version
+                                                                           #(sequence id) overwrite it. #TODO check this behaviour
+
+    #Binary
+    "WOSendMail": "SOGO_S_SENDMAIL", #Path of the sendmail binary
+    "SOGoZipPath": "SOGO_S_ZIP", #Patho of the zip library like /usr/bin/zip
+
+    #Passwords
+    "SOGoPasswordRecoveryEnabled": "SOGO_D_PWD_RECOVERY", #Allow user to set a method to recover passwords. Was a system  param, now domains
+    "SOGoPasswordRecoveryDomains": None, #Allow domains that enable password recovery if SOGoPasswordRecoveryEnabled is not set
+                                         #Now that SOGO_D_PWD_RECOVERY is a domain param instead, no need of this one anymore
+
+    "SOGoJWTSecret": None, #Token used to encrypt/decrypt word used in secondary email passsword recovery. No need to migrate this secret
 
     # Process/Memory settings, now handle by gunicorn/docker/kubernetes
     "SxVMemLimit":    None, # Managed by kubernetes or container
@@ -98,6 +120,11 @@ system_526 = {
 
     "SOGoURLEncryptionEnabled":    None, #feat added to hide the mail in the url of sgo webmail. We wo'nt do that in SOGo 6 so useless.
     "SOGoURLEncryptionPassphrase": None, #Was used for above feat, not needed anymore
+
+    #Web configuration #TODO see with front
+    "SOGoPageTitle": None, #change the html head <title> -> move to Front config?
+    "SOGoHelpURL": "", #Add a button that redirect to a help webpage
+    "SOGoFaviconRelativeURL": None, #Defined the favicon path. Why bother...
 
 
 }
@@ -134,26 +161,102 @@ domain_526 = {
 
     #Imap Identities
     "SOGoCreateIdentitiesDisabled": "SOGO_D_IDENTITIES_ENABLED", #Allow user to create identities (from, reply-to, name, signature)
-                                                                 #Behavior change in SOGo 6 #TODO
+                                                                 #Behavior change in SOGo 6 as it is disabled by default #TODO
 
     # LDAP
     "SOGoLDAPContactInfoAttribute": "", #TODO Should be in UserSource, LDAP attribute to show for autocompletion (default Name <mail>)
 
     # Mail Editor
-    "SOGoForceRawHtmlSignature": None, #SHould be set t oYES in our case (value by default in SOGo5) -> https://bugs.sogo.nu/view.php?id=5920
-                                       #Needs work on CKeditor in SOGo6 to fully undesrtand it. Should be domain bu process.
+    "SOGoForceRawHtmlSignature": None, #SHould be set to YES in our case (value by default in SOGo5) -> https://bugs.sogo.nu/view.php?id=5920
+                                       #Needs work on CKeditor in SOGo6 to fully undesrtand it.
 
     # Mailing
-    "SOGoMailDomain":          None, #Not veen use in SOGo 5...  
+    "SOGoMailDomain":          None, #Not even use in SOGo 5...  
     "SOGoMailDisableXForward": None, #SOGo 5 automatically added an header X-Forward with the nginx custom sogo
                                      #x-webobjects-remote-host ip, not necessary? #TODO ask exploit
+    "SOGoForceExternalLoginWithEmail": None, #Force user to use the mail instead of its uid for imap/smtp auth. #TODO,
+                                             #Clearly put in config what to use for imap/smtp uid? cn? mail?
+                                             #Keep in mind this is also a smtp/imap config.
+    "SOGoSoftQuotaRatio": "SOGO_D_SOFT_EMAIL_QUOTA", #Lie to your users by telling them there are less quota that avaiable.
+                                                     #To avoid them to overflow the quota so you could act before.
+                                                     #Value in ]0;1], percentage to the true quota
+    "SOGoMailUseOutlookStyleReplies": None, #Not used by SOGo 5
+    "SOGoMailListViewColumnsOrder": None, #Not used by SOGo 5
+    "SOGoMailCertificateEnabled": None, #Allow or not to add s/mime certificat for itself. #TODO Why on earth we will forbid user to do that?
 
     # Password
-    "SOGoPasswordRecoveryFrom": "", #TODO Set the from used for send if the recovery password with secondary email method.
+    "SOGoPasswordRecoveryFrom": None, #TODO Set the from used for sending the recovery password with secondary email method.
                                     #Useful? Is this not defines by the smtp server? The mail use for tasks like postmaster....
+    "SOGoPasswordRecoveryFrom": "SOGO_D_SMTP_SYSTEM_FROM", #Nothing to do with imap, mail used as from for sending email recovery's password.
+                                                           #Diff with SOGoSMTPMasterUserUsername is this is not a user email.
+                                                           #default is noreply@<domain> or the string "domain" if not defined
+                                                           #btw this doesn't work if smtp forces auth because sogo won't
+                                                           #TODO it doesn't work without a smtp server set...
 
     #User source
-    "SOGoUserSources": None #TODO so much rework for that... see here dict user_source_256
+    "SOGoUserSources": "SOGO_D_USERSOURCE", #TODO so much rework for that... see here dict user_source_256
+
+    #Outoing Server
+    "SOGoMailingMechanism": "SOGO_D_SEND_MAIL_TYPE",          #type ot the mechanism to send mail: sendmail or smtp
+    "SOGoSMTPServer": "SOGO_D_SMTP_SERVER",                   #hostname/url of the smtp server can be from smtp://domain:port to the domain only
+                                                              #To simplify thing, we add others params as SOGO_D_SMTP_PORT and SOGO_D_SMTP_ENCRYPTION
+    "SOGoSMTPAuthenticationType": "SOGO_D_SMTP_AUTH_MECH",    #auth mechanism of the smtp server null (no auth), plain or xoauth2
+    "SOGoSMTPMasterUserEnabled":"SOGO_D_SMTP_MASTER_ENABLED", #For system message (notificaitons, invit...) use a master account instead of the user.
+    "SOGoSMTPMasterUserUsername":"SOGO_D_SMTP_MASTER_MAIL",   #Master mail
+    "SOGoSMTPMasterUserPassword":"SOGO_D_SMTP_MASTER_PWD",    #Master password
+
+    #Ingoing Server
+    "NGImap4AuthMechanism": "SOGO_D_IMAP_AUTH_MECH", #auth mechanism for imap
+    "SOGoIMAPCASServiceName" : None, #Not sure how useful it is. SOGo 5 guide says it has to do with pam_cas.
+    "SOGoIMAPServer": "SOGO_D_IMAP_SERVER", #IMAP hostname will be simpligy with others param SOGO_D_IMAP_PORT and SOGO_D_IMAP_ENCRYPTION
+    "SOGoSieveServer": "SOGO_D_SIEVE_SERVER", #Same but for sieve (#TODO can a sieve server be different than the imap one?)
+    "SOGoSieveFolderEncoding": "SOGO_D_SIEVE_FOLDER_ENCODING", #TODO apparently, imap and sieve use UTF7 to encode their folder name.
+                                                               #This param allow admin to tells that the sieve server use utf8 instead
+    "SOGoIMAPAclStyle": None, #There some change between rfc2086 and rfc4314 for acl https://datatracker.ietf.org/doc/html/rfc4314#appendix-A
+                                               #TODO still relevant? The new rfc is from 2005 so dovecot/cyrus must be updated since.
+    "SOGoIMAPAclConformsToIMAPExt": None, #Even not used by SOGo 5 anymore, read the capabilities and check for any starting with acl2
+                                         #TODO not sure what this is, almost no sign of that -> https://www.rfc-editor.org/rfc/rfc4314.html#appendix-C
+                                         #not listed too, https://www.iana.org/assignments/imap-capabilities/imap-capabilities.xhtml
+                                         #the only thing that does https://github.com/Alinto/sogo/blob/b69ef6d7a58da32954fed6636aed18524137b017/SoObjects/Mailer/SOGoMailFolder.m#L1510
+    
+    "SOGoMailSpoolPath": None,            #Path where temp files are stored for draft messages beofre being sent to the imap server.
+    "NGMimeBuildMimeTempDirectory": None, #Same but for mime message. SOGo6's mean to store temp message should be way different.
+                                          #It seems to be use to avoid storing all the data in the runnic code as it can be heavy
+                                          #So tored in a file, and when nneding to be sent, read the file. #TODO not bad, an email can be heavy.
+    "NGImap4DisableIMAP4Pooling": "SOGO_D_IMAP_POOLING_ENABLE", #Default to YES, logout of an imap connection after 5min.
+                                                                #Change default value in SOGO 6, NO meaning no pool instead of YES = disable pool
+                                                                #TODO ask exploit about that. I was so confused when JMAP dev tell me imap needs
+                                                                #lasting connection, happends that sogo cuts it after 5 min by default.
+                                                                #After  minutes, sogo does a simple logout command to the imap server
+    "NGImap4ConnectionGroupIdPrefix": "", #TODO Apprently there are goups defined in imap server (statring with $ or @)
+                                          #This is a unix thing, see https://en.wikipedia.org/wiki/Group_identifier
+
+    #Webmail config
+    "SOGoExternalAvatarsEnabled": "SOGO_D_ALLOW_EXT_AVATAR", #Allow user to load external avatar like gravatar
+    "SOGoRefreshViewIntervals": "SOGO_D_MAIL_REFRESH_INTERVAL_ALLOWED", #Set what refresh interval (for mail) is available to users
+ 
+    #Sieve
+    "SOGoSieveScriptsEnabled": "SOGO_D_SIEVE_ENABLED", #Allow user to set sieve filters
+    "SOGoSieveScriptHeaderTemplateFile": "SOGO_D_SIEVE_HEADER", #Set a siever filter that will at the head of each user, was a path to a sieve file now is directly a ddb ready value
+    "SOGoSieveScriptFooterTemplateFile": "SOGO_D_SIEVE_FOOTER", #Set a siever filter that will at the foot of each user, was a path to a sieve file now is directly a ddb ready value
+    "SOGoVacationEnabled": "SOGO_D_VACATION_ENABLED", #Allow user to set a sieve autoreply. (default value change)
+    "SOGoVacationPeriodEnabled": None, #Was used in case the sieve server hadn't the capability "date". They all have it by now.
+    "SOGoVacationDefaultSubject": None , #default vacancy (autoreply) subject if not set by the user. it was "Auto: <original_subject>".
+                                         #TODO change this to a prefix, e.g. if you want your campany name to be at first
+    "SOGoVacationHeaderTemplateFile": "", #TODO was a path to the hmtl template vor vacancy message. Is still useful as the user will only add a text not a full html message.
+    "SOGoVacationFooterTemplateFile": "", #See above
+    "SOGoVacationAllowZeroDays": "SOGO_D_VACATION_ALLOW_RESPONSE_ALWAYS", #Allow user to set 0 for vacation response delay, meaning the vacation will be send to every message without delay.
+                                    #It was a community PR but the rfc does not agree -> https://datatracker.ietf.org/doc/html/rfc5230.html#section-4.1, dovecot seems to allow that
+                                    #https://doc.dovecot.org/2.3/settings/pigeonhole-ext/vacation/#pigeonhole_setting-sieve_vacation_min_period 
+    "SOGoForwardEnabled": "SOGO_D_FORWARD_ENABLED", #ALlow user to set a forward rule (default value change)
+    "SOGoForwardConstraints": None, #Set constraint on which domain you can or not set a forward rule
+                                                           #TODO refactor the constrains system as it was not great on sogo (onlt whitelist, no blalcklist...)
+                                                           #0 -> "No constraints"
+                                                           #1 -> "Only internals domains"
+                                                           #2 -> "Only extenral domain"
+                                                           #3 -> "Internals domains + SOGoForwardConstraintsDomains"
+    "SOGoForwardConstraintsDomains": None, #See SOGoForwardConstraints
+    "SOGoNotificationEnabled": "SOGO_D_NOTIFY_ENABLED", #Allow user to set notify sieve rule (default value change)
 }
 
 #See UserSource in DomainSettings.py
@@ -168,12 +271,17 @@ user_source_256 = {
     "IMAPHostFieldName ": None, #sqldap field with the IMAP server's hostname for the user
                                 #Too much config available. A User Source is in a domain where an IMAP server ca be config +
                                 #SOGo6 is agnostic about the mail server (Imap, Jmap?) + do an imap proxy for that.
+                                ###ALAS, somes uses it...........
     "IMAPLoginFieldName ": "US_IMAP_LOGIN", #sqldap field where to fetch the imap login for a user (default to UIDFieldName for ldap or c_uid for sql)
     "SieveHostFieldName ": None, #See IMAPHostFieldName.
 
-    "userPasswordAlgorithm": "US_PWD_ALGO", #Encryption algorithm for users' password
+    "userPasswordAlgorithm": "US_PWD_ALGO", #Encryption algorithm for users' password (#TODO keep all crypt supported by sogo? )
+                                            #https://bugs.sogo.nu/view.php?id=5837
+                                            #https://bugs.sogo.nu/view.php?id=4869
+    "keyPath":               "US_PWD_ALGO_SIM_KEY", #SYmetric key when the algo needs one.
+                                                    #On sogo 5 this is the path of a file, in sogo 6 we can set i differently, see US_PWD_ALGO_SIM_KEY 
     "canAuthenticate":       "US_CAN_AUTH", #This user source is used for authentication (ohterwise used for Address Book and autocompletion)
-    "isAddressBook":         "US_IS_ADDRESSBOOK", #True if this user source is an address book and will hos in sheard address book.
+    "isAddressBook":         "US_IS_ADDRESSBOOK", #True if this user source is an address book and will be shown in shared address book.
     "displayName":           "US_DISPLAY_NAME", #human name of this US
     "listRequiresDot":       "US_AUTO_SEARCH", #If set to yes, listing this address book will be automatic. If no, the user willl need to type some chars
                                                #or a dot to see all. Careful the bool value is the opposite
@@ -181,16 +289,14 @@ user_source_256 = {
                                                 #how much to return with pagination?
     "disableSubgroups": None, #It was add for a problem with SOGo5 that was looping when looking at a user with the same name as a group.
                               #No need to migrate it as the problem won't be migrated ;)
-    "ModulesConstraints ": None, #Used to limit access to Mail, Calendar, ActiveSYnc to users dependings on a colomn
-                                 #Exemple: only user with c_test = mailer can access Mail
-                                 #TODO, migrate it? It already exist the same for domains.
-    
-                    
-    
-
+    "ModulesConstraints": None, #Used to limit access to Mail, Calendar, ActiveSYnc to users dependings on a colomn
+                                #Exemple: only user with c_test = mailer can access Mail
+                                #TODO, migrate it? It already exist the same for domains.
+        
+    "mapping": "", #TODO map sqldap field to vcard field https://www.sogo.nu/files/docs/SOGoInstallationGuide.html#_ldap_attributes_mapping
 
     #Common resource
-    "KindFieldName ":      "US_KIND", #sqldap field to see the king of 'user', if the value is among "group", "location" or "thing"
+    "KindFieldName":      "US_KIND", #sqldap field to see the king of 'user', if the value is among "group", "location" or "thing"
                                       #this is a resource and not a user. For ldap, SOGo also detect a resource if it has objectClass: CalendarResource
     "MultipleBookingsFieldName": "US_RESOURCE_MULTIBOOKING", #sqldap field to set how much a resource can be silmutaneously booked.
                                                              #0 -> no limit
@@ -215,17 +321,41 @@ user_source_256 = {
                               #Login in SOGo5 can be a login completely different of the mail. default to cn
                               #TODO not sure about the diff between IDFieldName and UIDFieldName
     "UIDFieldName": "LDAP_UID", #Unique ID of a user.
-    "baseDN":       "LDAP_BASE_DN", # The base DN use to fetch the users. We can add %d taht will be replace by the current user mail domain.
+    "baseDN":       "LDAP_BASE_DN", # The base DN use to fetch the users. We can add %d that will be replace by the current user mail domain.
     "filter":       "LDAP_FILTER", #Additionnal filter for the ldap query. Careful, SOGo5 has a peculiar syntax for the value.
     "scope":        "LDAP_SCOPE", #Scope for the ldap query
 
-    "bindDN":            "LDAP_BIND_DN", #The bind DN used to authnetify against the ldap server
-    "bindPassword":      "LDAP_BIND_PWD", #The password for the bindDN
-    "bindAsCurrentUser": "LDAP_BIND_AS_USER", #After the fist auth, use the user's DN for the bind DN
-    "bindFields":        "LDAP_BIND_FIELD", #Additionnal field to use when doing a bind
-    "lookupFields":      "LDAP_LOOKUP_FIELD", #Fields return for ldap query, default to '*'. IS used to return operationl field like 'memberOf'
+    "bindDN":             "LDAP_BIND_DN", #The bind DN used to authnetify against the ldap server
+    "bindPassword":       "LDAP_BIND_PWD", #The password for the bindDN
+    "bindAsCurrentUser":  "LDAP_BIND_AS_USER", #After the fist auth, use the user's DN for the bind DN
+    "bindFields":         "LDAP_BIND_FIELD", #Additionnal field to use when doing a bind
+    "lookupFields":       "LDAP_LOOKUP_FIELD", #Fields return for ldap query, default to '*'. IS used to return operationl field like 'memberOf'
+    "GroupObjectClasses": "LDAP_GROUP_CLASS", #Value for 'objectclass' that tell this is a group of user
+
+    "SOGoLDAPQueryTimeout": "LDAP_QUERY_TIMEOUT", #a paramater for ldap library's query method
+    "SOGoLDAPGroupExpansionEnabled": None, #Parameter to expand ldap group. To None because why we want t odisable that?
+
+    "modifiers": None, #TODO list of user allowed to modify user fro m the usersource in the webmail
+                      #I htink it's best that they have their own tools to modify the user source (+ it's broken on sogo 5)
+    "objectClasses": None, #List of value for field 'objectClass' added when modifiers is set and the user modify the source.
+
+    "abOU": None, #TODO User can have their addressbook in the ldap server instead of the database.
+
+    #Was ldap but moved to be common to both sql and ldap
+    "SOGoLDAPContactInfoAttribute": "US_EXTRA_CONTACT_INFO", #sqldap field with a string to show when doing autocompletion (it's cn <extra> mail)
+    "SOGoLDAPQueryLimit": "US_AUTO_QUERY_LIMIT", #The maximum result a query return when doing autocompletion
 
     #SQL
+    "viewURL": "SQL_USER_URL", #database url for the user sources
+    "userPasswordPolicy": "US_PASSWORD_POLICY", #PAssword polic yused by sogo when changing password or checkin the weakness at login.
+    "prependPasswordScheme": "SQL_PREPEND_PWD_SCHEME", #the password stored in teh database will have the scheme before the encrypte value like {scheme}encryptedPass
+
+    "authenticationFilter": "SQL_USER_FILTER", #additionnal where clause when querying the users
+
+    "LoginFieldName": None, #TODO default to c_uid, we could defined here mutliple column to check the user login
+                           #Like 'WHERE (field1 = login OR field2 = login...). But uneccessary as in sql we force the table strucuture as opposite of ldap who already have its own structure
+
+    "DomainFieldName": "SQL_DOMAIN_FIELD", #sql column where to fing the domain of the user
 
 }
 
@@ -234,6 +364,9 @@ users_526 = {
     #Common
     "SOGoLanguage": "SOGO_U_LANGUAGE", #USer language
     "SOGoTimeZone": "SOGO_U_TIMEZONE", #Timezone for the user
+    "SOGoTimeFormat": "SOGO_U_TIME_FORMAT", #format of the time beware, you have ton convert objective c format to react format
+    "SOGoDayStartTime": "SOGO_U_WORKDAY_START_TIME", #Tell at which hour the workday start, use by other functionalities
+    "SOGoDayEndTime": "SOGO_U_WORKDAY_END_TIME",     #Same but for the end
 
     #Passwords
     #TODO Should not migrate that sensitive data about a user
@@ -243,4 +376,45 @@ users_526 = {
     "SOGoPasswordRecoveryQuestionAnswer": None, #Beware, answer and question should'nt be in plain text in database
     "SOGoPasswordRecoverySecondaryEmail": None, #Only one mail for SOGo5, several for SOGo 6?
 
+    #Mail Folders' name, user can change which folder is what from the webmail
+    #TODO it does not change any imap property, it only change the name folder when you're doing action from webui like trash or junk
+    #Infox is not affected
+    "SOGoDraftsFolderName": "SOGO_U_DRAFT_FOLDER_NAME", #Name of the draft folder, default to 'Drafts' (translated).
+    "SOGoSentFolderName":   "SOGO_U_SENT_FOLDER_NAME", #Name of the sent folder, default to 'Sent' (translated).
+    "SOGoTrashFolderName":  "SOGO_U_TRASH_FOLDER_NAME", #Name of the trash folder, default to 'Trash' (translated).
+    "SOGoJunkFolderName":   "SOGO_U_JUNK_FOLDER_NAME", #Name of the junk folder, default to 'Junk' (translated).
+
+    #Accounts and mail
+    "SOGoMailShowSubscribedFoldersOnly": "SOGO_U_ONLY_SUBSCRIBED_MAIL_FOLDER", #TODO Only show subscribed mail folders... why?
+    "SOGoMailAuxiliaryUserAccountsEnabled": "SOGO_D_ALLOW_EXT_MAIL_ACCOUNT", #Allow user to add external account to their webmail
+
+    #Web page
+    "SOGoLoginModule": "SOGO_U_FIRST_MODULE", #Tell what module (mail, calendar, contacts, last one used) to show first after connection
+                                              #TODO name changds (full lowercase)
+    "SOGoGravatarEnabled": "SOGO_U_GRAVATAR_ENABLED", #Allow to load gravatar pic if SOGO_D_ALLOW_EXT_AVATAR is enabled
+    "SOGoRefreshViewCheck": "SOGO_U_REFRESH_MAIL_VIEW", #Tell if the mail view lust be refresh manually or for some interval.
+    
+    #Calendar view
+    "SOGoDefaultCalendar": "SOGO_U_CALENDAR_DEFAULT", #Name to the default calendar when creating event
+    "SOGoFirstDayOfWeek": "SOGO_U_CALENDAR_VIEW_FIRST_DAY", #First day of the week for calendar week and months views
+    "SOGoFirstWeekOfYear": "SOGO_U_CALENDAR_WEEK_NUMBER_FORMAT", #Tell how week number is evaluated, three values:
+                                                                #'January1' -> not available in python
+                                                                #'First4DayWeek' -> '%V' in datetime format
+                                                                #'FirstFullWeek' -> either %U (first sunday) or %W (first monday)
+    "SOGoCalendarCategories": "SOGO_U_CALENDAR_CATEGORIES", #Name of the calendar categories, in an array 
+    "SOGoCalendarCategoriesColors": "",                     #Colors of the calendar categories, in an array with same index
+                                                            #TODO rework that for SOGo6 to not have 2 arrays, array of tuple (name, color, is_default)
+                                                            #is_default means taht the categorie was here by default, and can be translated.
+                                                            #is_default = False means this is custom categorie from the user can can't be translated
+    "SOGoCalendarEventsDefaultClassification": "SOGO_U_EVENT_DEFAULT_CLASS", #Which event class is set when creating new event (public, confidential, private)
+
+    
+
+    #Contacts
+    "SOGoMailAddOutgoingAddresses": "SOGO_U_COLLECT_UNKNWON_ADDRESSES", #Boolean, set to yes ot add unknwon address (= not in any addressbook folders, including the global one)
+                                                                       #Add it to the next address book
+    "SOGoSelectedAddressBook": "SOGO_U_COLLECT_UNKNWON_ADDRESSEBOOK_NAME", #Name of the address book that collects all unknwonw address, default to 'Collected' (translated)
+
+    #Sieve
+    "SOGoSieveFilters": "SOGO_D_SIEVE_FIRST_FILTER", #First sieve filtre set for new users, can be changed afterwards.
 }

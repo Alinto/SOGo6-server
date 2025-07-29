@@ -3,12 +3,12 @@
 from flask import Flask
 from flask_smorest import Api, Blueprint
 from flask_wtf import CSRFProtect
-from app.config_sogo import config
+from app.config.settings.ProcessSetting import config
 
 #Apis
-from app.preferences import pref_apis
-from app.admin import admin_apis
-from app.mail import mail_apis
+from app.api.preference import pref_apis
+from app.api.admin import admin_apis
+from app.api.mail import mail_apis
 
 
 __version__ = "6.0.0"

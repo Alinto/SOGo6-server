@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 """
 File for gunicron settings
 https://docs.gunicorn.org/en/latest/configure.html#configuration-file

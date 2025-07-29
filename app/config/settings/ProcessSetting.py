@@ -40,7 +40,7 @@ class FlaskConfig(BaseSettings):
 
 
 
-class SogoConfig(FlaskConfig):
+class ProcessSetting(FlaskConfig):
     """
     Contains all SOGo relative settings
     """
@@ -49,6 +49,12 @@ class SogoConfig(FlaskConfig):
 
     SOGO_P_SECRET: str = "secret_is_a_32_characters_string" #TODO no default value and set length -> https://docs.pydantic.dev/latest/concepts/pydantic_settings/#usage
 
+    SOGO_P_DB_USER: str = "admin"     #TODO test all that...
+    SOGO_P_DB_PASS: str = "admin"
+    SOGO_P_DB_HOST: str = "localhost"
+    SOGO_P_DB_PORT: int = 5432
+    SOGO_P_DB_SSL: bool = False  #Check with sqlalchemy if this is needed or autodetected
+    SOGO_P_DB_ENC: str  = "utf8" #encoding, needed or autodetected ?
 
 
-config = SogoConfig()
+config = ProcessSetting()

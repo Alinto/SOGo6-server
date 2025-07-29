@@ -24,9 +24,9 @@ services:
     image: bitnami/openldap:2.6
     restart: unless-stopped
     ports:
-      - "389:389"
+      - "390:390"
     environment:
-      LDAP_PORT_NUMBER: 389
+      LDAP_PORT_NUMBER: 390
       LDAP_ADMIN_USERNAME: admin
       LDAP_ADMIN_PASSWORD: password
       LDAP_BIND_PASSWORD: password

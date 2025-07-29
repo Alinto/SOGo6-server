@@ -3,8 +3,10 @@ from flask import request, g
 from flask.views import MethodView
 from flask_smorest import Blueprint, abort
 
+from app.module.preference.model.prefs import Prefs
+
 from .schemas.userPreferences import SaveSchema, RetGetUserPreferences
-from .models.prefs import Prefs
+
 
 
 blp = Blueprint("UsersPreferences", __name__, url_prefix="/Preferences")
