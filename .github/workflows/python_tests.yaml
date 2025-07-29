@@ -31,7 +31,10 @@ jobs:
       with:
           poetry-version: latest
 
-    - name: Install dependencies
+    - name: Install package dependencies
+      run: apt install -y libldap2-dev libsasl2-dev
+
+    - name: Install python dependencies
       run: poetry install
 
     - name: Test with pytest
