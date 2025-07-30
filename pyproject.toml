@@ -24,6 +24,7 @@ dependencies = [
     "flask-wtf (>=1.2.2,<2.0.0)",
     "python-ldap (>=3.4.4,<4.0.0)",
     "sqlalchemy (>=2.0.42,<3.0.0)",
+    "redis (>=6.2.0,<7.0.0)",
 ]
 
 

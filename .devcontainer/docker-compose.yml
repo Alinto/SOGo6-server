@@ -10,6 +10,7 @@ services:
       dockerfile: .devcontainer/Dockerfile.devcontainer
     ports:
       - "5000:5000"
+    user: "1000:1000"
     # command: poetry run start --host='0.0.0.0'
     command: tail -f /dev/null
     environment:

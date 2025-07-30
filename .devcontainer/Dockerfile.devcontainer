@@ -1,45 +1,45 @@
 #base debian bookworm
 FROM python:3.13-slim
 
+RUN apt update && apt install -y sudo
+
 # The standard user with which vscode-server will be executed
 ENV DEBIAN_FRONTEND=noninteractive
-ARG USERNAME=vscode
+ARG USERNAME=quentin
 ARG WORKSPACE=/workspace
 ARG USER_ID=1000
 ARG GROUP_ID=1000
-
-RUN apt-get update && apt-get install -y \
-    sudo \
-    git \
-    openssh-client \
-    curl \
-    procps
 
 RUN groupadd --system --gid "${GROUP_ID}" "${USERNAME}" && \
     useradd --system --create-home --uid "${USER_ID}" --gid "${GROUP_ID}" "${USERNAME}" && \
     echo "${USERNAME} ALL=(ALL) NOPASSWD: ALL" > "/etc/sudoers.d/${USERNAME}" && \
     chmod 0440 "/etc/sudoers.d/${USERNAME}"
 
-RUN curl -o- https://raw.githubusercontent.com/transifex/cli/master/install.sh | bash
-
-RUN mv /tx /usr/local/bin
-
 RUN mkdir -p ${WORKSPACE} && chown -R ${USERNAME}:${USERNAME} ${WORKSPACE}
 
+USER 1000:1000
+
+RUN sudo apt install -y \
+    git \
+    openssh-client \
+    curl \
+    procps
+
 #    libldap2-dev libsasl2-dev ldap-utils \
-RUN apt-get update && apt-get install -y \
+RUN sudo apt install -y \
     build-essential curl git \
     libldap2-dev libsasl2-dev \
-    && rm -rf /var/lib/apt/lists/*
+    && sudo rm -rf /var/lib/apt/lists/*
 
-RUN curl -sSL https://install.python-poetry.org | python3 - && \
-    ln -s /root/.local/bin/poetry /usr/local/bin/poetry
 
 WORKDIR /workspace
 
 COPY ../ /workspace/ 
 
+RUN curl -sSL https://install.python-poetry.org | python3 -
+ENV PATH="/home/${USERNAME}/.local/bin:$PATH" 
 RUN poetry lock && poetry install
+
 
 #RUN poetry run start --host="0.0.0.0"
 # Make port 5000 available to the world outside this container
