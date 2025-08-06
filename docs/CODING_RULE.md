@@ -15,8 +15,8 @@ lowercase
 
 ### file's name
 #### Python files
-* PascalCase if the file contains onr main class. File's name must match the class
-* camelCase if the files only contains utility methods and samll classes.
+* PascalCase if the file contains one main class. File's name must match the class
+* camelCase if the files only contains utility methods and small classes.
 
 #### Mardkwon files
 Uppercase with underscore between words.
@@ -39,10 +39,28 @@ class MyClass()
     def my_method()
         return
 ```
+### Typing hint
+Use as much as typing hint you can. The only goal os fot the IDE to know which object and which methods can be used.
+
+To avoid import only for typing use this structure:
+```python
+# At the top of your file, import those two to make pylint understand the typing hint
+from __future__ import annotations 
+from typing import TYPE_CHECKING
+
+from importlib import import_module # normal python import
+
+from app.config.db.tables import ALL_TABLES # normal package import
+
+if TYPE_CHECKING: # Import only use for typing hint
+    from app.config.settings.ProcessSetting import ProcessSetting
+    from app.manager.db.ClientSQL import ClientSQL
+```
+
 ### import
 First import external libraries
-Then, full path app libraries
 Then, relative path app libraries
+Then, full path app libraries
 
 ```python
 from flask import request
@@ -51,6 +69,15 @@ from app.module.preference.model.prefs import Prefs
 
 from .schemas.userPreferences import SaveSchema, RetGetUserPreferences
 ```
+If you need 
+
+
+### Logging
+Do not use `print` method, use the appropriate logger instead.
+
+### Pylint
+Pylint configuration is in `pyproject.toml` 
+If pylint show a no-member error for a external modules that does exist, add the module to `generated-member` 
 
 # SOGo parameters
 If you need to add any sogo parameters/settings plus use this format

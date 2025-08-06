@@ -44,7 +44,7 @@ class ApiMailAccount(MethodView):
         list_items = {"accounts": [item1, item2]}
         return list_items
 
-@blp.route("/0/Delegate")
+@blp.route("/Delegate")
 class ApiMailAccountDelegate(MethodView):
     """
     API to list user's mail accounts

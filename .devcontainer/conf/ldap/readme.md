@@ -4,7 +4,7 @@
 
 replace * by your filter like (&(mail=marko.markovic@inlocal.net)(userStatus=enabled))
 ```bash
-ldapsearch -D "cn=admin,dc=example,dc=org" -w password -b "" -s sub "*"
+ldapsearch -D "cn=admin,dc=example,dc=org" -w password -b "ou=users,dc=example,dc=org" -s sub "*"
 ```
 
 ## Add the users

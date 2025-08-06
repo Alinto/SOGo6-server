@@ -1,14 +1,34 @@
 import click
 from flask_compress import Compress
-from flask import request
+from flask import request, make_response
 from marshmallow import ValidationError
 from werkzeug.exceptions import UnprocessableEntity
 from flask_wtf.csrf import CSRFError
 
 
 from app import create_app, __version__
+from app.config.init_config import init_sogo
+
+SOGO_OK: bool = init_sogo()
+
+#Beware that all methods called at this root files will be called twice in the auto-reloader is on
+#To see the correct behavior run:
+#poetry start run --no-debug
 
 app = create_app()
+
+#SOGO_OK = False
+
+if not SOGO_OK:
+    @app.before_request
+    def block_sogo():
+        """
+        Reject all request instead the ones for admin
+        """
+        if not request.path.startswith("/admin"):
+            return "{'error': 'sogo_not_init'}", 406
+
+
 
 @app.route("/")
 def index():
@@ -28,7 +48,7 @@ def index():
             "version": __version__,
             "swagger-ui": "not deployed",
             "swagger-admin": "not deployed"
-        } 
+        }
     return ret
 
 
@@ -45,7 +65,7 @@ def index():
 #     return "Bad Request", 400
 
 @click.command()
-@click.option("--host", default="127.0.0.1")
+@click.option("--host", default="0.0.0.0")
 @click.option("--port", default="5000")
 @click.option("--debug/--no-debug", default=True)
 @click.option("--ssl", is_flag=True)

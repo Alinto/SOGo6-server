@@ -1,5 +1,6 @@
-from .settings.ProcessSetting import config
-from app.manager.ClientSQL import CLientSQL
+from app.manager.db.ClientPostgreSQL import ClientPostgreSQL
+
+from .settings.ProcessSetting import process_config
 
 class ConfigSystemDomain():
     """
@@ -11,14 +12,14 @@ class ConfigSystemDomain():
         Fetch process settings for database
         """
         db_config = {
-            "db_user": config["SOGO_P_DB_USER"],
-            "db_pwd":  config["SOGO_P_DB_PASS"],
-            "db_host": config["SOGO_P_DB_HOST"],
-            "db_port": config["SOGO_P_DB_PORT"],
-            "db_ssl":  config["SOGO_P_DB_SSL"],
-            "db_enc":  config["SOGO_P_DB_ENC"]
+            "db_user": process_config["SOGO_P_DB_USER"],
+            "db_pwd":  process_config["SOGO_P_DB_PASS"],
+            "db_host": process_config["SOGO_P_DB_HOST"],
+            "db_port": process_config["SOGO_P_DB_PORT"],
+            "db_ssl":  process_config["SOGO_P_DB_SSL"],
+            "db_enc":  process_config["SOGO_P_DB_ENC"]
         }
-        db_client = CLientSQL(**db_config)
+        db_client = ClientPostgreSQL(**db_config)
 
 
     def init_without_domain(self):

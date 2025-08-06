@@ -56,5 +56,23 @@ class ProcessSetting(FlaskConfig):
     SOGO_P_DB_SSL: bool = False  #Check with sqlalchemy if this is needed or autodetected
     SOGO_P_DB_ENC: str  = "utf8" #encoding, needed or autodetected ?
 
+    SOGO_LOG_PATH: str = "/var/log/sogo/sogo.log"
 
-config = ProcessSetting()
+    def get_db_settings(self) -> dict:
+        """
+        Return all related db settings (prefix is SOGO_P_DB)
+        """
+        process_settings_dict : dict[str,str] = self.model_dump()
+        db_dict = {
+            "db_user": self.SOGO_P_DB_USER,
+            "db_pwd":  self.SOGO_P_DB_PASS,
+            "db_host": self.SOGO_P_DB_HOST,
+            "db_port": self.SOGO_P_DB_PORT,
+            "db_ssl":  self.SOGO_P_DB_SSL,
+            "db_enc":  self.SOGO_P_DB_ENC
+        }
+        return db_dict
+
+
+process_config = ProcessSetting()
+print(f"Process_setting = {process_config.model_dump()}")

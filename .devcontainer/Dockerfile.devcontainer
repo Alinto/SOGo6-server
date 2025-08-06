@@ -29,8 +29,10 @@ RUN sudo apt install -y \
 RUN sudo apt install -y \
     build-essential curl git \
     libldap2-dev libsasl2-dev \
+    libpq5 \
     && sudo rm -rf /var/lib/apt/lists/*
 
+RUN sudo install -o ${USERNAME} -g ${USERNAME} -m 750 -d /var/log/sogo 
 
 WORKDIR /workspace
 

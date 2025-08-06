@@ -25,6 +25,7 @@ dependencies = [
     "python-ldap (>=3.4.4,<4.0.0)",
     "sqlalchemy (>=2.0.42,<3.0.0)",
     "redis (>=6.2.0,<7.0.0)",
+    "psycopg (>=3.2.9,<4.0.0)",
 ]
 
 
@@ -51,14 +52,6 @@ poetry-plugin-export = ">=1.8"
 # poetry run start
 start = "app.run:main"
 
-# poetry run format src
-format = "black:main"
-# poetry run lint src
-lint = "pylint.__main__:run"
-# poetry run pytest
-test = "tests.main:main"
-# Install pre-commit
-# poetry run pre-commit install
 
 [tool.pytest.ini_options]
 testpaths = [
@@ -69,14 +62,17 @@ testpaths = [
 module-naming-style="any"
 class-naming-style="PascalCase"
 method-naming-style="snake_case"
-attr-naming-style="camelCase"
+attr-naming-style="snake_case"
 function-naming-style="snake_case"
 variable-naming-style="snake_case"
 argument-naming-style="snake_case"
 disable= [
-    "missing-module-docstring"
+    "missing-module-docstring",
+    "too-few-public-methods",
+    "pointless-string-statement"
 ]
 max-line-length=240
+ignored-modules=["psycopg"]
 
 [tool.black]
 line-length = 120

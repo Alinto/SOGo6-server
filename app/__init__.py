@@ -3,7 +3,7 @@
 from flask import Flask
 from flask_smorest import Api, Blueprint
 from flask_wtf import CSRFProtect
-from app.config.settings.ProcessSetting import config
+from app.config.settings.ProcessSetting import process_config
 
 #Apis
 from app.api.preference import pref_apis
@@ -18,7 +18,7 @@ def create_app() -> Flask:
     Create and configure the Flask application
     """
     app = Flask(__name__)
-    app.config.from_object(config)
+    app.config.from_object(process_config)
 
     # Don't work and do not set for dev env
     # CSRFProtect(app)
@@ -31,12 +31,13 @@ def create_app() -> Flask:
     flask_api = Api(app, config_prefix="UI_")
     admin_api = Api(app, config_prefix="ADMIN_")
 
-    register_routes(flask_api)
-    register_routes_admin(admin_api)
+    register_route(flask_api)
+    register_route_admin(admin_api)
 
     return app
 
-def register_routes(flask_api: Api):
+
+def register_route(flask_api: Api):
     """
     Resgister all blueprints
     """
@@ -49,12 +50,12 @@ def register_routes(flask_api: Api):
 
     flask_api.register_blueprint(base_ui_blueprint)
 
-def register_routes_admin(admin_api: Api):
+def register_route_admin(admin_api: Api):
     """
     Resgister all blueprints for admin api
     """
 
-    base_admin_blueprint = Blueprint('admin_base', 'admin_base', url_prefix='/api')
+    base_admin_blueprint = Blueprint('admin_base', 'admin_base', url_prefix='/admin')
 
     for api in admin_apis:
         base_admin_blueprint.register_blueprint(api)
