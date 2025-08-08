@@ -16,7 +16,7 @@ from .schemas.mailAccounts import ListMailAccountsResponse, \
                                   ListMailAccountsDelegation
 
 
-blp = Blueprint("MailAccount", __name__, url_prefix="/Mail")
+blp = Blueprint("MailAccount", __name__, url_prefix="/Mail_old")
 
 
 @blp.route("/")
