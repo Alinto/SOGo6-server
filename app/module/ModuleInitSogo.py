@@ -56,11 +56,20 @@ class ModuleInitSogo:
             raise AggravatedException("Cannot instantiate sogo database") from e
         except Exception as e:
             logger.error("Cannot instantiate sogo database manager, unexpecte error: %s", e)
-            raise AggravatedException("Cannot instantiate sogo database") from e       
+            raise AggravatedException("Cannot instantiate sogo database") from e
 
         # Check tables
+        table_ok = []
         for table in ALL_TABLES:
-            sogo_db_manager.get_table_info(table)
+            db_table_info = sogo_db_manager.get_table_info(table.name)
+            if db_table_info:
+                #Check the Columns
+                for column in table.columns:
+                    if not column.name in db_table_info:
+                        self.errors.append(f"Table {table.name}'s colum {column.name} was not found in database")
+                        continue
+                    if db_table_info[column.name] != column.data_type:
+                        self.errors.append(f"Table {table.name}'s colum {column.name} was found but from data_type different (expected {column.data_type} and found {db_table_info[column.name]})")
 
         self.init_ok = True
 

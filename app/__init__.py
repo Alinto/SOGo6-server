@@ -55,7 +55,7 @@ def register_route_admin(admin_api: Api):
     Resgister all blueprints for admin api
     """
 
-    base_admin_blueprint = Blueprint('admin_base', 'admin_base', url_prefix='/admin')
+    base_admin_blueprint = Blueprint('admin_base', 'admin_base', url_prefix='/api')
 
     for api in admin_apis:
         base_admin_blueprint.register_blueprint(api)

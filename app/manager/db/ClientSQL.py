@@ -18,9 +18,10 @@ class ClientSQL:
         """
         logger_sql.error("Method 'connect' of clientSQL must be defined inside children %s", type(self).__name__)
 
-    def get_table_info(self, table_name: str) -> dict | None:
+    def get_table_info(self, table_name: str) -> dict[str,str] | None:
         """
-        Return table info if it exist
+        Return None if the table was not found
+        If found return a dict as {"column_name": "data_type", ...}
         """
         logger_sql.error("Method 'get_table_info' of clientSQL must be defined inside children %s", type(self).__name__)
 

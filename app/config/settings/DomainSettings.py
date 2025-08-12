@@ -266,8 +266,8 @@ class DomainSettings(Schema):
 
     #Sieve
     SOGO_D_SIEVE_ENABLED = fields.Boolean(load_default=True, dump_default=True) #Allow users to set autoreply sieve rule
-    SOGO_D_SIEVE_HEADER = fields.Dict() #Sieve script that will be set for each user sieve script at the top level
-    SOGO_D_SIEVE_FOOTER = fields.Dict() #Sieve script that will be set for each user sieve script at the bottom level
+    SOGO_D_SIEVE_HEADER = fields.String() #Sieve script that will be set for each user sieve script at the top level
+    SOGO_D_SIEVE_FOOTER = fields.String() #Sieve script that will be set for each user sieve script at the bottom level
     SOGO_D_SIEVE_FIRST_FILTER = fields.Dict() #Sieve script that will set for new users
 
     SOGO_D_VACATION_ENABLED = fields.Boolean(load_default=True, dump_default=True) #Allow users to set autoreply sieve rule
@@ -285,7 +285,7 @@ class DomainSettings(Schema):
     SOGO_D_NOTIFY_ALLOW_SOGO_DOMAIN = fields.Boolean(load_default=True, dump_default=True) #Allow users to set notify sieve rule towards other sogo's domains
     SOGO_D_NOTIFY_ALLOW_EXT_DOMAIN = fields.Boolean(load_default=True, dump_default=True) #Allow users to set notify sieve rule towards external domains
     SOGO_D_NOTIFY_WHITELIST = fields.List(fields.String()) #Whitelist for notify sieve rule
-    SOGO_D_NOTIFY_WHITELIST = fields.List(fields.String()) #Blacklist for notify sieve rule
+    SOGO_D_NOTIFY_BLACKLIST = fields.List(fields.String()) #Blacklist for notify sieve rule
     
 
 

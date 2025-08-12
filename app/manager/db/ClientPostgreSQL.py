@@ -71,7 +71,8 @@ class ClientPostgreSQL(ClientSQL):
 
     def get_table_info(self, table_name: str) -> dict | None:
         """
-        Check if a table exist and retun its info
+        Return None if the table was not found
+        If found, return a dict as {"column_name": "data_type", ...}
         """
         #SELECT column_name, data_type FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'sogo_settings';
         if self.db_conn is None or self.db_conn.closed:
@@ -88,7 +89,7 @@ class ClientPostgreSQL(ClientSQL):
             all_record = self.db_conn.execute(sql_query).fetchall()
             logger_sql.info("QUERY RESULT: %s", all_record)
         except Error as e:
-            logger_sql.error("Error when creating table %s", e)
+            logger_sql.error("Error when fetching table info: %s", e)
         finally:
             self.db_conn.commit()
 

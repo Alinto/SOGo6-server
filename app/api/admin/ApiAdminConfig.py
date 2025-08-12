@@ -1,0 +1,119 @@
+from flask import request, g
+from flask.views import MethodView
+from flask_smorest import Blueprint, abort
+
+from app.interface.admin.InterfaceApiAdminConfig import InterfaceApiAdminConfig
+from app.utils.logger.logger import logger, logger_api
+
+blp = Blueprint("ApiConfig", __name__, url_prefix="/adminConfig")
+
+@blp.before_request
+def init_admin_config():
+    """
+    Init the interface and others if needed
+    """
+    logger_api.debug("Calling before_request for ApiAdminConfig")
+    interface_api = InterfaceApiAdminConfig()
+    g.inter = interface_api
+
+@blp.route("/")
+class ApiAdminConfig(MethodView):
+    """
+    Endpoint that return all the settings structure to build the graphic interface dynamically
+    """
+    @blp.response(200)
+    def get(self):
+        """
+        Return the dynamic settings structure
+        """
+        interface_api : InterfaceApiAdminConfig = g.inter
+        return interface_api.get_dynamic_setting_structure()
+
+@blp.route("/all")
+class ApiAdminConfigAll(MethodView):
+    """
+    Endpoint that return all the settings structure to build the graphic interface dynamically
+    """
+    @blp.response(200)
+    def get(self):
+        """
+        Return the system settings, the domain default settings, the list of rules and the list of domains
+        """
+        interface_api : InterfaceApiAdminConfig = g.inter
+        return interface_api.get_all_setting_value()
+
+@blp.route("/system")
+class ApiAdminConfigSystem(MethodView):
+    """
+    Endpoint that return the list of the system settings
+    """
+    @blp.response(200)
+    def get(self):
+        """
+        Return the system settings
+        """
+        interface_api : InterfaceApiAdminConfig = g.inter
+        return interface_api.get_all_setting_system()
+
+
+@blp.route("/domain")
+class ApiAdminConfigDomain(MethodView):
+    """
+    Endpoint that return the list of domains that have been specified
+    """
+    @blp.response(200)
+    def get(self):
+        """
+        Return the list of domains name that have been defined
+        """
+        interface_api : InterfaceApiAdminConfig = g.inter
+        return interface_api.get_list_of_domain()
+
+
+
+@blp.route("/domain/<string:domain_name>")
+class ApiAdminConfigDomainSettings(MethodView):
+    """
+    Endpoint that return the list of settings for a domain (or the default)
+    """
+    @blp.response(200)
+    def get(self, domain_name: str):
+        """
+        Return the specified domain settings, or the default one.
+        """
+        interface_api : InterfaceApiAdminConfig = g.inter
+        if domain_name == "default":
+            return interface_api.get_all_setting_domain_default()
+        ret = interface_api.get_all_setting_domain(domain_name)
+        if ret:
+            return ret
+        return {"error": f"domain_name {domain_name} not found"}, 400
+
+@blp.route("/rules")
+class ApiAdminConfigRule(MethodView):
+    """
+    Endpoint that return a list of all rules
+    """
+    @blp.response(200)
+    def get(self):
+        """
+        Return the list of rules defined
+        """
+        interface_api : InterfaceApiAdminConfig = g.inter
+        return interface_api.get_list_of_rule()
+
+@blp.route("/rules/<int:rule_id>")
+class ApiAdminConfigRuleSetting(MethodView):
+    """
+    Endpoint that return all the settings of the rule_id
+    """
+    @blp.response(200)
+    def get(self, rule_id: int):
+        """
+        Return the rules settings
+        """
+        interface_api : InterfaceApiAdminConfig = g.inter
+        ret =  interface_api.get_all_setting_rule(rule_id)
+        if ret:
+             return ret
+        return {"error": f"rule_id {rule_id} not found"}, 400
