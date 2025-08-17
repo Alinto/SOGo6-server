@@ -37,6 +37,24 @@ class ClientSQL:
         """
         logger_sql.error("Method 'create_several_table' of clientSQL must be defined inside children %s", type(self).__name__)
 
+    def select_from_table(self, table_name: str, column_tuple: tuple, values_tuple: list[tuple], condition: str):
+        """
+        Insert one or more row into a table
+        """
+        logger_sql.error("Method 'insert_in_table' of clientSQL must be defined inside children %s", type(self).__name__)
+
+    def insert_in_table(self, table_name: str, column_tuple: tuple, values_tuple: list[tuple]):
+        """
+        Insert one or more row into a table
+        """
+        logger_sql.error("Method 'insert_in_table' of clientSQL must be defined inside children %s", type(self).__name__)
+
+    def update_in_table(self, table_name: str, column_tuple: tuple, values_tuple: tuple, condition: str):
+        """
+        Insert data in a table
+        """
+        logger_sql.error("Method 'insert_in_table' of clientSQL must be defined inside children %s", type(self).__name__)
+
     def close(self):
         """
         Close the connection to the database

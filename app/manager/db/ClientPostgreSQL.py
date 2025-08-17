@@ -1,29 +1,32 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Optional
 
+import re
 from urllib.parse import quote_plus
 
 import psycopg
 from psycopg.errors import Error, OperationalError, DuplicateTable
+from psycopg.sql import SQL, Literal, Placeholder, Identifier
 
 from app.utils.logger.logger import logger, logger_sql
+from app.utils.exceptions import RequestException
 from .ClientSQL import ClientSQL
-
-if TYPE_CHECKING:
-    from .Table import Table
+from .Table import Table, REX_VALID_NAMES
 
 
-def str_to_varchar(max_len: int = "") -> str:
+def str_to_varchar(max_len: int = 0) -> str:
     """
     Convert a string type to a varchar()
     """
+    if max_len == 0:
+        return "VARCHAR()"
     return f"VARCHAR({max_len})"
 
 def list_to_array(data_type: str, extra_args: dict = None) -> str:
     """
     Convert a list type to an ARRAY
     """
-    data_type = postgre_data_types[data_type]
+    data_type = data_type_sogo_to_postgre[data_type]
     if isinstance(data_type, str):
         pass
     elif callable(data_type):
@@ -35,12 +38,19 @@ def list_to_array(data_type: str, extra_args: dict = None) -> str:
     return f"{data_type}[]"
 
 
-postgre_data_types = {
+data_type_sogo_to_postgre : dict[str, Any]= {
     "dict": "JSONB",
     "json": "JSONB",
     "str": str_to_varchar,
     "list": list_to_array,
     "serial": "SERIAL"
+}
+
+data_type_postgre_to_sogo : dict[str, Any]= {
+    "jsonb": "dict",
+    "integer": "int",
+    "character varying": "str",
+    "ARRAY": "list"
 }
 
 
@@ -52,49 +62,53 @@ class ClientPostgreSQL(ClientSQL):
     def __init__(self, db_user: str, db_pwd: str, db_host: str, db_port: int,  db_ssl: bool, db_enc: str):
         """
         Init the PostgreSQL client.
-        It should'nt raise any Exception as SOGo will instantiate the object but not necessarily use it right on spot
+        It shouldn't raise any Exception as SOGo will instantiate the object but not necessarily use it right on spot
         """
         self.conn_string: str      = f"postgresql://{quote_plus(db_user)}:{quote_plus(db_pwd)}@{db_host}:{db_port}/sogo?client_encoding={db_enc}"
         self.safe_conn_string: str = f"postgresql://SOGO_P_DB_USER:SOGO_P_DB_PWD@{db_host}:{db_port}/sogo?client_encoding={db_enc}"
-        self.db_conn: psycopg.Connection = None
+        self.db_conn: psycopg.Connection | None = None
 
-    def connect(self):
+    def connect(self) -> None:
         """
         Connect to the database and check if this is ok
         """
         try:
             self.db_conn = psycopg.connect(self.conn_string, connect_timeout=5)
-        except OperationalError as e:
+        except (OperationalError, Error) as e:
             logger.error("Cannot connect to %s reason: %s", self.safe_conn_string, repr(e))
-        except Error as e:
-            logger.error("Error to %s reason: %s", self.safe_conn_string, repr(e))
+            raise RequestException("Postgresql database connection error") from e
+
 
     def get_table_info(self, table_name: str) -> dict | None:
         """
         Return None if the table was not found
         If found, return a dict as {"column_name": "data_type", ...}
         """
-        #SELECT column_name, data_type FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'sogo_settings';
+
+        if not re.match(REX_VALID_NAMES, table_name):
+            logger_sql.error("Trying to get a table info from an invalid table name: %s", table_name)
+
         if self.db_conn is None or self.db_conn.closed:
             self.connect()
 
         ret = {}
-        sql_query = f"SELECT column_name, data_type FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = '{table_name}'"
+        sql_query = SQL("SELECT column_name, data_type FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = {}").format(Literal(table_name))
 
         all_record : list = []
 
-        logger_sql.info("QUERY COMMAND: %s", sql_query)
+        logger_sql.info("QUERY COMMAND: %s", sql_query.as_string())
 
-        try:
-            all_record = self.db_conn.execute(sql_query).fetchall()
-            logger_sql.info("QUERY RESULT: %s", all_record)
-        except Error as e:
-            logger_sql.error("Error when fetching table info: %s", e)
-        finally:
-            self.db_conn.commit()
+        if self.db_conn is not None:
+            try:
+                all_record = self.db_conn.execute(sql_query).fetchall()
+                logger_sql.info("QUERY RESULT: %s", all_record)
+            except Error as e:
+                logger_sql.error("Error when fetching table info: %s", e)
+            finally:
+                self.db_conn.commit()
 
-        for col_name, data_type in all_record:
-            ret[col_name] = data_type
+            for col_name, data_type in all_record:
+                ret[col_name] = data_type_postgre_to_sogo[data_type]
 
         return ret
 
@@ -107,7 +121,7 @@ class ClientPostgreSQL(ClientSQL):
         sql_query = f"CREATE TABLE {table.name} ("
         for column in table.columns:
             #Get postgre data type
-            data_type = postgre_data_types[column.data_type]
+            data_type = data_type_sogo_to_postgre[column.data_type]
             if isinstance(data_type, str):
                 pass
             elif callable(data_type):
@@ -139,14 +153,15 @@ class ClientPostgreSQL(ClientSQL):
 
         logger_sql.info("QUERY: %s", sql_query)
 
-        try:
-            self.db_conn.execute(sql_query)
-        except DuplicateTable:
-            logger_sql.warning("Attempted to create a table that already exist %s, the schema may be different", table.name)
-        except Error as e:
-            logger_sql.error("Error when creating table %s", e)
-        finally:
-            self.db_conn.commit()
+        if self.db_conn is not None:
+            try:
+                self.db_conn.execute(sql_query)
+            except DuplicateTable:
+                logger_sql.warning("Attempted to create a table that already exist %s, the schema may be different", table.name)
+            except Error as e:
+                logger_sql.error("Error when creating table %s", e)
+            finally:
+                self.db_conn.commit()
 
     def create_several_table(self, table_list : list[Table]) -> None:
         """
@@ -162,9 +177,23 @@ class ClientPostgreSQL(ClientSQL):
         for table in table_list:
             self.create_table(table)
 
-    def close(self):
+    def insert_in_table(self, table_name: str, column_tuple: tuple, values_tuple: list[tuple]) -> None:
+        """
+        Insert one or more row into a table
+        """
+        sql_query = f"INSERT INTO {table_name} {column_tuple} VALUES "
+        for idx, value in enumerate(values_tuple):
+            if idx == len(values_tuple) - 1:
+                sql_query += f"{value}"
+            else:
+                sql_query += f"{value}, "
+        
+        logger_sql.info("QUERY: %s", sql_query)
+        
+
+    def close(self) -> None:
         """
         Close the connection to the database
         """
-        if not self.db_conn.closed:
+        if self.db_conn is not None and not self.db_conn.closed:
             self.db_conn.close()

@@ -30,19 +30,19 @@ class ModuleInitSogo:
         self.first_init: bool  = True
         self.errors: list[str] = []
 
-    def check_redis(self):
+    def check_redis(self) -> None:
         """
         Check sogo can reach the reddis cache
         """
         pass
 
-    def check_sogo_database(self):
+    def check_sogo_database(self) -> None:
         """
         Check the database, meamning connection and structure
         """
-        # For now, SOGo 6 foeces the use of a postgresql databse for its own data
-        # If we want of change in the future, we must import the manager dynamically
-        # with a value from process_settings
+        # For now, SOGo 6 forces the use of a postgresql database for its own data
+        # If we want to change in the future, we must import the manager dynamically
+        # to avoid a complete code rewritting.
         fake_process_settings_db = "PostgreSQL"
         sogo_db_type = f"Client{fake_process_settings_db}"
 
@@ -61,6 +61,7 @@ class ModuleInitSogo:
         # Check tables
         table_ok = []
         for table in ALL_TABLES:
+            temp_error = []
             db_table_info = sogo_db_manager.get_table_info(table.name)
             if db_table_info:
                 #Check the Columns
@@ -68,18 +69,25 @@ class ModuleInitSogo:
                     if not column.name in db_table_info:
                         self.errors.append(f"Table {table.name}'s colum {column.name} was not found in database")
                         continue
-                    if db_table_info[column.name] != column.data_type:
-                        self.errors.append(f"Table {table.name}'s colum {column.name} was found but from data_type different (expected {column.data_type} and found {db_table_info[column.name]})")
+                    if db_table_info[column.name] not in column.data_type_check:
+                        self.errors.append(f"Table {table.name}'s colum {column.name} was found but from data_type different (expected among {column.data_type_check} and found {db_table_info[column.name]})")
+                table_ok.append(table.name)
+            else:
+                #Table missing, it may be normal if this is the first init
+                temp_error.append(f"Table {table.name} missing")
 
-        self.init_ok = True
-
-        # If no error, create the tables
-
-
-
-
+        if not table_ok:
+            #No tables already set, SOGo has not been set yet
+            logger.warning("SOGo database is emtpy. It's normal if this is the first time you run it")
+            sogo_db_manager.create_several_table(ALL_TABLES)
+        elif temp_error:
+            # Some tables are ok, the others not. SOGo is in an unknwon state
+            self.errors.extend(temp_error)
+        elif len(table_ok) == len(ALL_TABLES):
+            #All tables are ok
+            self.first_init = False
     
-    def check_agent(self):
+    def check_agent(self) -> None:
         """
         Check agent celery
         """

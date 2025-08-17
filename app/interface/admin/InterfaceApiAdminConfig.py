@@ -8,13 +8,13 @@ class InterfaceApiAdminConfig:
     def __init__(self):
         pass
 
-    def get_dynamic_setting_structure(self):
+    def get_dynamic_setting_structure(self) -> None:
         """
         Return the dynamic table
         """
         return example
 
-    def get_all_setting_value(self):
+    def get_all_setting_value(self) -> None:
         """
         Return all the settings
         """
@@ -25,7 +25,7 @@ class InterfaceApiAdminConfig:
                         }
         return all_settings
     
-    def get_all_setting_system(self):
+    def get_all_setting_system(self) -> None:
         """
         Return the system settingd
         """
@@ -39,7 +39,7 @@ class InterfaceApiAdminConfig:
         }
         return system
 
-    def get_all_setting_domain_default(self):
+    def get_all_setting_domain_default(self) -> None:
         """
         Retrun the default settings for all domains
         """
@@ -73,19 +73,19 @@ class InterfaceApiAdminConfig:
         }
         return domain_default
 
-    def get_list_of_rule(self):
+    def get_list_of_rule(self) -> None:
         """
         Return all the rules ids
         """
         return [{"id": 1,"name": "suisse"}, {"id": 2,"name": "Université"}]
 
-    def get_list_of_domain(self):
+    def get_list_of_domain(self) -> None:
         """
         Return all the domains
         """
         return  ["example.org", "sogo.nu", "business.com"]
 
-    def get_all_setting_rule(self, rule_id: int):
+    def get_all_setting_rule(self, rule_id: int) -> None:
         """
         Return settings for a specific rule
         """
@@ -116,7 +116,7 @@ class InterfaceApiAdminConfig:
         return None
 
     
-    def get_all_setting_domain(self, domain_id: str):
+    def get_all_setting_domain(self, domain_id: str) -> None:
         """
         Return settings for a specific domain
         """

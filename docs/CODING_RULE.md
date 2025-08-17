@@ -50,9 +50,9 @@ from typing import TYPE_CHECKING
 
 from importlib import import_module # normal python import
 
-from app.config.db.tables import ALL_TABLES # normal package import
+from app.config.db.tables import ALL_TABLES # normal package import 
 
-if TYPE_CHECKING: # Import only use for typing hint
+if TYPE_CHECKING: # Import only used for typing hint
     from app.config.settings.ProcessSetting import ProcessSetting
     from app.manager.db.ClientSQL import ClientSQL
 ```

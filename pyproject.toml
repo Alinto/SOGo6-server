@@ -43,6 +43,7 @@ pytest-cov = "^6.1.1"
 black = "^25.1"
 pylint = "^3.0.0"
 pre-commit = "^4.2.0"
+mypy = "^1.17.1"
 
 
 [tool.poetry.requires-plugins]
@@ -69,10 +70,16 @@ argument-naming-style="snake_case"
 disable= [
     "missing-module-docstring",
     "too-few-public-methods",
-    "pointless-string-statement"
+    "pointless-string-statement",
+    "too-many-arguments",
+    "too-many-positional-arguments"
 ]
 max-line-length=240
 ignored-modules=["psycopg"]
+
+[tool.mypy]
+disallow_untyped_defs = true
+implicit_optional = true
 
 [tool.black]
 line-length = 120

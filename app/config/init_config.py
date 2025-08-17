@@ -13,10 +13,10 @@ def init_sogo() -> bool:
     init_module = ModuleInitSogo(process_config)
     init_module.check_sogo_database()
 
-    if not init_module.init_ok:
-        if init_module.errors:
-            raise AggravatedException(f"Sogo cannot be initiated because: {init_module.errors}")
-        raise AggravatedException("Sogo cannot be initiated, looks the logs for more info")
+    # if not init_module.init_ok:
+    if init_module.errors:
+        raise AggravatedException(f"Sogo cannot be initiated because: {init_module.errors}")
+        # raise AggravatedException("Sogo cannot be initiated, looks the logs for more info")
     
     return True
 

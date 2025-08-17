@@ -115,5 +115,5 @@ class ApiAdminConfigRuleSetting(MethodView):
         interface_api : InterfaceApiAdminConfig = g.inter
         ret =  interface_api.get_all_setting_rule(rule_id)
         if ret:
-             return ret
+            return ret
         return {"error": f"rule_id {rule_id} not found"}, 400

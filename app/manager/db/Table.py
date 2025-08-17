@@ -2,9 +2,16 @@ import re
 
 from app.utils.logger.logger import logger
 
-REX_VALID_NAMES = r"^[A-Za-z_0-9]+$"
+REX_VALID_NAMES = r"^[A-Za-z_0-9]+$" #We force the fact that tables and columns' name must be alphanumerical with underscore only
 
 SOGO_DB_DATA_TYPE = {"dict", "str", "list", "serial", "json"}
+SOGO_DB_DATA_TYPE_VALIDATION = {
+    "dict":   {"dict", "json"} ,
+    "str":    {"str"},
+    "list":   {"list"},
+    "serial": {"serial", "int"},
+    "json":   {"dict", "json"}
+}
 
 class Column:
     """
@@ -19,10 +26,11 @@ class Column:
         if not data_type in SOGO_DB_DATA_TYPE:
             logger.error("Try to instantiate Column with an invalid type: %s", data_type)
 
-        self.name        = name
-        self.data_type   = data_type
-        self.is_nullable = is_nullable
-        self.extra_args  = extra_agrs
+        self.name            = name
+        self.data_type       = data_type
+        self.data_type_check = SOGO_DB_DATA_TYPE_VALIDATION[data_type]
+        self.is_nullable     = is_nullable
+        self.extra_args      = extra_agrs
 
 class Index:
     """
