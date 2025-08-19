@@ -36,7 +36,7 @@ class Index:
     """
     Is a common db class. Each db manager will convert this index properly to their own dbapi
     """
-    def __init__(self):
+    def __init__(self) -> None:
         pass
 
 class Table:

@@ -37,7 +37,12 @@
       ],
       "settings": {
         "autoDocstring.docstringFormat": "sphinx",
-        "autoDocstring.generateDocstringOnEnter": true
+        "autoDocstring.generateDocstringOnEnter": true,
+        "mypy-type-checker.ignorePatterns": [
+          "**/site-packages/**/*.py",
+          ".vscode/*.py",
+          "**/tests/**/*.py"
+        ]
       }
     }
   },

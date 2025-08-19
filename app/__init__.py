@@ -37,7 +37,7 @@ def create_app() -> Flask:
     return app
 
 
-def register_route(flask_api: Api):
+def register_route(flask_api: Api) -> None:
     """
     Resgister all blueprints
     """
@@ -50,7 +50,7 @@ def register_route(flask_api: Api):
 
     flask_api.register_blueprint(base_ui_blueprint)
 
-def register_route_admin(admin_api: Api):
+def register_route_admin(admin_api: Api) -> None:
     """
     Resgister all blueprints for admin api
     """

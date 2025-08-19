@@ -5,6 +5,7 @@ from importlib import import_module
 
 from app.utils.logger.logger import logger
 from app.utils.exceptions import AggravatedException
+from app.utils.module.importManager import import_and_instantiate_manager
 from app.config.db.tables import ALL_TABLES
 
 if TYPE_CHECKING:
@@ -46,17 +47,9 @@ class ModuleInitSogo:
         fake_process_settings_db = "PostgreSQL"
         sogo_db_type = f"Client{fake_process_settings_db}"
 
-        # import the manager
-        try:
-            sogo_db_manager_module     = import_module(f"app.manager.db.{sogo_db_type}")
-            sogo_db_manager_class      = getattr(sogo_db_manager_module, sogo_db_type)
-            sogo_db_manager: ClientSQL = sogo_db_manager_class(**self.process_settings.get_db_settings())
-        except (ModuleNotFoundError, NameError, TypeError) as e:
-            logger.error("Cannot instantiate sogo database manager, config or package problem: %s", e)
-            raise AggravatedException("Cannot instantiate sogo database") from e
-        except Exception as e:
-            logger.error("Cannot instantiate sogo database manager, unexpecte error: %s", e)
-            raise AggravatedException("Cannot instantiate sogo database") from e
+        sogo_db_manager: ClientSQL = import_and_instantiate_manager(module_path="app.manager.db",
+                                                         module_and_class_name=sogo_db_type,
+                                                         module_args=self.process_settings.get_db_settings())
 
         # Check tables
         table_ok = []
@@ -86,6 +79,7 @@ class ModuleInitSogo:
         elif len(table_ok) == len(ALL_TABLES):
             #All tables are ok
             self.first_init = False
+        sogo_db_manager.close()
     
     def check_agent(self) -> None:
         """

@@ -1,7 +1,7 @@
 import re
 
 import psycopg
-from psycopg.sql import SQL, Identifier, Literal, Placeholder
+from psycopg.sql import SQL, Identifier, Literal, Placeholder, Composed
 
 
 REX_VALID_NAMES = r"^[A-Za-z_0-9]+$"
@@ -10,17 +10,20 @@ REX_VALID_NAMES = r"^[A-Za-z_0-9]+$"
 
 # db_conn = psycopg.connect(conn_string, connect_timeout=5)
 
-table : list[str] = ["my_table", "'; select true; --"]
-for table_name in table:
-    if not re.match(REX_VALID_NAMES, table_name):
-        print("ERROR, invalid table name")
-    sql_query = f"SELECT column_name, data_type FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = '{table_name}'"
-    q = SQL("SELECT column_name, data_type FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = {}").format(Identifier(table_name))
-    q2 = SQL("SELECT column_name, data_type FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = {}").format(Literal(table_name))
-    print(sql_query)
-    print(q.as_string())
-    print(q2.as_string())
+# table : list[str] = ["my_table", "'; select true; --"]
+# for table_name in table:
+#     if not re.match(REX_VALID_NAMES, table_name):
+#         print("ERROR, invalid table name")
+#     sql_query = f"SELECT column_name, data_type FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = '{table_name}'"
+#     q = SQL("SELECT column_name, data_type FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = {}").format(Identifier(table_name))
+#     q2 = SQL("SELECT column_name, data_type FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = {}").format(Literal(table_name))
+#     print(sql_query)
+#     print(q.as_string())
+#     print(q2.as_string())
 
+q = SQL("WHERE {name} = {value}").format(name=Identifier("my_col"), value = "'; select true; --")
+
+print(q.as_string())
 # def test(a, b, c) -> None:
 #     print(f"a= {a}, b = {b}, c = {c}")
 

@@ -1,19 +1,32 @@
+from __future__ import annotations
+from typing import TYPE_CHECKING
+
 from flask import request, g
 from flask.views import MethodView
-from flask_smorest import Blueprint, abort
+from flask.typing import ResponseReturnValue
+from flask_smorest import Blueprint
+
 
 from app.interface.admin.InterfaceApiAdminConfig import InterfaceApiAdminConfig
 from app.utils.logger.logger import logger, logger_api
 
+from .schema.adminConfig import AdminConfigSystemPostSchema
+
+if TYPE_CHECKING:
+    from app.config.settings.ProcessSetting import ProcessSetting
+
+
+
 blp = Blueprint("ApiConfig", __name__, url_prefix="/adminConfig")
 
 @blp.before_request
-def init_admin_config():
+def init_admin_config() -> None:
     """
-    Init the interface and others if needed
+    Init the interface and others if needed 
     """
     logger_api.debug("Calling before_request for ApiAdminConfig")
-    interface_api = InterfaceApiAdminConfig()
+    process : ProcessSetting = g.process
+    interface_api = InterfaceApiAdminConfig(process_setting=process)
     g.inter = interface_api
 
 @blp.route("/")
@@ -22,7 +35,7 @@ class ApiAdminConfig(MethodView):
     Endpoint that return all the settings structure to build the graphic interface dynamically
     """
     @blp.response(200)
-    def get(self):
+    def get(self) -> ResponseReturnValue:
         """
         Return the dynamic settings structure
         """
@@ -35,7 +48,7 @@ class ApiAdminConfigAll(MethodView):
     Endpoint that return all the settings structure to build the graphic interface dynamically
     """
     @blp.response(200)
-    def get(self):
+    def get(self) -> ResponseReturnValue:
         """
         Return the system settings, the domain default settings, the list of rules and the list of domains
         """
@@ -48,12 +61,25 @@ class ApiAdminConfigSystem(MethodView):
     Endpoint that return the list of the system settings
     """
     @blp.response(200)
-    def get(self):
+    def get(self) -> ResponseReturnValue:
         """
         Return the system settings
         """
         interface_api : InterfaceApiAdminConfig = g.inter
         return interface_api.get_all_setting_system()
+
+    @blp.arguments(AdminConfigSystemPostSchema)
+    @blp.response(200)
+    def post(self, new_data: dict) -> None:
+        """
+        Endpoint to post new system settings
+
+        :param new_data: See :py:class:`~app.api.admin.schema.AdminConfigSystemPostSchema`
+        :type new_data: dict
+        """
+        interface_api : InterfaceApiAdminConfig = g.inter
+
+
 
 
 @blp.route("/domain")
@@ -62,7 +88,7 @@ class ApiAdminConfigDomain(MethodView):
     Endpoint that return the list of domains that have been specified
     """
     @blp.response(200)
-    def get(self):
+    def get(self) -> ResponseReturnValue:
         """
         Return the list of domains name that have been defined
         """
@@ -77,7 +103,7 @@ class ApiAdminConfigDomainSettings(MethodView):
     Endpoint that return the list of settings for a domain (or the default)
     """
     @blp.response(200)
-    def get(self, domain_name: str):
+    def get(self, domain_name: str) -> ResponseReturnValue:
         """
         Return the specified domain settings, or the default one.
         """
@@ -95,7 +121,7 @@ class ApiAdminConfigRule(MethodView):
     Endpoint that return a list of all rules
     """
     @blp.response(200)
-    def get(self):
+    def get(self) -> ResponseReturnValue:
         """
         Return the list of rules defined
         """
@@ -108,7 +134,7 @@ class ApiAdminConfigRuleSetting(MethodView):
     Endpoint that return all the settings of the rule_id
     """
     @blp.response(200)
-    def get(self, rule_id: int):
+    def get(self, rule_id: int) -> ResponseReturnValue:
         """
         Return the rules settings
         """

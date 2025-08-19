@@ -1,18 +1,18 @@
 from app.utils.logger.logger import logger, logger_sql
 
-from .Table import Table
+from app.utils.db.Table import Table
+from app.utils.db.Condition import Condition
 
 class ClientSQL:
     """
     Abstratc class inherited by differents kind of sql client
     """
-    def __init__(self):
+    def __init__(self) -> None:
         """
         It shouldn't raise any Exception as SOGo will instantiate the object but not necessarily use it right on spot
         """
-        pass
 
-    def connect(self):
+    def connect(self) -> None:
         """
         Connect to the database and check this is ok
         """
@@ -24,6 +24,7 @@ class ClientSQL:
         If found return a dict as {"column_name": "data_type", ...}
         """
         logger_sql.error("Method 'get_table_info' of clientSQL must be defined inside children %s", type(self).__name__)
+        return None
 
     def create_table(self, table: Table) -> None:
         """
@@ -37,25 +38,32 @@ class ClientSQL:
         """
         logger_sql.error("Method 'create_several_table' of clientSQL must be defined inside children %s", type(self).__name__)
 
-    def select_from_table(self, table_name: str, column_tuple: tuple, values_tuple: list[tuple], condition: str):
+    def select_from_table(self, table_name: str, column_tuple: tuple, condition: Condition) -> list | None:
+        """
+        Insert one or more row into a table
+        """
+        logger_sql.error("Method 'insert_in_table' of clientSQL must be defined inside children %s", type(self).__name__)
+        return None
+
+    def select_from_several_table(self, table_name: str, column_tuple: tuple, condition: Condition) -> None:
         """
         Insert one or more row into a table
         """
         logger_sql.error("Method 'insert_in_table' of clientSQL must be defined inside children %s", type(self).__name__)
 
-    def insert_in_table(self, table_name: str, column_tuple: tuple, values_tuple: list[tuple]):
+    def insert_in_table(self, table_name: str, column_tuple: tuple, values_tuple: list[tuple]) -> None:
         """
         Insert one or more row into a table
         """
         logger_sql.error("Method 'insert_in_table' of clientSQL must be defined inside children %s", type(self).__name__)
 
-    def update_in_table(self, table_name: str, column_tuple: tuple, values_tuple: tuple, condition: str):
+    def update_in_table(self, table_name: str, column_tuple: tuple, values_tuple: tuple, condition: Condition) -> None:
         """
         Insert data in a table
         """
         logger_sql.error("Method 'insert_in_table' of clientSQL must be defined inside children %s", type(self).__name__)
 
-    def close(self):
+    def close(self) -> None:
         """
         Close the connection to the database
         """

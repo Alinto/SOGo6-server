@@ -1,13 +1,14 @@
 import click
 from flask_compress import Compress
-from flask import request, make_response
+from flask import request, make_response, g
+from flask.typing import ResponseReturnValue
 from marshmallow import ValidationError
 from werkzeug.exceptions import UnprocessableEntity
 from flask_wtf.csrf import CSRFError
 
 
 from app import create_app, __version__
-from app.config.init_config import init_sogo
+from app.config.init_config import init_sogo, process_config
 
 SOGO_OK: bool = init_sogo()
 
@@ -17,21 +18,29 @@ SOGO_OK: bool = init_sogo()
 
 app = create_app()
 
-#SOGO_OK = False
-
 if not SOGO_OK:
     @app.before_request
-    def block_sogo():
+    def block_sogo() -> ResponseReturnValue | None:
         """
-        Reject all request instead the ones for admin
+        Reject all request except the ones for admin
         """
-        if not request.path.startswith("/admin"):
+        if not request.path.startswith("/api/admin") and \
+            not request.path.startswith("/swagger") and \
+            not request.path.startswith("/openapi"):
             return "{'error': 'sogo_not_init'}", 406
-
+        return None
+else:
+    @app.before_request
+    def get_config() -> None:
+        """
+        Get and set the config in the global flask
+        """
+        if 'process' not in g:
+            g.process = process_config
 
 
 @app.route("/")
-def index():
+def index() -> ResponseReturnValue:
     """
     Simple index, return the state, version of the backend api and link to the swagger
     """
@@ -69,7 +78,7 @@ def index():
 @click.option("--port", default="5000")
 @click.option("--debug/--no-debug", default=True)
 @click.option("--ssl", is_flag=True)
-def main(host: str, port: str, debug: bool, ssl: bool):
+def main(host: str, port: int, debug: bool, ssl: bool) -> None:
     """
     Main function starting the Flask application with passed arguments.
     """

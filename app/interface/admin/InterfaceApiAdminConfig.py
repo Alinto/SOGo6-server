@@ -1,20 +1,32 @@
-from app.config.settings.FrontWrapperSettings import example
+from __future__ import annotations
+from typing import TYPE_CHECKING, Any
 
+from app.config.settings.FrontWrapperSettings import example
+from app.module.admin.ModuleAdminConfig import ModuleAdminConfig
+
+if TYPE_CHECKING:
+    from app.config.settings.ProcessSetting import ProcessSetting
 
 class InterfaceApiAdminConfig:
     """
     Interface for the api ApiAdminConfig
     """
-    def __init__(self):
-        pass
+    def __init__(self, process_setting: ProcessSetting) -> None:
+        """
+        This interface only needs to know the process settings and the user
 
-    def get_dynamic_setting_structure(self) -> None:
+        :param process_settings: the process settings
+        :type process_settings: ProcessSetting
+        """
+        self.module = ModuleAdminConfig(process_settings=process_setting)
+
+    def get_dynamic_setting_structure(self) -> dict:
         """
         Return the dynamic table
         """
         return example
 
-    def get_all_setting_value(self) -> None:
+    def get_all_setting_value(self) -> dict:
         """
         Return all the settings
         """
@@ -25,7 +37,7 @@ class InterfaceApiAdminConfig:
                         }
         return all_settings
     
-    def get_all_setting_system(self) -> None:
+    def get_all_setting_system(self) -> dict:
         """
         Return the system settingd
         """
@@ -39,7 +51,7 @@ class InterfaceApiAdminConfig:
         }
         return system
 
-    def get_all_setting_domain_default(self) -> None:
+    def get_all_setting_domain_default(self) -> dict:
         """
         Retrun the default settings for all domains
         """
@@ -73,19 +85,19 @@ class InterfaceApiAdminConfig:
         }
         return domain_default
 
-    def get_list_of_rule(self) -> None:
+    def get_list_of_rule(self) -> list[dict]:
         """
         Return all the rules ids
         """
         return [{"id": 1,"name": "suisse"}, {"id": 2,"name": "Université"}]
 
-    def get_list_of_domain(self) -> None:
+    def get_list_of_domain(self) -> list[str]:
         """
         Return all the domains
         """
         return  ["example.org", "sogo.nu", "business.com"]
 
-    def get_all_setting_rule(self, rule_id: int) -> None:
+    def get_all_setting_rule(self, rule_id: int) -> dict[str, Any] | None:
         """
         Return settings for a specific rule
         """
@@ -116,7 +128,7 @@ class InterfaceApiAdminConfig:
         return None
 
     
-    def get_all_setting_domain(self, domain_id: str) -> None:
+    def get_all_setting_domain(self, domain_id: str) -> dict[str, Any] | None:
         """
         Return settings for a specific domain
         """

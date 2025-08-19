@@ -1,4 +1,4 @@
-from app.manager.db.Table import Column, Table
+from app.utils.db.Table import Column, Table
 
 
 # Common column
@@ -27,7 +27,7 @@ TABLE_SETTINGS = Table(name="sogo_settings", columns=ALL_SETTINGS_COL, primary_k
 Query to fecth the settings from a domain for every authenticated API request
 SELECT domain_settings from sogo_settings_domains WHERE domain_name = <domain>;
 
-Query to fect hthe settings and their origins for the config interface
+Query to fetch hthe settings and their origins for the config interface
 SELECT domain_settings,domain_origin from sogo_settings_domains WHERE domain_name = <domain>;
 """
 # domain_name: Name of the domain

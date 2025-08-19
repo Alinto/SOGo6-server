@@ -6,12 +6,14 @@ from urllib.parse import quote_plus
 
 import psycopg
 from psycopg.errors import Error, OperationalError, DuplicateTable
-from psycopg.sql import SQL, Literal, Placeholder, Identifier
+from psycopg.sql import SQL, Literal, Placeholder, Identifier, Composed
 
+from app.utils.db.Table import Table, REX_VALID_NAMES
+from app.utils.db.Condition import Condition, EqualCondition, NotEqualCondition, AndCondition, OrCondition
+from app.utils.exceptions import RequestException, BugException
 from app.utils.logger.logger import logger, logger_sql
-from app.utils.exceptions import RequestException
 from .ClientSQL import ClientSQL
-from .Table import Table, REX_VALID_NAMES
+
 
 
 def str_to_varchar(max_len: int = 0) -> str:
@@ -19,8 +21,8 @@ def str_to_varchar(max_len: int = 0) -> str:
     Convert a string type to a varchar()
     """
     if max_len == 0:
-        return "VARCHAR()"
-    return f"VARCHAR({max_len})"
+        return "varchar()"
+    return f"varchar({max_len})"
 
 def list_to_array(data_type: str, extra_args: dict = None) -> str:
     """
@@ -39,11 +41,11 @@ def list_to_array(data_type: str, extra_args: dict = None) -> str:
 
 
 data_type_sogo_to_postgre : dict[str, Any]= {
-    "dict": "JSONB",
-    "json": "JSONB",
+    "dict": "jsonb",
+    "json": "jsonb",
     "str": str_to_varchar,
     "list": list_to_array,
-    "serial": "SERIAL"
+    "serial": "serial"
 }
 
 data_type_postgre_to_sogo : dict[str, Any]= {
@@ -52,6 +54,66 @@ data_type_postgre_to_sogo : dict[str, Any]= {
     "character varying": "str",
     "ARRAY": "list"
 }
+
+def table_to_query(table: Table) -> Composed:
+    """
+    Return the SQL query to create a table
+    """
+    if not isinstance(table, Table):
+        logger_sql.error("Try generate a table without the class Table")
+        raise BugException(f": {__name__} Try generate a table without the class Table")
+
+    sql_all_column = []
+    for column in table.columns:
+        #Get postgre data type
+        data_type = data_type_sogo_to_postgre[column.data_type]
+        if isinstance(data_type, str):
+            pass
+        elif callable(data_type):
+            data_type = data_type(**column.extra_args)
+
+        sql_column = SQL("{column_name} {column_type} ").format(
+            column_name=Identifier(column.name),
+            column_type=SQL(data_type),
+        )
+
+        if not column.is_nullable:
+            sql_column = Composed([sql_column, SQL("NOT NULL")])
+
+        sql_all_column.append(sql_column)
+
+    if table.primary_key:
+        sql_all_column.append(SQL("PRIMARY KEY ({})").format(Identifier(table.primary_key)))
+
+    sql_query = SQL("CREATE TABLE {table_name} ({columns})").format(
+        table_name=Identifier(table.name),
+        columns=SQL(", ").join(sql_all_column)
+    )
+
+    return sql_query
+
+def condition_to_query(condition: Condition, add_where : bool = False) -> Composed:
+    """
+    Return the WHERE part of the sql_query
+    """
+
+    if isinstance(condition, EqualCondition):
+        sql_condition = SQL("{param} = {value}").format(param=Identifier(condition.param_name), value=Literal(condition.param_value))
+    elif isinstance(condition, NotEqualCondition):
+        sql_condition = SQL("{param} != {value}").format(param=Identifier(condition.param_name), value=Literal(condition.param_value))
+    elif isinstance(condition, AndCondition):
+        condition1 = condition_to_query(condition.condition1)
+        condition2 = condition_to_query(condition.condition2)
+        sql_condition = SQL("({cond1} AND {cond2})").format(cond1=condition1, cond2=condition2)
+    elif isinstance(condition, OrCondition):
+        condition1 = condition_to_query(condition.condition1)
+        condition2 = condition_to_query(condition.condition2)
+        sql_condition = SQL("({cond1} OR {cond2})").format(cond1=condition1, cond2=condition2)
+
+    if add_where:
+        sql_condition = SQL("WHERE {condition}").format(condition=sql_condition)
+    
+    return sql_condition
 
 
 class ClientPostgreSQL(ClientSQL):
@@ -112,30 +174,7 @@ class ClientPostgreSQL(ClientSQL):
 
         return ret
 
-    def _table_to_query(self, table: Table) -> str:
-        """
-        Return the SQL query to create a table
-        """
-        if not isinstance(table, Table):
-            logger.error("Try generate a table without the class Table")
-        sql_query = f"CREATE TABLE {table.name} ("
-        for column in table.columns:
-            #Get postgre data type
-            data_type = data_type_sogo_to_postgre[column.data_type]
-            if isinstance(data_type, str):
-                pass
-            elif callable(data_type):
-                data_type = data_type(**column.extra_args)
 
-            sql_query += f"{column.name} {data_type}"
-            if not column.is_nullable:
-                sql_query += " NOT NULL"
-            sql_query += ","
-        if table.primary_key:
-            sql_query += f" PRIMARY KEY ({table.primary_key})"
-        sql_query += ")"
-
-        return sql_query
 
     def create_table(self, table : Table) -> None:
         """
@@ -149,9 +188,9 @@ class ClientPostgreSQL(ClientSQL):
         if self.db_conn and self.db_conn.closed:
             self.connect()
 
-        sql_query = self._table_to_query(table)
+        sql_query = table_to_query(table)
 
-        logger_sql.info("QUERY: %s", sql_query)
+        logger_sql.info("QUERY: %s", sql_query.as_string())
 
         if self.db_conn is not None:
             try:
@@ -189,6 +228,10 @@ class ClientPostgreSQL(ClientSQL):
                 sql_query += f"{value}, "
         
         logger_sql.info("QUERY: %s", sql_query)
+    
+    def select_from_table(self, table_name: str, column_tuple: tuple[str], condition: Condition) -> list | None:
+        
+        return None
         
 
     def close(self) -> None:

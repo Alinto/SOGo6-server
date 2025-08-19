@@ -9,7 +9,7 @@ class FlaskConfig(BaseSettings):
 
     #Flask
     ######
-    
+
     #Set you own secret key for production
     SECRET_KEY: Optional[str] = "90777fd15f122afad7f16f65895feaec5394b053847cb8beab51a7969b2ac75c"
 
@@ -45,7 +45,7 @@ class ProcessSetting(FlaskConfig):
     Contains all SOGo relative settings
     """
     SOGO_P_REDIS_URL: str = "redis://redis:6379"
-    SOGO_P_REDIS_TTL: int = "300" # Time to live of cached key. See https://redis.io/docs/latest/commands/ttl/
+    SOGO_P_REDIS_TTL: int = 300 # Time to live of cached key. See https://redis.io/docs/latest/commands/ttl/
 
     SOGO_P_SECRET: str = "secret_is_a_32_characters_string" #TODO no default value and set length -> https://docs.pydantic.dev/latest/concepts/pydantic_settings/#usage
 
@@ -75,4 +75,3 @@ class ProcessSetting(FlaskConfig):
 
 
 process_config = ProcessSetting()
-print(f"Process_setting = {process_config.model_dump()}")
