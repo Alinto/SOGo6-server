@@ -78,6 +78,7 @@ max-line-length=240
 ignored-modules=["psycopg"]
 
 [tool.mypy]
+#https://mypy.readthedocs.io/en/stable/config_file.html#
 disallow_untyped_defs = true
 implicit_optional = true
 disable_error_code = ["import-untyped"]

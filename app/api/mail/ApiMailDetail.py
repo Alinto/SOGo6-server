@@ -6,6 +6,7 @@ All SOGo users have a default mail account (id=0) but they can add external mail
 """
 
 from flask import request, g
+from flask.typing import ResponseReturnValue
 from flask.views import MethodView
 from flask_smorest import Blueprint, abort
 from app.utils.logger.logger import logger_api
@@ -23,7 +24,7 @@ class ApiMailDetail(MethodView):
     """
 
     @blp.response(200, MailDetailSchema())
-    def get(self, account_id: int, folder_id: int, mail_id: int) -> dict:
+    def get(self, account_id: int, folder_id: int, mail_id: int) -> ResponseReturnValue | None:
         """
         Retrieve detailed information for a specific mail item.
 
@@ -46,3 +47,4 @@ class ApiMailDetail(MethodView):
         except RequestException as e:
             logger_api.error("Request error on mail detail: %s", e)
             abort(400, message=f"Request error: {e}") #TODO: handle specific exceptions if needed
+        return None

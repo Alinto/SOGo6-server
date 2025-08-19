@@ -14,7 +14,7 @@ SOGO_OK: bool = init_sogo()
 
 #Beware that all methods called at this root files will be called twice in the auto-reloader is on
 #To see the correct behavior run:
-#poetry start run --no-debug
+#poetry run start --no-debug
 
 app = create_app()
 
