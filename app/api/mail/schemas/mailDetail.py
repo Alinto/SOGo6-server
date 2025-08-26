@@ -48,3 +48,11 @@ class MailDetailSchema(Schema):
     imageBlocked = fields.Boolean()
     body = fields.String()
     attachments = fields.Nested(AttachmentsSchema)
+
+class MailDetailResponseSchema(Schema):
+    """
+    Schema for the response of the mail detail endpoint
+    """
+    status = fields.Boolean(required=True)
+    errors = fields.String(allow_none=True)
+    mail = fields.Nested(MailDetailSchema, allow_none=True)

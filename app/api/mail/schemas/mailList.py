@@ -1,33 +1,31 @@
-# -*- coding: utf-8 -*-
-
-"""
-This file is part of SOGo 6 software https://github.com/Alinto/SOGo6-server
-
-This file defines all the schema needed by ApiMailFolder.py
-"""
-
 from marshmallow import Schema, fields
 
-
-class EmailAddressSchema(Schema):
+class AddressSchema(Schema):
     """
-    Schema for email addresses (from/to fields)
+    Schema for an email address
     """
     name = fields.String()
-    email = fields.Email()
+    email = fields.String()
 
-
-class MailMessageListSchema(Schema):
+class MailMessageSchema(Schema):
     """
-    Schema for a single mail message to display in the list
+    Schema for one mail message
     """
     id = fields.String()
     subject = fields.String()
-    from_ = fields.Nested(EmailAddressSchema, data_key="from")  #TODO: `from` is a reserved keyword; replace it in UI?
-    to = fields.List(fields.Nested(EmailAddressSchema))
+    from_ = fields.Nested(AddressSchema)
+    to = fields.List(fields.Nested(AddressSchema))
     date = fields.String()
     seen = fields.Boolean()
     flagged = fields.Boolean()
+    deleted = fields.Boolean()
+    flags = fields.List(fields.String())
     hasAttachment = fields.Boolean()
-    snippet = fields.String()
 
+class MailMessageListResponseSchema(Schema):
+    """
+    Schema for the response of mail list in a folder
+    """
+    status = fields.Boolean(required=True)
+    mails = fields.List(fields.Nested(MailMessageSchema), required=True)
+    errors = fields.String(allow_none=True)

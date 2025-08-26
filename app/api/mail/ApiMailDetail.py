@@ -1,50 +1,52 @@
-"""
-This file is part of SOGo 6 software https://github.com/Alinto/SOGo6-server
+from __future__ import annotations
+from typing import TYPE_CHECKING
 
-This file defines all the endpoints concerning User Mail Account(s).
-All SOGo users have a default mail account (id=0) but they can add external mail accounts.
-"""
-
-from flask import request, g
-from flask.typing import ResponseReturnValue
+from flask import g
 from flask.views import MethodView
+from flask.typing import ResponseReturnValue
 from flask_smorest import Blueprint, abort
+
+from app.interface.mail.InterfaceApiMailDetail import InterfaceApiMailDetail
 from app.utils.logger.logger import logger_api
-from app.utils.exceptions import RequestException
-from .interface.MailDetailInterface import MailDetailInterface
-from .schemas.mailDetail import MailDetailSchema
+from .schemas.mailDetail import MailDetailResponseSchema
+from .schemas.mailMove import MailMoveSchema
 
-blp = Blueprint("MailDetail", __name__, url_prefix="/Mail/<int:account_id>/<int:folder_id>/<int:mail_id>")
+if TYPE_CHECKING:
+    from app.config.settings.ProcessSetting import ProcessSetting
 
-@blp.route("/")
+blp = Blueprint("ApiMailDetail", __name__, url_prefix="/account")
+
+@blp.before_request
+def init_mail_config() -> None:
+    """
+    Initialize the mail interface and any other required configuration for the request.
+    """
+    logger_api.debug("Calling before_request for ApiMailDetail")
+    process: ProcessSetting = g.process
+    interface_api = InterfaceApiMailDetail()
+    g.inter = interface_api
+
+@blp.route("/<int:account_id>/folder/<folder_id>/mail/<int:mail_id>")
 class ApiMailDetail(MethodView):
     """
-    API to fetch mail details
-    endpoint: /api/Mail/<account_id>/<folder_id>/<mail_id>
+    API to fetch mail details.
     """
 
-    @blp.response(200, MailDetailSchema())
-    def get(self, account_id: int, folder_id: int, mail_id: int) -> ResponseReturnValue | None:
+    @blp.response(200, MailDetailResponseSchema)
+    def get(self, account_id: int, folder_id: str, mail_id: int) -> ResponseReturnValue:
         """
-        Retrieve detailed information for a specific mail item.
+        Retrieve detailed information about a specific mail.
 
-        Args:
-            account_id (int): The account identifier.
-            folder_id (int): The folder identifier.
-            mail_id (int): The unique identifier of the mail to fetch.
-
-        Returns:
-            dict: A dictionary containing the mail details, formatted according to the MailDetailSchema.
+        :param account_id: The account identifier.
+        :type account_id: int
+        :param folder_id: The folder identifier.
+        :type folder_id: str
+        :param mail_id: The unique identifier of the mail.
+        :type mail_id: int
+        :return: Detailed mail information.
+        :rtype: ResponseReturnValue
+        :raises RequestException: If the mail or folder cannot be found.
         """
-        interface: MailDetailInterface = MailDetailInterface()
-        try:
-            mail_detail = interface.get_mail_detail(account_id, folder_id, mail_id)
-            if not mail_detail:
-                logger_api.error("Requested mail not found: %s", mail_id)
-                abort(404, message="Requested mail not found.")
-
-            return mail_detail
-        except RequestException as e:
-            logger_api.error("Request error on mail detail: %s", e)
-            abort(400, message=f"Request error: {e}") #TODO: handle specific exceptions if needed
-        return None
+        logger_api.debug("Calling ApiMailDetail: Fetching mail detail for account_id: %s, folder_id: %s, mail_id: %s", account_id, folder_id, mail_id)
+        interface: InterfaceApiMailDetail = g.inter
+        return interface.get_mail_detail(account_id, folder_id, mail_id)

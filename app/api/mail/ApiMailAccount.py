@@ -1,74 +1,71 @@
-# -*- coding: utf-8 -*-
+from __future__ import annotations
+from typing import TYPE_CHECKING
 
-"""
-This file is part of SOGo 6 software https://github.com/Alinto/SOGo6-server
-
-This file defines all the endpoints concernning User Mail Account(s)
-All SOGo user has a default mail account (id=0) but the can add external mail accounts.
-"""
-
-
-from flask import request, g
+from flask import g
 from flask.views import MethodView
+from flask.typing import ResponseReturnValue
 from flask_smorest import Blueprint, abort
 
-from .schemas.mailAccounts import ListMailAccountsResponse, \
-                                  ListMailAccountsDelegation
+from app.interface.mail.InterfaceApiMailAccount import InterfaceApiMailAccount
+from app.utils.logger.logger import logger_api
 
+from .schemas.folderList import FolderListResponseSchema
+from .schemas.folderCreate import FolderCreateSchema
 
-blp = Blueprint("MailAccount", __name__, url_prefix="/Mail_old")
+if TYPE_CHECKING:
+    from app.config.settings.ProcessSetting import ProcessSetting
 
+blp = Blueprint("ApiMailAccount", __name__, url_prefix="/account")
 
-@blp.route("/")
+@blp.before_request
+def init_mail_config() -> None:
+    """
+    Initialize the mail interface and any other required configuration for the request.
+    """
+    logger_api.debug("Calling before_request for ApiMailAccount")
+    process: ProcessSetting = g.process
+    interface_api = InterfaceApiMailAccount(process_setting=process)
+    g.inter = interface_api
+
+@blp.route("/<int:account_id>/folder")
 class ApiMailAccount(MethodView):
     """
-    API to list user's mail accounts
-    endpont: /api/Mail
+    API to list and create mail folders for an account.
     """
 
-    @blp.response(200, ListMailAccountsResponse())
-    def get(self):
+    @blp.response(200, FolderListResponseSchema)
+    def get(self, account_id: int) -> ResponseReturnValue:
         """
-        Return the list of account of the user
+        Retrieve the list of mail folders for a given account.
+
+        :param account_id: The account identifier.
+        :type account_id: int
+        :return: A list of folder names.
+        :rtype: ResponseReturnValue
+        :raises RequestException: If the account or folders cannot be found.
         """
-        item1 = {
-            "name": "default",
-            "mail": "dude@test.com",
-            "id": 0
-        }
-        item2 = {
-            "name": "work",
-            "mail": "hewill@test.com",
-            "id": 1
-        }
+        logger_api.debug("Calling ApiMailAccount: Fetching folder list for account_id: %s", account_id)
+        interface: InterfaceApiMailAccount = g.inter
+        return interface.get_folder_list(account_id)
 
-        list_items = {"accounts": [item1, item2]}
-        return list_items
-
-@blp.route("/0/Delegate")
-class ApiMailAccountDelegate(MethodView):
-    """
-    API to list user's mail accounts
-    endpoint: GET/POST /api/Mail/0/Delegate
-
-    Only works for the default account which id is 0.
-    """
-
-    @blp.response(200, ListMailAccountsDelegation())
-    def get(self):
+    @blp.arguments(FolderCreateSchema, example=FolderCreateSchema.example())
+    @blp.response(201)
+    def post(self, folder_data: dict, account_id: int) -> ResponseReturnValue:
         """
-        Return the list of accounts that have delegation's right
-        """
+        Create a new mail folder for a given account.
 
-        list_items = {"accounts": ["dude@test.com", "hewill@test.com"]}
-        return list_items
-
-    @blp.arguments(ListMailAccountsDelegation())
-    @blp.response(200)
-    def post(self, data):
+        :param folder_data: The folder data containing the name.
+        :type folder_data: dict
+        :param account_id: The account identifier.
+        :type account_id: int
+        :return: The created folder information.
+        :rtype: ResponseReturnValue
+        :raises RequestException: If the folder cannot be created.
         """
-        Save the accounts with delegation right
-        """
-        print(data)
-
-        return 
+        logger_api.debug("Calling ApiMailAccount: Creating folder for account_id: %s with data: %s", account_id, folder_data)
+        interface: InterfaceApiMailAccount = g.inter
+        folder_name = folder_data.get("name")
+        if not folder_name:
+            abort(400, message="Missing folder name")
+            return {"status": False, "errors": "Missing folder name"}
+        return interface.create_folder(account_id, folder_name)

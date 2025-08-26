@@ -48,5 +48,6 @@ logger_usersource = getLogger("sogolog.usersource")
 logger_config     = getLogger("sogolog.config")
 logger_auth       = getLogger("sogolog.auth")
 logger_sql        = getLogger("sogolog.sql")
+logger_imap       = getLogger("sogolog.imap")
 
 logger_sql.setLevel(DEBUG)
