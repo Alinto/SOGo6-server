@@ -70,7 +70,7 @@ class ApiAdminConfigSystem(MethodView):
 
     @blp.arguments(AdminConfigSystemPostSchema)
     @blp.response(200)
-    def post(self, new_data: dict) -> None:
+    def post(self, new_data: dict) -> ResponseReturnValue:
         """
         Endpoint to post new system settings
 
@@ -78,6 +78,8 @@ class ApiAdminConfigSystem(MethodView):
         :type new_data: dict
         """
         interface_api : InterfaceApiAdminConfig = g.inter
+        ret = interface_api.update_all_setting_system(new_data["settings"])
+        return ret
 
 
 

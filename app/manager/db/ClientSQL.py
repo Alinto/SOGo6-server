@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING, Any, Optional, Generator
+
 from app.utils.logger.logger import logger, logger_sql
 
 from app.utils.db.Table import Table
@@ -38,12 +40,12 @@ class ClientSQL:
         """
         logger_sql.error("Method 'create_several_table' of clientSQL must be defined inside children %s", type(self).__name__)
 
-    def select_from_table(self, table_name: str, column_tuple: tuple, condition: Condition) -> list | None:
+    def select_from_table(self, table_name: str, column_tuple: tuple, condition: Condition) -> Generator[tuple[Any, ...]]:
         """
         Insert one or more row into a table
         """
         logger_sql.error("Method 'insert_in_table' of clientSQL must be defined inside children %s", type(self).__name__)
-        return None
+        yield ()
 
     def select_from_several_table(self, table_name: str, column_tuple: tuple, condition: Condition) -> None:
         """
@@ -51,11 +53,12 @@ class ClientSQL:
         """
         logger_sql.error("Method 'insert_in_table' of clientSQL must be defined inside children %s", type(self).__name__)
 
-    def insert_in_table(self, table_name: str, column_tuple: tuple, values_tuple: list[tuple]) -> None:
+    def insert_in_table(self, table_name: str, column_tuple: tuple[str, ...], values_tuple: list[tuple[Any, ...]]) -> int:
         """
         Insert one or more row into a table
         """
         logger_sql.error("Method 'insert_in_table' of clientSQL must be defined inside children %s", type(self).__name__)
+        return -1
 
     def update_in_table(self, table_name: str, column_tuple: tuple, values_tuple: tuple, condition: Condition) -> None:
         """

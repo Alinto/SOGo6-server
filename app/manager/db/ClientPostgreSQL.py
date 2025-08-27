@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, Generator
 
 import re
 from urllib.parse import quote_plus
@@ -7,6 +7,7 @@ from urllib.parse import quote_plus
 import psycopg
 from psycopg.errors import Error, OperationalError, DuplicateTable
 from psycopg.sql import SQL, Literal, Placeholder, Identifier, Composed
+from psycopg.types.json import Jsonb
 
 from app.utils.db.Table import Table, REX_VALID_NAMES
 from app.utils.db.Condition import Condition, EqualCondition, NotEqualCondition, AndCondition, OrCondition
@@ -45,14 +46,16 @@ data_type_sogo_to_postgre : dict[str, Any]= {
     "json": "jsonb",
     "str": str_to_varchar,
     "list": list_to_array,
-    "serial": "serial"
+    "serial": "serial",
+    "int8": "smallint"
 }
 
 data_type_postgre_to_sogo : dict[str, Any]= {
     "jsonb": "dict",
     "integer": "int",
     "character varying": "str",
-    "ARRAY": "list"
+    "ARRAY": "list",
+    "smallint": "int8"
 }
 
 def table_to_query(table: Table) -> Composed:
@@ -79,11 +82,14 @@ def table_to_query(table: Table) -> Composed:
 
         if not column.is_nullable:
             sql_column = Composed([sql_column, SQL("NOT NULL")])
+        
+        if column.is_nullable:
+            sql_column = Composed([sql_column, SQL("UNIQUE")])
 
         sql_all_column.append(sql_column)
 
-    if table.primary_key:
-        sql_all_column.append(SQL("PRIMARY KEY ({})").format(Identifier(table.primary_key)))
+    if table.primary_keys:
+        sql_all_column.append(SQL("PRIMARY KEY ({})").format(SQL(", ").join(map(Identifier, table.primary_keys))))
 
     sql_query = SQL("CREATE TABLE {table_name} ({columns})").format(
         table_name=Identifier(table.name),
@@ -118,7 +124,7 @@ def condition_to_query(condition: Condition, add_where : bool = False) -> Compos
 
 class ClientPostgreSQL(ClientSQL):
     """
-    Class to connect, read and write into a sql database
+    Class to connect, read and write into a sql database 
     """
 
     def __init__(self, db_user: str, db_pwd: str, db_host: str, db_port: int,  db_ssl: bool, db_enc: str):
@@ -134,6 +140,7 @@ class ClientPostgreSQL(ClientSQL):
         """
         Connect to the database and check if this is ok
         """
+        #TODO: put in redis the number of failed connection, after a threshold, do not attempt and raise a Aggravated exception
         try:
             self.db_conn = psycopg.connect(self.conn_string, connect_timeout=5)
         except (OperationalError, Error) as e:
@@ -216,23 +223,81 @@ class ClientPostgreSQL(ClientSQL):
         for table in table_list:
             self.create_table(table)
 
-    def insert_in_table(self, table_name: str, column_tuple: tuple, values_tuple: list[tuple]) -> None:
+    def insert_in_table(self, table_name: str, column_tuple: tuple[str, ...], values_tuple: list[list[Any]]) -> int:
         """
         Insert one or more row into a table
         """
-        sql_query = f"INSERT INTO {table_name} {column_tuple} VALUES "
-        for idx, value in enumerate(values_tuple):
-            if idx == len(values_tuple) - 1:
-                sql_query += f"{value}"
-            else:
-                sql_query += f"{value}, "
+        ret = 0
+        if self.db_conn and self.db_conn.closed:
+            self.connect()
         
-        logger_sql.info("QUERY: %s", sql_query)
+        #Check column len and values len
+        insert_len = len(column_tuple)
+        sql_all_placeholder = []
+        sql_all_values = []
+        for values in values_tuple:
+            if (value_len := len(values)) != insert_len:
+                logger_sql.error("Try to insert more or less data than the columns. Column size: %s, data_size: %s", insert_len, value_len)
+                raise BugException(f"Try to insert more or less data than the columns. Column size: {insert_len}, data_size: {value_len}")
+            sql_all_placeholder.append(SQL("({})").format(SQL(', ').join(Placeholder() * insert_len)))
+            for idx, value in enumerate(values):
+                if isinstance(value, dict):
+                    values[idx] = Jsonb(value)
+
+            sql_all_values.extend(values)
+        
+        sql_query = SQL("INSERT INTO {table_name} ({columns}) VALUES {values}").format(
+            table_name=Identifier(table_name),
+            columns=SQL(", ").join(map(Identifier, column_tuple)),
+            values=SQL(", ").join(sql_all_placeholder)
+        )
+        logger_sql.info("QUERY COMMAND: %s", sql_query.as_string())
+
+        if self.db_conn is not None:
+            try:
+                all_record = self.db_conn.execute(sql_query, sql_all_values)
+                print(f"HEY, my query {sql_query.as_string(self.db_conn)}")
+                if all_record.rowcount == 0:
+                    logger_sql.info("QUERY RESULT: None inserted")
+                else:
+                    logger_sql.info("QUERY RESULT: inserted %s rows", all_record.rowcount)
+                ret = all_record
+            except Error as e:
+                logger_sql.error("Error (%s) when selecting table %s", type(e), e)
+            finally:
+                self.db_conn.commit()
+
+        return ret
+
     
-    def select_from_table(self, table_name: str, column_tuple: tuple[str], condition: Condition) -> list | None:
-        
-        return None
-        
+    def select_from_table(self, table_name: str, column_tuple: tuple[str], condition: Condition) -> Generator[tuple[Any, ...]]:
+
+        if self.db_conn and self.db_conn.closed:
+            self.connect()
+        if len(column_tuple) == 0:
+            column_tuple = ("*",)
+        sql_query = SQL("SELECT {columns} FROM {table_name} {conditions}").format(
+            columns=SQL(", ").join(map(SQL, column_tuple)),
+            table_name=Identifier(table_name),
+            conditions=condition_to_query(condition, add_where=True)
+        )
+
+        logger_sql.info("QUERY COMMAND: %s",sql_query.as_string())
+
+        if self.db_conn is not None:
+            try:
+                all_record = self.db_conn.execute(sql_query)
+                if all_record.rowcount == 0:
+                    logger_sql.info("QUERY RESULT: empty")
+                else:
+                    logger_sql.info("QUERY RESULT: fetch has %s rows", all_record.rowcount)
+                while record := all_record.fetchone():
+                    yield record
+            except Error as e:
+                logger_sql.error("Error when selecting table %s", e)
+            finally:
+                self.db_conn.commit()
+
 
     def close(self) -> None:
         """

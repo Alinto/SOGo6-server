@@ -17,4 +17,4 @@ class AdminConfigSystemPostSchema(Schema):
     """
     Schema of the body expected for posting system settings
     """
-    settings  = fields.List(fields.Nested(AdminConfigSetting))
+    settings  = fields.Dict(keys=fields.String(), values=fields.Raw())

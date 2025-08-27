@@ -51,6 +51,14 @@ class InterfaceApiAdminConfig:
         }
         return system
 
+    def update_all_setting_system(self, new_param: dict) -> dict:
+
+        ret_status, ret_error = self.module.update_system_settings(new_param)
+
+        return {"status": ret_status, "errors": ret_error}
+
+
+
     def get_all_setting_domain_default(self) -> dict:
         """
         Retrun the default settings for all domains

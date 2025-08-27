@@ -83,7 +83,7 @@ system_526 = {
 
     #Binary
     "WOSendMail": "SOGO_S_SENDMAIL", #Path of the sendmail binary
-    "SOGoZipPath": "SOGO_S_ZIP", #Patho of the zip library like /usr/bin/zip
+    "SOGoZipPath": None, #It's python who does it itself.
 
     #Passwords
     "SOGoPasswordRecoveryEnabled": "SOGO_D_PWD_RECOVERY", #Allow user to set a method to recover passwords. Was a system  param, now domains
@@ -185,8 +185,6 @@ domain_526 = {
     "SOGoMailCertificateEnabled": None, #Allow or not to add s/mime certificat for itself. #TODO Why on earth we will forbid user to do that?
 
     # Password
-    "SOGoPasswordRecoveryFrom": None, #TODO Set the from used for sending the recovery password with secondary email method.
-                                    #Useful? Is this not defines by the smtp server? The mail use for tasks like postmaster....
     "SOGoPasswordRecoveryFrom": "SOGO_D_SMTP_SYSTEM_FROM", #Nothing to do with imap, mail used as from for sending email recovery's password.
                                                            #Diff with SOGoSMTPMasterUserUsername is this is not a user email.
                                                            #default is noreply@<domain> or the string "domain" if not defined
