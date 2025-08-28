@@ -55,5 +55,24 @@ services:
       - ./conf/ldap/schemas/custom.schema:/opt/bitnami/openldap/etc/schema/custom.schema
       - ./conf/ldap/schemas/custom.ldif:/opt/bitnami/openldap/etc/schema/custom.ldif
 
-# volumes:
-#   sogo6-postgres:
+  dovecot:
+    build:
+      context: ./conf/dovecot/
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - openldap
+    ports:
+      - "143:143"
+      - "993:993"
+      - "4190:4190"
+      - "24:24"
+    volumes:
+      - sogo6-mail-data:/var/mail
+      - sogo6-sieve-data:/var/sieve
+      - ./conf/dovecot:/etc/dovecot
+
+volumes:
+  # sogo6-postgres:
+  sogo6-mail-data:
+  sogo6-sieve-data:
