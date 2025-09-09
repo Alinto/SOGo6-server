@@ -26,6 +26,7 @@ dependencies = [
     "sqlalchemy (>=2.0.42,<3.0.0)",
     "redis (>=6.2.0,<7.0.0)",
     "psycopg (>=3.2.9,<4.0.0)",
+    "pytest-mock (>=3.15.0,<4.0.0)",
 ]
 
 
@@ -78,7 +79,6 @@ max-line-length=240
 ignored-modules=["psycopg"]
 
 [tool.mypy]
-#https://mypy.readthedocs.io/en/stable/config_file.html#
 disallow_untyped_defs = true
 implicit_optional = true
 disable_error_code = ["import-untyped"]

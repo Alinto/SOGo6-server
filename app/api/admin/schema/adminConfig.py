@@ -13,8 +13,18 @@ class AdminConfigSetting(Schema):
     name  = fields.String()
     value = fields.Raw()
 
+
+
 class AdminConfigSystemPostSchema(Schema):
     """
     Schema of the body expected for posting system settings
     """
     settings  = fields.Dict(keys=fields.String(), values=fields.Raw())
+
+    @classmethod
+    def example(cls):
+        return {
+            "settings": {
+                "SOGO_S_DOMAINS": ["sogo.nu"]
+            }
+        }

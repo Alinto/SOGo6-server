@@ -19,7 +19,7 @@ class Column:
     Is a common db class. Each db manager will convert this column properly to their own dbapi
 
     """
-    def __init__(self, name: str, data_type: str, is_nullable: bool = False, is_unique: bool = False, extra_agrs: dict = None):
+    def __init__(self, name: str, data_type: str, is_nullable: bool = False, is_unique: bool = False, extra_args: dict = None):
         """
         An agnostic sogo database column representation. Each database manager must convert this class to their proper syntax
 
@@ -31,8 +31,8 @@ class Column:
         :type is_nullable: bool, optional
         :param is_unique: Are each value of this column unique. Note that if the column become a primary key, there is no need to set this to True, defaults to False
         :type is_unique: bool, optional
-        :param extra_agrs: Extra arguments for this column, defaults to None
-        :type extra_agrs: dict, optional
+        :param extra_args: Extra arguments for this column, defaults to None
+        :type extra_args: dict, optional
         """
         if not isinstance(name, str) or len(name) == 0:
             logger.error("Try to instantiate Column with no name")
@@ -46,7 +46,7 @@ class Column:
         self.data_type_check = SOGO_DB_DATA_TYPE_VALIDATION[data_type]
         self.is_nullable     = is_nullable
         self.is_unique       = is_unique
-        self.extra_args      = extra_agrs
+        self.extra_args      = extra_args
 
 class Index:
     """

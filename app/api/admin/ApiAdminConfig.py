@@ -68,7 +68,7 @@ class ApiAdminConfigSystem(MethodView):
         interface_api : InterfaceApiAdminConfig = g.inter
         return interface_api.get_all_setting_system()
 
-    @blp.arguments(AdminConfigSystemPostSchema)
+    @blp.arguments(AdminConfigSystemPostSchema, example=AdminConfigSystemPostSchema.example())
     @blp.response(200)
     def post(self, new_data: dict) -> ResponseReturnValue:
         """

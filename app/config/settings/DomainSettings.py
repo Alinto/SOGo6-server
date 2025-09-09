@@ -74,7 +74,7 @@ class LdapUserSource(UserSource):
     LDAP_HOSTNAME = fields.Url(required=True, schemes={'ldap', 'ldaps'})
 
     LDAP_CN         = fields.String(required=True) #field name to use for the common name typically 'cn'
-    LDAP_ID         = fields.String(required=True) #field name to use for the common name typically 'cn'
+    LDAP_ID         = fields.String(required=True) #field name to use for the id typically 'cn'
     LDAP_UID        = fields.String(required=True) #field name for unique id of user typically 'uid'
     LDAP_BASE_DN    = fields.String(required=True) #Example: 'dc=example,dc=com'
     LDAP_FILTER     = fields.String() #Additional filter for ldap query
@@ -97,7 +97,7 @@ class LdapUserSource(UserSource):
     US_IMAP_LOGIN = fields.String() ##sql column where to fetch the imap login for a user, default to LDAP_UID value.
 
     @validates_schema
-    def check_type(self, data, **_):
+    def check_type(self, data: dict, **_: dict) -> None:
         """
         Check the type of User Source
         """
@@ -105,7 +105,7 @@ class LdapUserSource(UserSource):
             raise ValidationError("LdapUserSource set without TYPE being 'ldap'")
 
     @post_load
-    def set_imap_login_load(self, data, **_):
+    def set_imap_login_load(self, data: dict, **_: dict) -> dict:
         """
         if not set, the value of US_IMAP_LOGIN is the value of LDAP_UID.
         """
@@ -114,7 +114,7 @@ class LdapUserSource(UserSource):
         return data
 
     @post_dump
-    def set_imap_login_dump(self, data, **_):
+    def set_imap_login_dump(self, data: dict, **_: dict) -> dict:
         """
         if not set, the value of US_IMAP_LOGIN is the value of LDAP_UID.
         """
@@ -136,7 +136,7 @@ class SQLUserSource(UserSource):
     US_IMAP_LOGIN = fields.String(load_default="c_uid", dump_default="c_uid") ##sql column where to fetch the imap login for a user
 
     @validates_schema
-    def check_type(self, data, **_):
+    def check_type(self, data: dict, **_: dict) -> None:
         """
         Check the type of User Source
         """
@@ -181,6 +181,9 @@ class DomainSettings(Schema):
     #Calendar Settings
     SOGO_D_JITSI_LINK_ENABLED = fields.Boolean(load_default=True, dump_default=True)
     SOGO_D_JITSI_BASE_URL     = fields.Url(schemes={'http','https'})
+    SOGO_D_CALDAV_START_TIME  = fields.Integer(load_default=0, dump_default=0, validate=validate.Range(min=0)) #limit the the span of time of the events return in a caldav request
+                                                                                                               #0 means no limit, 180 means only events that are less than 180 days olds are returned.
+    SOGO_D_REMINDER_ALLOW_MAIL = fields.Boolean(load_default=True, dump_default=True) #Allow user to set reminder sent by email for events/tasks
 
     #Folder settings
     SOGO_D_DAV_PUBLIC_ACCESS_ENABLE        = fields.Boolean(load_default=False, dump_default=False) #Enable or not public dav access
@@ -208,6 +211,7 @@ class DomainSettings(Schema):
     #Mailing pure sogo
     SOGO_D_MAIL_PURGE_ALLOW     = fields.Boolean(load_default=True, dump_default=True) #Allow user to purger their folder (delete all before a date)
     SOGO_D_MAIL_PURGE_MIN_DATE  = fields.Integer(load_default=0, dump_default=0) #Minimum age in days that a user can purge their mail (0 means they can purge everything)
+
 
     #Maximum recipient a user sand an email too
     SOGO_D_MAIL_MAX_RECIPIENT = fields.Integer(load_default=0, dump_default=0, validate=validate.Range(min=0))
@@ -257,7 +261,8 @@ class DomainSettings(Schema):
 
     #Identities
     SOGO_D_IDENTITIES_ENABLED = fields.Boolean(load_default=False, dump_default=False) #Allow users to create identities for their main imap account
-
+    SOGO_D_IDENTITIES_CUSTOM_FROM_ENABLED = fields.Boolean(load_default=False, dump_default=False) #Allow users to have custom "from" email in their identities
+    
     #Webmail
     SOGO_D_ALLOW_EXT_AVATAR = fields.Boolean(load_default=True, dump_default=True) #Allow users to load external avatar
     SOGO_D_MAIL_REFRESH_INTERVAL_ALLOWED = fields.List(fields.Integer(validate=validate.OneOf((0, 1, 2, 5, 10, 20, 30, 60))),
@@ -278,7 +283,7 @@ class DomainSettings(Schema):
     SOGO_D_FORWARD_ALLOW_SOGO_DOMAIN = fields.Boolean(load_default=True, dump_default=True) #Allow users to set forward sieve rule towards other sogo's domains
     SOGO_D_FORWARD_ALLOW_EXT_DOMAIN = fields.Boolean(load_default=True, dump_default=True) #Allow users to set forward sieve rule towards external domains
     SOGO_D_FORWARD_WHITELIST = fields.List(fields.String()) #Whitelist for forward sieve rule
-    SOGO_D_FORWARD_WHITELIST = fields.List(fields.String()) #Blacklist for forward sieve rule
+    SOGO_D_FORWARD_BLACKLIST = fields.List(fields.String()) #Blacklist for forward sieve rule
 
     SOGO_D_NOTIFY_ENABLED = fields.Boolean(load_default=True, dump_default=True) #Allow users to set notify sieve rule
     SOGO_D_NOTIFY_ALLOW_USER_DOMAIN = fields.Boolean(load_default=True, dump_default=True) #Allow users to set notify sieve rule towards its own domain
@@ -290,7 +295,7 @@ class DomainSettings(Schema):
 
 
     @validates_schema(skip_on_field_errors=True)
-    def validate_auth_settings(self, data: dict, **_):
+    def validate_auth_settings(self, data: dict, **_: dict) -> None:
         """
         If SOGO_D_AUTH_TYPE = 'cas', check the other value
         """
@@ -299,7 +304,7 @@ class DomainSettings(Schema):
                 raise ValidationError("Parameters among 'SOGO_D_CAS_URL', 'SOGO_D_CAS_LOGOUT_ENABLED' are missing")
 
     @validates_schema(skip_on_field_errors=True)
-    def validate_smtp_settings(self, data: dict, **_):
+    def validate_smtp_settings(self, data: dict, **_: dict) -> None:
         """
         If SOGO_D_AUTH_TYPE = 'cas', check the other value
         """

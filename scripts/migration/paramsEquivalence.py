@@ -68,6 +68,11 @@ system_526 = {
     "SOGoForbidUnknownDomainsAuth": "SOGO_S_REJECT_UNKNOWN_DOMAIN", #If domains have been defined in sogo, forbid any logi nrequest without a correct domain
     "SOGoDomainAllowed":            "SOGO_S_KNOWN_DOMAIN", #If domains have not been defined, list them here to use SOGoForbidUnknownDomainsAuth
 
+    #Multi-domain
+    "SOGoEnableDomainBasedUID": None, #TODO Not needed anymore, force user to login with the full email.
+    "SOGoLoginDomains": None, #TODO list of domains the user can choose from when login. Still usefull?
+    "SOGoDomainsVisibility": None, #TODO was used to tell which domain can wee which, is refactored in SOGo 6.
+
     #Mailing - Those parameters are also set byt the SMTP server, but it tells sogo how to act before actually requetsing the smtp server
     "SOGoMaximumMessageSubmissionCount":  "SOGO_D_MAIL_MAX_SUBMISSION", #Maximum mail an user san send during SOGO_D_MAIL_MAX_SUBMISSION_INTERVAL
     "SOGoMaximumRecipientCount":          "SOGO_D_MAIL_MAX_RECIPIENT", #Maximum recepient allowed by SOGo
@@ -76,6 +81,9 @@ system_526 = {
 
     #Mailing - only sogo for this one
     "SOGoEnableMailCleaning": "SOGO_D_MAIL_ALLOW_PURGE", #Allow or not users to purge their folders (clean all before a date) BEware default value change
+
+    #Alarms
+    "SOGoEnableEMailAlarms": "SOGO_D_REMINDER_ALLOW_MAIL", #Allow the users of this domain to set mail reminder
 
     #CALDAV
     "SOGoDisableOrganizerEventCheck": "SOGO_U_DAV_FORCE_SYNC_FROM_CLIENT", #If the event is already in the database and caldav push the same event in a previous version
@@ -122,7 +130,7 @@ system_526 = {
     "SOGoURLEncryptionPassphrase": None, #Was used for above feat, not needed anymore
 
     #Web configuration #TODO see with front
-    "SOGoPageTitle": None, #change the html head <title> -> move to Front config?
+    "SOGoPageTitle": None, #TODO change the html head <title> -> move to Front config?
     "SOGoHelpURL": "", #Add a button that redirect to a help webpage
     "SOGoFaviconRelativeURL": None, #Defined the favicon path. Why bother...
 
@@ -134,24 +142,42 @@ domain_526 = {
     # Admin
     "SOGoSuperUsernames":         None, #TODO, there is rework of admin users and what they can do.
     "SOGoPasswordChangeEnabled": "SOGO_D_PWD_CHANGE_ENABLED", #Allow users to change the password (for ldap it means the ldap admin account is allow to do that too)
+    "SOGoUIAdditionalJSFiles": None, #TODO SOGo 5 allow admin to add js file. Mainly to change the theme.jsbut I know others people have use of that...
+    "SOGoUIxAdditionalPreferences": None, #Not used in SOGo 5
+
+    # Mail settings
+    "SOGoSubscriptionFolderFormat": None, #Allowed to format the name of the susbcribed mail folders. Not necessary because: too much customization.
+    "SOGoMailJunkSettings": "SOGO_D_MAIL_JUNK_SETTINGS", #TODO see with alinto the best way to do this.
+                                                        #SOGoMailJunkSettings = {
+                                                        # 	vendor = "generic";
+                                                        # 	junkEmailAddress = "spam@foo.com";
+                                                        # 	notJunkEmailAddress = "ham@foo.com";
+                                                        # 	limit = 10;
+                                                        # };
+    "SOGoMailKeepDraftsAfterSend": None, #TODO to keep?
 
     # Calendar Settings
     "SOGoAppointmentSendEMailNotifications": None, #TODO Is it useful? To forbid user to send update to others when modifying event
                                                    #It should be a choice when the user modify the event.
                                                    #I see a case where sogo is only used for calendar sharing and does not have a smtp server...
-    "SOGoCalendarDefaultRoles":          None, #TODO Determines the 'default' acl of a user when opening the share view. Feels useless?
+    "SOGoCalendarDefaultRoles":          None, #Determines the 'default' acl of a user when opening the share view. Useless
     "SOGoCalendarJitsiBaseUrl":          "SOGO_D_JITSI_BASE_URL", #See SOGoCalendarEnableJitsiLink in system_526
     "SOGoCalendarJitsiRoomPrefix":       None, #Merge with SOGO_D_JITSI_BASE_URL = SOGoCalendarJitsiBaseUrl + SOGoCalendarJitsiRoomPrefix
     "SOGoHideSystemEMail":               None, #Hide the true value for calendar-user-address-set DAV param. No need and no info on that on internet. 
     "SOGoiPhoneForceAllDayTransparency": None, #Made in 2010 to force allDay event coming from iphone to be transparent for freebusy, irrelevant today.
     "SOGoNotifyOnPersonalModifications": None, #Useless as user can ovveride it in calendar property
     "SOGoNotifyOnExternalModifications": None, #Useless as user can ovveride it in calendar property
+    "SOGoFreeBusyDefaultInterval": None, #TODO was telling the span of freebusy evaluated for events (default to (-7,+7 days)).
+                                         #Depends on how the front can manage the calendar view but we can make one week + boutton to go to the next or previous week.
+                                         #So a fixed lenghts of 7 days.
+    "SOGoDAVCalendarStartTimeLimit": "SOGO_D_CALDAV_START_TIME", #Limit the numbers of days that caldav sync in the past. Default to 0, no limit.
+                                                                 #Example: 180 means caldav only returns events that are less than 180 days old.
 
     # Contact setting
-    "SOGoContactsDefaultRoles": None, #TODO Determines the 'default' acl of a user when opening the share view. Feel useless?
+    "SOGoContactsDefaultRoles": None, #Determines the 'default' acl of a user when opening the share view. Useless
 
     # Folder settings
-    "SOGoACLsSendEMailNotifications":    None, #TODO It should be mandatory to tell user when they now have rights on anoter folder.
+    "SOGoACLsSendEMailNotifications":    None, #TODO It should be mandatory to tell user when they now have rights on another folder.
     "SOGoDisableExport":                 "SOGO_D_FOLDER_DISABLE_EXPORT", #Disable sharing of folders (remove the uppercase for value)
     "SOGoDisableSharing":                "SOGO_D_FOLDER_DISABLE_SHARING", #Disable sharing of folders (remove the uppercase for value)
     "SOGoDisableSharingAnyAuthUser":     "SOGO_D_FOLDER_DISABLE_SHARING_ANY_AUTH", #Disable sharing for any authenticated user (remove the uppercase for value)
@@ -162,6 +188,7 @@ domain_526 = {
     #Imap Identities
     "SOGoCreateIdentitiesDisabled": "SOGO_D_IDENTITIES_ENABLED", #Allow user to create identities (from, reply-to, name, signature)
                                                                  #Behavior change in SOGo 6 as it is disabled by default #TODO
+    "SOGoMailCustomFromEnabled": "SOGO_D_IDENTITIES_CUSTOM_FROM_ENABLED", #ALlow user to change their mail in their identities 
 
     # LDAP
     "SOGoLDAPContactInfoAttribute": "", #TODO Should be in UserSource, LDAP attribute to show for autocompletion (default Name <mail>)
@@ -189,7 +216,6 @@ domain_526 = {
                                                            #Diff with SOGoSMTPMasterUserUsername is this is not a user email.
                                                            #default is noreply@<domain> or the string "domain" if not defined
                                                            #btw this doesn't work if smtp forces auth because sogo won't
-                                                           #TODO it doesn't work without a smtp server set...
 
     #User source
     "SOGoUserSources": "SOGO_D_USERSOURCE", #TODO so much rework for that... see here dict user_source_256
@@ -208,7 +234,7 @@ domain_526 = {
     "SOGoIMAPCASServiceName" : None, #Not sure how useful it is. SOGo 5 guide says it has to do with pam_cas.
     "SOGoIMAPServer": "SOGO_D_IMAP_SERVER", #IMAP hostname will be simpligy with others param SOGO_D_IMAP_PORT and SOGO_D_IMAP_ENCRYPTION
     "SOGoSieveServer": "SOGO_D_SIEVE_SERVER", #Same but for sieve (#TODO can a sieve server be different than the imap one?)
-    "SOGoSieveFolderEncoding": "SOGO_D_SIEVE_FOLDER_ENCODING", #TODO apparently, imap and sieve use UTF7 to encode their folder name.
+    "SOGoSieveFolderEncoding": "SOGO_D_SIEVE_FOLDER_ENCODING", #apparently, imap and sieve use UTF7 to encode their folder name.
                                                                #This param allow admin to tells that the sieve server use utf8 instead
     "SOGoIMAPAclStyle": None, #There some change between rfc2086 and rfc4314 for acl https://datatracker.ietf.org/doc/html/rfc4314#appendix-A
                                                #TODO still relevant? The new rfc is from 2005 so dovecot/cyrus must be updated since.
@@ -219,14 +245,14 @@ domain_526 = {
     
     "SOGoMailSpoolPath": None,            #Path where temp files are stored for draft messages beofre being sent to the imap server.
     "NGMimeBuildMimeTempDirectory": None, #Same but for mime message. SOGo6's mean to store temp message should be way different.
-                                          #It seems to be use to avoid storing all the data in the runnic code as it can be heavy
-                                          #So tored in a file, and when nneding to be sent, read the file. #TODO not bad, an email can be heavy.
+                                          #It seems to be use to avoid storing all the data in the running code as it can be heavy
+                                          #So, stored in a file, and when needing to be sent, read the file. #TODO not bad, an email can be heavy.
     "NGImap4DisableIMAP4Pooling": "SOGO_D_IMAP_POOLING_ENABLE", #Default to YES, logout of an imap connection after 5min.
                                                                 #Change default value in SOGO 6, NO meaning no pool instead of YES = disable pool
                                                                 #TODO ask exploit about that. I was so confused when JMAP dev tell me imap needs
                                                                 #lasting connection, happends that sogo cuts it after 5 min by default.
                                                                 #After  minutes, sogo does a simple logout command to the imap server
-    "NGImap4ConnectionGroupIdPrefix": "", #TODO Apprently there are goups defined in imap server (statring with $ or @)
+    "NGImap4ConnectionGroupIdPrefix": None, #TODO Apprently there are goups defined in imap server (statring with $ or @)
                                           #This is a unix thing, see https://en.wikipedia.org/wiki/Group_identifier
 
     #Webmail config
@@ -245,7 +271,7 @@ domain_526 = {
     "SOGoVacationFooterTemplateFile": "", #See above
     "SOGoVacationAllowZeroDays": "SOGO_D_VACATION_ALLOW_RESPONSE_ALWAYS", #Allow user to set 0 for vacation response delay, meaning the vacation will be send to every message without delay.
                                     #It was a community PR but the rfc does not agree -> https://datatracker.ietf.org/doc/html/rfc5230.html#section-4.1, dovecot seems to allow that
-                                    #https://doc.dovecot.org/2.3/settings/pigeonhole-ext/vacation/#pigeonhole_setting-sieve_vacation_min_period 
+                                    #https://doc.dovecot.org/2.3/settings/pigeonhole-ext/vacation/#pigeonhole_setting-sieve_vacation_min_period
     "SOGoForwardEnabled": "SOGO_D_FORWARD_ENABLED", #ALlow user to set a forward rule (default value change)
     "SOGoForwardConstraints": None, #Set constraint on which domain you can or not set a forward rule
                                                            #TODO refactor the constrains system as it was not great on sogo (onlt whitelist, no blalcklist...)
@@ -333,7 +359,7 @@ user_source_256 = {
     "SOGoLDAPQueryTimeout": "LDAP_QUERY_TIMEOUT", #a paramater for ldap library's query method
     "SOGoLDAPGroupExpansionEnabled": None, #Parameter to expand ldap group. To None because why we want t odisable that?
 
-    "modifiers": None, #TODO list of user allowed to modify user fro m the usersource in the webmail
+    "modifiers": None, #TODO list of user allowed to modify user from the usersource in the webmail
                       #I htink it's best that they have their own tools to modify the user source (+ it's broken on sogo 5)
     "objectClasses": None, #List of value for field 'objectClass' added when modifiers is set and the user modify the source.
 
@@ -362,9 +388,10 @@ users_526 = {
     #Common
     "SOGoLanguage": "SOGO_U_LANGUAGE", #USer language
     "SOGoTimeZone": "SOGO_U_TIMEZONE", #Timezone for the user
-    "SOGoTimeFormat": "SOGO_U_TIME_FORMAT", #format of the time beware, you have ton convert objective c format to react format
+    "SOGoTimeFormat": "SOGO_U_TIME_FORMAT", #format of the time. Beware, you have to convert objective c format to react format
     "SOGoDayStartTime": "SOGO_U_WORKDAY_START_TIME", #Tell at which hour the workday start, use by other functionalities
     "SOGoDayEndTime": "SOGO_U_WORKDAY_END_TIME",     #Same but for the end
+    "SOGoBusyOffHours": "SOGO_U_BUSY_OFF_HOURS", #Automaticaly be busy outside of working hour defined by SOGoDayStartTime and SOGoDayEndTime
 
     #Passwords
     #TODO Should not migrate that sensitive data about a user
@@ -376,15 +403,29 @@ users_526 = {
 
     #Mail Folders' name, user can change which folder is what from the webmail
     #TODO it does not change any imap property, it only change the name folder when you're doing action from webui like trash or junk
-    #Infox is not affected
+    #Inbox is not affected
     "SOGoDraftsFolderName": "SOGO_U_DRAFT_FOLDER_NAME", #Name of the draft folder, default to 'Drafts' (translated).
     "SOGoSentFolderName":   "SOGO_U_SENT_FOLDER_NAME", #Name of the sent folder, default to 'Sent' (translated).
     "SOGoTrashFolderName":  "SOGO_U_TRASH_FOLDER_NAME", #Name of the trash folder, default to 'Trash' (translated).
     "SOGoJunkFolderName":   "SOGO_U_JUNK_FOLDER_NAME", #Name of the junk folder, default to 'Junk' (translated).
 
     #Accounts and mail
-    "SOGoMailShowSubscribedFoldersOnly": "SOGO_U_ONLY_SUBSCRIBED_MAIL_FOLDER", #TODO Only show subscribed mail folders... why?
+    "SOGoMailShowSubscribedFoldersOnly": None, #TODO Only show subscribed mail folders... why?
     "SOGoMailAuxiliaryUserAccountsEnabled": "SOGO_D_ALLOW_EXT_MAIL_ACCOUNT", #Allow user to add external account to their webmail
+    "SOGoMailMessageForwarding": "SOGO_U_MAIL_FORWARDING_FORMAT", #Tell if the forwaded mail is in the body or in a attachment
+    "SOGoMailDisplayFullEmail": None, #Instead of just showing the name of the sender, also display the full mail address
+                                      #TODO Remove from SOGo 6 because it's on a tooltip instead.
+    "SOGoMailHideInlineAttachments": "SOGO_U_HIDE_INLINE_ATTACHMENT", #Do not hsow inline image as attachment in the webmail (useful with small pics for social networks)
+    "SOGoMailCustomFullName": None, #Was not used in SOGo5 anymore, only in previous version.
+    "SOGoMailCustomEmail": None, #Idem
+    "SOGoMailReplyTo": None, #Idem
+    "SOGoMailReplyPlacement": "SOGO_U_REPLY_POSITION", #When replying to a mail, where to put the original message: above or below the user answer?
+    "SOGoMailSignaturePlacement": "SOGO_U_SIGNATURE_POSITION", #When replying, forwarding a mail where to put the signature. Below the quoted message or above it
+    "SOGoMailUseSignatureOnNew": None, #TODO Instead of three settings, convert them in a list SOGO_U_USE_SIGNATURE
+    "SOGoMailUseSignatureOnReply": None, #idem
+    "SOGoMailUseSignatureOnForward": None, #Idem
+    "SOGoMailComposeMessageType": "SOGO_U_COMPOSE_MAIL_TYPE_DEFAULT", #TODO Should be a switch on the mail editor instead of a settings BUT is the default value
+    "SOGoMailComposeWindow": "SOGO_U_COMPOSE_MAIL_WINDOW", #When writting a new mail, is in an inline html or a pop up?
 
     #Web page
     "SOGoLoginModule": "SOGO_U_FIRST_MODULE", #Tell what module (mail, calendar, contacts, last one used) to show first after connection
@@ -400,18 +441,20 @@ users_526 = {
                                                                 #'First4DayWeek' -> '%V' in datetime format
                                                                 #'FirstFullWeek' -> either %U (first sunday) or %W (first monday)
     "SOGoCalendarCategories": "SOGO_U_CALENDAR_CATEGORIES", #Name of the calendar categories, in an array 
-    "SOGoCalendarCategoriesColors": "",                     #Colors of the calendar categories, in an array with same index
+    "SOGoCalendarCategoriesColors": None,                     #Colors of the calendar categories, in an array with same index
                                                             #TODO rework that for SOGo6 to not have 2 arrays, array of tuple (name, color, is_default)
-                                                            #is_default means taht the categorie was here by default, and can be translated.
+                                                            #is_default means that the categorie was here by default, and can be translated.
                                                             #is_default = False means this is custom categorie from the user can can't be translated
     "SOGoCalendarEventsDefaultClassification": "SOGO_U_EVENT_DEFAULT_CLASS", #Which event class is set when creating new event (public, confidential, private)
-
-    
+    "SOGoCalendarTasksDefaultClassification":  "SOGO_U_TASK_DEFAULT_CLASS", #Which task class is set when creating new task (public, confidential, private)
+    "SOGoCalendarDefaultReminder": "SOGO_U_EVENT_DEFAULT_REMINDER", #Default reminder used for new events she enabling it
 
     #Contacts
     "SOGoMailAddOutgoingAddresses": "SOGO_U_COLLECT_UNKNWON_ADDRESSES", #Boolean, set to yes ot add unknwon address (= not in any addressbook folders, including the global one)
                                                                        #Add it to the next address book
     "SOGoSelectedAddressBook": "SOGO_U_COLLECT_UNKNWON_ADDRESSEBOOK_NAME", #Name of the address book that collects all unknwonw address, default to 'Collected' (translated)
+    "SOGoContactsCategories": "SOGO_U_CONTACT_CATEGORIES", #List of contacts category #TODO format change in SOGo 6
+
 
     #Sieve
     "SOGoSieveFilters": "SOGO_D_SIEVE_FIRST_FILTER", #First sieve filtre set for new users, can be changed afterwards.

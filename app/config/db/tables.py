@@ -34,7 +34,7 @@ SELECT domain_settings,domain_origin from sogo_settings_domains WHERE domain_nam
 # domain_settings: Setiings of this domain
 # domain_origin: Origin of the tsettings (default sogo, default admin, rule's name or direct)
 # domain_user_defaults: all user settings with value force by the admin
-COL_DOMAIN_NAME          = Column(name="domain_name", data_type="str", extra_agrs={"max_len": 255}) #max length is 255 -> https://www.rfc-editor.org/rfc/rfc1035#section-2.3.4
+COL_DOMAIN_NAME          = Column(name="domain_name", data_type="str", extra_args={"max_len": 255}) #max length is 255 -> https://www.rfc-editor.org/rfc/rfc1035#section-2.3.4
 COL_DOMAIN_SETTINGS      = Column(name="domain_settings", data_type="dict")
 COL_DOMAIN_ORIGIN        = Column(name="domain_origins", data_type="dict")
 COL_DOMAIN_USER_DEFAULTS = Column(name="domain_user_defaults", data_type="dict")
@@ -57,8 +57,8 @@ SELECT domain_settings,domain_origin from sogo_settings_domains WHERE domain_nam
 # rule_name: Name of the rule
 # rule_domains: domains affected byt this rule
 # rule_setting: Settings affected by this rule
-COL_RULE_NAME     = Column(name="rule_name", data_type="str", is_unique=True, extra_agrs={"max_len": 255})
-COL_RULE_DOMAINS  = Column(name="rule_domains", data_type="list", extra_agrs={"data_type": "str", "extra_args": {"max_len": 255}})
+COL_RULE_NAME     = Column(name="rule_name", data_type="str", is_unique=True, extra_args={"max_len": 255})
+COL_RULE_DOMAINS  = Column(name="rule_domains", data_type="list", extra_args={"data_type": "str", "extra_args": {"max_len": 255}})
 COL_RULE_SETTINGS = Column(name="rule_setting", data_type="dict")
 ALL_RULE_COL      = [COL_ID,
                      COL_RULE_NAME,
@@ -82,16 +82,16 @@ All queries will have WHERE uid = <uid>
 # acl_received: acl received from users
 # delegation_given: delegtation given to users
 # delegation_received: delegtation received from users
-COL_USER_UID              = Column(name="uid", data_type="str", extra_agrs={"max_len": 512})
+COL_USER_UID              = Column(name="uid", data_type="str", extra_args={"max_len": 512})
 COL_USER_DEFAULTS         = Column(name="defaults", data_type="dict")
 COL_USER_FOLDERS          = Column(name="folders", data_type="dict")
 COL_USER_IDENTITIES       = Column(name="identities", data_type="dict")
 COL_USER_FILTERS          = Column(name="filters", data_type="dict", is_nullable=True)
-COL_USER_PRIVATE_SALT     = Column(name="private_salt", data_type= "str", extra_agrs={"max_len": 4096})
-COL_USER_ACL_GIVEN        = Column(name="acl_given", data_type="list", extra_agrs={"data_type": "str", "extra_args": {"max_len": 512}})
-COL_USER_ACL_GOT          = Column(name="acl_received", data_type="list", extra_agrs={"data_type": "str", "extra_args": {"max_len": 512}})
-COL_USER_DELEGATION_GIVEN = Column(name="delegation_given", data_type="list", extra_agrs={"data_type": "str", "extra_args": {"max_len": 512}})
-COL_USER_DELEGATION_GOT   = Column(name="delegation_received", data_type="list", extra_agrs={"data_type": "str", "extra_args": {"max_len": 512}})
+COL_USER_PRIVATE_SALT     = Column(name="private_salt", data_type= "str", extra_args={"max_len": 4096})
+COL_USER_ACL_GIVEN        = Column(name="acl_given", data_type="list", extra_args={"data_type": "str", "extra_args": {"max_len": 512}})
+COL_USER_ACL_GOT          = Column(name="acl_received", data_type="list", extra_args={"data_type": "str", "extra_args": {"max_len": 512}})
+COL_USER_DELEGATION_GIVEN = Column(name="delegation_given", data_type="list", extra_args={"data_type": "str", "extra_args": {"max_len": 512}})
+COL_USER_DELEGATION_GOT   = Column(name="delegation_received", data_type="list", extra_args={"data_type": "str", "extra_args": {"max_len": 512}})
 ALL_USER_COL              = [COL_USER_UID,
                              COL_USER_DEFAULTS,
                              COL_USER_FOLDERS,

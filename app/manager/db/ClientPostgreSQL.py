@@ -21,8 +21,8 @@ def str_to_varchar(max_len: int = 0) -> str:
     """
     Convert a string type to a varchar()
     """
-    if max_len == 0:
-        return "varchar()"
+    if max_len <= 0:
+        return "varchar"
     return f"varchar({max_len})"
 
 def list_to_array(data_type: str, extra_args: dict = None) -> str:
@@ -73,7 +73,10 @@ def table_to_query(table: Table) -> Composed:
         if isinstance(data_type, str):
             pass
         elif callable(data_type):
-            data_type = data_type(**column.extra_args)
+            if column.extra_args is None:
+                data_type = data_type()
+            else:
+                data_type = data_type(**column.extra_args)
 
         sql_column = SQL("{column_name} {column_type} ").format(
             column_name=Identifier(column.name),
@@ -82,9 +85,9 @@ def table_to_query(table: Table) -> Composed:
 
         if not column.is_nullable:
             sql_column = Composed([sql_column, SQL("NOT NULL")])
-        
-        if column.is_nullable:
-            sql_column = Composed([sql_column, SQL("UNIQUE")])
+
+        if column.is_unique:
+            sql_column = Composed([sql_column, SQL(" UNIQUE")])
 
         sql_all_column.append(sql_column)
 
@@ -124,7 +127,7 @@ def condition_to_query(condition: Condition, add_where : bool = False) -> Compos
 
 class ClientPostgreSQL(ClientSQL):
     """
-    Class to connect, read and write into a sql database 
+    Class to connect, read and write into a sql database
     """
 
     def __init__(self, db_user: str, db_pwd: str, db_host: str, db_port: int,  db_ssl: bool, db_enc: str):
@@ -156,6 +159,7 @@ class ClientPostgreSQL(ClientSQL):
 
         if not re.match(REX_VALID_NAMES, table_name):
             logger_sql.error("Trying to get a table info from an invalid table name: %s", table_name)
+            raise BugException(f"Trying to get a table info from an invalid table name: {table_name}")
 
         if self.db_conn is None or self.db_conn.closed:
             self.connect()
@@ -181,17 +185,11 @@ class ClientPostgreSQL(ClientSQL):
 
         return ret
 
-
-
     def create_table(self, table : Table) -> None:
         """
         Create a table
         Table should already be sql-exploit free
         """
-        if not isinstance(table, Table):
-            logger.error("Try generate a table without the class Table")
-            return
-
         if self.db_conn and self.db_conn.closed:
             self.connect()
 
@@ -206,6 +204,8 @@ class ClientPostgreSQL(ClientSQL):
                 logger_sql.warning("Attempted to create a table that already exist %s, the schema may be different", table.name)
             except Error as e:
                 logger_sql.error("Error when creating table %s", e)
+                self.db_conn.commit()
+                raise RequestException("Error when creating table") from e
             finally:
                 self.db_conn.commit()
 
@@ -213,10 +213,6 @@ class ClientPostgreSQL(ClientSQL):
         """
         Create several tables
         """
-        if not isinstance(table_list, list):
-            logger.error("Try generate several table without a list")
-            return
-
         if self.db_conn and self.db_conn.closed:
             self.connect()
 
@@ -256,22 +252,75 @@ class ClientPostgreSQL(ClientSQL):
         if self.db_conn is not None:
             try:
                 all_record = self.db_conn.execute(sql_query, sql_all_values)
-                print(f"HEY, my query {sql_query.as_string(self.db_conn)}")
                 if all_record.rowcount == 0:
                     logger_sql.info("QUERY RESULT: None inserted")
                 else:
                     logger_sql.info("QUERY RESULT: inserted %s rows", all_record.rowcount)
-                ret = all_record
+                ret = all_record.rowcount
             except Error as e:
-                logger_sql.error("Error (%s) when selecting table %s", type(e), e)
+                logger_sql.error("Error (%s) when inserting table %s", type(e), e)
             finally:
                 self.db_conn.commit()
 
         return ret
 
+    def update_in_table(self, table_name: str, column_tuple: tuple, values_list: list, condition: Condition) -> int:
+        """
+        Insert data in a table
+        """
+        ret = 0
+        if self.db_conn and self.db_conn.closed:
+            self.connect()
+
+        #Check column len and values len
+        insert_len = len(column_tuple)
+        if (value_len := len(values_list)) != insert_len:
+            logger_sql.error("Try to update more or less data than the specified columns. Column size: %s, data_size: %s", insert_len, value_len)
+            raise BugException(f"Try to update more or less data than the specified columns. Column size: {insert_len}, data_size: {value_len}")
+
+        #Prepare placeholders and convert dict to Jsonb
+        sql_all_placeholder = [SQL("({})").format(SQL(', ').join(Placeholder() * insert_len))]
+        for idx, value in enumerate(values_list):
+            if isinstance(value, dict):
+                values_list[idx] = Jsonb(value)
+
+        #Create and execute the query
+        sql_query = SQL("UPDATE {table_name} SET ({columns}) = ROW({values}) {coniditions}").format(
+            table_name=Identifier(table_name),
+            columns=SQL(", ").join(map(Identifier, column_tuple)),
+            values=SQL(", ").join(sql_all_placeholder),
+            coniditions=condition_to_query(condition, add_where=True)
+        )
+
+        if self.db_conn is not None:
+            logger_sql.info("QUERY COMMAND: %s", sql_query.as_string())
+            try:
+                all_record = self.db_conn.execute(sql_query, values_list)
+                if all_record.rowcount == 0:
+                    logger_sql.info("QUERY RESULT: None updated")
+                else:
+                    logger_sql.info("QUERY RESULT: updated %s rows", all_record.rowcount)
+                ret = all_record.rowcount
+            except Error as e:
+                logger_sql.error("Error (%s) when updating table %s", type(e), e)
+            finally:
+                self.db_conn.commit()
+
+        return ret
     
     def select_from_table(self, table_name: str, column_tuple: tuple[str], condition: Condition) -> Generator[tuple[Any, ...]]:
+        """
+        Select values from a table under conditions
 
+        :param table_name: Name fo the table
+        :type table_name: str
+        :param column_tuple: Tuple of the column name to select
+        :type column_tuple: tuple[str]
+        :param condition: Condition on the query
+        :type condition: Condition
+        :yield: A generator, each item is a tuple with the values corresponding to the column_tuple param
+        :rtype: Generator[tuple[Any, ...]]
+        """
         if self.db_conn and self.db_conn.closed:
             self.connect()
         if len(column_tuple) == 0:
@@ -290,7 +339,7 @@ class ClientPostgreSQL(ClientSQL):
                 if all_record.rowcount == 0:
                     logger_sql.info("QUERY RESULT: empty")
                 else:
-                    logger_sql.info("QUERY RESULT: fetch has %s rows", all_record.rowcount)
+                    logger_sql.info("QUERY RESULT: fetch %s rows", all_record.rowcount)
                 while record := all_record.fetchone():
                     yield record
             except Error as e:
@@ -298,10 +347,16 @@ class ClientPostgreSQL(ClientSQL):
             finally:
                 self.db_conn.commit()
 
+    def select_from_several_table(self, table_name: str, column_tuple: tuple, condition: Condition) -> Generator[tuple[Any, ...]]:
+        """
+        select values from several tables
+        """
+        logger_sql.error("Method 'select_from_several_table' of clientSQL must be implemented by the children %s", type(self).__name__)
+        raise NotImplementedError
 
     def close(self) -> None:
         """
-        Close the connection to the database
+        Close the connection to the database 
         """
         if self.db_conn is not None and not self.db_conn.closed:
             self.db_conn.close()
