@@ -30,6 +30,7 @@ class UserSettings(Schema):
     SOGO_U_COLLECT_UNKNWON_ADDRESSES = fields.Boolean(load_default=False, dump_default=False) #Send mail notification when user create a calenanr or addrebook
 
     #Mail
+    SOGO_U_GRAVATAR_ENABLED  = fields.Boolean() #Download gravatar pics
     SOGO_U_DRAFT_FOLDER_NAME = fields.String() #Name of the draft folder
     SOGO_U_SENT_FOLDER_NAME  = fields.String() #Name of the sent folder
     SOGO_U_TRASH_FOLDER_NAME = fields.String() #Name of the trash folder

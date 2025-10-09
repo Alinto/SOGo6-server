@@ -51,8 +51,8 @@ system_526 = {
                                                                 #Also see SOGoCalendarJitsiBaseUrl in domain_526
 
     # DAV settings, now is domain
-    "SOGoAddressBookDAVAccessEnabled": "SOGO_D_DAV_CONTACT_ENABLED",
-    "SOGoCalendarDAVAccessEnabled":    "SOGO_D_DAV_CALENDAR_ENABLED",
+    "SOGoAddressBookDAVAccessEnabled": "SOGO_D_CARDAV_ENABLED",
+    "SOGoCalendarDAVAccessEnabled":    "SOGO_D_CALDAV_ENABLED",
 
     # Language
     "SOGoSupportedLanguages": None, #TODO, To limit the languages available for users (SOGoLanguage). Useless and not inclusive.
@@ -170,7 +170,7 @@ domain_526 = {
     "SOGoFreeBusyDefaultInterval": None, #TODO was telling the span of freebusy evaluated for events (default to (-7,+7 days)).
                                          #Depends on how the front can manage the calendar view but we can make one week + boutton to go to the next or previous week.
                                          #So a fixed lenghts of 7 days.
-    "SOGoDAVCalendarStartTimeLimit": "SOGO_D_CALDAV_START_TIME", #Limit the numbers of days that caldav sync in the past. Default to 0, no limit.
+    "SOGoDAVCalendarStartTimeLimit": "SOGO_D_DAV_START_TIME", #Limit the numbers of days that caldav sync in the past. Default to 0, no limit.
                                                                  #Example: 180 means caldav only returns events that are less than 180 days old.
 
     # Contact setting
@@ -181,7 +181,8 @@ domain_526 = {
     "SOGoDisableExport":                 "SOGO_D_FOLDER_DISABLE_EXPORT", #Disable sharing of folders (remove the uppercase for value)
     "SOGoDisableSharing":                "SOGO_D_FOLDER_DISABLE_SHARING", #Disable sharing of folders (remove the uppercase for value)
     "SOGoDisableSharingAnyAuthUser":     "SOGO_D_FOLDER_DISABLE_SHARING_ANY_AUTH", #Disable sharing for any authenticated user (remove the uppercase for value)
-    "SOGoEnablePublicAccess":            "SOGO_D_DAV_PUBLIC_ACCESS_ENABLE", #Enable public acces to dav link
+    "SOGoEnablePublicAccess":            "SOGO_D_CALDAV_PUBLIC_ACCESS_ENABLE", #Enable public acces to dav link #TODO, seperate in two settings SOGO_D_CARDAV_PUBLIC_ACCESS_ENABLE
+
     "SOGoFoldersSendEMailNotifications": "SOGO_U_FOLDER_CREATION_NOTIF", #Was domain but better at user's, change the default from False to True
     "SOGoSearchMinimumWordLength":       "SOGO_D_AUTOCOMPLETION_MIN_LEN", #Minimum length of chars before searching for autocompletion
 
@@ -191,7 +192,7 @@ domain_526 = {
     "SOGoMailCustomFromEnabled": "SOGO_D_IDENTITIES_CUSTOM_FROM_ENABLED", #ALlow user to change their mail in their identities 
 
     # LDAP
-    "SOGoLDAPContactInfoAttribute": "", #TODO Should be in UserSource, LDAP attribute to show for autocompletion (default Name <mail>)
+    "SOGoLDAPContactInfoAttribute": None, #TODO Move to US_EXTRA_CONTACT_INFO
 
     # Mail Editor
     "SOGoForceRawHtmlSignature": None, #SHould be set to YES in our case (value by default in SOGo5) -> https://bugs.sogo.nu/view.php?id=5920
@@ -212,21 +213,21 @@ domain_526 = {
     "SOGoMailCertificateEnabled": None, #Allow or not to add s/mime certificat for itself. #TODO Why on earth we will forbid user to do that?
 
     # Password
-    "SOGoPasswordRecoveryFrom": "SOGO_D_SMTP_SYSTEM_FROM", #Nothing to do with imap, mail used as from for sending email recovery's password.
+    "SOGoPasswordRecoveryFrom": "SOGO_D_MAIL_SYSTEM_FROM", #Nothing to do with imap, mail used as from for sending email recovery's password.
                                                            #Diff with SOGoSMTPMasterUserUsername is this is not a user email.
                                                            #default is noreply@<domain> or the string "domain" if not defined
                                                            #btw this doesn't work if smtp forces auth because sogo won't
 
     #User source
-    "SOGoUserSources": "SOGO_D_USERSOURCE", #TODO so much rework for that... see here dict user_source_256
+    "SOGoUserSources": "SOGO_D_USERSOURCE",
 
     #Outoing Server
-    "SOGoMailingMechanism": "SOGO_D_SEND_MAIL_TYPE",          #type ot the mechanism to send mail: sendmail or smtp
+    "SOGoMailingMechanism": "SOGO_D_MAIL_OUTGOING_TYPE",          #type ot the mechanism to send mail: sendmail or smtp
     "SOGoSMTPServer": "SOGO_D_SMTP_SERVER",                   #hostname/url of the smtp server can be from smtp://domain:port to the domain only
                                                               #To simplify thing, we add others params as SOGO_D_SMTP_PORT and SOGO_D_SMTP_ENCRYPTION
     "SOGoSMTPAuthenticationType": "SOGO_D_SMTP_AUTH_MECH",    #auth mechanism of the smtp server null (no auth), plain or xoauth2
     "SOGoSMTPMasterUserEnabled":"SOGO_D_SMTP_MASTER_ENABLED", #For system message (notificaitons, invit...) use a master account instead of the user.
-    "SOGoSMTPMasterUserUsername":"SOGO_D_SMTP_MASTER_MAIL",   #Master mail
+    "SOGoSMTPMasterUserUsername":"SOGO_D_SMTP_MASTER_LOGIN",   #Master mail
     "SOGoSMTPMasterUserPassword":"SOGO_D_SMTP_MASTER_PWD",    #Master password
 
     #Ingoing Server
@@ -247,7 +248,7 @@ domain_526 = {
     "NGMimeBuildMimeTempDirectory": None, #Same but for mime message. SOGo6's mean to store temp message should be way different.
                                           #It seems to be use to avoid storing all the data in the running code as it can be heavy
                                           #So, stored in a file, and when needing to be sent, read the file. #TODO not bad, an email can be heavy.
-    "NGImap4DisableIMAP4Pooling": "SOGO_D_IMAP_POOLING_ENABLE", #Default to YES, logout of an imap connection after 5min.
+    "NGImap4DisableIMAP4Pooling": None, #SO much useless work to save a connection request...
                                                                 #Change default value in SOGO 6, NO meaning no pool instead of YES = disable pool
                                                                 #TODO ask exploit about that. I was so confused when JMAP dev tell me imap needs
                                                                 #lasting connection, happends that sogo cuts it after 5 min by default.
@@ -260,7 +261,7 @@ domain_526 = {
     "SOGoRefreshViewIntervals": "SOGO_D_MAIL_REFRESH_INTERVAL_ALLOWED", #Set what refresh interval (for mail) is available to users
  
     #Sieve
-    "SOGoSieveScriptsEnabled": "SOGO_D_SIEVE_ENABLED", #Allow user to set sieve filters
+    "SOGoSieveScriptsEnabled": "SOGO_D_MAIL_FILTERING_ENABLED", #Allow user to set sieve filters
     "SOGoSieveScriptHeaderTemplateFile": "SOGO_D_SIEVE_HEADER", #Set a siever filter that will at the head of each user, was a path to a sieve file now is directly a ddb ready value
     "SOGoSieveScriptFooterTemplateFile": "SOGO_D_SIEVE_FOOTER", #Set a siever filter that will at the foot of each user, was a path to a sieve file now is directly a ddb ready value
     "SOGoVacationEnabled": "SOGO_D_VACATION_ENABLED", #Allow user to set a sieve autoreply. (default value change)
@@ -287,7 +288,7 @@ domain_526 = {
 #As it was often written "ldap fields or SQL columns", a shorcut was made "sqldap field"
 user_source_256 = {
     "type": "US_TYPE", #'sql" or 'ldap'
-    "id":   "US_ID", #name used by sogo to identifies this user source among the others, must be unique
+    "id":   "US_UID", #name used by sogo to identifies this user source among the others, must be unique
 
     #Common
     "MailFieldNames": "US_MAIL", #Array of sqldap field that tell the user's mail. Default to ('mail'). Should be ('mail", 'alias')
@@ -296,8 +297,9 @@ user_source_256 = {
                                 #Too much config available. A User Source is in a domain where an IMAP server ca be config +
                                 #SOGo6 is agnostic about the mail server (Imap, Jmap?) + do an imap proxy for that.
                                 ###ALAS, somes uses it...........
-    "IMAPLoginFieldName ": "US_IMAP_LOGIN", #sqldap field where to fetch the imap login for a user (default to UIDFieldName for ldap or c_uid for sql)
-    "SieveHostFieldName ": None, #See IMAPHostFieldName.
+                                #OK WE KEEP THAT IN SOGO 6 !!!!!!!!
+    "IMAPLoginFieldName ": "US_MAIL_SERVER_LOGIN", #sqldap field where to fetch the imap login for a user (default to UIDFieldName for ldap or c_uid for sql)
+    "SieveHostFieldName ": "US_MAIL_FILTERING_LOGIN", #See IMAPHostFieldName.
 
     "userPasswordAlgorithm": "US_PWD_ALGO", #Encryption algorithm for users' password (#TODO keep all crypt supported by sogo? )
                                             #https://bugs.sogo.nu/view.php?id=5837
@@ -315,13 +317,14 @@ user_source_256 = {
                               #No need to migrate it as the problem won't be migrated ;)
     "ModulesConstraints": None, #Used to limit access to Mail, Calendar, ActiveSYnc to users dependings on a colomn
                                 #Exemple: only user with c_test = mailer can access Mail
-                                #TODO, migrate it? It already exist the same for domains.
+                                #TODO, move to domain settings SOGO_D_MODULE_ACCESS
         
-    "mapping": "", #TODO map sqldap field to vcard field https://www.sogo.nu/files/docs/SOGoInstallationGuide.html#_ldap_attributes_mapping
+    "mapping": "US_MAPPING", #TODO map sqldap field to vcard field https://www.sogo.nu/files/docs/SOGoInstallationGuide.html#_ldap_attributes_mapping
 
     #Common resource
-    "KindFieldName":      "US_KIND", #sqldap field to see the king of 'user', if the value is among "group", "location" or "thing"
+    "KindFieldName":      "US_KIND", #sqldap field to see the kind of 'user', if the value is among "group", "location" or "thing"
                                       #this is a resource and not a user. For ldap, SOGo also detect a resource if it has objectClass: CalendarResource
+                                      #TODO warning, there is an extra parameters to set for this one US_HAS_RESOURCE
     "MultipleBookingsFieldName": "US_RESOURCE_MULTIBOOKING", #sqldap field to set how much a resource can be silmutaneously booked.
                                                              #0 -> no limit
                                                              #-1 -> no limit but the resource will be busy the first time it is booked
@@ -338,6 +341,7 @@ user_source_256 = {
     "encryption": None,  #already deprecated in SOGo 5, use in hostname with ldaps instead of ldap
     "passwordPolicy": "LDAP_PWD_POLICY", #doesn't define the password policy but tell SOGO that the ldap server has the extension password policy
                                          #https://www.ietf.org/archive/id/draft-behera-ldap-password-policy-11.html
+                                         #https://www.rfc-editor.org/rfc/rfc3062.html
     "updateSambaNTLMPasswords": "LDAP_SAMBA_PWD", #For samba extension (https://www.samba.org/) update the correct field for the password
 
     "CNFieldName": "LDAP_CN", #Value being the common name default to 'cn'
@@ -359,11 +363,11 @@ user_source_256 = {
     "SOGoLDAPQueryTimeout": "LDAP_QUERY_TIMEOUT", #a paramater for ldap library's query method
     "SOGoLDAPGroupExpansionEnabled": None, #Parameter to expand ldap group. To None because why we want t odisable that?
 
-    "modifiers": None, #TODO list of user allowed to modify user from the usersource in the webmail
-                      #I htink it's best that they have their own tools to modify the user source (+ it's broken on sogo 5)
+    "modifiers": None, #DO NOT MIGRATE List of user allowed to modify user from the usersource in the webmail
+                      #I think it's best that they have their own tools to modify the user source (+ it's broken on sogo 5)
     "objectClasses": None, #List of value for field 'objectClass' added when modifiers is set and the user modify the source.
 
-    "abOU": None, #TODO User can have their addressbook in the ldap server instead of the database.
+    "abOU": None, #DO NOT MIGRATE User can have their addressbook in the ldap server instead of the database.
 
     #Was ldap but moved to be common to both sql and ldap
     "SOGoLDAPContactInfoAttribute": "US_EXTRA_CONTACT_INFO", #sqldap field with a string to show when doing autocompletion (it's cn <extra> mail)
@@ -371,7 +375,7 @@ user_source_256 = {
 
     #SQL
     "viewURL": "SQL_USER_URL", #database url for the user sources
-    "userPasswordPolicy": "US_PASSWORD_POLICY", #PAssword polic yused by sogo when changing password or checkin the weakness at login.
+    "userPasswordPolicy": "US_PWD_POLICY", #PAssword polic yused by sogo when changing password or checkin the weakness at login.
     "prependPasswordScheme": "SQL_PREPEND_PWD_SCHEME", #the password stored in teh database will have the scheme before the encrypte value like {scheme}encryptedPass
 
     "authenticationFilter": "SQL_USER_FILTER", #additionnal where clause when querying the users

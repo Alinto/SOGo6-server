@@ -31,4 +31,5 @@ l.set_option(ldap.OPT_X_TLS_REQUIRE_CERT, ldap.OPT_X_TLS_HARD) # pylint: disable
 l.simple_bind(LOGIN_DN, LOGIN_PW)
 ret = l.search_s("ou=users,dc=example,dc=org", ldap.SCOPE_SUBTREE, "objectclass=*") # pylint: disable=no-member
 print(ret)
+
 #Beware of ret param are str but value are bytes

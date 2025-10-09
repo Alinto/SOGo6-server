@@ -6,6 +6,19 @@ Defines all domains parameters
 
 from marshmallow import Schema, fields, validate, validates_schema, ValidationError, post_load, post_dump
 
+"""
+constraints:
+choices: a list a possible value for this parameter (ex: ['ldap', 'sql'])
+min or min_inclusive: number, minimun value for this parameter (ex: 0)
+max or max_inclusive: number, maximun value for this parameter (ex: 10)
+prefix: fixed prefix for this parameters (ex: 'maitlo:')
+prefixed: list of fixed choices of prefix for this parameter (ex ['http://', 'https://'])
+len_min: number, minimum lenght of this string (ex: 4)
+len_max: number, maximum lenght of this string (ex: 12)
+"""
+
+
+
 class SymmetricKey(Schema):
     """
     Schema for symmetric key when a cryptographic algo needs one
@@ -26,122 +39,140 @@ class PasswordPolicy(Schema):
     """
     Schema for the password policies
     """
-    PW_LEN_MIN = fields.Integer(load_default=1, dump_default=1,validate=validate.Range(min=1)) #Minimum lenght of password
-    PW_LEN_MAX = fields.Integer(load_default=0, dump_default=0,validate=validate.Range(min=0)) #Maximum lenght of password, 0 means no limit
-    PW_UPPERCASE = fields.Integer(load_default=0, dump_default=0,validate=validate.Range(min=0)) #Minimum number of uppercase letter, 0 means no need
-    #TODO the rest...
 
 #As it was often written "ldap fields or SQL columns", a shorcut was made: "sqldap field"
 class UserSource(Schema):
     """
     Schema for an agnostic User Source
     """
+    
+    subparent = "USER_SOURCE"
+    dependencies = {
+        "US_LDAP_HOSTNAME": ("US_TYPE", "ldap"),
+        "US_LDAP_CN": ("US_TYPE", "ldap"),
+        "US_LDAP_ID": ("US_TYPE", "ldap"),
+        "US_LDAP_UID" : ("US_TYPE", "ldap"),
+        "US_LDAP_BASE_DN": ("US_TYPE", "ldap"),
+        "US_LDAP_FILTER": ("US_TYPE", "ldap"),
+        "US_LDAP_SCOPE": ("US_TYPE", "ldap"),
+        "US_LDAP_PWD_POLICY": ("US_TYPE", "ldap"),
+        "US_LDAP_SAMBA_PWD": ("US_TYPE", "ldap"),
+        "US_LDAP_QUERY_TIMEOUT": ("US_TYPE", "ldap"),
+        "US_LDAP_BIND_DN": ("US_TYPE", "ldap"),
+        "US_LDAP_BIND_PWD": ("US_TYPE", "ldap"),
+        "US_LDAP_BIND_AS_USER": ("US_TYPE", "ldap"),
+        "US_LDAP_BIND_FIELD": ("US_TYPE", "ldap"),
+        "US_LDAP_LOOKUP_FIELD": ("US_TYPE", "ldap"),
+        "US_LDAP_GROUP_CLASS": ("US_TYPE", "ldap"),
+        "US_SQL_USER_URL": ("US_TYPE", "sql"),
+        "US_SQL_PREPEND_PWD_SCHEME": ("US_TYPE", "sql"),
+        "US_SQL_USER_FILTER": ("US_TYPE", "sql"),
+        "US_SQL_DOMAIN_FIELD": ("US_TYPE", "sql"),
+
+        "US_PWD_ALGO": ("US_CAN_AUTH", True),
+        "US_SIM_KEY_TYPE": ("US_PWD_ALGO", 'sym-aes-128-cbc'),
+        "US_SIM_KEY_VALUE": ("US_PWD_ALGO", 'sym-aes-128-cbc'),
+
+        "US_PWD_POLICY": ("US_CAN_AUTH", True),
+        "US_PWD_LEN_MIN": ("US_PWD_POLICY", True),
+        "US_PWD_LEN_MAX": ("US_PWD_POLICY", True),
+        "US_PWD_UPPERCASE_MIN": ("US_PWD_POLICY", True),
+        "US_PWD_LOWERCASE_MIN": ("US_PWD_POLICY", True),
+        "US_PWD_DIGITS_MIN": ("US_PWD_POLICY", True),
+        "US_PWD_SPECIAL_MIN": ("US_PWD_POLICY", True),
+        "US_PWD_SPECIAL_ALLOWED": ("US_PWD_POLICY", True),
+
+        "US_MAIL": ("US_CAN_AUTH", True),
+        "US_MAIL_SERVER_LOGIN": ("US_CAN_AUTH", True),
+        "US_MAIL_FILTERING_LOGIN": ("US_CAN_AUTH", True),
+        "US_MAIL_OUTGOING_LOGIN": ("US_CAN_AUTH", True),
+
+        "US_SEARCH": ("US_IS_ADDRESSBOOK", True),
+        "US_DISPLAY_NAME": ("US_IS_ADDRESSBOOK", True),
+        "US_AUTO_SEARCH": ("US_IS_ADDRESSBOOK", True),
+        "US_AUTO_QUERY_LIMIT": ("US_IS_ADDRESSBOOK", True),
+        "US_EXTRA_CONTACT_INFO": ("US_IS_ADDRESSBOOK", True),
+        "US_HIDDEN_USER": ("US_IS_ADDRESSBOOK", True),
+
+        "US_RESOURCE_SEARCH": ("US_HAS_RESOURCE", True),
+        "US_RESOURCE_MULTIBOOKING": ("US_HAS_RESOURCE", True),
+        "US_EXTRA_RESOURCE_INFO": ("US_HAS_RESOURCE", True),
+    }
+
+    PWD_ALGO = ('none', 'plain',
+               'crypt',
+               'md5','md5-crypt',
+               'smd5', 'cram-md5', 'ldap-md5',
+               'sha',
+               'sha256', 'sha256-crypt', 'ssha256',
+               'sha512', 'sha512-crypt', 'ssha512',
+               'blf-crypt',
+               'PBKDF2',
+               'sym-aes-128-cbc',
+               'argon2i', 'argon2id'
+    )
+
+    US_UID  = fields.String(required=True) #must be unique
     US_TYPE = fields.String(required=True, validate=validate.OneOf(('ldap', 'sql'))) #Type of the user source
-    US_ID   = fields.String(required=True) #must be unique
 
-    US_MAIL       = fields.List(fields.String(), load_default=['mail'], dump_default=['mail']) #Name of the sqldap field with the user's mail/alias
-    US_SEARCH     = fields.List(fields.String()) #Array of sqldap field used for autocompletion/search of user
+    US_LDAP_HOSTNAME = fields.Url(required=True, schemes={'ldap', 'ldaps'})
+    US_LDAP_CN         = fields.String(required=True) #field name to use for the common name typically 'cn'
+    US_LDAP_ID         = fields.String(required=True) #field name to use for the id typically 'cn'
+    US_LDAP_UID        = fields.String(required=True) #field name for unique id of user typically 'uid'
+    US_LDAP_BASE_DN    = fields.String(required=True) #Example: 'dc=example,dc=com'
+    US_LDAP_FILTER     = fields.String() #Additional filter for ldap query
+    US_LDAP_SCOPE      = fields.String(dump_default="SUB", load_default="SUB", validate=validate.OneOf(('BASE', 'ONE', 'SUB')))
+    US_LDAP_PWD_POLICY = fields.Boolean(dump_default=False, load_default=False) # set to true if ldap has passwpord policy
+    US_LDAP_SAMBA_PWD  = fields.Boolean(dump_default=False, load_default=False) # set to true if ldap has samba extension
+    US_LDAP_QUERY_TIMEOUT = fields.Integer(dump_default=0, load_default=0, validate=validate.Range(min=0)) #Used as parameter by ldap query method. 0 means no limit
+    US_LDAP_BIND_DN      = fields.String(required=True)#The bind DN used to authnetify against the ldap server
+    US_LDAP_BIND_PWD     = fields.String(required=True) #The password for the bindDN
+    US_LDAP_BIND_AS_USER = fields.Boolean(load_default=False, dump_default=False) #After the fist auth, use the user's DN for the bind DN
+    US_LDAP_BIND_FIELD   = fields.List(fields.String())  #Additionnal field to use when doing a bind
+    US_LDAP_LOOKUP_FIELD = fields.List(fields.String(), load_default=['*'], dump_default=['*'])
+    US_LDAP_GROUP_CLASS  = fields.List(fields.String(), load_default=['group', 'groupOfNames', 'groupOfUniqueNames', 'posixGroup'],
+                                                     dump_default=['group', 'groupOfNames', 'groupOfUniqueNames', 'posixGroup'])
+    
+    US_SQL_USER_URL           = fields.Url(required=True, schemes={"mysql", "postgresql"}) #database uri to the user source
+    US_SQL_PREPEND_PWD_SCHEME = fields.Boolean(required=True) #should the password be stored in the dabase with the shceme like this {scheme)encryptedValue
+    US_SQL_USER_FILTER        = fields.String() #Additional filter to add at the where clause when querying users.
+    US_SQL_DOMAIN_FIELD       = fields.String() #Fields where the user's domain is.
 
-    #TODO change name to somethinf agnostic? Or later add parameter for Jmap...
-    US_IMAP_LOGIN = fields.String() #sqldap field where to fetch the imap login for a user (default to UIDFieldName for ldap or c_uid for sql)
-    US_SMTP_LOGIN = fields.String() #sqldap field where to fecth the smtp login for a user (default to UIDFieldName for ldap or c_uid for sql)
+    US_MAPPING = fields.Dict() #TODO map sqldap field to Vcard field
 
-    US_PWD_ALGO         = fields.String() #TODO Algo used to encrypt the user password for login (sql) and when changing password (sql/ldap). Decide which algo bases on SOGo5 ones.
-    US_PWD_ALGO_SIM_KEY = fields.Nested(SymmetricKey)
+    US_CAN_AUTH   = fields.Boolean(required=True) #The users in this US can authenticate
+    US_PWD_ALGO   = fields.String(required=True, validate=validate.OneOf(PWD_ALGO)) #Algo used to encrypt the user password for login (sql) and when changing password (sql/ldap)
+    US_SIM_KEY_TYPE  = fields.String(validate=validate.OneOf(('path', 'env', 'plain')))
+    US_SIM_KEY_VALUE = fields.String() 
+    US_PWD_POLICY       = fields.Boolean(load_default=False, dump_default=False) #Policies on password CAREFUL CONFLICT WITH LDAP_PWD_POLICY
+    US_PWD_LEN_MIN = fields.Integer(load_default=1, dump_default=1,validate=validate.Range(min=1)) #Minimum lenght of password
+    US_PWD_LEN_MAX = fields.Integer(load_default=0, dump_default=0,validate=validate.Range(min=0)) #Maximum lenght of password, 0 means no limit
+    US_PWD_UPPERCASE_MIN = fields.Integer(load_default=0, dump_default=0,validate=validate.Range(min=0)) #Minimum number of uppercase letter, 0 means no need
+    US_PWD_LOWERCASE_MIN = fields.Integer(load_default=0, dump_default=0,validate=validate.Range(min=0)) #Minimum number of lowercase letter, 0 means no need
+    US_PWD_DIGITS_MIN     = fields.Integer(load_default=0, dump_default=0,validate=validate.Range(min=0)) #Minimum number of digits, 0 means no need
+    US_PWD_SPECIAL_MIN   = fields.Integer(load_default=0, dump_default=0,validate=validate.Range(min=0)) #Minimum number of special char letter, 0 means no need
+    US_PWD_SPECIAL_ALLOWED = fields.String(load_default=r'%$&*(){}[]!?\/@#.,:;+=<>-_', dump_default=r'%$&*(){}[]!?\/@#.,:;+=<>-_') #String that contains allowed special character
 
-    US_CAN_AUTH       = fields.Boolean(required=True) #The users in this US can authenticate
+    US_MAIL                 = fields.List(fields.String(), load_default=['mail'], dump_default=['mail']) #Names of the sqldap field with the user's mail/alias
+    US_MAIL_SERVER_LOGIN    = fields.String() #sqldap field where to fetch the imap login for a user (default to UIDFieldName for ldap or c_uid for sql)
+    US_MAIL_FILTERING_LOGIN = fields.String() #sqldap field where to fetch the sieve login for a user (default to UIDFieldName for ldap or c_uid for sql)
+    US_MAIL_OUTGOING_LOGIN  = fields.String() #sqldap field where to fecth the smtp login for a user (default to UIDFieldName for ldap or c_uid for sql)
+
+    US_KIND = fields.String() #sqldap field where to check if a user is a resource or not
+
     US_IS_ADDRESSBOOK = fields.Boolean(required=True) #This US is shown for autocompletion and shared address book
-                                                      #Why make a user source that can't auth and is not an address book?
-                                                      #Sogo will still known this user source and considere it internal (interlal domain vs external)
-    US_DISPLAY_NAME   = fields.String() #HUman readable name og this US, will ude US_ID if not set
+    US_SEARCH = fields.List(fields.String()) #Array of sqldap field used for autocompletion/search of user
+    US_DISPLAY_NAME   = fields.String() #Human readable name of this US, will ude US_UID if not set
     US_AUTO_SEARCH    = fields.Boolean(load_default=False, dump_default=False) #Auto return all users of the US whitout typing any char in the search bar.
-
     US_AUTO_QUERY_LIMIT = fields.Integer(load_default=0, dump_default=0) #Maximum result return for a autocompletion query, default to 0 means no limit.
-    US_EXTRA_CONTACT_INFO = fields.String() #sqladp field to show when doing autocompletion (will be "cn <extra> mail")
-
-    US_PASSWORD_POLICY = fields.Nested(PasswordPolicy) #Policies on password CAREFUL CONFLICT WITH LDAP_PWD_POLICY
+    US_EXTRA_CONTACT_INFO = fields.String() #TODO add moreflexibility and let the admin tell how it should be shown? sqladp field to show when doing autocompletion (will be "cn <extra> mail")
+    US_HIDDEN_USER = fields.String() #sqldap field where to say if the user is hidden or not in the GAB
 
     #Resource
-    US_KIND = fields.String() #sqldap field where to check if a user is a resource or not
+    US_HAS_RESOURCE = fields.Boolean(required=True) #Does this user source has resources
+    US_RESOURCE_SEARCH = fields.List(fields.String()) #Array of sqldap field used for autocompletion/search of resource
     US_RESOURCE_MULTIBOOKING = fields.String() #sqldap field where to check how much time a resource can be booked simultaneously
-
-
-class LdapUserSource(UserSource):
-    """
-    Schema for LDAP User Source
-    Add specific LDAP settings
-    """
-    LDAP_HOSTNAME = fields.Url(required=True, schemes={'ldap', 'ldaps'})
-
-    LDAP_CN         = fields.String(required=True) #field name to use for the common name typically 'cn'
-    LDAP_ID         = fields.String(required=True) #field name to use for the id typically 'cn'
-    LDAP_UID        = fields.String(required=True) #field name for unique id of user typically 'uid'
-    LDAP_BASE_DN    = fields.String(required=True) #Example: 'dc=example,dc=com'
-    LDAP_FILTER     = fields.String() #Additional filter for ldap query
-    LDAP_SCOPE      = fields.String(dump_default="SUB", load_default="SUB", validate=validate.OneOf(('BASE', 'ONE', 'SUB')))
-    LDAP_PWD_POLICY = fields.Boolean(dump_default=False, load_default=False) # set to true if ldap has passwpord policy
-    LDAP_SAMBA_PWD  = fields.Boolean(dump_default=False, load_default=False) # set to true if ldap has samba extension
-
-    LDAP_QUERY_TIMEOUT = fields.Integer(dump_default=0, load_default=0, validate=validate.Range(min=0)) #Used as parameter by ldap query method. 0 means no limit
-
-
-    LDAP_BIND_DN      = fields.String(required=True)#The bind DN used to authnetify against the ldap server
-    LDAP_BIND_PWD     = fields.String(required=True) #The password for the bindDN
-    LDAP_BIND_AS_USER = fields.Boolean(load_default=False, dump_default=False) #After the fist auth, use the user's DN for the bind DN
-    LDAP_BIND_FIELD   = fields.List(fields.String())  #Additionnal field to use when doing a bind
-    LDAP_LOOKUP_FIELD = fields.List(fields.String(), load_default=['*'], dump_default=['*'])
-    LDAP_GROUP_CLASS  = fields.List(fields.String(), load_default=['group', 'groupOfNames', 'groupOfUniqueNames', 'posixGroup'],
-                                                     dump_default=['group', 'groupOfNames', 'groupOfUniqueNames', 'posixGroup'])
-
-    US_SEARCH = fields.List(fields.String(), load_default=['sn', 'displayName', 'cn', 'mail', 'telephoneNumber']) #Array of sqldap field used for autocompletion/search of user
-    US_IMAP_LOGIN = fields.String() ##sql column where to fetch the imap login for a user, default to LDAP_UID value.
-
-    @validates_schema
-    def check_type(self, data: dict, **_: dict) -> None:
-        """
-        Check the type of User Source
-        """
-        if data["TYPE"] != "ldap":
-            raise ValidationError("LdapUserSource set without TYPE being 'ldap'")
-
-    @post_load
-    def set_imap_login_load(self, data: dict, **_: dict) -> dict:
-        """
-        if not set, the value of US_IMAP_LOGIN is the value of LDAP_UID.
-        """
-        if not 'US_IMAP_LOGIN' in data:
-            data["US_IMAP_LOGIN"] = data["LDAP_UID"]
-        return data
-
-    @post_dump
-    def set_imap_login_dump(self, data: dict, **_: dict) -> dict:
-        """
-        if not set, the value of US_IMAP_LOGIN is the value of LDAP_UID.
-        """
-        if not 'US_IMAP_LOGIN' in data:
-            data["US_IMAP_LOGIN"] = data["LDAP_UID"]
-        return data
-
-class SQLUserSource(UserSource):
-    """
-    Schema for SQL User Source
-    Add specific SQL settings
-    """
-    SQL_USER_URL           = fields.Url(required=True, schemes={"mysql", "postgresql"}) #database uri to the user source
-    SQL_PREPEND_PWD_SCHEME = fields.Boolean(required=True) #should the password be stored in the dabase with the shceme like this {scheme)encrypteValue
-    SQL_USER_FILTER        = fields.String() #Additional filter to add at the where clause when querying users.
-    SQL_DOMAIN_FIELD       = fields.String() #Fields where the user's domain is.
-
-    US_SEARCH     = fields.List(fields.String(), load_default=['mail', 'c_cn']) #Array of sqldap field used for autocompletion/search of user
-    US_IMAP_LOGIN = fields.String(load_default="c_uid", dump_default="c_uid") ##sql column where to fetch the imap login for a user
-
-    @validates_schema
-    def check_type(self, data: dict, **_: dict) -> None:
-        """
-        Check the type of User Source
-        """
-        if data["TYPE"] != "sql":
-            raise ValidationError("SQLUserSource set without TYPE being 'sql'")
+    US_EXTRA_RESOURCE_INFO = fields.String() #TODO add moreflexibility and let the admin tell how it should be shwon? sqladp field to show when doing autocompletion (will be "cn <extra> mail")
 
 
 class OutgoinMail(Schema):
@@ -156,7 +187,10 @@ class DomainSettings(Schema):
     """
     #Admin
     SOGO_D_PWD_CHANGE_ENABLED = fields.Boolean(load_default=False, dump_default=False) #Allow users to change the password (for ldap it means the ldap admin account is allow to do that too)
-
+    SOGO_D_MODULE_ACCESS = fields.List(fields.String(validate=validate.OneOf(('mail', 'calendar', 'contact'))),
+                                       load_default=['mail', 'calendar', 'contact'],
+                                       dump_default=['mail', 'calendar', 'contact'])
+    SOGO_D_MAPI_ACCESS = fields.Boolean(load_default=False, dump_default=False) #Allow user to access their data with MAPI
 
     #Type of authentication protocol used for this domain. Beware that if the value is not plain, more parameters are needed
     SOGO_D_AUTH_TYPE = fields.String(load_default="plain", dump_default="plain",
@@ -175,8 +209,8 @@ class DomainSettings(Schema):
     SOGO_D_OPENID_TOKEN_CHECK_INTERVAL = fields.Integer(validate=validate.Range(min=0)) #Interval where a valid token is not checked again. 0 means always checked.
 
     #Enable DAV access to calendars and addressbooks.
-    SOGO_D_DAV_CONTACT_ENABLED  = fields.Boolean(load_default=True, dump_default=True)
-    SOGO_D_DAV_CALENDAR_ENABLED = fields.Boolean(load_default=True, dump_default=True)
+    SOGO_D_CARDAV_ENABLED  = fields.Boolean(load_default=True, dump_default=True)
+    SOGO_D_CALDAV_ENABLED = fields.Boolean(load_default=True, dump_default=True)
 
     #Calendar Settings
     SOGO_D_JITSI_LINK_ENABLED = fields.Boolean(load_default=True, dump_default=True)
@@ -186,11 +220,11 @@ class DomainSettings(Schema):
     SOGO_D_REMINDER_ALLOW_MAIL = fields.Boolean(load_default=True, dump_default=True) #Allow user to set reminder sent by email for events/tasks
 
     #Folder settings
-    SOGO_D_DAV_PUBLIC_ACCESS_ENABLE        = fields.Boolean(load_default=False, dump_default=False) #Enable or not public dav access
+    SOGO_D_CALDAV_PUBLIC_ACCESS_ENABLE     = fields.Boolean(load_default=False, dump_default=False) #Enable or not public caldav access
+    SOGO_D_CARDAV_PUBLIC_ACCESS_ENABLE     = fields.Boolean(load_default=False, dump_default=False) #Enable or not public cardav access
     SOGO_D_FOLDER_DISABLE_EXPORT           = fields.List(fields.String(validate=validate.OneOf(('mail', 'calendar', 'contact')))) #Disable or not folder export
     SOGO_D_FOLDER_DISABLE_SHARING          = fields.List(fields.String(validate=validate.OneOf(('mail', 'calendar', 'contact')))) #Disable or not folder sharing
     SOGO_D_FOLDER_DISABLE_SHARING_ANY_AUTH = fields.List(fields.String(validate=validate.OneOf(('mail', 'calendar', 'contact')))) #Disable or not folder sharing to any authenticated user from the domain
-    SOGO_U_FOLDER_CREATION_NOTIF           = fields.Boolean(load_default=True, dump_default=True) #Send mail notif to user when theyself or another with correct acl create a folder.
     SOGO_D_AUTOCOMPLETION_MIN_LEN          = fields.Integer(load_default=2, dump_default=2, validate=validate.Range(min=2)) #Number of (chars needed - 1) to trigger the autocompletion search. At 2 it will trigger for the third char.
                                                                                                                             #TODO make sure that the front wait for a bit before doing the search, like waiting for the user to have ending its typing
     #Login settings
@@ -218,7 +252,11 @@ class DomainSettings(Schema):
 
     #Password
     SOGO_D_PWD_RECOVERY = fields.Boolean(load_default=True, dump_default=True) #Enable or not users to set a method for password recovery
+    SOGO_D_PWD_RECOVERY_METHOD = fields.List(fields.String(validate=validate.ContainsOnly(('secretQuestion', 'secondaryEmail'))))
     SOGO_D_PWD_FORCE_RECOVERY = fields.Boolean(load_default=False, dump_default=False) #Force users to set a recovery method, overwrite SOGO_D_PWD_RECOVERY
+    SOGO_D_LOGIN_MFA = fields.Boolean(load_default=True, dump_default=True) #Enable or not users to set a MFA method for password
+    SOGO_D_LOGIN_MFA_METHOD = fields.List(fields.String(validate=validate.ContainsOnly(('totp'))))
+    SOGO_D_LOGIN_MFA_FORCE = fields.Boolean(load_default=False, dump_default=False) #Force users to set a recovery method, overwrite SOGO_D_PWD_RECOVERY
 
     #Webserver max request from a user
     #SOGO_D_API_MAX_REQUEST: max api request a user can make during SOGO_D_API_MAX_REQUEST_INTERVAL second. If limit is reach, it will be block for
@@ -232,7 +270,7 @@ class DomainSettings(Schema):
 
 
     #OUTGOING
-    SOGO_D_SEND_MAIL_TYPE = fields.String(load_default="smtp", dump_default="smtp", validate=validate.OneOf(('smtp', 'sendmail'))) #For sendmail, look at SOGO_S_SENDMAIL
+    SOGO_D_MAIL_OUTGOING_TYPE = fields.String(load_default="smtp", dump_default="smtp", validate=validate.OneOf(('smtp', 'sendmail'))) #For sendmail, look at SOGO_S_SENDMAIL
 
     #SMTP settings
     SOGO_D_SMTP_SERVER = fields.String() #Hostname or ip of the smtp server
@@ -240,11 +278,12 @@ class DomainSettings(Schema):
     SOGO_D_SMTP_ENCRYPTION = fields.String(load_default="None", dump_default="None", validate=validate.OneOf(('None', 'TLS', 'SSL')))
     SOGO_D_SMTP_AUTH_MECH =  fields.String(load_default="None", dump_default="None", validate=validate.OneOf(('None', 'plain', 'xoauth2')))
     SOGO_D_SMTP_MASTER_ENABLED = fields.Boolean(load_default=False, dump_default=False)
-    SOGO_D_SMTP_MASTER_MAIL = fields.String() #Required if SOGO_D_SMTP_MASTER_ENABLED = TRUE
+    SOGO_D_SMTP_MASTER_LOGIN = fields.String() #Required if SOGO_D_SMTP_MASTER_ENABLED = TRUE
     SOGO_D_SMTP_MASTER_PWD = fields.String()  #Required if SOGO_D_SMTP_MASTER_ENABLED = TRUE
+    SOGO_D_MAIL_SYSTEM_FROM = fields.Email() #Custom from used for system message (password recovery for now)
 
     #INGOING
-    SOGO_D_READ_MAIL_TYPE = fields.String(load_default="imap", dump_default="imap", validate=validate.OneOf(('imap'))) #Could be jmap in the future...
+    SOGO_D_MAIL_SERVER_TYPE = fields.String(load_default="imap", dump_default="imap", validate=validate.OneOf(('imap'))) #Could be jmap in the future...
     SOGO_D_SOFT_EMAIL_QUOTA = fields.Integer(load_default=1, dump_default=1, validate=validate.Range(min=0, max=1, min_inclusive=False)) #Multiplier to the true quota for the user
 
     #IMAP (and SIEVE) SETTINGS
@@ -256,21 +295,25 @@ class DomainSettings(Schema):
     SOGO_D_SIEVE_ENCRYPTION = fields.String(load_default="None", dump_default="None", validate=validate.OneOf(('None', 'TLS', 'SSL')))
     SOGO_D_IMAP_AUTH_MECH =  fields.String(load_default="None", dump_default="None", validate=validate.OneOf(('None', 'plain', 'xoauth2')))
     SOGO_D_SIEVE_FOLDER_ENCODING = fields.String(load_default="utf-7", dump_default="utf-7", validate=validate.OneOf(('utf-7', 'utf-8')))
-    SOGO_D_IMAP_POOLING_ENABLE = fields.Boolean(load_default=False, dump_default=False) #Automaticcaly logout from imap connection
-    SOGO_D_IMAP_POOLING_TIME = fields.Integer(load_default=300, dump_default=300, validate=validate.Range(min=1, max=65535))
 
     #Identities
     SOGO_D_IDENTITIES_ENABLED = fields.Boolean(load_default=False, dump_default=False) #Allow users to create identities for their main imap account
     SOGO_D_IDENTITIES_CUSTOM_FROM_ENABLED = fields.Boolean(load_default=False, dump_default=False) #Allow users to have custom "from" email in their identities
-    
+    SOGO_D_IDENTITIES_CUSTOM_NAME_ENABLED = fields.Boolean(load_default=False, dump_default=False) #Allow users to have custom name  in their identities
+    SOGO_D_IDENTITIES_CUSTOM_REPLY_TO_ENABLED = fields.Boolean(load_default=False, dump_default=False) #Allow users to have custom reply-to email in their identities
+    SOGO_D_ALLOW_EXT_MAIL_ACCOUNT = fields.Boolean(load_default=False, dump_default=False) #Allow users to create identities for their main imap account
+
+
     #Webmail
     SOGO_D_ALLOW_EXT_AVATAR = fields.Boolean(load_default=True, dump_default=True) #Allow users to load external avatar
     SOGO_D_MAIL_REFRESH_INTERVAL_ALLOWED = fields.List(fields.Integer(validate=validate.OneOf((0, 1, 2, 5, 10, 20, 30, 60))),
                                                      load_default=[0, 1, 2, 5, 10, 20, 30, 60],
                                                      dump_default=[0, 1, 2, 5, 10, 20, 30, 60])
 
+    SOGO_D_MAIL_JUNK_SETTINGS = fields.Dict() #TODO how this time
+
     #Sieve
-    SOGO_D_SIEVE_ENABLED = fields.Boolean(load_default=True, dump_default=True) #Allow users to set autoreply sieve rule
+    SOGO_D_MAIL_FILTERING_ENABLED = fields.Boolean(load_default=True, dump_default=True) #Allow users to set autoreply sieve rule
     SOGO_D_SIEVE_HEADER = fields.String() #Sieve script that will be set for each user sieve script at the top level
     SOGO_D_SIEVE_FOOTER = fields.String() #Sieve script that will be set for each user sieve script at the bottom level
     SOGO_D_SIEVE_FIRST_FILTER = fields.Dict() #Sieve script that will set for new users
@@ -308,12 +351,12 @@ class DomainSettings(Schema):
         """
         If SOGO_D_AUTH_TYPE = 'cas', check the other value
         """
-        if data["SOGO_D_SEND_MAIL_TYPE"] == "smtp":
+        if data["SOGO_D_MAIL_OUTGOING_TYPE"] == "smtp":
             if "SOGO_D_SMTP_SERVER" not in set(data):
                 raise ValidationError("Parameter 'SOGO_D_SMTP_SERVER' is missing")
         
         if data["SOGO_D_SMTP_MASTER_ENABLED"]:
-            if {"SOGO_D_SMTP_MASTER_MAIL", "SOGO_D_SMTP_MASTER_PWD"} not in set(data):
-                raise ValidationError("Parameter 'SOGO_D_SMTP_MASTER_MAIL' SOGO_D_SMTP_MASTER_PWD are not set")
+            if {"SOGO_D_SMTP_MASTER_LOGIN", "SOGO_D_SMTP_MASTER_PWD"} not in set(data):
+                raise ValidationError("Parameter 'SOGO_D_SMTP_MASTER_LOGIN' SOGO_D_SMTP_MASTER_PWD are not set")
 
 

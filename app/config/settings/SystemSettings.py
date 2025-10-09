@@ -20,7 +20,7 @@ class SystemSettings(Schema):
     #Login
     SOGO_S_REJECT_UNKNOWN_DOMAIN = fields.Boolean(load_default=False, dump_default=False) #Only allow login requets with mail domain known by sogo (SOGO_S_DOMAINS)
                                                                                           #or list in SOGO_S_KNOWN_DOMAIN
-    SOGO_S_DOMAINLESS_LOGIN = fields.Boolean(load_default=False, dump_default=False) #Allow login with only yhe usernam/uid and not the full email.
+    SOGO_S_DOMAINLESS_LOGIN = fields.Boolean(load_default=False, dump_default=False) #Allow login with only the username/uid and not the full email.
 
     #Binary
     SOGO_S_SENDMAIL = fields.String(load_default="/usr/lib/sendmail", dump_default="/usr/lib/sendmail") #Admin can decide to use sendmail instead of smtp.
