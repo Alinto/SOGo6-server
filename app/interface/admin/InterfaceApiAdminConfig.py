@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
-from app.config.settings.FrontWrapperSettings import example
+from app.config.settings.DynamicFormSettings import example
 from app.module.admin.ModuleAdminConfig import ModuleAdminConfig
 
 if TYPE_CHECKING:
@@ -24,7 +24,7 @@ class InterfaceApiAdminConfig:
         """
         Return the dynamic table
         """
-        return example
+        return self.module.get_dynamic_form_settings()
 
     def get_all_setting_value(self) -> dict:
         """

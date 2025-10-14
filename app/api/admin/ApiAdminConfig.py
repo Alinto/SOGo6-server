@@ -29,7 +29,7 @@ def init_admin_config() -> None:
     interface_api = InterfaceApiAdminConfig(process_setting=process)
     g.inter = interface_api
 
-@blp.route("/")
+@blp.route("")
 class ApiAdminConfig(MethodView):
     """
     Endpoint that return all the settings structure to build the graphic interface dynamically

@@ -591,6 +591,22 @@ flask = "*"
 pyzstd = {version = "*", markers = "python_version < \"3.14\""}
 
 [[package]]
+name = "flask-cors"
+version = "6.0.1"
+description = "A Flask extension simplifying CORS support"
+optional = false
+python-versions = "<4.0,>=3.9"
+groups = ["main"]
+files = [
+    {file = "flask_cors-6.0.1-py3-none-any.whl", hash = "sha256:c7b2cbfb1a31aa0d2e5341eea03a6805349f7a61647daee1a15c46bbe981494c"},
+    {file = "flask_cors-6.0.1.tar.gz", hash = "sha256:d81bcb31f07b0985be7f48406247e9243aced229b7747219160a0559edd678db"},
+]
+
+[package.dependencies]
+flask = ">=0.9"
+Werkzeug = ">=0.7"
+
+[[package]]
 name = "flask-smorest"
 version = "0.46.1"
 description = "Flask/Marshmallow-based REST API framework"
@@ -1785,5 +1801,5 @@ email = ["email-validator"]
 
 [metadata]
 lock-version = "2.1"
-python-versions = ">=3.13"
-content-hash = "b046adb4ff2432389e5068d8ac969da36650990ac8c383558335c2db24bc4d39"
+python-versions = ">=3.13,<4.0"
+content-hash = "80f51af3a020f81546f660c6220ded1e9614cbbe997dbf1860aa169f4fcb6366"

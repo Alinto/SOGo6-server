@@ -2,6 +2,7 @@
 
 from flask import Flask
 from flask_smorest import Api, Blueprint
+from flask_cors import CORS
 from flask_wtf import CSRFProtect
 from app.config.settings.ProcessSetting import process_config
 
@@ -33,6 +34,8 @@ def create_app() -> Flask:
 
     register_route(flask_api)
     register_route_admin(admin_api)
+
+    CORS(app, resources={r"/api/*": {"origins": "http://localhost:3000"}})
 
     return app
 

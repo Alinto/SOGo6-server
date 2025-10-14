@@ -5,6 +5,8 @@ from marshmallow.exceptions import ValidationError
 
 from app.config.db.tables import TABLE_SETTINGS, TABLE_RULES, TABLE_DOMAIN, COL_SETTINGS_SYSTEM, COL_SETTINGS_UNIQUE, COL_SETTINGS_DOMAIN_DEFAULT
 from app.config.settings.SystemSettings import SystemSettings
+from app.config.settings.DomainSettings import AuthSettings, UserSourceSettings, UserModuleSettings, MailSettings, CalendarContactSettings
+from app.config.settings.DynamicFormSettings import create_dynamic_dict_for_settings
 from app.utils.db.Condition import EqualCondition, NotEqualCondition
 from app.utils.exceptions import AggravatedException
 from app.utils.logger.logger import logger, logger_api
@@ -30,6 +32,20 @@ class ModuleAdminConfig:
                                                          module_and_class_name=sogo_db_type,
                                                          module_args=self.process_settings.get_db_settings())
     
+    def get_dynamic_form_settings(self) -> dict:
+        full_form = {}
+        #System settings
+        full_form["system"] = [create_dynamic_dict_for_settings(SystemSettings())]
+
+        #Domain settings
+        full_form["domain"] = [create_dynamic_dict_for_settings(AuthSettings())]
+        full_form["domain"].append(create_dynamic_dict_for_settings(UserSourceSettings()))
+        full_form["domain"].append(create_dynamic_dict_for_settings(UserModuleSettings()))
+        full_form["domain"].append(create_dynamic_dict_for_settings(MailSettings()))
+        full_form["domain"].append(create_dynamic_dict_for_settings(CalendarContactSettings()))
+
+        return full_form
+
     def update_system_settings(self, new_param: dict) -> tuple[bool, str]:
 
         self.sogo_db_manager.connect()

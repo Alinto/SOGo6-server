@@ -336,31 +336,31 @@ user_source_256 = {
     #CN = Common Name
     #OU = Organizational Unit
     #DC = Domain Component
-    "hostname":   "LDAP_HOSTNAME", #ldap hostname, drop the ldap url support defined in https://datatracker.ietf.org/doc/html/rfc4516
+    "hostname":   "US_LDAP_HOSTNAME", #ldap hostname, drop the ldap url support defined in https://datatracker.ietf.org/doc/html/rfc4516
     "port":       None, #already deprecated in SOGo 5, use in hostname instead
     "encryption": None,  #already deprecated in SOGo 5, use in hostname with ldaps instead of ldap
-    "passwordPolicy": "LDAP_PWD_POLICY", #doesn't define the password policy but tell SOGO that the ldap server has the extension password policy
+    "passwordPolicy": "US_US_LDAP_PWD_POLICY", #doesn't define the password policy but tell SOGO that the ldap server has the extension password policy
                                          #https://www.ietf.org/archive/id/draft-behera-ldap-password-policy-11.html
                                          #https://www.rfc-editor.org/rfc/rfc3062.html
-    "updateSambaNTLMPasswords": "LDAP_SAMBA_PWD", #For samba extension (https://www.samba.org/) update the correct field for the password
+    "updateSambaNTLMPasswords": "US_LDAP_PWD_UPDATE_SAMBA", #For samba extension (https://www.samba.org/) update the correct field for the password
 
-    "CNFieldName": "LDAP_CN", #Value being the common name default to 'cn'
-    "IDFieldName": "LDAP_ID", #Uded to make the baseDN request: meaning query where 'IDFieldName' = login + baseDN setting
+    "CNFieldName": "US_LDAP_CN", #Value being the common name default to 'cn'
+    "IDFieldName": "US_LDAP_ID", #Uded to make the baseDN request: meaning query where 'IDFieldName' = login + baseDN setting
                               #Login in SOGo5 can be a login completely different of the mail. default to cn
                               #TODO not sure about the diff between IDFieldName and UIDFieldName
-    "UIDFieldName": "LDAP_UID", #Unique ID of a user.
-    "baseDN":       "LDAP_BASE_DN", # The base DN use to fetch the users. We can add %d that will be replace by the current user mail domain.
-    "filter":       "LDAP_FILTER", #Additionnal filter for the ldap query. Careful, SOGo5 has a peculiar syntax for the value.
-    "scope":        "LDAP_SCOPE", #Scope for the ldap query
+    "UIDFieldName": "US_LDAP_UID", #Unique ID of a user.
+    "baseDN":       "US_LDAP_BASE_DN", # The base DN use to fetch the users. We can add %d that will be replace by the current user mail domain.
+    "filter":       "US_LDAP_FILTER", #Additionnal filter for the ldap query. Careful, SOGo5 has a peculiar syntax for the value.
+    "scope":        "US_LDAP_SCOPE", #Scope for the ldap query
 
-    "bindDN":             "LDAP_BIND_DN", #The bind DN used to authnetify against the ldap server
-    "bindPassword":       "LDAP_BIND_PWD", #The password for the bindDN
-    "bindAsCurrentUser":  "LDAP_BIND_AS_USER", #After the fist auth, use the user's DN for the bind DN
-    "bindFields":         "LDAP_BIND_FIELD", #Additionnal field to use when doing a bind
-    "lookupFields":       "LDAP_LOOKUP_FIELD", #Fields return for ldap query, default to '*'. IS used to return operationl field like 'memberOf'
-    "GroupObjectClasses": "LDAP_GROUP_CLASS", #Value for 'objectclass' that tell this is a group of user
+    "bindDN":             "US_LDAP_BIND_DN", #The bind DN used to authnetify against the ldap server
+    "bindPassword":       "US_LDAP_BIND_PWD", #The password for the bindDN
+    "bindAsCurrentUser":  "US_LDAP_BIND_AS_USER", #After the fist auth, use the user's DN for the bind DN
+    "bindFields":         "US_LDAP_BIND_FIELD", #Additionnal field to use when doing a bind
+    "lookupFields":       "US_LDAP_ATTR_FIELD", #Fields return for ldap query, default to '*'. IS used to return operationl field like 'memberOf'
+    "GroupObjectClasses": "US_LDAP_GROUP_CLASS", #Value for 'objectclass' that tell this is a group of user
 
-    "SOGoLDAPQueryTimeout": "LDAP_QUERY_TIMEOUT", #a paramater for ldap library's query method
+    "SOGoLDAPQueryTimeout": "US_LDAP_QUERY_TIMEOUT", #a paramater for ldap library's query method
     "SOGoLDAPGroupExpansionEnabled": None, #Parameter to expand ldap group. To None because why we want t odisable that?
 
     "modifiers": None, #DO NOT MIGRATE List of user allowed to modify user from the usersource in the webmail

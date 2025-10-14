@@ -1,11 +1,29 @@
-from app.config.settings.DomainSettings import UserSource
-from app.config.settings.FrontWrapperSettings import create_dynamic_dict_for_settings
+from app.config.settings.DomainSettings import UserSourceSettings, AuthSettings, CalendarContactSettings, MailSettings, UserModuleSettings
+from app.config.settings.DynamicFormSettings import create_dynamic_dict_for_settings
 
 
-a = UserSource()
+a = UserSourceSettings()
+b = AuthSettings()
+c = CalendarContactSettings()
+d = MailSettings()
+e = UserModuleSettings()
 myresult = create_dynamic_dict_for_settings(a)
-
 print("")
 print("")
-
+print(myresult)
+myresult = create_dynamic_dict_for_settings(b)
+print("")
+print("")
+print(myresult)
+myresult = create_dynamic_dict_for_settings(c)
+print("")
+print("")
+print(myresult)
+myresult = create_dynamic_dict_for_settings(d)
+print("")
+print("")
+print(myresult)
+myresult = create_dynamic_dict_for_settings(e)
+print("")
+print("")
 print(myresult)

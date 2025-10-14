@@ -7,12 +7,19 @@ Settings that defines the whole application behaviour but are not needed to star
 
 from marshmallow import Schema, fields, validate, validates_schema, ValidationError
 
-class SystemSettings(Schema):
+from app.config.settings.SogoSchema import SogoSchema
+
+class SystemSettings(SogoSchema):
     """
     Schema for system settings
     """
+    subparent = "SYSTEM_SETTINGS"
+    dependencies: dict = {}
+    is_secret: set = set()
+
     #Admin
     SOGO_S_DO_DOMAIN    = fields.Boolean(load_default=False, dump_default=False) #Allowed to have different rules according to domains
+    SOGO_S_DOMAINLESS   = fields.Boolean(load_default=False, dump_default=False) #Allowed domainless login
     SOGO_S_DOMAINS      = fields.List(fields.String()) #Domain set by admin to let sogo know
     SOGO_S_KNOWN_DOMAIN = fields.List(fields.String()) #List of domains that sogo should known. To use if they are restriction rule like SOGO_S_REJECT_UNKNOWN_DOMAIN
                                                        #and the domains are not list or set in domains rules.
