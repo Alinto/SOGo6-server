@@ -7,6 +7,7 @@ This file defines all the schema needed by ApiMailAccount.py
 """
 
 from marshmallow import Schema, fields
+from app.utils.api.ApiResponse import ApiBaseResponse
 
 class MailAccountSchema(Schema):
     """
@@ -16,17 +17,21 @@ class MailAccountSchema(Schema):
     mail = fields.Email()
     id   = fields.Integer()
 
-class ListMailAccountsResponse(Schema):
+class ListMailAccountsResponse(ApiBaseResponse):
     """
     Schema of an account's list
     """
-    accounts = fields.List(fields.Nested(MailAccountSchema))
+    data = fields.Dict(required=True, metadata={
+        'description': 'Contains the accounts list',
+        'example': {'accounts': []}
+    })
 
 
-class ListMailAccountsDelegation(Schema):
+class ListMailAccountsDelegation(ApiBaseResponse):
     """
-    Shema with a list of mail for delegations
+    Schema with a list of mail for delegations
     """
-    accounts = fields.List(fields.Email())
-
-
+    data = fields.Dict(required=True, metadata={
+        'description': 'Contains the delegation accounts list',
+        'example': {'accounts': []}
+    })

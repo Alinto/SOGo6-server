@@ -5,6 +5,7 @@ This file defines the schema for detailed mail information, used by ApiMailDetai
 """
 
 from marshmallow import Schema, fields
+from app.utils.api.ApiResponse import ApiBaseResponse
 
 class AttachmentPartSchema(Schema):
     """
@@ -40,7 +41,7 @@ class MailDetailSchema(Schema):
     date = fields.Integer()
     subject = fields.String()
     isMailingList = fields.Boolean()
-    from_ = fields.String() #TODO: `from` is a reserved keyword, replace it in UI?
+    from_ = fields.String(data_key="from")
     to = fields.List(fields.String())
     cc = fields.List(fields.String())
     bcc = fields.List(fields.String())
@@ -49,10 +50,11 @@ class MailDetailSchema(Schema):
     body = fields.String()
     attachments = fields.Nested(AttachmentsSchema)
 
-class MailDetailResponseSchema(Schema):
+class MailDetailResponseSchema(ApiBaseResponse):
     """
     Schema for the response of the mail detail endpoint
     """
-    status = fields.Boolean(required=True)
-    errors = fields.String(allow_none=True)
-    mail = fields.Nested(MailDetailSchema, allow_none=True)
+    data = fields.Dict(required=True, metadata={
+        'description': 'Contains the mail detail',
+        'example': {'mail': {}}
+    })

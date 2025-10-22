@@ -1,9 +1,18 @@
 from marshmallow import Schema, fields
+from app.utils.api.ApiResponse import ApiBaseResponse
 
-class FolderSchema(Schema):
-    name = fields.String(required=True)
-
-class FolderListResponseSchema(Schema):
-    status = fields.Boolean(required=True)
-    folders = fields.List(fields.Nested(FolderSchema), required=True)
-    errors = fields.String(allow_none=True)
+class FolderListResponseSchema(ApiBaseResponse):
+    """
+    Schema representing a response containing a list of mail folders.
+    """
+    data = fields.List(
+        fields.Dict(keys=fields.String(), values=fields.Raw()),
+        required=True,
+        metadata={
+            'description': 'List of mail folders',
+            'example': [
+                {'name': 'Trash'},
+                {'name': 'INBOX'}
+            ]
+        }
+    )  # type: ignore[assignment]

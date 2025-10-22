@@ -1,4 +1,5 @@
-from marshmallow import Schema, fields
+from marshmallow import Schema, fields, validate
+from app.utils.api.ApiResponse import ApiBaseResponse
 
 class AddressSchema(Schema):
     """
@@ -11,9 +12,9 @@ class MailMessageSchema(Schema):
     """
     Schema for one mail message
     """
-    id = fields.String()
+    uid = fields.String()
     subject = fields.String()
-    from_ = fields.Nested(AddressSchema)
+    from_ = fields.String(data_key="from")
     to = fields.List(fields.Nested(AddressSchema))
     date = fields.String()
     seen = fields.Boolean()
@@ -22,10 +23,31 @@ class MailMessageSchema(Schema):
     flags = fields.List(fields.String())
     hasAttachment = fields.Boolean()
 
-class MailMessageListResponseSchema(Schema):
+class MailMessageListResponseSchema(ApiBaseResponse):
     """
     Schema for the response of mail list in a folder
     """
-    status = fields.Boolean(required=True)
-    mails = fields.List(fields.Nested(MailMessageSchema), required=True)
-    errors = fields.String(allow_none=True)
+    data = fields.List(
+        fields.Nested(MailMessageSchema),
+        required=True,
+        metadata={
+            'description': 'List of mail messages',
+            'example': [
+                {'uid': '1', 'subject': 'Test', 'from': {'name': 'Alice', 'email': 'a@example.com'}}
+            ]
+        }
+    )
+
+
+
+class MailListQuerySchema(Schema):
+    """Schema for mail list query parameters."""
+
+    page = fields.Int(
+        validate=validate.Range(min=1),
+        load_default=1,
+    )
+    per_page = fields.Int(
+        validate=validate.Range(min=1, max=100),
+        load_default=20,
+    )

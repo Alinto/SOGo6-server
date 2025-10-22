@@ -19,6 +19,9 @@ services:
       SOGO_P_DB_USER: sogo
       SOGO_P_DB_PASS: sogo
       SOGO_P_DB_HOST: postgresql
+      SOGO_M_DB_USER: sogo
+      SOGO_M_DB_PASS: sogo
+      SOGO_M_DB_HOST: mariadb
     volumes:
       - ..:/workspace
     depends_on:
@@ -33,7 +36,17 @@ services:
     ports:
       - 5432:5432
     volumes:
-      - ./conf/db/init-sogo.db.sql:/docker-entrypoint-initdb.d/init-sogo-db.sql
+      - ./conf/db/init-sogo-postgres.db.sql:/docker-entrypoint-initdb.d/init-sogo-db.sql
+
+  mariadb:
+    image: mariadb:12
+    environment:
+      MYSQL_ROOT_PASSWORD: password
+      MYSQL_DATABASE: db
+    ports:
+      - 3307:3306
+    volumes:
+      - ./conf/db/init-sogo-mysql.db.sql:/docker-entrypoint-initdb.d/init-sogo-db.sql
 
   openldap:
     image: bitnami/openldap:2.6
@@ -75,4 +88,4 @@ services:
 volumes:
   # sogo6-postgres:
   sogo6-mail-data:
-  sogo6-sieve-data:
+  sogo6-sieve-data: # sogo6-mysql-data:
