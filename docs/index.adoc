@@ -1,0 +1,104 @@
+= SOGo6 — Documentation du backend
+Quentin <quentin@example.org>
+:revnumber: 0.1
+:revdate: 2025-10-23
+:toc: left
+:toclevels: 2
+:sectnums:
+:source-highlighter: rouge
+:icons: font
+
+== Introduction
+
+Bienvenue dans la documentation du backend Flask utilisé par l'application webmail SOGo6.
+Ce document sert à :
+- expliquer l'architecture globale,
+- donner des exemples d'usage des endpoints,
+- montrer comment construire la documentation localement.
+
+NOTE: Ce fichier est un exemple minimal pour démarrer. Sépare le contenu en fichiers par section si la doc grossit (inclure avec include::).
+
+== Quick start
+
+Le conteneur de développement expose l'API sur le port 5000. Exemple pour récupérer la santé :
+
+[source,bash]
+----
+curl -sS http://localhost:5000/health | jq .
+----
+
+TIP: Dans VS Code connecté au devcontainer, utilise l'extension AsciiDoc pour voir la preview en live (ctrl+shift+v ou "Open Preview").
+
+== Endpoints principaux
+
+=== Authentification
+
+- POST /auth/login : accepter username/password, renvoie un JWT.
+- POST /auth/refresh : rafraîchit le token.
+
+[source,http]
+----
+POST /auth/login HTTP/1.1
+Content-Type: application/json
+
+{
+  "username": "alice",
+  "password": "secret"
+}
+----
+
+=== Mailboxes
+
+- GET /users/:id/mailboxes : liste des boîtes.
+- GET /users/:id/mailboxes/:mbox/messages : liste des messages.
+
+WARNING: Les endpoints sensibles doivent être appelés via HTTPS en production.
+
+== Exemple de configuration (extrait)
+
+[source,yaml]
+----
+SOGO_P_REDIS_URL: redis://redis:6379
+SECRET_KEY: "changeme"
+SOGO_P_DB_HOST: postgresql
+SOGO_M_DB_HOST: mariadb
+----
+
+== Exemples de snippets
+
+Un petit exemple Python montrant comment appeler le endpoint health depuis le code de test :
+
+[source,python]
+----
+import requests
+
+resp = requests.get("http://localhost:5000/health")
+resp.raise_for_status()
+print(resp.json())
+----
+
+== Ressources et images
+
+Si tu veux ajouter une image d'architecture, place-la dans docs/images/ et référence-la ainsi :
+
+image::images/architecture.png[Architecture du backend, width=600]
+
+== Générer la documentation
+
+Depuis la racine du repo (ou dans le conteneur), si tu as le Makefile présent :
+- make docs  -> génère HTML dans build/docs
+- make clean -> supprime build/docs
+
+Tu peux aussi exécuter directement :
+----
+asciidoctor -D build/docs docs/index.adoc
+----
+
+== Contribuer
+
+Pour ajouter une section :
+1. créer docs/ma_section.adoc
+2. l'inclure depuis index.adoc via include::ma_section.adoc[]
+3. commit et push
+
+END

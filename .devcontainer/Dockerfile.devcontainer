@@ -32,6 +32,10 @@ RUN sudo apt install -y \
     libpq5 \
     && sudo rm -rf /var/lib/apt/lists/*
 
+RUN sudo apt update && sudo apt install -y ruby-full && \
+    sudo gem install asciidoctor asciidoctor-pdf && \
+    sudo rm -rf /var/lib/apt/lists/*
+
 RUN sudo install -o ${USERNAME} -g ${USERNAME} -m 750 -d /var/log/sogo 
 
 WORKDIR /workspace
