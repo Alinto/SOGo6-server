@@ -28,6 +28,7 @@ dependencies = [
     "psycopg (>=3.2.9,<4.0.0)",
     "pytest-mock (>=3.15.0,<4.0.0)",
     "flask-cors (>=6.0.1,<7.0.0)",
+    "types-smorest (>=1.1.2,<2.0.0)",
 ]
 
 
@@ -74,7 +75,8 @@ disable= [
     "too-few-public-methods",
     "pointless-string-statement",
     "too-many-arguments",
-    "too-many-positional-arguments"
+    "too-many-positional-arguments",
+    "unused-argument"
 ]
 max-line-length=240
 ignored-modules=["psycopg"]

@@ -1,16 +1,16 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
-from flask import request, g
+from flask import g
 from flask.views import MethodView
 from flask.typing import ResponseReturnValue
 from flask_smorest import Blueprint
 
 
 from app.interface.admin.InterfaceApiAdminConfig import InterfaceApiAdminConfig
-from app.utils.logger.logger import logger, logger_api
+from app.utils.logger.logger import logger_api
 
-from .schema.adminConfig import AdminConfigSystemPostSchema
+from .schema.adminConfig import AdminConfigSystemPostSchema, AdminConfigDomainPostSchema
 
 if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
@@ -22,7 +22,7 @@ blp = Blueprint("ApiConfig", __name__, url_prefix="/adminConfig")
 @blp.before_request
 def init_admin_config() -> None:
     """
-    Init the interface and others if needed 
+    Init the interface and others if needed
     """
     logger_api.debug("Calling before_request for ApiAdminConfig")
     process : ProcessSetting = g.process
@@ -32,7 +32,7 @@ def init_admin_config() -> None:
 @blp.route("")
 class ApiAdminConfig(MethodView):
     """
-    Endpoint that return all the settings structure to build the graphic interface dynamically
+    Endpoint that return the dynamic settings structure
     """
     @blp.response(200)
     def get(self) -> ResponseReturnValue:
@@ -45,7 +45,7 @@ class ApiAdminConfig(MethodView):
 @blp.route("/all")
 class ApiAdminConfigAll(MethodView):
     """
-    Endpoint that return all the settings structure to build the graphic interface dynamically
+    Endpoint that return all the settings value
     """
     @blp.response(200)
     def get(self) -> ResponseReturnValue:
@@ -77,11 +77,10 @@ class ApiAdminConfigSystem(MethodView):
         :param new_data: See :py:class:`~app.api.admin.schema.AdminConfigSystemPostSchema`
         :type new_data: dict
         """
+        print(new_data)
         interface_api : InterfaceApiAdminConfig = g.inter
         ret = interface_api.update_all_setting_system(new_data["settings"])
         return ret
-
-
 
 
 @blp.route("/domain")
@@ -96,7 +95,6 @@ class ApiAdminConfigDomain(MethodView):
         """
         interface_api : InterfaceApiAdminConfig = g.inter
         return interface_api.get_list_of_domain()
-
 
 
 @blp.route("/domain/<string:domain_name>")
@@ -116,6 +114,24 @@ class ApiAdminConfigDomainSettings(MethodView):
         if ret:
             return ret
         return {"error": f"domain_name {domain_name} not found"}, 400
+
+    @blp.arguments(AdminConfigDomainPostSchema, example=AdminConfigDomainPostSchema.example())
+    @blp.response(200)
+    def post(self, new_data: dict, domain_name: str) -> ResponseReturnValue:
+        """
+        Endpoint to post new system settings
+
+        :param new_data: See :py:class:`~app.api.admin.schema.AdminConfigSystemPostSchema`
+        :type new_data: dict
+        """
+        # logger_api.debug("new_data: %s", new_data)
+        # logger_api.debug("domain_name: %s", domain_name)
+        interface_api : InterfaceApiAdminConfig = g.inter
+        if domain_name == "default":
+            ret = interface_api.update_all_setting_domain_default(new_data["settings"])
+        else:
+            raise NotImplementedError("Not implemented update specficed domain")
+        return ret
 
 @blp.route("/rules")
 class ApiAdminConfigRule(MethodView):

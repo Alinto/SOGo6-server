@@ -4,23 +4,31 @@
 Defines all system settings.
 Settings that defines the whole application behaviour but are not needed to start the webserver
 """
-
+from typing import Type
 from marshmallow import Schema, fields, validate, validates_schema, ValidationError
 
 from app.config.settings.SogoSchema import SogoSchema
+
+
+def get_all_system_schemas() -> list[Type[SogoSchema]]:
+    """
+    Return a list with all Sogo Domain Schema classes
+
+    :return: List with all domain schem classes
+    :rtype: list[Type[SogoSchema]]
+    """
+    all_schemas: list[Type[SogoSchema]] = [SystemSettings]
+    return all_schemas
 
 class SystemSettings(SogoSchema):
     """
     Schema for system settings
     """
     subparent = "SYSTEM_SETTINGS"
-    dependencies: dict = {}
-    is_secret: set = set()
 
     #Admin
     SOGO_S_DO_DOMAIN    = fields.Boolean(load_default=False, dump_default=False) #Allowed to have different rules according to domains
     SOGO_S_DOMAINLESS   = fields.Boolean(load_default=False, dump_default=False) #Allowed domainless login
-    SOGO_S_DOMAINS      = fields.List(fields.String()) #Domain set by admin to let sogo know
     SOGO_S_KNOWN_DOMAIN = fields.List(fields.String()) #List of domains that sogo should known. To use if they are restriction rule like SOGO_S_REJECT_UNKNOWN_DOMAIN
                                                        #and the domains are not list or set in domains rules.
 

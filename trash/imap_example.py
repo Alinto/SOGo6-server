@@ -1,7 +1,7 @@
 import imaplib
 
-imap = imaplib.IMAP4('192.168.21.81', 143)
-#imap = imaplib.IMAP4_SSL('192.168.21.81', 993)
+#imap = imaplib.IMAP4('www.google.com', 81)
+imap = imaplib.IMAP4_SSL('192.168.21.81', 993)
 #imap = imaplib.IMAP4('localhost', 143)
 
 

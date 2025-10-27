@@ -33,9 +33,9 @@ system_526 = {
         "SOGoOpenIdClientSecret":       "SOGO_D_OPENID_CLIENT_SECRET", #Secret of the openid client
         "SOGoOpenIdScope":              "SOGO_D_OPENID_SCOPE", #Scope of the openid client
         "SOGoOpenIdEmailParam":         "SOGO_D_OPENID_EMAIL", #Paramester from USerProfile that contains the mail of the user
-        "SOGoOpenIdEnableRefreshToken": None, #autodetected by sogo 6
+        "SOGoOpenIdEnableRefreshToken": "SOGO_D_OPENID_REFRESH_ENABLE", #refresh mechanism
         "SOGoOpenIdTokenCheckInterval": "SOGO_D_OPENID_TOKEN_CHECK_INTERVAL", #Once the token is check valid, don't do it for this number of seconds
-        "SOGoOpenIdLogoutEnabled":      None, #Autodetected by sogo
+        "SOGoOpenIdLogoutEnabled":      "SOGO_D_OPENID_ENDSESSION_ENABLED", #Autodetected by sogo
 
     # Authentication made by a proxy and sogo trust it
     "SOGoTrustProxyAuthentication": "", #TODO see backArchi info in Authentication chapter

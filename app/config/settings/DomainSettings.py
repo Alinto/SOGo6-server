@@ -1,21 +1,106 @@
 # -*- coding: utf-8 -*-
 
 """
-Defines all domains parameters
+Define all domains parameters
 """
-
-from marshmallow import Schema, fields, validate, validates_schema, ValidationError, post_load, post_dump
-
+from typing import Type
+from marshmallow import fields, validate
 from app.config.settings.SogoSchema import SogoSchema
 
 
-#As it was often written "ldap fields or SQL columns", a shorcut was made: "sqldap field"
+def get_all_domain_schemas() -> list[Type[SogoSchema]]:
+    """
+    Return a list with all Sogo Domain Schema classes
+
+    :return: List with all domain schem classes
+    :rtype: list[Type[SogoSchema]]
+    """
+    all_schemas = [AuthSettings, UserSourceSettings, UserModuleSettings, MailSettings, CalendarContactSettings]
+    return all_schemas
+
+
+class AuthSettings(SogoSchema):
+    """
+    Schema for an Authentication
+    """
+
+    subparent = "AUTH_SETTINGS"
+    dependencies = {
+        "SOGO_D_CAS_URL": ("SOGO_D_AUTH_TYPE", "cas"),
+        "SOGO_D_CAS_LOGOUT_ENABLED": ("SOGO_D_AUTH_TYPE", "cas"),
+
+        "SOGO_D_OPENID_CONFIG_URL": ("SOGO_D_AUTH_TYPE", "openid"),
+        "SOGO_D_OPENID_CLIENT_NAME": ("SOGO_D_AUTH_TYPE", "openid"),
+        "SOGO_D_OPENID_CLIENT_SECRET": ("SOGO_D_AUTH_TYPE", "openid"),
+        "SOGO_D_OPENID_SCOPE": ("SOGO_D_AUTH_TYPE", "openid"),
+        "SOGO_D_OPENID_EMAIL": ("SOGO_D_AUTH_TYPE", "openid"),
+        "SOGO_D_OPENID_TOKEN_CHECK_INTERVAL": ("SOGO_D_AUTH_TYPE", "openid"),
+        "SOGO_D_OPENID_REFRESH_ENABLE": ("SOGO_D_AUTH_TYPE", "openid"),
+        "SOGO_D_OPENID_ENDSESSION_ENABLED": ("SOGO_D_AUTH_TYPE", "openid"),
+        "SOGo_D_OPENID_FETCH_USER_PROFILE": ("SOGO_D_AUTH_TYPE", "openid"),
+
+        "SOGO_D_SAML2_URL": ("SOGO_D_AUTH_TYPE", "saml2"),
+
+        "SOGO_D_PWD_CHANGE_ENABLED": ("SOGO_D_AUTH_TYPE", "plain"),
+        "SOGO_D_LOGIN_CHECK_MAX_ATTEMPT": ("SOGO_D_AUTH_TYPE", "plain"),
+        "SOGO_D_LOGIN_CHECK_TIME_SPAN": ("SOGO_D_AUTH_TYPE", "plain"),
+        "SOGO_D_LOGIN_CHECK_BLOCK_TIME": ("SOGO_D_AUTH_TYPE", "plain"),
+        "SOGO_D_PWD_RECOVERY": ("SOGO_D_AUTH_TYPE", "plain"),
+        "SOGO_D_PWD_RECOVERY_METHOD": ("SOGO_D_PWD_RECOVERY", True),
+        "SOGO_D_PWD_RECOVERY_FORCE": ("SOGO_D_PWD_RECOVERY", True),
+        "SOGO_D_LOGIN_MFA": ("SOGO_D_AUTH_TYPE", "plain"),
+        "SOGO_D_LOGIN_MFA_METHOD": ("SOGO_D_LOGIN_MFA", True),
+        "SOGO_D_LOGIN_MFA_FORCE": ("SOGO_D_LOGIN_MFA", True),
+
+    }
+    is_secret = {"SOGO_D_OPENID_CLIENT_SECRET",}
+
+    #Type of authentication protocol used for this domain. Beware that if the value is not plain, more parameters are needed
+    SOGO_D_AUTH_TYPE = fields.String(load_default="plain", dump_default="plain",
+                                     validate=validate.OneOf(('plain', 'openid', 'cas', 'saml2')))
+    #If SOGO_D_AUTH_TYPE = 'cas'
+    SOGO_D_CAS_URL            = fields.Url(schemes={'http','https'}, require_tld=False) #Url of the CAS server
+    SOGO_D_CAS_LOGOUT_ENABLED = fields.Boolean() # Allowed or not users to logout from sogo (invalidate the ticket for all others application)
+
+    #If SOGO_D_AUTH_TYPE = 'openid'
+    SOGO_D_OPENID_CONFIG_URL           = fields.Url(schemes={'http','https'}, require_tld=False)
+    SOGO_D_OPENID_CLIENT_NAME          = fields.String() #Name of the openid client
+    SOGO_D_OPENID_CLIENT_SECRET        = fields.String() #Secret of the openid client
+    SOGO_D_OPENID_SCOPE                = fields.String(load_default="openid profile email", dump_default="openid profile email") #Scope requested to the openis server
+    SOGO_D_OPENID_EMAIL                = fields.String(load_default="email", dump_default="email") #parameter from user profile with the user's mail, to match with the user source
+    SOGO_D_OPENID_TOKEN_CHECK_INTERVAL = fields.Integer(validate=validate.Range(min=0)) #Interval where a valid token is not checked again. 0 means always checked.
+    SOGO_D_OPENID_REFRESH_ENABLE       = fields.Boolean(load_default=True, dump_default=True) # Allowed or not sogo to refresh token if the openid server has the mechanism
+    SOGO_D_OPENID_ENDSESSION_ENABLED       = fields.Boolean(load_default=False, dump_default=False) # Allowed or not sogo to logout from the openid server instead of just the webmail
+    SOGo_D_OPENID_FETCH_USER_PROFILE   = fields.Boolean(load_default=True, dump_default=True) # sogo will fetch the user profile to get the user's email. If no, directly fetch from the token.
+
+
+    #IF SOGO_D_AUTH_TYPE = 'saml2'
+    SOGO_D_SAML2_URL  = fields.Url(schemes={'http','https'}, require_tld=False) #TODO saml2 configuration....
+
+    #If SOGO_D_AUTH_TYPE = 'plain'
+    SOGO_D_PWD_CHANGE_ENABLED = fields.Boolean(load_default=False, dump_default=False) #Allow users to change the password (for ldap it means the ldap admin account is allow to do that too)
+    #SOGO_D_LOGIN_CHECK_MAX_ATTEMPT: max login attept a user can make during SOGO_D_LOGIN_CHECK_TIME_SPAN second. If limit is reach, it will be block for
+    #SOGO_D_LOGIN_CHECK_BLOCK_TIME seconds. SOGO_D_LOGIN_CHECK_MAX_ATTEMPT = 0 disable any checking.
+    SOGO_D_LOGIN_CHECK_MAX_ATTEMPT = fields.Integer(load_default=0, dump_default=0,validate=validate.Range(min=0)) #Number of failed attempt during SOGO_D_LOGIN_CHECK_TIME_SPAN before blocking
+    SOGO_D_LOGIN_CHECK_TIME_SPAN   = fields.Integer(load_default=10, dump_default=10,validate=validate.Range(min=5)) #Time span when user can do SOGO_D_LOGIN_CHECK_MAX_ATTEMPT failed login attempt
+    SOGO_D_LOGIN_CHECK_BLOCK_TIME  = fields.Integer(load_default=300, dump_default=300,validate=validate.Range(min=5)) #Time span where a user is forbidden to login after too many fail attempt.
+
+    SOGO_D_PWD_RECOVERY = fields.Boolean(load_default=True, dump_default=True) #Enable or not users to set a method for password recovery
+    SOGO_D_PWD_RECOVERY_METHOD = fields.List(fields.String(), validate=validate.ContainsOnly(('secretQuestion', 'secondaryEmail', 'apiCall')))
+    SOGO_D_PWD_RECOVERY_FORCE = fields.Boolean(load_default=False, dump_default=False) #Force users to set a recovery method, overwrite SOGO_D_PWD_RECOVERY
+    SOGO_D_PWD_RECOVERY_DELAY = fields.Integer() #Delay before the user can ask again for a password recovery
+    SOGO_D_LOGIN_MFA = fields.Boolean(load_default=True, dump_default=True) #Enable or not users to set a MFA method for password
+    SOGO_D_LOGIN_MFA_METHOD = fields.List(fields.String(), validate=validate.ContainsOnly(('totp')))
+    SOGO_D_LOGIN_MFA_FORCE = fields.Boolean(load_default=False, dump_default=False) #Force users to set a recovery method, overwrite SOGO_D_PWD_RECOVERY
+
 class UserSourceSettings(SogoSchema):
     """
     Schema for an agnostic User Source
     """
-    
+ 
     subparent = "USER_SOURCE"
+    is_duplicable = True
+    is_uid = "US_UID"
     dependencies = {
         "US_LDAP_HOSTNAME": ("US_TYPE", "ldap"),
         "US_LDAP_CN": ("US_TYPE", "ldap"),
@@ -67,6 +152,10 @@ class UserSourceSettings(SogoSchema):
         "US_RESOURCE_MULTIBOOKING": ("US_HAS_RESOURCE", True),
         "US_RESOURCE_EXTRA_INFO": ("US_HAS_RESOURCE", True),
     }
+    is_required = {"US_LDAP_HOSTNAME", "US_LDAP_BIND_DN", "US_LDAP_BIND_DN_PWD",
+                   "US_LDAP_BASE_DN", "US_LDAP_UID", "US_LDAP_CN", "US_LDAP_ID",
+                   "US_SQL_USER_URL", "US_SQL_PREPEND_PWD_SCHEME"}
+    
     is_secret = {"US_LDAP_BIND_DN_PWD",}
 
     PWD_ALGO = ('none', 'plain',
@@ -80,20 +169,20 @@ class UserSourceSettings(SogoSchema):
                'PBKDF2',
                'sym-aes-128-cbc',
                'argon2i', 'argon2id'
-    )
+    ) #not used because missing the encodage HEX, B64 or base64
 
 
 
     US_UID  = fields.String(required=True) #must be unique
     US_TYPE = fields.String(required=True, validate=validate.OneOf(('ldap', 'sql'))) #Type of the user source
 
-    US_LDAP_HOSTNAME = fields.Url(required=True, schemes={'ldap', 'ldaps'})
-    US_LDAP_BIND_DN      = fields.String(required=True) #The bind DN used to authentify against the ldap server
-    US_LDAP_BIND_DN_PWD  = fields.String(required=True) #The password for the bindDN
-    US_LDAP_BASE_DN    = fields.String(required=True) #Example: 'dc=example,dc=com'
-    US_LDAP_UID        = fields.String(required=True, dump_default='uid') #field with the user's login typically 'uid'
-    US_LDAP_CN         = fields.String(required=True, dump_default='cn') #Field that return the Complete Name of the user, typically 'cn'
-    US_LDAP_ID         = fields.String(required=True, dump_default='uid') #Field the start the DN
+    US_LDAP_HOSTNAME = fields.Url(schemes={'ldap', 'ldaps'}, require_tld=False)
+    US_LDAP_BIND_DN      = fields.String() #The bind DN used to authentify against the ldap server
+    US_LDAP_BIND_DN_PWD  = fields.String() #The password for the bindDN
+    US_LDAP_BASE_DN    = fields.String() #Example: 'dc=example,dc=com'
+    US_LDAP_UID        = fields.String(dump_default='uid', load_default='uid') #field with the user's login typically 'uid'
+    US_LDAP_CN         = fields.String(dump_default='cn', load_default='cn') #Field that return the Complete Name of the user, typically 'cn'
+    US_LDAP_ID         = fields.String(dump_default='uid', load_default='uid') #Field the start the DN
     US_LDAP_SCOPE      = fields.String(dump_default="SUB", load_default="SUB", validate=validate.OneOf(('BASE', 'ONE', 'SUB')))
     US_LDAP_FILTER     = fields.String() #Additional filter for ldap query
     US_LDAP_PWD_POLICY = fields.Boolean(dump_default=False, load_default=False) # set to true if ldap has passwpord policy
@@ -105,17 +194,17 @@ class UserSourceSettings(SogoSchema):
     US_LDAP_GROUP_CLASS  = fields.List(fields.String(), load_default=['group', 'groupOfNames', 'groupOfUniqueNames', 'posixGroup'],
                                                      dump_default=['group', 'groupOfNames', 'groupOfUniqueNames', 'posixGroup'])
 
-    US_SQL_USER_URL           = fields.Url(required=True, schemes={"mysql", "postgresql"}) #database uri to the user source
-    US_SQL_PREPEND_PWD_SCHEME = fields.Boolean(required=True) #should the password be stored in the dabase with the shceme like this {scheme)encryptedValue
+    US_SQL_USER_URL           = fields.Url(schemes={"mysql", "postgresql"}, require_tld=False) #database uri to the user source
+    US_SQL_PREPEND_PWD_SCHEME = fields.Boolean() #should the password be stored in the dabase with the shceme like this {scheme)encryptedValue
     US_SQL_USER_FILTER        = fields.String() #Additional filter to add at the where clause when querying users.
     US_SQL_DOMAIN_FIELD       = fields.String() #Fields where the user's domain is.
 
     US_MAPPING = fields.Dict() #TODO map sqldap field to Vcard field
 
     US_CAN_AUTH   = fields.Boolean(required=True) #The users in this US can authenticate
-    US_PWD_ALGO   = fields.String(required=True, validate=validate.OneOf(PWD_ALGO)) #Algo used to encrypt the user password for login (sql) and when changing password (sql/ldap)
+    US_PWD_ALGO   = fields.String() #Algo used to encrypt the user password for login (sql) and when changing password (sql/ldap)
     US_SIM_KEY_TYPE  = fields.String(validate=validate.OneOf(('path', 'env', 'plain')))
-    US_SIM_KEY_VALUE = fields.String() 
+    US_SIM_KEY_VALUE = fields.String()
     US_PWD_POLICY       = fields.Boolean(load_default=False, dump_default=False) #Policies on password CAREFUL CONFLICT WITH LDAP_PWD_POLICY
     US_PWD_LEN_MIN = fields.Integer(load_default=4, dump_default=4,validate=validate.Range(min=1)) #Minimum lenght of password
     US_PWD_LEN_MAX = fields.Integer(load_default=0, dump_default=0,validate=validate.Range(min=0)) #Maximum lenght of password, 0 means no limit
@@ -146,73 +235,6 @@ class UserSourceSettings(SogoSchema):
     US_RESOURCE_MULTIBOOKING = fields.String() #sqldap field where to check how much time a resource can be booked simultaneously
     US_RESOURCE_EXTRA_INFO = fields.String() #TODO add moreflexibility and let the admin tell how it should be shwon? sqladp field to show when doing autocompletion (will be "cn <extra> mail")
 
-
-class AuthSettings(SogoSchema):
-    """
-    Schema for an Authentication
-    """
-
-    subparent = "AUTH_SETTINGS"
-    dependencies = {
-        "SOGO_D_CAS_URL": ("SOGO_D_AUTH_TYPE", "cas"),
-        "SOGO_D_CAS_LOGOUT_ENABLED": ("SOGO_D_AUTH_TYPE", "cas"),
-
-        "SOGO_D_OPENID_CONFIG_URL": ("SOGO_D_AUTH_TYPE", "openid"),
-        "SOGO_D_OPENID_CLIENT_NAME": ("SOGO_D_AUTH_TYPE", "openid"),
-        "SOGO_D_OPENID_CLIENT_SECRET": ("SOGO_D_AUTH_TYPE", "openid"),
-        "SOGO_D_OPENID_SCOPE": ("SOGO_D_AUTH_TYPE", "openid"),
-        "SOGO_D_OPENID_EMAIL": ("SOGO_D_AUTH_TYPE", "openid"),
-        "SOGO_D_OPENID_TOKEN_CHECK_INTERVAL": ("SOGO_D_AUTH_TYPE", "openid"),
-
-        "SOGO_D_SAML2_URL": ("SOGO_D_AUTH_TYPE", "saml2"),
-
-        "SOGO_D_PWD_CHANGE_ENABLED": ("SOGO_D_AUTH_TYPE", "plain"),
-        "SOGO_D_LOGIN_CHECK_MAX_ATTEMPT": ("SOGO_D_AUTH_TYPE", "plain"),
-        "SOGO_D_LOGIN_CHECK_TIME_SPAN": ("SOGO_D_AUTH_TYPE", "plain"),
-        "SOGO_D_LOGIN_CHECK_BLOCK_TIME": ("SOGO_D_AUTH_TYPE", "plain"),
-        "SOGO_D_PWD_RECOVERY": ("SOGO_D_AUTH_TYPE", "plain"),
-        "SOGO_D_PWD_RECOVERY_METHOD": ("SOGO_D_PWD_RECOVERY", True),
-        "SOGO_D_PWD_FORCE_RECOVERY": ("SOGO_D_PWD_RECOVERY", True),
-        "SOGO_D_LOGIN_MFA": ("SOGO_D_AUTH_TYPE", "plain"),
-        "SOGO_D_LOGIN_MFA_METHOD": ("SOGO_D_LOGIN_MFA", True),
-        "SOGO_D_LOGIN_MFA_FORCE": ("SOGO_D_LOGIN_MFA", True),
-
-    }
-    is_secret = {"SOGO_D_OPENID_CLIENT_SECRET",}
-
-    #Type of authentication protocol used for this domain. Beware that if the value is not plain, more parameters are needed
-    SOGO_D_AUTH_TYPE = fields.String(load_default="plain", dump_default="plain",
-                                     validate=validate.OneOf(('plain', 'openid', 'cas', 'saml2')))
-    #If SOGO_D_AUTH_TYPE = 'cas'
-    SOGO_D_CAS_URL            = fields.Url(schemes={'http','https'}) #Url of the CAS server
-    SOGO_D_CAS_LOGOUT_ENABLED = fields.Boolean() # Allowed or not users to logout from sogo (invalidate the ticket for all others application)
-
-    #If SOGO_D_AUTH_TYPE = 'openid'
-    SOGO_D_OPENID_CONFIG_URL           = fields.Url(schemes={'http','https'})
-    SOGO_D_OPENID_CLIENT_NAME          = fields.String() #Name of the openid client
-    SOGO_D_OPENID_CLIENT_SECRET        = fields.String() #Secret of the openid client
-    SOGO_D_OPENID_SCOPE                = fields.String(load_default="openid profile email", dump_default="openid profile email") #Scope requested to the openis server
-    SOGO_D_OPENID_EMAIL                = fields.String(load_default="email", dump_default="email") #parameter from user profile with the user's mail, to match with the user source
-    SOGO_D_OPENID_TOKEN_CHECK_INTERVAL = fields.Integer(validate=validate.Range(min=0)) #Interval where a valid token is not checked again. 0 means always checked.
-
-    #IF SOGO_D_AUTH_TYPE = 'saml2'
-    SOGO_D_SAML2_URL  = fields.Url(schemes={'http','https'}) #TODO saml2 configuration....
-
-    #If SOGO_D_AUTH_TYPE = 'plain'
-    SOGO_D_PWD_CHANGE_ENABLED = fields.Boolean(load_default=False, dump_default=False) #Allow users to change the password (for ldap it means the ldap admin account is allow to do that too)
-    #SOGO_D_LOGIN_CHECK_MAX_ATTEMPT: max login attept a user can make during SOGO_D_LOGIN_CHECK_TIME_SPAN second. If limit is reach, it will be block for
-    #SOGO_D_LOGIN_CHECK_BLOCK_TIME seconds. SOGO_D_LOGIN_CHECK_MAX_ATTEMPT = 0 disable any checking.
-    SOGO_D_LOGIN_CHECK_MAX_ATTEMPT = fields.Integer(load_default=0, dump_default=0,validate=validate.Range(min=0)) #Number of failed attempt during SOGO_D_LOGIN_CHECK_TIME_SPAN before blocking
-    SOGO_D_LOGIN_CHECK_TIME_SPAN   = fields.Integer(load_default=10, dump_default=10,validate=validate.Range(min=5)) #Time span when user can do SOGO_D_LOGIN_CHECK_MAX_ATTEMPT failed login attempt
-    SOGO_D_LOGIN_CHECK_BLOCK_TIME  = fields.Integer(load_default=300, dump_default=300,validate=validate.Range(min=5)) #Time span where a user is forbidden to login after too many fail attempt.
-
-    SOGO_D_PWD_RECOVERY = fields.Boolean(load_default=True, dump_default=True) #Enable or not users to set a method for password recovery
-    SOGO_D_PWD_RECOVERY_METHOD = fields.List(fields.String(), validate=validate.ContainsOnly(('secretQuestion', 'secondaryEmail')))
-    SOGO_D_PWD_FORCE_RECOVERY = fields.Boolean(load_default=False, dump_default=False) #Force users to set a recovery method, overwrite SOGO_D_PWD_RECOVERY
-    SOGO_D_LOGIN_MFA = fields.Boolean(load_default=True, dump_default=True) #Enable or not users to set a MFA method for password
-    SOGO_D_LOGIN_MFA_METHOD = fields.List(fields.String(), validate=validate.ContainsOnly(('totp')))
-    SOGO_D_LOGIN_MFA_FORCE = fields.Boolean(load_default=False, dump_default=False) #Force users to set a recovery method, overwrite SOGO_D_PWD_RECOVERY
-
 class UserModuleSettings(SogoSchema):
     """
     Schema for an User module and action
@@ -233,6 +255,7 @@ class UserModuleSettings(SogoSchema):
                                     load_default=['mail', 'calendar', 'contact'],
                                     dump_default=['mail', 'calendar', 'contact'])
     SOGO_D_MAPI_ACCESS = fields.Boolean(load_default=False, dump_default=False) #Allow user to access their data with MAPI
+    SOGO_D_EAS_ACCESS = fields.Boolean(load_default=False, dump_default=False) #Allow user to access their data with EAS
 
     #Folder settings
     SOGO_D_FOLDER_DISABLE_EXPORT           = fields.List(fields.String(), validate=validate.ContainsOnly(('mail', 'calendar', 'contact'))) #Disable or not folder export
@@ -366,8 +389,6 @@ class MailSettings(SogoSchema):
     #TODO: for this kind of case, add a param to define exempt uid? For exemple a ressource room that could send a lot of mail...
     SOGO_D_MAIL_MAX_RECIPIENT = fields.Integer(load_default=0, dump_default=0, validate=validate.Range(min=0)) #0 means no limit
     SOGO_D_MAIL_SYSTEM_FROM = fields.Email() #Custom from used for system message (password recovery for now)
-
-
 
 class CalendarContactSettings(SogoSchema):
     """

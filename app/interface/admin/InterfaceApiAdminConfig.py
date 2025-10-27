@@ -1,7 +1,6 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
-from app.config.settings.DynamicFormSettings import example
 from app.module.admin.ModuleAdminConfig import ModuleAdminConfig
 
 if TYPE_CHECKING:
@@ -39,59 +38,45 @@ class InterfaceApiAdminConfig:
     
     def get_all_setting_system(self) -> dict:
         """
-        Return the system settingd
+        Return the system setting
         """
-        system = {
-            "general": [
-                {
-                    "name":       "SOGO_S_MAILSPOOL_PATH",
-                    "value":  "/var/spool/mail",
-                },
-            ]
-        }
-        return system
+        return self.module.get_system_settings()
 
     def update_all_setting_system(self, new_param: dict) -> dict:
+        """
+        Update the system settings
+
+        :param new_param: new parameters
+        :type new_param: dict
+        :return: Two keys: `status` a bool to say if the update has been ok. If False,
+        the second key `errors` is a string with the readable error
+        :rtype: dict
+        """
 
         ret_status, ret_error = self.module.update_system_settings(new_param)
 
         return {"status": ret_status, "errors": ret_error}
 
-
-
     def get_all_setting_domain_default(self) -> dict:
         """
-        Retrun the default settings for all domains
+        Return the default settings for all domains
         """
-        domain_default = {
-            "Basic": [
-                {
-                    "name": "SOGO_D_AUTH_TYPE",
-                    "value": "plain"
-                }
-            ],
-            "User Source": [
-                {
-                    "name":  "US_TYPE",
-                    "value": "sql"
-                },
-                {
-                    "name":    "LDAP_GROUP_CLASS",
-                    "value":  ['group', 'groupOfNames', 'sogo_group'],
-                }
-            ],
-            "Advanced": [
-                {
-                    "name":   "SOGO_D_IDENTITIES_ENABLED",
-                    "value":  False,
-                },
-                {
-                    "name":   "SOGO_D_FOLDER_DISABLE_SHARING",
-                    "value":  True,
-                }
-            ]
-        }
-        return domain_default
+        return self.module.get_default_domain_settings()
+
+    def update_all_setting_domain_default(self, new_param: dict) -> dict:
+        """
+        Update the domain default settings
+
+        :param new_param: new parameters
+        :type new_param: dict
+        :return: Two keys: `status` a bool to say if the update has been ok. If False,
+        the second key `errors` is a string with the readable error
+        :rtype: dict
+        """
+
+        ret_status, ret_error = self.module.update_domain_default_settings(new_param)
+
+        return {"status": ret_status, "errors": ret_error}   
 
     def get_list_of_rule(self) -> list[dict]:
         """

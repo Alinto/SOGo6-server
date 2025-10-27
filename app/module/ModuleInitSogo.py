@@ -80,6 +80,7 @@ class ModuleInitSogo:
             #All tables are ok
             self.first_init = False
         sogo_db_manager.close()
+
     
     def check_agent(self) -> None:
         """

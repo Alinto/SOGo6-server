@@ -226,7 +226,7 @@ class ClientPostgreSQL(ClientSQL):
         ret = 0
         if self.db_conn and self.db_conn.closed:
             self.connect()
-        
+
         #Check column len and values len
         insert_len = len(column_tuple)
         sql_all_placeholder = []
@@ -241,7 +241,7 @@ class ClientPostgreSQL(ClientSQL):
                     values[idx] = Jsonb(value)
 
             sql_all_values.extend(values)
-        
+
         sql_query = SQL("INSERT INTO {table_name} ({columns}) VALUES {values}").format(
             table_name=Identifier(table_name),
             columns=SQL(", ").join(map(Identifier, column_tuple)),
@@ -293,7 +293,7 @@ class ClientPostgreSQL(ClientSQL):
         )
 
         if self.db_conn is not None:
-            logger_sql.info("QUERY COMMAND: %s", sql_query.as_string())
+            logger_sql.info("QUERY COMMAND: '%s' with values: '%s'", sql_query.as_string(), values_list)
             try:
                 all_record = self.db_conn.execute(sql_query, values_list)
                 if all_record.rowcount == 0:

@@ -24,6 +24,8 @@ def init_mail_config() -> None:
     """
     logger_api.debug("Calling before_request for ApiMailAccount")
     process: ProcessSetting = g.process
+    system_settings: dict = g.system
+    domain_settings: dict = g.default_domain
     interface_api = InterfaceApiMailAccount(process_setting=process)
     g.inter = interface_api
 

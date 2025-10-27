@@ -3,9 +3,9 @@ from app.utils.db.Table import Column, Table
 
 COL_ID = Column(name="id", data_type="serial")
 
-#######################
-# Table sogo_settings #
-#######################
+##############################
+# Table sogo_settings_system #
+##############################
 """
 Only one query to fecth all
 SELECT TOP 1 * from sogo_settings WHERE id = 1;

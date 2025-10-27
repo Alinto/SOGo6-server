@@ -1681,6 +1681,21 @@ files = [
 ]
 
 [[package]]
+name = "types-smorest"
+version = "1.1.2"
+description = "Type Stubs for flask-smorest"
+optional = false
+python-versions = ">=3.7, <4"
+groups = ["main"]
+files = [
+    {file = "types-smorest-1.1.2.tar.gz", hash = "sha256:4782b913852268050fb68538f032ef5640f7a164e64d3b37a96b125eb8f95b73"},
+    {file = "types_smorest-1.1.2-py3-none-any.whl", hash = "sha256:bad3ae6ee5d074bab6e1be9eae92d995c109e1addd35cb710869fb85c9824d8b"},
+]
+
+[package.extras]
+dev = ["apispec (==5.2.2)", "flask (==2.2.2)", "marshmallow (==3.19.0)", "mypy (==0.991)", "pipenv-setup (==3.2.0)", "twine (==4.0.2)", "types-flask (==1.1.6)", "werkzeug (==2.2.2)"]
+
+[[package]]
 name = "typing-extensions"
 version = "4.14.1"
 description = "Backported and Experimental Type Hints for Python 3.9+"
@@ -1802,4 +1817,4 @@ email = ["email-validator"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.13,<4.0"
-content-hash = "80f51af3a020f81546f660c6220ded1e9614cbbe997dbf1860aa169f4fcb6366"
+content-hash = "016812a69273d86a9ce8c865c6e06db4bb6a84c88367df350ab31011e8cdd73e"

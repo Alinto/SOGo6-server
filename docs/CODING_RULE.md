@@ -2,13 +2,17 @@
 
 TODO, tell all the rules for uniform coding
 
-## Naming
-All names must be singular to make sure there will not be any case like this
+## Plural
+Avoid to make two methods with the same name except plural like this:
 ```python
 def get_mail()
 def get_mails()
 ```
-This could add reading confusion.
+This could add reading confusion. Instead do this:
+```python
+def get_mail()
+def get_all_mails()
+```
 
 ### Directory's name
 lowercase
@@ -40,7 +44,7 @@ class MyClass()
         return
 ```
 ### Typing hint
-Use as much as typing hint you can. The only goal os fot the IDE to know which object and which methods can be used.
+Use as much as typing hint you can. The only goal is for the IDE to know which object and which methods can be used.
 
 To avoid import only for typing use this structure:
 ```python
@@ -59,8 +63,8 @@ if TYPE_CHECKING: # Import only used for typing hint
 
 ### import
 First import external libraries
-Then, relative path app libraries
 Then, full path app libraries
+Then, relative path app libraries
 
 ```python
 from flask import request
@@ -69,7 +73,6 @@ from app.module.preference.model.prefs import Prefs
 
 from .schemas.userPreferences import SaveSchema, RetGetUserPreferences
 ```
-If you need 
 
 
 ### Logging

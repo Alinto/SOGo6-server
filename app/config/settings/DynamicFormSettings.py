@@ -176,6 +176,8 @@ def create_dynamic_dict_for_settings(settings_schema: SogoSchema) -> dict:
 
         #Get required value
         required = field.required
+        if field_name in settings_schema.is_required:
+            required = True
 
         #Get constraints value
         constraints: dict|None = None
@@ -205,78 +207,36 @@ def create_dynamic_dict_for_settings(settings_schema: SogoSchema) -> dict:
                         "depends": depends}
         dynamic_field_list.append(dynamic_field)
     dynamic_form[subparent] = dynamic_field_list
+    dynamic_form["is_duplicable"] = settings_schema.is_duplicable
 
     return dynamic_form
 
+def create_values_dict_for_settings(settings_schema: SogoSchema) -> dict:
+    """
+    Only used once to create the json in Scripts/init/xxx_settings.json
 
+    Shouldn't be used in the code
 
+    :param settings_schema: A marshmallow schema will the parameters
+    :type settings_schema: SogoSchema
+    :return: The json ready dictionnary with the dynamic form structure
+    :rtype: dict
+    """
+    subparent: str = settings_schema.subparent
 
+    dynamic_form : dict = {}
+    dynamic_fields = {}
 
-example = {
-    "system": {
-         "general": [
-            {
-                "name":       "SOGO_S_MAILSPOOL_PATH",
-                "data_type":  "str",
-                "default":    "/var/spool/sogo",
-                "required":   True,
-                "subparent": "User Source",
-                "constrains": None,
-                "depends":    None
-            },
-         ]
-    },
-    "domain": {
-        "Basic": [
-            {
-                "name":       "SOGO_D_AUTH_TYPE",
-                "data_type":  "str",
-                "default":    'plain',
-                "required":   True,
-                "subparent": "Basic",
-                "constrains": {"choices": ['plain', 'openid', 'cas', 'saml2']},
-                "depends":    None,
-            }
-        ],
-        "User Source": [
-            {
-                "name":       "US_TYPE",
-                "data_type":  "str",
-                "default":    None,
-                "required":   True,
-                "subparent": "User Source",
-                "constrains": {"choices": ["ldap", "sql"]},
-                "depends":    None,
-            },
-            {
-                "name":       "LDAP_GROUP_CLASS",
-                "data_type":  "list[str]",
-                "default":    ['group', 'groupOfNames', 'groupOfUniqueNames', 'posixGroup'],
-                "required":   True,
-                "subparent": "User Source",
-                "constrains": None,
-                "depends":    r"US_TYPE%%%equal%%%ldap",
-            }
-        ],
-        "Advanced": [
-            {
-                "name":       "SOGO_D_IDENTITIES_ENABLED",
-                "data_type":  "bool",
-                "default":    False,
-                "required":   True,
-                "subparent": "Advanced",
-                "constrains": None,
-                "depends":    None
-            },
-            {
-                "name":       "SOGO_D_FOLDER_DISABLE_SHARING",
-                "data_type":  "bool",
-                "default":    False,
-                "required":   False,
-                "subparent": "Advanced",
-                "constrains": None,
-                "depends":    None
-            }
-        ]
-    }
-}
+    schema_fields = settings_schema.fields
+    for field_name in schema_fields:
+        field = schema_fields[field_name]
+
+        #Get default value if any
+        default = field.dump_default if not isinstance(field.dump_default, _Missing) else None
+        dynamic_fields[field_name] = default
+    if settings_schema.is_duplicable:
+        dynamic_form[subparent] = [dynamic_fields]
+    else:
+        dynamic_form[subparent] = dynamic_fields
+
+    return dynamic_form
