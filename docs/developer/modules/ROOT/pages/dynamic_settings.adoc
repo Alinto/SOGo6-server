@@ -53,6 +53,7 @@ A string representing the type of the setting. Values can be:
 - *"email"*: this setting is a string of a email, meaning it expect on @ and at least one dot after.
 - *"url"*: this settings is a string url, tha parameters constraints `prefixes` give details about the schemes.
 - *"number"*: this setting is a integer. #TODO for now we don't have any float in the settings, but maybe already add a difference for the future.
+* *"dict"*: this settings expects a dictionnary\[string, string\]
 - *"list[X]"*: this setting is a list of type X, X can be any of the above. All items of the list must be of the same type.
 
 ==== default
@@ -74,7 +75,7 @@ TIP: Example: "prefixes": ["http://", "https://"] means the setting value must b
 
 - min, max: a integer with the minimum or maximum (exlusive) value of this number
 - min_inclusive, max_inclusive: idem but inclusive
-- len_min, len_max: in case of string, the minimum or maximum length (inlusive)
+- len_min, len_max: in case of string, the minimum or maximum length (inclusive)
 
 
 ==== depends
@@ -142,7 +143,7 @@ To avoid having all parameters in one block, SOGo sort them by category. A categ
 there is a class called `SogoSchema` that inherits `marshmallow.Schema`. This class adds attributes useful to create those categories
 and also to create the parameter setting above.
 
-CAUTIOUS: The category will be present in the database. If a setting changes category, do a update_script for the next version.
+CAUTION: The category will be present in the database. If a setting changes category, do a update_script for the next version.
 
 TIP: SogoSChema is defined here `app/config/settings/SogoSchema.py`
 

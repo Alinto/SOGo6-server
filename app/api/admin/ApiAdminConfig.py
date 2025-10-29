@@ -29,7 +29,7 @@ def init_admin_config() -> None:
     interface_api = InterfaceApiAdminConfig(process_setting=process)
     g.inter = interface_api
 
-@blp.route("")
+@blp.route("/dynamic_form")
 class ApiAdminConfig(MethodView):
     """
     Endpoint that return the dynamic settings structure
@@ -83,7 +83,7 @@ class ApiAdminConfigSystem(MethodView):
         return ret
 
 
-@blp.route("/domain")
+@blp.route("/domainList")
 class ApiAdminConfigDomain(MethodView):
     """
     Endpoint that return the list of domains that have been specified
@@ -98,6 +98,7 @@ class ApiAdminConfigDomain(MethodView):
 
 
 @blp.route("/domain/<string:domain_name>")
+@blp.route("/domain", defaults={'domain_name': "default"})
 class ApiAdminConfigDomainSettings(MethodView):
     """
     Endpoint that return the list of settings for a domain (or the default)
@@ -133,7 +134,7 @@ class ApiAdminConfigDomainSettings(MethodView):
             raise NotImplementedError("Not implemented update specficed domain")
         return ret
 
-@blp.route("/rules")
+@blp.route("/rulesList")
 class ApiAdminConfigRule(MethodView):
     """
     Endpoint that return a list of all rules
