@@ -1,0 +1,275 @@
+= Dynamic settings
+
+Those settings are stored in the database and can be dynamically changed by API request.
+
+They must comply to three goals:
+
+. being dynamic
+. use the module `marshmallow`  to set the type of parameters
+. can export a json used by the UI to create a formular dynamically.
+
+
+== Being dynamic
+Each flask request is independant. The settings are loaded at the beginning in a @before_request.
+
+IMPORTANT: As they won't change much, find a way with redis to store the settings with a system to notify flask to update them if needed
+
+== Using marshmallow
+
+Using its schema and fields to automatocally check if a settings's dictionnay is ok. 
+
+== Export a json to create a formular.
+
+The goal here is that the UI doesn't required to hardcoded the settings. meaning to add a setting you only need to modify the backend.
+SOGo has its own way to create such a json. 
+
+
+=== Parameter setting
+
+Each setting will be translated like this:
+
+[source,json]
+{
+    "name": "SOGO_D_SIEVE_PORT",
+    "data_type": "number",
+    "default": 4190,
+    "required": false,
+    "constraints": {
+            "max_inclusive": 65535,
+            "min_inclusive": 1
+            },
+    "depends": "SOGO_D_MAIL_FILTERING_TYPE%%%equal%%%sieve",
+}
+
+==== name
+A string, with the "code" name of the settings. The UI has to handle the translation itself.
+
+==== data_type
+A string representing the type of the setting. Values can be:
+
+- *"bool"*: this setting is a boolean, expect json value 'true' or 'false'.
+- *"str"*: this settings is a string.
+- *"secret":* this setting is a string of a password or secret, it should be hidden in the UI.
+- *"email"*: this setting is a string of a email, meaning it expect on @ and at least one dot after.
+- *"url"*: this settings is a string url, tha parameters constraints `prefixes` give details about the schemes.
+- *"number"*: this setting is a integer. #TODO for now we don't have any float in the settings, but maybe already add a difference for the future.
+- *"list[X]"*: this setting is a list of type X, X can be any of the above. All items of the list must be of the same type.
+
+==== default
+Default value of the setting. It is of type data_type. If there is default value, this param will be null.
+
+==== required
+Boolean, True if this setting is required.
+
+WARNING: if a setting has a dependency (see: depends) and required is true. That means the setting is only required if the dependency is satisfied.
+If not, the setting is not required event if this param is True
+
+==== constraints
+A dict with details about constraint on this settings. If there is no constraints, the value will be null. Available constraints are:
+
+- "choice": is a list with available values for this setting, any other value will be rejected.
+- "prefixes": is a list of mandatory prefixes for this setting
+
+TIP: Example: "prefixes": ["http://", "https://"] means the setting value must be https://www.sogo.nu/ or http://www.sogo.nu/
+
+- min, max: a integer with the minimum or maximum (exlusive) value of this number
+- min_inclusive, max_inclusive: idem but inclusive
+- len_min, len_max: in case of string, the minimum or maximum length (inlusive)
+
+
+==== depends
+Some settings are only makes sense if another settings has a certain value.
+For example, openid settings are only needed if the authentication type is set on 'openid'.
+
+depends value represent that. It's a string with this format "\{var_name\}%%%equal%%%\{var_value\}"
+It means that the current setting requires var_name to be equal at var_value
+
+TIP: In the example at the start of the page, it means SOGO_D_SIEVE_PORT is only shown/useful if SOGO_D_MAIL_FILTERING_TYPE = "sieve"
+
+[WARNING]
+====
+Dependencies can be nested, looks at those three settings:
+[cols="1a,1a,1a"]
+|===
+|
+[source,json]
+----
+{
+    "constraints": null,
+    "data_type": "bool",
+    "default": null,
+    "depends": null,
+    "name": "US_CAN_AUTH",
+    "required": true
+} 
+----
+|
+[source,json]
+----
+{
+    "constraints": null,
+    "data_type": "str",
+    "default": null,
+    "depends": "US_CAN_AUTH%%%equal%%%True",
+    "name": "US_PWD_ALGO",
+    "required": false
+}
+----
+|
+[source,json]
+----
+{
+    "constraints": null,
+    "data_type": "str",
+    "default": null,
+    "depends": "US_PWD_ALGO%%%equal%%%sym-aes-128-cbc",
+    "name": "US_SIM_KEY_VALUE",
+    "required": false
+}
+----
+
+|===
+
+* US_PWD_ALGO is only useful if US_CAN_AUTH = true.
+* US_SIM_KEY_VALUE is only useful if US_PWD_ALGO = "sym-aes-128-cbc".
+* Technically US_SIM_KEY_VALUE is also only useful if US_CAN_AUTH = true but this dependy is not shown in US_SIM_KEY_VALUE dictionary. It is inherited from US_PWD_ALGO.
+====
+
+
+=== Parameter Category
+
+To avoid having all parameters in one block, SOGo sort them by category. A category contains a list of parameter. To do that,
+there is a class called `SogoSchema` that inherits `marshmallow.Schema`. This class adds attributes useful to create those categories
+and also to create the parameter setting above.
+
+CAUTIOUS: The category will be present in the database. If a setting changes category, do a update_script for the next version.
+
+TIP: SogoSChema is defined here `app/config/settings/SogoSchema.py`
+
+==== SogoSchema attributes
+
+===== subparent
+A string, this is the name of the category
+
+===== dependencies
+Is a dictionnary to tell the dependencies of the parameters
+
+[source, python]
+----
+    dependencies = {
+        "PARAM1": ("PARAM2", "value")
+    }
+----
+This example means the PARAM1 needs PARAM2 to be equal at "value" to be needed.
+
+TIP: will be translated as depends = "PARAM2%%%equal%%%value" in PARAM1 dict
+
+==== is_required
+`marshmallow.field` already have an argument required.
+[source, python]
+----
+param = field.String(required=True)
+----
+But a parameters with an dependency can't use that as it won't be in the dictionnary if its dependancy is not satisfied. is_required is a set with all parameters
+with dependecy that are required. Tha SOGoSchema validator will use this to check if the data is correct.
+
+[TIP]
+====
+Example:
+US_LDAP_HOSTNAME is the parameter with the ldap hostname. It depends on US_TYPE = 'ldap'. +
+If the user source is ldap, US_LDAP_HOSTNAME is required. But if we do this:
+
+[source, python]
+US_LDAP_HOSTNAME = field.String(required=True)
+
+And if US_TYPE = 'sql', meaning US_LDAP_HOSTNAME will be absent, SOGoSchema will raise an error because US_LDAP_HOSTNAME is missing.
+
+For case like this, we add US_LDAP_HOSTNAME in is_required.
+====
+
+==== is_secret
+Simply a set with parameters name that are secrets as marshmallow don't handle this case.
+
+==== is_duplicable
+Some categories can have one or several block of themselves. is_duplicable is a bool to indicate that.
+Categories that are duplicable will be a list themselves in the database
+
+TIP: Example, there can be several user source. The Schema for user source's parameters has is_duplicate=True
+
+==== is_uid
+For duplicable category, there always a unique identifier parameter to disntinquish themselves. Besides adding the field parameter,
+also put the name in is_uid which is a string?
+
+==== validate_required_whith_dependency
+This method use the wrapper `marshmallow.validates_schema` meaning it will also runs when the schema is validating data.
+It will simply check parameters that have a dependency and are required in that case.
+
+
+=== Creating the dynamic form
+All the magic happens in `app/config/settings/DynamicFormSettings.py`
+
+It takes a SogoSchema and create the adequate dictionnary with two keys:
+
+- name of the category (subparent): its value is a list of all parameters
+- "is_duplicable": true or false if this category is duplicable
+
+WARNING: this dynamic form is only used by the UI to create the correct data formular. It does not contain the real value of this parameters
+
+[source,json]
+----
+{
+    "is_duplicable": true,
+    "subparent/category": [
+        {
+            "name": "SOGO_D_SIEVE_PORT",
+            "data_type": "number",
+            "default": 4190,
+            "required": false,
+            "constraints": {
+                    "max_inclusive": 65535,
+                    "min_inclusive": 1
+                    },
+            "depends": "SOGO_D_MAIL_FILTERING_TYPE%%%equal%%%sieve",
+        },
+        "...",
+        "and all others parameters in dict...",
+    ]
+}
+----
+
+[TIP]
+====
+The final dict return by the api will also contains the type of settings domain or system like this:
+
+[source,json]
+----
+{
+    "domain": [
+        {
+            "is_duplicable": true,
+            "subparent/category": [
+            {
+                "name": "SOGO_D_SIEVE_PORT",
+                "data_type": "number",
+                "default": 4190,
+                "required": false,
+                "constraints": {
+                        "max_inclusive": 65535,
+                        "min_inclusive": 1
+                        },
+                "depends": "SOGO_D_MAIL_FILTERING_TYPE%%%equal%%%sieve",
+            },
+            "...",
+            "and all others parameters in dict...",
+            ]
+        },
+        {
+            "other_category": "here"
+        }
+    ],
+    "system": [
+        "idem": "also a list of category dict"
+    ]
+}
+----
+====

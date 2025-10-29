@@ -9,15 +9,6 @@ Flask application which permit to publish web pages like maintenance page.
 Use vscode and devcontainer will set up the development workspace.
 A launcher start the project on http://localhost:5000/
 
-
-## Structure
-
-* agent/...............Contains all code of the sogo agent for event scheduling
-* app/.................Contains all code of the web application
-* docs................All documentation about installation, configuration and devellopers' contribution
-* tests...............Contains all code for testing the web application
-
-
 ## Install
 
 * To check the `docker-compose.yml` file try
@@ -60,3 +51,7 @@ Run unittest and generate artifacts
 poetry run pytest --doctest-modules --junitxml=junit/test-results.xml --cov=app --cov-report=xml --cov-report=html
 ```
 
+Generate documentation
+```bash
+npx antora antora-playbook-dev.yml
+```

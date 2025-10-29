@@ -26,7 +26,7 @@ def only_json() -> ResponseReturnValue | None:
     :return:
     :rtype: ResponseReturnValue | None
     """
-    if request.method in {"POST", "PATCH", "DELETE"}:
+    if request.method in {"POST", "PATCH", "DELETE", "PUT"}:
         if request.headers.get("Content-Type", "") != "application/json":
             return "{'error': 'Not a json'}", 400
     return None

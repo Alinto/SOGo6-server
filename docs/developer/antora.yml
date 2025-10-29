@@ -1,0 +1,5 @@
+name: SOGo6-DevDoc
+title: SOGo 6 - Dev Doc
+version: ~
+nav:
+- modules/ROOT/nav.adoc

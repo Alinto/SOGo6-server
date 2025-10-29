@@ -1,0 +1,13 @@
+= Configuration and settings
+
+
+SOGo 6 has two major kind of settings.
+
+The one needed to start the process, called **process_settings**. Thye're either environement variable or are read from a file.
+Any modifications of them only takes effect after a restart of SOGo.
+
+All the others are stored in the database and can be dynamically changed, hence their name **dynamic_settings**. Among them can be found:
+
+- **system_settings**: affects all the platform
+- **domain_settings**: only affect users logged with an email with a matching domain.
+

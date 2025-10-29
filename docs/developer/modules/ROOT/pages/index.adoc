@@ -77,11 +77,6 @@ resp.raise_for_status()
 print(resp.json())
 ----
 
-== Ressources et images
-
-Si tu veux ajouter une image d'architecture, place-la dans docs/images/ et référence-la ainsi :
-
-image::images/architecture.png[Architecture du backend, width=600]
 
 == Générer la documentation
 

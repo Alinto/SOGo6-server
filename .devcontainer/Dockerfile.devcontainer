@@ -9,6 +9,7 @@ ARG USERNAME=quentin
 ARG WORKSPACE=/workspace
 ARG USER_ID=1000
 ARG GROUP_ID=1000
+ARG NODE_VERSION=22
 
 RUN groupadd --system --gid "${GROUP_ID}" "${USERNAME}" && \
     useradd --system --create-home --uid "${USER_ID}" --gid "${GROUP_ID}" "${USERNAME}" && \
@@ -19,33 +20,41 @@ RUN mkdir -p ${WORKSPACE} && chown -R ${USERNAME}:${USERNAME} ${WORKSPACE}
 
 USER 1000:1000
 
+RUN echo "Install basic package"
 RUN sudo apt install -y \
     git \
     openssh-client \
     curl \
     procps
 
-#    libldap2-dev libsasl2-dev ldap-utils \
+RUN echo "Install extra packages for python libraries"
 RUN sudo apt install -y \
     build-essential curl git \
     libldap2-dev libsasl2-dev \
     libpq5 \
     && sudo rm -rf /var/lib/apt/lists/*
 
-RUN sudo apt update && sudo apt install -y ruby-full && \
-    sudo gem install asciidoctor asciidoctor-pdf && \
-    sudo rm -rf /var/lib/apt/lists/*
-
+RUN echo "Give the right to write the sogo log directory"
 RUN sudo install -o ${USERNAME} -g ${USERNAME} -m 750 -d /var/log/sogo 
 
+
 WORKDIR /workspace
-
 COPY ../ /workspace/ 
+#RUN chown -R ${USERNAME}:${USERNAME} ${WORKSPACE}
 
+RUN echo "Install NodeJS"
+RUN sudo curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | sudo -E bash - && \
+    sudo apt install -y nodejs 
+
+RUN echo "Install poetry and the project"
 RUN curl -sSL https://install.python-poetry.org | python3 -
 ENV PATH="/home/${USERNAME}/.local/bin:$PATH"
 RUN sudo rm -rf .poetry
 RUN poetry lock && poetry install
+
+RUN echo "install antora"
+RUN node -e "fs.writeFileSync('package.json', '{}')"
+RUN npm i -D -E antora
 
 
 #RUN poetry run start --host="0.0.0.0"
