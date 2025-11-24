@@ -171,7 +171,7 @@ class ModuleAdminConfig:
             record_dict = {}
             for idx, col in enumerate(column_tuple):
                 if col == tbl.COL_DOMAIN_SETTINGS.name:
-                     record_dict["settings"] = record[idx]
+                    record_dict["settings"] = record[idx]
                 else:
                     record_dict[col] = record[idx]
             result.append(record_dict)
@@ -378,14 +378,14 @@ class ModuleAdminConfig:
             raise RequestException(f"Domain's name '{domain_name}' already taken", err.ERROR_DOMAIN_NAME_TAKEN)
 
         domain_description = new_param["domain_description"]
-        domain_info = new_param["domain_infos"]
+        domain_info = new_param["domain_info"]
 
         values = self._check_data(new_param["settings"], get_all_domain_schemas)
         values_default = self.get_default_domain_settings()
         origins = set_origin_from_settings(domain_name, values, values_default)
 
         insert_values = [[domain_name, domain_description, domain_info, values, origins]]
-        colums = (tbl.COL_DOMAIN_NAME.name, tbl.COL_DOMAIN_DESCRIPTION.name, tbl.COL_DOMAIN_INFOS.name, tbl.COL_DOMAIN_SETTINGS.name, tbl.COL_DOMAIN_ORIGIN.name)
+        colums = (tbl.COL_DOMAIN_NAME.name, tbl.COL_DOMAIN_DESCRIPTION.name, tbl.COL_DOMAIN_INFO.name, tbl.COL_DOMAIN_SETTINGS.name, tbl.COL_DOMAIN_ORIGIN.name)
 
         #Insert in column
         row_updated = self.sogo_db_manager.insert_in_table(table_name=tbl.TABLE_DOMAIN.name,
@@ -431,8 +431,8 @@ class ModuleAdminConfig:
         values_default = self.get_default_domain_settings()
         origins = set_origin_from_settings(domain_id, values, values_default)
 
-        update_values = [stored_data["domain_description"], stored_data["domain_infos"], values, origins]
-        colums = (tbl.COL_DOMAIN_DESCRIPTION.name, tbl.COL_DOMAIN_INFOS.name, tbl.COL_DOMAIN_SETTINGS.name, tbl.COL_DOMAIN_ORIGIN.name)
+        update_values = [stored_data["domain_description"], stored_data["domain_info"], values, origins]
+        colums = (tbl.COL_DOMAIN_DESCRIPTION.name, tbl.COL_DOMAIN_INFO.name, tbl.COL_DOMAIN_SETTINGS.name, tbl.COL_DOMAIN_ORIGIN.name)
 
         #Update in column
         cond = EqualCondition(tbl.COL_DOMAIN_NAME.name, domain_id)
@@ -448,7 +448,7 @@ class ModuleAdminConfig:
         result = {
             "domain_name": domain_id,
             "domain_description": stored_data["domain_description"],
-            "domain_infos": stored_data["domain_infos"],
+            "domain_info": stored_data["domain_info"],
             "settings": values,
             "origin": origins,
         }
