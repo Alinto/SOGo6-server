@@ -1,7 +1,14 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
+from marshmallow.exceptions import ValidationError
+
+from app.config.db import tables as tbl
 from app.module.admin.ModuleAdminConfig import ModuleAdminConfig
+from app.utils.api.ApiBaseResponse import create_api_base_response
+from app.utils.db.Condition import Order, order_str_to_order_enum
+from app.utils.exceptions import RequestException, BugException
+from app.utils import errors as err
 
 if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
@@ -23,47 +30,41 @@ class InterfaceApiAdminConfig:
         """
         Return the dynamic table
         """
-        return self.module.get_dynamic_form_settings()
+        ret = self.module.get_dynamic_form_settings()
+        return create_api_base_response(ret)
 
-    def get_all_setting_value(self) -> dict:
-        """
-        Return all the settings
-        """
-        all_settings = {"system": self.get_all_setting_system(),
-                        "domain_default": self.get_all_setting_domain_default(),
-                        "list_rule_id": self.get_list_of_rule(),
-                        "list_domain": self.get_list_of_domain()
-                        }
-        return all_settings
-    
+
     def get_all_setting_system(self) -> dict:
         """
         Return the system setting
         """
-        return self.module.get_system_settings()
+        ret = self.module.get_system_settings()
+        return create_api_base_response(ret)
 
-    def update_all_setting_system(self, new_param: dict) -> dict:
+    def update_all_setting_system(self, new_param: dict) -> tuple[dict, int]:
         """
         Update the system settings
 
         :param new_param: new parameters
         :type new_param: dict
-        :return: Two keys: `status` a bool to say if the update has been ok. If False,
+        :return: Two keys: the value to send back and the status code
         the second key `errors` is a string with the readable error
         :rtype: dict
         """
-
-        ret_status, ret_error = self.module.update_system_settings(new_param)
-
-        return {"status": ret_status, "errors": ret_error}
+        try:
+            _, ret_values = self.module.update_system_settings(new_param)
+        except ValidationError as ex:
+            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
+        return create_api_base_response(ret_values), 200
 
     def get_all_setting_domain_default(self) -> dict:
         """
         Return the default settings for all domains
         """
-        return self.module.get_default_domain_settings()
+        ret = self.module.get_default_domain_settings()
+        return create_api_base_response(ret)
 
-    def update_all_setting_domain_default(self, new_param: dict) -> dict:
+    def update_all_setting_domain_default(self, new_param: dict) -> tuple[dict, int]:
         """
         Update the domain default settings
 
@@ -73,54 +74,105 @@ class InterfaceApiAdminConfig:
         the second key `errors` is a string with the readable error
         :rtype: dict
         """
+        try:
+            _, ret_values = self.module.update_domain_default_settings(new_param)
+        except ValidationError as ex:
+            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
+        return create_api_base_response(ret_values), 200
 
-        ret_status, ret_error = self.module.update_domain_default_settings(new_param)
 
-        return {"status": ret_status, "errors": ret_error}   
-
-    def get_list_of_rule(self) -> list[dict]:
+    def get_all_domain_settings(self, first_item: int = 0, last_item: int = 20, sort: str = "", order_str: str = "") -> tuple[int, dict, int]:
         """
-        Return all the rules ids
-        """
-        return [{"id": 1,"name": "suisse"}, {"id": 2,"name": "Université"}]
+        Fetch all domains according to pagination params, order and sorting
 
-    def get_list_of_domain(self) -> list[str]:
-        """
-        Return all the domains
-        """
-        return  ["example.org", "sogo.nu", "business.com"]
+        Return: the total number of records, the API ready dictionnary, the http code status
 
-    def get_all_setting_rule(self, rule_id: int) -> dict[str, Any] | None:
+        :param page: _description_, defaults to 0
+        :type page: int, optional
+        :param page_size: _description_, defaults to 20
+        :type page_size: int, optional
+        :param sort: _description_, defaults to ""
+        :type sort: str, optional
+        :param order_str: _description_, defaults to ""
+        :type order_str: str, optional
+        :return: _description_
+        :rtype: tuple[int, dict, int]
         """
-        Return settings for a specific rule
+        offset = first_item
+        limit = last_item - first_item + 1
+
+        if order_str:
+            try:
+                order = order_str_to_order_enum(order_str)
+            except BugException as exc:
+                return 0, create_api_base_response(str(exc), err.ERROR_BUG_UNKNWON_ORDER), 400
+        else:
+            order = Order.ASC
+
+        if sort:
+            try:
+                sort_by = tbl.TABLE_DOMAIN.get_column_from_name(sort)
+            except RequestException as exc:
+                return 0, create_api_base_response(str(exc), exc.error_code), 400
+        else:
+            sort_by = None
+
+        count, ret = self.module.get_all_domains_settings(offset=offset, limit=limit, sort_by=sort_by, order=order)
+        return  count, create_api_base_response(ret), 200
+
+    def post_new_domain_settings(self, new_domain: dict) ->tuple[dict, int]:
         """
-        rule_default = {
-            1: {
-                "list_domains": ["sogo.nu", "business.com"],
-                "description": "Those domains can create identities as per contract A38",
-                "Advanced": [
-                    {
-                        "name":   "SOGO_D_IDENTITIES_ENABLED",
-                        "value":  True,
-                    }
-                ]
-            },
-            2: {
-                "list_domains": ["example.org", "business.com"],
-                "description": "Those domains are configured on a ldap user source",
-                "User Source": [
-                {
-                    "name":  "US_TYPE",
-                    "value": "ldap"
-                }]
-            },
-        }
-        if rule_id in rule_default:
-            return rule_default[rule_id]
+        Create a new set of settings for a domain
 
-        return None
+        :param new_domain: _description_
+        :type new_domain: dict
+        :return: _description_
+        :rtype: tuple[dict, int]
+        """
 
-    
+        try:
+            _, ret_values = self.module.create_domain_settings(new_domain)
+        except ValidationError as ex:
+            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
+        except RequestException as ex:
+            return create_api_base_response(str(ex), ex.error_code), 400
+        return create_api_base_response(ret_values), 200
+
+    def get_domain_settings(self, domain_id: str) -> tuple[dict, int]:
+        """
+        Get domain setting for a domain
+
+        :param new_domain: _description_
+        :type new_domain: dict
+        :return: _description_
+        :rtype: tuple[dict, int]
+        """
+
+        try:
+            ret_values = self.module.get_one_domain_setting(domain_id)
+        except RequestException as ex:
+            return create_api_base_response(str(ex), ex.error_code), 404
+        return create_api_base_response(ret_values), 200
+
+    def update_domain_settings(self, domain_id: str, new_data: dict) -> tuple[dict, int]:
+        """
+        Update one domain settings
+
+        :param domain_id: _description_
+        :type domain_id: str
+        :param new_data: _description_
+        :type new_data: dict
+        :return: _description_
+        :rtype: tuple[dict, int]
+        """
+        try:
+            _, ret_values = self.module.update_one_domain_settings(domain_id, new_data)
+        except RequestException as ex:
+            return create_api_base_response(str(ex), ex.error_code), 404
+        except ValidationError as ex:
+            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
+        return create_api_base_response(ret_values), 200
+  
     def get_all_setting_domain(self, domain_id: str) -> dict[str, Any] | None:
         """
         Return settings for a specific domain

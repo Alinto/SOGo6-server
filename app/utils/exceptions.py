@@ -5,8 +5,21 @@ SOGo server, being an API, should never raise any exceptions. Instead, it should
 give a proper response to the client's API.
 """
 
+class SogoException(Exception):
+    """
+    Sogo exception with the error
+    """
+    def __init__(self, message: str, error_code: int = 99999) -> None:
+        super().__init__(message)
+        self.error_code = error_code
 
-class AggravatedException(Exception):
+    def err(self) -> int:
+        """
+        Return the code error of this Exception
+        """
+        return self.error_code
+
+class AggravatedException(SogoException):
     """
     Exception serious enough to stop all operations.
 
@@ -15,7 +28,7 @@ class AggravatedException(Exception):
     Remediation: An admin should check the error and the conf
     """
 
-class RequestException(Exception):
+class RequestException(SogoException):
     """
     Exception during a request, mostly unexpected but SOGo can continue to welcome other requests
 
@@ -24,7 +37,7 @@ class RequestException(Exception):
     Remediation: An admin should check the log, the input and may report a bug on github if necessary. 
     """
 
-class BugException(Exception):
+class BugException(SogoException):
     """
     Those exceptions should never happen, but as still here in case of bug
 

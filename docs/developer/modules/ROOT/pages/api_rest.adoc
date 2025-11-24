@@ -1,0 +1,53 @@
+= API Rest
+
+The goal of SOGo 6 is to offer an API rest for any kind of client: web application, scripts, UI, NON-UI...
+
+== Limitations
+
+=== Not API Rest only
+
+SOGo 6 application cannot be only an API Rest as it is also a server for others protocol as Caldav or MAPI.
+However, the API rest provides all the methods needed to fully operate SOGo and its ressources.
+
+=== Idempotency
+
+SOGo 6 cannot be completely idempotent, meaning that two identical successive requests must have the same effects and outcomes.
+
+For two reasons:
+
+* Sogo is a client of many services that it doesn't own nor manage their resources. The mails for example. They are managed
+by the imap server. So two SOGo request to get a mail may output differents results.
+* SOGo is a server for others protocols. The events for example, a caldav request may change an event.
+So two SOGo request to get a event may output differents results.
+
+=== Authentication
+
+#TODO
+
+== Useful resource
+
+https://ics.uci.edu/~fielding/pubs/dissertation/top.htm[Architectural Styles and the Design of Network-based Software Architectures]
+
+Introduce the Representational State Transfer (REST) architectural style
+
+https://www.rfc-editor.org/rfc/rfc9110.html[HTML semantic RFC 9110]
+
+It describes the overall architecture of HTTP, establishes common terminology, and defines aspects of the protocol that are shared by all versions
+
+https://www.rfc-editor.org/rfc/rfc5789.html[PATCH Method for HTTP]
+
+This proposal adds a new HTTP method, PATCH, to modify an existing HTTP resource.
+
+https://datatracker.ietf.org/doc/html/rfc6585[Additionnal code status]
+
+Add `428 Precondition Required`, `429 Too Many Requests`, `431 Request Header Fields Too Large` and `511 Network Authentication Required`
+
+https://datatracker.ietf.org/doc/html/rfc9112[HTTP/1.1 RFC 9112] and https://datatracker.ietf.org/doc/html/rfc9113[HTTP/2 RFC 9113]
+
+Describes their respective protocol. They both use the same HTML semantic RFC.
+
+https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Resources_and_specifications[HTTP specs and resources]
+
+List of all HTTP specs and resources
+
+

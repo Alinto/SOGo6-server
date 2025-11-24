@@ -1,0 +1,420 @@
+= SOGo API Rest
+
+Here is discribed all rules and definitions applying to SOGo API Rest
+
+== URI prefix
+
+All endpoints will start with: +
+`/api/\{version\}` *version* is the version of the api like `v1`
+
+
+== URI, Resource, Collection and Action
+
+=== What is a Resource?
+
+[quote,Architectural Styles and the Design of Network-based Software Architectures by Roy Thomas Fielding]
+____
+The key abstraction of information in REST is a resource. Any information that can be named can be a resource: 
+a document or image, a temporal service (e.g. "today's weather in Los Angeles"), a collection of other resources, 
+a non-virtual object (e.g. a person), and so on. In other words, any concept that might be the target of an author's
+hypertext reference must fit within the definition of a resource. A resource is a conceptual mapping to a set of
+entities, not the entity that corresponds to the mapping at any particular point in time
+____
+
+A resource is a name that can either be:
+
+* Directly the content: `/document.txt`
+* A partial reprensation of the content: `/12578`, 12578 being the id of a mail
+* A map to a resource: `/0`, 0 being an account 
+
+=== What is a Collection ?
+
+A collection is a set of the same kind resources and can also have actions, to represent that, the plural is use on collection's name
+
+`api/v1/mailboxes` mailboxes is a collections of mailbox
+
+The part just after a collection can be a resource or a action:
+
+`/api/v1/mailboxes/\{mailbox_id\}` mailbox_id is a resource of the collection
+
+[TIP]
+====
+A collection can be a singleton, only having one resource. In that case, the endpoint
+is singular and sufficient.
+
+`/api/v1/admin-config/system-setting`
+====
+
+They can be subcollections
+
+`/api/v1/mailboxes/\{mailbox_id\}/folders`
+
+A collection also can only have a set of actions and no resources:
+
+`/api/v1/auth/login` +
+`/api/v1/auth/logout`
+
+
+=== What is an Action ?
+
+An action is a name that represents a function, a method that will be executed.
+It can depends of a collection:
+
+* `/api/v1/auth/login`: `auth` is a collection of diferents actions related to the authentication
+* `/api/v1/admin/rename-user`: `admin` is a collection of diferents actions related to the admin tools (ex: sogo-tool)
+
+It can depends of a resource:
+
+* `/api/v1/mailboxes/\{mailbox_id\}/folders/\{folder_id\}/purge`: `folders` is a collection of diferent resources. `purge` is an action on those resources
+
+
+=== URL Syntax rules
+
+Only use the following for naming your collections and actions:
+
+* Latin alphabet lowercase: `abcdefghijklmnopqrstuvwxyz`
+* hyphen (-) to separate the words.
+
+Resources doesn't have any limitations as they can be directly a resource name. ( /my_file@@@ext.pytz). But try your
+best to keep it with alphanumerical only.
+
+TIP: Underscore visiblity in some softwares make it a worst choice than hyphen
+
+Endpoints must not end by a slash (/)
+
+[WARNING]
+====
+If an endpoint is defined with a `/` at the end and you make a request to this
+endpoint without the `/`, *Flask* will not returns 404 NOT FOUND but a 302 FOUND
+to redirect to the correct URL. +
+Beware of your route definition as no errors will be seen.
+====
+
+
+== Methods allowed
+
+=== GET
+
+* On a resource: Fetch the resource.
+* On a collection: Fetch all the resources.
+* On a singleton: Fetch the resource.
+* On an action: Get the result of the action.
+
+GET methods must be *safe*, meaning it only reads data, its does not update, modify or delete them.
+
+=== POST
+
+* On a resource: Method not allowed.
+* On a collection: Create a resource if it does not exist.
+* On a singleton: Create a resource if it does not exist.
+* On an action: Execute the action.
+
+Data given must contains all the required arguments to execute the method. +
+Data must be a json with the header `Content-Type: application/json`
+
+=== PATCH
+
+* On a resource: Update the resource.
+* On a collection: Method not allowed.
+* On a singleton: Update the resource.
+* On an action: Method not allowed.
+
+The data given merged with the resource stored must be
+enough to make a viable resource. +
+Data must be a json with the header `Content-Type: application/json`
+
+The json is expected to be https://datatracker.ietf.org/doc/html/rfc7386[JSON Merge Patch]. Meaning that the following data sent by a PATCH request:
+
+[source, json]
+----
+{
+    "PARAM1": value1,
+    "PARAM2": null
+}
+----
+
+It will update the value of *PARAM1* to _value1_, end remove *PARAM2*
+
+[TIP]
+====
+If a patch remove a parameter that has a default value, the result will have the default value.
+====
+
+[WARNING]
+====
+PATCH is not meant to delete, meaning that if you send a json-merge-patch that removes everything, the request will failed (400 Bad Request)
+====
+
+=== PUT
+
+[IMPORTANT]
+====
+Use PATCH to update a resource instead of PUT
+
+Only use PUT in specific cases where PATCH would'nt be enough. Meaning in a case where it would be
+justify to use PUT instead of PATCH or to have both PUT and PATCH
+
+PUT won't be mention again in this documentation until a proper use is found.
+====
+
+* On a resource: Update the resource.
+* On a collection: Method not alowed.
+* On a singleton: Update the resource
+* On an action: Method not alowed.
+
+
+=== POST, PATCH data
+
+The data must be in JSON format and set the header `Content-Type: application/json`. +
+If the header is missing or incorrect, or if the data are not JSON, en error is returned **400 Bad Request**
+
+The json must use `snake_case` to their keys.
+
+When creating or modifying a resource:
+
+[WARNING]
+====
+Resource can have:
+
+1. Only required parameters
+2. Both required parameters and optionnal parameters
+3. Only optionnal parameters but a least one must exist.
+
+For *case 1* there is no problem. POST must give everything. PATCH that try to remove a required parameter will fail
+as the merged resource is not viable anymore.
+
+For *case 2*, this is the same logic as *case1*
+
+For *case 3*, your implementation must check itself that there is at least one parameters at the end as
+the Marshmallow [see the part of the doc that speaks about that] schema will not detect any errors.
+====
+
+=== POST, PATCH response
+
+==== When creating or modifying resources
+
+They must response with the resource content as a GET requets would do.
+
+There must be a header `Location` with the endpoint to the resource.
+
+==== When executing an action
+
+If the action is asynchronous and the event can be followed:
+
+* Code status *202 Accepted* instead of *200 Success*
+* Header `Location` is the endpoint where the event's status can be followed.
+
+=== DELETE
+
+* On a resource: delete the resource.
+* On a collection: method not allowed.
+* On an action: method not allowed.
+
+The resource deleted must be in the URI. Any data, query or body, sent are not processed.
+
+Delte must not return any content if succeeded, shown by the status: *204 No Content*
+
+=== Batch Action
+
+If a resource A have several resources B, any action on several resources B should be implement
+at resource B level.
+
+The action's name should start with `batch` to make it clear.
+
+Reminder that actions are executed with a POST request.
+
+[TIP]
+====
+Take the endpoints for calendars and events:
+
+`/api/v1/calendars/\{calendar_id\}/events/\{event_id\}`
+
+DELETE on `/api/v1/calendars/\{calendar_id\}/events/\{event_id\}` delete the event +
+DELETE on `/api/v1/calendars/\{calendar_id\}` delete the calendar
+
+To delete several events froms a calendar, implements:
+
+POST `/api/v1/calendars/\{calendar_id\}/events/batch-delete`
+====
+
+
+=== Summary of endpoints:
+
+* `/api/v1/../collections`: GET: all resources, POST: create a new resource, PUT: Ensures a resource exist with specified value
+* `/api/v1/../collections/\{resource_id\}`: GET: the resource, PATCH: update the resource, DELETE: remove the resource
+* `/api/v1/../collections/\{resource_id\}/action-name`: POST: Action on this resource different that PATCH or DELETE
+* `/api/v1/../collections/action-name`: POST: Action on the collection 
+
+== Code status
+
+[IMPORTANT]
+====
+Here are given the common status code that. If in you're development you think about another status code
+that would be useful, open the discussion.
+====
+
+.API response
+[%autowidth]
+|===
+|Status |Name |Description 
+
+|200
+|Success
+|*GET*: The resource has been properly fetched +
+*POST*: The action has been properly executed +
+*PATCH*: The resource has been modfied. +
+*DELETE*: The resource has been deleted.
+
+|201
+|Created
+|*POST*: The resource has been created
+
+|202
+|Accepted
+|*POST*: Action is asynchroned and has been accepted
+
+|204
+|No Content
+|*DELETE*: the resource has been deleted
+
+|400
+|Bad request
+|The request does not have the required fields, or the fields the request has are invalid in some way.
+
+|401
+|Unauthorized
+|The request has invalid credentials, or no credentials when credentials are required.
+
+|403
+|Forbiden
+|The request or action is not allowed.
+
+|404
+|Not Found
+|The resource is missing or the endpoint does not exist.
+
+|409
+|Conflict
+|Use in POST request if the resource already exist.
+
+|412
+|Precondition Failed
+|Some conditions are not satisfied to allow the request
+
+|500
+|Internal error
+|The server has encouter an unexpected error
+
+|===
+
+
+== API response format
+
+All response are in JSON format and they all have the same basic structure, for all status code
+except *204 No Content* where there is no body in the response.
+
+[source, json]
+----
+{   
+    "error_msg": "Describe the error if any",
+    "error_code": 0,
+    "data": "actual data of the request"
+}
+----
+
+* If the code status is `2XX`, *data* contains the actual json structure expected by the request.
+*error_code* is 0 and *error_msg* is an empty string.
+* Else if 4XX or 5XX, *data* is `null` and:
+** "error_code": An integer, representating an error. Defines in #TODO
+** "erro_msg": A readable message of the error.
+
+Having a common response structure will help _Interceptors_ to properly parse the response if needed.
+
+[TIP]
+====
+We called `Interceptor` any method that will be executed before the data
+are returned to the original call.
+
+image::InterceptorAPI.png[Interceptor in http client]
+====
+
+== Authentication
+
+#TODO
+
+Use the header `Authorization: Bearer <JWT token>`
+Allow basic auth? Only in dev?
+
+== Pagination and Sorting
+
+[TIP]
+====
+Collections wich we know can have a lot of mandatory implements pagination. On those collections:
+
+* SOGo does not allow to get all the resources at once, because it directly affects its performance
+* SOGo has paremeters to tweak the maximum result per page. It affects its performance but it will be a configuration problem, not its core design.
+
+If a collection, that does not have pagination, appears to need one in the future, a new api version of the method
+will be created, the other one marked as deprecated. 
+====
+
+
+Use the flask-smorest's https://flask-smorest.readthedocs.io/en/latest/pagination.html[wrapper] to implement pagination
+in your endpoints:
+
+[source, python]
+----
+def paginate(self, pager=None, *, page=None, page_size=None, max_page_size=None)
+----
+
+* param type[Page] pager: Page class used to paginate response data
+* param int *page*: Default requested page number (default: 1)
+* param int *page_size*: Default requested page size (default: 10)
+* param int *max_page_size*: Maximum page size (default: 100)
+
+=== Pagination Query
+
+The query must be like this:
+
+`GET /api/v1/collections?page=X&page_size=Y`
+
+* X will surcharge default *page*, minimum 1
+* Y will surcharge default *page_size*, cannot be greater than default *max_page_size*
+
+
+=== Pagination response
+
+[TIP]
+====
+`paginate` method to format reponse's header has been override to include links
+====
+
+The header `X-Pagination` is set with this json
+
+[source, json]
+----
+{
+   "total":100,
+   "total_pages":10,
+   "first_page":1,
+   "last_page":10,
+   "page":2,
+   "previous_page":1,
+   "next_page":3,
+   "link_next": "/api/v1/collections/page=3&page_size=10",
+   "link_previous": "/api/v1/collections/page=1&page_size=10",
+   "link_start": "/api/v1/collections/page=1&page_size=10",
+   "link_last": "/api/v1/collections/page=10&page_size=10"
+}
+----
+
+[TIP]
+====
+*link_next* and *link_previous* can be an empty string if this is the last or first page
+====
+
+=== Sorting
+
+#TODO
+
+SELECT * FROM Alinto.sogo_folder_info WHERE c_path2 = "qhivert@snapshot.alinto.org";

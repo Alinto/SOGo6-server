@@ -1,4 +1,35 @@
+from enum import IntEnum
 from app.utils.logger.logger import logger
+from app.utils.exceptions import BugException
+
+
+
+
+class Order(IntEnum):
+    """
+    Enum to tell how to sort database.
+    ASC: ascendant
+    DESC: descendant
+    """
+    ASC = 0
+    DESC = 1
+
+def order_str_to_order_enum(order:str)->Order:
+    """
+    Convert a string that indicates the sorting's order to an Order object
+
+    :param order: _description_
+    :type order: str
+    :raises BugException: _description_
+    :return: _description_
+    :rtype: Order
+    """
+    order_lower = order.lower()
+    if order_lower in {"ascendant", "asc", "up"}:
+        return Order.ASC
+    if order_lower in {"descendant", "desc", "down"}:
+        return Order.DESC
+    raise BugException(f"Trying to use an order not defined or expected {order}")
 
 class Condition:
     """
@@ -7,6 +38,13 @@ class Condition:
 
     def __init__(self) -> None:
         pass
+
+class TrueCondition(Condition):
+    """
+    Condition that is always true (1 == 1).
+
+    Use when selecting all the tables without conditions
+    """
 
 class EqualCondition(Condition):
     """

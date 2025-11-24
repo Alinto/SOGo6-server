@@ -48,7 +48,7 @@ class ClientSQL(metaclass=ABCMeta):
         raise NotImplementedError
 
     @abstractmethod
-    def select_from_table(self, table_name: str, column_tuple: tuple, condition: Condition) -> Generator[tuple[Any, ...]]:
+    def select_from_table(self, table_name: str, column_tuple: tuple[str, ...], condition: Condition, offset: int = 0, limit: int = 0) -> Generator[tuple[Any, ...]]:
         """
         select values from a table
         """
@@ -62,6 +62,15 @@ class ClientSQL(metaclass=ABCMeta):
         """
         logger_sql.error("Method 'select_from_several_table' of clientSQL must be implemented by the children %s", type(self).__name__)
         raise NotImplementedError
+
+    @abstractmethod
+    def count_row_in_table(self, table_name: str, condition: Condition, column_name: str = "*") -> int:
+        """
+        count row in a table
+        """
+        logger_sql.error("Method 'count_row_in_table' of clientSQL must be implemented by the children %s", type(self).__name__)
+        raise NotImplementedError
+
 
     @abstractmethod
     def insert_in_table(self, table_name: str, column_tuple: tuple[str, ...], values_tuple: list[list[Any]]) -> int:

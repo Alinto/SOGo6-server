@@ -1,63 +1,26 @@
+from json import dumps
+
 import click
 from flask_compress import Compress
 from flask import request, make_response, g, Flask
 from flask.typing import ResponseReturnValue
 from marshmallow import ValidationError
-from werkzeug.exceptions import UnprocessableEntity
 from flask_wtf.csrf import CSRFError
 
 
 from app import create_app, __version__
-from app.config.init_config import init_sogo, init_get_system_settings, process_config
+from app.config.init_config import init_sogo, process_config
+import app.utils.errors as err
+from app.utils.api.ApiBaseResponse import create_api_base_response
 
 
 #Beware that all methods called here will be called twice because the auto-reloader is on
 #To see the correct behavior run:
 #poetry run start --no-debug
 
-SOGO_OK: bool = init_sogo()
-app = create_app()
+sogo_state: int = init_sogo()
+app = create_app(sogo_state)
 
-@app.before_request
-def only_json() -> ResponseReturnValue | None:
-    """
-    Only accept request with json content when data is posting
-
-    :return:
-    :rtype: ResponseReturnValue | None
-    """
-    if request.method in {"POST", "PATCH", "DELETE", "PUT"}:
-        if request.headers.get("Content-Type", "") != "application/json":
-            return "{'error': 'Not a json'}", 400
-    return None
-
-if not SOGO_OK:
-    @app.before_request
-    def block_sogo() -> ResponseReturnValue | None:
-        """
-        Reject all request except the ones for admin
-        """
-        if not request.path.startswith("/api/admin") and \
-            not request.path.startswith("/swagger") and \
-            not request.path.startswith("/openapi"):
-            return "{'error': 'sogo_not_init'}", 406
-
-        if 'process' not in g:
-            g.process = process_config
-        return None
-else:
-    @app.before_request
-    def get_config() -> None:
-        """
-        Get and set the config in the global flask
-        """
-        if 'process' not in g:
-            g.process = process_config
-        system_settings, default_domain_settings = init_get_system_settings()
-        if 'system' not in g:
-            g.system = system_settings
-        if 'domain' not in g:
-            g.default_domain = default_domain_settings
 
 @app.route("/")
 def index() -> ResponseReturnValue:
@@ -66,20 +29,19 @@ def index() -> ResponseReturnValue:
     """
     if app.config["DO_SWAGGER"]:
         ret = {
-            "state": "running",
+            "state": sogo_state,
             "version": __version__,
-            "swagger-ui": request.base_url+app.config["UI_OPENAPI_SWAGGER_UI_PATH"][1:],
+            "swagger-sogo": request.base_url+app.config["BASIC_OPENAPI_SWAGGER_UI_PATH"][1:],
             "swagger-admin": request.base_url+app.config["ADMIN_OPENAPI_SWAGGER_UI_PATH"][1:]
         }
     else:
         ret = {
-            "state": "running",
+            "state": sogo_state,
             "version": __version__,
-            "swagger-ui": "not deployed",
+            "swagger-sogo": "not deployed",
             "swagger-admin": "not deployed"
         }
     return ret
-
 
 
 # @app.errorhandler(CSRFError)

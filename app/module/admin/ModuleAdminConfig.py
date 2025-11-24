@@ -1,18 +1,20 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Type, Callable
 
-from marshmallow.exceptions import ValidationError
 from marshmallow import EXCLUDE
 
-from app.config.db.tables import TABLE_SETTINGS, TABLE_RULES, TABLE_DOMAIN, COL_SETTINGS_SYSTEM, COL_SETTINGS_UNIQUE, COL_SETTINGS_DOMAIN_DEFAULT
+from app.config.db import tables as tbl
 from app.config.settings.SystemSettings import get_all_system_schemas
 from app.config.settings.DomainSettings import get_all_domain_schemas
 from app.config.settings.DynamicFormSettings import create_dynamic_dict_for_settings
 from app.config.settings.SogoSchema import SogoSchema
-from app.utils.db.Condition import EqualCondition, NotEqualCondition
-from app.utils.exceptions import AggravatedException, BugException
+from app.utils.dict import merge_patch, set_origin_from_settings
+from app.utils.db.Condition import EqualCondition, NotEqualCondition, TrueCondition, Order
+from app.utils.db.Table import Column
+from app.utils.exceptions import AggravatedException, BugException, RequestException
 from app.utils.logger.logger import logger, logger_api
 from app.utils.module.importManager import import_and_instantiate_manager
+from app.utils import errors as err
 
 
 if TYPE_CHECKING:
@@ -55,7 +57,7 @@ class ModuleAdminConfig:
 
         return full_form
 
-    def _get_setting_from_table_settings(self, column_name: str) -> dict:
+    def _get_setting_from_table_settings(self, column_tuple: tuple) -> tuple[dict]:
         """
         Generic function that fetch, test and return the configuration/dict
         found in the `column_table` of table `TABLE_SETTINGS`
@@ -71,24 +73,25 @@ class ModuleAdminConfig:
         self.sogo_db_manager.connect()
 
         #Get the current system settings, purposely put a "true" condition to check if there is only 1 row.
-        cond_select = NotEqualCondition(param_name=COL_SETTINGS_UNIQUE.name, param_value=0)
-        result  = list(self.sogo_db_manager.select_from_table(table_name=TABLE_SETTINGS.name,
-                                               column_tuple=(column_name,),
+        cond_select = NotEqualCondition(param_name=tbl.COL_SETTINGS_UNIQUE.name, param_value=0)
+        result  = list(self.sogo_db_manager.select_from_table(table_name=tbl.TABLE_SETTINGS.name,
+                                               column_tuple=column_tuple,
                                                condition=cond_select))
         size = len(result)
         if size > 1:
-            #There is more than one row in table TABLE_SETTINGS which is not normal
-            logger.error("Table %s has more than one row (%s}) which is not normal. Please check manually this table", TABLE_SETTINGS.name ,size)
-            raise AggravatedException(f"Table {TABLE_SETTINGS.name} has more than one row ({size}) which is not normal. Please check manually this table")
+            #There is more than one row in table tbl.TABLE_SETTINGS which is not normal
+            logger.error("Table %s has more than one row (%s}) which is not normal. Please check manually this table", tbl.TABLE_SETTINGS.name ,size)
+            raise AggravatedException(f"Table {tbl.TABLE_SETTINGS.name} has more than one row ({size}) which is not normal. Please check manually this table")
 
-        ret = {}
         if size == 0:
             #Empty, this is the first time SOGo is configured.
-            logger.warning("Table %s is empty, which is normal if this is the first time you use SOGo", TABLE_SETTINGS.name)
+            logger.warning("Table %s is empty, which is normal if this is the first time you use SOGo", tbl.TABLE_SETTINGS.name)
+            ret: tuple = ({},)
+            for _ in range(len(column_tuple)-1):
+                ret += ret
+            return ret
 
-        if size == 1:
-            #Merge the new data and check it
-            ret = result[0][0]
+        ret = result[0]
 
         return ret
 
@@ -101,7 +104,7 @@ class ModuleAdminConfig:
         :rtype: dict
         """
 
-        return self._get_setting_from_table_settings(COL_SETTINGS_SYSTEM.name)
+        return self._get_setting_from_table_settings((tbl.COL_SETTINGS_SYSTEM.name,))[0]
 
     def get_default_domain_settings(self) -> dict:
         """
@@ -111,7 +114,113 @@ class ModuleAdminConfig:
         :rtype: dict
         """
 
-        return self._get_setting_from_table_settings(COL_SETTINGS_DOMAIN_DEFAULT.name)
+        return self._get_setting_from_table_settings((tbl.COL_SETTINGS_DOMAIN_DEFAULT.name,))[0]
+
+    def get_both_system_and_default_domain_settings(self) -> tuple:
+        """
+        Return a tuple of both system settings and default_domain_settings
+
+        :return: _description_
+        :rtype: tuple[dict]
+        """
+
+        return self._get_setting_from_table_settings((tbl.COL_SETTINGS_SYSTEM.name,tbl.COL_SETTINGS_DOMAIN_DEFAULT.name))
+
+    def get_all_domains_settings(self, offset: int = 0, limit: int = 0,
+                                 columns: tuple[Column, ...]|None = None,
+                                 sort_by: Column|None = None,
+                                 order: Order = Order.ASC) -> tuple[int,list]:
+        """
+        Return all the settings for scpecific domains.
+        columns indicates which database column to query.
+
+        sort_by is a column_anme to apply a sort mechanism
+
+        order indicates the direction fo the sorting.
+
+        :param columns: _description_
+        :type columns: Column
+        :param sort_by: _description_, defaults to ""
+        :type sort_by: str, optional
+        :param order: _description_, defaults to Order.ASC
+        :type order: Order, optional
+        """
+
+        if columns is not None:
+            for column in columns:
+                if column not in tbl.TABLE_DOMAIN.columns:
+                    raise BugException(f"Trying to query a column {column.name} that does not exist in {tbl.TABLE_DOMAIN.name}")
+            column_tuple = tuple(col.name for col in columns)
+        else:
+            column_tuple = tuple(col.name for col in tbl.TABLE_DOMAIN.columns)
+
+        if sort_by and sort_by not in tbl.TABLE_DOMAIN.columns:
+            raise BugException(f"Trying to sort by a column {sort_by.name} that does not exist in {tbl.TABLE_DOMAIN.name}")
+
+        self.sogo_db_manager.connect()
+
+        #Get the current system settings, purposely put a "true" condition to check if there is only 1 row.
+        cond_select = TrueCondition()
+        count = self.sogo_db_manager.count_row_in_table(table_name=tbl.TABLE_DOMAIN.name, condition=cond_select)
+        result = []
+        for record in self.sogo_db_manager.select_from_table(table_name=tbl.TABLE_DOMAIN.name,
+                                               column_tuple=column_tuple,
+                                               condition=cond_select,
+                                               offset=offset,
+                                               limit=limit):
+            record_dict = {}
+            for idx, col in enumerate(column_tuple):
+                if col == tbl.COL_DOMAIN_SETTINGS.name:
+                     record_dict["settings"] = record[idx]
+                else:
+                    record_dict[col] = record[idx]
+            result.append(record_dict)
+
+        return count, result
+
+    def get_one_domain_setting(self, domain_id:str, columns: tuple[Column, ...]|None = None) -> dict:
+        """
+        Get one domain setting for domain_id
+
+        :param domain_id: _description_
+        :type domain_id: str
+        :return: _description_
+        :rtype: dict
+        """
+        self.sogo_db_manager.connect()
+
+        if columns is not None:
+            for column in columns:
+                if column not in tbl.TABLE_DOMAIN.columns:
+                    raise BugException(f"Trying to query a column {column.name} that does not exist in {tbl.TABLE_DOMAIN.name}")
+            column_tuple = tuple(col.name for col in columns)
+        else:
+            column_tuple = tuple(col.name for col in tbl.TABLE_DOMAIN.columns)
+
+        #Get the current system settings, purposely put a "true" condition to check if there is only 1 row.
+        cond_select = EqualCondition(param_name=tbl.COL_DOMAIN_NAME.name, param_value=domain_id)
+        result = list(self.sogo_db_manager.select_from_table(table_name=tbl.TABLE_DOMAIN.name,
+                                               column_tuple=column_tuple,
+                                               condition=cond_select))
+        size = len(result)
+        if size > 1:
+            #There is more than one row which is impossible as the domain_name is not duplicable
+            logger.error("Table %s has more than one row (%s}) with the same domain_name: %s. Please check manually this table", tbl.TABLE_DOMAIN.name, size, domain_id)
+            raise AggravatedException(f"Table {tbl.TABLE_SETTINGS.name} has more than one row ({size}) with the same domain_name {domain_id}. Please check manually this table")
+
+        if size == 0:
+            #Empty, the resource does not exist
+            logger.warning("Table %s is empty, which is normal if this is the first time you use SOGo", tbl.TABLE_SETTINGS.name)
+            raise RequestException("domain given does not exist", err.ERROR_DOMAIN_NAME_NOT_FOUND)
+
+        ret: dict = {}
+        for idx, col in enumerate(column_tuple):
+            if col == tbl.COL_DOMAIN_SETTINGS.name:
+                ret["settings"] = result[0][idx]
+            else:
+                ret[col] = result[0][idx]
+
+        return ret
 
 
     def _check_data(self, data: dict, get_all_schemas: Callable[[], list[Type[SogoSchema]]]) -> dict:
@@ -129,89 +238,23 @@ class ModuleAdminConfig:
         for schema in get_all_schemas():
             check_schema = schema()
             if check_schema.is_duplicable:
-                updated_data_list = []
-                data_list: list[dict] = data.get(check_schema.subparent, [])
-                for data_values in data_list:
+                updated_data_dict: dict = {}
+                data_dict: dict[str, dict] = data.get(check_schema.subparent, [])
+                for data_uid, data_values in data_dict.items():
                     updated_value = check_schema.load(data_values, unknown=EXCLUDE)
-                    updated_data_list.append(updated_value)
-                updated_data[check_schema.subparent] = updated_data_list
+                    updated_data_dict[data_uid]=updated_value
+                updated_data[check_schema.subparent] = updated_data_dict
             else:
                 data_values = data.get(check_schema.subparent, {})
                 updated_value = check_schema.load(data_values, unknown=EXCLUDE)
                 updated_data[check_schema.subparent] = updated_value
         return updated_data
 
-    def _update_current_setting(self, current_settings: dict[str, Any], new_settings: dict[str, dict], get_all_schemas: Callable[[], list[Type[SogoSchema]]]) -> None:
+
+    def _update_setting_in_table_settings(self, new_param: dict, column_name: str, get_schema: Callable) -> tuple[int, dict]:
         """
-        Update the current settings from database with the new ones before validation.
-        We can't directly do current_settings.update(new_settings) because the dict is nested and schema
-        that are duplicable (like USER_SOURCE) are list.
-        We directly updates current_settings instead of creatinf and returning a new one.
-
-        :param current_settings: current settings in the database
-        :type current_settings: dict
-        :param new_settings: new settings send with the api post request
-        :type new_settings: dict
-        :param get_all_schemas: methods the return the list of schemas
-        :type get_all_schemas: Callable[[], list[Type[SogoSchema]]]
-        """
-
-        def _easy_find_for_duplicable(list_block: list[dict], uid_param: str) -> dict[str, int]:
-            """
-            Return a dict with the uid as key and index in the list as value
-
-            :param list_block: list of param from duplicable schema
-            :type list_block: list[dict]
-            :param uid_param: unique id for the schema
-            :type uid_param: str
-            :return: Result
-            :rtype: dict[str, int]
-            """
-            ret: dict[str, int] = {}
-            for idx, block in enumerate(list_block):
-                uid = block[uid_param]
-                ret[uid] = idx
-            return ret
-
-        for schema in get_all_schemas():
-            subparent = schema.subparent
-            schema_uid = schema.is_uid
-            if subparent in current_settings:
-                # subparent is in current_settings, check if this a duplicable subparent or not
-                if schema.is_duplicable:
-                    # Duplicable, the subparent is a list of one or several settings blocks
-                    if subparent in new_settings:
-                        #Hack to only do one for each loop for current settings
-                        cur_blocks_ordered = _easy_find_for_duplicable(current_settings[subparent], schema_uid)
-                        block: dict
-                        for block in new_settings[subparent]:
-                            # The api request should always precise the old_uid value, to make sure to update the correct one
-                            # If there is no old_uid, we considred this is not an update
-                            old_uid = block.get(f"OLD_{schema_uid}", block[schema_uid])
-                            # Check if this uid exist in current_settings
-                            current_block_index: int = cur_blocks_ordered.get(old_uid, -1)
-                            if current_block_index != -1:
-                                #It exists, update the block
-                                current_block: dict = current_settings[subparent][current_block_index]
-                                current_block.update(block)
-                                current_block.pop(f"OLD_{schema_uid}", None)
-                            else:
-                                #It does not exists (new block), add it to the list
-                                block.pop(f"OLD_{schema_uid}", None)
-                                current_settings[subparent].append(block)
-                else:
-                    # Not duplicable, subparent value is directly a dict
-                    current_settings[subparent].update(new_settings.get(subparent, {}))
-            else:
-                # Subparent is not in current_settings, that can happend if there is new subparent after an update
-                current_settings[subparent] = new_settings.get(subparent, {})
-            
-
-
-    def _update_setting_in_table_settings(self, new_param: dict, column_name: str, get_schema: Callable) -> tuple[bool, str]:
-        """
-        new_param should direclty be a nested dictionnary for each subparent param:value
-        If the subparent allows multiple entrees, it should be an array of dict param:value
+        new_param is expected to be of JSON merge patch.
+        If the subparent allows multiple entrees, it should be a dict key=uid, value=dict of param
         {
             subparent1: {
                             setting1.1: value1.1,
@@ -221,14 +264,15 @@ class ModuleAdminConfig:
                             setting2.1: value2.1,
                             setting2.2: value2.2,
                         },
-            subparent3: [{
+            subparent3: {
+                    "uid1": {
                             setting3.0.1: value3.0.1,
                             setting3.0.2: value3.0.2,
                         },
-                        {
+                    "uid2": {
                             setting3.1.1: value3.1.1,
                             setting3.1.2: value3.1.2,
-                        }]
+                        }
         }
 
         :param new_param: values for the settings
@@ -237,83 +281,176 @@ class ModuleAdminConfig:
         :type new_param: str
         :return: True if everything was ok, False with a string that explains the problem
         :rtype: tuple[bool, str]
+
+        :raises: ValidationError()
+        :raises: AggravatedException()
         """
-                
+
         self.sogo_db_manager.connect()
 
         #Get the current system settings, purposely put a "true" condition to check if there is only 1 row.
-        cond_select = NotEqualCondition(param_name=COL_SETTINGS_UNIQUE.name, param_value=0)
-        result  = list(self.sogo_db_manager.select_from_table(table_name=TABLE_SETTINGS.name,
+        cond_select = NotEqualCondition(param_name=tbl.COL_SETTINGS_UNIQUE.name, param_value=0)
+        result  = list(self.sogo_db_manager.select_from_table(table_name=tbl.TABLE_SETTINGS.name,
                                                column_tuple=(column_name,),
                                                condition=cond_select))
         size = len(result)
         if size > 1:
             #There is more than one row in table TABLE_SETTINGS which is not normal
-            logger.error("Table %s has more than one row (%s}) which is not normal. Please check manually this table", TABLE_SETTINGS.name ,size)
-            raise AggravatedException(f"Table {TABLE_SETTINGS.name} has more than one row ({size}) which is not normal. Please check manually this table")
+            logger.error("Table %s has more than one row (%s}) which is not normal. Please check manually this table", tbl.TABLE_SETTINGS.name ,size)
+            raise AggravatedException(f"Table {tbl.TABLE_SETTINGS.name} has more than one row ({size}) which is not normal", err.ERROR_TABLE_SYSTEM_NOT_UNIQUE)
 
         ret = -1
+        values: dict = {}
         if size == 0:
             #Empty, this is the first time SOGo is configured.
-            logger.warning("Table %s is empty, which is normal if this is the first time you use SOGo", TABLE_SETTINGS.name)
-            try:
-                values = self._check_data(new_param, get_schema)
-            except ValidationError as e:
-                logger_api.error("Data received for %s settings are not conformed %s", column_name, e)
-                return False, str(e)
-            if column_name == COL_SETTINGS_SYSTEM.name:
+            logger.warning("Table %s is empty, which is normal if this is the first time you use SOGo", tbl.TABLE_SETTINGS.name)
+            clean_param: dict = {}
+            merge_patch(new_param, clean_param)
+            values = self._check_data(clean_param, get_schema)
+            if column_name == tbl.COL_SETTINGS_SYSTEM.name:
                 values_tuple = [1, values, {}]
-            elif column_name == COL_SETTINGS_DOMAIN_DEFAULT.name:
+            elif column_name == tbl.COL_SETTINGS_DOMAIN_DEFAULT.name:
                 values_tuple = [1, {}, values]
             else:
-                raise BugException(f"Trying to insert an unknown column in {TABLE_SETTINGS.name}: {column_name}")
-            ret = self.sogo_db_manager.insert_in_table(table_name=TABLE_SETTINGS.name,
-                                               column_tuple=(COL_SETTINGS_UNIQUE.name, COL_SETTINGS_SYSTEM.name,COL_SETTINGS_DOMAIN_DEFAULT.name),
+                raise BugException(f"Trying to insert an unknown column in {tbl.TABLE_SETTINGS.name}: {column_name}", err.ERROR_BUG_UNKNWON_COLUMN)
+            ret = self.sogo_db_manager.insert_in_table(table_name=tbl.TABLE_SETTINGS.name,
+                                               column_tuple=(tbl.COL_SETTINGS_UNIQUE.name, tbl.COL_SETTINGS_SYSTEM.name,tbl.COL_SETTINGS_DOMAIN_DEFAULT.name),
                                                values_tuple=[values_tuple])
         if size == 1:
             #Merge the new data and check it
             current_settings: dict = result[0][0]
-            self._update_current_setting(current_settings, new_param, get_schema)
-            try:
-                values = self._check_data(current_settings, get_schema)
-            except ValidationError as e:
-                logger_api.error("Data received for %s settings are not conformed %s", column_name, e)
-                return False, str(e)
+            merge_patch(new_param, current_settings)
+
+
+            values = self._check_data(current_settings, get_schema)
 
             #Update the column
-            cond_update = EqualCondition(param_name=COL_SETTINGS_UNIQUE.name, param_value=1)
-            ret = self.sogo_db_manager.update_in_table(table_name=TABLE_SETTINGS.name,
+            cond_update = EqualCondition(param_name=tbl.COL_SETTINGS_UNIQUE.name, param_value=1)
+            ret = self.sogo_db_manager.update_in_table(table_name=tbl.TABLE_SETTINGS.name,
                                                column_tuple=(column_name,),
                                                values_list=[values],
                                                condition=cond_update)
         if ret != 1:
             #Only one row is supposed to be updated
             logger.error("Something went wrong when updating the system settings, rows updated: %s, should be 1", ret)
-            return False, f"Something went wrong when updating the system settings, rows updated: {ret}, should be 1"
+            raise BugException(f"Something went wrong when updating the system settings, rows updated: {ret}, should be 1", err.ERROR_TABLE_SYSTEM_NOT_UNIQUE)
 
-        return True, "OK"
+        return err.ERROR_NO_ERRROR, values
 
 
-    def update_system_settings(self, new_param: dict) -> tuple[bool, str]:
+    def update_system_settings(self, new_param: dict) -> tuple[int, dict]:
+        """
+        Method to update/insert the system settings
+
+        :param new_param: values for the settings
+        :type new_param: dict
+        :return: Return the code error and the new settings values
+        :rtype: tuple[int, dict]
+        """
+
+        return self._update_setting_in_table_settings(new_param, tbl.COL_SETTINGS_SYSTEM.name, get_all_system_schemas)
+
+    def update_domain_default_settings(self, new_param: dict) -> tuple[int, dict]:
         """
         Method to update/insert the default domain settings
 
         :param new_param: values for the settings
         :type new_param: dict
-        :return: True if everything was ok, False with a string that explains the problem
-        :rtype: tuple[bool, str]
+        :return: Return the code error and the new settings values
+        :rtype: tuple[int, dict]
         """
 
-        return self._update_setting_in_table_settings(new_param, COL_SETTINGS_SYSTEM.name, get_all_system_schemas)
+        return self._update_setting_in_table_settings(new_param, tbl.COL_SETTINGS_DOMAIN_DEFAULT.name, get_all_domain_schemas)
 
-    def update_domain_default_settings(self, new_param: dict) -> tuple[bool, str]:
+    def create_domain_settings(self, new_param: dict) -> tuple[int, dict]:
         """
-        Method to update/insert the default domain settings
+        Create new domain settings
+        """
+
+        self.sogo_db_manager.connect()
+        domain_name = new_param["domain_name"]
+
+        domain_cond = EqualCondition(tbl.COL_DOMAIN_NAME.name, domain_name)
+        domain_result = list(self.sogo_db_manager.select_from_table(table_name=tbl.TABLE_DOMAIN.name,
+                                               column_tuple=(tbl.COL_DOMAIN_NAME.name,),
+                                               condition=domain_cond))
+        if len(domain_result) > 0:
+            raise RequestException(f"Domain's name '{domain_name}' already taken", err.ERROR_DOMAIN_NAME_TAKEN)
+
+        domain_description = new_param["domain_description"]
+        domain_info = new_param["domain_infos"]
+
+        values = self._check_data(new_param["settings"], get_all_domain_schemas)
+        values_default = self.get_default_domain_settings()
+        origins = set_origin_from_settings(domain_name, values, values_default)
+
+        insert_values = [[domain_name, domain_description, domain_info, values, origins]]
+        colums = (tbl.COL_DOMAIN_NAME.name, tbl.COL_DOMAIN_DESCRIPTION.name, tbl.COL_DOMAIN_INFOS.name, tbl.COL_DOMAIN_SETTINGS.name, tbl.COL_DOMAIN_ORIGIN.name)
+
+        #Insert in column
+        row_updated = self.sogo_db_manager.insert_in_table(table_name=tbl.TABLE_DOMAIN.name,
+                                            column_tuple=colums,
+                                            values_tuple=insert_values)
+        if row_updated != 1:
+            #Only one row is supposed to be updated
+            logger.error("Something went wrong when updating the system settings, rows updated: %s, should be 1", row_updated)
+            raise BugException(f"Something went wrong when updating the system settings, rows updated: {row_updated}, should be 1", err.ERROR_TABLE_SYSTEM_NOT_UNIQUE)
+
+        result = {
+            "domain_name": domain_name,
+            "domain_description": domain_description,
+            "domain_info": domain_info,
+            "settings": values,
+            "origin": origins,
+        } 
+
+        return err.ERROR_NO_ERRROR, result
+
+    def update_one_domain_settings(self, domain_id:str, new_param: dict) -> tuple[int, dict]:
+        """
+        Method to update the default domain settings
 
         :param new_param: values for the settings
         :type new_param: dict
-        :return: True if everything was ok, False with a string that explains the problem
-        :rtype: tuple[bool, str]
+        :return: Return the code error and the new settings values
+        :rtype: tuple[int, dict]
         """
 
-        return self._update_setting_in_table_settings(new_param, COL_SETTINGS_DOMAIN_DEFAULT.name, get_all_domain_schemas)
+        self.sogo_db_manager.connect()
+
+        # raise RequestException if domain not found
+        stored_data = self.get_one_domain_setting(domain_id)
+
+        print(f"STORED: {stored_data}")
+
+        merge_patch(new_param, stored_data)
+
+        print(f"PATCH: {stored_data}")
+
+        values = self._check_data(stored_data["settings"], get_all_domain_schemas)
+        values_default = self.get_default_domain_settings()
+        origins = set_origin_from_settings(domain_id, values, values_default)
+
+        update_values = [stored_data["domain_description"], stored_data["domain_infos"], values, origins]
+        colums = (tbl.COL_DOMAIN_DESCRIPTION.name, tbl.COL_DOMAIN_INFOS.name, tbl.COL_DOMAIN_SETTINGS.name, tbl.COL_DOMAIN_ORIGIN.name)
+
+        #Update in column
+        cond = EqualCondition(tbl.COL_DOMAIN_NAME.name, domain_id)
+        row_updated = self.sogo_db_manager.update_in_table(table_name=tbl.TABLE_DOMAIN.name,
+                                            column_tuple=colums,
+                                            values_list=update_values,
+                                            condition=cond)
+        if row_updated != 1:
+            #Only one row is supposed to be updated
+            logger.error("Something went wrong when updating the system settings, rows updated: %s, should be 1", row_updated)
+            raise BugException(f"Something went wrong when updating the system settings, rows updated: {row_updated}, should be 1", err.ERROR_TABLE_SYSTEM_NOT_UNIQUE)
+
+        result = {
+            "domain_name": domain_id,
+            "domain_description": stored_data["domain_description"],
+            "domain_infos": stored_data["domain_infos"],
+            "settings": values,
+            "origin": origins,
+        }
+
+        return err.ERROR_NO_ERRROR, result

@@ -16,10 +16,10 @@
             ],
             "SOGO_D_LOGIN_MFA_FORCE": false
         },
-        "USER_SOURCE": [
-            {
+        "USER_SOURCE": {
+            "ldap_ex": {
                 "US_UID": "ldap_ex",
-                "OLD_US_UID": "ldap_ex",
+                "US_NAME": "french_ldap",
                 "US_TYPE": "ldap",
                 "US_LDAP_HOSTNAME": "ldap://openldap:390",
                 "US_LDAP_BIND_DN": "cn=admin,dc=example,dc=org",
@@ -54,7 +54,7 @@
                 "US_HAS_RESOURCE": true,
                 "US_RESOURCE_MULTIBOOKING": "departmentNumber"
             }
-        ],
+        },
         "USER_MODULE_SETTINGS": {
             "SOGO_D_MODULE_ACCESS": [
                 "mail",

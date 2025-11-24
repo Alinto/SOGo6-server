@@ -1,6 +1,9 @@
 import re
 
+from app.utils.exceptions import RequestException
 from app.utils.logger.logger import logger
+from app.utils import errors as err
+
 
 REX_VALID_NAMES = r"^[A-Za-z_0-9]+$" #We force the fact that tables and columns' name must be alphanumerical with underscore only
 
@@ -82,7 +85,8 @@ class Table:
             logger.error("Try to instantiate Table an unvalid name: %s", name)
 
         self.name   = name
-        self.columns = columns
+        self.columns = set(columns)
+        self.columns_name = dict((col.name,col) for col in columns)
         if primary_keys:
             for key in primary_keys:
                 do_exist = False
@@ -95,3 +99,11 @@ class Table:
 
         self.primary_keys = primary_keys
         self.index = indexes
+    
+    def get_column_from_name(self, name:str) -> Column:
+        if name in self.columns_name:
+            return self.columns_name[name]
+        else:
+            raise RequestException(f"Unknown column requested {name}", err.ERROR_BUG_UNKNWON_COLUMN)
+
+

@@ -1,0 +1,32 @@
+= Gestion errors and exceptions
+
+
+== API
+API only job is to serve the APi endpoints, no intelligence apart from that should be in API.
+They call the interface with requets input and receive the response from them.
+They should not catch nor raise exceptions.
+
+
+== Interface
+Interface use one module and convert the data to be API ready. (= a json dict with the correct format)
+The yshould catch module exceptions and decide what the apropriate APi response is.
+
+
+== Module
+Modules use one or several managers to get data and work on them.
+
+Modules should not catch exceptions from managers as they're meant to say there is an important problems.
+
+Modules should use managers info to decide what to do in case of problem. Raise an error? Do nothing?
+
+
+== Managers
+Managers user external libraries to exchaneg data with an external service.
+
+Manager should catch te external libraries exception that it might encouters. The manager must give
+information to its client, and let the client decide what to do.
+
+Manager should never raise exception except for:
+
+* The manager is not usable (ex: database missing)
+* The manager has an unexpected bug (ex: receive an string instead of an dict)

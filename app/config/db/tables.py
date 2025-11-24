@@ -35,11 +35,15 @@ SELECT domain_settings,domain_origin from sogo_settings_domains WHERE domain_nam
 # domain_origin: Origin of the tsettings (default sogo, default admin, rule's name or direct)
 # domain_user_defaults: all user settings with value force by the admin
 COL_DOMAIN_NAME          = Column(name="domain_name", data_type="str", extra_args={"max_len": 255}) #max length is 255 -> https://www.rfc-editor.org/rfc/rfc1035#section-2.3.4
+COL_DOMAIN_DESCRIPTION   = Column(name="domain_description", data_type="str")
+COL_DOMAIN_INFOS         = Column(name="domain_infos", data_type="str")
 COL_DOMAIN_SETTINGS      = Column(name="domain_settings", data_type="dict")
 COL_DOMAIN_ORIGIN        = Column(name="domain_origins", data_type="dict")
 COL_DOMAIN_USER_DEFAULTS = Column(name="domain_user_defaults", data_type="dict")
 ALL_DOMAIN_COL           = [COL_ID,
                             COL_DOMAIN_NAME,
+                            COL_DOMAIN_DESCRIPTION,
+                            COL_DOMAIN_INFOS,
                             COL_DOMAIN_SETTINGS,
                             COL_DOMAIN_ORIGIN]
 TABLE_DOMAIN = Table(name="sogo_settings_domains", columns=ALL_DOMAIN_COL, primary_keys=(COL_ID.name, COL_DOMAIN_NAME.name))
@@ -57,9 +61,10 @@ SELECT domain_settings,domain_origin from sogo_settings_domains WHERE domain_nam
 # rule_name: Name of the rule
 # rule_domains: domains affected byt this rule
 # rule_setting: Settings affected by this rule
-COL_RULE_NAME     = Column(name="rule_name", data_type="str", is_unique=True, extra_args={"max_len": 255})
-COL_RULE_DOMAINS  = Column(name="rule_domains", data_type="list", extra_args={"data_type": "str", "extra_args": {"max_len": 255}})
-COL_RULE_SETTINGS = Column(name="rule_setting", data_type="dict")
+COL_RULE_NAME        = Column(name="rule_name", data_type="str", is_unique=True, extra_args={"max_len": 255})
+COL_RULE_DOMAINS     = Column(name="rule_domains", data_type="list", extra_args={"data_type": "str", "extra_args": {"max_len": 255}})
+COL_RULE_DESCRIPTION = Column(name="rule_name", data_type="str")
+COL_RULE_SETTINGS    = Column(name="rule_setting", data_type="dict")
 ALL_RULE_COL      = [COL_ID,
                      COL_RULE_NAME,
                      COL_RULE_DOMAINS,

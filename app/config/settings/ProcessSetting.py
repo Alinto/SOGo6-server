@@ -21,16 +21,16 @@ class FlaskConfig(BaseSettings):
     DO_SWAGGER: bool = True
 
     #Flask smorest config for ui api
-    UI_API_TITLE: str               = "My UI API"
-    UI_API_VERSION: str             = "v1"
-    UI_OPENAPI_VERSION: str         = "3.0.2"
-    UI_OPENAPI_URL_PREFIX: str      = "/"
-    UI_OPENAPI_JSON_PATH: str       = "openapi-ui.json"
-    UI_OPENAPI_SWAGGER_UI_PATH: str = "/swagger-ui"
-    UI_OPENAPI_SWAGGER_UI_URL: str  = "https://cdn.jsdelivr.net/npm/swagger-ui-dist/"
+    BASIC_API_TITLE: str               = "SOGo API"
+    BASIC_API_VERSION: str             = "v1"
+    BASIC_OPENAPI_VERSION: str         = "3.0.2"
+    BASIC_OPENAPI_URL_PREFIX: str      = "/"
+    BASIC_OPENAPI_JSON_PATH: str       = "openapi-basic.json"
+    BASIC_OPENAPI_SWAGGER_UI_PATH: str = "/swagger-basic"
+    BASIC_OPENAPI_SWAGGER_UI_URL: str  = "https://cdn.jsdelivr.net/npm/swagger-ui-dist/"
 
     #Flask smorest config for admin api
-    ADMIN_API_TITLE: str               = "My Admin API"
+    ADMIN_API_TITLE: str               = "Sogo Admin API"
     ADMIN_API_VERSION: str             = "v1"
     ADMIN_OPENAPI_VERSION: str         = "3.0.2"
     ADMIN_OPENAPI_URL_PREFIX: str      = "/"

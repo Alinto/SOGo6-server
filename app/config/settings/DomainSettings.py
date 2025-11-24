@@ -174,6 +174,7 @@ class UserSourceSettings(SogoSchema):
 
 
     US_UID  = fields.String(required=True) #must be unique
+    US_NAME  = fields.String(required=True) #Name of the user source
     US_TYPE = fields.String(required=True, validate=validate.OneOf(('ldap', 'sql'))) #Type of the user source
 
     US_LDAP_HOSTNAME = fields.Url(schemes={'ldap', 'ldaps'}, require_tld=False)

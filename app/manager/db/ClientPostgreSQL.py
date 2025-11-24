@@ -10,7 +10,7 @@ from psycopg.sql import SQL, Literal, Placeholder, Identifier, Composed
 from psycopg.types.json import Jsonb
 
 from app.utils.db.Table import Table, REX_VALID_NAMES
-from app.utils.db.Condition import Condition, EqualCondition, NotEqualCondition, AndCondition, OrCondition
+from app.utils.db.Condition import Condition, EqualCondition, NotEqualCondition, AndCondition, OrCondition, TrueCondition
 from app.utils.exceptions import RequestException, BugException
 from app.utils.logger.logger import logger, logger_sql
 from .ClientSQL import ClientSQL
@@ -118,6 +118,10 @@ def condition_to_query(condition: Condition, add_where : bool = False) -> Compos
         condition1 = condition_to_query(condition.condition1)
         condition2 = condition_to_query(condition.condition2)
         sql_condition = SQL("({cond1} OR {cond2})").format(cond1=condition1, cond2=condition2)
+    elif isinstance(condition, TrueCondition):
+        sql_condition = Composed([SQL("1 = 1")])
+    else:
+        raise BugException("Trying to convert a Condition not implemented")
 
     if add_where:
         sql_condition = SQL("WHERE {condition}").format(condition=sql_condition)
@@ -266,7 +270,7 @@ class ClientPostgreSQL(ClientSQL):
 
     def update_in_table(self, table_name: str, column_tuple: tuple, values_list: list, condition: Condition) -> int:
         """
-        Insert data in a table
+        Update data in a table
         """
         ret = 0
         if self.db_conn and self.db_conn.closed:
@@ -285,11 +289,11 @@ class ClientPostgreSQL(ClientSQL):
                 values_list[idx] = Jsonb(value)
 
         #Create and execute the query
-        sql_query = SQL("UPDATE {table_name} SET ({columns}) = ROW({values}) {coniditions}").format(
+        sql_query = SQL("UPDATE {table_name} SET ({columns}) = ROW{values} {conditions}").format(
             table_name=Identifier(table_name),
             columns=SQL(", ").join(map(Identifier, column_tuple)),
             values=SQL(", ").join(sql_all_placeholder),
-            coniditions=condition_to_query(condition, add_where=True)
+            conditions=condition_to_query(condition, add_where=True)
         )
 
         if self.db_conn is not None:
@@ -308,9 +312,12 @@ class ClientPostgreSQL(ClientSQL):
 
         return ret
     
-    def select_from_table(self, table_name: str, column_tuple: tuple[str], condition: Condition) -> Generator[tuple[Any, ...]]:
+    def select_from_table(self, table_name: str, column_tuple: tuple[str, ...], condition: Condition, offset: int = 0, limit: int = 0) -> Generator[tuple[Any, ...]]:
         """
         Select values from a table under conditions
+
+        offset = 0 means not offset
+        limit = 0 means not limit (LIMIT ALL)
 
         :param table_name: Name fo the table
         :type table_name: str
@@ -325,10 +332,17 @@ class ClientPostgreSQL(ClientSQL):
             self.connect()
         if len(column_tuple) == 0:
             column_tuple = ("*",)
-        sql_query = SQL("SELECT {columns} FROM {table_name} {conditions}").format(
+        if limit == 0:
+            limit_query = Composed([SQL("ALL")])
+        else:
+            limit_query = Composed([Literal(limit)])
+
+        sql_query = SQL("SELECT {columns} FROM {table_name} {conditions} LIMIT {limit} OFFSET {offset}").format(
             columns=SQL(", ").join(map(SQL, column_tuple)),
             table_name=Identifier(table_name),
-            conditions=condition_to_query(condition, add_where=True)
+            conditions=condition_to_query(condition, add_where=True),
+            limit = limit_query,
+            offset = Literal(offset)
         )
 
         logger_sql.info("QUERY COMMAND: %s",sql_query.as_string())
@@ -354,6 +368,46 @@ class ClientPostgreSQL(ClientSQL):
         logger_sql.error("Method 'select_from_several_table' of clientSQL must be implemented by the children %s", type(self).__name__)
         raise NotImplementedError
 
+    def count_row_in_table(self, table_name: str, condition: Condition, column_name: str = "*") -> int:
+        """
+        Select values from a table under conditions
+
+        :param table_name: Name fo the table
+        :type table_name: str
+        :param colum_name: Name of the column, or "*" by default
+        :type colum_name: str
+        :param condition: Condition on the query
+        :type condition: Condition
+        :return: A number indicates the number of row of the result
+        :rtype: int
+        """
+        if self.db_conn and self.db_conn.closed:
+            self.connect()
+        if column_name == "*":
+            count_query = Composed([SQL("COUNT(*)")])
+        else:
+            count_query = SQL("COUNT({column})").format(column=Identifier(column_name))
+        sql_query = SQL("SELECT {count} FROM {table_name} {conditions}").format(
+            count=count_query,
+            table_name=Identifier(table_name),
+            conditions=condition_to_query(condition, add_where=True)
+        )
+
+        logger_sql.info("QUERY COMMAND: %s",sql_query.as_string())
+
+        count_ret = 0
+        if self.db_conn is not None:
+            try:
+                all_records = self.db_conn.execute(sql_query)
+                while record:= all_records.fetchone():
+                    count_ret = record[0]
+                logger_sql.info("QUERY RESULT: COUNT: %s rows", count_ret)
+            except Error as e:
+                logger_sql.error("Error when selecting table %s", e)
+            finally:
+                self.db_conn.commit()
+        return count_ret
+    
     def close(self) -> None:
         """
         Close the connection to the database 
