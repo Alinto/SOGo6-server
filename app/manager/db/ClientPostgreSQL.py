@@ -11,6 +11,7 @@ from psycopg.types.json import Jsonb
 
 from app.utils.db.Table import Table, REX_VALID_NAMES
 from app.utils.db.Condition import Condition, EqualCondition, NotEqualCondition, AndCondition, OrCondition, TrueCondition
+from app.utils import errors as err
 from app.utils.exceptions import RequestException, BugException
 from app.utils.logger.logger import logger, logger_sql
 from .ClientSQL import ClientSQL
@@ -125,7 +126,7 @@ def condition_to_query(condition: Condition, add_where : bool = False) -> Compos
 
     if add_where:
         sql_condition = SQL("WHERE {condition}").format(condition=sql_condition)
-    
+
     return sql_condition
 
 
@@ -311,7 +312,7 @@ class ClientPostgreSQL(ClientSQL):
                 self.db_conn.commit()
 
         return ret
-    
+
     def select_from_table(self, table_name: str, column_tuple: tuple[str, ...], condition: Condition, offset: int = 0, limit: int = 0) -> Generator[tuple[Any, ...]]:
         """
         Select values from a table under conditions
@@ -407,7 +408,65 @@ class ClientPostgreSQL(ClientSQL):
             finally:
                 self.db_conn.commit()
         return count_ret
-    
+
+    def delete_row_in_table(self, table_name: str, condition: Condition, expected_row: int = 0) -> int:
+        """
+        Delete rows in a table.
+
+        Conditon cannot be of type TrueCondition
+
+        Set expected_row to a value greater than 0 to check beforehand with a COUNT if your condition
+        returns the expecte number of rows. 0 or negative values will not trigger any check.
+
+        Example:
+        If you're sure that only one row will be deleted, set expected_row=1 and this method
+        will check before the delete query if, indeed, only 1 row will be deleted.
+
+        :param table_name: Name of the table
+        :type table_name: str
+        :param condition: Condition for the query
+        :type condition: Condition
+        :param expected_row: Expected number of rows to be deleted, defaults to 0
+        :type expected_row: int, optional
+        :raises BugRequest: raise if the condition is of type TrueCondition
+        :raises RequestException: raise if the expected number of rows doesn't match
+        :return: number of rows deleted
+        :rtype: int
+        """
+        if isinstance(condition, TrueCondition):
+            raise BugException("Condition for delete query is always True", err.ERROR_QUERY_DELETION_CONDITION)
+
+        if self.db_conn and self.db_conn.closed:
+            self.connect()
+        
+        if expected_row > 0:
+            #First count the row to be deleted and check if it matches
+            row_affected = self.count_row_in_table(table_name, condition)
+            if expected_row != row_affected:
+                raise RequestException(f"Expected number or row deleted is different! expected: {expected_row}, real {row_affected}", err.ERROR_QUERY_DELETION_ROWS)
+
+        sql_query = SQL("DELETE FROM {table_name} {conditions}").format(
+            table_name=Identifier(table_name),
+            conditions=condition_to_query(condition, add_where=True)
+        )
+
+        logger_sql.info("QUERY COMMAND: %s",sql_query.as_string())
+
+        count_ret = 0
+        if self.db_conn is not None:
+            try:
+                all_records = self.db_conn.execute(sql_query)
+                count_ret = all_records.rowcount
+                if count_ret == 0:
+                    logger_sql.info("QUERY RESULT: None deleted")
+                else:
+                    logger_sql.info("QUERY RESULT: deleted %s rows", count_ret)
+            except Error as e:
+                logger_sql.error("Error when selecting table %s", e)
+            finally:
+                self.db_conn.commit()
+        return count_ret
+
     def close(self) -> None:
         """
         Close the connection to the database 

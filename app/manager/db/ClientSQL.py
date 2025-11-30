@@ -89,6 +89,34 @@ class ClientSQL(metaclass=ABCMeta):
         raise NotImplementedError
 
     @abstractmethod
+    def delete_row_in_table(self, table_name: str, condition: Condition, expected_row: int = 0) -> int:
+        """
+        Delete rows in a table.
+
+        Conditon cannot be of type TrueCondition
+
+        Set expected_row to a value greater than 0 to check beforehand with a COUNT if your condition
+        returns the expecte number of rows. 0 or negative values will not trigger any check.
+
+        Example:
+        If you're sure that only one row will be deleted, set expected_row=1 and this method
+        will check before the delete query if, indeed, only 1 row will be deleted.
+
+        :param table_name: Name of the table
+        :type table_name: str
+        :param condition: Condition for the query
+        :type condition: Condition
+        :param expected_row: Expected number of rows to be deleted, defaults to 0
+        :type expected_row: int, optional
+        :raises BugRequest: raise if the condition is of type TrueCondition
+        :raises RequestException: raise if the expected number of rows doesn't match
+        :return: number of rows deleted
+        :rtype: int
+        """
+        logger_sql.error("Method 'delete_row_in_table' of clientSQL must be implemented by the children %s", type(self).__name__)
+        raise NotImplementedError
+
+    @abstractmethod
     def close(self) -> None:
         """
         Close the connection to the database

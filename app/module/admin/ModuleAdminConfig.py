@@ -421,11 +421,7 @@ class ModuleAdminConfig:
         # raise RequestException if domain not found
         stored_data = self.get_one_domain_setting(domain_id)
 
-        print(f"STORED: {stored_data}")
-
         merge_patch(new_param, stored_data)
-
-        print(f"PATCH: {stored_data}")
 
         values = self._check_data(stored_data["settings"], get_all_domain_schemas)
         values_default = self.get_default_domain_settings()
@@ -454,3 +450,24 @@ class ModuleAdminConfig:
         }
 
         return err.ERROR_NO_ERRROR, result
+    
+    def delete_one_domain_setting(self, domain_id:str) -> int:
+        """
+        Delete onr 
+
+        :param domain_id: _description_
+        :raises RequestException: raise if 0 or more than 1 row would have been deleted
+        :type domain_id: str
+        """
+        self.sogo_db_manager.connect()
+
+        #Just use this method to check if the domain exist
+        self.get_one_domain_setting(domain_id)
+
+        cond = EqualCondition(tbl.COL_DOMAIN_NAME.name, domain_id)
+
+        deleted_rows = self.sogo_db_manager.delete_row_in_table(tbl.TABLE_DOMAIN.name, cond, expected_row=1)
+
+        return deleted_rows
+
+

@@ -99,7 +99,7 @@ class ApiAdminConfigDefaultDomain(MethodView):
         interface_api : InterfaceApiAdminConfig = g.inter
         return interface_api.update_all_setting_domain_default(new_data["settings"])
 
-@blp.route("/domain")
+@blp.route("/domains")
 class ApiAdminConfigDomain(MethodView):
     """
     Collection, each resource is the sogo's settings associated to a domain
@@ -128,7 +128,7 @@ class ApiAdminConfigDomain(MethodView):
         return ret
 
 
-@blp.route("/domain/<string:domain_name>")
+@blp.route("/domains/<string:domain_name>")
 class ApiAdminConfigDomainSettings(MethodView):
     """
     Endpoint that return the list of settings for a domain (or the default)
@@ -152,14 +152,15 @@ class ApiAdminConfigDomainSettings(MethodView):
         return interface_api.update_domain_settings(domain_name, new_data)
     
     @blp.response(200)
-    def delete(self, new_data: dict, domain_name: str) -> None:
+    def delete(self, domain_name: str) -> None|ResponseReturnValue:
         """
         Resource, delete specified domain settings
         """
-        # logger_api.debug("new_data: %s", new_data)
-        # logger_api.debug("domain_name: %s", domain_name)
         interface_api : InterfaceApiAdminConfig = g.inter
-        raise NotImplementedError("Not implemented update specficed domain")
+        ret, code = interface_api.delete_domain_settings(domain_name)
+        if code == 200:
+            return None
+        return ret, code
         
 # @blp.route("/rulesList")
 # class ApiAdminConfigRule(MethodView):

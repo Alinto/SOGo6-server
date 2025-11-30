@@ -67,6 +67,7 @@ It can depends of a resource:
 
 * `/api/v1/mailboxes/\{mailbox_id\}/folders/\{folder_id\}/purge`: `folders` is a collection of diferent resources. `purge` is an action on those resources
 
+Action can only reading data, in that case, GET method will be used. If they modify data, POST will be used instead.
 
 === URL Syntax rules
 

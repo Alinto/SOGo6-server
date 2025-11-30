@@ -15,6 +15,8 @@ ERROR_DOMAIN_NAME_NOT_FOUND = 302
 ERROR_BUG_UNKNWON_TABLE = 400
 ERROR_BUG_UNKNWON_COLUMN = 401
 ERROR_BUG_UNKNWON_ORDER = 402
+ERROR_QUERY_DELETION_ROWS = 403
+ERROR_QUERY_DELETION_CONDITION = 404
 
 #
 ERROR_TABLE_SYSTEM_NOT_UNIQUE = 600
@@ -35,6 +37,8 @@ error_msg = {
     ERROR_BUG_UNKNWON_TABLE: "Trying to interact with an unkwnon table",
     ERROR_BUG_UNKNWON_COLUMN: "Trying to interact with an unkwnon column",
     ERROR_BUG_UNKNWON_ORDER: "Trying to order in a unknown order",
+    ERROR_QUERY_DELETION_ROWS: "Conditon to delete query affect more or less rows than expected",
+    ERROR_QUERY_DELETION_CONDITION: "Conditon to delete query is always true",
 
     ERROR_TABLE_SYSTEM_NOT_UNIQUE: "TABLE_SETTINGS is not unique as it shoul be",
 

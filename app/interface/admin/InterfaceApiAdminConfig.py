@@ -172,109 +172,18 @@ class InterfaceApiAdminConfig:
         except ValidationError as ex:
             return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
         return create_api_base_response(ret_values), 200
-  
-    def get_all_setting_domain(self, domain_id: str) -> dict[str, Any] | None:
+
+    def delete_domain_settings(self, domain_id: str) -> tuple[dict, int]:
         """
-        Return settings for a specific domain
+        _summary_
+
+        :param domain_id: _description_
+        :type domain_id: str
+        :return: _description_
+        :rtype: tuple[dict, int]
         """
-        domain_setting = {
-            "sogo.nu": {
-                "Basic": [
-                    {
-                        "name": "SOGO_D_AUTH_TYPE",
-                        "value": "plain",
-                        "origin": {"type": "default"}
-                    }],
-                "User Source": [
-                    {
-                        "name":  "US_TYPE",
-                        "value": "sql",
-                        "origin": {"type": "default"},
-                    },
-                    {
-                        "name":    "LDAP_GROUP_CLASS",
-                        "value":  ['group', 'groupOfNames', 'sogo_group'],
-                    }],
-                "Advanced": [
-                    {
-                        "name":   "SOGO_D_IDENTITIES_ENABLED",
-                        "value":  True,
-                        "origin": {"type": "rule", "id": 1, "name": "suisse"}
-                    },
-                    {
-                        "name":   "SOGO_D_FOLDER_DISABLE_SHARING",
-                        "value":  False,
-                        "origin": {"type": "domain"}
-                    }
-                ]
-            },
-            "example.org": {
-                "Basic": [
-                    {
-                        "name": "SOGO_D_AUTH_TYPE",
-                        "value": "plain",
-                        "origin": {"type": "default"},
-                    }
-                ],
-                "User Source": [
-                    {
-                        "name":  "US_TYPE",
-                        "value": "ldap",
-                        "origin": {"type": "rule", "id": 2, "name": "Université"}
-                    },
-                    {
-                        "name":    "LDAP_GROUP_CLASS",
-                        "value":  ['group', 'groupOfNames', 'sogo_group'],
-                        "origin": {"type": "default"},
-                    }
-                ],
-                "Advanced": [
-                    {
-                        "name":   "SOGO_D_IDENTITIES_ENABLED",
-                        "value":  False,
-                        "origin": {"type": "default"},
-                    },
-                    {
-                        "name":   "SOGO_D_FOLDER_DISABLE_SHARING",
-                        "value":  True,
-                    }
-                ]
-            },
-            "business.com": {
-                "Basic": [
-                    {
-                        "name": "SOGO_D_AUTH_TYPE",
-                        "value": "plain",
-                        "origin": {"type": "default"},
-                    }
-                ],
-                "User Source": [
-                    {
-                        "name":  "US_TYPE",
-                        "value": "ldap",
-                        "origin": {"type": "rule", "id": 2, "name": "Université"}
-                    },
-                    {
-                        "name":    "LDAP_GROUP_CLASS",
-                        "value":  ['group', 'groupOfNames', 'sogo_group'],
-                        "origin": {"type": "default"},
-                    }
-                ],
-                "Advanced": [
-                    {
-                        "name":   "SOGO_D_IDENTITIES_ENABLED",
-                        "value":  True,
-                        "origin": {"type": "rule", "id": 1, "name": "suisse"},
-                    },
-                    {
-                        "name":   "SOGO_D_FOLDER_DISABLE_SHARING",
-                        "value":  True,
-                        "origin": {"type": "default"},
-                    }
-                ]
-            },
-        }
-    
-        if domain_id in domain_setting:
-            return domain_setting[domain_id]
-        return None
+        try:
+            _ = self.module.delete_one_domain_setting(domain_id)
+        except RequestException as ex:
+            return create_api_base_response(str(ex), ex.error_code), 404
+        return {}, 200
