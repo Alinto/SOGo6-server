@@ -551,7 +551,7 @@ class AdminConfigDomainPostSchema(Schema):
     domain_name = fields.String(load_default="default", dump_default="default")
     domain_description = fields.String()
     domain_info = fields.Dict()
-    settings  = fields.Dict(required=True, keys=fields.String(), values=fields.Raw())
+    settings  = fields.Dict(keys=fields.String(), values=fields.Raw())
 
     @classmethod
     def example(cls) -> dict:
@@ -564,8 +564,6 @@ class AdminConfigDomainPostSchema(Schema):
         return {
             "domain_name": "default",
             "domain_description": "This is a domain configuration",
-            "domain_info": {"mail_server": "imap french",
-                             "user source": "sql french"},
             "settings": {
                 "AUTH_SETTINGS": {
                     "SOGO_D_AUTH_TYPE": "plain",

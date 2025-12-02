@@ -378,11 +378,15 @@ class ModuleAdminConfig:
             raise RequestException(f"Domain's name '{domain_name}' already taken", err.ERROR_DOMAIN_NAME_TAKEN)
 
         domain_description = new_param["domain_description"]
-        domain_info = new_param["domain_info"]
+        domain_info = new_param.get("domain_info", {})
 
-        values = self._check_data(new_param["settings"], get_all_domain_schemas)
         values_default = self.get_default_domain_settings()
-        origins = set_origin_from_settings(domain_name, values, values_default)
+        values_new = new_param.get("settings", {})
+
+        origins = set_origin_from_settings(domain_name, values_new, values_default)
+
+        values_default.update(values_new)
+        values = self._check_data(values_default, get_all_domain_schemas)
 
         insert_values = [[domain_name, domain_description, domain_info, values, origins]]
         colums = (tbl.COL_DOMAIN_NAME.name, tbl.COL_DOMAIN_DESCRIPTION.name, tbl.COL_DOMAIN_INFO.name, tbl.COL_DOMAIN_SETTINGS.name, tbl.COL_DOMAIN_ORIGIN.name)
