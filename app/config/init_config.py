@@ -47,7 +47,7 @@ def init_sogo() -> int:
     
     return sogo_state
 
-def init_get_system_and_default_settings() -> tuple:
+def init_get_system_and_default_settings() -> tuple[dict, dict]:
     """
     Return the sysem and default domain settings
 

@@ -1,17 +1,12 @@
-from json import dumps
-
 import click
 from flask_compress import Compress
-from flask import request, make_response, g, Flask
+from flask import request
 from flask.typing import ResponseReturnValue
-from marshmallow import ValidationError
 from flask_wtf.csrf import CSRFError
 
 
 from app import create_app, __version__
-from app.config.init_config import init_sogo, process_config
-import app.utils.errors as err
-from app.utils.api.ApiBaseResponse import create_api_base_response
+from app.config.init_config import init_sogo
 
 
 #Beware that all methods called here will be called twice because the auto-reloader is on

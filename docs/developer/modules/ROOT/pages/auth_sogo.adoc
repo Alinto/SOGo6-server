@@ -1,0 +1,21 @@
+= SOGo API Authentication
+
+[TIP]
+====
+Authentication: Verifying the identity or validity of a client/user.
+Authorization: Veirfyind that an authenticated client/user has the right to access.
+====
+
+
+For all the endpoints of the API, only a few can eb done without being authenticated. That's why, on contrary to
+usual Flask auth extension, the Authentication is not made inside a decorator for each endpoint but inside a @before_request.
+
+
+== Authentication flow
+
+SOGo received request where the user/client needs to be authenticated. For that, the user/client needs to use
+the https://www.rfc-editor.org/rfc/rfc9110.html#name-authenticating-users-to-ori[Authorization header]
+
+But it must be ready to accept others king of auth, on different layer. Like on the TLS layer instead of the HTTP one
+https://datatracker.ietf.org/doc/html/rfc8446#section-4.4
+

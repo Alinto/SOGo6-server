@@ -4,6 +4,9 @@
 Defines all system settings.
 Settings that defines the whole application behaviour but are not needed to start the webserver
 """
+from dataclasses import dataclass, MISSING
+from dataclasses import field as dc_field
+from dataclasses import fields as dc_fields
 from typing import Type
 from marshmallow import Schema, fields, validate, validates_schema, ValidationError
 
@@ -41,3 +44,39 @@ class SystemSettings(SogoSchema):
 
     #Paths
     SOGO_S_MAILSPOOL_PATH = fields.String(load_default="/var/spool/sogo", dump_default="/var/spool/sogo") #Path where temp draft messages are stored
+
+
+
+class SystemSettingsObj:
+    """
+    Typed equivalent of the original Marshmallow schema.
+    """
+
+    # Admin
+    SOGO_S_DO_DOMAIN: bool = False
+    SOGO_S_KNOWN_DOMAIN: list[str] = []
+
+    # Login
+    SOGO_S_REJECT_UNKNOWN_DOMAIN: bool = False
+    SOGO_S_DOMAINLESS_LOGIN: bool = False
+
+    # Binary
+    SOGO_S_SENDMAIL: str = "/usr/lib/sendmail"
+
+    # Paths
+    SOGO_S_MAILSPOOL_PATH: str = "/var/spool/sogo"
+
+    def __init__(self, data: dict = None):
+        """
+        Initialize attributes from a dict having the same keys
+        as the class fields.
+        Missing values fall back to defaults.
+        """
+        data = data or {}
+
+        for key, default_value in data.items():
+            # Restore default — but clone lists to prevent shared mutability
+            if isinstance(default_value, list):
+                setattr(self, key, list(default_value))
+            else:
+                setattr(self, key, default_value)

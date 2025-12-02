@@ -7,7 +7,6 @@ from flask.typing import ResponseReturnValue
 from flask_smorest import Blueprint
 
 from app.interface.admin.InterfaceApiAdminConfig import InterfaceApiAdminConfig
-from app.utils.api.ApiBaseResponse import create_api_base_response
 from app.utils.logger.logger import logger_api
 
 from .schema import adminConfig as sch

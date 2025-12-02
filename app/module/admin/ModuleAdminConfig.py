@@ -57,7 +57,7 @@ class ModuleAdminConfig:
 
         return full_form
 
-    def _get_setting_from_table_settings(self, column_tuple: tuple) -> tuple[dict]:
+    def _get_setting_from_table_settings(self, column_tuple: tuple) -> tuple:
         """
         Generic function that fetch, test and return the configuration/dict
         found in the `column_table` of table `TABLE_SETTINGS`
@@ -116,7 +116,7 @@ class ModuleAdminConfig:
 
         return self._get_setting_from_table_settings((tbl.COL_SETTINGS_DOMAIN_DEFAULT.name,))[0]
 
-    def get_both_system_and_default_domain_settings(self) -> tuple:
+    def get_both_system_and_default_domain_settings(self) -> tuple[dict, dict]:
         """
         Return a tuple of both system settings and default_domain_settings
 
