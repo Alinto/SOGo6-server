@@ -24,7 +24,7 @@ blp = Blueprint("ApiConfig", __name__, url_prefix="/auth")
 @blp.before_request
 def init_admin_config() -> None:
     """
-    Init the interface and others if needed
+    Init the interface and others if needed 
     """
     logger_api.debug("Calling before_request for ApiAdminConfig")
     process: ProcessSetting = g.process
@@ -35,8 +35,6 @@ def init_admin_config() -> None:
     g.inter = interface_api
 
 
-
-
 @blp.route("/login")
 class ApiAuthUser(MethodView):
     """
@@ -44,14 +42,14 @@ class ApiAuthUser(MethodView):
 
     Endpoint that return the dynamic settings structure
     """
-    @blp.arguments(sch.AuthUserGetMechSchema, location='query', error_status_code=400)
+    @blp.arguments(sch.AuthUserGetMechSchema, location='query', as_kwargs=True, error_status_code=400)
     @blp.response(200)
-    def get(self) -> ResponseReturnValue:
+    def get(self, username:str, redirect:str) -> ResponseReturnValue:
         """
         Action, return the url location of the login system for this user
         """
-        interface_api : InterfaceApiAdminConfig = g.inter
-        return interface_api.get_dynamic_setting_structure()
+        interface_api: InterfaceAuthUser = g.inter
+        return interface_api.get_login_mech(username, redirect)
 
     @blp.arguments(sch.AuthUserBasicPostShhema, error_status_code=400)
     @blp.response(200)
@@ -59,5 +57,5 @@ class ApiAuthUser(MethodView):
         """
         Action, Authenticate the user
         """
-        interface_api : InterfaceApiAdminConfig = g.inter
+        interface_api : InterfaceAuthUser = g.inter
         return interface_api.get_dynamic_setting_structure()

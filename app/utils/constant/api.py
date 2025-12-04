@@ -7,3 +7,10 @@ SOGO_OK       = 2 #Sogo can run properly
 #API kind
 API_BASIC = "user" #Api for all users
 API_ADMIN = "admin" #Api for admin
+
+#LOGIN, USER SESSION, VOUCHER
+USER_UID    = "uid"
+USER_PWD    = "password"
+USER_DOMAIN = "domain"
+USER_EMAIL  = "email"
+USER_CN     = "cn"

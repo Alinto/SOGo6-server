@@ -11,6 +11,10 @@ ERROR_VALIDATION_ERROR = 300
 ERROR_DOMAIN_NAME_TAKEN = 301
 ERROR_DOMAIN_NAME_NOT_FOUND = 302
 
+#LOGIN
+ERROR_LOGIN_NO_DOMAIN = 200
+ERROR_LOGIN_DOMAIN_UNKNOWN = 201
+
 #Database
 ERROR_BUG_UNKNWON_TABLE = 400
 ERROR_BUG_UNKNWON_COLUMN = 401
@@ -29,6 +33,9 @@ error_msg = {
     ERROR_SOGO_WRONG_STATE: "Sogo is in an unknwon state and can't start",
     ERROR_API_NOT_JSON: "Request POST/PATCH/PUT data is not a json",
     ERROR_API_CONTENT_TYPE: "Request POST/PATCH/PUT Content-Type is not application/json",
+
+    ERROR_LOGIN_NO_DOMAIN: "Login has no domain, see SOGO_S_DOMAINLESS_LOGIN",
+    ERROR_LOGIN_DOMAIN_UNKNOWN: "Login has an unknown domain, see SOGO_S_REJECT_UNKNOWN_DOMAIN and SOGO_S_KNOWN_DOMAIN",
 
     ERROR_VALIDATION_ERROR: "Data given does not match the Marshmallow Schema",
     ERROR_DOMAIN_NAME_TAKEN: "Domain's name already taken",

@@ -12,6 +12,7 @@ from flask_wtf import CSRFProtect
 from marshmallow.exceptions import ValidationError
 
 from app.config.settings.ProcessSetting import process_config
+from app.config.settings.SystemSettings import SystemSettingsObj
 from app.config.init_config import init_get_system_and_default_settings
 import app.utils.errors as err
 from app.utils.api.ApiBaseResponse import create_api_base_response, ApiBaseResponse
@@ -108,7 +109,7 @@ def register_before_request(base_blueprint: Blueprint, kind: str, sogo_state: in
                 g.process = process_config
             system_settings, default_domain_settings = init_get_system_and_default_settings()
             if 'system' not in g:
-                g.system = system_settings
+                g.system = SystemSettingsObj(system_settings)
             if 'domain' not in g:
                 g.default_domain = default_domain_settings
 

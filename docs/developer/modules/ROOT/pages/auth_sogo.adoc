@@ -2,20 +2,161 @@
 
 [TIP]
 ====
-Authentication: Verifying the identity or validity of a client/user.
-Authorization: Veirfyind that an authenticated client/user has the right to access.
+*Authentication*: Verifying the identity or validity of a client/user. +
+*Authorization*: Verifying that an authenticated client/user has the right to access.
 ====
 
 
-For all the endpoints of the API, only a few can eb done without being authenticated. That's why, on contrary to
-usual Flask auth extension, the Authentication is not made inside a decorator for each endpoint but inside a @before_request.
+Among all the API endpoints, only a few can be done without being authenticated. That's why, on contrary to
+usual Flask auth extension, the authentication is not made inside a decorator for each endpoint but inside a `@before_request`
+at the api blueprint.
 
 
 == Authentication flow
 
-SOGo received request where the user/client needs to be authenticated. For that, the user/client needs to use
-the https://www.rfc-editor.org/rfc/rfc9110.html#name-authenticating-users-to-ori[Authorization header]
+In brief, a user will authenticate using the `/api/user/v1/auth` apis.
 
-But it must be ready to accept others king of auth, on different layer. Like on the TLS layer instead of the HTTP one
-https://datatracker.ietf.org/doc/html/rfc8446#section-4.4
+If successfull, SOGo API will generate a JWT token. The client will have to send the JWT token for each request
+inside the https://www.rfc-editor.org/rfc/rfc9110.html#name-authenticating-users-to-ori[Authorization header]:
 
+[source, http]
+----
+Authorization: Bearer <JWT Token>
+----
+
+[TIP]
+====
+As SOGo APi must be modular and agnostic, some parts of the code are generic and only later the JWT Token is implemented.
+Even if there is no other way to handle authentication for now.
+
+Also keep in mind that, maybe later, the authenticaiton will not be in the http layer but below like on the https://datatracker.ietf.org/doc/html/rfc8446#section-4.4[TLS layer].
+====
+
+
+== Authentication mechanism
+
+SOGo 6 can have different authentication mechanisms for different domains. Each domain only have one authentication mechanism, though.
+
+The first request is to get the mechanism:
+
+[source, http]
+----
+GET /api/user/v1/auth/mode?username=myuser@test.com&redirect=/home
+----
+
+* *username* is the UID of the user. Can be the mail or anything if SOGo is configured for domainless login.
+If the username is not found, no error will be return to avoid attackers to check real username. In that case,
+the endpoint always returns code 200 with the plain mode.
+
+* *redirect* is the client/UI url to redirect to after the whole SSO flow, that is handle by the API. Not needed
+if SOGo only does plain authentication.
+
+[TIP]
+====
+If *SOGO_S_DOMAINLESS_LOGIN* is _True_, the username in query can be without domain. SOGo will have to to find the user first
+among the usersource to get the domain.
+====
+
+=== Plain or user/domain not found
+
+The return is simple and contains only the `auth_mode`:
+[source, json]
+----
+{
+    "auth_mode": "plain"
+}
+----
+
+=== openid:
+The return, besides the `auth_mode`, and has the `authorization_url`. The UI/Client must make a GET request to this url.
+The rest of the json has the different parameters of the query.
+[source, json]
+----
+{
+    "auth_mode": "openid",
+    "authorization_url": "https://myopenid.com/oauth2/authorize?...",
+    "scope": "openid profile email",
+    "client_id": "myClient",
+    "state": "eaothjshqoj.dsqkj",
+    "redirect": "https://my.api/api/user/v1/auth/callback/domain"
+}
+----
+
+
+[CAUTION]
+====
+Redirection after an ajax request triggers *CORS Policy*, hence the lack of 3XX code status. 200 is used.
+====
+
+== Authentication flow
+
+=== Plain method
+
+The endpoint is:
+
+`POST /api/user/v1/auth/login`
+
+This endpoint expect a json:
+[source, json]
+----
+{
+    "username": "username",
+    "password": "password"
+}
+----
+
+If successfull it will returns the SOGo JWT token in the body.
+
+=== Openid method
+
+1. UI makes the GET request on `auth/mode` with a *UI redirect* URL to itself in the query.
+
+2. API create a *state* value that would be checked later. It returns 200 with the *authorize_url*. This url contains the state in the query and the user's domain id.
+
+3. UI makes a GET request on the *authorize_url*.
+
+4. User see the openID login page. User logins.
+
+5. OpenID server returns a 302 on the API `auth/callback/domain`. *_domain_* _is the id of the user domain_.
+
+6. API checks the domain, checks the state value.
+
+7. API fetch the access_token. Create a User Session and a jwt token.
+
+8. API returns a 302 with the JWT token in a cookie and Location to *UI redirect*.
+
+9. UI get the jwt token from the cookie and now use it in the Authorization header.
+
+
+== SOGo Aunthenticated request
+
+Even if SOGo currently uses JWT token, its important to keep parent class abstract in case a future feature without JWT token
+
+The terms used:
+
+* *User*: Class of a user, authenticated or not. Instantiate in SOGo backend for each request.
+* *Voucher*: Class of what is given to the API client to authenticate a User (JWT token for now)
+* *UserSession*: Class of what is stored in the API. Data of UserSession allow to instantiate a User (UserSession are stored in redis, the cache)
+* *VoucherUserService*: Class that generate a Voucher and UserSession from a User. Or generate a User from a Voucher: Voucher get a UserSession that gets a User.
+
+The *UserSession* cannot be directly in the *voucher* because it has sensitive data like the passwords. The *UserSession* must be encrypted to not store
+the sensitive data in plain text. The *UserSession* is encrypted by a Symmetric-key algorithms. The *session key*, is not stored bug given to the Voucher.
+
+The session key in a voucher is also encrypted with a secret of SOGo API environement.
+
+That way, each time a client make a request with a voucher, the voucher is used to decrypt UserSession.
+
+* UserSession alone is secured.
+* Voucher alone is secured as it doesn't have any sensitive info of the User.
+* UserSession + Voucher are secured as you can't decrypt the session key of the voucher
+* UserSession + Voucher + Secret: not secured but you have serious problem.
+
+[WARNING]
+====
+What if a *Voucher* is stolen? It could be use by another client to impersonate the orignal user?
+
+Yes, other protections can be add:
+
+* Associate a voucher to an IP, if the ip change make the user login again.
+* Reduce the expiration time of the voucher, so evenv if stolen, it will be quicly expired.
+====

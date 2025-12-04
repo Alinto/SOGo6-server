@@ -37,7 +37,8 @@ class AuthSettings(SogoSchema):
         "SOGO_D_OPENID_TOKEN_CHECK_INTERVAL": ("SOGO_D_AUTH_TYPE", "openid"),
         "SOGO_D_OPENID_REFRESH_ENABLE": ("SOGO_D_AUTH_TYPE", "openid"),
         "SOGO_D_OPENID_ENDSESSION_ENABLED": ("SOGO_D_AUTH_TYPE", "openid"),
-        "SOGo_D_OPENID_FETCH_USER_PROFILE": ("SOGO_D_AUTH_TYPE", "openid"),
+        "SOGO_D_OPENID_FETCH_USER_PROFILE": ("SOGO_D_AUTH_TYPE", "openid"),
+        "SOGO_D_OPENID_ALLOW_REDIRECT": ("SOGO_D_AUTH_TYPE", "openid"),
 
         "SOGO_D_SAML2_URL": ("SOGO_D_AUTH_TYPE", "saml2"),
 
@@ -54,6 +55,7 @@ class AuthSettings(SogoSchema):
 
     }
     is_secret = {"SOGO_D_OPENID_CLIENT_SECRET",}
+    is_required = {"SOGO_D_OPENID_CLIENT_NAME", "SOGO_D_OPENID_CLIENT_SECRET", "SOGO_D_OPENID_ALLOW_REDIRECT"}
 
     #Type of authentication protocol used for this domain. Beware that if the value is not plain, more parameters are needed
     SOGO_D_AUTH_TYPE = fields.String(load_default="plain", dump_default="plain",
@@ -68,11 +70,11 @@ class AuthSettings(SogoSchema):
     SOGO_D_OPENID_CLIENT_SECRET        = fields.String() #Secret of the openid client
     SOGO_D_OPENID_SCOPE                = fields.String(load_default="openid profile email", dump_default="openid profile email") #Scope requested to the openis server
     SOGO_D_OPENID_EMAIL                = fields.String(load_default="email", dump_default="email") #parameter from user profile with the user's mail, to match with the user source
-    SOGO_D_OPENID_TOKEN_CHECK_INTERVAL = fields.Integer(validate=validate.Range(min=0)) #Interval where a valid token is not checked again. 0 means always checked.
+    SOGO_D_OPENID_TOKEN_CHECK_INTERVAL = fields.Integer(load_default=0, dump_default=0, validate=validate.Range(min=0)) #Interval where a valid token is not checked again. 0 means always checked.
     SOGO_D_OPENID_REFRESH_ENABLE       = fields.Boolean(load_default=True, dump_default=True) # Allowed or not sogo to refresh token if the openid server has the mechanism
-    SOGO_D_OPENID_ENDSESSION_ENABLED       = fields.Boolean(load_default=False, dump_default=False) # Allowed or not sogo to logout from the openid server instead of just the webmail
-    SOGo_D_OPENID_FETCH_USER_PROFILE   = fields.Boolean(load_default=True, dump_default=True) # sogo will fetch the user profile to get the user's email. If no, directly fetch from the token.
-
+    SOGO_D_OPENID_ENDSESSION_ENABLED   = fields.Boolean(load_default=False, dump_default=False) # Allowed or not sogo to logout from the openid server instead of just the webmail
+    SOGO_D_OPENID_FETCH_USER_PROFILE   = fields.Boolean(load_default=True, dump_default=True) # sogo will fetch the user profile to get the user's email. If no, directly fetch from the token.
+    SOGO_D_OPENID_ALLOW_REDIRECT       = fields.List(fields.Url()) #List of UI redirect link that are allowed after the obtention of access_token. See openid flow pdf.
 
     #IF SOGO_D_AUTH_TYPE = 'saml2'
     SOGO_D_SAML2_URL  = fields.Url(schemes={'http','https'}, require_tld=False) #TODO saml2 configuration....
