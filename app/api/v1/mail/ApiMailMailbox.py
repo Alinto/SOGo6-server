@@ -5,15 +5,14 @@ from flask.views import MethodView
 from flask.typing import ResponseReturnValue
 from flask_smorest import Blueprint
 
-from app.interface.mail.InterfaceApiMailAccount import InterfaceApiMailAccount
+from app.interface.mail.InterfaceApiMailMailbox import InterfaceApiMailMailbox
 from app.utils.logger.logger import logger_api
 from app.utils.api.ApiBaseResponse import ApiBaseResponse
-
 
 if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
 
-blp = Blueprint("ApiMailAccount", __name__, url_prefix="/mailboxes")
+blp = Blueprint("ApiMailMailbox", __name__, url_prefix="/mailboxes")
 
 
 @blp.before_request
@@ -54,58 +53,55 @@ def init_mail_config() -> None:
         }
     ]
 
-    interface_api = InterfaceApiMailAccount(
+    interface_api = InterfaceApiMailMailbox(
         process_setting=process,
         user_conf=user_conf_test,
     )
     g.inter = interface_api
 
 
-@blp.route("/<int:account_id>/compose")
-class ApiMailBoxesAccountCompose(MethodView):
+@blp.route("")
+class ApiMailBoxes(MethodView):
     """
-    Resource: Compose Email
+    API to manage mailboxes.
     """
-    def post(self, account_id: int) -> ResponseReturnValue:
+
+    @blp.response(200, ApiBaseResponse)
+    def get(self) -> ResponseReturnValue:
         """
-        Action: compose a new email from the specified mailbox (NOT IMPLEMENTED)
+        List all configured mailboxes (NOT IMPLEMENTED)
         """
-        logger_api.debug("Calling ApiMailBoxesAccountCompose.post for account_id: %s", account_id)
-        interface: InterfaceApiMailAccount = g.inter
-        return interface.compose_email(account_id)
+        logger_api.debug("Calling ApiMailBoxes.get to list all mailboxes")
+        interface: InterfaceApiMailMailbox = g.inter
+        return interface.list_mailboxes()
+
+    @blp.response(201, ApiBaseResponse)
+    def post(self) -> ResponseReturnValue:
+        """
+        Create a new mailbox (add external account) (NOT IMPLEMENTED)
+        """
+        logger_api.debug("Calling ApiMailBoxes.post to create a new mailbox")
+        interface: InterfaceApiMailMailbox = g.inter
+        return interface.create_mailbox()
 
 
-@blp.route("/<int:account_id>/delegate")
-class ApiMailBoxesAccountDelegates(MethodView):
+@blp.route("/<int:account_id>")
+class ApiMailBoxesAccount(MethodView):
     """
-    Resource: Mailbox Delegations
+    Resource: Mailbox by ID
     """
-    def get(self, account_id: int) -> ResponseReturnValue:
+    def patch(self, account_id: int) -> ResponseReturnValue:
         """
-        Get delegates for this mailbox (NOT IMPLEMENTED)
+        Update mailbox settings (NOT IMPLEMENTED)
         """
-        logger_api.debug("Calling ApiMailBoxesAccountDelegates.get for account_id: %s", account_id)
-        interface: InterfaceApiMailAccount = g.inter
-        return interface.get_mailbox_delegates(account_id)
+        logger_api.debug("Calling ApiMailBoxesAccount.patch for account_id: %s", account_id)
+        interface: InterfaceApiMailMailbox = g.inter
+        return interface.update_mailbox(account_id)
 
-    def post(self, data: dict, account_id: int) -> ResponseReturnValue:
+    def delete(self, account_id: int) -> ResponseReturnValue:
         """
-        Create a new delegate for this mailbox (NOT IMPLEMENTED)
+        Delete a mailbox (only external accounts) (NOT IMPLEMENTED)
         """
-        logger_api.debug("Calling ApiMailBoxesAccountDelegates.post for account_id: %s with data: %s", account_id, data)
-        interface: InterfaceApiMailAccount = g.inter
-        return interface.create_mailbox_delegate(account_id, data)
-
-
-@blp.route("/<int:account_id>/purge")
-class ApiMailBoxesAccountPurge(MethodView):
-    """
-    Resource: Purge Mailbox
-    """
-    def post(self, account_id: int) -> ResponseReturnValue:
-        """
-        Action: purge (all folders) from the specified mailbox (NOT IMPLEMENTED)
-        """
-        logger_api.debug("Calling ApiMailBoxesAccountPurge.post for account_id: %s", account_id)
-        interface: InterfaceApiMailAccount = g.inter
-        return interface.purge_mailbox(account_id)
+        logger_api.debug("Calling ApiMailBoxesAccount.delete for account_id: %s", account_id)
+        interface: InterfaceApiMailMailbox = g.inter
+        return interface.delete_mailbox(account_id)

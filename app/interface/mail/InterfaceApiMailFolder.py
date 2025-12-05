@@ -1,6 +1,11 @@
-from typing import TYPE_CHECKING, Optional, Dict, Any, List, Union
+from typing import TYPE_CHECKING, Optional, Dict, Any, List, Union, Tuple
+from marshmallow import ValidationError
+
 from app.module.mail.ModuleMail import ModuleMail
 from app.utils.exceptions import RequestException
+from app.utils.api.ApiBaseResponse import create_api_base_response
+from app.utils import errors as err
+from app.utils.logger.logger import logger_api
 
 if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
@@ -43,37 +48,76 @@ class InterfaceApiMailFolder:
 
         return conf
 
-    def get_mail_list(self, account_id: int, folder_name: str, page: int = 1, per_page: int = 20) -> dict:
-        """Retrieve a list of mails in a specific folder.
-        
-        :param account_id: The ID of the account
-        :type account_id: int
-        :param folder_name: The ID of the folder
-        :type folder_name: str
-        :param page: The page number for pagination
-        :type page: int
-        :param per_page: Number of mails per page
-        :type per_page: int
-        :return: A dictionary containing the list of mails, pagination info, and total count.
-        :rtype: dict
-        """
-        conf = self._get_user_conf(account_id)
-        return self.module.get_folder_mails(conf, folder_name, page=page, per_page=per_page)
+    def get_folder_list(self, account_id: int) -> Tuple[Dict[str, Any], int]:
+        """Retrieve the list of mail folders for a given account and return an ApiBaseResponse.
 
-    def delete_folder(self, account_id: int, folder_name: str) -> dict:
+        Interface contract:
+        - Catches module exceptions (RequestException, ValidationError)
+        - Converts module data to API format
+        - Returns tuple (response_dict, http_status_code)
+        
+        :param account_id: The account identifier
+        :type account_id: int
+        :return: Tuple of (API response dict, HTTP status code)
+        :rtype: Tuple[Dict[str, Any], int]
+        """
+        try:
+            user_conf = self._get_user_conf(account_id)
+            folder_list = self.module.get_folder_list(user_conf)
+            # Module returns List[Dict], wrap it in the "folders" key
+            return create_api_base_response({"folders": folder_list}), 200
+        except ValidationError as ex:
+            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
+        except RequestException as ex:
+            return create_api_base_response(str(ex), ex.error_code), 404
+
+    def create_folder(self, account_id: int, folder_name: str) -> Tuple[Dict[str, Any], int]:
+        """Create a new mail folder for the configured account and return an ApiBaseResponse.
+
+        Interface contract:
+        - Catches module exceptions (RequestException, ValidationError)
+        - Converts module data to API format
+        - Returns tuple (response_dict, http_status_code)
+
+        :param account_id: The account identifier
+        :type account_id: int
+        :param folder_name: Name of the folder to create
+        :type folder_name: str
+        :return: Tuple of (API response dict, HTTP status code)
+        :rtype: Tuple[Dict[str, Any], int]
+        """
+        try:
+            user_conf = self._get_user_conf(account_id)
+            folder_data = self.module.create_folder(user_conf, folder_name)
+            return create_api_base_response(folder_data), 201
+        except ValidationError as ex:
+            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
+        except RequestException as ex:
+            return create_api_base_response(str(ex), ex.error_code), 404
+
+
+    def delete_folder(self, account_id: int, folder_name: str) -> Tuple[Union[str, Dict[str, Any]], int]:
         """Delete a mail folder.
         
         :param account_id: The ID of the account
         :type account_id: int
         :param folder_name: The ID of the folder to delete
         :type folder_name: str
-        :return: A dictionary indicating success or failure of the operation.
-        :rtype: dict
+        :return: A tuple of (empty string or error dict, status code)
+        :rtype: Tuple[Union[str, Dict[str, Any]], int]
         """
-        conf = self._get_user_conf(account_id)
-        return self.module.delete_folder(conf, folder_name)
+        try:
+            conf = self._get_user_conf(account_id)
+            self.module.delete_folder(conf, folder_name)
+            return "", 204
+        except ValidationError as ex:
+            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
+        except RequestException as ex:
+            return create_api_base_response(str(ex), ex.error_code), 404
 
-    def delete_mails(self, account_id: int, folder_name: str, mail_uids: List[int]) -> dict:
+    def delete_mails(
+        self, account_id: int, folder_name: str, mail_uids: List[int]
+    ) -> Tuple[Dict[str, Any], int]:
         """Delete multiple mails by ID by delegating the list to the module layer.
 
         :param account_id: The ID of the account
@@ -82,13 +126,21 @@ class InterfaceApiMailFolder:
         :type folder_name: str
         :param mail_uids: List of mail UIDs to delete (ints)
         :type mail_uids: List[int]
-        :return: Result dictionary returned by the module (status, data, errors)
-        :rtype: dict
+        :return: A tuple of (API response dict, status code)
+        :rtype: Tuple[Dict[str, Any], int]
         """
-        conf = self._get_user_conf(account_id)
-        return self.module.delete_mails(conf, folder_name, mail_uids)
+        try:
+            conf = self._get_user_conf(account_id)
+            result = self.module.delete_mails(conf, folder_name, mail_uids)
+            return create_api_base_response(result), 200
+        except ValidationError as ex:
+            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
+        except RequestException as ex:
+            return create_api_base_response(str(ex), ex.error_code), 404
 
-    def delete_all_mail_in_folder(self, account_id: int, folder_name: str, before_date: str | None) -> dict:
+    def delete_all_mail_in_folder(
+        self, account_id: int, folder_name: str, before_date: str | None
+    ) -> Tuple[Union[str, Dict[str, Any]], int]:
         """Delete all mails in a folder, optionally before a specific date.
         
         :param account_id: The ID of the account
@@ -97,13 +149,21 @@ class InterfaceApiMailFolder:
         :type folder_name: str
         :param before_date: Optional date string to delete mails before this date
         :type before_date: str | None
-        :return: A dictionary indicating the result of the delete operation.
-        :rtype: dict
+        :return: A tuple of (empty string or error dict, status code)
+        :rtype: Tuple[Union[str, Dict[str, Any]], int]
         """
-        conf = self._get_user_conf(account_id)
-        return self.module.delete_all_mail_in_folder(conf, folder_name, before_date)
+        try:
+            conf = self._get_user_conf(account_id)
+            self.module.delete_all_mail_in_folder(conf, folder_name, before_date)
+            return "", 204
+        except ValidationError as ex:
+            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
+        except RequestException as ex:
+            return create_api_base_response(str(ex), ex.error_code), 404
 
-    def move_mails(self, account_id: int, folder_name: str, mail_uids: List[int], to_folder_name: str) -> dict:
+    def move_mails(
+        self, account_id: int, folder_name: str, mail_uids: List[int], to_folder_name: str
+    ) -> Tuple[Dict[str, Any], int]:
         """Move multiple mails to another folder.
         
         :param account_id: The ID of the account
@@ -114,21 +174,155 @@ class InterfaceApiMailFolder:
         :type mail_uids: List[int]
         :param to_folder_name: The ID of the destination folder
         :type to_folder_name: str
-        :return: A dictionary indicating which mails were moved and which failed.
-        :rtype: dict
+        :return: A tuple of (API response dict, status code)
+        :rtype: Tuple[Dict[str, Any], int]
         """
-        conf = self._get_user_conf(account_id)
-        return self.module.move_mails(conf, folder_name, mail_uids, to_folder_name)
+        try:
+            conf = self._get_user_conf(account_id)
+            result = self.module.move_mails(conf, folder_name, mail_uids, to_folder_name)
+            return create_api_base_response(result), 200
+        except ValidationError as ex:
+            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
+        except RequestException as ex:
+            return create_api_base_response(str(ex), ex.error_code), 404
 
-    def expunge_folder(self, account_id: int, folder_name: str) -> dict:
+    def expunge_folder(self, account_id: int, folder_name: str) -> Tuple[Dict[str, Any], int]:
         """Expunge all mails in the specified folder.
         
         :param account_id: The ID of the account
         :type account_id: int
         :param folder_name: The ID of the folder to expunge
         :type folder_name: str
-        :return: A dictionary indicating the result of the expunge operation.
-        :rtype: dict
+        :return: A tuple of (API response dict with mail_deleted count, status code)
+        :rtype: Tuple[Dict[str, Any], int]
         """
-        conf = self._get_user_conf(account_id)
-        return self.module.expunge_mailbox(conf, folder_name)
+        try:
+            conf = self._get_user_conf(account_id)
+            result = self.module.expunge_folder(conf, folder_name)
+            return create_api_base_response(result), 200
+        except ValidationError as ex:
+            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
+        except RequestException as ex:
+            return create_api_base_response(str(ex), ex.error_code), 404
+
+    def update_folder(self, account_id: int, folder_name: str, folder_data: Dict[str, Any]) -> Tuple[Dict[str, Any], int]:
+        """Update name, type (junk, template...) and subscription status of a specific mail folder.
+        
+        :param account_id: The ID of the account
+        :type account_id: int
+        :param folder_name: The current name of the folder
+        :type folder_name: str
+        :param folder_data: Dictionary containing update data (name, subscribed, type)
+        :type folder_data: Dict[str, Any]
+        :return: A tuple of (API response dict, status code)
+        :rtype: Tuple[Dict[str, Any], int]
+        """
+        try:
+            conf = self._get_user_conf(account_id)
+            updated_folder = self.module.update_folder(conf, folder_name, folder_data)
+            return create_api_base_response(updated_folder), 200
+        except ValidationError as ex:
+            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
+        except RequestException as ex:
+            return create_api_base_response(str(ex), ex.error_code), 404
+
+    def get_folder_details(self, account_id: int, folder_name: str) -> Tuple[Dict[str, Any], int]:
+        """Retrieve details of a specific mail folder.
+        
+        :param account_id: The ID of the account
+        :type account_id: int
+        :param folder_name: The ID of the folder
+        :type folder_name: str
+        :return: A tuple of (API response dict, status code)
+        :rtype: Tuple[Dict[str, Any], int]
+        """
+        try:
+            conf = self._get_user_conf(account_id)
+            folder_details = self.module.get_folder_details(conf, folder_name)
+            return create_api_base_response(folder_details), 200
+        except ValidationError as ex:
+            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
+        except RequestException as ex:
+            return create_api_base_response(str(ex), ex.error_code), 404
+
+    def purge_folder_mails(self, account_id: int, folder_name: str, purge_data: Dict[str, Any]) -> Tuple[Union[str, Dict[str, Any]], int]:
+        """Purge all mails in the specified folder.
+        
+        Mark mails as deleted (optionally before a specific date).
+        If permanentlyDelete is True, also expunge the folder.
+        
+        :param account_id: The ID of the account
+        :type account_id: int
+        :param folder_name: The ID of the folder
+        :type folder_name: str
+        :param purge_data: Dictionary containing purge options (applyToSubfolders, permanentlyDelete, date)
+        :type purge_data: Dict[str, Any]
+        :return: A tuple of (empty string or error dict, status code)
+        :rtype: Tuple[Union[str, Dict[str, Any]], int]
+        """
+        try:
+            conf = self._get_user_conf(account_id)
+            return create_api_base_response(self.module.purge_folder_mails(conf, folder_name, purge_data)), 200
+        except ValidationError as ex:
+            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
+        except RequestException as ex:
+            return create_api_base_response(str(ex), ex.error_code), 404
+
+    def export_folder_mails(self, account_id: int, folder_name: str) -> Tuple[Dict[str, Any], int]:
+        """Export all mails in the specified folder.
+        
+        :param account_id: The ID of the account
+        :type account_id: int
+        :param folder_name: The ID of the folder
+        :type folder_name: str
+        :return: A tuple of (API response dict, status code)
+        :rtype: Tuple[Dict[str, Any], int]
+        """
+        try:
+            conf = self._get_user_conf(account_id)
+            export_data = self.module.export_folder_mails(conf, folder_name)
+            return create_api_base_response(export_data), 200
+        except ValidationError as ex:
+            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
+        except RequestException as ex:
+            return create_api_base_response(str(ex), ex.error_code), 404
+
+    def get_folder_share(self, account_id: int, folder_name: str) -> Tuple[Dict[str, Any], int]:
+        """Get share information for the specified folder.
+        
+        :param account_id: The ID of the account
+        :type account_id: int
+        :param folder_name: The ID of the folder
+        :type folder_name: str
+        :return: A tuple of (API response dict, status code)
+        :rtype: Tuple[Dict[str, Any], int]
+        """
+        try:
+            conf = self._get_user_conf(account_id)
+            share_info = self.module.get_folder_share(conf, folder_name)
+            return create_api_base_response(share_info), 200
+        except ValidationError as ex:
+            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
+        except RequestException as ex:
+            return create_api_base_response(str(ex), ex.error_code), 404
+
+    def share_folder(self, account_id: int, folder_name: str, share_data: List[Dict[str, Any]]) -> Tuple[Dict[str, Any], int]:
+        """Share the specified folder with another user.
+        
+        :param account_id: The ID of the account
+        :type account_id: int
+        :param folder_name: The ID of the folder
+        :type folder_name: str
+        :param share_data: List of users with their rights configuration
+        :type share_data: List[Dict[str, Any]]
+        :return: A tuple of (API response dict, status code)
+        :rtype: Tuple[Dict[str, Any], int]
+        """
+        try:
+            conf = self._get_user_conf(account_id)
+            result = self.module.share_folder(conf, folder_name, share_data)
+            return create_api_base_response(result), 200
+        except ValidationError as ex:
+            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
+        except RequestException as ex:
+            return create_api_base_response(str(ex), ex.error_code), 404

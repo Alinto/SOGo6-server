@@ -49,6 +49,8 @@ class ProcessSetting(FlaskConfig):
 
     SOGO_P_SECRET: str = "secret_is_a_32_characters_string" #TODO no default value and set length -> https://docs.pydantic.dev/latest/concepts/pydantic_settings/#usage
 
+    SOGO_P_DB_TYPE: str = "PostgreSQL"
+
     SOGO_P_DB_USER: str = "admin"     #TODO test all that...
     SOGO_P_DB_PASS: str = "admin"
     SOGO_P_DB_HOST: str = "localhost"

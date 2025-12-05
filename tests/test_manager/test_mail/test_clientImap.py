@@ -40,7 +40,7 @@ class FakeIMAPConn:
         """
         return (self.list_typ, self.mailbox_list)
 
-    # For expunge_mailbox
+    # For expunge_folder
     def select(self, mailbox):
         """
         Select a mailbox.
@@ -190,9 +190,9 @@ def test_given_connected_when_list_mailboxes_and_mailbox_list_is_none_then_empty
     # Then
     assert result == []
 
-# --- expunge_mailbox ---
+# --- expunge_folder ---
 
-def test_given_connected_when_expunge_mailbox_then_success():
+def test_given_connected_when_expunge_folder_then_success():
     """
     Test expunging a mailbox when connected to the IMAP server.
     """
@@ -201,12 +201,12 @@ def test_given_connected_when_expunge_mailbox_then_success():
     fake_conn = FakeIMAPConn()
     client.connection = fake_conn
     # When
-    client.expunge_mailbox('INBOX')
+    client.expunge_folder('INBOX')
     # Then
     assert fake_conn.selected_mailbox == 'INBOX'
     assert fake_conn.expunged is True
 
-def test_given_not_connected_when_expunge_mailbox_then_request_exception():
+def test_given_not_connected_when_expunge_folder_then_request_exception():
     """
     Test expunging a mailbox when NOT connected to the IMAP server.
     """
@@ -215,9 +215,9 @@ def test_given_not_connected_when_expunge_mailbox_then_request_exception():
     client.connection = None
     # When/Then
     with pytest.raises(RequestException, match="Not connected"):
-        client.expunge_mailbox('INBOX')
+        client.expunge_folder('INBOX')
 
-def test_given_connected_when_expunge_mailbox_select_fails_then_request_exception():
+def test_given_connected_when_expunge_folder_select_fails_then_request_exception():
     """
     Test expunging a mailbox when connected but IMAP server returns NO.
     """
@@ -228,9 +228,9 @@ def test_given_connected_when_expunge_mailbox_select_fails_then_request_exceptio
     client.connection = fake_conn
     # When/Then
     with pytest.raises(RequestException, match="Failed to select mailbox INBOX"):
-        client.expunge_mailbox('INBOX')
+        client.expunge_folder('INBOX')
 
-def test_given_connected_when_expunge_mailbox_expunge_fails_then_request_exception():
+def test_given_connected_when_expunge_folder_expunge_fails_then_request_exception():
     """
     Test expunging a mailbox when connected but IMAP server returns NO on expunge.
     """
@@ -241,4 +241,4 @@ def test_given_connected_when_expunge_mailbox_expunge_fails_then_request_excepti
     client.connection = fake_conn
     # When/Then
     with pytest.raises(RequestException, match="Failed to expunge mailbox INBOX"):
-        client.expunge_mailbox('INBOX')
+        client.expunge_folder('INBOX')

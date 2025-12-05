@@ -1,63 +1,84 @@
 from typing import TYPE_CHECKING, Optional, Dict, Any, List, Union, Tuple
-
 from marshmallow import ValidationError
-from app.utils.api.ApiBaseResponse import create_api_base_response
-from app.utils import errors as err
 
 from app.module.mail.ModuleMail import ModuleMail
 from app.utils.exceptions import RequestException
+from app.utils.api.ApiBaseResponse import create_api_base_response
+from app.utils import errors as err
+from app.utils.logger.logger import logger_api
 
 if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
 
-
 UserConfType = Union[Dict[str, Any], List[Dict[str, Any]]]
 
-class InterfaceApiMailAccount:
+class InterfaceApiMailMailbox:
     """
-    Interface for the ApiMailAccount API.
-    Handles mailbox operations for one or more configured accounts.
-    
-    Interface contract:
-    - Catches exceptions from module
-    - Converts module data to API-ready format (using create_api_base_response)
-    - Returns tuple (response_dict, http_status_code)
+    Interface for mailbox-related mail operations.
+
+    Handles mail mailbox operations for one or multiple configured IMAP accounts.
     """
 
-    def __init__(self, process_setting: Optional["ProcessSetting"] = None, user_conf: UserConfType = None, server: Optional[str] = None, port: Optional[int] = None) -> None:
+    def __init__(self, process_setting: "ProcessSetting" = None, user_conf: Optional[UserConfType] = None) -> None:
         self.process_setting = process_setting
         self.user_conf = user_conf
-        self.module = ModuleMail(server=server or "dovecot", port=port or 143)
+        self.module = ModuleMail()
 
-    def _get_user_conf(self, account_id: int) -> dict:
+    def _get_user_conf(self, account_id: int) -> Dict[str, Any]:
         """
-        Selects and validates the user configuration for a given account ID.
-        
-        :param account_id: Account index in the user_conf list
-        :type account_id: int
-        :return: User configuration dictionary
-        :rtype: dict
-        :raises RequestException: If account_id is invalid or config is missing
+        Select and validate the configuration for a given account ID.
         """
         if not self.user_conf:
             raise RequestException("No mailbox configuration available")
 
-        # Normalize to a list for simpler handling
+        # Normalize to list for consistent handling
         conf_list = self.user_conf if isinstance(self.user_conf, list) else [self.user_conf]
-        if not 0 <= account_id < len(conf_list):
+
+        if not (0 <= account_id < len(conf_list)):
             raise RequestException(f"Invalid account_id {account_id} (0..{len(conf_list)-1})")
 
         conf = conf_list[account_id]
 
-        required_fields = ["username", "password", "type"]  # TODO: future classe User?
+        required_fields = ["username", "password", "type"]
         missing = [f for f in required_fields if not conf.get(f)]
         if missing:
             raise RequestException(f"Missing fields in account config: {', '.join(missing)}")
 
+        if conf["type"].lower() != "imap":
+            raise RequestException(f"Unsupported mail type '{conf['type']}' (expected 'imap')")
+
         return conf
 
-    def compose_email(self, account_id: int) -> Tuple[Dict[str, Any], int]:
-        """Compose a new email from the specified mailbox.
+    def list_mailboxes(self) -> Tuple[Dict[str, Any], int]:
+        """List all configured mailboxes.
+        
+        :return: A tuple of (API response dict, status code)
+        :rtype: Tuple[Dict[str, Any], int]
+        """
+        try:
+            mailboxes = self.module.list_mailboxes(self.user_conf)
+            return create_api_base_response({"mailboxes": mailboxes}), 200
+        except ValidationError as ex:
+            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
+        except RequestException as ex:
+            return create_api_base_response(str(ex), ex.error_code), 404
+
+    def create_mailbox(self) -> Tuple[Dict[str, Any], int]:
+        """Create a new mailbox (add external account).
+        
+        :return: A tuple of (API response dict, status code)
+        :rtype: Tuple[Dict[str, Any], int]
+        """
+        try:
+            mailbox_data = self.module.create_mailbox(self.user_conf)
+            return create_api_base_response(mailbox_data), 201
+        except ValidationError as ex:
+            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
+        except RequestException as ex:
+            return create_api_base_response(str(ex), ex.error_code), 404
+
+    def update_mailbox(self, account_id: int) -> Tuple[Dict[str, Any], int]:
+        """Update mailbox settings.
         
         :param account_id: The account identifier
         :type account_id: int
@@ -66,51 +87,15 @@ class InterfaceApiMailAccount:
         """
         try:
             conf = self._get_user_conf(account_id)
-            email_data = self.module.compose_email(conf)
-            return create_api_base_response(email_data), 200
+            mailbox_data = self.module.update_mailbox(conf)
+            return create_api_base_response(mailbox_data), 200
         except ValidationError as ex:
             return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
         except RequestException as ex:
             return create_api_base_response(str(ex), ex.error_code), 404
 
-    def get_mailbox_delegates(self, account_id: int) -> Tuple[Dict[str, Any], int]:
-        """Get delegates for this mailbox.
-        
-        :param account_id: The account identifier
-        :type account_id: int
-        :return: A tuple of (API response dict, status code)
-        :rtype: Tuple[Dict[str, Any], int]
-        """
-        try:
-            conf = self._get_user_conf(account_id)
-            delegates = self.module.get_mailbox_delegates(conf)
-            return create_api_base_response({"delegates": delegates}), 200
-        except ValidationError as ex:
-            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
-        except RequestException as ex:
-            return create_api_base_response(str(ex), ex.error_code), 404
-
-    def create_mailbox_delegate(self, account_id: int, data: dict) -> Tuple[Dict[str, Any], int]:
-        """Create a new delegate for this mailbox.
-        
-        :param account_id: The account identifier
-        :type account_id: int
-        :param data: Delegate data
-        :type data: dict
-        :return: A tuple of (API response dict, status code)
-        :rtype: Tuple[Dict[str, Any], int]
-        """
-        try:
-            conf = self._get_user_conf(account_id)
-            delegate_data = self.module.create_mailbox_delegate(conf, data)
-            return create_api_base_response(delegate_data), 201
-        except ValidationError as ex:
-            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
-        except RequestException as ex:
-            return create_api_base_response(str(ex), ex.error_code), 404
-
-    def purge_mailbox(self, account_id: int) -> Tuple[Union[str, Dict[str, Any]], int]:
-        """Purge (all folders) from the specified mailbox.
+    def delete_mailbox(self, account_id: int) -> Tuple[Union[str, Dict[str, Any]], int]:
+        """Delete a mailbox (only external accounts).
         
         :param account_id: The account identifier
         :type account_id: int
@@ -119,7 +104,7 @@ class InterfaceApiMailAccount:
         """
         try:
             conf = self._get_user_conf(account_id)
-            self.module.purge_mailbox(conf)
+            self.module.delete_mailbox(conf)
             return "", 204
         except ValidationError as ex:
             return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400

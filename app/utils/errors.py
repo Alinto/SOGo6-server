@@ -11,6 +11,9 @@ ERROR_VALIDATION_ERROR = 300
 ERROR_DOMAIN_NAME_TAKEN = 301
 ERROR_DOMAIN_NAME_NOT_FOUND = 302
 
+ERROR_MAIL_UID_NOT_FOUND = 303
+ERROR_FOLDER_NAME_NOT_FOUND = 304
+
 #Database
 ERROR_BUG_UNKNWON_TABLE = 400
 ERROR_BUG_UNKNWON_COLUMN = 401
@@ -33,6 +36,9 @@ error_msg = {
     ERROR_VALIDATION_ERROR: "Data given does not match the Marshmallow Schema",
     ERROR_DOMAIN_NAME_TAKEN: "Domain's name already taken",
     ERROR_DOMAIN_NAME_NOT_FOUND: "Domain name not found in database",
+
+    ERROR_MAIL_UID_NOT_FOUND: "Mail UID not found",
+    ERROR_FOLDER_NAME_NOT_FOUND: "Folder name not found",
 
     ERROR_BUG_UNKNWON_TABLE: "Trying to interact with an unkwnon table",
     ERROR_BUG_UNKNWON_COLUMN: "Trying to interact with an unkwnon column",

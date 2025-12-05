@@ -52,9 +52,9 @@ ENV PATH="/home/${USERNAME}/.local/bin:$PATH"
 RUN sudo rm -rf .poetry
 RUN poetry lock && poetry install
 
-RUN echo "install antora"
-RUN node -e "fs.writeFileSync('package.json', '{}')"
-RUN npm i -D -E antora
+# RUN echo "install antora"
+# RUN node -e "fs.writeFileSync('package.json', '{}')"
+# RUN npm i -D -E antora
 
 
 #RUN poetry run start --host="0.0.0.0"

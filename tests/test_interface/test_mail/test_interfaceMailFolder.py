@@ -9,7 +9,7 @@ class FakeModuleMail:
     def __init__(self):
         # --- Memorisation des args pour vérification ---
         self.get_folder_mails_args = None
-        self.expunge_mailbox_args = None
+        self.expunge_folder_args = None
         self.delete_folder_args = None
         self.delete_all_mail_in_folder_args = None
         self.delete_mail_by_id_calls = []
@@ -17,7 +17,7 @@ class FakeModuleMail:
 
         # --- Résultats configurables par test ---
         self.get_folder_mails_result = {"status": True, "mails": [{"id": "1"}], "errors": None}
-        self.expunge_mailbox_result = (True, "OK")
+        self.expunge_folder_result = (True, "OK")
         self.delete_folder_result = (True, "OK")
         self.delete_all_mail_in_folder_result = (True, "mails marked as deleted")
         self.delete_mail_by_id_results = []
@@ -30,12 +30,12 @@ class FakeModuleMail:
         self.get_folder_mails_args = (username, password, folder_name, page, per_page)
         return self.get_folder_mails_result
 
-    def expunge_mailbox(self, username, password, folder_name):
+    def expunge_folder(self, username, password, folder_name):
         """
         Expunge the mailbox by removing all deleted mails.
         """
-        self.expunge_mailbox_args = (username, password, folder_name)
-        return self.expunge_mailbox_result
+        self.expunge_folder_args = (username, password, folder_name)
+        return self.expunge_folder_result
 
     def delete_folder(self, username, password, folder_name):
         """
@@ -121,7 +121,7 @@ def test_given_valid_account_when_expunge_folder_then_success(monkeypatch):
     # Then
     assert result["status"] is True
     assert result["errors"] == "OK"
-    assert fake_module.expunge_mailbox_args == ("sogo-tests1@example.org", "sogo", "INBOX") #il faudra peut etre changer cela quand on aura vrai compte?
+    assert fake_module.expunge_folder_args == ("sogo-tests1@example.org", "sogo", "INBOX") #il faudra peut etre changer cela quand on aura vrai compte?
 
 def test_given_module_error_when_expunge_folder_then_error(monkeypatch):
     """
@@ -129,7 +129,7 @@ def test_given_module_error_when_expunge_folder_then_error(monkeypatch):
     """
     # Given
     fake_module = FakeModuleMail()
-    fake_module.expunge_mailbox_result = (False, "expunge failed")
+    fake_module.expunge_folder_result = (False, "expunge failed")
     patch_module_on_interface(monkeypatch, fake_module)
     interface = InterfaceApiMailFolder()
     # When

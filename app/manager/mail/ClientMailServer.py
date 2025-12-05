@@ -37,4 +37,4 @@ class ClientMailServer(metaclass=ABCMeta):
 
     @abstractmethod
     def fetch_all_full_mails(self, mailbox: str) -> List[Any]:
-        """Fetch all full mails (RFC822) from a given mailbox/folder."""
+        """Fetch all full mails (RFC822) from a given mailbox/folders."""

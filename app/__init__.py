@@ -44,7 +44,7 @@ def create_app(sogo_state: int) -> Flask:
     register_route(flask_api, cs_api.API_BASIC, sogo_state)
     register_route(admin_api, cs_api.API_ADMIN, sogo_state)
 
-    CORS(app, resources={r"/api/*": {"origins": "http://localhost:3000"}})
+    CORS(app, resources={r"/api/*": {"origins": "http://localhost:3001"}})
 
     return app
 
@@ -72,6 +72,9 @@ def register_before_request(base_blueprint: Blueprint, kind: str, sogo_state: in
         :rtype: ResponseReturnValue | None
         """
         if request.method in {"POST", "PATCH", "PUT"}:
+            content_length = request.content_length
+            if content_length is not None and content_length == 0:
+                return None
             if not request.is_json:
                 return create_api_base_response(error_code=err.ERROR_API_CONTENT_TYPE), 400
             data = request.get_data(as_text=True)

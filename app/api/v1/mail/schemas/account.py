@@ -1,13 +1,5 @@
-# -*- coding: utf-8 -*-
-
-"""
-This file is part of SOGo 6 software https://github.com/Alinto/SOGo6-server
-
-This file defines all the schema needed by ApiMailAccount.py
-"""
-
 from marshmallow import Schema, fields
-from app.utils.api.ApiResponse import ApiBaseResponse
+from app.utils.api.ApiBaseResponse import ApiBaseResponse
 
 class MailAccountSchema(Schema):
     """

@@ -29,8 +29,7 @@ class ModuleAdminConfig:
         """
         """
         self.process_settings  = process_settings
-        fake_process_settings_db = "PostgreSQL"
-        sogo_db_type = f"Client{fake_process_settings_db}"
+        sogo_db_type = f"Client{process_settings.SOGO_P_DB_TYPE}"
 
         self.sogo_db_manager: ClientSQL = import_and_instantiate_manager(module_path="app.manager.db",
                                                          module_and_class_name=sogo_db_type,

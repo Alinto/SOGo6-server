@@ -1,10 +1,10 @@
 import pytest
 from unittest import mock
-from app.interface.mail.InterfaceApiMailDetail import InterfaceApiMailDetail
+from app.interface.mail.InterfaceApiMailMail import InterfaceApiMailMail
 
 class FakeModuleMail:
     """
-    Fake ModuleMail for testing InterfaceApiMailDetail.
+    Fake ModuleMail for testing InterfaceApiMailMail.
     """
     def __init__(self):
         # --- Memorisation des args pour vérification ---
@@ -25,10 +25,10 @@ class FakeModuleMail:
 
 def patch_module_on_interface(monkeypatch, fake_module):
     """
-    Patch the ModuleMail class in the InterfaceApiMailDetail module with a fake module.
+    Patch the ModuleMail class in the InterfaceApiMailMail module with a fake module.
     """
     monkeypatch.setattr(
-        "app.interface.mail.InterfaceApiMailDetail.ModuleMail",
+        "app.interface.mail.InterfaceApiMailMail.ModuleMail",
         lambda *a, **kw: fake_module
     )
 
@@ -39,7 +39,7 @@ def test_given_valid_account_and_mail_when_get_mail_detail_then_return_mail(monk
     # Given
     fake_module = FakeModuleMail()
     patch_module_on_interface(monkeypatch, fake_module)
-    interface = InterfaceApiMailDetail()
+    interface = InterfaceApiMailMail()
     # When
     result = interface.get_mail_detail(account_id=1, folder_name="INBOX", mail_id=42)
     # Then
@@ -60,7 +60,7 @@ def test_given_module_error_when_get_mail_detail_then_error(monkeypatch):
         "errors": "not found"
     }
     patch_module_on_interface(monkeypatch, fake_module)
-    interface = InterfaceApiMailDetail()
+    interface = InterfaceApiMailMail()
     # When
     result = interface.get_mail_detail(account_id=1, folder_name="INBOX", mail_id=999)
     # Then
