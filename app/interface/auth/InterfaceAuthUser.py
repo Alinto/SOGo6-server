@@ -5,7 +5,7 @@ from marshmallow.exceptions import ValidationError
 
 from app.auth.User import User
 from app.config.db import tables as tbl
-from app.module.admin.ModuleAdminConfig import ModuleAdminConfig
+from app.module.auth.ModuleAuth import ModuleAuth
 from app.utils.api.ApiBaseResponse import create_api_base_response
 from app.utils.db.Condition import Order, order_str_to_order_enum
 from app.utils.exceptions import RequestException, BugException
@@ -22,7 +22,6 @@ class InterfaceAuthUser:
     """
 
     def __init__(self, process: ProcessSetting, system: SystemSettingsObj, default_domain: dict):
-
         self.domainless = system.SOGO_S_DOMAINLESS_LOGIN
         self.reject_unknown_domain = system.SOGO_S_REJECT_UNKNOWN_DOMAIN
         self.known_domains = system.SOGO_S_KNOWN_DOMAIN
@@ -61,7 +60,7 @@ class InterfaceAuthUser:
         if self.domainless:
             user = User(uid, password, is_domainless=True)
         else:
-            domain = get_domain_from_mail(uid)
+            domain = get_domain_from_mail(uid) or ""
             user = User(uid, password, domain=domain)
         
         ret = user.check_login()

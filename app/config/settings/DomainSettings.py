@@ -6,6 +6,7 @@ Define all domains parameters
 from typing import Type
 from marshmallow import fields, validate
 from app.config.settings.SogoSchema import SogoSchema
+from app.utils.config.generateObjFromSchema import SettingsObj
 
 
 def get_all_domain_schemas() -> list[Type[SogoSchema]]:
@@ -95,11 +96,43 @@ class AuthSettings(SogoSchema):
     SOGO_D_LOGIN_MFA_METHOD = fields.List(fields.String(), validate=validate.ContainsOnly(('totp',)))
     SOGO_D_LOGIN_MFA_FORCE = fields.Boolean(load_default=False, dump_default=False) #Force users to set a recovery method, overwrite SOGO_D_PWD_RECOVERY
 
+class AuthSettingsObj(SettingsObj):
+    """
+    Obj with the fields of schema AuthSettings as attributes with the proper type.
+    """
+
+    SOGO_D_AUTH_TYPE: str = "plain"
+    SOGO_D_CAS_URL: str = ""
+    SOGO_D_CAS_LOGOUT_ENABLED: bool = False
+    SOGO_D_OPENID_CONFIG_URL: str = ""
+    SOGO_D_OPENID_CLIENT_NAME: str = ""
+    SOGO_D_OPENID_CLIENT_SECRET: str = ""
+    SOGO_D_OPENID_SCOPE: str = 'openid profile email'
+    SOGO_D_OPENID_EMAIL: str = "email"
+    SOGO_D_OPENID_TOKEN_CHECK_INTERVAL: int = 0
+    SOGO_D_OPENID_REFRESH_ENABLE: bool = True
+    SOGO_D_OPENID_ENDSESSION_ENABLED: bool = False
+    SOGO_D_OPENID_FETCH_USER_PROFILE: bool = True
+    SOGO_D_OPENID_ALLOW_REDIRECT: list[str] = []
+    SOGO_D_SAML2_URL: str = ""
+    SOGO_D_PWD_CHANGE_ENABLED: bool = False
+    SOGO_D_LOGIN_CHECK_MAX_ATTEMPT: int = 0
+    SOGO_D_LOGIN_CHECK_TIME_SPAN: int = 10
+    SOGO_D_LOGIN_CHECK_BLOCK_TIME: int = 300
+    SOGO_D_PWD_RECOVERY: bool = True
+    SOGO_D_PWD_RECOVERY_METHOD: list[str] = []
+    SOGO_D_PWD_RECOVERY_FORCE: bool = False
+    SOGO_D_PWD_RECOVERY_DELAY: int = 0
+    SOGO_D_LOGIN_MFA: bool = True
+    SOGO_D_LOGIN_MFA_METHOD: list[str] = []
+    SOGO_D_LOGIN_MFA_FORCE: bool = False
+
+
 class UserSourceSettings(SogoSchema):
     """
     Schema for an agnostic User Source
     """
- 
+
     subparent = "USER_SOURCE"
     is_duplicable = True
     is_uid = "US_UID"
@@ -157,7 +190,7 @@ class UserSourceSettings(SogoSchema):
     is_required = {"US_LDAP_HOSTNAME", "US_LDAP_BIND_DN", "US_LDAP_BIND_DN_PWD",
                    "US_LDAP_BASE_DN", "US_LDAP_UID", "US_LDAP_CN", "US_LDAP_ID",
                    "US_SQL_USER_URL", "US_SQL_PREPEND_PWD_SCHEME"}
-    
+
     is_secret = {"US_LDAP_BIND_DN_PWD",}
 
     PWD_ALGO = ('none', 'plain',
@@ -238,6 +271,64 @@ class UserSourceSettings(SogoSchema):
     US_RESOURCE_MULTIBOOKING = fields.String() #sqldap field where to check how much time a resource can be booked simultaneously
     US_RESOURCE_EXTRA_INFO = fields.String() #TODO add moreflexibility and let the admin tell how it should be shwon? sqladp field to show when doing autocompletion (will be "cn <extra> mail")
 
+class UserSourceSettingsObj(SettingsObj):
+    """
+    Obj with the fields of schema UserSourceSettings as attributes with the proper type.
+    """
+
+    US_UID: str = ""
+    US_NAME: str = ""
+    US_TYPE: str = ""
+    US_LDAP_HOSTNAME: str = ""
+    US_LDAP_BIND_DN: str = ""
+    US_LDAP_BIND_DN_PWD: str = ""
+    US_LDAP_BASE_DN: str = ""
+    US_LDAP_UID: str = "uid"
+    US_LDAP_CN: str = "cn"
+    US_LDAP_ID: str = "uid"
+    US_LDAP_SCOPE: str = "SUB"
+    US_LDAP_FILTER: str = ""
+    US_LDAP_PWD_POLICY: bool = False
+    US_LDAP_PWD_UPDATE_SAMBA: bool = False
+    US_LDAP_QUERY_TIMEOUT: int = 0
+    US_LDAP_BIND_AS_USER: bool = False
+    US_LDAP_BIND_FIELD: list[str] = []
+    US_LDAP_ATTR_FIELD: list[str] = ['*']
+    US_LDAP_GROUP_CLASS: list[str] = ['group', 'groupOfNames', 'groupOfUniqueNames', 'posixGroup']
+    US_SQL_USER_URL: str = ""
+    US_SQL_PREPEND_PWD_SCHEME: bool = False
+    US_SQL_USER_FILTER: str = ""
+    US_SQL_DOMAIN_FIELD: str = ""
+    US_MAPPING: dict = {}
+    US_CAN_AUTH: bool = False
+    US_PWD_ALGO: str = ""
+    US_SIM_KEY_TYPE: str = ""
+    US_SIM_KEY_VALUE: str = ""
+    US_PWD_POLICY: bool = False
+    US_PWD_LEN_MIN: int = 4
+    US_PWD_LEN_MAX: int = 0
+    US_PWD_UPPERCASE_MIN: int = 0
+    US_PWD_LOWERCASE_MIN: int = 0
+    US_PWD_DIGITS_MIN: int = 0
+    US_PWD_SPECIAL_MIN: int = 0
+    US_PWD_SPECIAL_ALLOWED: str = r"%$&*(){}[]!?\/@#.,:;+=<>-_"
+    US_MAIL: list[str] = ['mail']
+    US_MAIL_SERVER_LOGIN: str = ""
+    US_MAIL_FILTERING_LOGIN: str = ""
+    US_MAIL_OUTGOING_LOGIN: str = ""
+    US_KIND: str = ""
+    US_IS_ADDRESSBOOK: bool = False
+    US_SEARCH: list[str] = []
+    US_DISPLAY_NAME: str = ""
+    US_AUTO_SEARCH: bool = False
+    US_AUTO_QUERY_LIMIT: int = 0
+    US_EXTRA_CONTACT_INFO: str = ""
+    US_HIDDEN_USER: list[str] = []
+    US_HAS_RESOURCE: bool = False
+    US_RESOURCE_SEARCH: list[str] = []
+    US_RESOURCE_MULTIBOOKING: str = ""
+    US_RESOURCE_EXTRA_INFO: str = ""
+
 class UserModuleSettings(SogoSchema):
     """
     Schema for an User module and action
@@ -292,6 +383,33 @@ class UserModuleSettings(SogoSchema):
     SOGO_D_MAIL_JUNK_SETTINGS = fields.String(validate=validate.OneOf(('None', 'mail'))) #Define a behavior when users set a mail as junk or not junk
     SOGO_D_MAIL_JUNK_MAIL_SPAM = fields.Email() #When set as junk, the og mail is sent to this address
     SOGO_D_MAIL_JUNK_MAIL_HAM = fields.Email() #When set as not junk, the og mail is sent to this address
+
+class UserModuleSettingsObj(SettingsObj):
+    """
+    Obj with the fields of schema UserModuleSettings as attributes with the proper type.
+    """
+
+    SOGO_D_MODULE_ACCESS: list[str] = ['mail', 'calendar', 'contact']
+    SOGO_D_MAPI_ACCESS: bool = False
+    SOGO_D_EAS_ACCESS: bool = False
+    SOGO_D_FOLDER_DISABLE_EXPORT: list[str] = []
+    SOGO_D_FOLDER_DISABLE_SHARING: list[str] = []
+    SOGO_D_FOLDER_DISABLE_SHARING_ANY_AUTH: list[str] = []
+    SOGO_D_AUTOCOMPLETION_MIN_LEN: int = 2
+    SOGO_D_API_MAX_REQUEST: int = 0
+    SOGO_D_API_MAX_REQUEST_INTERVAL: int = 30
+    SOGO_D_API_MAX_REQUEST_BLOCK_INTERVAL: int = 300
+    SOGO_D_IDENTITIES_ENABLED: bool = False
+    SOGO_D_IDENTITIES_CUSTOM_FROM_ENABLED: bool = False
+    SOGO_D_IDENTITIES_CUSTOM_NAME_ENABLED: bool = False
+    SOGO_D_IDENTITIES_CUSTOM_REPLY_TO_ENABLED: bool = False
+    SOGO_D_ALLOW_EXT_MAIL_ACCOUNT: bool = False
+    SOGO_D_ALLOW_EXT_AVATAR: bool = True
+    SOGO_D_MAIL_REFRESH_INTERVAL_ALLOWED: list[int] = [0, 1, 2, 5, 10, 20, 30, 60]
+    SOGO_D_MAIL_JUNK_SETTINGS: str = ""
+    SOGO_D_MAIL_JUNK_MAIL_SPAM: str = ""
+    SOGO_D_MAIL_JUNK_MAIL_HAM: str = ""
+
 
 class MailSettings(SogoSchema):
     """
@@ -393,6 +511,57 @@ class MailSettings(SogoSchema):
     SOGO_D_MAIL_MAX_RECIPIENT = fields.Integer(load_default=0, dump_default=0, validate=validate.Range(min=0)) #0 means no limit
     SOGO_D_MAIL_SYSTEM_FROM = fields.Email() #Custom from used for system message (password recovery for now)
 
+class MailSettingsObj(SettingsObj):
+    """
+    Obj with the fields of schema MailSettings as attributes with the proper type.
+    """
+
+    SOGO_D_MAIL_SERVER_TYPE: str = "imap"
+    SOGO_D_IMAP_SERVER: str = ""
+    SOGO_D_IMAP_PORT: int = 143
+    SOGO_D_IMAP_ENCRYPTION: str = "None"
+    SOGO_D_IMAP_AUTH_MECH: str = "None"
+    SOGO_D_SOFT_EMAIL_QUOTA: int = 1
+    SOGO_D_MAIL_PURGE_ALLOW: bool = True
+    SOGO_D_MAIL_PURGE_MIN_DATE: int = 0
+    SOGO_D_MAIL_FILTERING_ENABLED: bool = True
+    SOGO_D_MAIL_FILTERING_TYPE: str = "sieve"
+    SOGO_D_SIEVE_SERVER: str = ""
+    SOGO_D_SIEVE_PORT: int = 4190
+    SOGO_D_SIEVE_ENCRYPTION: str = "None"
+    SOGO_D_SIEVE_AUTH_MECH: str = "None"
+    SOGO_D_SIEVE_FOLDER_ENCODING: str = "utf-7"
+    SOGO_D_SIEVE_HEADER: str = ""
+    SOGO_D_SIEVE_FOOTER: str = ""
+    SOGO_D_SIEVE_FIRST_FILTER: str = ""
+    SOGO_D_VACATION_ENABLED: bool = True
+    SOGO_D_VACATION_ALLOW_RESPONSE_ALWAYS: bool = False
+    SOGO_D_FORWARD_ENABLED: bool = True
+    SOGO_D_FORWARD_ALLOW_USER_DOMAIN: bool = True
+    SOGO_D_FORWARD_ALLOW_SOGO_DOMAIN: bool = True
+    SOGO_D_FORWARD_ALLOW_EXT_DOMAIN: bool = True
+    SOGO_D_FORWARD_WHITELIST: list[str] = []
+    SOGO_D_FORWARD_BLACKLIST: list[str] = []
+    SOGO_D_NOTIFY_ENABLED: bool = True
+    SOGO_D_NOTIFY_ALLOW_USER_DOMAIN: bool = True
+    SOGO_D_NOTIFY_ALLOW_SOGO_DOMAIN: bool = True
+    SOGO_D_NOTIFY_ALLOW_EXT_DOMAIN: bool = True
+    SOGO_D_NOTIFY_WHITELIST: list[str] = []
+    SOGO_D_NOTIFY_BLACKLIST: list[str] = []
+    SOGO_D_MAIL_OUTGOING_TYPE: str = "smtp"
+    SOGO_D_SMTP_SERVER: str = ""
+    SOGO_D_SMTP_PORT: int = 584
+    SOGO_D_SMTP_ENCRYPTION: str = "None"
+    SOGO_D_SMTP_AUTH_MECH: str = "None"
+    SOGO_D_SMTP_MASTER_ENABLED: bool = False
+    SOGO_D_SMTP_MASTER_LOGIN: str = ""
+    SOGO_D_SMTP_MASTER_PWD: str = ""
+    SOGO_D_MAIL_MAX_SUBMISSION: int = 0
+    SOGO_D_MAIL_MAX_SUBMISSION_INTERVAL: int = 30
+    SOGO_D_MAIL_MAX_SUBMISSION_BLOCK_INTERVAl: int = 300
+    SOGO_D_MAIL_MAX_RECIPIENT: int = 0
+    SOGO_D_MAIL_SYSTEM_FROM: str = ""
+
 class CalendarContactSettings(SogoSchema):
     """
     Schema for calendar and contact settings
@@ -414,7 +583,7 @@ class CalendarContactSettings(SogoSchema):
     SOGO_D_CALDAV_PUBLIC_ACCESS_ENABLE = fields.Boolean(load_default=False, dump_default=False) #Enable or not public caldav access
     SOGO_D_CALDAV_START_TIME  = fields.Integer(load_default=0, dump_default=0, validate=validate.Range(min=0)) #limit the the span of time of the events return in a caldav request
                                                                                                                #0 means no limit, 180 means only events that are less than 180 days olds are returned.
-    
+
     SOGO_D_CARDAV_ENABLED  = fields.Boolean(load_default=True, dump_default=True)
     SOGO_D_CARDAV_PUBLIC_ACCESS_ENABLE = fields.Boolean(load_default=False, dump_default=False) #Enable or not public cardav access
 
@@ -422,3 +591,17 @@ class CalendarContactSettings(SogoSchema):
     SOGO_D_JITSI_BASE_URL     = fields.Url(schemes={'http','https'})
 
     SOGO_D_REMINDER_ALLOW_MAIL = fields.Boolean(load_default=True, dump_default=True) #Allow user to set reminder sent by email for events/tasks
+
+class CalendarContactSettingsObj(SettingsObj):
+    """
+    Obj with the fields of schema CalendarContactSettings as attributes with the proper type.
+    """
+
+    SOGO_D_CALDAV_ENABLED: bool = True
+    SOGO_D_CALDAV_PUBLIC_ACCESS_ENABLE: bool = False
+    SOGO_D_CALDAV_START_TIME: int = 0
+    SOGO_D_CARDAV_ENABLED: bool = True
+    SOGO_D_CARDAV_PUBLIC_ACCESS_ENABLE: bool = False
+    SOGO_D_JITSI_LINK_ENABLED: bool = True
+    SOGO_D_JITSI_BASE_URL: str = ""
+    SOGO_D_REMINDER_ALLOW_MAIL: bool = True

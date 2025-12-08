@@ -4,14 +4,11 @@
 Defines all system settings.
 Settings that defines the whole application behaviour but are not needed to start the webserver
 """
-from dataclasses import dataclass, MISSING
-from dataclasses import field as dc_field
-from dataclasses import fields as dc_fields
 from typing import Type
-from marshmallow import Schema, fields, validate, validates_schema, ValidationError
+from marshmallow import fields
 
 from app.config.settings.SogoSchema import SogoSchema
-
+from app.utils.config.generateObjFromSchema import SettingsObj
 
 def get_all_system_schemas() -> list[Type[SogoSchema]]:
     """
@@ -47,36 +44,15 @@ class SystemSettings(SogoSchema):
 
 
 
-class SystemSettingsObj:
+class SystemSettingsObj(SettingsObj):
     """
-    Typed equivalent of the original Marshmallow schema.
+    Obj with the fields of schema SystemSettings as attributes with the proper type
     """
 
-    # Admin
     SOGO_S_DO_DOMAIN: bool = False
     SOGO_S_KNOWN_DOMAIN: list[str] = []
-
-    # Login
     SOGO_S_REJECT_UNKNOWN_DOMAIN: bool = False
     SOGO_S_DOMAINLESS_LOGIN: bool = False
-
-    # Binary
     SOGO_S_SENDMAIL: str = "/usr/lib/sendmail"
-
-    # Paths
     SOGO_S_MAILSPOOL_PATH: str = "/var/spool/sogo"
 
-    def __init__(self, data: dict = None):
-        """
-        Initialize attributes from a dict having the same keys
-        as the class fields.
-        Missing values fall back to defaults.
-        """
-        data = data or {}
-
-        for key, default_value in data.items():
-            # Restore default — but clone lists to prevent shared mutability
-            if isinstance(default_value, list):
-                setattr(self, key, list(default_value))
-            else:
-                setattr(self, key, default_value)

@@ -35,27 +35,45 @@ def init_admin_config() -> None:
     g.inter = interface_api
 
 
-@blp.route("/login")
+@blp.route("/mode")
 class ApiAuthUser(MethodView):
     """
     Action
 
-    Endpoint that return the dynamic settings structure
+    Return the authneticaiton mode for this user
     """
     @blp.arguments(sch.AuthUserGetMechSchema, location='query', as_kwargs=True, error_status_code=400)
     @blp.response(200)
     def get(self, username:str, redirect:str) -> ResponseReturnValue:
         """
-        Action, return the url location of the login system for this user
+        Action, return the url location of the login system for this username.
+        redirect is only useful for SSO that needs callback.
         """
         interface_api: InterfaceAuthUser = g.inter
         return interface_api.get_login_mech(username, redirect)
+
+
+@blp.route("/login")
+class ApiAuthUser(MethodView):
 
     @blp.arguments(sch.AuthUserBasicPostShhema, error_status_code=400)
     @blp.response(200)
     def post(self, new_data:dict) -> ResponseReturnValue:
         """
-        Action, Authenticate the user
+        Action, Authenticate the user for plain mode
+        """
+        interface_api : InterfaceAuthUser = g.inter
+        return interface_api.get_dynamic_setting_structure()
+
+
+@blp.route("/callback/<string:domain>")
+class ApiAuthUser(MethodView):
+
+    @blp.response(200)
+    def get(self, new_data:dict) -> ResponseReturnValue:
+        """
+        Action, Callback for this domain when doing SSO.
+        The query parameters 
         """
         interface_api : InterfaceAuthUser = g.inter
         return interface_api.get_dynamic_setting_structure()
