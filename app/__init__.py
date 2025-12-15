@@ -3,7 +3,7 @@ from json import loads, dumps
 from json.decoder import JSONDecodeError
 
 
-from flask import Flask, request, g, Response
+from flask import Flask, request, g, Response, current_app
 from flask.typing import ResponseReturnValue
 from flask_smorest import Api, Blueprint
 from flask_cors import CORS
@@ -11,12 +11,13 @@ from flask_wtf import CSRFProtect
 
 from marshmallow.exceptions import ValidationError
 
+from app.auth.User import User
 from app.config.settings.ProcessSetting import process_config
 from app.config.settings.SystemSettings import SystemSettingsObj
 from app.config.init_config import init_get_system_and_default_settings
 import app.utils.errors as err
 from app.utils.api.ApiBaseResponse import create_api_base_response, ApiBaseResponse
-from app.utils import cs_api
+from app.utils import constants as cs
 
 #Apis
 from app.api import all_apis
@@ -42,8 +43,8 @@ def create_app(sogo_state: int) -> Flask:
     flask_api = Api(app, config_prefix="BASIC_") # type: ignore [call-arg]
     admin_api = Api(app, config_prefix="ADMIN_") # type: ignore [call-arg]
 
-    register_route(flask_api, cs_api.API_BASIC, sogo_state)
-    register_route(admin_api, cs_api.API_ADMIN, sogo_state)
+    register_route(flask_api, cs.API_BASIC, sogo_state)
+    register_route(admin_api, cs.API_ADMIN, sogo_state)
 
     CORS(app, resources={r"/api/*": {"origins": "http://localhost:3000"}})
 
@@ -82,15 +83,33 @@ def register_before_request(base_blueprint: Blueprint, kind: str, sogo_state: in
                 return create_api_base_response(error_code=err.ERROR_API_NOT_JSON), 400
         return None
 
-    if sogo_state == cs_api.SOGO_NOT_INIT:
-        if kind == cs_api.API_BASIC:
+    @base_blueprint.before_request
+    def get_user() -> ResponseReturnValue | None:
+        """
+        Add the user instance, even if there is no user
+        """
+
+        auth_header = request.authorization
+        print(f"auth_header: {auth_header}")
+        user = None
+        if auth_header:
+            if auth_header.type == 'bearer':
+                pass
+            elif auth_header.type == 'basic' and current_app.config[cs.ALLOW_AUTH_BASIC]:
+                pass
+            else:
+                return create_api_base_response(error_code=err.ERROR_WRONG_AUTHORIZATION_TYPE), 400
+        g.user = user
+
+    if sogo_state == cs.SOGO_NOT_INIT:
+        if kind == cs.API_BASIC:
             @base_blueprint.before_request
             def block_sogo() -> ResponseReturnValue:
                 """
                 Reject requests for basic api id sogo is not init
                 """
                 return create_api_base_response(error_code=err.ERROR_SOGO_INIT), 412
-        elif kind == cs_api.API_ADMIN:
+        elif kind == cs.API_ADMIN:
             @base_blueprint.before_request
             def add_process() -> None:
                 """
@@ -99,7 +118,7 @@ def register_before_request(base_blueprint: Blueprint, kind: str, sogo_state: in
                 if 'process' not in g:
                     g.process = process_config
 
-    elif sogo_state == cs_api.SOGO_OK:
+    elif sogo_state == cs.SOGO_OK:
         @base_blueprint.before_request
         def get_config() -> None:
             """

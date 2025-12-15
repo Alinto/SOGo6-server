@@ -25,6 +25,7 @@ class InterfaceAuthUser:
         self.domainless = system.SOGO_S_DOMAINLESS_LOGIN
         self.reject_unknown_domain = system.SOGO_S_REJECT_UNKNOWN_DOMAIN
         self.known_domains = system.SOGO_S_KNOWN_DOMAIN
+        
 
     def get_login_mech(self, user_uid:str, redirect:str) -> tuple[dict, int]:
         """
@@ -39,8 +40,8 @@ class InterfaceAuthUser:
             domain = get_domain_from_mail(user_uid)
             if not domain:
                 return create_api_base_response({}, err.ERROR_LOGIN_NO_DOMAIN), 400
-            if self.reject_unknown_domain:
-                pass
+            if self.reject_unknown_domain and domain not in self.known_domains:
+                return create_api_base_response({}, err.ERROR_LOGIN_DOMAIN_UNKNOWN), 400
 
         ret = {
             "kind": "plain",

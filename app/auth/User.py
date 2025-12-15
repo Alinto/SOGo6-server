@@ -3,7 +3,7 @@ from typing import TypeVar
 from abc import ABCMeta, abstractmethod
 
 from app.utils.strings import get_domain_from_mail
-from app.utils.constant import api as cs
+from app.utils import constants as cs
 
 class User:
     """
@@ -22,11 +22,11 @@ class User:
         :return: _description_
         :rtype: User
         """
-        uid = user_session["uid"]
-        password = user_session["password"]
-        domain = user_session["domain"]
+        uid = user_session[cs.USER_UID]
+        password = user_session[cs.USER_PWD]
+        domain = user_session[cs.USER_DOMAIN]
         user = User(uid, password, domain=domain, is_domainless=is_domainless)
-        user.mail = user_session["email"]
+        user.mail = user_session[cs.USER_EMAIL]
         return user
 
     def __init__(self, uid:str, password:str, cn:str= "", domain:str= "", is_domainless:bool = False):
@@ -48,6 +48,7 @@ class User:
         self.cn = cn
         self.password = password
         self.is_domainless = is_domainless
+        self.authenticated = False
 
         uid_domain = get_domain_from_mail(uid)
 
@@ -71,6 +72,8 @@ class User:
         """
         ret = self.uid in ("sogo-tests1@example.org", "sogo-tests2@example.org", "sogo-tests3@example.org")
         ret = ret and self.password == "sogo"
+        self.authenticated = ret
+        
         return ret
 
 

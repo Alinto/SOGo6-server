@@ -36,7 +36,7 @@ def init_admin_config() -> None:
 
 
 @blp.route("/mode")
-class ApiAuthUser(MethodView):
+class ApiAuthUserMode(MethodView):
     """
     Action
 
@@ -54,7 +54,7 @@ class ApiAuthUser(MethodView):
 
 
 @blp.route("/login")
-class ApiAuthUser(MethodView):
+class ApiAuthUserLogin(MethodView):
 
     @blp.arguments(sch.AuthUserBasicPostShhema, error_status_code=400)
     @blp.response(200)
@@ -67,7 +67,7 @@ class ApiAuthUser(MethodView):
 
 
 @blp.route("/callback/<string:domain>")
-class ApiAuthUser(MethodView):
+class ApiAuthUserCallback(MethodView):
 
     @blp.response(200)
     def get(self, new_data:dict) -> ResponseReturnValue:

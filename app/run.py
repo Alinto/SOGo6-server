@@ -7,6 +7,8 @@ from flask_wtf.csrf import CSRFError
 
 from app import create_app, __version__
 from app.config.init_config import init_sogo
+from app.utils import constants as cs
+from app.utils.logger.logger import logger
 
 
 #Beware that all methods called here will be called twice because the auto-reloader is on
@@ -43,20 +45,14 @@ def index() -> ResponseReturnValue:
 # def handle_csrf_error(e):
 #     return "Missing scrf", 400
 
-# @app.errorhandler(UnprocessableEntity)
-# def catch_error(e: UnprocessableEntity):
-#     print(type(e))
-#     print(e.get_response())
-#     print(e.get_body())
-#     print(e.get_description())
-#     return "Bad Request", 400
 
 @click.command()
 @click.option("--host", default="0.0.0.0")
 @click.option("--port", default="5000")
 @click.option("--debug/--no-debug", default=True)
 @click.option("--ssl", is_flag=True)
-def main(host: str, port: int, debug: bool, ssl: bool) -> None:
+@click.option("--auth", multiple=True)
+def main(host: str, port: int, debug: bool, ssl: bool, auth: tuple[str]) -> None:
     """
     Main function starting the Flask application with passed arguments.
     """
@@ -66,6 +62,17 @@ def main(host: str, port: int, debug: bool, ssl: bool) -> None:
     compress.init_app(app)
 
     ssl_context = "adhoc" if ssl else None
+
+    #Look if we allow basic auth and unauthenticated request for debug
+    if debug:
+        logger.warning("SOGo is in debug mode")
+        for mech in auth:
+            if mech.lower() == "basic":
+                app.config[cs.ALLOW_AUTH_BASIC] = True
+                logger.warning("SOGo is in debug mode and allow basic auth")
+            elif mech.lower() == "none":
+                app.config[cs.ALLOW_AUTH_NO_CHECK] = True
+                logger.warning("SOGo is in debug mode and will not check the password given")
 
     # List of arguments -> https://werkzeug.palletsprojects.com/en/stable/serving/#werkzeug.serving.run_simple
     app.run(host=host, port=port, debug=debug, ssl_context=ssl_context)

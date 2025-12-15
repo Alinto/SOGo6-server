@@ -4,6 +4,11 @@ SOGO_NOT_OK   = 0 #Sogo can't run properly. Problems with database, redis or age
 SOGO_NOT_INIT = 1 #Sogo can run but has no system or defaul_domain settings (first installation)
 SOGO_OK       = 2 #Sogo can run properly
 
+#App conf
+ALLOW_AUTH_BASIC = "ALLOW_AUTH_BASIC"
+ALLOW_AUTH_NO_CHECK = "ALLOW_AUTH_NO_CHECK"
+
+
 #API kind
 API_BASIC = "user" #Api for all users
 API_ADMIN = "admin" #Api for admin
@@ -14,3 +19,6 @@ USER_PWD    = "password"
 USER_DOMAIN = "domain"
 USER_EMAIL  = "email"
 USER_CN     = "cn"
+
+JWT_ISS = "iss"
+JWT_EXP = "exp"

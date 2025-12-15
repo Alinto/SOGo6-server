@@ -4,20 +4,52 @@ from typing import Any
 class Voucher(metaclass=ABCMeta):
     """
     Abstract Class that handle voucher
+    A voucher is the data send to the API client to make authenticated request after.
+
+    For now, SOGo 6 only used JWT Token. But abstract class is used to facilitate implementation of new methods
+    in the future.
     """
     def __init__(self) -> None:
         """
-        It shouldn't raise any Exception as SOGo will instantiate the object but not necessarily use it right on spot
+        
+        """
+ 
+
+    @abstractmethod
+    def create_voucher(self, payload: dict, validity: int) -> Any:
+        """
+        Create a unique voucher for this payload
+        """
+    
+    @staticmethod
+    @abstractmethod
+    def get_needed_parameters_to_instantiate() -> dict[str, str]:
+        """
+        Each type of voucher will need specific parameters for __init__
+        This method, to use first, return a dict with then mae of the parameters and where to find them
+
+        Example: JWT Voucher need the the SOGO_JWT_SECRET found in process settings
+        and the validity time found in domain_settings.AUTH_SETTINGS
+
+        This methods return:
+        {
+            "process_settings": "SOGO_JWT_SECRET"
+        }
         """
 
     @abstractmethod
-    def create_voucher(self, payload: dict) -> Any:
+    def check_voucher_data_type(self, voucher_data: Any) -> bool:
         """
-        Create a unique voucher
+        Check if the data received is what the kind of the voucher expects
+
+        example: JWT Voucher expect a string
+
+        :return: _description_
+        :rtype: bool
         """
 
     @abstractmethod
-    def read_voucher(self, voucher: Any) -> Any:
+    def read_voucher(self, voucher_data: Any) -> dict:
         """
-        Create a unique voucher
+        Get the payload from the voucher
         """

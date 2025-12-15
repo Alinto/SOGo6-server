@@ -14,6 +14,7 @@ ERROR_DOMAIN_NAME_NOT_FOUND = 302
 #LOGIN
 ERROR_LOGIN_NO_DOMAIN = 200
 ERROR_LOGIN_DOMAIN_UNKNOWN = 201
+ERROR_WRONG_AUTHORIZATION_TYPE = 203
 
 #Database
 ERROR_BUG_UNKNWON_TABLE = 400
@@ -24,6 +25,9 @@ ERROR_QUERY_DELETION_CONDITION = 404
 
 #
 ERROR_TABLE_SYSTEM_NOT_UNIQUE = 600
+
+#the bugs
+ERROR_VALIDITY_TIME_BELOW_0 = 10000
 
 ERROR_UNKOWN = 99999
 
@@ -36,6 +40,7 @@ error_msg = {
 
     ERROR_LOGIN_NO_DOMAIN: "Login has no domain, see SOGO_S_DOMAINLESS_LOGIN",
     ERROR_LOGIN_DOMAIN_UNKNOWN: "Login has an unknown domain, see SOGO_S_REJECT_UNKNOWN_DOMAIN and SOGO_S_KNOWN_DOMAIN",
+    ERROR_WRONG_AUTHORIZATION_TYPE: "Header Authorization use an unknwon format or type",
 
     ERROR_VALIDATION_ERROR: "Data given does not match the Marshmallow Schema",
     ERROR_DOMAIN_NAME_TAKEN: "Domain's name already taken",
@@ -48,6 +53,8 @@ error_msg = {
     ERROR_QUERY_DELETION_CONDITION: "Conditon to delete query is always true",
 
     ERROR_TABLE_SYSTEM_NOT_UNIQUE: "TABLE_SETTINGS is not unique as it shoul be",
+
+    ERROR_VALIDITY_TIME_BELOW_0: "Validity time given was below or eaqual to 0",
 
     ERROR_UNKOWN: "Error has not been defined",
 }
