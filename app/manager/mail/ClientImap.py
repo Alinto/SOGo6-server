@@ -1,5 +1,5 @@
 import imaplib
-from typing import List, Any, Dict, Tuple, Optional
+from typing import List, Any, Dict, Tuple, cast
 import re
 import datetime
 import socket
@@ -9,22 +9,133 @@ from app.utils.exceptions import RequestException, BugException
 from app.utils.logger.logger import logger_imap
 from app.manager.mail.ClientMailServer import ClientMailServer
 from app.utils import errors as err
+from app.utils.constant.api import (
+    USERCANVIEWFOLDER,
+    USERCANREADMAILS,
+    USERCANMARKMAILSREAD,
+    USERCANINSERTMAILS,
+    USERCANPOSTMAILS,
+    USERCANCREATESUBFOLDERS,
+    USERCANREMOVEFOLDER,
+    USERCANERASEMAILS,
+    USERCANEXPUNGEFOLDER,
+    USERCANWRITEMAILS,
+    USERCANADMINISTRATOR,
+)
 
 imaplib.Debug = 4  # Maximum debug output from imaplib
+
+
+# IMAP ACL rights conversion utilities
+# Mapping constants to centralize conversions between SOGo rights and IMAP ACL chars.
+RIGHTS_MAP: Dict[str, str] = {
+    USERCANVIEWFOLDER: "lr",            # lookup + read
+    USERCANREADMAILS: "s",              # keep seen/unseen information (s)
+    USERCANMARKMAILSREAD: "w",          # write (w)
+    USERCANINSERTMAILS: "i",            # insert (i)
+    USERCANPOSTMAILS: "p",              # post (p)
+    USERCANCREATESUBFOLDERS: "k",       # create subfolders (k) (c is obsolete/alias)
+    USERCANREMOVEFOLDER: "x",           # delete mailbox (x)
+    USERCANERASEMAILS: "t",             # delete messages (t)
+    USERCANEXPUNGEFOLDER: "e",          # expunge (e)
+    USERCANWRITEMAILS: "w",             # same as mark mails read/write flags
+    USERCANADMINISTRATOR: "a",          # administer (a)
+}
+
+# IMAP char -> list of SOGo keys to set when char present.
+IMAP_TO_SOGO: Dict[str, List[str]] = {
+    "s": [USERCANREADMAILS],
+    "w": [USERCANMARKMAILSREAD, USERCANWRITEMAILS],
+    "i": [USERCANINSERTMAILS],
+    "p": [USERCANPOSTMAILS],
+    "k": [USERCANCREATESUBFOLDERS],
+    "c": [USERCANCREATESUBFOLDERS],  # obsolete alias for create
+    "x": [USERCANREMOVEFOLDER],
+    "t": [USERCANERASEMAILS],
+    "e": [USERCANEXPUNGEFOLDER],
+    "d": [USERCANREMOVEFOLDER, USERCANERASEMAILS, USERCANEXPUNGEFOLDER],  # obsolete -> x+t+e
+    "a": [USERCANADMINISTRATOR],
+}
+
+
+def _convert_rights_to_imap(rights_dict: Dict[str, Any]) -> str:
+    """Convert SOGo rights dictionary to IMAP ACL rights string using RIGHTS_MAP.
+
+    Preserves order defined in RIGHTS_MAP and removes duplicates.
+    
+    :param rights_dict: Dictionary of SOGo rights (keys like "userCanViewFolder", values are truthy/falsy)
+    :type rights_dict: Dict[str, Any]
+    :return: IMAP ACL rights string (e.g., "lrswipkxtea")
+    :rtype: str
+    """
+    if not rights_dict or not isinstance(rights_dict, dict):
+        return ""
+
+    imap_chars: List[str] = []
+    seen = set()
+
+    for sogo_key, imap_seq in RIGHTS_MAP.items():
+        if rights_dict.get(sogo_key):
+            for ch in imap_seq:
+                if ch not in seen:
+                    seen.add(ch)
+                    imap_chars.append(ch)
+
+    return "".join(imap_chars)
+
+
+def _convert_imap_to_rights(imap_rights: str) -> Dict[str, int]:
+    """Convert IMAP ACL rights string to SOGo rights dictionary using IMAP_TO_SOGO.
+
+    Behaviours preserved:
+    - userCanViewFolder is set only when both 'l' and 'r' present.
+    - 'd' expands to x,t,e as before.
+    
+    :param imap_rights: IMAP ACL rights string (e.g., "lrswipkxtea")
+    :type imap_rights: str
+    :return: Dictionary of SOGo rights with integer values (0 or 1)
+    :rtype: Dict[str, int]
+    """
+    # Initialize all rights to 0
+    sogo_rights: Dict[str, int] = {
+        USERCANVIEWFOLDER: 0,
+        USERCANREADMAILS: 0,
+        USERCANMARKMAILSREAD: 0,
+        USERCANINSERTMAILS: 0,
+        USERCANPOSTMAILS: 0,
+        USERCANCREATESUBFOLDERS: 0,
+        USERCANREMOVEFOLDER: 0,
+        USERCANERASEMAILS: 0,
+        USERCANEXPUNGEFOLDER: 0,
+        USERCANWRITEMAILS: 0,
+        USERCANADMINISTRATOR: 0
+    }
+
+    if not imap_rights:
+        return sogo_rights
+
+    rights_lower = imap_rights.lower()
+
+    # Track presence of 'l' and 'r' for userCanViewFolder
+    has_l = 'l' in rights_lower
+    has_r = 'r' in rights_lower
+
+    # Set flags based on IMAP_TO_SOGO mapping
+    for ch, sogo_keys in IMAP_TO_SOGO.items():
+        if ch in rights_lower:
+            for key in sogo_keys:
+                sogo_rights[key] = 1
+
+    # Now handle l+r -> userCanViewFolder (must have both)
+    if has_l and has_r:
+        sogo_rights[USERCANVIEWFOLDER] = 1
+
+    return sogo_rights
 
 
 class ClientImap(ClientMailServer):
     """
     IMAP client implementation for Dovecot using imaplib.
-
-    Notes on atomicity:
-    - New primitives added:
-      - select_mailbox(mailbox): select a mailbox (atomic)
-      - uid_copy(mail_uid, dest_mailbox): UID COPY without selecting mailbox
-      - uid_store_flags(mail_uid, flags, operation): UID STORE without selecting
-      - fetch_mails_by_uids(mailbox, uid_list): select + single UID FETCH for a list of UIDs
-    - Backwards-compatible wrappers (copy_mail_to_mailbox, add_flags_to_mail, fetch_all_full_mails)
-      now call the new primitives.
     """
 
     def __init__(self, server: str, port: int = 143) -> None:
@@ -46,7 +157,7 @@ class ClientImap(ClientMailServer):
 
         except (socket.gaierror, socket.timeout, TimeoutError, ConnectionRefusedError, imaplib.IMAP4.error) as e:
             logger_imap.error("IMAP connection error to %s:%d - %s", self.server, self.port, e)
-            raise RequestException(f"IMAP connection error: {e}") from e
+            raise RequestException(f"IMAP connection error: {e}", err.ERROR_IMAP_CONNECTION_FAILED) from e
 
         except Exception as e:
             logger_imap.exception("Unexpected error while connecting to IMAP server %s:%d", self.server, self.port)
@@ -79,7 +190,7 @@ class ClientImap(ClientMailServer):
                 # Classic LOGIN
                 typ = conn.login(username, password)
                 if typ[0] != 'OK':
-                    raise RequestException("Failed to login to IMAP server.")
+                    raise RequestException("Failed to login to IMAP server - Invalid credentials", err.ERROR_IMAP_UNAUTHORIZED)
                 return
 
             if mech_lower == "plain":   #TODO: revoir ça
@@ -90,7 +201,7 @@ class ClientImap(ClientMailServer):
                 typ = conn.authenticate('PLAIN', plain_auth)
                 # imaplib.authenticate returns a tuple similar to other commands
                 if isinstance(typ, tuple) and typ[0] != 'OK':
-                    raise RequestException("PLAIN authentication failed.")
+                    raise RequestException("PLAIN authentication failed - Invalid credentials", err.ERROR_IMAP_UNAUTHORIZED)
                 return
 
             if mech_lower == "xoauth2": #TODO: revoir ça
@@ -100,29 +211,43 @@ class ClientImap(ClientMailServer):
                     return base64.b64encode(auth_string.encode("utf-8")).decode("ascii")
                 typ = conn.authenticate('XOAUTH2', xoauth2_auth)
                 if isinstance(typ, tuple) and typ[0] != 'OK':
-                    raise RequestException("XOAUTH2 authentication failed.")
+                    raise RequestException("XOAUTH2 authentication failed - Invalid credentials", err.ERROR_IMAP_UNAUTHORIZED)
                 return
 
             # Unknown mechanism
-            raise RequestException(f"Unsupported authentication mechanism: {auth_mech}")
+            raise BugException(f"Unsupported authentication mechanism: {auth_mech}")
 
         except (imaplib.IMAP4.error, OSError, socket.error) as e:
-            raise RequestException(f"IMAP login/authentication error: {e}") from e
+            # Authentication errors from imaplib
+            error_str = str(e).lower()
+            if any(keyword in error_str for keyword in ["authent", "login", "credential", "password", "no permission"]):
+                raise RequestException(f"IMAP authentication failed: {e}", err.ERROR_IMAP_UNAUTHORIZED) from e
+            raise RequestException(f"IMAP login/authentication error: {e}", err.ERROR_IMAP_CONNECTION_FAILED) from e
 
-    def select_mailbox(self, mailbox: str) -> None:
-        """Select a mailbox (atomic)."""
+    def select_mailbox(self, mailbox: str) -> int:
+        """Select a mailbox (atomic).
+        :param mailbox: The mailbox to select.
+        :type mailbox: str
+        :raises RequestException: If selecting the mailbox fails.
+        :return: The number of messages in the selected mailbox.
+        """
         logger_imap.debug("Selecting mailbox '%s'", mailbox)
         if self.connection is None:
             raise RequestException("Not connected.")
         try:
-            typ, _ = self.connection.select(mailbox)
+            typ, data = self.connection.select(mailbox)
             if typ != 'OK':
                 raise RequestException(f"Failed to select folder '{mailbox}'.", err.ERROR_FOLDER_NAME_NOT_FOUND)
+            return int(data[0].decode() if data[0] is not None else 0)
         except (imaplib.IMAP4.error, OSError, socket.error) as e:
             raise RequestException(f"IMAP select error for folder '{mailbox}': {e}") from e
 
     def uid_copy(self, mail_uid: int, dest_mailbox: str) -> None:
-        """Do UID COPY without selecting the mailbox itself (atomic)."""
+        """Do UID COPY without selecting the mailbox itself (atomic).
+        :param mail_uid: The UID of the mail to copy.
+        :param dest_mailbox: The destination mailbox to copy the mail to.
+        :raises RequestException: If UID COPY fails.
+        """
         logger_imap.debug("UID COPY '%s' to '%s'", mail_uid, dest_mailbox)
         if self.connection is None:
             raise RequestException("Not connected.")
@@ -133,10 +258,14 @@ class ClientImap(ClientMailServer):
             if typ != 'OK':
                 raise RequestException(f"UID COPY failed for UID {mail_uid} to {dest_mailbox}.")
         except (imaplib.IMAP4.error, OSError, socket.error) as e:
-            raise RequestException(f"Error during UID COPY for UID {mail_uid}: {e}") from e
+            raise RequestException(f"Error during UID COPY for UID {mail_uid}: {e}", err.ERROR_MAIL_UID_NOT_FOUND) from e
 
     def uid_store_flags(self, mail_uid: int, flags: List[str], operation: str = '+FLAGS') -> None:
-        """Do UID STORE (FLAGS) without selecting the mailbox (atomic)."""
+        """Do UID STORE (FLAGS) without selecting the mailbox (atomic).
+        :param mail_uid: The UID of the mail to modify.
+        :param flags: List of flags to set/unset.
+        :param operation: The operation to perform ('+FLAGS', '-FLAGS', or 'FLAGS').
+        """
         logger_imap.debug("UID STORE %s '%s' flags %s", operation, mail_uid, flags)
         if self.connection is None:
             raise RequestException("Not connected.")
@@ -148,12 +277,94 @@ class ClientImap(ClientMailServer):
             if typ != 'OK':
                 raise RequestException(f"UID STORE failed for UID {mail_uid} with flags {flags}.")
         except (imaplib.IMAP4.error, OSError, socket.error) as e:
-            raise RequestException(f"Error during UID STORE for UID {mail_uid}: {e}") from e
+            raise RequestException(f"Error during UID STORE for UID {mail_uid}: {e}", err.ERROR_MAIL_UID_NOT_FOUND) from e
+
+    def fetch_all_mails(self, mailbox: str, number_of_mails: int) -> Tuple[List[Dict[str, Any]], int]:
+        """Fetch a specific number of mails from a mailbox with full details.
+
+        :param mailbox: The mailbox to fetch mails from.
+        :type mailbox: str
+        :param number_of_mails: The number of mails to fetch.
+        :type number_of_mails: int
+        :raises RequestException: If fetching mails fails
+        :return: A tuple of (list of mail dicts with full details, total count)
+        :rtype: Tuple[List[Dict[str, Any]], int]
+        """
+        logger_imap.debug("Fetching %d mails from '%s'", number_of_mails, mailbox)
+        if self.connection is None:
+            raise RequestException("Not connected.")
+
+        try:
+            mailbox_len = self.select_mailbox(mailbox)
+            start = max(1, mailbox_len - number_of_mails + 1)
+            end = mailbox_len
+            range_arg = f'{start}:{end}'
+            # Fetch full message, flags, and UID (size is included in BODY.PEEK[] response)
+            typ, msg_data = self.connection.fetch(range_arg, '(BODY.PEEK[] FLAGS UID)')
+
+        except (imaplib.IMAP4.error, OSError, socket.error) as e:
+            raise RequestException(f"Error fetching mails from '{mailbox}': {e}") from e
+
+        if typ != 'OK':
+            raise RequestException(f"Failed to fetch mails from '{mailbox}'.")
+
+        mail_list: List[Dict[str, Any]] = []
+        if not msg_data:
+            return mail_list, mailbox_len
+        for part in msg_data:
+            if not isinstance(part, tuple):
+                continue
+            if len(part) < 2:
+                continue
+            meta, mail_bytes, *_ = part
+
+            if not isinstance(meta, bytes) or not isinstance(mail_bytes, bytes):
+                continue
+            try:
+                # Parse UID
+                uid_match = re.search(rb'UID (\d+)', meta)
+                if not uid_match:
+                    continue
+                uid = int(uid_match.group(1).decode())
+                
+                # Parse FLAGS
+                flags_match = re.search(rb'FLAGS \((.*?)\)', meta)
+                flags_list = flags_match.group(1).decode().split() if flags_match else []
+                
+                # Parse size from BODY.PEEK[] {size} format in meta
+                size_match = re.search(rb'BODY\[?\]?\s*\{(\d+)\}', meta)
+                size = int(size_match.group(1).decode()) if size_match else len(mail_bytes)
+                
+                # Structure flags
+                flags_dict = {
+                    'seen': '\\Seen' in flags_list,
+                    'flagged': '\\Flagged' in flags_list,
+                    'answered': '\\Answered' in flags_list,
+                    'forwarded': '$Forwarded' in flags_list or '\\Forwarded' in flags_list,
+                    'all': flags_list
+                }
+                
+            except (AttributeError, IndexError, UnicodeDecodeError, ValueError) as e:
+                logger_imap.warning("Error parsing UID/flags/size for a mail: %s", e)
+                continue
+
+            mail_list.append({
+                "uid": uid,
+                "mail_bytes": mail_bytes,
+                "flags": flags_dict,
+                "size": size
+            })
+        return list(reversed(mail_list)), mailbox_len
 
     def fetch_mails_by_uids(self, mailbox: str, uid_list: List[int]) -> List[Dict[str, Any]]:
         """Fetch mails for a list of UIDs (atomique: select + single FETCH for list).
-
-        Returns list of dicts as in fetch_all_full_mails: {'uid': int, 'mail_bytes': bytes, 'flags': List[str]}
+        :param mailbox: The mailbox to fetch mails from.
+        :type mailbox: str
+        :param uid_list: List of mail UIDs to fetch.
+        :type uid_list: List[int]
+        :raises RequestException: If fetching mails fails
+        :return: A list of mail dicts
+        :rtype: List[Dict[str, Any]]
         """
         logger_imap.debug("Fetching mails by UIDs %s from '%s'", uid_list, mailbox)
         if self.connection is None:
@@ -163,11 +374,9 @@ class ClientImap(ClientMailServer):
             return []
 
         try:
-            # select mailbox once
-            self.select_mailbox(mailbox)
-
             uid_set = ",".join(str(int(u)) for u in uid_list)
-            typ, msg_data = self.connection.uid('FETCH', uid_set, '(RFC822 FLAGS)')
+            # Use BODY.PEEK[] instead of RFC822 to avoid marking as read, and ensure UID is included
+            typ, msg_data = self.connection.uid('FETCH', uid_set, '(BODY.PEEK[] FLAGS UID)')
         except (imaplib.IMAP4.error, OSError, socket.error) as e:
             raise RequestException(f"Error fetching mails from '{mailbox}' for UIDs {uid_list}: {e}") from e
 
@@ -242,6 +451,22 @@ class ClientImap(ClientMailServer):
         except (imaplib.IMAP4.error, OSError, socket.error) as e:
             raise RequestException(f"Error while deleting folder '{folder_name}': {e}") from e
 
+    def is_folder_in_trash(self, folder_name: str) -> bool:
+        """Check if a folder is within the Trash folder hierarchy.
+
+        A folder is considered to be in Trash if:
+        - It is exactly "Trash" (case-insensitive)
+        - It starts with "Trash/" (case-insensitive)
+        
+        :param folder_name: The name of the folder to check.
+        :type folder_name: str
+        :return: True if the folder is within Trash, False otherwise.
+        :rtype: bool
+        """
+        self.select_mailbox(folder_name)
+        folder_lower = folder_name.lower()
+        return folder_lower == 'trash' or folder_lower.startswith('trash/')
+
     def list_mailboxes(self) -> List[bytes]:
         """List all mailboxes (folders) on the IMAP server.
 
@@ -261,6 +486,61 @@ class ClientImap(ClientMailServer):
         except (imaplib.IMAP4.error, OSError, socket.error) as e:
             raise RequestException(f"Error while listing mailboxes: {e}") from e
 
+    def list_mailboxes_detailed(self) -> List[Dict[str, Any]]:
+        """List all mailboxes with detailed information including children.
+
+        This method retrieves all top-level folders and their complete hierarchy
+        with detailed information for each folder including message counts, subscriptions, etc.
+
+        :raises RequestException: If not connected to the server.
+        :raises RequestException: If listing mailboxes fails.
+        :return: A list of folder dictionaries with full details and nested children.
+        :rtype: List[Dict[str, Any]]
+        """
+        logger_imap.debug("Listing mailboxes with details")
+        if self.connection is None:
+            raise RequestException("Not connected.")
+
+        try:
+            # List top-level folders only (using "%" pattern)
+            typ, mailbox_list = self.connection.list('""', '%')
+            if typ != 'OK':
+                raise RequestException("Failed to list mailboxes.")
+
+            detailed_folders = []
+
+            for item in mailbox_list or []:
+                if not item or item == b'':
+                    continue
+
+                item_str = ""
+                if isinstance(item, bytes):
+                    item_str = item.decode('utf-8')
+                elif isinstance(item, tuple):
+                    item_str = item[0].decode('utf-8') if isinstance(item[0], bytes) else str(item[0])
+                else:
+                    item_str = str(item)
+
+                # Parse folder name from LIST response
+                name_match = re.search(r'"[^"]*"\s+"([^"]+)"', item_str)
+                if not name_match:
+                    name_match = re.search(r'"[^"]*"\s+(\S+)', item_str)
+
+                if name_match:
+                    folder_path = name_match.group(1)
+                    try:
+                        # Get full details for this folder (including children recursively)
+                        folder_details = self.get_folder_details(folder_path)
+                        detailed_folders.append(folder_details)
+                    except RequestException as e:
+                        logger_imap.warning("Failed to get details for folder '%s': %s", folder_path, e)
+                        continue
+
+            return detailed_folders
+
+        except (imaplib.IMAP4.error, OSError, socket.error) as e:
+            raise RequestException(f"Error while listing mailboxes: {e}") from e
+
     def expunge_folder(self, mailbox: str) -> int:
         """Expunge all deleted messages in the specified mailbox.
 
@@ -275,7 +555,6 @@ class ClientImap(ClientMailServer):
         if self.connection is None:
             raise RequestException("Not connected.")
         try:
-            self.select_mailbox(mailbox)
             typ, data = self.connection.expunge()
             if typ != 'OK':
                 raise RequestException(f"Failed to expunge mailbox {mailbox}.")
@@ -317,9 +596,6 @@ class ClientImap(ClientMailServer):
                 return 0
 
             logger_imap.info("Marking %d mail(s) as deleted in mailbox '%s'", len(mail_uids), mailbox)
-
-            # Select the mailbox once
-            self.select_mailbox(mailbox)
 
             # Mark each mail as deleted using UID STORE; count successful operations
             marked_count = 0
@@ -457,18 +733,80 @@ class ClientImap(ClientMailServer):
         if not isinstance(mail_uid, int) or mail_uid <= 0:
             raise RequestException(f"Invalid mail UID: {mail_uid}")
         try:
-            self.select_mailbox(mailbox)
             typ, msg_data = self.connection.uid('FETCH', str(mail_uid), '(RFC822)')
             if typ != 'OK' or not msg_data or not isinstance(msg_data[0], tuple):
                 raise RequestException(f"Mail UID {mail_uid} not found in {mailbox}.", err.ERROR_MAIL_UID_NOT_FOUND)
             return msg_data[0][1]
         except (imaplib.IMAP4.error, OSError, socket.error) as e:
-            raise RequestException(f"Error while fetching mail UID {mail_uid}: {e}") from e
+            raise RequestException(f"Error while fetching mail UID {mail_uid}: {e}", err.ERROR_MAIL_UID_NOT_FOUND) from e
+
+    def fetch_mail_detail(self, mailbox: str, mail_uid: int) -> Dict[str, Any]:
+        """Fetch a mail with additional metadata (flags, size) from a specific mailbox using UID.
+
+        :param mailbox: The mailbox containing the mail
+        :type mailbox: str
+        :param mail_uid: The UID of the mail to fetch (int)
+        :type mail_uid: int
+        :raises RequestException: If the operation fails
+        :return: A dict containing raw_message (bytes), flags (dict), and size (int)
+        :rtype: Dict[str, Any]
+        """
+        logger_imap.debug("Fetching mail detail for UID '%s' from '%s'", mail_uid, mailbox)
+        if self.connection is None:
+            raise RequestException("Not connected.")
+        if not isinstance(mail_uid, int) or mail_uid <= 0:
+            raise RequestException(f"Invalid mail UID: {mail_uid}")
+        try:
+            # Fetch full message and FLAGS (size is included in RFC822 response)
+            typ, msg_data = self.connection.uid('FETCH', str(mail_uid), '(RFC822 FLAGS)')
+            if typ != 'OK' or not msg_data or not isinstance(msg_data[0], tuple):
+                raise RequestException(f"Mail UID {mail_uid} not found in {mailbox}.", err.ERROR_MAIL_UID_NOT_FOUND)
+
+            # Parse the response
+            raw_message = msg_data[0][1]
+
+            # Extract the full response string for parsing
+            response_str = msg_data[0][0].decode('utf-8', errors='ignore') if isinstance(msg_data[0][0], bytes) else str(msg_data[0][0])
+
+            # Extract FLAGS
+            flags_match = re.search(r'FLAGS \(([^)]*)\)', response_str)
+            flags_list = []
+            if flags_match:
+                flags_str = flags_match.group(1)
+                flags_list = [f.strip() for f in flags_str.split() if f.strip()]
+
+            # Extract size from RFC822 {size} format
+            size_match = re.search(r'RFC822 \{(\d+)\}', response_str)
+            size = int(size_match.group(1)) if size_match else len(raw_message)
+
+            # Parse flags into structured format
+            flags_dict = {
+                'seen': '\\Seen' in flags_list,
+                'flagged': '\\Flagged' in flags_list,
+                'answered': '\\Answered' in flags_list,
+                'forwarded': '$Forwarded' in flags_list or '\\Forwarded' in flags_list,
+                'all': flags_list
+            }
+
+            return {
+                'raw_message': raw_message,
+                'flags': flags_dict,
+                'size': size
+            }
+        except (imaplib.IMAP4.error, OSError, socket.error) as e:
+            raise RequestException(f"Error while fetching mail detail for UID {mail_uid}: {e}", err.ERROR_MAIL_UID_NOT_FOUND) from e
 
     def copy_mail_to_mailbox(self, mailbox: str, mail_uid: int, dest_mailbox: str) -> None:
         """Copy a mail from one mailbox to another using UID.
+        Wrapper selecting mailbox then using uid_copy primitive.
 
-        This wrapper selects the mailbox then calls uid_copy (atomic primitive).
+        :param mailbox: The source mailbox.
+        :type mailbox: str
+        :param mail_uid: The UID of the mail to copy.
+        :type mail_uid: int
+        :param dest_mailbox: The destination mailbox.
+        :type dest_mailbox: str
+        :raises RequestException: If the operation fails.
         """
         logger_imap.debug("Copying mail UID '%s' from '%s' to '%s'", mail_uid, mailbox, dest_mailbox)
         if self.connection is None:
@@ -476,15 +814,21 @@ class ClientImap(ClientMailServer):
         if not isinstance(mail_uid, int) or mail_uid <= 0:
             raise RequestException(f"Invalid mail UID: {mail_uid}")
         try:
-            self.select_mailbox(mailbox)
             self.uid_copy(mail_uid, dest_mailbox)
         except (imaplib.IMAP4.error, OSError, socket.error) as e:
             raise RequestException(f"Error while copying mail UID {mail_uid}: {e}") from e
 
     def add_flags_to_mail(self, mailbox: str, mail_uid: int, flags: List[str]) -> None:
         """Add flags to a mail using UID.
-
         Wrapper selecting mailbox then using uid_store_flags primitive.
+
+        :param mailbox: The mailbox containing the mail.
+        :type mailbox: str
+        :param mail_uid: The UID of the mail to modify.
+        :type mail_uid: int
+        :param flags: List of flags to add (e.g., ['\\Seen', '\\Flagged']).
+        :type flags: List[str]
+        :raises RequestException: If the operation fails.
         """
         logger_imap.debug("Adding flags %s to mail UID '%s' in '%s'", flags, mail_uid, mailbox)
         if self.connection is None:
@@ -492,10 +836,31 @@ class ClientImap(ClientMailServer):
         if not isinstance(mail_uid, int) or mail_uid <= 0:
             raise RequestException(f"Invalid mail UID: {mail_uid}")
         try:
-            self.select_mailbox(mailbox)
             self.uid_store_flags(mail_uid, flags, operation='+FLAGS')
         except (imaplib.IMAP4.error, OSError, socket.error) as e:
             raise RequestException(f"Error while adding flags to mail UID {mail_uid}: {e}") from e
+
+    def delete_mail_by_uid(self, mailbox: str, mail_uid: int) -> None:
+        """Delete a specific mail by UID (copy to Trash and mark as deleted).
+
+        :param mailbox: The mailbox containing the mail.
+        :type mailbox: str
+        :param mail_uid: The UID of the mail to delete.
+        :type mail_uid: int
+        :raises RequestException: If the operation fails.
+        """
+        logger_imap.debug("Deleting mail UID '%s' from mailbox '%s'", mail_uid, mailbox)
+        if self.connection is None:
+            raise RequestException("Not connected.")
+        if not isinstance(mail_uid, int) or mail_uid <= 0:
+            raise RequestException(f"Invalid mail UID: {mail_uid}")
+        try:
+            # Copy mail to Trash folder
+            self.uid_copy(mail_uid, "Trash")
+            # Mark mail as deleted and seen
+            self.uid_store_flags(mail_uid, ['\\Seen', '\\Deleted'], operation='+FLAGS')
+        except (imaplib.IMAP4.error, OSError, socket.error) as e:
+            raise RequestException(f"Error while deleting mail UID {mail_uid}: {e}", err.ERROR_MAIL_UID_NOT_FOUND) from e
 
     def get_folder_details(self, folder_name: str) -> Dict[str, Any]:
         """Get detailed information about a specific folder.
@@ -552,6 +917,9 @@ class ClientImap(ClientMailServer):
             # Check subscription status
             subscribed = self._is_folder_subscribed(folder_name)
 
+            # Get message counts (unseen and total)
+            message_count, unseen_count = self._get_folder_message_counts(folder_name)
+
             return {
                 "name": parsed_name,
                 "path": folder_name,
@@ -559,6 +927,8 @@ class ClientImap(ClientMailServer):
                 "type": folder_type,
                 "flags": attributes,
                 "subscribed": 1 if subscribed else 0,
+                "unseenCount": unseen_count,
+                "messageCount": message_count,
                 "children": children
             }
 
@@ -660,6 +1030,7 @@ class ClientImap(ClientMailServer):
 
                     folder_type = self._determine_folder_type(full_path, attributes)
                     subscribed = self._is_folder_subscribed(full_path)
+                    message_count, unseen_count = self._get_folder_message_counts(full_path)
 
                     children.append({
                         "name": child_name,
@@ -668,6 +1039,8 @@ class ClientImap(ClientMailServer):
                         "type": folder_type,
                         "flags": attributes,
                         "subscribed": 1 if subscribed else 0,
+                        "unseenCount": unseen_count,
+                        "messageCount": message_count,
                         "children": []
                     })
 
@@ -676,6 +1049,49 @@ class ClientImap(ClientMailServer):
         except (imaplib.IMAP4.error, OSError, socket.error) as e:
             #TODO: Question Quentin: Transform low level exceptions to RequestException 
             raise RequestException(f"Error getting children for folder '{folder_name}': {e}") from e
+
+    def _get_folder_message_counts(self, folder_name: str) -> Tuple[int, int]:
+        """Get the total message count and unseen message count for a folder.
+
+        :param folder_name: The name of the folder.
+        :type folder_name: str
+        :return: Tuple of (message_count, unseen_count).
+        :rtype: Tuple[int, int]
+        """
+        if self.connection is None:
+            raise RequestException("Not connected.")
+
+        try:
+            # Use STATUS command to get counts without selecting the mailbox
+            # This is more efficient than SELECT for just getting counts
+            typ, data = self.connection.status(folder_name, '(MESSAGES UNSEEN)')
+            
+            if typ != 'OK' or not data or not data[0]:
+                # Fallback: return 0, 0 if STATUS fails
+                logger_imap.warning("Failed to get STATUS for folder '%s', returning 0 counts", folder_name)
+                return 0, 0
+
+            # Parse STATUS response: e.g., b'INBOX (MESSAGES 42 UNSEEN 5)'
+            status_str = data[0].decode('utf-8') if isinstance(data[0], bytes) else str(data[0])
+            
+            message_count = 0
+            unseen_count = 0
+            
+            # Extract MESSAGES count
+            messages_match = re.search(r'MESSAGES\s+(\d+)', status_str)
+            if messages_match:
+                message_count = int(messages_match.group(1))
+            
+            # Extract UNSEEN count
+            unseen_match = re.search(r'UNSEEN\s+(\d+)', status_str)
+            if unseen_match:
+                unseen_count = int(unseen_match.group(1))
+            
+            return message_count, unseen_count
+
+        except (imaplib.IMAP4.error, OSError, socket.error, ValueError) as e:
+            logger_imap.warning("Error getting message counts for folder '%s': %s, returning 0 counts", folder_name, e)
+            return 0, 0
 
     def _is_folder_subscribed(self, folder_name: str) -> bool:
         """Check if a folder is subscribed.
@@ -762,15 +1178,17 @@ class ClientImap(ClientMailServer):
         except (imaplib.IMAP4.error, OSError, socket.error) as e:
             raise RequestException(f"Error while unsubscribing from folder '{folder_name}': {e}") from e
 
-    def get_acl(self, folder_name: str) -> List[Tuple[str, str]]:
+    def get_acl(self, folder_name: str) -> List[Tuple[str, Dict[str, int]]]:
         """Get the Access Control List (ACL) for a specific folder.
 
-        Uses the IMAP GETACL command to retrieve folder permissions.
+        Uses the IMAP GETACL command to retrieve folder permissions and converts
+        them to SOGo rights format.
 
         :param folder_name: The name of the folder to get ACL for.
         :type folder_name: str
-        :return: List of tuples (identifier, rights) where identifier is a username and rights is a string like "lrswipkxtecda"
-        :rtype: List[Tuple[str, str]]
+        :return: List of tuples (identifier, rights_dict) where identifier is a username 
+                 and rights_dict is a dictionary of SOGo rights
+        :rtype: List[Tuple[str, Dict[str, int]]]
         :raises RequestException: If not connected to the server or if getting ACL fails.
         """
         logger_imap.debug("Getting ACL for folder '%s'", folder_name)
@@ -795,12 +1213,14 @@ class ClientImap(ClientMailServer):
                 return []
 
             # Skip first part (folder name) and parse pairs
-            acl_list: List[Tuple[str, str]] = []
+            acl_list: List[Tuple[str, Dict[str, int]]] = []
             i = 1  # Start after folder name
             while i < len(parts) - 1:
                 identifier = parts[i]
-                rights = parts[i + 1]
-                acl_list.append((identifier, rights))
+                imap_rights = parts[i + 1]
+                # Convert IMAP rights string to SOGo rights dictionary
+                sogo_rights = _convert_imap_to_rights(imap_rights)
+                acl_list.append((identifier, sogo_rights))
                 i += 2
 
             logger_imap.debug("Retrieved ACL for folder '%s': %s", folder_name, acl_list)
@@ -809,30 +1229,36 @@ class ClientImap(ClientMailServer):
         except (imaplib.IMAP4.error, OSError, socket.error) as e:
             raise RequestException(f"Error while getting ACL for folder '{folder_name}': {e}") from e
 
-    def set_acl(self, folder_name: str, identifier: str, rights: str) -> None:
+    def set_acl(self, folder_name: str, identifier: str, rights: Dict[str, Any]) -> None:
         """Set ACL rights for a specific user/identifier on a folder.
 
-        Uses the IMAP SETACL command to grant permissions.
+        Uses the IMAP SETACL command to grant permissions. Converts SOGo rights
+        dictionary to IMAP ACL string format.
 
         :param folder_name: The name of the folder.
         :type folder_name: str
         :param identifier: The user identifier (email, username, or special like 'anyone').
         :type identifier: str
-        :param rights: The rights string (e.g., "lrs" for read, "lrswipkxtecda" for full access).
-        :type rights: str
+        :param rights: Dictionary of SOGo rights (e.g., {"userCanViewFolder": 1, "userCanReadMails": 1})
+        :type rights: Dict[str, Any]
         :raises RequestException: If not connected to the server or if setting ACL fails.
         """
-        logger_imap.debug("Setting ACL for folder '%s', identifier '%s', rights '%s'", folder_name, identifier, rights)
+        # Convert SOGo rights dictionary to IMAP rights string
+        imap_rights = _convert_rights_to_imap(rights)
+
+        logger_imap.debug("Setting ACL for folder '%s', identifier '%s', SOGo rights %s -> IMAP rights '%s'", 
+                         folder_name, identifier, rights, imap_rights)
         if self.connection is None:
             raise RequestException("Not connected.")
 
         try:
-            typ, data = self.connection.setacl(folder_name, identifier, rights)
+            typ, data = self.connection.setacl(folder_name, identifier, imap_rights)
             if typ != 'OK':
                 error_msg = data[0].decode('utf-8') if data and isinstance(data[0], bytes) else "Unknown error"
                 raise RequestException(f"Failed to set ACL for folder '{folder_name}': {error_msg}")
 
-            logger_imap.info("Successfully set ACL for folder '%s', identifier '%s', rights '%s'", folder_name, identifier, rights)
+            logger_imap.info("Successfully set ACL for folder '%s', identifier '%s', IMAP rights '%s'", 
+                           folder_name, identifier, imap_rights)
 
         except (imaplib.IMAP4.error, OSError, socket.error) as e:
             raise RequestException(f"Error while setting ACL for folder '{folder_name}': {e}") from e

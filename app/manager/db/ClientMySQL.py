@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Any, Optional, Generator, Tuple, List, cast
+from typing import Any, Generator, Tuple, List, cast
 
 import re
 import json

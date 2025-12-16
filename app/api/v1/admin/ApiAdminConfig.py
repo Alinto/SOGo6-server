@@ -108,7 +108,7 @@ class ApiAdminConfigDomain(MethodView):
     @blp.response(200)
     def get(self, pagination_parameters: FakePaginationParameters) -> ResponseReturnValue:
         """
-        Get the list of domains settings
+        Collection, get the list of domains settings
         """
         interface_api : InterfaceApiAdminConfig = g.inter
         first = pagination_parameters.first_item
@@ -121,7 +121,7 @@ class ApiAdminConfigDomain(MethodView):
     @blp.response(400, sch.ApiBaseResponse)
     def post(self, new_data: dict) -> ResponseReturnValue:
         """
-        Create a new set of settings for a domain
+        Collection, create a new set of settings for a domain
         """
         interface_api : InterfaceApiAdminConfig = g.inter
         ret = interface_api.post_new_domain_settings(new_data)

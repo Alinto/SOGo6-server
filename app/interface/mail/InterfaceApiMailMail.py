@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Optional, Dict, Any, List, Union, Tuple
+from typing import TYPE_CHECKING, Dict, Any, List, Union, Tuple
 from marshmallow import ValidationError
 
 from app.utils.exceptions import RequestException
@@ -18,10 +18,9 @@ class InterfaceApiMailMail:
     Handles mail retrieval for one or multiple configured IMAP accounts.
     """
 
-    def __init__(self, process_setting: "ProcessSetting" = None, user_conf: Optional[UserConfType] = None) -> None:
+    def __init__(self, process_setting: "ProcessSetting" = None, user_conf: UserConfType | None = None) -> None:
         self.process_setting = process_setting
         self.user_conf = user_conf
-        self.module = ModuleMail()
 
     def _get_user_conf(self, account_id: int) -> Dict[str, Any]:
         """
@@ -67,14 +66,15 @@ class InterfaceApiMailMail:
         """
         try:
             conf = self._get_user_conf(account_id)
-            result, total_count = self.module.get_folder_mails(conf, folder_name, first, last)
-            return total_count, create_api_base_response({"mails": result}), 200
+            module = ModuleMail(user_conf=conf)
+            result, total_count = module.get_folder_mails(folder_name, first, last)
+            return total_count, create_api_base_response(result), 200
         except ValidationError as ex:
             logger_api.error("Validation error in get_mail_list: %s", ex.messages)
-            return 0, create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
+            return 0, create_api_base_response(None, err.ERROR_VALIDATION_ERROR), 400
         except RequestException as ex:
             logger_api.error("Request exception in get_mail_list: %s", str(ex))
-            return 0, create_api_base_response(str(ex), ex.error_code), 404
+            return 0, create_api_base_response(None, ex.error_code), ex.http_status
 
 
     def get_mail_detail(self, account_id: int, folder_name: str, mail_uid: int) -> Tuple[Dict[str, Any], int]:
@@ -91,16 +91,17 @@ class InterfaceApiMailMail:
         """
         try:
             conf = self._get_user_conf(account_id)
-            mail_detail = self.module.get_mail_detail(conf, folder_name, mail_uid)
+            module = ModuleMail(user_conf=conf)
+            mail_detail = module.get_mail_detail(folder_name, mail_uid)
             return create_api_base_response(mail_detail), 200
         except ValidationError as ex:
             logger_api.error("Validation error in get_mail_detail: %s", ex.messages)
-            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
+            return create_api_base_response(None, err.ERROR_VALIDATION_ERROR), 400
         except RequestException as ex:
             logger_api.error("Request exception in get_mail_detail: %s", str(ex))
-            return create_api_base_response(str(ex), ex.error_code), 404
+            return create_api_base_response(None, ex.error_code), ex.http_status
 
-    def delete_mail(self, account_id: int, folder_name: str, mail_uid: int) -> Tuple[Union[str, Dict[str, Any]], int]:
+    def delete_mail(self, account_id: int, folder_name: str, mail_uid: int) -> Tuple[Dict[str, Any], int]:
         """Delete a specific mail (mark as deleted).
 
         :param account_id: The ID of the account
@@ -109,19 +110,20 @@ class InterfaceApiMailMail:
         :type folder_name: str
         :param mail_uid: The unique identifier of the mail
         :type mail_uid: int
-        :return: A tuple of (empty string or error dict, status code)
-        :rtype: Tuple[Union[str, Dict[str, Any]], int]
+        :return: A tuple of (API response dict with deleted mail UID, status code)
+        :rtype: Tuple[Dict[str, Any], int]
         """
         try:
             conf = self._get_user_conf(account_id)
-            self.module.delete_mail(conf, folder_name, mail_uid)
-            return "", 204
+            module = ModuleMail(user_conf=conf)
+            result = module.delete_mail(folder_name, mail_uid)
+            return create_api_base_response(result), 204
         except ValidationError as ex:
             logger_api.error("Validation error in delete_mail: %s", ex.messages)
-            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
+            return create_api_base_response(None, err.ERROR_VALIDATION_ERROR), 400
         except RequestException as ex:
             logger_api.error("Request exception in delete_mail: %s", str(ex))
-            return create_api_base_response(str(ex), ex.error_code), 404
+            return create_api_base_response(None, ex.error_code), ex.http_status
 
     def reply_mail(self, account_id: int, folder_name: str, mail_uid: int) -> Tuple[Dict[str, Any], int]:
         """Reply to a specific mail.
@@ -137,14 +139,15 @@ class InterfaceApiMailMail:
         """
         try:
             conf = self._get_user_conf(account_id)
-            reply_data = self.module.reply_mail(conf, folder_name, mail_uid)
+            module = ModuleMail(user_conf=conf)
+            reply_data = module.reply_mail(folder_name, mail_uid)
             return create_api_base_response(reply_data), 200
         except ValidationError as ex:
             logger_api.error("Validation error in reply_mail: %s", ex.messages)
-            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
+            return create_api_base_response(None, err.ERROR_VALIDATION_ERROR), 400
         except RequestException as ex:
             logger_api.error("Request exception in reply_mail: %s", str(ex))
-            return create_api_base_response(str(ex), ex.error_code), 404
+            return create_api_base_response(None, ex.error_code), ex.http_status
 
     def forward_mail(self, account_id: int, folder_name: str, mail_uid: int) -> Tuple[Dict[str, Any], int]:
         """Forward a specific mail.
@@ -160,14 +163,15 @@ class InterfaceApiMailMail:
         """
         try:
             conf = self._get_user_conf(account_id)
-            forward_data = self.module.forward_mail(conf, folder_name, mail_uid)
+            module = ModuleMail(user_conf=conf)
+            forward_data = module.forward_mail(folder_name, mail_uid)
             return create_api_base_response(forward_data), 200
         except ValidationError as ex:
             logger_api.error("Validation error in forward_mail: %s", ex.messages)
-            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
+            return create_api_base_response(None, err.ERROR_VALIDATION_ERROR), 400
         except RequestException as ex:
             logger_api.error("Request exception in forward_mail: %s", str(ex))
-            return create_api_base_response(str(ex), ex.error_code), 404
+            return create_api_base_response(None, ex.error_code), ex.http_status
 
     def get_mail_raw(self, account_id: int, folder_name: str, mail_uid: int) -> Tuple[Dict[str, Any], int]:
         """Retrieve the raw content of a specific mail.
@@ -183,11 +187,12 @@ class InterfaceApiMailMail:
         """
         try:
             conf = self._get_user_conf(account_id)
-            raw_content = self.module.get_mail_raw(conf, folder_name, mail_uid)
+            module = ModuleMail(user_conf=conf)
+            raw_content = module.get_mail_raw(folder_name, mail_uid)
             return create_api_base_response(raw_content), 200
         except ValidationError as ex:
             logger_api.error("Validation error in get_mail_raw: %s", ex.messages)
-            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
+            return create_api_base_response(None, err.ERROR_VALIDATION_ERROR), 400
         except RequestException as ex:
             logger_api.error("Request exception in get_mail_raw: %s", str(ex))
-            return create_api_base_response(str(ex), ex.error_code), 404
+            return create_api_base_response(None, ex.error_code), ex.http_status

@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Optional, Dict, Any, List, Union, Tuple
+from typing import TYPE_CHECKING, Dict, Any, List, Union, Tuple
 from marshmallow import ValidationError
 
 from app.module.mail.ModuleMail import ModuleMail
@@ -19,10 +19,9 @@ class InterfaceApiMailIdentity:
     Handles mail identity operations for one or multiple configured IMAP accounts.
     """
 
-    def __init__(self, process_setting: "ProcessSetting" = None, user_conf: Optional[UserConfType] = None) -> None:
+    def __init__(self, process_setting: "ProcessSetting" = None, user_conf: UserConfType | None = None) -> None:
         self.process_setting = process_setting
         self.user_conf = user_conf
-        self.module = ModuleMail()
 
     def _get_user_conf(self, account_id: int) -> Dict[str, Any]:
         """
@@ -33,7 +32,7 @@ class InterfaceApiMailIdentity:
 
         conf_list = self.user_conf if isinstance(self.user_conf, list) else [self.user_conf]
 
-        if not (0 <= account_id < len(conf_list)):
+        if not 0 <= account_id < len(conf_list):
             raise RequestException(f"Invalid account_id {account_id} (0..{len(conf_list)-1})")
 
         conf = conf_list[account_id]
@@ -58,14 +57,15 @@ class InterfaceApiMailIdentity:
         """
         try:
             conf = self._get_user_conf(account_id)
-            identities = self.module.get_mailbox_identities(conf)
+            module = ModuleMail(user_conf=conf)
+            identities = module.get_mailbox_identities()
             return create_api_base_response(identities), 200
         except ValidationError as ex:
             logger_api.error("Validation error in get_mailbox_identities: %s", ex.messages)
-            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
+            return create_api_base_response(None, err.ERROR_VALIDATION_ERROR), 400
         except RequestException as ex:
             logger_api.error("Request exception in get_mailbox_identities: %s", str(ex))
-            return create_api_base_response(str(ex), ex.error_code), 400
+            return create_api_base_response(None, ex.error_code), ex.http_status
 
     def create_mailbox_identity(self, account_id: int) -> Tuple[Dict[str, Any], int]:
         """Create a new identity for this mailbox.
@@ -77,14 +77,15 @@ class InterfaceApiMailIdentity:
         """
         try:
             conf = self._get_user_conf(account_id)
-            identity_data = self.module.create_mailbox_identity(conf)
+            module = ModuleMail(user_conf=conf)
+            identity_data = module.create_mailbox_identity()
             return create_api_base_response(identity_data), 201
         except ValidationError as ex:
             logger_api.error("Validation error in create_mailbox_identity: %s", ex.messages)
-            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
+            return create_api_base_response(None, err.ERROR_VALIDATION_ERROR), 400
         except RequestException as ex:
             logger_api.error("Request exception in create_mailbox_identity: %s", str(ex))
-            return create_api_base_response(str(ex), ex.error_code), 400
+            return create_api_base_response(None, ex.error_code), ex.http_status
 
     def get_identity(self, account_id: int, identity_id: int) -> Tuple[Dict[str, Any], int]:
         """Retrieve a specific mail identity.
@@ -98,14 +99,15 @@ class InterfaceApiMailIdentity:
         """
         try:
             conf = self._get_user_conf(account_id)
-            identity = self.module.get_identity(conf, identity_id)
+            module = ModuleMail(user_conf=conf)
+            identity = module.get_identity(identity_id)
             return create_api_base_response(identity), 200
         except ValidationError as ex:
             logger_api.error("Validation error in get_identity: %s", ex.messages)
-            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
+            return create_api_base_response(None, err.ERROR_VALIDATION_ERROR), 400
         except RequestException as ex:
             logger_api.error("Request exception in get_identity: %s", str(ex))
-            return create_api_base_response(str(ex), ex.error_code), 400
+            return create_api_base_response(None, ex.error_code), ex.http_status
 
     def delete_identity(self, account_id: int, identity_id: int) -> Tuple[Union[str, Dict[str, Any]], int]:
         """Delete a specific mail identity.
@@ -119,14 +121,15 @@ class InterfaceApiMailIdentity:
         """
         try:
             conf = self._get_user_conf(account_id)
-            self.module.delete_identity(conf, identity_id)
+            module = ModuleMail(user_conf=conf)
+            module.delete_identity(identity_id)
             return "", 204
         except ValidationError as ex:
             logger_api.error("Validation error in delete_identity: %s", ex.messages)
-            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
+            return create_api_base_response(None, err.ERROR_VALIDATION_ERROR), 400
         except RequestException as ex:
             logger_api.error("Request exception in delete_identity: %s", str(ex))
-            return create_api_base_response(str(ex), ex.error_code), 400
+            return create_api_base_response(None, ex.error_code), ex.http_status
 
     def update_identity(self, account_id: int, identity_id: int) -> Tuple[Dict[str, Any], int]:
         """Update a specific mail identity.
@@ -140,11 +143,12 @@ class InterfaceApiMailIdentity:
         """
         try:
             conf = self._get_user_conf(account_id)
-            identity_data = self.module.update_identity(conf, identity_id)
+            module = ModuleMail(user_conf=conf)
+            identity_data = module.update_identity(identity_id)
             return create_api_base_response(identity_data), 200
         except ValidationError as ex:
             logger_api.error("Validation error in update_identity: %s", ex.messages)
-            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
+            return create_api_base_response(None, err.ERROR_VALIDATION_ERROR), 400
         except RequestException as ex:
             logger_api.error("Request exception in update_identity: %s", str(ex))
-            return create_api_base_response(str(ex), ex.error_code), 400
+            return create_api_base_response(None, ex.error_code), ex.http_status

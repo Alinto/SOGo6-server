@@ -1,4 +1,5 @@
-from typing import TYPE_CHECKING, Optional, Dict, Any, List, Union, Tuple
+from __future__ import annotations
+from typing import TYPE_CHECKING, Dict, Any, List, Union, Tuple
 from marshmallow import ValidationError
 
 from app.module.mail.ModuleMail import ModuleMail
@@ -19,10 +20,9 @@ class InterfaceApiMailFolder:
     Handles mail folder operations for one or multiple configured IMAP accounts.
     """
 
-    def __init__(self, process_setting: "ProcessSetting" = None, user_conf: Optional[UserConfType] = None) -> None:
+    def __init__(self, process_setting: ProcessSetting = None, user_conf: UserConfType | None = None) -> None:
         self.process_setting = process_setting
         self.user_conf = user_conf
-        self.module = ModuleMail()
 
     def _get_user_conf(self, account_id: int) -> Dict[str, Any]:
         """
@@ -63,13 +63,16 @@ class InterfaceApiMailFolder:
         """
         try:
             user_conf = self._get_user_conf(account_id)
-            folder_list = self.module.get_folder_list(user_conf)
-            # Module returns List[Dict], wrap it in the "folders" key
-            return create_api_base_response({"folders": folder_list}), 200
+            module = ModuleMail(user_conf=user_conf)
+            folder_list = module.get_folder_list()
+            # Module returns List[Dict] with full folder details
+            return create_api_base_response(folder_list), 200
         except ValidationError as ex:
-            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
+            logger_api.error("Validation error in get_folder_list: %s", ex.messages)
+            return create_api_base_response(None, err.ERROR_VALIDATION_ERROR), 400
         except RequestException as ex:
-            return create_api_base_response(str(ex), ex.error_code), 404
+            logger_api.error("Request exception in get_folder_list: %s", str(ex))
+            return create_api_base_response(None, ex.error_code), ex.http_status
 
     def create_folder(self, account_id: int, folder_name: str) -> Tuple[Dict[str, Any], int]:
         """Create a new mail folder for the configured account and return an ApiBaseResponse.
@@ -88,12 +91,15 @@ class InterfaceApiMailFolder:
         """
         try:
             user_conf = self._get_user_conf(account_id)
-            folder_data = self.module.create_folder(user_conf, folder_name)
+            module = ModuleMail(user_conf=user_conf)
+            folder_data = module.create_folder(folder_name)
             return create_api_base_response(folder_data), 201
         except ValidationError as ex:
-            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
+            logger_api.error("Validation error in create_folder: %s", ex.messages)
+            return create_api_base_response(None, err.ERROR_VALIDATION_ERROR), 400
         except RequestException as ex:
-            return create_api_base_response(str(ex), ex.error_code), 404
+            logger_api.error("Request exception in create_folder: %s", str(ex))
+            return create_api_base_response(None, ex.error_code), ex.http_status
 
 
     def delete_folder(self, account_id: int, folder_name: str) -> Tuple[Union[str, Dict[str, Any]], int]:
@@ -108,12 +114,15 @@ class InterfaceApiMailFolder:
         """
         try:
             conf = self._get_user_conf(account_id)
-            self.module.delete_folder(conf, folder_name)
+            module = ModuleMail(user_conf=conf)
+            module.delete_folder(folder_name)
             return "", 204
         except ValidationError as ex:
-            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
+            logger_api.error("Validation error in delete_folder: %s", ex.messages)
+            return create_api_base_response(None, err.ERROR_VALIDATION_ERROR), 400
         except RequestException as ex:
-            return create_api_base_response(str(ex), ex.error_code), 404
+            logger_api.error("Request exception in delete_folder: %s", str(ex))
+            return create_api_base_response(None, ex.error_code), ex.http_status
 
     def delete_mails(
         self, account_id: int, folder_name: str, mail_uids: List[int]
@@ -131,12 +140,15 @@ class InterfaceApiMailFolder:
         """
         try:
             conf = self._get_user_conf(account_id)
-            result = self.module.delete_mails(conf, folder_name, mail_uids)
+            module = ModuleMail(user_conf=conf)
+            result = module.delete_mails(folder_name, mail_uids)
             return create_api_base_response(result), 200
         except ValidationError as ex:
-            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
+            logger_api.error("Validation error in delete_mails: %s", ex.messages)
+            return create_api_base_response(None, err.ERROR_VALIDATION_ERROR), 400
         except RequestException as ex:
-            return create_api_base_response(str(ex), ex.error_code), 404
+            logger_api.error("Request exception in delete_mails: %s", str(ex))
+            return create_api_base_response(None, ex.error_code), ex.http_status
 
     def delete_all_mail_in_folder(
         self, account_id: int, folder_name: str, before_date: str | None
@@ -154,18 +166,22 @@ class InterfaceApiMailFolder:
         """
         try:
             conf = self._get_user_conf(account_id)
-            self.module.delete_all_mail_in_folder(conf, folder_name, before_date)
+            module = ModuleMail(user_conf=conf)
+            module.delete_all_mail_in_folder(folder_name, before_date)
             return "", 204
         except ValidationError as ex:
-            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
+            logger_api.error("Validation error in delete_all_mail_in_folder: %s", ex.messages)
+            return create_api_base_response(None, err.ERROR_VALIDATION_ERROR), 400
         except RequestException as ex:
-            return create_api_base_response(str(ex), ex.error_code), 404
+            logger_api.error("Request exception in delete_all_mail_in_folder: %s", str(ex))
+            return create_api_base_response(None, ex.error_code), ex.http_status
 
     def move_mails(
         self, account_id: int, folder_name: str, mail_uids: List[int], to_folder_name: str
     ) -> Tuple[Dict[str, Any], int]:
         """Move multiple mails to another folder.
-        
+        Will be used by batch-action
+
         :param account_id: The ID of the account
         :type account_id: int
         :param folder_name: The ID of the source folder
@@ -179,12 +195,15 @@ class InterfaceApiMailFolder:
         """
         try:
             conf = self._get_user_conf(account_id)
-            result = self.module.move_mails(conf, folder_name, mail_uids, to_folder_name)
+            module = ModuleMail(user_conf=conf)
+            result = module.move_mails(folder_name, mail_uids, to_folder_name)
             return create_api_base_response(result), 200
         except ValidationError as ex:
-            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
+            logger_api.error("Validation error in move_mails: %s", ex.messages)
+            return create_api_base_response(None, err.ERROR_VALIDATION_ERROR), 400
         except RequestException as ex:
-            return create_api_base_response(str(ex), ex.error_code), 404
+            logger_api.error("Request exception in move_mails: %s", str(ex))
+            return create_api_base_response(None, ex.error_code), ex.http_status
 
     def expunge_folder(self, account_id: int, folder_name: str) -> Tuple[Dict[str, Any], int]:
         """Expunge all mails in the specified folder.
@@ -198,12 +217,15 @@ class InterfaceApiMailFolder:
         """
         try:
             conf = self._get_user_conf(account_id)
-            result = self.module.expunge_folder(conf, folder_name)
+            module = ModuleMail(user_conf=conf)
+            result = module.expunge_folder(folder_name)
             return create_api_base_response(result), 200
         except ValidationError as ex:
-            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
+            logger_api.error("Validation error in expunge_folder: %s", ex.messages)
+            return create_api_base_response(None, err.ERROR_VALIDATION_ERROR), 400
         except RequestException as ex:
-            return create_api_base_response(str(ex), ex.error_code), 404
+            logger_api.error("Request exception in expunge_folder: %s", str(ex))
+            return create_api_base_response(None, ex.error_code), ex.http_status
 
     def update_folder(self, account_id: int, folder_name: str, folder_data: Dict[str, Any]) -> Tuple[Dict[str, Any], int]:
         """Update name, type (junk, template...) and subscription status of a specific mail folder.
@@ -219,12 +241,15 @@ class InterfaceApiMailFolder:
         """
         try:
             conf = self._get_user_conf(account_id)
-            updated_folder = self.module.update_folder(conf, folder_name, folder_data)
+            module = ModuleMail(user_conf=conf)
+            updated_folder = module.update_folder(folder_name, folder_data)
             return create_api_base_response(updated_folder), 200
         except ValidationError as ex:
-            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
+            logger_api.error("Validation error in update_folder: %s", ex.messages)
+            return create_api_base_response(None, err.ERROR_VALIDATION_ERROR), 400
         except RequestException as ex:
-            return create_api_base_response(str(ex), ex.error_code), 404
+            logger_api.error("Request exception in update_folder: %s", str(ex))
+            return create_api_base_response(None, ex.error_code), ex.http_status
 
     def get_folder_details(self, account_id: int, folder_name: str) -> Tuple[Dict[str, Any], int]:
         """Retrieve details of a specific mail folder.
@@ -238,12 +263,15 @@ class InterfaceApiMailFolder:
         """
         try:
             conf = self._get_user_conf(account_id)
-            folder_details = self.module.get_folder_details(conf, folder_name)
+            module = ModuleMail(user_conf=conf)
+            folder_details = module.get_folder_details(folder_name)
             return create_api_base_response(folder_details), 200
         except ValidationError as ex:
-            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
+            logger_api.error("Validation error in get_folder_details: %s", ex.messages)
+            return create_api_base_response(None, err.ERROR_VALIDATION_ERROR), 400
         except RequestException as ex:
-            return create_api_base_response(str(ex), ex.error_code), 404
+            logger_api.error("Request exception in get_folder_details: %s", str(ex))
+            return create_api_base_response(None, ex.error_code), ex.http_status
 
     def purge_folder_mails(self, account_id: int, folder_name: str, purge_data: Dict[str, Any]) -> Tuple[Union[str, Dict[str, Any]], int]:
         """Purge all mails in the specified folder.
@@ -262,11 +290,14 @@ class InterfaceApiMailFolder:
         """
         try:
             conf = self._get_user_conf(account_id)
-            return create_api_base_response(self.module.purge_folder_mails(conf, folder_name, purge_data)), 200
+            module = ModuleMail(user_conf=conf)
+            return create_api_base_response(module.purge_folder_mails(folder_name, purge_data)), 200
         except ValidationError as ex:
-            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
+            logger_api.error("Validation error in purge_folder_mails: %s", ex.messages)
+            return create_api_base_response(None, err.ERROR_VALIDATION_ERROR), 400
         except RequestException as ex:
-            return create_api_base_response(str(ex), ex.error_code), 404
+            logger_api.error("Request exception in purge_folder_mails: %s", str(ex))
+            return create_api_base_response(None, ex.error_code), ex.http_status
 
     def export_folder_mails(self, account_id: int, folder_name: str) -> Tuple[Dict[str, Any], int]:
         """Export all mails in the specified folder.
@@ -280,12 +311,15 @@ class InterfaceApiMailFolder:
         """
         try:
             conf = self._get_user_conf(account_id)
-            export_data = self.module.export_folder_mails(conf, folder_name)
+            module = ModuleMail(user_conf=conf)
+            export_data = module.export_folder_mails(folder_name)
             return create_api_base_response(export_data), 200
         except ValidationError as ex:
-            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
+            logger_api.error("Validation error in export_folder_mails: %s", ex.messages)
+            return create_api_base_response(None, err.ERROR_VALIDATION_ERROR), 400
         except RequestException as ex:
-            return create_api_base_response(str(ex), ex.error_code), 404
+            logger_api.error("Request exception in export_folder_mails: %s", str(ex))
+            return create_api_base_response(None, ex.error_code), ex.http_status
 
     def get_folder_share(self, account_id: int, folder_name: str) -> Tuple[Dict[str, Any], int]:
         """Get share information for the specified folder.
@@ -299,12 +333,15 @@ class InterfaceApiMailFolder:
         """
         try:
             conf = self._get_user_conf(account_id)
-            share_info = self.module.get_folder_share(conf, folder_name)
+            module = ModuleMail(user_conf=conf)
+            share_info = module.get_folder_share(folder_name)
             return create_api_base_response(share_info), 200
         except ValidationError as ex:
-            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
+            logger_api.error("Validation error in get_folder_share: %s", ex.messages)
+            return create_api_base_response(None, err.ERROR_VALIDATION_ERROR), 400
         except RequestException as ex:
-            return create_api_base_response(str(ex), ex.error_code), 404
+            logger_api.error("Request exception in get_folder_share: %s", str(ex))
+            return create_api_base_response(None, ex.error_code), ex.http_status
 
     def share_folder(self, account_id: int, folder_name: str, share_data: List[Dict[str, Any]]) -> Tuple[Dict[str, Any], int]:
         """Share the specified folder with another user.
@@ -320,9 +357,12 @@ class InterfaceApiMailFolder:
         """
         try:
             conf = self._get_user_conf(account_id)
-            result = self.module.share_folder(conf, folder_name, share_data)
+            module = ModuleMail(user_conf=conf)
+            result = module.share_folder(folder_name, share_data)
             return create_api_base_response(result), 200
         except ValidationError as ex:
-            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
+            logger_api.error("Validation error in share_folder: %s", ex.messages)
+            return create_api_base_response(None, err.ERROR_VALIDATION_ERROR), 400
         except RequestException as ex:
-            return create_api_base_response(str(ex), ex.error_code), 404
+            logger_api.error("Request exception in share_folder: %s", str(ex))
+            return create_api_base_response(None, ex.error_code), ex.http_status

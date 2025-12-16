@@ -7,3 +7,16 @@ SOGO_OK       = 2 #Sogo can run properly
 #API kind
 API_BASIC = "user" #Api for all users
 API_ADMIN = "admin" #Api for admin
+
+# SOGo ACL Rights - Field names for rights dictionaries
+USERCANVIEWFOLDER = "userCanViewFolder"
+USERCANREADMAILS = "userCanReadMails"
+USERCANMARKMAILSREAD = "userCanMarkMailsRead"
+USERCANINSERTMAILS = "userCanInsertMails"
+USERCANPOSTMAILS = "userCanPostMails"
+USERCANCREATESUBFOLDERS = "userCanCreateSubfolders"
+USERCANREMOVEFOLDER = "userCanRemoveFolder"
+USERCANERASEMAILS = "userCanEraseMails"
+USERCANEXPUNGEFOLDER = "userCanExpungeFolder"
+USERCANWRITEMAILS = "userCanWriteMails"
+USERCANADMINISTRATOR = "userIsAdministrator"

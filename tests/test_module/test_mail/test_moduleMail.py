@@ -1,910 +1,644 @@
+"""
+Tests unitaires pour ModuleMail (Module layer).
+Ces tests utilisent un fake ClientImap pour tester la logique métier du module.
+"""
 import pytest
 from unittest import mock
+import email
 from app.module.mail.ModuleMail import ModuleMail
 from app.utils.exceptions import RequestException
 
-# --- Fake ClientImap pour simuler les comportements ---
-class FakeClientImap:
-    """
-    Fake ClientImap for testing purposes.
-    """
-    def __init__(self):
-        # --- Memorisation des args pour vérification ---
-        self.login_args = None
-        self.logout_called = False
-        self.fetch_all_full_mails_args = None
-        self.fetch_mail_args = None
-        self.mark_all_mails_in_folder_deleted_and_copy_to_trash_args = None
-        self.expunge_folder_args = None
-        self.copy_mail_to_mailbox_args = None
-        self.add_flags_to_mail_args = None
-        self.expunge_folder_called = False
-        self.copy_mail_to_mailbox_called = False
-        self.add_flags_to_mail_called = False
-        self.list_mailboxes_args = None
-        self.create_folder_args = None
-        self.delete_folder_args = None
 
-        # --- Résultats configurables par test ---
-        self.fetch_all_full_mails_result = []
-        self.fetch_mail_result = b""
-        self.mark_all_mails_in_folder_deleted_and_copy_to_trash_result = 0
-        self.expunge_folder_result = None
-        self.copy_mail_to_mailbox_result = None
-        self.add_flags_to_mail_result = None
-        self.list_mailboxes_result = []
+class FakeClientImap:
+    """Fake ClientImap for testing ModuleMail."""
+    def __init__(self, server='imap.example.com', port=143):
+        self.server = server
+        self.port = port
+        self.logged_in = False
+        self.selected_mailbox = None
+
+        # Configurables results
+        self.list_mailboxes_result = [b'(\\HasNoChildren) "/" "INBOX"', b'(\\HasNoChildren) "/" "Sent"']
         self.create_folder_result = None
         self.delete_folder_result = None
-        self.get_folder_details_result = {}
-        self.rename_folder_args = None
-        self.subscribe_folder_args = None
-        self.unsubscribe_folder_args = None
-        self.purge_folder_args = None
-        self.purge_folder_called = False
+        self.fetch_mails_result = ([], 0)
+        self.fetch_mail_result = b'Subject: Test\r\nFrom: sender@example.com\r\nTo: recipient@example.com\r\n\r\nBody'
+        self.expunge_folder_result = 5
+        self.get_folder_details_result = {'name': 'INBOX', 'path': 'INBOX', 'type': 'inbox', 'subscribed': 1, 'children': []}
+        self.get_acl_result = [('user1@example.com', {'userCanViewFolder': 1})]
+        self.purge_folder_result = 10
 
-    def login(self, username, password):
-        """
-        Login to the IMAP server.
-        """
-        self.login_args = (username, password)
+        # Track method calls
+        self.login_called = False
+        self.logout_called = False
+        self.select_mailbox_calls = []
+        self.uid_copy_calls = []
+        self.uid_store_flags_calls = []
+        self.create_folder_calls = []
+        self.delete_folder_calls = []
+        self.rename_folder_calls = []
+        self.subscribe_folder_calls = []
+        self.unsubscribe_folder_calls = []
+        self.set_acl_calls = []
+        self.delete_acl_calls = []
+
+    def login(self, username, password, auth_mech=None):
+        self.logged_in = True
+        self.login_called = True
 
     def logout(self):
-        """
-        Logout from the IMAP server.
-        """
+        self.logged_in = False
         self.logout_called = True
 
-    def fetch_all_full_mails(self, folder_name):
-        """
-        Fetch all full emails from the specified folder.
-        """
-        self.fetch_all_full_mails_args = folder_name
-        return self.fetch_all_full_mails_result
+    def select_mailbox(self, mailbox):
+        self.selected_mailbox = mailbox
+        self.select_mailbox_calls.append(mailbox)
+        return 10  # Number of messages
 
-    def fetch_mail(self, folder_name, mail_id):
-        """
-        Fetch a specific email from the specified folder.
-        """
-        self.fetch_mail_args = (folder_name, mail_id)
+    def list_mailboxes(self):
+        return self.list_mailboxes_result
+
+    def create_folder(self, folder_name):
+        self.create_folder_calls.append(folder_name)
+        if self.create_folder_result is not None:
+            raise self.create_folder_result
+
+    def delete_folder(self, folder_name):
+        self.delete_folder_calls.append(folder_name)
+        if self.delete_folder_result is not None:
+            raise self.delete_folder_result
+
+    def fetch_mails(self, mailbox, number_of_mails):
+        return self.fetch_mails_result
+
+    def fetch_mail(self, mailbox, mail_uid):
         return self.fetch_mail_result
 
-    def mark_all_mails_in_folder_deleted_and_copy_to_trash(self, folder, before_date):
-        """
-        Mark all emails in the specified folder as deleted and copy them to the trash.
-        """
-        self.mark_all_mails_in_folder_deleted_and_copy_to_trash_args = (folder, before_date)
-        return self.mark_all_mails_in_folder_deleted_and_copy_to_trash_result
+    def fetch_mail_detail(self, mailbox, mail_uid):
+        """Fetch mail with flags and size information."""
+        return {
+            'raw_message': self.fetch_mail_result,
+            'flags': {
+                'seen': False,
+                'flagged': False,
+                'answered': False,
+                'forwarded': False,
+                'all': []
+            },
+            'size': len(self.fetch_mail_result)
+        }
 
-    def expunge_folder(self, folder_name):
-        """
-        Permanently remove all messages marked for deletion from the specified folder.
-        """
-        self.expunge_folder_args = folder_name
-        self.expunge_folder_called = True
+    def uid_copy(self, mail_uid, dest_mailbox):
+        self.uid_copy_calls.append((mail_uid, dest_mailbox))
 
-    def copy_mail_to_mailbox(self, mailbox, mail_id, dest_mailbox):
-        """
-        Copy a specific email to the specified mailbox.
-        """
-        self.copy_mail_to_mailbox_args = (mailbox, mail_id, dest_mailbox)
-        self.copy_mail_to_mailbox_called = True
+    def uid_store_flags(self, mail_uid, flags, operation='+FLAGS'):
+        self.uid_store_flags_calls.append((mail_uid, flags, operation))
 
-    def add_flags_to_mail(self, mailbox, mail_id, flags):
-        """
-        Add flags to a specific email in the specified mailbox.
-        """
-        self.add_flags_to_mail_args = (mailbox, mail_id, flags)
-        self.add_flags_to_mail_called = True
+    def expunge_folder(self, mailbox):
+        return self.expunge_folder_result
 
     def get_folder_details(self, folder_name):
-        """
-        Get details of a specific folder.
-        """
         return self.get_folder_details_result
 
     def rename_folder(self, old_name, new_name):
-        """
-        Rename a folder.
-        """
-        self.rename_folder_args = (old_name, new_name)
+        self.rename_folder_calls.append((old_name, new_name))
 
     def subscribe_folder(self, folder_name):
-        """
-        Subscribe to a folder.
-        """
-        self.subscribe_folder_args = folder_name
+        self.subscribe_folder_calls.append(folder_name)
 
     def unsubscribe_folder(self, folder_name):
-        """
-        Unsubscribe from a folder.
-        """
-        self.unsubscribe_folder_args = folder_name
+        self.unsubscribe_folder_calls.append(folder_name)
 
-    def purge_folder(self, folder_name, before_date=None):
-        """
-        Mark all mails in a folder as deleted.
-        """
-        self.purge_folder_args = (folder_name, before_date)
-        self.purge_folder_called = True
+    def get_acl(self, folder_name):
+        return self.get_acl_result
 
-# --- Patch helper ---
-def patch_import_and_instantiate_manager(monkeypatch, fake_client):
-    """
-    Patch the import and instantiation of the IMAP manager.
-    """
+    def set_acl(self, folder_name, identifier, rights):
+        self.set_acl_calls.append((folder_name, identifier, rights))
+
+    def delete_acl(self, folder_name, identifier):
+        self.delete_acl_calls.append((folder_name, identifier))
+
+    def purge_folder(self, mailbox, before_date=None):
+        return self.purge_folder_result
+
+    def get_mail_uids_before_date(self, mailbox, before_date=None, exclude_deleted=True):
+        if before_date:
+            return [1, 2, 3]
+        return [1, 2, 3, 4, 5]
+
+    def delete_mail_by_uid(self, mailbox, mail_uid):
+        self.uid_copy_calls.append((mail_uid, 'Trash'))
+        self.uid_store_flags_calls.append((mail_uid, ['\\Seen', '\\Deleted'], '+FLAGS'))
+
+    def is_folder_in_trash(self, folder_name):
+        """Check if a folder is within the Trash folder hierarchy."""
+        if not folder_name:
+            return False
+        folder_lower = folder_name.lower()
+        return folder_lower == 'trash' or folder_lower.startswith('trash/')
+
+    def list_mailboxes_detailed(self):
+        """Return detailed mailbox list."""
+        return [
+            {'name': 'INBOX', 'path': 'INBOX'},
+            {'name': 'Sent', 'path': 'Sent'}
+        ]
+
+
+def patch_import_manager(monkeypatch, fake_client):
+    """Patch import_and_instantiate_manager to return fake client."""
     monkeypatch.setattr(
         "app.module.mail.ModuleMail.import_and_instantiate_manager",
         lambda module_path, module_and_class_name, module_args: fake_client
     )
 
-# --- get_folder_mails ---
 
-def test_given_valid_credentials_when_get_folder_mails_then_return_mail_list(monkeypatch):
-    """
-    Test the retrieval of emails from a specific folder.
-    """
-    # Given
+# ========== Tests for initialization ==========
+
+def test_module_init_with_valid_user_conf(monkeypatch):
+    """Test ModuleMail initialization with valid user conf."""
     fake_client = FakeClientImap()
-    fake_client.fetch_all_full_mails_result = [
-        {"mail_bytes": b"Subject: Test\r\nFrom: John <john@example.com>\r\nTo: Jane <jane@example.com>\r\n\r\nbody", "flags": ["\\Seen"]},
-        {"mail_bytes": b"Subject: Hello\r\nFrom: Alice <alice@example.com>\r\nTo: Bob <bob@example.com>\r\n\r\nanother body", "flags": []},
-    ]
-    patch_import_and_instantiate_manager(monkeypatch, fake_client)
-    module = ModuleMail(server="imap.example.org")
-    # When
-    result = module.get_folder_mails("user", "pwd", "INBOX", page=1, per_page=20)
-    # Then
-    assert result["status"] is True
-    assert len(result["mails"]) == 2
-    assert result["errors"] is None
-    assert result["mails"][0]["subject"] == "Test"
-    assert result["mails"][1]["from_"]["name"] == "Alice"
+    patch_import_manager(monkeypatch, fake_client)
 
-def test_given_imap_error_when_get_folder_mails_then_error(monkeypatch):
-    """
-    Test handling of IMAP errors during email retrieval.
-    """
-    # Given
-    fake_client = FakeClientImap()
-    def raise_fetch_all_full_mails(folder_name): raise RequestException("fail")
-    fake_client.fetch_all_full_mails = raise_fetch_all_full_mails
-    patch_import_and_instantiate_manager(monkeypatch, fake_client)
-    module = ModuleMail(server="imap.example.org")
-    # When
-    result = module.get_folder_mails("user", "pwd", "INBOX")
-    # Then
-    assert result["status"] is False
-    assert not result["mails"]
-    assert "fail" in result["errors"]
-
-# --- expunge_folder ---
-
-def test_given_valid_credentials_when_expunge_folder_then_success(monkeypatch):
-    """
-    Test the successful expunge of the mailbox with mail count returned.
-    """
-    # Given
-    fake_client = FakeClientImap()
-    # Mock expunge_folder to return a count
-    fake_client.expunge_folder = lambda folder_name: 5  # 5 mails deleted
-    patch_import_and_instantiate_manager(monkeypatch, fake_client)
-    
-    module = ModuleMail(server="imap.example.org")
     user_conf = {
-        "username": "test@example.com",
-        "password": "password123",
+        "username": "user@example.com",
+        "password": "password",
         "type": "imap"
     }
-    
-    # When
-    result = module.expunge_folder(user_conf, "INBOX")
-    
-    # Then
-    assert result == {"mail_deleted": 5}
-    assert fake_client.logout_called
+    module = ModuleMail(user_conf=user_conf)
+
+    assert module.client == fake_client
+    assert fake_client.login_called is True
 
 
-def test_given_no_deleted_mails_when_expunge_folder_then_zero_count(monkeypatch):
-    """
-    Test expunge when no mails were deleted (count is 0).
-    """
-    # Given
+def test_module_init_without_user_conf():
+    """Test ModuleMail initialization without user conf."""
+    with pytest.raises(RequestException, match="user_conf is required"):
+        ModuleMail(user_conf=None)
+
+
+def test_module_init_with_missing_fields():
+    """Test ModuleMail initialization with missing required fields."""
+    user_conf = {"username": "user@example.com"}  # missing password
+    with pytest.raises(RequestException, match="Missing required fields"):
+        ModuleMail(user_conf=user_conf)
+
+
+# ========== Tests for get_folder_list ==========
+
+def test_get_folder_list_success(monkeypatch):
+    """Test getting folder list."""
     fake_client = FakeClientImap()
-    # Mock expunge_folder to return 0
-    fake_client.expunge_folder = lambda folder_name: 0  # No mails deleted
-    patch_import_and_instantiate_manager(monkeypatch, fake_client)
-    
-    module = ModuleMail(server="imap.example.org")
-    user_conf = {
-        "username": "test@example.com",
-        "password": "password123",
-        "type": "imap"
-    }
-    
-    # When
-    result = module.expunge_folder(user_conf, "INBOX")
-    
-    # Then
-    assert result == {"mail_deleted": 0}
-    assert fake_client.logout_called
+    patch_import_manager(monkeypatch, fake_client)
+
+    user_conf = {"username": "user@example.com", "password": "pass", "type": "imap"}
+    module = ModuleMail(user_conf=user_conf)
+
+    result = module.get_folder_list()
+    assert len(result) == 2
+    assert result[0]['name'] == 'INBOX'
+    assert result[1]['name'] == 'Sent'
 
 
-def test_given_imap_error_when_expunge_folder_then_request_error(monkeypatch):
-    """
-    Test handling of IMAP errors during mailbox expunge.
-    """
-    # Given
+def test_get_folder_list_with_client_error(monkeypatch):
+    """Test folder list retrieval with client error."""
     fake_client = FakeClientImap()
-    def raise_expunge_folder(folder):
-        raise RequestException("fail")
-    fake_client.expunge_folder = raise_expunge_folder
-    patch_import_and_instantiate_manager(monkeypatch, fake_client)
-    
-    module = ModuleMail(server="imap.example.org")
-    user_conf = {
-        "username": "test@example.com",
-        "password": "password123",
-        "type": "imap"
-    }
-    
-    # When/Then
-    with pytest.raises(RequestException, match="fail"):
-        module.expunge_folder(user_conf, "INBOX")
-    
-    assert fake_client.logout_called
+    fake_client.list_mailboxes = lambda: (_ for _ in ()).throw(RequestException("Connection failed"))
+    patch_import_manager(monkeypatch, fake_client)
 
-# --- get_mail_detail ---
+    user_conf = {"username": "user@example.com", "password": "pass", "type": "imap"}
+    module = ModuleMail(user_conf=user_conf)
 
-def test_given_valid_credentials_when_get_mail_detail_then_return_dict(monkeypatch):
-    """
-    Test the retrieval of a specific email's details.
-    """
-    # Given
+    with pytest.raises(RequestException, match="Connection failed"):
+        module.get_folder_list()
+
+
+# ========== Tests for create_folder ==========
+
+def test_create_folder_success(monkeypatch):
+    """Test creating a folder."""
     fake_client = FakeClientImap()
-    # Un mail minimal RFC822 pour le parsing
-    fake_client.fetch_mail_result = (
-        b"Subject: UnitTest\r\nFrom: Me <me@example.com>\r\nTo: You <you@example.com>\r\n\r\nHello!"
-    )
-    patch_import_and_instantiate_manager(monkeypatch, fake_client)
-    module = ModuleMail(server="imap.example.org")
-    # When
-    result = module.get_mail_detail("user", "pwd", "INBOX", "1")
-    # Then
-    assert result["status"] is True
-    assert result["mail"]["subject"] == "UnitTest"
-    assert "from_" in result["mail"]
-    assert result["errors"] is None
+    patch_import_manager(monkeypatch, fake_client)
 
-def test_given_imap_error_when_get_mail_detail_then_error(monkeypatch):
-    """
-    Test handling of IMAP errors during specific email retrieval.
-    """
-    # Given
+    user_conf = {"username": "user@example.com", "password": "pass", "type": "imap"}
+    module = ModuleMail(user_conf=user_conf)
+
+    result = module.create_folder("NewFolder")
+    assert result['name'] == "NewFolder"
+    assert "NewFolder" in fake_client.create_folder_calls
+
+
+def test_create_folder_with_client_error(monkeypatch):
+    """Test folder creation with client error."""
     fake_client = FakeClientImap()
-    def raise_fetch_mail(folder, mail_id): raise RequestException("fail")
-    fake_client.fetch_mail = raise_fetch_mail
-    patch_import_and_instantiate_manager(monkeypatch, fake_client)
-    module = ModuleMail(server="imap.example.org")
-    # When
-    result = module.get_mail_detail("user", "pwd", "INBOX", "1")
-    # Then
-    assert result["status"] is False
-    assert result["mail"] is None
-    assert "fail" in result["errors"]
+    fake_client.create_folder_result = RequestException("Folder already exists")
+    patch_import_manager(monkeypatch, fake_client)
 
-# --- delete_all_mail_in_folder ---
+    user_conf = {"username": "user@example.com", "password": "pass", "type": "imap"}
+    module = ModuleMail(user_conf=user_conf)
 
-def test_given_valid_credentials_when_delete_all_mail_in_folder_then_success(monkeypatch):
-    """
-    Test the successful deletion of all emails in a folder.
-    """
-    # Given
-    fake_client = FakeClientImap()
-    fake_client.mark_all_mails_in_folder_deleted_and_copy_to_trash_result = 4
-    patch_import_and_instantiate_manager(monkeypatch, fake_client)
-    module = ModuleMail(server="imap.example.org")
-    # When
-    ok, msg = module.delete_all_mail_in_folder("user", "pwd", "INBOX", before_date="2024-01-01")
-    # Then
-    assert ok is True
-    assert msg == "4 mails marked as deleted"
-    assert fake_client.logout_called
-
-def test_given_imap_error_when_delete_all_mail_in_folder_then_request_error(monkeypatch):
-    """
-    Test handling of IMAP errors during folder deletion.
-    """
-    # Given
-    fake_client = FakeClientImap()
-    def raise_mark_all(folder, before): raise RequestException("fail")
-    fake_client.mark_all_mails_in_folder_deleted_and_copy_to_trash = raise_mark_all
-    patch_import_and_instantiate_manager(monkeypatch, fake_client)
-    module = ModuleMail(server="imap.example.org")
-    # When
-    ok, msg = module.delete_all_mail_in_folder("user", "pwd", "INBOX", before_date=None)
-    # Then
-    assert ok is False
-    assert "fail" in msg
-    assert fake_client.logout_called
-
-# --- delete_mail_by_id ---
-
-def test_given_valid_credentials_when_delete_mail_by_id_then_success(monkeypatch):
-    """
-    Test the successful deletion of a specific email by ID.
-    """
-    # Given
-    fake_client = FakeClientImap()
-    patch_import_and_instantiate_manager(monkeypatch, fake_client)
-    module = ModuleMail(server="imap.example.org")
-    # When
-    ok, msg = module.delete_mail_by_id("user", "pwd", "INBOX", "2")
-    # Then
-    assert ok is True
-    assert msg == "OK"
-    assert fake_client.copy_mail_to_mailbox_called
-    assert fake_client.add_flags_to_mail_called
-
-def test_given_imap_error_when_delete_mail_by_id_then_request_error(monkeypatch):
-    """
-    Test handling of IMAP errors during specific email deletion.
-    """
-    # Given
-    fake_client = FakeClientImap()
-    def raise_copy_mail(mailbox, mail_id, dest_mailbox): raise RequestException("fail")
-    fake_client.copy_mail_to_mailbox = raise_copy_mail
-    patch_import_and_instantiate_manager(monkeypatch, fake_client)
-    module = ModuleMail(server="imap.example.org")
-    # When
-    ok, msg = module.delete_mail_by_id("user", "pwd", "INBOX", "2")
-    # Then
-    assert ok is False
-    assert "fail" in msg
-
-# --- move_mail ---
-
-def test_given_valid_credentials_when_move_mail_then_success(monkeypatch):
-    """
-    Test the successful move of a specific email to another folder.
-    """
-    # Given
-    fake_client = FakeClientImap()
-    patch_import_and_instantiate_manager(monkeypatch, fake_client)
-    module = ModuleMail(server="imap.example.org")
-    # When
-    ok, msg = module.move_mail("user", "pwd", "INBOX", "3", "Sent")
-    # Then
-    assert ok is True
-    assert msg == "OK"
-    assert fake_client.copy_mail_to_mailbox_called
-    assert fake_client.add_flags_to_mail_called
-    # Vérifie les arguments
-    assert fake_client.copy_mail_to_mailbox_args == ("INBOX", "3", "Sent")
-    assert fake_client.add_flags_to_mail_args == ("INBOX", "3", ['\\Deleted'])
-
-def test_given_imap_error_when_move_mail_then_request_error(monkeypatch):
-    """
-    Test handling of IMAP errors during specific email move.
-    """
-    # Given
-    fake_client = FakeClientImap()
-    def raise_copy_mail(mailbox, mail_id, dest_mailbox): raise RequestException("fail")
-    fake_client.copy_mail_to_mailbox = raise_copy_mail
-    patch_import_and_instantiate_manager(monkeypatch, fake_client)
-    module = ModuleMail(server="imap.example.org")
-    # When
-    ok, msg = module.move_mail("user", "pwd", "INBOX", "3", "Sent")
-    # Then
-    assert ok is False
-    assert "fail" in msg
+    with pytest.raises(RequestException, match="Folder already exists"):
+        module.create_folder("ExistingFolder")
 
 
+# ========== Tests for delete_folder ==========
 
-# --- get_folder_list ---
-
-def test_given_valid_credentials_when_get_folder_list_then_return_folders(monkeypatch):
-    """
-    Test the retrieval of folders for a valid account.
-    """
-    # Given
-    fake_client = FakeClientImap()
-    # Simule deux mailboxes listées
-    fake_client.list_mailboxes = lambda: [b'(\\HasNoChildren) "/" "INBOX"', b'(\\HasNoChildren) "/" "Sent"']
-    patch_import_and_instantiate_manager(monkeypatch, fake_client)
-    module = ModuleMail(server="imap.example.org")
-    # When
-    result = module.get_folder_list("user", "pwd")
-    # Then
-    assert result["status"] is True
-    assert {"name": "INBOX"} in result["folders"]
-    assert {"name": "Sent"} in result["folders"]
-    assert result["errors"] is None
-    assert fake_client.logout_called
-
-def test_given_imap_error_when_get_folder_list_then_error(monkeypatch):
-    """
-    Test handling of IMAP errors during folder list retrieval.
-    """
-    # Given
-    fake_client = FakeClientImap()
-    fake_client.list_mailboxes = lambda: (_ for _ in ()).throw(RequestException("fail"))
-    patch_import_and_instantiate_manager(monkeypatch, fake_client)
-    module = ModuleMail(server="imap.example.org")
-    # When
-    result = module.get_folder_list("user", "pwd")
-    # Then
-    assert result["status"] is False
-    assert result["folders"] == []
-    assert "fail" in result["errors"]
-    assert fake_client.logout_called
-
-
-# --- create_folder ---
-
-def test_given_valid_credentials_when_create_folder_then_success(monkeypatch):
-    """
-    Test the successful creation of a mail folder.
-    """
-    # Given
-    fake_client = FakeClientImap()
-    fake_client.create_folder = lambda folder_name: None  # Simule succès
-    patch_import_and_instantiate_manager(monkeypatch, fake_client)
-    module = ModuleMail(server="imap.example.org")
-    # When
-    ok, msg = module.create_folder("user", "pwd", "Archive")
-    # Then
-    assert ok is True
-    assert msg == "OK"
-    assert fake_client.logout_called
-
-def test_given_imap_error_when_create_folder_then_error(monkeypatch):
-    """
-    Test handling of IMAP errors during folder creation.
-    """
-    # Given
-    fake_client = FakeClientImap()
-    fake_client.create_folder = lambda folder_name: (_ for _ in ()).throw(RequestException("fail"))
-    patch_import_and_instantiate_manager(monkeypatch, fake_client)
-    module = ModuleMail(server="imap.example.org")
-    # When
-    ok, msg = module.create_folder("user", "pwd", "Archive")
-    # Then
-    assert ok is False
-    assert "fail" in msg
-    assert fake_client.logout_called
-
-
-# --- delete_folder ---
-
-
-def test_given_valid_credentials_when_delete_folder_then_success(monkeypatch):
-    """
-    Test the successful deletion of a mail folder.
-    """
-    # Given
-    fake_client = FakeClientImap()
-    fake_client.delete_folder = lambda folder_name: None  # Simule succès
-    patch_import_and_instantiate_manager(monkeypatch, fake_client)
-    module = ModuleMail(server="imap.example.org")
-    # When
-    ok, msg = module.delete_folder("user", "pwd", "Archive")
-    # Then
-    assert ok is True
-    assert msg == "OK"
-    assert fake_client.logout_called
-
-def test_given_imap_error_when_delete_folder_then_error(monkeypatch):
-    """
-    Test handling of IMAP errors during folder deletion.
-    """
-    # Given
-    fake_client = FakeClientImap()
-    fake_client.delete_folder = lambda folder_name: (_ for _ in ()).throw(RequestException("fail"))
-    patch_import_and_instantiate_manager(monkeypatch, fake_client)
-    module = ModuleMail(server="imap.example.org")
-    # When
-    ok, msg = module.delete_folder("user", "pwd", "Archive")
-    # Then
-    assert ok is False
-    assert "fail" in msg
-    assert fake_client.logout_called
-
-
-def test_given_valid_data_when_update_folder_rename_only_then_success(monkeypatch):
-    """
-    Test successful folder renaming.
-    """
-    # Given
+def test_delete_folder_not_in_trash_moves_to_trash(monkeypatch):
+    """Test deleting a folder that is NOT in Trash - should move to Trash."""
     fake_client = FakeClientImap()
     fake_client.get_folder_details_result = {
-        "name": "NewFolder_renamed",
-        "path": "NewFolder_renamed",
-        "sievePath": "NewFolder_renamed",
-        "type": "folder",
-        "flags": [],
-        "subscribed": 0,
-        "children": []
+        'name': 'OldFolder',
+        'path': 'OldFolder',
+        'type': 'folder',
+        'subscribed': 1,
+        'children': []
     }
-    patch_import_and_instantiate_manager(monkeypatch, fake_client)
+    patch_import_manager(monkeypatch, fake_client)
+
+    user_conf = {"username": "user@example.com", "password": "pass", "type": "imap"}
+    module = ModuleMail(user_conf=user_conf)
+
+    result = module.delete_folder("OldFolder")
     
-    module = ModuleMail(server="imap.example.org")
-    user_conf = {
-        "username": "test@example.com",
-        "password": "password123",
-        "type": "imap",
-        "server": "imap.example.org",
-        "port": 143
-    }
-    folder_data = {"name": "NewFolder_renamed"}
+    # Should move to Trash, not permanently delete
+    assert result['folder_deleted'] == "OldFolder"
+    assert result['permanently'] is False
+    assert 'moved_to' in result
+    assert result['moved_to'].startswith('Trash/')
     
-    # When
-    result = module.update_folder(user_conf, "NewFolder", folder_data)
+    # Verify rename was called (move operation)
+    assert len(fake_client.rename_folder_calls) == 1
+    assert fake_client.rename_folder_calls[0][0] == "OldFolder"
+    assert fake_client.rename_folder_calls[0][1].startswith("Trash/")
     
-    # Then
-    assert result["name"] == "NewFolder_renamed"
-    assert fake_client.rename_folder_args == ("NewFolder", "NewFolder_renamed")
-    assert fake_client.logout_called
+    # Verify delete was NOT called
+    assert len(fake_client.delete_folder_calls) == 0
 
 
-def test_given_valid_data_when_update_folder_subscribe_only_then_success(monkeypatch):
-    """
-    Test successful folder subscription update.
-    """
-    # Given
+def test_delete_folder_in_trash_deletes_permanently(monkeypatch):
+    """Test deleting a folder that IS in Trash - should permanently delete."""
     fake_client = FakeClientImap()
     fake_client.get_folder_details_result = {
-        "name": "TestFolder",
-        "path": "TestFolder",
-        "sievePath": "TestFolder",
-        "type": "folder",
-        "flags": [],
-        "subscribed": 1,
-        "children": []
+        'name': 'OldFolder_123',
+        'path': 'Trash/OldFolder_123',
+        'type': 'folder',
+        'subscribed': 1,
+        'children': []
     }
-    patch_import_and_instantiate_manager(monkeypatch, fake_client)
+    patch_import_manager(monkeypatch, fake_client)
+
+    user_conf = {"username": "user@example.com", "password": "pass", "type": "imap"}
+    module = ModuleMail(user_conf=user_conf)
+
+    result = module.delete_folder("Trash/OldFolder_123")
     
-    module = ModuleMail(server="imap.example.org")
-    user_conf = {
-        "username": "test@example.com",
-        "password": "password123",
-        "type": "imap",
-        "server": "imap.example.org",
-        "port": 143
-    }
-    folder_data = {"subscribed": 1}
+    # Should permanently delete
+    assert result['folder_deleted'] == "Trash/OldFolder_123"
+    assert result['permanently'] is True
     
-    # When
-    result = module.update_folder(user_conf, "TestFolder", folder_data)
+    # Verify delete was called
+    assert "Trash/OldFolder_123" in fake_client.delete_folder_calls
     
-    # Then
-    assert result["subscribed"] == 1
-    assert fake_client.subscribe_folder_args == "TestFolder"
-    assert fake_client.logout_called
+    # Verify rename was NOT called
+    assert len(fake_client.rename_folder_calls) == 0
 
 
-def test_given_valid_data_when_update_folder_unsubscribe_then_success(monkeypatch):
-    """
-    Test successful folder unsubscription.
-    """
-    # Given
+def test_delete_trash_folder_itself(monkeypatch):
+    """Test deleting the Trash folder itself - should permanently delete."""
     fake_client = FakeClientImap()
     fake_client.get_folder_details_result = {
-        "name": "TestFolder",
-        "path": "TestFolder",
-        "sievePath": "TestFolder",
-        "type": "folder",
-        "flags": [],
-        "subscribed": 0,
-        "children": []
+        'name': 'Trash',
+        'path': 'Trash',
+        'type': 'trash',
+        'subscribed': 1,
+        'children': []
     }
-    patch_import_and_instantiate_manager(monkeypatch, fake_client)
+    patch_import_manager(monkeypatch, fake_client)
+
+    user_conf = {"username": "user@example.com", "password": "pass", "type": "imap"}
+    module = ModuleMail(user_conf=user_conf)
+
+    result = module.delete_folder("Trash")
     
-    module = ModuleMail(server="imap.example.org")
-    user_conf = {
-        "username": "test@example.com",
-        "password": "password123",
-        "type": "imap",
-        "server": "imap.example.org",
-        "port": 143
-    }
+    # Should permanently delete
+    assert result['folder_deleted'] == "Trash"
+    assert result['permanently'] is True
+    
+    # Verify delete was called
+    assert "Trash" in fake_client.delete_folder_calls
+
+
+# ========== Tests for get_folder_mails ==========
+
+def test_get_folder_mails_success(monkeypatch):
+    """Test getting mails from a folder."""
+    fake_client = FakeClientImap()
+    fake_client.fetch_mails_result = ([
+        {
+            'uid': 1,
+            'mail_bytes': b'Subject: Test1\r\nFrom: sender1@example.com\r\nTo: recipient@example.com\r\nDate: Mon, 1 Jan 2024 10:00:00 +0000\r\n\r\nBody1',
+            'flags': ['\\Seen']
+        },
+        {
+            'uid': 2,
+            'mail_bytes': b'Subject: Test2\r\nFrom: sender2@example.com\r\nTo: recipient@example.com\r\nDate: Mon, 2 Jan 2024 10:00:00 +0000\r\n\r\nBody2',
+            'flags': []
+        }
+    ], 100)
+    patch_import_manager(monkeypatch, fake_client)
+
+    user_conf = {"username": "user@example.com", "password": "pass", "type": "imap"}
+    module = ModuleMail(user_conf=user_conf)
+
+    result, total = module.get_folder_mails("INBOX", first=0, last=10)
+    assert total == 100
+    assert len(result) == 2
+    assert result[0]['subject'] == 'Test1'
+    assert result[0]['seen'] is True
+    assert result[1]['seen'] is False
+
+
+def test_get_folder_mails_empty_folder(monkeypatch):
+    """Test getting mails from empty folder."""
+    fake_client = FakeClientImap()
+    fake_client.fetch_mails_result = ([], 0)
+    patch_import_manager(monkeypatch, fake_client)
+
+    user_conf = {"username": "user@example.com", "password": "pass", "type": "imap"}
+    module = ModuleMail(user_conf=user_conf)
+
+    result, total = module.get_folder_mails("INBOX", first=0, last=10)
+    assert total == 0
+    assert len(result) == 0
+
+
+# ========== Tests for delete_mails ==========
+
+def test_delete_mails_success(monkeypatch):
+    """Test deleting multiple mails."""
+    fake_client = FakeClientImap()
+    patch_import_manager(monkeypatch, fake_client)
+
+    user_conf = {"username": "user@example.com", "password": "pass", "type": "imap"}
+    module = ModuleMail(user_conf=user_conf)
+
+    result = module.delete_mails("INBOX", [1, 2, 3])
+    assert result['deleted_ids'] == [1, 2, 3]
+    assert len(fake_client.uid_copy_calls) == 3
+
+
+def test_delete_mails_partial_failure(monkeypatch):
+    """Test deleting mails with partial failure."""
+    fake_client = FakeClientImap()
+    call_count = [0]
+
+    def uid_copy_with_error(uid, dest):
+        call_count[0] += 1
+        if call_count[0] == 2:
+            raise RequestException("UID 2 not found")
+
+    fake_client.uid_copy = uid_copy_with_error
+    patch_import_manager(monkeypatch, fake_client)
+
+    user_conf = {"username": "user@example.com", "password": "pass", "type": "imap"}
+    module = ModuleMail(user_conf=user_conf)
+
+    with pytest.raises(RequestException, match="failed to be deleted"):
+        module.delete_mails("INBOX", [1, 2, 3])
+
+
+# ========== Tests for delete_all_mail_in_folder ==========
+
+def test_delete_all_mail_in_folder_success(monkeypatch):
+    """Test deleting all mails in a folder."""
+    fake_client = FakeClientImap()
+    patch_import_manager(monkeypatch, fake_client)
+
+    user_conf = {"username": "user@example.com", "password": "pass", "type": "imap"}
+    module = ModuleMail(user_conf=user_conf)
+
+    module.delete_all_mail_in_folder("INBOX", before_date="2024-01-01")
+    assert len(fake_client.uid_copy_calls) == 3  # get_mail_uids_before_date returns [1, 2, 3]
+
+
+def test_delete_all_mail_in_folder_empty(monkeypatch):
+    """Test deleting all mails when folder is empty."""
+    fake_client = FakeClientImap()
+    fake_client.get_mail_uids_before_date = lambda *args, **kwargs: []
+    patch_import_manager(monkeypatch, fake_client)
+
+    user_conf = {"username": "user@example.com", "password": "pass", "type": "imap"}
+    module = ModuleMail(user_conf=user_conf)
+
+    module.delete_all_mail_in_folder("INBOX", before_date=None)
+    assert len(fake_client.uid_copy_calls) == 0
+
+
+# ========== Tests for expunge_folder ==========
+
+def test_expunge_folder_success(monkeypatch):
+    """Test expunging a folder."""
+    fake_client = FakeClientImap()
+    fake_client.expunge_folder_result = 5
+    patch_import_manager(monkeypatch, fake_client)
+
+    user_conf = {"username": "user@example.com", "password": "pass", "type": "imap"}
+    module = ModuleMail(user_conf=user_conf)
+
+    result = module.expunge_folder("INBOX")
+    assert result['mail_deleted'] == 5
+
+
+# ========== Tests for move_mails ==========
+
+def test_move_mails_success(monkeypatch):
+    """Test moving mails to another folder."""
+    fake_client = FakeClientImap()
+    patch_import_manager(monkeypatch, fake_client)
+
+    user_conf = {"username": "user@example.com", "password": "pass", "type": "imap"}
+    module = ModuleMail(user_conf=user_conf)
+
+    result = module.move_mails("INBOX", [1, 2, 3], "Archive")
+    assert result['moved_ids'] == [1, 2, 3]
+    assert len(fake_client.uid_copy_calls) == 3
+
+
+# ========== Tests for get_mail_detail ==========
+
+def test_get_mail_detail_success(monkeypatch):
+    """Test getting mail details."""
+    fake_client = FakeClientImap()
+    fake_client.fetch_mail_result = b'Subject: Test\r\nFrom: sender@example.com\r\nTo: recipient@example.com\r\nDate: Mon, 1 Jan 2024 10:00:00 +0000\r\n\r\nBody content'
+    patch_import_manager(monkeypatch, fake_client)
+
+    user_conf = {"username": "user@example.com", "password": "pass", "type": "imap"}
+    module = ModuleMail(user_conf=user_conf)
+
+    result = module.get_mail_detail("INBOX", 42)
+    assert result['uid'] == "42"  # Now returns string
+    assert result['subject'] == 'Test'
+    assert result['content']['contentPlain'] == 'Body content'
+    assert 'from' in result
+    assert 'to' in result
+    assert 'attachment' in result
+    assert isinstance(result['attachment'], list)
+
+
+# ========== Tests for delete_mail ==========
+
+def test_delete_mail_success(monkeypatch):
+    """Test deleting a single mail."""
+    fake_client = FakeClientImap()
+    patch_import_manager(monkeypatch, fake_client)
+
+    user_conf = {"username": "user@example.com", "password": "pass", "type": "imap"}
+    module = ModuleMail(user_conf=user_conf)
+
+    result = module.delete_mail("INBOX", 42)
+    assert result['uid_deleted'] == 42
+
+
+# ========== Tests for get_mail_raw ==========
+
+def test_get_mail_raw_success(monkeypatch):
+    """Test getting raw mail content."""
+    fake_client = FakeClientImap()
+    fake_client.fetch_mail_result = b'Subject: Test\r\n\r\nBody'
+    patch_import_manager(monkeypatch, fake_client)
+
+    user_conf = {"username": "user@example.com", "password": "pass", "type": "imap"}
+    module = ModuleMail(user_conf=user_conf)
+
+    result = module.get_mail_raw("INBOX", 42)
+    assert result['raw'] == 'Subject: Test\r\n\r\nBody'
+
+
+# ========== Tests for update_folder ==========
+
+def test_update_folder_rename_success(monkeypatch):
+    """Test updating folder with rename."""
+    fake_client = FakeClientImap()
+    patch_import_manager(monkeypatch, fake_client)
+
+    user_conf = {"username": "user@example.com", "password": "pass", "type": "imap"}
+    module = ModuleMail(user_conf=user_conf)
+
+    folder_data = {"name": "NewName", "subscribed": 1}
+    result = module.update_folder("OldName", folder_data)
+
+    assert ("OldName", "NewName") in fake_client.rename_folder_calls
+    assert "NewName" in fake_client.subscribe_folder_calls
+
+
+def test_update_folder_subscribe_success(monkeypatch):
+    """Test updating folder subscription status."""
+    fake_client = FakeClientImap()
+    patch_import_manager(monkeypatch, fake_client)
+
+    user_conf = {"username": "user@example.com", "password": "pass", "type": "imap"}
+    module = ModuleMail(user_conf=user_conf)
+
     folder_data = {"subscribed": 0}
-    
-    # When
-    result = module.update_folder(user_conf, "TestFolder", folder_data)
-    
-    # Then
-    assert result["subscribed"] == 0
-    assert fake_client.unsubscribe_folder_args == "TestFolder"
-    assert fake_client.logout_called
+    module.update_folder("INBOX", folder_data)
+
+    assert "INBOX" in fake_client.unsubscribe_folder_calls
 
 
-def test_given_valid_data_when_update_folder_complete_then_success(monkeypatch):
-    """
-    Test successful complete folder update (rename + subscribe + type).
-    """
-    # Given
+# ========== Tests for get_folder_share ==========
+
+def test_get_folder_share_success(monkeypatch):
+    """Test getting folder share information."""
     fake_client = FakeClientImap()
+    fake_client.get_acl_result = [
+        ('user1@example.com', {'userCanViewFolder': 1, 'userCanReadMails': 1}),
+        ('anyone', {'userCanViewFolder': 1})
+    ]
+    patch_import_manager(monkeypatch, fake_client)
+
+    user_conf = {"username": "user@example.com", "password": "pass", "type": "imap"}
+    module = ModuleMail(user_conf=user_conf)
+
+    result = module.get_folder_share("INBOX")
+    assert 'users' in result
+    assert 'user1@example.com' in result['users']
+    assert 'anyone' in result['users']
+
+
+# ========== Tests for share_folder ==========
+
+def test_share_folder_success(monkeypatch):
+    """Test sharing a folder with users."""
+    fake_client = FakeClientImap()
+    fake_client.get_acl_result = []
+    patch_import_manager(monkeypatch, fake_client)
+
+    user_conf = {"username": "owner@example.com", "password": "pass", "type": "imap"}
+    module = ModuleMail(user_conf=user_conf)
+
+    share_data = [
+        {
+            "c_email": "user1@example.com",
+            "rights": {"userCanViewFolder": 1, "userCanReadMails": 1}
+        }
+    ]
+
+    result = module.share_folder("INBOX", share_data)
+    assert len(fake_client.set_acl_calls) >= 1
+
+
+# ========== Tests for purge_folder_mails ==========
+
+def test_purge_folder_mails_success(monkeypatch):
+    """Test purging folder mails."""
+    fake_client = FakeClientImap()
+    fake_client.purge_folder_result = 10
     fake_client.get_folder_details_result = {
-        "name": "NewFolder_complete",
-        "path": "NewFolder_complete",
-        "sievePath": "NewFolder_complete",
-        "type": "folder",
-        "flags": [],
-        "subscribed": 1,
-        "children": []
+        'name': 'INBOX',
+        'children': []
     }
-    patch_import_and_instantiate_manager(monkeypatch, fake_client)
-    
-    module = ModuleMail(server="imap.example.org")
-    user_conf = {
-        "username": "test@example.com",
-        "password": "password123",
-        "type": "imap",
-        "server": "imap.example.org",
-        "port": 143
-    }
-    folder_data = {
-        "name": "NewFolder_complete",
-        "subscribed": 1,
-        "type": "templates"
-    }
-    
-    # When
-    result = module.update_folder(user_conf, "OldFolder", folder_data)
-    
-    # Then
-    assert result["name"] == "NewFolder_complete"
-    assert result["type"] == "templates"  # Type is included in response
-    assert fake_client.rename_folder_args == ("OldFolder", "NewFolder_complete")
-    assert fake_client.subscribe_folder_args == "NewFolder_complete"
-    assert fake_client.logout_called
+    patch_import_manager(monkeypatch, fake_client)
+
+    user_conf = {"username": "user@example.com", "password": "pass", "type": "imap"}
+    module = ModuleMail(user_conf=user_conf)
+
+    purge_data = {"applyToSubfolders": False, "permanentlyDelete": False}
+    result = module.purge_folder_mails("INBOX", purge_data)
+
+    assert result['mails_deleted'] == 10
 
 
-def test_given_invalid_folder_name_when_update_folder_then_validation_error(monkeypatch):
-    """
-    Test validation error when folder_name is invalid.
-    """
-    # Given
-    from marshmallow import ValidationError
+def test_purge_folder_mails_with_subfolders(monkeypatch):
+    """Test purging folder mails including subfolders."""
     fake_client = FakeClientImap()
-    patch_import_and_instantiate_manager(monkeypatch, fake_client)
-    
-    module = ModuleMail(server="imap.example.org")
-    user_conf = {
-        "username": "test@example.com",
-        "password": "password123",
-        "type": "imap"
-    }
-    folder_data = {"name": "NewName"}
-    
-    # When/Then
-    with pytest.raises(ValidationError, match="folder_name is required"):
-        module.update_folder(user_conf, "", folder_data)
-
-
-def test_given_invalid_folder_data_when_update_folder_then_validation_error(monkeypatch):
-    """
-    Test validation error when folder_data is invalid.
-    """
-    # Given
-    from marshmallow import ValidationError
-    fake_client = FakeClientImap()
-    patch_import_and_instantiate_manager(monkeypatch, fake_client)
-    
-    module = ModuleMail(server="imap.example.org")
-    user_conf = {
-        "username": "test@example.com",
-        "password": "password123",
-        "type": "imap"
-    }
-    
-    # When/Then
-    with pytest.raises(ValidationError, match="folder_data is required"):
-        module.update_folder(user_conf, "TestFolder", None)
-
-
-def test_given_valid_data_when_purge_folder_only_mark_deleted_then_success(monkeypatch):
-    """
-    Test purge folder without permanent deletion (only mark as deleted).
-    """
-    # Given
-    fake_client = FakeClientImap()
+    fake_client.purge_folder_result = 5
     fake_client.get_folder_details_result = {
-        "name": "TestFolder",
-        "children": []
-    }
-    patch_import_and_instantiate_manager(monkeypatch, fake_client)
-    
-    module = ModuleMail(server="imap.example.org")
-    user_conf = {
-        "username": "test@example.com",
-        "password": "password123",
-        "type": "imap"
-    }
-    purge_data = {
-        "applyToSubfolders": False,
-        "permanentlyDelete": False,
-        "date": "2025-09-11"
-    }
-    
-    # When
-    module.purge_folder_mails(user_conf, "TestFolder", purge_data)
-    
-    # Then
-    assert fake_client.purge_folder_called is True
-    assert fake_client.purge_folder_args == ("TestFolder", "2025-09-11")
-    assert fake_client.expunge_folder_called is False
-    assert fake_client.logout_called is True
-
-
-def test_given_valid_data_when_purge_folder_with_permanent_delete_then_success(monkeypatch):
-    """
-    Test purge folder with permanent deletion (mark as deleted + expunge).
-    """
-    # Given
-    fake_client = FakeClientImap()
-    fake_client.get_folder_details_result = {
-        "name": "TestFolder",
-        "children": []
-    }
-    patch_import_and_instantiate_manager(monkeypatch, fake_client)
-    
-    module = ModuleMail(server="imap.example.org")
-    user_conf = {
-        "username": "test@example.com",
-        "password": "password123",
-        "type": "imap"
-    }
-    purge_data = {
-        "applyToSubfolders": False,
-        "permanentlyDelete": True,
-        "date": "2025-09-11"
-    }
-    
-    # When
-    module.purge_folder_mails(user_conf, "TestFolder", purge_data)
-    
-    # Then
-    assert fake_client.purge_folder_called is True
-    assert fake_client.purge_folder_args == ("TestFolder", "2025-09-11")
-    assert fake_client.expunge_folder_called is True
-    assert fake_client.expunge_folder_args == "TestFolder"
-    assert fake_client.logout_called is True
-
-
-def test_given_apply_to_subfolders_when_purge_folder_then_all_folders_purged(monkeypatch):
-    """
-    Test purge folder with applyToSubfolders option.
-    """
-    # Given
-    fake_client = FakeClientImap()
-    fake_client.get_folder_details_result = {
-        "name": "ParentFolder",
-        "children": [
-            {
-                "name": "SubFolder1",
-                "path": "ParentFolder/SubFolder1",
-                "children": []
-            },
-            {
-                "name": "SubFolder2",
-                "path": "ParentFolder/SubFolder2",
-                "children": [
-                    {
-                        "name": "SubSubFolder",
-                        "path": "ParentFolder/SubFolder2/SubSubFolder",
-                        "children": []
-                    }
-                ]
-            }
+        'name': 'INBOX',
+        'children': [
+            {'path': 'INBOX/Sub1'},
+            {'path': 'INBOX/Sub2'}
         ]
     }
-    
-    # Track all purge_folder calls
-    purge_calls = []
-    def mock_purge_folder(folder, before_date):
-        purge_calls.append((folder, before_date))
-    
-    fake_client.purge_folder = mock_purge_folder
-    
-    patch_import_and_instantiate_manager(monkeypatch, fake_client)
-    
-    module = ModuleMail(server="imap.example.org")
-    user_conf = {
-        "username": "test@example.com",
-        "password": "password123",
-        "type": "imap"
-    }
-    purge_data = {
-        "applyToSubfolders": True,
-        "permanentlyDelete": False,
-        "date": "2025-09-11"
-    }
-    
-    # When
-    module.purge_folder_mails(user_conf, "ParentFolder", purge_data)
-    
-    # Then
-    assert len(purge_calls) == 4  # Parent + 2 subfolders + 1 sub-subfolder
-    assert ("ParentFolder", "2025-09-11") in purge_calls
-    assert ("ParentFolder/SubFolder1", "2025-09-11") in purge_calls
-    assert ("ParentFolder/SubFolder2", "2025-09-11") in purge_calls
-    assert ("ParentFolder/SubFolder2/SubSubFolder", "2025-09-11") in purge_calls
-    assert fake_client.logout_called is True
 
+    def get_folder_details_dynamic(folder_name):
+        if folder_name == 'INBOX':
+            return {
+                'name': 'INBOX',
+                'children': [
+                    {'path': 'INBOX/Sub1'},
+                    {'path': 'INBOX/Sub2'}
+                ]
+            }
+        return {'name': folder_name, 'children': []}
 
-def test_given_no_date_when_purge_folder_then_all_mails_purged(monkeypatch):
-    """
-    Test purge folder without date filter (purge all mails).
-    """
-    # Given
-    fake_client = FakeClientImap()
-    fake_client.get_folder_details_result = {
-        "name": "TestFolder",
-        "children": []
-    }
-    patch_import_and_instantiate_manager(monkeypatch, fake_client)
-    
-    module = ModuleMail(server="imap.example.org")
-    user_conf = {
-        "username": "test@example.com",
-        "password": "password123",
-        "type": "imap"
-    }
-    purge_data = {
-        "applyToSubfolders": False,
-        "permanentlyDelete": True
-        # No date specified
-    }
-    
-    # When
-    module.purge_folder_mails(user_conf, "TestFolder", purge_data)
-    
-    # Then
-    assert fake_client.purge_folder_called is True
-    assert fake_client.purge_folder_args == ("TestFolder", None)
-    assert fake_client.expunge_folder_called is True
-    assert fake_client.logout_called is True
+    fake_client.get_folder_details = get_folder_details_dynamic
+    patch_import_manager(monkeypatch, fake_client)
 
+    user_conf = {"username": "user@example.com", "password": "pass", "type": "imap"}
+    module = ModuleMail(user_conf=user_conf)
 
-def test_given_invalid_folder_name_when_purge_folder_then_validation_error(monkeypatch):
-    """
-    Test validation error when folder_name is invalid for purge.
-    """
-    # Given
-    from marshmallow import ValidationError
-    fake_client = FakeClientImap()
-    patch_import_and_instantiate_manager(monkeypatch, fake_client)
-    
-    module = ModuleMail(server="imap.example.org")
-    user_conf = {
-        "username": "test@example.com",
-        "password": "password123",
-        "type": "imap"
-    }
-    purge_data = {"permanentlyDelete": False}
-    
-    # When/Then
-    with pytest.raises(ValidationError, match="folder_name is required"):
-        module.purge_folder_mails(user_conf, "", purge_data)
+    purge_data = {"applyToSubfolders": True, "permanentlyDelete": False}
+    result = module.purge_folder_mails("INBOX", purge_data)
 
-
-def test_given_invalid_purge_data_when_purge_folder_then_validation_error(monkeypatch):
-    """
-    Test validation error when purge_data is invalid.
-    """
-    # Given
-    from marshmallow import ValidationError
-    fake_client = FakeClientImap()
-    patch_import_and_instantiate_manager(monkeypatch, fake_client)
-    
-    module = ModuleMail(server="imap.example.org")
-    user_conf = {
-        "username": "test@example.com",
-        "password": "password123",
-        "type": "imap"
-    }
-    
-    # When/Then
-    with pytest.raises(ValidationError, match="purge_data is required"):
-        module.purge_folder_mails(user_conf, "TestFolder", None)
+    # Should purge main folder + 2 subfolders = 15 mails total
+    assert result['mails_deleted'] == 15

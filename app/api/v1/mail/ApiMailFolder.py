@@ -9,12 +9,22 @@ from marshmallow import Schema
 
 from app.interface.mail.InterfaceApiMailFolder import InterfaceApiMailFolder
 from app.utils.logger.logger import logger_api
-from app.utils.api.ApiBaseResponse import ApiBaseResponse
-from .schemas.folder import FolderCreateSchema, FolderUpdateSchema, FolderPurgeSchema, FolderShareSchema
+from .schemas.folder import (
+    FolderCreateSchema,
+    FolderUpdateSchema,
+    FolderPurgeSchema,
+    FolderShareSchema,
+    FolderListResponseSchema,
+    FolderCreateResponseSchema,
+    FolderDetailsResponseSchema,
+    FolderUpdateResponseSchema,
+    FolderExpungeResponseSchema,
+    FolderPurgeResponseSchema,
+    FolderShareResponseSchema,
+)
 
 if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
-    from app.utils.api.pagin_sort_filter import FakePaginationParameters
 
 blp = Blueprint("ApiMailFolder", __name__, url_prefix="/mailboxes/<int:account_id>/folders")
 
@@ -64,7 +74,7 @@ class ApiMailAccount(MethodView):
     Ressource: API to manage mail folders for a given account.
     """
 
-    @blp.response(200, ApiBaseResponse)
+    @blp.response(200, FolderListResponseSchema, example=FolderListResponseSchema.example())
     def get(self, account_id: int) -> ResponseReturnValue:
         """
         Get the list of mail folders for a given account
@@ -80,7 +90,7 @@ class ApiMailAccount(MethodView):
 
 
     @blp.arguments(FolderCreateSchema, example=FolderCreateSchema.example())
-    @blp.response(201, ApiBaseResponse)
+    @blp.response(201, FolderCreateResponseSchema, example=FolderCreateResponseSchema.example())
     def post(self, folder_data: dict, account_id: int) -> ResponseReturnValue:
         """
         Create a new mail folder for a given account
@@ -97,18 +107,16 @@ class ApiMailAccount(MethodView):
         return interface.create_folder(account_id, folder_data["name"])
 
 
-@blp.route("/<folder_name>")
+@blp.route("/<path:folder_name>")
 class ApiMailFolderId(MethodView):
     """
     API to manage a specific mail folder.
     """
 
-    @blp.arguments(EmptySchema, location="json", required=False)    #TODO: pour le moment seule solution trouvé pour accepter un DELETE sans body
     @blp.response(204)
-    def delete(self, _json: dict, account_id: int, folder_name: str) -> ResponseReturnValue:
+    def delete(self, account_id: int, folder_name: str) -> ResponseReturnValue:
         """Delete a specific mail folder.
 
-        :param _json: Empty JSON data (ignored)
         :param account_id: The ID of the account
         :type account_id: int
         :param folder_name: The ID of the folder to delete
@@ -121,7 +129,7 @@ class ApiMailFolderId(MethodView):
         return interface.delete_folder(account_id, folder_name)
 
     @blp.arguments(FolderUpdateSchema, example=FolderUpdateSchema.example())
-    @blp.response(200, ApiBaseResponse)
+    @blp.response(200, FolderUpdateResponseSchema, example=FolderUpdateResponseSchema.example())
     def patch(self, folder_data: dict, account_id: int, folder_name: str) -> ResponseReturnValue:
         """Update name, type (junk, template...) and subscription status of a specific mail folder.
         
@@ -138,6 +146,7 @@ class ApiMailFolderId(MethodView):
         interface: InterfaceApiMailFolder = g.inter
         return interface.update_folder(account_id, folder_name, folder_data)
 
+    @blp.response(200, FolderDetailsResponseSchema, example=FolderDetailsResponseSchema.example())
     def get(self, account_id: int, folder_name: str) -> ResponseReturnValue:
         """Retrieve details of a specific mail folder.
         """
@@ -147,11 +156,11 @@ class ApiMailFolderId(MethodView):
 
 
 
-@blp.route("/<folder_name>/expunge")
+@blp.route("/<path:folder_name>/expunge")
 class ApiMailFolderIdExpunge(MethodView):
     """API to expunge all mails in a specific folder.
     """
-    @blp.response(200, ApiBaseResponse)
+    @blp.response(200, FolderExpungeResponseSchema, example=FolderExpungeResponseSchema.example())
     def post(self, account_id: int, folder_name: str) -> ResponseReturnValue:
         """Action: Expunge (compact) all mails in the specified folder.
 
@@ -170,12 +179,12 @@ class ApiMailFolderIdExpunge(MethodView):
         return interface.expunge_folder(account_id, folder_name)
 
 
-@blp.route("/<folder_name>/purge")
+@blp.route("/<path:folder_name>/purge")
 class ApiMailFolderIdPurge(MethodView):
     """API to purge all mails in a specific folder older than a given date.
     """
     @blp.arguments(FolderPurgeSchema, example=FolderPurgeSchema.example())
-    @blp.response(200, ApiBaseResponse)
+    @blp.response(200, FolderPurgeResponseSchema, example=FolderPurgeResponseSchema.example())
     def post(self, purge_data: dict, account_id: int, folder_name: str) -> ResponseReturnValue:
         """Action: Purge all mails in the specified folder.
         
@@ -197,7 +206,7 @@ class ApiMailFolderIdPurge(MethodView):
         return interface.purge_folder_mails(account_id, folder_name, purge_data)
 
 
-@blp.route("/<folder_name>/export")
+@blp.route("/<path:folder_name>/export")
 class ApiMailFolderIdExport(MethodView):
     """API to export all mails in a specific folder. 
     """
@@ -210,11 +219,11 @@ class ApiMailFolderIdExport(MethodView):
 
 
 
-@blp.route("/<folder_name>/share")
+@blp.route("/<path:folder_name>/share")
 class ApiMailFolderIdShare(MethodView):
     """API to share a specific mail folder.
     """
-    @blp.response(200, ApiBaseResponse)
+    @blp.response(200, FolderShareResponseSchema, example=FolderShareResponseSchema.example())
     def get(self, account_id: int, folder_name: str) -> ResponseReturnValue:    #TODO: pagination?
         """Get share information for the specified folder.
         
@@ -231,8 +240,8 @@ class ApiMailFolderIdShare(MethodView):
         interface: InterfaceApiMailFolder = g.inter
         return interface.get_folder_share(account_id, folder_name)
 
-    @blp.arguments(FolderShareSchema(many=True), example=FolderShareSchema.example(), error_status_code=400)
-    @blp.response(200, ApiBaseResponse)
+    @blp.arguments(FolderShareSchema(many=True), example=FolderShareSchema.example(), error_status_code=400) #type: ignore [arg-type]
+    @blp.response(200, FolderShareResponseSchema, example=FolderShareResponseSchema.example())
     def post(self, share_data: list, account_id: int, folder_name: str) -> ResponseReturnValue:
         """Action: Share the specified folder with another user.
         

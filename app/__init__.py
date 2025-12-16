@@ -44,7 +44,7 @@ def create_app(sogo_state: int) -> Flask:
     register_route(flask_api, cs_api.API_BASIC, sogo_state)
     register_route(admin_api, cs_api.API_ADMIN, sogo_state)
 
-    CORS(app, resources={r"/api/*": {"origins": "http://localhost:3001"}})
+    CORS(app, resources={r"/api/*": {"origins": "http://localhost:3000"}})
 
     return app
 

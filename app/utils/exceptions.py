@@ -5,6 +5,8 @@ SOGo server, being an API, should never raise any exceptions. Instead, it should
 give a proper response to the client's API.
 """
 
+from app.utils.errors import error_http_status
+
 class SogoException(Exception):
     """
     Sogo exception with the error
@@ -34,8 +36,14 @@ class RequestException(SogoException):
 
     Example: Attempting to import an event wich malformed icalender format
     Meaning: Something was wrong with the file, but sogo is still operationnal
-    Remediation: An admin should check the log, the input and may report a bug on github if necessary. 
+    Remediation: An admin should check the log, the input and may report a bug on github if necessary.
+    
+    The http_status attribute is automatically set based on the error_code using the error_http_status mapping.
     """
+
+    def __init__(self, message: str, error_code: int = 99999) -> None: #TODO: deplacer ça dans SogoException directement?
+        super().__init__(message, error_code)
+        self.http_status = error_http_status.get(error_code, 500)
 
 class BugException(SogoException):
     """

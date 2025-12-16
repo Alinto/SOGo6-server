@@ -29,7 +29,6 @@ def init_mail_config() -> None:
     domain_settings: dict = g.default_domain  # peut être None ou un dict
     if isinstance(domain_settings, dict):
         mail_settings = domain_settings.get("MAIL_SETTINGS", {})
-        print("mail_settings =", mail_settings)
         if isinstance(mail_settings, dict):
             imap_server = mail_settings.get("SOGO_D_IMAP_SERVER")
             imap_port = mail_settings.get("SOGO_D_IMAP_PORT")
@@ -105,3 +104,53 @@ class ApiMailBoxesAccount(MethodView):
         logger_api.debug("Calling ApiMailBoxesAccount.delete for account_id: %s", account_id)
         interface: InterfaceApiMailMailbox = g.inter
         return interface.delete_mailbox(account_id)
+
+
+@blp.route("/<int:account_id>/compose")
+class ApiMailBoxesAccountCompose(MethodView):
+    """
+    Resource: Compose Email
+    """
+    def post(self, account_id: int) -> ResponseReturnValue:
+        """
+        Action: compose a new email from the specified mailbox (NOT IMPLEMENTED)
+        """
+        logger_api.debug("Calling ApiMailBoxesAccountCompose.post for account_id: %s", account_id)
+        interface: InterfaceApiMailMailbox = g.inter
+        return interface.compose_email(account_id)
+
+
+@blp.route("/<int:account_id>/delegate")
+class ApiMailBoxesAccountDelegates(MethodView):
+    """
+    Resource: Mailbox Delegations
+    """
+    def get(self, account_id: int) -> ResponseReturnValue:
+        """
+        Get delegates for this mailbox (NOT IMPLEMENTED)
+        """
+        logger_api.debug("Calling ApiMailBoxesAccountDelegates.get for account_id: %s", account_id)
+        interface: InterfaceApiMailMailbox = g.inter
+        return interface.get_mailbox_delegates(account_id)
+
+    def post(self, data: dict, account_id: int) -> ResponseReturnValue:
+        """
+        Create a new delegate for this mailbox (NOT IMPLEMENTED)
+        """
+        logger_api.debug("Calling ApiMailBoxesAccountDelegates.post for account_id: %s with data: %s", account_id, data)
+        interface: InterfaceApiMailMailbox = g.inter
+        return interface.create_mailbox_delegate(account_id, data)
+
+
+@blp.route("/<int:account_id>/purge")
+class ApiMailBoxesAccountPurge(MethodView):
+    """
+    Resource: Purge Mailbox
+    """
+    def post(self, account_id: int) -> ResponseReturnValue:
+        """
+        Action: purge (all folders) from the specified mailbox (NOT IMPLEMENTED)
+        """
+        logger_api.debug("Calling ApiMailBoxesAccountPurge.post for account_id: %s", account_id)
+        interface: InterfaceApiMailMailbox = g.inter
+        return interface.purge_mailbox(account_id)

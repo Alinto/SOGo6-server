@@ -8,12 +8,18 @@ from flask_smorest import Blueprint
 
 from app.interface.mail.InterfaceApiMailMail import InterfaceApiMailMail
 from app.utils.logger.logger import logger_api
-from .schemas.mail import MailDetailResponseSchema
+from .schemas.mail import (
+    MailDetailResponseSchema,
+    MailListResponseSchema,
+    MailDeleteResponseSchema,
+    MailRawResponseSchema,
+)
 
 if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
+    from app.utils.api.pagin_sort_filter import FakePaginationParameters
 
-blp = Blueprint("ApiMailDetail", __name__, url_prefix="/mailboxes/<int:account_id>/folders/<folder_name>/mails")
+blp = Blueprint("ApiMailDetail", __name__, url_prefix="/mailboxes/<int:account_id>/folders/<path:folder_name>/mails")
 
 
 @blp.before_request
@@ -58,11 +64,9 @@ class ApiMailFolderIdMail(MethodView):
     """
 
     @blp.paginate(page=1, page_size=20, max_page_size=100)
-    @blp.response(200)
-    def get(self, pagination_parameters: 'FakePaginationParameters', account_id: int, folder_name: str) -> ResponseReturnValue:
+    @blp.response(200, MailListResponseSchema, example=MailListResponseSchema.example())
+    def get(self, pagination_parameters: FakePaginationParameters, account_id: int, folder_name: str) -> ResponseReturnValue:
         """Fetch the list of mails in a specific folder.
-
-        Get the list of mails in a specific folder
 
         :param pagination_parameters: Flask-Smorest pagination parameters
         :type pagination_parameters: FakePaginationParameters
@@ -119,9 +123,9 @@ class ApiMailFolderIdAction(MethodView):
             # Implement forward logic here
             pass
         raise NotImplementedError("Batch action mails is not implemented yet.")
-        logger_api.debug("Calling ApiMailFolderIdAction.post for account_id: %s, folder_name: %s with action: %s", account_id, folder_name, batch_data.get("action"))
-        interface: InterfaceApiMailMail = g.inter
-        return interface.batch_mail_action(account_id, folder_name, batch_data)
+        # logger_api.debug("Calling ApiMailFolderIdAction.post for account_id: %s, folder_name: %s with action: %s", account_id, folder_name, batch_data.get("action"))
+        # interface: InterfaceApiMailMail = g.inter
+        # return interface.batch_mail_action(account_id, folder_name, batch_data)
 
 
 @blp.route("/<int:mail_uid>")
@@ -130,11 +134,9 @@ class ApiMailDetail(MethodView):
     API to fetch mail details.
     """
 
-    @blp.response(200, MailDetailResponseSchema)
+    @blp.response(200, MailDetailResponseSchema, example=MailDetailResponseSchema.example())
     def get(self, account_id: int, folder_name: str, mail_uid: int) -> ResponseReturnValue:
         """Retrieve detailed information about a specific mail.
-
-        Resource, get detailed information about a specific mail
 
         :param account_id: The account identifier.
         :type account_id: int
@@ -154,8 +156,9 @@ class ApiMailDetail(MethodView):
         interface: InterfaceApiMailMail = g.inter
         return interface.get_mail_detail(account_id, folder_name, mail_uid)
 
+    @blp.response(204, MailDeleteResponseSchema, example=MailDeleteResponseSchema.example())
     def delete(self, account_id: int, folder_name: str, mail_uid: int) -> ResponseReturnValue:
-        """Delete a specific mail (mark as deleted). (NOT IMPLEMENTED)
+        """Delete a specific mail (mark as deleted)
 
         Resource, delete (mark as deleted) a specific mail
 
@@ -234,8 +237,18 @@ class ApiMailDetailForward(MethodView):
 class ApiMailDetailRaw(MethodView):
     """API to fetch the raw content of a specific mail. 
     """
+    @blp.response(200, MailRawResponseSchema, example=MailRawResponseSchema.example())
     def get(self, account_id: int, folder_name: str, mail_uid: int) -> ResponseReturnValue:
         """Retrieve the raw content of a specific mail in the specified folder.
+
+        :param account_id: The ID of the account
+        :type account_id: int
+        :param folder_name: The ID of the folder
+        :type folder_name: str
+        :param mail_uid: The unique identifier of the mail
+        :type mail_uid: int
+        :return: A tuple of (API response dict, status code)
+        :rtype: Tuple[Dict[str, Any], int]
         """
         logger_api.debug("Calling ApiMailDetailRaw.get for account_id: %s, folder_name: %s, mail_uid: %s", account_id, folder_name, mail_uid)
         interface: InterfaceApiMailMail = g.inter

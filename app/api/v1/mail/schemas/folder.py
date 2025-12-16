@@ -1,6 +1,7 @@
 from marshmallow import Schema, fields
 from app.utils.api.ApiBaseResponse import ApiBaseResponse
 
+
 class FolderCreateSchema(Schema):
     """
     Schema for creating a new mail folder.
@@ -20,37 +21,13 @@ class FolderCreateSchema(Schema):
         }
 
 
-class FolderListResponseSchema(ApiBaseResponse):
-    """
-    Schema representing a response containing a list of mail folders.
-    """
-    data = fields.List(
-        fields.Dict(keys=fields.String(), values=fields.Raw()),
-        required=True,
-        metadata={
-            'description': 'List of mail folders',
-            'example': [
-                {'name': 'Trash'},
-                {'name': 'INBOX'}
-            ]
-        }
-    )  # type: ignore[assignment]
-
-
-class FolderSchema(Schema):
-    """
-    Schema representing a mail folder.
-    """
-    name = fields.String(required=True)
-
-
 class FolderUpdateSchema(Schema):
     """
     Schema for updating a mail folder.
     """
-    name = fields.String(required=False, allow_none=True, metadata={'description': 'New folder name'})
-    subscribed = fields.Integer(required=False, allow_none=True, metadata={'description': 'Subscription status (0 or 1)'})
-    type = fields.String(required=False, allow_none=True, metadata={'description': 'Folder type (folder, junk, templates, etc.)'})
+    name = fields.String()
+    subscribed = fields.Integer()
+    type = fields.String()
 
     @classmethod
     def example(cls) -> dict:
@@ -94,17 +71,17 @@ class FolderShareRightsSchema(Schema):
     """
     Schema for folder sharing rights.
     """
-    userCanEraseMails = fields.Integer(required=False, allow_none=True)
-    userCanExpungeFolder = fields.Integer(required=False, allow_none=True)
-    userCanInsertMails = fields.Integer(required=False, allow_none=True)
-    userIsAdministrator = fields.Integer(required=False, allow_none=True)
-    userCanWriteMails = fields.Integer(required=False, allow_none=True)
-    userCanMarkMailsRead = fields.Integer(required=False, allow_none=True)
-    userCanViewFolder = fields.Integer(required=False, allow_none=True)
-    userCanCreateSubfolders = fields.Integer(required=False, allow_none=True)
-    userCanPostMails = fields.Integer(required=False, allow_none=True)
-    userCanReadMails = fields.Integer(required=False, allow_none=True)
-    userCanRemoveFolder = fields.Integer(required=False, allow_none=True)
+    userCanEraseMails = fields.Integer()
+    userCanExpungeFolder = fields.Integer()
+    userCanInsertMails = fields.Integer()
+    userIsAdministrator = fields.Integer()
+    userCanWriteMails = fields.Integer()
+    userCanMarkMailsRead = fields.Integer()
+    userCanViewFolder = fields.Integer()
+    userCanCreateSubfolders = fields.Integer()
+    userCanPostMails = fields.Integer()
+    userCanReadMails = fields.Integer()
+    userCanRemoveFolder = fields.Integer()
 
 
 class FolderShareSchema(Schema):
@@ -112,12 +89,12 @@ class FolderShareSchema(Schema):
     Schema for a user entry in folder sharing.
     Use with many=True to validate a list of users.
     """
-    isGroup = fields.Integer(required=False, allow_none=True)
-    c_email = fields.String(required=False, allow_none=True)
-    cn = fields.String(required=False, allow_none=True)
+    isGroup = fields.Integer()
+    c_email = fields.String()
+    cn = fields.String()
     uid = fields.String(required=True)
-    userClass = fields.String(required=False, allow_none=True)
-    rights = fields.Nested(FolderShareRightsSchema, required=False, allow_none=True)
+    userClass = fields.String()
+    rights = fields.Nested(FolderShareRightsSchema, )
 
     @classmethod
     def example(cls) -> list:
@@ -127,7 +104,7 @@ class FolderShareSchema(Schema):
         :return: Example folder share payload (a list).
         :rtype: list
         """
-        return[
+        return [
             {
                 "isGroup": 0,
                 "c_email": "tkeriven@snapshot.alinto.org",
@@ -135,14 +112,14 @@ class FolderShareSchema(Schema):
                 "uid": "tkeriven@snapshot.alinto.org",
                 "userClass": "normal-user",
                 "rights": {
-                "userCanInsertMails": 1,
-                "userCanMarkMailsRead": 1,
-                "userCanPostMails": 1,
-                "userCanReadMails": 1,
-                "userCanRemoveFolder": 1,
-                "userCanViewFolder": 1,
-                "userCanWriteMails": 1,
-                "userIsAdministrator": 1
+                    "userCanInsertMails": 1,
+                    "userCanMarkMailsRead": 1,
+                    "userCanPostMails": 1,
+                    "userCanReadMails": 1,
+                    "userCanRemoveFolder": 1,
+                    "userCanViewFolder": 1,
+                    "userCanWriteMails": 1,
+                    "userIsAdministrator": 1
                 }
             },
             {
@@ -152,14 +129,279 @@ class FolderShareSchema(Schema):
                 "uid": "jnadal@snapshot.alinto.org",
                 "userClass": "normal-user",
                 "rights": {
-                "userCanInsertMails": 1,
-                "userCanMarkMailsRead": 1,
-                "userCanPostMails": 1,
-                "userCanReadMails": 1,
-                "userCanRemoveFolder": 1,
-                "userCanViewFolder": 1,
-                "userCanWriteMails": 1,
-                "userIsAdministrator": 1
+                    "userCanInsertMails": 1,
+                    "userCanMarkMailsRead": 1,
+                    "userCanPostMails": 1,
+                    "userCanReadMails": 1,
+                    "userCanRemoveFolder": 1,
+                    "userCanViewFolder": 1,
+                    "userCanWriteMails": 1,
+                    "userIsAdministrator": 1
                 }
             }
-    ]
+        ]
+
+
+class FolderDetailsSchema(Schema):
+    """
+    Schema for folder details data
+    """
+    name = fields.String()
+    path = fields.String()
+    subscribed = fields.Integer()
+    type = fields.String()
+    unseenCount = fields.Integer()
+    messageCount = fields.Integer()
+    children = fields.List(fields.Dict())
+
+
+class FolderListResponseSchema(ApiBaseResponse):
+    """
+    Schema for GET /mailboxes/<account_id>/folders response
+    """
+    data = fields.List(
+        fields.Nested(FolderDetailsSchema),
+        required=True
+    )
+
+    @classmethod
+    def example(cls) -> dict:
+        """Example response for folder list.
+        
+        :return: Example folder list response
+        :rtype: dict
+        """
+        return {
+            "error_code": 0,
+            "error_msg": "",
+            "data": [
+                {
+                    "name": "INBOX",
+                    "path": "INBOX",
+                    "subscribed": 1,
+                    "type": "inbox",
+                    "unseenCount": 5,
+                    "messageCount": 42,
+                    "children": []
+                },
+                {
+                    "name": "Trash",
+                    "path": "Trash",
+                    "subscribed": 0,
+                    "type": "trash",
+                    "unseenCount": 0,
+                    "messageCount": 50,
+                    "children": []
+                },
+                {
+                    "name": "piou",
+                    "path": "piou",
+                    "subscribed": 0,
+                    "type": "folder",
+                    "unseenCount": 0,
+                    "messageCount": 50,
+                    "children": [
+                        {
+                            "name": "test",
+                            "path": "piou/test",
+                            "subscribed": 0,
+                            "type": "folder",
+                            "unseenCount": 0,
+                            "messageCount": 10,
+                            "children": []
+                        }
+                    ]
+                }
+            ]
+        }
+
+
+class FolderCreateResponseSchema(ApiBaseResponse):
+    """
+    Schema for POST /mailboxes/<account_id>/folders response
+    """
+    data = fields.Dict(keys=fields.String(), values=fields.Raw())
+
+    @classmethod
+    def example(cls) -> dict:
+        """Example response for folder creation.
+        
+        :return: Example folder creation response
+        :rtype: dict
+        """
+        return {
+            "error_code": 0,
+            "error_msg": "",
+            "data": {
+                "name": "NewFolder"
+            }
+        }
+
+
+class FolderDetailsResponseSchema(ApiBaseResponse):
+    """
+    Schema for GET /mailboxes/<account_id>/folders/<path:folder_name> response
+    """
+    data = fields.Nested(FolderDetailsSchema)
+
+    @classmethod
+    def example(cls) -> dict:
+        """Example response for folder details.
+        
+        :return: Example folder details response
+        :rtype: dict
+        """
+        return {
+            "error_code": 0,
+            "error_msg": "",
+            "data": {
+                "name": "INBOX",
+                "path": "INBOX",
+                "subscribed": 1,
+                "type": "folder",
+                "unseenCount": 5,
+                "messageCount": 42,
+                "children": []
+            }
+        }
+
+
+class FolderUpdateResponseSchema(ApiBaseResponse):
+    """
+    Schema for PATCH /mailboxes/<account_id>/folders/<path:folder_name> response
+    """
+    data = fields.Dict(keys=fields.String(), values=fields.Raw())
+
+    @classmethod
+    def example(cls) -> dict:
+        """Example response for folder update.
+        
+        :return: Example folder update response
+        :rtype: dict
+        """
+        return {
+            "error_code": 0,
+            "error_msg": "",
+            "data": {
+                "name": "RenamedFolder",
+                "path": "RenamedFolder",
+                "subscribed": 1,
+                "type": "folder",
+                "unseenCount": 0,
+                "messageCount": 10,
+                "children": []
+            }
+        }
+
+
+class FolderExpungeResponseSchema(ApiBaseResponse):
+    """
+    Schema for POST /mailboxes/<account_id>/folders/<path:folder_name>/expunge response
+    """
+    data = fields.Dict(keys=fields.String(), values=fields.Integer())
+
+    @classmethod
+    def example(cls) -> dict:
+        """Example response for folder expunge.
+        
+        :return: Example folder expunge response
+        :rtype: dict
+        """
+        return {
+            "error_code": 0,
+            "error_msg": "",
+            "data": {
+                "mail_deleted": 15
+            }
+        }
+
+
+class FolderPurgeResponseSchema(ApiBaseResponse):
+    """
+    Schema for POST /mailboxes/<account_id>/folders/<path:folder_name>/purge response
+    """
+    data = fields.Dict(keys=fields.String(), values=fields.Integer())
+
+    @classmethod
+    def example(cls) -> dict:
+        """Example response for folder purge.
+        
+        :return: Example folder purge response
+        :rtype: dict
+        """
+        return {
+            "error_code": 0,
+            "error_msg": "",
+            "data": {
+                "mails_deleted": 23
+            }
+        }
+
+
+class FolderShareUserSchema(Schema):
+    """
+    Schema for a shared user in folder sharing
+    """
+    userClass = fields.String()
+    c_email = fields.String()
+    cn = fields.String()
+    uid = fields.String()
+    rights = fields.Nested(FolderShareRightsSchema)
+
+
+class FolderShareDataSchema(Schema):
+    """
+    Schema for folder share data
+    """
+    users = fields.Dict(keys=fields.String(), values=fields.Nested(FolderShareUserSchema))
+
+
+class FolderShareResponseSchema(ApiBaseResponse):
+    """
+    Schema for GET/POST /mailboxes/<account_id>/folders/<path:folder_name>/share response
+    """
+    data = fields.Nested(FolderShareDataSchema)
+
+    @classmethod
+    def example(cls) -> dict:
+        """Example response for folder share.
+        
+        :return: Example folder share response
+        :rtype: dict
+        """
+        return {
+            "error_code": 0,
+            "error_msg": "",
+            "data": {
+                "users": {
+                    "tkeriven@snapshot.alinto.org": {
+                        "userClass": "normal-user",
+                        "c_email": "tkeriven@snapshot.alinto.org",
+                        "cn": "tkeriven",
+                        "uid": "tkeriven@snapshot.alinto.org",
+                        "rights": {
+                            "userCanEraseMails": 1,
+                            "userCanExpungeFolder": 1,
+                            "userCanInsertMails": 1,
+                            "userIsAdministrator": 1,
+                            "userCanWriteMails": 1,
+                            "userCanMarkMailsRead": 1,
+                            "userCanViewFolder": 1,
+                            "userCanCreateSubfolders": 1,
+                            "userCanPostMails": 1,
+                            "userCanReadMails": 1,
+                            "userCanRemoveFolder": 1
+                        }
+                    },
+                    "anyone": {
+                        "userClass": "public-user",
+                        "cn": "Tout utilisateur identifié",
+                        "uid": "anyone",
+                        "rights": {
+                            "userCanViewFolder": 1,
+                            "userCanReadMails": 1
+                        }
+                    }
+                }
+            }
+        }

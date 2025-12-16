@@ -1,5 +1,5 @@
 from abc import ABCMeta, abstractmethod
-from typing import List, Optional, Any
+from typing import List, Any
 
 class ClientMailServer(metaclass=ABCMeta):
     """
@@ -20,7 +20,7 @@ class ClientMailServer(metaclass=ABCMeta):
         """List all mailboxes/folders for the user."""
 
     @abstractmethod
-    def fetch_mail(self, mailbox: str, mail_uid: int) -> Optional[Any]:
+    def fetch_mail(self, mailbox: str, mail_uid: int) -> Any | None:
         """Fetch a full mail by UID from a mailbox."""
 
     @abstractmethod

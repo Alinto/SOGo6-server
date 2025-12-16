@@ -29,7 +29,6 @@ def init_mail_config() -> None:
     domain_settings: dict = g.default_domain  # peut être None ou un dict
     if isinstance(domain_settings, dict):
         mail_settings = domain_settings.get("MAIL_SETTINGS", {})
-        print("mail_settings =", mail_settings)
         if isinstance(mail_settings, dict):
             imap_server = mail_settings.get("SOGO_D_IMAP_SERVER")
             imap_port = mail_settings.get("SOGO_D_IMAP_PORT")
