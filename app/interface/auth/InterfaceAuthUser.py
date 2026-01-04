@@ -1,31 +1,35 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
-from marshmallow.exceptions import ValidationError
-
-from app.auth.User import User
-from app.config.db import tables as tbl
+from app.config.settings.SystemSettings import SystemSettingsObj
+from app.config.settings.DomainSettings import AuthSettingsObj, UserSourceSettingsObj
 from app.module.auth.ModuleAuth import ModuleAuth
 from app.utils.api.ApiBaseResponse import create_api_base_response
-from app.utils.db.Condition import Order, order_str_to_order_enum
 from app.utils.exceptions import RequestException, BugException
 from app.utils import errors as err
-from app.utils.strings import get_domain_from_mail
 
 if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
-    from app.config.settings.SystemSettings import SystemSettingsObj
+
 
 class InterfaceAuthUser:
     """
     Interface for user authentication
     """
 
-    def __init__(self, process: ProcessSetting, system: SystemSettingsObj, default_domain: dict):
-        self.domainless = system.SOGO_S_DOMAINLESS_LOGIN
-        self.reject_unknown_domain = system.SOGO_S_REJECT_UNKNOWN_DOMAIN
-        self.known_domains = system.SOGO_S_KNOWN_DOMAIN
-        
+    def __init__(self, process: ProcessSetting, system: dict, default_domain: dict):
+        system_settings = SystemSettingsObj(system["SYSTEM_SETTINGS"])
+        default_auth = AuthSettingsObj(default_domain["AUTH_SETTINGS"])
+
+
+        default_us_source_raw: dict = default_domain["USER_SOURCE"]
+        default_us_source: dict = {}
+        for source_uid, source_settings in default_us_source_raw.items():
+            default_us_source[source_uid] = UserSourceSettingsObj(source_settings)
+
+        self.module = ModuleAuth(process, system_settings, default_auth, default_us_source)
+
+
 
     def get_login_mech(self, user_uid:str, redirect:str) -> tuple[dict, int]:
         """
@@ -36,37 +40,28 @@ class InterfaceAuthUser:
         :return: _description_
         :rtype: tuple[dict, int]
         """
-        if not self.domainless:
-            domain = get_domain_from_mail(user_uid)
-            if not domain:
-                return create_api_base_response({}, err.ERROR_LOGIN_NO_DOMAIN), 400
-            if self.reject_unknown_domain and domain not in self.known_domains:
-                return create_api_base_response({}, err.ERROR_LOGIN_DOMAIN_UNKNOWN), 400
-
-        ret = {
-            "kind": "plain",
-            "location": ""
-        }
+        try:
+            ret = self.module.get_login_mech(user_uid)
+        except RequestException as e:
+            return create_api_base_response(str(e), e.error_code), 400
         return create_api_base_response(ret), 200
-    
-    def plain_login(self, data:dict) -> dict:
+
+    def plain_login(self, data:dict) -> tuple[dict, int]:
         """
-        Check a plain login uid/password
+        Check a plain login uid/password.
+
 
         :param data: _description_
         :type data: dict
+        :return: _description_
+        :rtype: tuple[dict, str, int]
         """
-        uid = data["uid"]
+        uid = data["username"]
         password = data["password"]
-        if self.domainless:
-            user = User(uid, password, is_domainless=True)
-        else:
-            domain = get_domain_from_mail(uid) or ""
-            user = User(uid, password, domain=domain)
-        
-        ret = user.check_login()
 
-        return {}
+        success, ret = self.module.user_plain_login(uid, password)
+        if not success:
+            return create_api_base_response(), 401
 
 
-
+        return create_api_base_response(ret), 200

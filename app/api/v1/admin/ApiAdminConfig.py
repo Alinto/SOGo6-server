@@ -6,6 +6,7 @@ from flask.views import MethodView
 from flask.typing import ResponseReturnValue
 from flask_smorest import Blueprint
 
+from app.service import sogo_cache
 from app.interface.admin.InterfaceApiAdminConfig import InterfaceApiAdminConfig
 from app.utils.logger.logger import logger_api
 
@@ -33,6 +34,7 @@ def init_admin_config() -> None:
     process : ProcessSetting = g.process
     interface_api = InterfaceApiAdminConfig(process_setting=process)
     g.inter = interface_api
+    sogo_cache().set("test", "banane", 500)
 
 @blp.route("/dynamic-form")
 class ApiAdminConfig(MethodView):

@@ -8,9 +8,9 @@ from .mail import mail_apis
 from .preference import pref_apis
 
 v1_basic_apis: list[Blueprint] = []
-v1_basic_apis += mail_apis
-v1_basic_apis += pref_apis
 v1_basic_apis += user_auth_apis
+v1_basic_apis += pref_apis
+v1_basic_apis += mail_apis
 
 v1_admin_apis: list[Blueprint] = []
 v1_admin_apis += admin_apis

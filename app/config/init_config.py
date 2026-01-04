@@ -1,8 +1,15 @@
+from __future__ import annotations
+from typing import TYPE_CHECKING
+
 from app.module.ModuleInitSogo import ModuleInitSogo
 from app.module.admin.ModuleAdminConfig import ModuleAdminConfig
 from app.utils.exceptions import AggravatedException
+from app.utils import constants as cs
 
 from .settings.ProcessSetting import process_config
+
+if TYPE_CHECKING:
+    from app.manager.cache.ClientRedis import ClientRedis
 
 
 def check_basic_config() -> bool:
@@ -20,7 +27,7 @@ def check_basic_config() -> bool:
         return True
     return False
 
-def init_sogo() -> int:
+def init_sogo() -> tuple[int, ClientRedis]:
     """
     Init sogo application
     return True if sogo is ok and already configured, False instead
@@ -31,21 +38,21 @@ def init_sogo() -> int:
     init_module = ModuleInitSogo(process_config)
     init_module.check_sogo_database()
 
+    cache_client = init_module.check_redis()
+
     #TODO
-    #check_redis
     #check agent
 
     if init_module.errors:
         raise AggravatedException(f"Sogo cannot be initiated because: {init_module.errors}")
 
-    sogo_state = 1
+    sogo_state = cs.SOGO_NOT_INIT
 
     #No errors, check if SOGo already has a configuration
     if check_basic_config():
-        sogo_state = 2
+        sogo_state = cs.SOGO_OK
 
-    
-    return sogo_state
+    return sogo_state, cache_client
 
 def init_get_system_and_default_settings() -> tuple[dict, dict]:
     """

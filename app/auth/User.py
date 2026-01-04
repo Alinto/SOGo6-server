@@ -27,6 +27,7 @@ class User:
         domain = user_session[cs.USER_DOMAIN]
         user = User(uid, password, domain=domain, is_domainless=is_domainless)
         user.mail = user_session[cs.USER_EMAIL]
+        user.source_id = user_session[cs.USER_SRC_ID]
         return user
 
     def __init__(self, uid:str, password:str, cn:str= "", domain:str= "", is_domainless:bool = False):
@@ -62,21 +63,6 @@ class User:
         self.mail: str = ""  #Don't assume that mail = uid or mail = uid + domain. Uid can be anything.
         self.source_id: str = "" #Set to avoid checking several user sources in the future for this user.
 
-
-    def check_login(self) -> bool:
-        """
-        Check the credetnials of the user
-
-        :return: _description_
-        :rtype: bool
-        """
-        ret = self.uid in ("sogo-tests1@example.org", "sogo-tests2@example.org", "sogo-tests3@example.org")
-        ret = ret and self.password == "sogo"
-        self.authenticated = ret
-        
-        return ret
-
-
     def get_user_session(self) -> dict:
         """
         The user session is stored by the server ans is used to 
@@ -89,7 +75,8 @@ class User:
             cs.USER_UID:    self.uid,
             cs.USER_PWD:    self.password,
             cs.USER_DOMAIN: self.domain,
-            cs.USER_EMAIL:  self.mail
+            cs.USER_EMAIL:  self.mail,
+            cs.USER_SRC_ID: self.source_id
         }
 
         return ret
@@ -109,3 +96,20 @@ class User:
         }
 
         return ret
+    
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}(uid='{self.uid},cn='{self.cn}',email='{self.mail}',auth='{self.authenticated}')"
+
+class UserAnonymous(User):
+    """
+    Just a subclass for any non-authneticated user.
+    This class avoid to return None
+    And also avoid to have conflict with a legit User chose uid is "anonymous"
+
+    :param User: _description_
+    :type User: _type_
+    """
+
+    def __init__(self) -> None:
+        super().__init__(uid="anonymous", password="anonymous")
+        self.authenticated = False

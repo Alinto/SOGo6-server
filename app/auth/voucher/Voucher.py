@@ -23,17 +23,22 @@ class Voucher(metaclass=ABCMeta):
     
     @staticmethod
     @abstractmethod
-    def get_needed_parameters_to_instantiate() -> dict[str, str]:
+    def get_needed_parameters_to_instantiate() -> dict[str, tuple[str, str]]:
         """
         Each type of voucher will need specific parameters for __init__
-        This method, to use first, return a dict with then mae of the parameters and where to find them
+        This method, to use first, return a dict with then name of the parameters and where to find them.
+        It laso give the argument name for **kwargs
+        {
+            "source": ("param_name", "arg_name"),
+            ...
+        }
 
         Example: JWT Voucher need the the SOGO_JWT_SECRET found in process settings
         and the validity time found in domain_settings.AUTH_SETTINGS
 
         This methods return:
         {
-            "process_settings": "SOGO_JWT_SECRET"
+            "process_settings": ()"SOGO_JWT_SECRET", "secret")
         }
         """
 
@@ -49,7 +54,7 @@ class Voucher(metaclass=ABCMeta):
         """
 
     @abstractmethod
-    def read_voucher(self, voucher_data: Any) -> dict:
+    def read_voucher(self, voucher_data: Any) -> dict|None:
         """
         Get the payload from the voucher
         """

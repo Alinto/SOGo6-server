@@ -1,12 +1,12 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
-from importlib import import_module
 
 from app.utils.logger.logger import logger
 from app.utils.exceptions import AggravatedException
 from app.utils.module.importManager import import_and_instantiate_manager
 from app.config.db.tables import ALL_TABLES
+from app.manager.cache.ClientRedis import ClientRedis
 
 if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
@@ -31,11 +31,24 @@ class ModuleInitSogo:
         self.first_init: bool  = True
         self.errors: list[str] = []
 
-    def check_redis(self) -> None:
+    def check_redis(self) -> ClientRedis:
         """
         Check sogo can reach the reddis cache
         """
-        pass
+        redis_conf = self.process_settings.get_redis_settings()
+        cache_client = ClientRedis(**redis_conf)
+
+        # Test connectivity
+        cache_client.ping()
+
+        # Test writting, reading and deleting
+        cache_client.set("init", "simplestring", 60)
+        if ret:= cache_client.get("init", str) != "simplestring":
+            self.errors.append(f"Cache client did not raed the correct string {ret}")
+        cache_client.delete("init")
+
+        return cache_client
+
 
     def check_sogo_database(self) -> None:
         """

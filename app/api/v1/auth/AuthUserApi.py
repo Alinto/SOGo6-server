@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from flask import g, Response
 from flask.views import MethodView
@@ -17,7 +17,6 @@ if TYPE_CHECKING:
     from app.utils.api.pagin_sort_filter import FakePaginationParameters
 
 
-
 blp = Blueprint("ApiConfig", __name__, url_prefix="/auth")
 
 
@@ -28,9 +27,8 @@ def init_admin_config() -> None:
     """
     logger_api.debug("Calling before_request for ApiAdminConfig")
     process: ProcessSetting = g.process
-    system: dict = g.system
+    system_settings: dict = g.system_settings
     default_domain: dict = g.default_domain
-    system_settings = SystemSettingsObj(system["SYSTEM_SETTINGS"])
     interface_api = InterfaceAuthUser(process, system_settings, default_domain)
     g.inter = interface_api
 
@@ -55,6 +53,9 @@ class ApiAuthUserMode(MethodView):
 
 @blp.route("/login")
 class ApiAuthUserLogin(MethodView):
+    """
+    Action, plain login for user
+    """
 
     @blp.arguments(sch.AuthUserBasicPostShhema, error_status_code=400)
     @blp.response(200)
@@ -63,11 +64,14 @@ class ApiAuthUserLogin(MethodView):
         Action, Authenticate the user for plain mode
         """
         interface_api : InterfaceAuthUser = g.inter
-        return interface_api.get_dynamic_setting_structure()
+        return interface_api.plain_login(new_data)
 
 
 @blp.route("/callback/<string:domain>")
 class ApiAuthUserCallback(MethodView):
+    """
+    Action, is the callback for SSO
+    """
 
     @blp.response(200)
     def get(self, new_data:dict) -> ResponseReturnValue:
@@ -76,4 +80,4 @@ class ApiAuthUserCallback(MethodView):
         The query parameters 
         """
         interface_api : InterfaceAuthUser = g.inter
-        return interface_api.get_dynamic_setting_structure()
+        raise NotImplementedError("Not implemented yet")

@@ -14,6 +14,7 @@ from app.utils.db.Table import Column
 from app.utils.exceptions import AggravatedException, BugException, RequestException
 from app.utils.logger.logger import logger, logger_api
 from app.utils.module.importManager import import_and_instantiate_manager
+from app.utils.maths.sogo_hash import get_unique_token, HASH_SIZE_DOMAIN
 from app.utils import errors as err
 
 
@@ -148,7 +149,7 @@ class ModuleAdminConfig:
 
         if columns is not None:
             for column in columns:
-                if column not in tbl.TABLE_DOMAIN.columns:
+                if column.name not in tbl.TABLE_DOMAIN.columns_name:
                     raise BugException(f"Trying to query a column {column.name} that does not exist in {tbl.TABLE_DOMAIN.name}")
             column_tuple = tuple(col.name for col in columns)
         else:
@@ -191,13 +192,13 @@ class ModuleAdminConfig:
 
         if columns is not None:
             for column in columns:
-                if column not in tbl.TABLE_DOMAIN.columns:
+                if column.name not in tbl.TABLE_DOMAIN.columns_name:
                     raise BugException(f"Trying to query a column {column.name} that does not exist in {tbl.TABLE_DOMAIN.name}")
             column_tuple = tuple(col.name for col in columns)
         else:
             column_tuple = tuple(col.name for col in tbl.TABLE_DOMAIN.columns)
 
-        #Get the current system settings, purposely put a "true" condition to check if there is only 1 row.
+        #Get the domain setting, purposely put a "true" condition to check if there is only 1 row.
         cond_select = EqualCondition(param_name=tbl.COL_DOMAIN_NAME.name, param_value=domain_id)
         result = list(self.sogo_db_manager.select_from_table(table_name=tbl.TABLE_DOMAIN.name,
                                                column_tuple=column_tuple,
@@ -388,25 +389,40 @@ class ModuleAdminConfig:
         values_default.update(values_new)
         values = self._check_data(values_default, get_all_domain_schemas)
 
-        insert_values = [[domain_name, domain_description, domain_info, values, origins]]
-        colums = (tbl.COL_DOMAIN_NAME.name, tbl.COL_DOMAIN_DESCRIPTION.name, tbl.COL_DOMAIN_INFO.name, tbl.COL_DOMAIN_SETTINGS.name, tbl.COL_DOMAIN_ORIGIN.name)
+        value_hash = get_unique_token(HASH_SIZE_DOMAIN)
+
+        insert_values = [[value_hash, domain_name, domain_description, domain_info, values, origins]]
+        colums = (tbl.COL_HASH.name, tbl.COL_DOMAIN_NAME.name, tbl.COL_DOMAIN_DESCRIPTION.name, tbl.COL_DOMAIN_INFO.name, tbl.COL_DOMAIN_SETTINGS.name, tbl.COL_DOMAIN_ORIGIN.name)
 
         #Insert in column
-        row_updated = self.sogo_db_manager.insert_in_table(table_name=tbl.TABLE_DOMAIN.name,
+        try:
+            row_updated = self.sogo_db_manager.insert_in_table(table_name=tbl.TABLE_DOMAIN.name,
                                             column_tuple=colums,
                                             values_tuple=insert_values)
+        except BugException:
+            #Means there is a unique violation either for column domain_name
+            #(could happen if another request in anoter worker did it at the same time)
+            #Or the hash is already taken. Check the log to see which column has a problem.
+            #If hash, try to do it again with another token
+            value_hash = get_unique_token(HASH_SIZE_DOMAIN+1)
+            insert_values[0][0] = value_hash
+            row_updated = self.sogo_db_manager.insert_in_table(table_name=tbl.TABLE_DOMAIN.name,
+                                            column_tuple=colums,
+                                            values_tuple=insert_values)
+
         if row_updated != 1:
             #Only one row is supposed to be updated
             logger.error("Something went wrong when updating the system settings, rows updated: %s, should be 1", row_updated)
             raise BugException(f"Something went wrong when updating the system settings, rows updated: {row_updated}, should be 1", err.ERROR_TABLE_SYSTEM_NOT_UNIQUE)
 
         result = {
+            "hash": value_hash,
             "domain_name": domain_name,
             "domain_description": domain_description,
             "domain_info": domain_info,
             "settings": values,
             "origin": origins,
-        } 
+        }
 
         return err.ERROR_NO_ERRROR, result
 

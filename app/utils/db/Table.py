@@ -85,7 +85,7 @@ class Table:
             logger.error("Try to instantiate Table an unvalid name: %s", name)
 
         self.name   = name
-        self.columns = set(columns)
+        self.columns = columns
         self.columns_name = dict((col.name,col) for col in columns)
         if primary_keys:
             for key in primary_keys:

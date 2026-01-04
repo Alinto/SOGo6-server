@@ -18,7 +18,16 @@ USER_UID    = "uid"
 USER_PWD    = "password"
 USER_DOMAIN = "domain"
 USER_EMAIL  = "email"
+USER_SRC_ID = "source_id"
 USER_CN     = "cn"
+SESSION_KEY = "session_key"
+SESSION_LAST_SEEN = "last_activity"
+SESSION_SENSITIVE = "sensitive_data"
 
 JWT_ISS = "iss"
 JWT_EXP = "exp"
+
+#TTL
+TTL_1D = 86400
+TTL_1H =  3600
+TTL_5M =   300

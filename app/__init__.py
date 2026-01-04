@@ -1,4 +1,6 @@
-# -*- coding: utf-8 -*-
+from __future__ import annotations
+from typing import TYPE_CHECKING
+
 from json import loads, dumps
 from json.decoder import JSONDecodeError
 
@@ -7,11 +9,11 @@ from flask import Flask, request, g, Response, current_app
 from flask.typing import ResponseReturnValue
 from flask_smorest import Api, Blueprint
 from flask_cors import CORS
-from flask_wtf import CSRFProtect
 
 from marshmallow.exceptions import ValidationError
 
-from app.auth.User import User
+from app.auth.User import User, UserAnonymous
+from app.auth.service.VoucherUserService import VoucherUserService
 from app.config.settings.ProcessSetting import process_config
 from app.config.settings.SystemSettings import SystemSettingsObj
 from app.config.init_config import init_get_system_and_default_settings
@@ -23,7 +25,9 @@ from app.utils import constants as cs
 from app.api import all_apis
 
 
+
 __version__ = "6.0.0"
+
 
 def create_app(sogo_state: int) -> Flask:
     """
@@ -31,9 +35,6 @@ def create_app(sogo_state: int) -> Flask:
     """
     app = Flask(__name__)
     app.config.from_object(process_config)
-
-    # Don't work and do not set for dev env
-    # CSRFProtect(app)
 
     if not app.config.get("DO_SWAGGER"):
         app.config.pop("BASIC_OPENAPI_URL_PREFIX")
@@ -90,16 +91,31 @@ def register_before_request(base_blueprint: Blueprint, kind: str, sogo_state: in
         """
 
         auth_header = request.authorization
-        print(f"auth_header: {auth_header}")
-        user = None
+        user: User = UserAnonymous()
         if auth_header:
             if auth_header.type == 'bearer':
-                pass
+                user = VoucherUserService(process_config).generate_user_from_voucher(auth_header.token)
             elif auth_header.type == 'basic' and current_app.config[cs.ALLOW_AUTH_BASIC]:
                 pass
             else:
                 return create_api_base_response(error_code=err.ERROR_WRONG_AUTHORIZATION_TYPE), 400
         g.user = user
+        #TODO check login? with interval?
+        return None
+
+    @base_blueprint.before_request
+    def check_non_anonymous_endpoint() -> ResponseReturnValue | None:
+        """
+        Add the user instance, even if there is no user
+        """
+        anon_endpoints = {
+            "user.v1.ApiConfig.ApiAuthUserLogin", 
+            "user.v1.ApiConfig.ApiAuthUserMode",
+            "user.v1.ApiConfig.ApiAuthUserCallback",
+        }
+        if isinstance(g.user, UserAnonymous) and request.endpoint not in anon_endpoints:
+            return create_api_base_response(error_code=err.ERROR_AUTHENTICATED_ROUTE), 400
+        return None
 
     if sogo_state == cs.SOGO_NOT_INIT:
         if kind == cs.API_BASIC:
@@ -128,7 +144,7 @@ def register_before_request(base_blueprint: Blueprint, kind: str, sogo_state: in
                 g.process = process_config
             system_settings, default_domain_settings = init_get_system_and_default_settings()
             if 'system' not in g:
-                g.system = SystemSettingsObj(system_settings)
+                g.system_settings = system_settings
             if 'domain' not in g:
                 g.default_domain = default_domain_settings
 

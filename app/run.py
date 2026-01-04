@@ -1,21 +1,27 @@
+from __future__ import annotations
+from typing import TYPE_CHECKING
+
 import click
 from flask_compress import Compress
 from flask import request
 from flask.typing import ResponseReturnValue
-from flask_wtf.csrf import CSRFError
 
 
 from app import create_app, __version__
+from app.service import set_cache
 from app.config.init_config import init_sogo
 from app.utils import constants as cs
 from app.utils.logger.logger import logger
 
+if TYPE_CHECKING:
+    from app.manager.cache.ClientRedis import ClientRedis
 
 #Beware that all methods called here will be called twice because the auto-reloader is on
 #To see the correct behavior run:
 #poetry run start --no-debug
 
-sogo_state: int = init_sogo()
+sogo_state, cache = init_sogo()
+set_cache(cache)
 app = create_app(sogo_state)
 
 
@@ -39,11 +45,6 @@ def index() -> ResponseReturnValue:
             "swagger-admin": "not deployed"
         }
     return ret
-
-
-# @app.errorhandler(CSRFError)
-# def handle_csrf_error(e):
-#     return "Missing scrf", 400
 
 
 @click.command()

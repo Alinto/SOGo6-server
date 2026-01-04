@@ -19,11 +19,11 @@ class JWTVoucher(Voucher):
     """
 
     @staticmethod
-    def get_needed_parameters_to_instantiate() -> dict[str, str]:
+    def get_needed_parameters_to_instantiate() -> dict[str, tuple[str, str]]:
         """
         JWT token only needs a secret to encode and decode the payload
         """
-        return {"process_settings": "SOGO_P_VOUCHER_SECRET"}
+        return {"process_settings": ("SOGO_P_VOUCHER_SECRET", "secret")}
 
     def __init__(self, secret:str) -> None:
         super().__init__()

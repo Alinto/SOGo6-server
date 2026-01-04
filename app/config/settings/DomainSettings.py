@@ -356,7 +356,7 @@ class UserModuleSettings(SogoSchema):
     SOGO_D_FOLDER_DISABLE_SHARING          = fields.List(fields.String(), validate=validate.ContainsOnly(('mail', 'calendar', 'contact'))) #Disable or not folder sharing
     SOGO_D_FOLDER_DISABLE_SHARING_ANY_AUTH = fields.List(fields.String(), validate=validate.ContainsOnly(('mail', 'calendar', 'contact'))) #Disable or not folder sharing to any authenticated user from the domain
     
-    SOGO_D_AUTOCOMPLETION_MIN_LEN          = fields.Integer(load_default=2, dump_default=2, validate=validate.Range(min=2)) #Number of (chars needed - 1) to trigger the autocompletion search. At 2 it will trigger for the third char.
+    SOGO_D_AUTOCOMPLETION_MIN_LEN          = fields.Integer(load_default=3, dump_default=3, validate=validate.Range(min=2)) #Number of chars needed to trigger the autocompletion search. At 3 it will trigger for the third char.
                                                                                                                             #TODO make sure that the front wait for a bit before doing the search, like waiting for the user to have ending its typing
     #SOGO_D_API_MAX_REQUEST: max api request a user can make during SOGO_D_API_MAX_REQUEST_INTERVAL second. If limit is reach, it will be block for
     #SOGO_D_API_MAX_REQUEST_BLOCK_INTERVAL seconds. SOGO_D_API_MAX_REQUEST = 0 disable any checking.
@@ -462,7 +462,7 @@ class MailSettings(SogoSchema):
     SOGO_D_IMAP_SERVER = fields.String() #Hostname or ip of the imap server
     SOGO_D_IMAP_PORT = fields.Integer(load_default=143, dump_default=143, validate=validate.Range(min=1, max=65535))
     SOGO_D_IMAP_ENCRYPTION = fields.String(load_default="None", dump_default="None", validate=validate.OneOf(('None', 'TLS', 'SSL')))
-    SOGO_D_IMAP_AUTH_MECH =  fields.String(load_default="None", dump_default="None", validate=validate.OneOf(('None', 'plain', 'xoauth2')))
+    SOGO_D_IMAP_AUTH_MECH =  fields.String(load_default="login", dump_default="login", validate=validate.OneOf(('login', 'plain', 'xoauth2')))
     SOGO_D_SOFT_EMAIL_QUOTA = fields.Integer(load_default=1, dump_default=1, validate=validate.Range(min=0, max=1, min_inclusive=False)) #Multiplier to the true quota for the user
     SOGO_D_MAIL_PURGE_ALLOW     = fields.Boolean(load_default=True, dump_default=True) #Allow user to purger their folder (delete all before a date)
     SOGO_D_MAIL_PURGE_MIN_DATE  = fields.Integer(load_default=0, dump_default=0) #Minimum age in days that a user can purge their mail (0 means they can purge everything)
@@ -472,7 +472,7 @@ class MailSettings(SogoSchema):
     SOGO_D_SIEVE_SERVER = fields.String() #Hostname or ip of the sieve server
     SOGO_D_SIEVE_PORT = fields.Integer(load_default=4190 , dump_default=4190 , validate=validate.Range(min=1, max=65535))
     SOGO_D_SIEVE_ENCRYPTION = fields.String(load_default="None", dump_default="None", validate=validate.OneOf(('None', 'TLS', 'SSL')))
-    SOGO_D_SIEVE_AUTH_MECH =  fields.String(load_default="None", dump_default="None", validate=validate.OneOf(('None', 'plain', 'xoauth2')))
+    SOGO_D_SIEVE_AUTH_MECH =  fields.String(load_default="None", dump_default="None", validate=validate.OneOf(('plain', 'xoauth2')))
     SOGO_D_SIEVE_FOLDER_ENCODING = fields.String(load_default="utf-7", dump_default="utf-7", validate=validate.OneOf(('utf-7', 'utf-8')))
     SOGO_D_SIEVE_HEADER = fields.String() #Sieve script that will be set for each user sieve script at the top level
     SOGO_D_SIEVE_FOOTER = fields.String() #Sieve script that will be set for each user sieve script at the bottom level
@@ -499,17 +499,20 @@ class MailSettings(SogoSchema):
     SOGO_D_SMTP_ENCRYPTION = fields.String(load_default="None", dump_default="None", validate=validate.OneOf(('None', 'TLS', 'SSL')))
     SOGO_D_SMTP_AUTH_MECH =  fields.String(load_default="None", dump_default="None", validate=validate.OneOf(('None', 'plain', 'xoauth2')))
     SOGO_D_SMTP_MASTER_ENABLED = fields.Boolean(load_default=False, dump_default=False) #Use a master account for system message (notif, event) instead of using the user account
+    SOGO_D_SMTP_MASTER_FROM = fields.Email() #Custom from used for system message (password recovery for now)
     SOGO_D_SMTP_MASTER_LOGIN = fields.String()
     SOGO_D_SMTP_MASTER_PWD = fields.String()
     #Mailing -> Settings should be defined by the smtp server. But theyr are here to avoid making a smtp requets and reflect its rules.
     #SOGO_D_MAIL_MAX_SUBMISSION: max mail a user can send during SOGO_D_MAIL_MAX_SUBMISSION_INTERVAL second. If limit is reach, it will be block for
     #SOGO_D_MAIL_MAX_SUBMISSION_BLOCK_INTERVAl seconds. SOGO_D_MAIL_MAX_SUBMISSION = 0 disable any checking.
+    #USE ZADD and ZMEMORYRANGE in redis
     SOGO_D_MAIL_MAX_SUBMISSION                = fields.Integer(load_default=0, dump_default=0, validate=validate.Range(min=0))
     SOGO_D_MAIL_MAX_SUBMISSION_INTERVAL       = fields.Integer(load_default=30, dump_default=30, validate=validate.Range(min=10))
     SOGO_D_MAIL_MAX_SUBMISSION_BLOCK_INTERVAl = fields.Integer(load_default=300, dump_default=300, validate=validate.Range(min=5))
     #TODO: for this kind of case, add a param to define exempt uid? For exemple a ressource room that could send a lot of mail...
     SOGO_D_MAIL_MAX_RECIPIENT = fields.Integer(load_default=0, dump_default=0, validate=validate.Range(min=0)) #0 means no limit
-    SOGO_D_MAIL_SYSTEM_FROM = fields.Email() #Custom from used for system message (password recovery for now)
+    SOGO_D_MAIL_CHECK_FROM = fields.Boolean(load_default=False, dump_default=False) #Make sogo check that the from is one of the user's mail (default, aliases, identities...)
+
 
 class MailSettingsObj(SettingsObj):
     """
