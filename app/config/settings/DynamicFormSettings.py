@@ -228,9 +228,7 @@ def create_values_dict_for_settings(settings_schema: SogoSchema) -> dict:
     dynamic_fields = {}
 
     schema_fields = settings_schema.fields
-    for field_name in schema_fields:
-        field = schema_fields[field_name]
-
+    for field_name, field in schema_fields.items():
         #Get default value if any
         default = field.dump_default if not isinstance(field.dump_default, _Missing) else None
         dynamic_fields[field_name] = default

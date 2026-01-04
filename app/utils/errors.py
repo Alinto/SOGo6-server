@@ -5,11 +5,24 @@ ERROR_SOGO_INIT        = 1
 ERROR_SOGO_WRONG_STATE = 2
 ERROR_API_NOT_JSON     = 3
 ERROR_API_CONTENT_TYPE = 4
+ERROR_CACHE_NOT_REACHABLE = 5
+ERROR_CACHE_AUTH_FAILED = 6
+
+#CACHE
+ERROR_CACHE_DATA_NOT_JSON = 100
+ERROR_CACHE_TTL_BELOW_0 = 101
+ERROR_CACHE_RESPONSE_ERROR = 102
 
 #API
 ERROR_VALIDATION_ERROR = 300
 ERROR_DOMAIN_NAME_TAKEN = 301
 ERROR_DOMAIN_NAME_NOT_FOUND = 302
+
+#LOGIN
+ERROR_LOGIN_NO_DOMAIN = 200
+ERROR_LOGIN_DOMAIN_UNKNOWN = 201
+ERROR_WRONG_AUTHORIZATION_TYPE = 203
+ERROR_AUTHENTICATED_ROUTE = 204
 
 #Database
 ERROR_BUG_UNKNWON_TABLE = 400
@@ -21,6 +34,9 @@ ERROR_QUERY_DELETION_CONDITION = 404
 #
 ERROR_TABLE_SYSTEM_NOT_UNIQUE = 600
 
+#the bugs
+ERROR_VALIDITY_TIME_BELOW_0 = 10000
+
 ERROR_UNKOWN = 99999
 
 error_msg = {
@@ -29,6 +45,17 @@ error_msg = {
     ERROR_SOGO_WRONG_STATE: "Sogo is in an unknwon state and can't start",
     ERROR_API_NOT_JSON: "Request POST/PATCH/PUT data is not a json",
     ERROR_API_CONTENT_TYPE: "Request POST/PATCH/PUT Content-Type is not application/json",
+    ERROR_CACHE_NOT_REACHABLE: "The cache server cannot be reach",
+    ERROR_CACHE_AUTH_FAILED: "The cache server authentication failed",
+
+    ERROR_CACHE_DATA_NOT_JSON: "Data for cache server is not a json",
+    ERROR_CACHE_TTL_BELOW_0: "The TTL for storing data in cache in 0 or less",
+    ERROR_CACHE_RESPONSE_ERROR: "The cache return an error when executing a command",
+
+    ERROR_LOGIN_NO_DOMAIN: "Login has no domain, see SOGO_S_DOMAINLESS_LOGIN",
+    ERROR_LOGIN_DOMAIN_UNKNOWN: "Login has an unknown domain, see SOGO_S_REJECT_UNKNOWN_DOMAIN and SOGO_S_KNOWN_DOMAIN",
+    ERROR_WRONG_AUTHORIZATION_TYPE: "Header Authorization use an unknwon format or type",
+    ERROR_AUTHENTICATED_ROUTE: "Anon user try to access protected endpoint",
 
     ERROR_VALIDATION_ERROR: "Data given does not match the Marshmallow Schema",
     ERROR_DOMAIN_NAME_TAKEN: "Domain's name already taken",
@@ -41,6 +68,8 @@ error_msg = {
     ERROR_QUERY_DELETION_CONDITION: "Conditon to delete query is always true",
 
     ERROR_TABLE_SYSTEM_NOT_UNIQUE: "TABLE_SETTINGS is not unique as it shoul be",
+
+    ERROR_VALIDITY_TIME_BELOW_0: "Validity time given was below or eaqual to 0",
 
     ERROR_UNKOWN: "Error has not been defined",
 }

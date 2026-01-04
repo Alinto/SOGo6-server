@@ -55,3 +55,8 @@ Generate documentation
 ```bash
 npx antora antora-playbook-dev.yml
 ```
+
+Push documentation (with vpn)
+```
+rsync -avz /path/to/local root@192.168.69.247:/data2/sogo_doc
+```

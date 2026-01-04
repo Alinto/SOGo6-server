@@ -1,11 +1,11 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Any, Optional, Generator
+from typing import TYPE_CHECKING, Any, Generator
 
 import re
 from urllib.parse import quote_plus
 
 import psycopg
-from psycopg.errors import Error, OperationalError, DuplicateTable
+from psycopg.errors import Error, OperationalError, DuplicateTable, UniqueViolation
 from psycopg.sql import SQL, Literal, Placeholder, Identifier, Composed
 from psycopg.types.json import Jsonb
 
@@ -227,6 +227,8 @@ class ClientPostgreSQL(ClientSQL):
     def insert_in_table(self, table_name: str, column_tuple: tuple[str, ...], values_tuple: list[list[Any]]) -> int:
         """
         Insert one or more row into a table
+
+        raise BugException is a unique value contraint is trigger
         """
         ret = 0
         if self.db_conn and self.db_conn.closed:
@@ -262,6 +264,9 @@ class ClientPostgreSQL(ClientSQL):
                 else:
                     logger_sql.info("QUERY RESULT: inserted %s rows", all_record.rowcount)
                 ret = all_record.rowcount
+            except UniqueViolation as e:
+                logger_sql.error("Error (%s) when inserting table %s", type(e), e)
+                raise BugException("Unique Violation in database") from e
             except Error as e:
                 logger_sql.error("Error (%s) when inserting table %s", type(e), e)
             finally:
@@ -346,7 +351,7 @@ class ClientPostgreSQL(ClientSQL):
             offset = Literal(offset)
         )
 
-        logger_sql.info("QUERY COMMAND: %s",sql_query.as_string())
+        logger_sql.info("QUERY COMMAND 2: %s",sql_query.as_string())
 
         if self.db_conn is not None:
             try:
