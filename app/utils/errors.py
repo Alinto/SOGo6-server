@@ -1,75 +1,83 @@
+from http import HTTPStatus
+
+class E:
+    """
+    Class to represent a SOGo 6 API error.
+
+    A SOGo 6 API error has three attributes:
+    - a string code 'S' + 6 numbers
+    - a readable human message
+    - a http code status if needed (no every error means to has a http response)
+    """
+    _all_codes: set = set()
+
+    def __init__(self, c:str, m:str, h:int = HTTPStatus.INTERNAL_SERVER_ERROR):
+        """
+        Error representation of SOGo 6
+
+        h, the http code status is used to differentiate the same type of RequestException
+        that may needs to return a different code.
+
+        :param c: code of the error (S000001)
+        :type c: str
+        :param m: human message of this error
+        :type m: str
+        :param h: If relevant, http code status that should be return for this error, defaults to 500
+        :type h: int, optional
+        :raises ValueError: if code already taken or not conform
+        """
+        if c in self._all_codes:
+            raise ValueError(f"Error code {c} already set")
+        if len(c) != 7 or c[0] != 'S':
+            raise ValueError(f"Error code {c} not conform ('S' + 6 numbers)")
+        self._all_codes.add(c)
+        self.c = c
+        self.m = m
+        self.h = h
 
 #Start error
-ERROR_NO_ERRROR        = 0
-ERROR_SOGO_INIT        = 1
-ERROR_SOGO_WRONG_STATE = 2
-ERROR_API_NOT_JSON     = 3
-ERROR_API_CONTENT_TYPE = 4
-ERROR_CACHE_NOT_REACHABLE = 5
-ERROR_CACHE_AUTH_FAILED = 6
+ERROR_NO_ERRROR               = E("S000000", "No Error", HTTPStatus.OK)
+ERROR_SOGO_INIT               = E("S000001", "Sogo Has Not Been Configured Yet", HTTPStatus.PRECONDITION_FAILED)
+ERROR_SOGO_WRONG_STATE        = E("S000002", "Sogo Is In An Unknwon State And Can't Start", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_CACHE_NOT_REACHABLE     = E("S000005", "Cache Server Is Unreachable", HTTPStatus.PRECONDITION_FAILED)
+ERROR_CACHE_AUTH_FAILED       = E("S000006", "Cache Server Authentication Failed", HTTPStatus.PRECONDITION_FAILED)
+ERROR_TABLE_SYSTEM_NOT_UNIQUE = E("S000007", "Sogo Table For System Settings Is Not Unique", HTTPStatus.PRECONDITION_FAILED)
 
 #CACHE
-ERROR_CACHE_DATA_NOT_JSON = 100
-ERROR_CACHE_TTL_BELOW_0 = 101
-ERROR_CACHE_RESPONSE_ERROR = 102
+ERROR_CACHE_DATA_NOT_JSON  = E("S000100", "Cache Server Data Is Not A Json", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_CACHE_TTL_BELOW_0    = E("S000101", "Cache Server Data TTL Is Below 1", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_CACHE_RESPONSE_ERROR = E("S000102", "Cache Server Response Error", HTTPStatus.INTERNAL_SERVER_ERROR)
 
-#API
-ERROR_VALIDATION_ERROR = 300
-ERROR_DOMAIN_NAME_TAKEN = 301
-ERROR_DOMAIN_NAME_NOT_FOUND = 302
 
 #LOGIN
-ERROR_LOGIN_NO_DOMAIN = 200
-ERROR_LOGIN_DOMAIN_UNKNOWN = 201
-ERROR_WRONG_AUTHORIZATION_TYPE = 203
-ERROR_AUTHENTICATED_ROUTE = 204
+ERROR_LOGIN_NO_DOMAIN          = E("S000200", "Login Is Domainless. See SOGO_S_DOMAINLESS_LOGIN", HTTPStatus.BAD_REQUEST)
+ERROR_LOGIN_DOMAIN_UNKNOWN     = E("S000201", "Login With Unknown Domain. See SOGO_S_REJECT_UNKNOWN_DOMAIN and SOGO_S_KNOWN_DOMAIN", HTTPStatus.BAD_REQUEST)
+ERROR_WRONG_AUTHORIZATION_TYPE = E("S000202", "Header Authorization Incorrect Format", HTTPStatus.UNAUTHORIZED)
+ERROR_AUTHENTICATED_ROUTE      = E("S000203", "Anonymous User On Protected Endpoint", HTTPStatus.UNAUTHORIZED)
+ERROR_API_NOT_JSON             = E("S000204", "Request POST/PATCH/PUT Body Is Not A Json", HTTPStatus.BAD_REQUEST)
+ERROR_API_CONTENT_TYPE         = E("S000205", "Request POST/PATCH/PUT Content-Type Is Not 'application/json'", HTTPStatus.BAD_REQUEST)
+ERROR_VALIDITY_TIME_BELOW_0    = E("S000206", "Voucher Validity Time Below 0", HTTPStatus.INTERNAL_SERVER_ERROR)
+
+
+#API
+ERROR_VALIDATION_ERROR      = E("S000300", "Request Data Incorrect Format", HTTPStatus.BAD_REQUEST)
+ERROR_DOMAIN_NAME_TAKEN     = E("S000301", "Domain's Name Already Taken", HTTPStatus.BAD_REQUEST)
+ERROR_DOMAIN_NAME_NOT_FOUND = E("S000302", "Domain's Name Not Found", HTTPStatus.NOT_FOUND)
+
+ERROR_MAIL_UID_NOT_FOUND    = E("S000303", "Mail's UID Not Found", HTTPStatus.NOT_FOUND)
+ERROR_FOLDER_NAME_NOT_FOUND = E("S000304", "Folder's Name Not Found", HTTPStatus.NOT_FOUND)
+
+ERROR_IMAP_UNAUTHORIZED      = E("S000310", "IMAP Unauthorized - Invalid Credentials Or Insufficient Permissions", HTTPStatus.UNAUTHORIZED)
+ERROR_IMAP_CONNECTION_FAILED = E("S000311", "IMAP connection failed", HTTPStatus.SERVICE_UNAVAILABLE)
+ERROR_MAILBOX_NOT_FOUND      = E("S000312", "Mailbox Not Found", HTTPStatus.NOT_FOUND)
+ERRRIR_MAIL_DELETION         = E("S000313", "Mail Deletion Error", HTTPStatus.BAD_REQUEST)
 
 #Database
-ERROR_BUG_UNKNWON_TABLE = 400
-ERROR_BUG_UNKNWON_COLUMN = 401
-ERROR_BUG_UNKNWON_ORDER = 402
-ERROR_QUERY_DELETION_ROWS = 403
-ERROR_QUERY_DELETION_CONDITION = 404
-
-#
-ERROR_TABLE_SYSTEM_NOT_UNIQUE = 600
+ERROR_BUG_UNKNWON_TABLE        = E("S000400", "Database Unknown Table", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_BUG_UNKNWON_COLUMN       = E("S000401", "Database Unknown Column", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_BUG_UNKNWON_ORDER        = E("S000402", "Database Unknown Order Name", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_QUERY_DELETION_ROWS      = E("S000403", "Database Deletion Query Is Unexpected", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_QUERY_DELETION_CONDITION = E("S000404", "Database Deletion Query Delete Everything", HTTPStatus.INTERNAL_SERVER_ERROR)
 
 #the bugs
-ERROR_VALIDITY_TIME_BELOW_0 = 10000
-
-ERROR_UNKOWN = 99999
-
-error_msg = {
-    ERROR_NO_ERRROR: "",
-    ERROR_SOGO_INIT: "Sogo is not initiated",
-    ERROR_SOGO_WRONG_STATE: "Sogo is in an unknwon state and can't start",
-    ERROR_API_NOT_JSON: "Request POST/PATCH/PUT data is not a json",
-    ERROR_API_CONTENT_TYPE: "Request POST/PATCH/PUT Content-Type is not application/json",
-    ERROR_CACHE_NOT_REACHABLE: "The cache server cannot be reach",
-    ERROR_CACHE_AUTH_FAILED: "The cache server authentication failed",
-
-    ERROR_CACHE_DATA_NOT_JSON: "Data for cache server is not a json",
-    ERROR_CACHE_TTL_BELOW_0: "The TTL for storing data in cache in 0 or less",
-    ERROR_CACHE_RESPONSE_ERROR: "The cache return an error when executing a command",
-
-    ERROR_LOGIN_NO_DOMAIN: "Login has no domain, see SOGO_S_DOMAINLESS_LOGIN",
-    ERROR_LOGIN_DOMAIN_UNKNOWN: "Login has an unknown domain, see SOGO_S_REJECT_UNKNOWN_DOMAIN and SOGO_S_KNOWN_DOMAIN",
-    ERROR_WRONG_AUTHORIZATION_TYPE: "Header Authorization use an unknwon format or type",
-    ERROR_AUTHENTICATED_ROUTE: "Anon user try to access protected endpoint",
-
-    ERROR_VALIDATION_ERROR: "Data given does not match the Marshmallow Schema",
-    ERROR_DOMAIN_NAME_TAKEN: "Domain's name already taken",
-    ERROR_DOMAIN_NAME_NOT_FOUND: "Domain name not found in database",
-
-    ERROR_BUG_UNKNWON_TABLE: "Trying to interact with an unkwnon table",
-    ERROR_BUG_UNKNWON_COLUMN: "Trying to interact with an unkwnon column",
-    ERROR_BUG_UNKNWON_ORDER: "Trying to order in a unknown order",
-    ERROR_QUERY_DELETION_ROWS: "Conditon to delete query affect more or less rows than expected",
-    ERROR_QUERY_DELETION_CONDITION: "Conditon to delete query is always true",
-
-    ERROR_TABLE_SYSTEM_NOT_UNIQUE: "TABLE_SETTINGS is not unique as it shoul be",
-
-    ERROR_VALIDITY_TIME_BELOW_0: "Validity time given was below or eaqual to 0",
-
-    ERROR_UNKOWN: "Error has not been defined",
-}
+ERROR_UNKOWN = E("S999999", "Undefined Error", HTTPStatus.INTERNAL_SERVER_ERROR)

@@ -31,3 +31,16 @@ JWT_EXP = "exp"
 TTL_1D = 86400
 TTL_1H =  3600
 TTL_5M =   300
+
+# SOGo ACL Rights - Field names for rights dictionaries
+USERCANVIEWFOLDER = "userCanViewFolder"
+USERCANREADMAILS = "userCanReadMails"
+USERCANMARKMAILSREAD = "userCanMarkMailsRead"
+USERCANINSERTMAILS = "userCanInsertMails"
+USERCANPOSTMAILS = "userCanPostMails"
+USERCANCREATESUBFOLDERS = "userCanCreateSubfolders"
+USERCANREMOVEFOLDER = "userCanRemoveFolder"
+USERCANERASEMAILS = "userCanEraseMails"
+USERCANEXPUNGEFOLDER = "userCanExpungeFolder"
+USERCANWRITEMAILS = "userCanWriteMails"
+USERCANADMINISTRATOR = "userIsAdministrator"

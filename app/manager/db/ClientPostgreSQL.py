@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Any, Generator
+from typing import Any, Generator
 
 import re
 from urllib.parse import quote_plus

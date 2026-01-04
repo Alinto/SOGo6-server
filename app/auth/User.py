@@ -1,6 +1,4 @@
 from __future__ import annotations
-from typing import TypeVar
-from abc import ABCMeta, abstractmethod
 
 from app.utils.strings import get_domain_from_mail
 from app.utils import constants as cs
@@ -62,6 +60,7 @@ class User:
         #Those will be set after the login is checked
         self.mail: str = ""  #Don't assume that mail = uid or mail = uid + domain. Uid can be anything.
         self.source_id: str = "" #Set to avoid checking several user sources in the future for this user.
+        self.prefs: dict = {}
 
     def get_user_session(self) -> dict:
         """
@@ -96,7 +95,7 @@ class User:
         }
 
         return ret
-    
+
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(uid='{self.uid},cn='{self.cn}',email='{self.mail}',auth='{self.authenticated}')"
 

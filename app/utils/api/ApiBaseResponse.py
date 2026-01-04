@@ -2,7 +2,7 @@ from typing import Any
 
 from marshmallow import Schema, fields
 
-from app.utils.errors import error_msg
+from app.utils.errors import E, ERROR_NO_ERRROR
 from app.utils.exceptions import BugException
 
 class ApiBaseResponse(Schema):
@@ -13,14 +13,14 @@ class ApiBaseResponse(Schema):
     error_msg = fields.String(required=True)
     error_code = fields.Integer(required=True)
 
-def create_api_base_response(data: Any|None = None, error_code: int = 0) -> dict:
+def create_api_base_response(data: Any|None = None, error: E = ERROR_NO_ERRROR) -> dict:
     """
     Create the common API response.
 
     {
         "data": data,
         "error_code": error_code,
-        "error_msg": error_msg[error_code]
+        "error_msg": error_msg
     }
 
     :param data: actual response for the endpoint
@@ -31,10 +31,8 @@ def create_api_base_response(data: Any|None = None, error_code: int = 0) -> dict
     :return: the common response
     :rtype: dict
     """
-    if error_code not in error_msg:
-        raise BugException(f"Unknown error code use: {error_code}")
     return {
         "data": data,
-        "error_code": error_code,
-        "error_msg": error_msg[error_code]
+        "error_code": error.c,
+        "error_msg": error.m
     }

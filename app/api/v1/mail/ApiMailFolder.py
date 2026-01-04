@@ -1,226 +1,263 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
-from flask import request, g, jsonify
+from flask import g
 from flask.views import MethodView
 from flask.typing import ResponseReturnValue
 from flask_smorest import Blueprint
+from marshmallow import Schema
 
 from app.interface.mail.InterfaceApiMailFolder import InterfaceApiMailFolder
 from app.utils.logger.logger import logger_api
-from .schemas.mailDelete import MailDeleteSchema
-from .schemas.mailMove import MailMoveSchema
-from .schemas.mailList import MailMessageListResponseSchema
-#from .schemas.folderCreate import FolderCreateSchema
-
+from .schemas.folder import (
+    FolderCreateSchema,
+    FolderUpdateSchema,
+    FolderPurgeSchema,
+    FolderShareSchema,
+    FolderListResponseSchema,
+    FolderCreateResponseSchema,
+    FolderDetailsResponseSchema,
+    FolderUpdateResponseSchema,
+    FolderExpungeResponseSchema,
+    FolderPurgeResponseSchema,
+    FolderShareResponseSchema,
+)
 
 if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
 
-blp = Blueprint("ApiMailFolder", __name__, url_prefix="/account")
+blp = Blueprint("ApiMailFolder", __name__, url_prefix="/mailboxes/<int:account_id>/folders")
+
+class EmptySchema(Schema):
+    """Empty schema for requests without body"""
+
 
 @blp.before_request
 def init_mail_config() -> None:
     """
     Initialize the mail interface and any other required configuration for the request.
+
+    Provide user_conf as either a single dict or a list of dicts (accounts).
+    Here we provide a list: index 0 = primary, index 1 = secondary.
     """
     logger_api.debug("Calling before_request for ApiMailFolder")
     process: ProcessSetting = g.process
-    interface_api = InterfaceApiMailFolder()
+
+    user_conf_test = [
+        {
+            "username": "tkeriven@snapshot.alinto.org",
+            "password": "Banane2!",
+            "type": "imap",
+            "server": "192.168.69.31",
+            "port": 10143,
+            #"auth_mech": "plain" #TODO: revoir ça
+        },
+        {
+            "username": "tkeriven3@snapshot.alinto.org",
+            "password": "Banane01!",
+            "type": "imap",
+            "server": "192.168.69.31",
+            "port": 10143
+        }
+        # garder que usernamet et pw, et le reste je le choppe dans register_before_request dans g default domain
+    ]
+    interface_api = InterfaceApiMailFolder(
+        process_setting=process,
+        user_conf=user_conf_test,
+    )
     g.inter = interface_api
 
-@blp.route("/<int:account_id>/folder/<folder_id>")
+
+@blp.route("")
+class ApiMailAccount(MethodView):
+    """
+    Ressource: API to manage mail folders for a given account.
+    """
+
+    @blp.response(200, FolderListResponseSchema, example=FolderListResponseSchema.example())
+    def get(self, account_id: int) -> ResponseReturnValue:
+        """
+        Get the list of mail folders for a given account
+
+        :param account_id: The account identifier (0 = primary, 1 = secondary).
+        :type account_id: int
+        :return: ApiBaseResponse with folder list
+        :rtype: ResponseReturnValue
+        """
+        logger_api.debug("Calling ApiMailAccount: Fetching folder list for account_id: %s", account_id)
+        interface: InterfaceApiMailFolder = g.inter
+        return interface.get_folder_list(account_id)
+
+
+    @blp.arguments(FolderCreateSchema, example=FolderCreateSchema.example())
+    @blp.response(201, FolderCreateResponseSchema, example=FolderCreateResponseSchema.example())
+    def post(self, folder_data: dict, account_id: int) -> ResponseReturnValue:
+        """
+        Create a new mail folder for a given account
+
+        :param folder_data: The folder data containing the name.
+        :type folder_data: dict
+        :param account_id: The account identifier (0 = primary, 1 = secondary).
+        :type account_id: int
+        :return: ApiBaseResponse with created folder info
+        :rtype: ResponseReturnValue
+        """
+        logger_api.debug("Calling ApiMailAccount: Creating folder for account_id: %s with data: %s", account_id, folder_data)
+        interface: InterfaceApiMailFolder = g.inter
+        return interface.create_folder(account_id, folder_data["name"])
+
+
+@blp.route("/<path:folder_name>")
 class ApiMailFolderId(MethodView):
     """
     API to manage a specific mail folder.
     """
 
     @blp.response(204)
-    def delete(self, account_id: int, folder_id: str) -> ResponseReturnValue:
-        """
-        Delete a specific mail folder for a given account.
+    def delete(self, account_id: int, folder_name: str) -> ResponseReturnValue:
+        """Delete a specific mail folder.
 
-        :param account_id: The account identifier.
+        :param account_id: The ID of the account
         :type account_id: int
-        :param folder_id: The folder identifier.
-        :type folder_id: str
-        :return: Empty response with 204 status code.
+        :param folder_name: The ID of the folder to delete
+        :type folder_name: str
+        :return: A response indicating the result of the deletion
         :rtype: ResponseReturnValue
         """
-        logger_api.debug("Calling ApiMailFolderId: Deleting folder for account_id: %s, folder_id: %s", account_id, folder_id)
+        logger_api.debug("Calling ApiMailFolderId: Deleting folder for account_id: %s, folder_name: %s", account_id, folder_name)
         interface: InterfaceApiMailFolder = g.inter
-        return interface.delete_folder(account_id, folder_id)
+        return interface.delete_folder(account_id, folder_name)
 
-
-@blp.route("/<int:account_id>/folder/<folder_id>/mail")
-class ApiMailFolderIdMail(MethodView):
-    """
-    API to list mails and to delete mails (mark as deleted) in a specific mail folder
-    """
-
-    @blp.response(200, MailMessageListResponseSchema)
-    def get(self, account_id: int, folder_id: str) -> ResponseReturnValue:
-        """
-        Retrieve the list of mails in a given folder.
-
-        :param account_id: The account identifier.
+    @blp.arguments(FolderUpdateSchema, example=FolderUpdateSchema.example())
+    @blp.response(200, FolderUpdateResponseSchema, example=FolderUpdateResponseSchema.example())
+    def patch(self, folder_data: dict, account_id: int, folder_name: str) -> ResponseReturnValue:
+        """Update name, type (junk, template...) and subscription status of a specific mail folder.
+        
+        :param folder_data: The folder update data (name, subscribed, type).
+        :type folder_data: dict
+        :param account_id: The account identifier
         :type account_id: int
-        :param folder_id: The folder identifier.
-        :type folder_id: str
-        :return: List of mails with parsed headers and attachment info.
+        :param folder_name: The current name of the folder
+        :type folder_name: str
+        :return: ApiBaseResponse with updated folder info
         :rtype: ResponseReturnValue
-        :raises RequestException: If the folder cannot be found or mails cannot be retrieved.
-        Query params:
-            page: int (default: 1)
-            per_page: int (default: 20)
         """
-        logger_api.debug("Calling ApiMailFolderIdMail: Fetching mail list for account_id: %s, folder_id: %s", account_id, folder_id)
-        page = int(request.args.get("page", 1))
-        per_page = int(request.args.get("per_page", 20))
+        logger_api.debug("Calling ApiMailFolderId.patch for account_id: %s, folder_name: %s with data: %s", account_id, folder_name, folder_data)
         interface: InterfaceApiMailFolder = g.inter
-        return interface.get_mail_list(account_id, folder_id, page=page, per_page=per_page)
+        return interface.update_folder(account_id, folder_name, folder_data)
 
-    @blp.arguments(MailDeleteSchema)
-    @blp.response(200)
-    def delete(self, mail_data: dict, account_id: int, folder_id: str) -> ResponseReturnValue:
+    @blp.response(200, FolderDetailsResponseSchema, example=FolderDetailsResponseSchema.example())
+    def get(self, account_id: int, folder_name: str) -> ResponseReturnValue:
+        """Retrieve details of a specific mail folder.
         """
-        Delete multiple mails from a folder.
-
-        :param mail_data: The mail data containing the list of mail IDs to delete.
-        :type mail_data: dict
-        :param account_id: The account identifier.
-        :type account_id: int
-        :param folder_id: The folder identifier.
-        :type folder_id: str
-        :return: JSON with lists of deleted and failed mail IDs.
-        :rtype: ResponseReturnValue
-        :raises RequestException: If the folder cannot be found or mails cannot be deleted.
-
-        Request body: { "mail_ids": [1, 2, 3] }
-        """
-        logger_api.debug("Calling ApiMailFolderIdMail: Deleting mails for account_id: %s, folder_id: %s, mail_ids: %s", account_id, folder_id, mail_data.get("mail_ids"))
-        interface = g.inter  # type: InterfaceApiMailFolder
-        result = interface.delete_mails(account_id, folder_id, mail_data["mail_ids"])
-        if not result.get("success"):
-            return jsonify({"error": result.get("error", "Failed to delete mails")}), 400
-        return jsonify({
-            "deleted": result.get("deleted_ids", []),
-            "failed": result.get("failed_ids", []),
-        })
-
-
-@blp.route("/<int:account_id>/folder/<folder_id>/mail/all")
-class ApiMailFolderIdMailAll(MethodView):
-    """
-    API to list mails and to delete mails (mark as deleted) in a specific mail folder
-    """
-    def delete(self, account_id: int, folder_id: str) -> ResponseReturnValue:
-        """
-        Mark as deleted all mails in folder before a given date.
-
-        Query param:
-            before: date string (YYYY-MM-DD)
-
-        Returns:
-            JSON with success or error.
-        """
-        before_date = request.args.get("before")
-        logger_api.debug("Calling ApiMailFolderIdMailAll: Deleting all mails before %s, for account_id: %s, folder_id: %s", before_date, account_id, folder_id)
+        logger_api.debug("Calling ApiMailFolderId.get for account_id: %s, folder_name: %s", account_id, folder_name)
         interface: InterfaceApiMailFolder = g.inter
-        return interface.delete_all_mail_in_folder(account_id, folder_id, before_date)
+        return interface.get_folder_details(account_id, folder_name)
 
 
 
-@blp.route("/<int:account_id>/folder/<folder_id>/mail/move")
-class ApiMailBulkMove(MethodView):
-    """
-    API to move multiple mails to another folder.
-    """
-
-    @blp.arguments(MailMoveSchema)
-    @blp.response(200)
-    def post(self, move_data: dict, account_id: int, folder_id: str) -> ResponseReturnValue:
-        """
-        Move multiple mails from a folder to another folder.
-
-        :param account_id: The account identifier.
-        :type account_id: int
-        :param folder_id: The source folder identifier.
-        :type folder_id: str
-        :param move_data: The mail move data containing the list of mail IDs and target folder ID.
-        :type move_data: dict
-        :return: JSON with lists of moved and failed mail IDs.
-        :rtype: ResponseReturnValue
-        :raises RequestException: If the folder cannot be found or mails cannot be moved.
-
-        Request body: { "mail_ids": [1,2,3], "to_folder_id": "TargetFolder" }
-        """
-        interface = g.inter  # type: InterfaceApiMailFolder
-        return interface.move_mails(account_id, folder_id, move_data["mail_ids"], move_data["to_folder_id"])
-
-
-@blp.route("/<int:account_id>/folder/<folder_id>/expunge")
+@blp.route("/<path:folder_name>/expunge")
 class ApiMailFolderIdExpunge(MethodView):
+    """API to expunge all mails in a specific folder.
     """
-    API endpoint to expunge mails marked as deleted from a folder.
-    """
+    @blp.response(200, FolderExpungeResponseSchema, example=FolderExpungeResponseSchema.example())
+    def post(self, account_id: int, folder_name: str) -> ResponseReturnValue:
+        """Action: Expunge (compact) all mails in the specified folder.
 
-    @blp.response(204)
-    def delete(self, account_id: int, folder_id: str) -> ResponseReturnValue:
-        """
-        Expunge mails marked as deleted from the specified folder.
+        Action: permanently remove deleted mails from the mailbox.
+        Returns the number of mails that were permanently deleted.
 
-        :param account_id: The account identifier.
+        :param account_id: The ID of the account
         :type account_id: int
-        :param folder_id: The folder name.
-        :type folder_id: str
-        :return: Success or error message.
+        :param folder_name: The ID of the folder
+        :type folder_name: str
+        :return: ApiBaseResponse with mail_deleted count
+        :rtype: ResponseReturnValue
         """
-        logger_api.debug("Calling ApiMailFolderIdExpunge: Expunging folder for account_id: %s, folder_id: %s", account_id, folder_id)
+        logger_api.debug("Calling ApiMailFolderIdExpunge: Expunging folder for account_id: %s, folder_name: %s", account_id, folder_name)
         interface: InterfaceApiMailFolder = g.inter
-        return interface.expunge_folder(account_id, folder_id)
+        return interface.expunge_folder(account_id, folder_name)
 
 
-#@blp.route("/<int:account_id>/folder/<folder_id>/subfolder")
-#class ApiMailSubfolderCreate(MethodView):
-#    """
-#    API endpoint to create a new subfolder in a given folder.
-#    """
-#
-#    @blp.arguments(FolderCreateSchema)
-#    def post(self, folder_data: dict, account_id: int, folder_id: str) -> ResponseReturnValue:
-#        """
-#        Create a new subfolder in the specified folder.
-#
-#        Request body: { "name": "NewSubFolder" }
-#        """
-#        interface: InterfaceApiMailFolder = g.inter
-#        return interface.create_subfolder(account_id, folder_id, folder_data["name"])
+@blp.route("/<path:folder_name>/purge")
+class ApiMailFolderIdPurge(MethodView):
+    """API to purge all mails in a specific folder older than a given date.
+    """
+    @blp.arguments(FolderPurgeSchema, example=FolderPurgeSchema.example())
+    @blp.response(200, FolderPurgeResponseSchema, example=FolderPurgeResponseSchema.example())
+    def post(self, purge_data: dict, account_id: int, folder_name: str) -> ResponseReturnValue:
+        """Action: Purge all mails in the specified folder.
+        
+        Mark mails as deleted (optionally before a specific date).
+        If permanentlyDelete is True, also expunge the folder to permanently remove deleted mails.
+        
+        :param purge_data: The purge configuration (applyToSubfolders, permanentlyDelete, date)
+        :type purge_data: dict
+        :param account_id: The ID of the account
+        :type account_id: int
+        :param folder_name: The ID of the folder
+        :type folder_name: str
+        :return: A response indicating the result of the purge operation
+        :rtype: ResponseReturnValue
+        """
+        logger_api.debug("Calling ApiMailFolderIdPurge.post for account_id: %s, folder_name: %s with data: %s",
+                        account_id, folder_name, purge_data)
+        interface: InterfaceApiMailFolder = g.inter
+        return interface.purge_folder_mails(account_id, folder_name, purge_data)
+
+
+@blp.route("/<path:folder_name>/export")
+class ApiMailFolderIdExport(MethodView):
+    """API to export all mails in a specific folder. 
+    """
+    def post(self, account_id: int, folder_name: str) -> ResponseReturnValue:
+        """Action: Export all mails in the specified folder. (NOT IMPLEMENTED)
+        """
+        logger_api.debug("Calling ApiMailFolderIdExport.post for account_id: %s, folder_name: %s", account_id, folder_name)
+        interface: InterfaceApiMailFolder = g.inter
+        return interface.export_folder_mails(account_id, folder_name)
 
 
 
-#     @blp.arguments(MailDetailSchema)    #renvoie un 422 UNPROCESSABLE ENTITY au lieu d'un 400 BAD REQUEST???
-#     @blp.response(201, MailDetailSchema())
-#     def post(self, mail_data: dict, account_id: int, folder_id: str) -> ResponseReturnValue:
-#         """
-#         Add a new mail to the specified folder.
+@blp.route("/<path:folder_name>/share")
+class ApiMailFolderIdShare(MethodView):
+    """API to share a specific mail folder.
+    """
+    @blp.response(200, FolderShareResponseSchema, example=FolderShareResponseSchema.example())
+    def get(self, account_id: int, folder_name: str) -> ResponseReturnValue:    #TODO: pagination?
+        """Get share information for the specified folder.
+        
+        Returns the list of users who have access to this folder and their permissions.
+        
+        :param account_id: The ID of the account
+        :type account_id: int
+        :param folder_name: The ID of the folder
+        :type folder_name: str
+        :return: ApiBaseResponse with share information
+        :rtype: ResponseReturnValue
+        """
+        logger_api.debug("Calling ApiMailFolderIdShare.get for account_id: %s, folder_name: %s", account_id, folder_name)
+        interface: InterfaceApiMailFolder = g.inter
+        return interface.get_folder_share(account_id, folder_name)
 
-#         The incoming JSON is validated against MailDetailSchema. If the folder does not
-#         exist, a 404 error is returned. The mail is not actually stored (database not ready).
-
-#         :param mail_data: The mail data to be added, validated by MailDetailSchema.
-#         :type mail_data: dict
-#         :param account_id: The account identifier.
-#         :type account_id: int
-#         :param folder_id: The id of the folder to add the mail to.
-#         :type folder_id: str
-#         :return: The added mail data.
-#         :rtype: ResponseReturnValue
-#         :raises RequestException: If the folder cannot be found.
-#         """
-#         interface: InterfaceApiMailFolder = g.inter
-#         try:
-#             return interface.add_mail_in_folder(account_id, folder_id, mail_data)
-#         except RequestException as e:
-#             abort(404, message=str(e))
-#             return {}
+    @blp.arguments(FolderShareSchema(many=True), example=FolderShareSchema.example(), error_status_code=400) #type: ignore [arg-type]
+    @blp.response(200, FolderShareResponseSchema, example=FolderShareResponseSchema.example())
+    def post(self, share_data: list, account_id: int, folder_name: str) -> ResponseReturnValue:
+        """Action: Share the specified folder with another user.
+        
+        Sets ACL permissions on the folder for the specified users.
+        The request body should be a list of user objects with their rights.
+        
+        :param share_data: List of users with their rights configuration
+        :type share_data: list
+        :param account_id: The ID of the account
+        :type account_id: int
+        :param folder_name: The ID of the folder
+        :type folder_name: str
+        :return: ApiBaseResponse with share result
+        :rtype: ResponseReturnValue
+        """
+        logger_api.debug("Calling ApiMailFolderIdShare.post for account_id: %s, folder_name: %s with data: %s", 
+                        account_id, folder_name, share_data)
+        interface: InterfaceApiMailFolder = g.inter
+        return interface.share_folder(account_id, folder_name, share_data)

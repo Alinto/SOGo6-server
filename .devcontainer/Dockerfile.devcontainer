@@ -50,7 +50,7 @@ RUN echo "Install poetry and the project"
 RUN curl -sSL https://install.python-poetry.org | python3 -
 ENV PATH="/home/${USERNAME}/.local/bin:$PATH"
 RUN sudo rm -rf .poetry
-RUN poetry lock && poetry install
+RUN poetry install
 
 # RUN echo "install antora"
 # RUN node -e "fs.writeFileSync('package.json', '{}')"
