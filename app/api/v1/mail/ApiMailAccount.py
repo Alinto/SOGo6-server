@@ -6,6 +6,7 @@ from flask.views import MethodView
 from flask.typing import ResponseReturnValue
 from flask_smorest import Blueprint, abort
 
+from app.service import sogo_cache
 from app.interface.mail.InterfaceApiMailAccount import InterfaceApiMailAccount
 from app.utils.logger.logger import logger_api
 
@@ -28,6 +29,7 @@ def init_mail_config() -> None:
     domain_settings: dict = g.default_domain
     interface_api = InterfaceApiMailAccount(process_setting=process)
     g.inter = interface_api
+    sogo_cache().get("test", str)
 
 @blp.route("/<int:account_id>/folder")
 class ApiMailAccount(MethodView):

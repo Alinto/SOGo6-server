@@ -5,10 +5,10 @@ Defines all system settings.
 Settings that defines the whole application behaviour but are not needed to start the webserver
 """
 from typing import Type
-from marshmallow import Schema, fields, validate, validates_schema, ValidationError
+from marshmallow import fields
 
 from app.config.settings.SogoSchema import SogoSchema
-
+from app.utils.config.generateObjFromSchema import SettingsObj
 
 def get_all_system_schemas() -> list[Type[SogoSchema]]:
     """
@@ -41,3 +41,18 @@ class SystemSettings(SogoSchema):
 
     #Paths
     SOGO_S_MAILSPOOL_PATH = fields.String(load_default="/var/spool/sogo", dump_default="/var/spool/sogo") #Path where temp draft messages are stored
+
+
+
+class SystemSettingsObj(SettingsObj):
+    """
+    Obj with the fields of schema SystemSettings as attributes with the proper type
+    """
+
+    SOGO_S_DO_DOMAIN: bool = False
+    SOGO_S_KNOWN_DOMAIN: list[str] = []
+    SOGO_S_REJECT_UNKNOWN_DOMAIN: bool = False
+    SOGO_S_DOMAINLESS_LOGIN: bool = False
+    SOGO_S_SENDMAIL: str = "/usr/lib/sendmail"
+    SOGO_S_MAILSPOOL_PATH: str = "/var/spool/sogo"
+

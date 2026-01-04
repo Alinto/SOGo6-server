@@ -1,12 +1,12 @@
 from __future__ import annotations
-from typing import Any
+from typing import Any, Type
 
 from importlib import import_module
 
 from app.utils.logger.logger import logger
 from app.utils.exceptions import AggravatedException
 
-def import_and_instantiate_manager(module_path: str, module_and_class_name: str, module_args: dict) -> Any:
+def import_and_get_class(module_path: str, module_and_class_name: str) -> Type[Any]:
     """
     Utils function for modules to instantiate the correct manager
 
@@ -22,14 +22,13 @@ def import_and_instantiate_manager(module_path: str, module_and_class_name: str,
     :rtype: Any
     """
     try:
-        sogo_manager_module     = import_module(f"{module_path}.{module_and_class_name}")
-        sogo_manager_class      = getattr(sogo_manager_module, module_and_class_name)
-        sogo_manager  = sogo_manager_class(**module_args)
+        sogo_module     = import_module(f"{module_path}.{module_and_class_name}")
+        sogo_class      = getattr(sogo_module, module_and_class_name)
     except (ModuleNotFoundError, NameError, TypeError) as e:
-        logger.error("Cannot instantiate sogo manager, config or package problem: %s", e)
+        logger.error("Cannot get sogo class, config or package problem: %s", e)
         raise AggravatedException("Cannot instantiate sogo database") from e
     except Exception as e:
-        logger.error("Cannot instantiate sogo manager, unexpected error: %s", e)
+        logger.error("Cannot get sogo class, unexpected error: %s", e)
         raise AggravatedException("Cannot instantiate sogo database") from e
 
-    return sogo_manager
+    return sogo_class

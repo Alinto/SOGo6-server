@@ -2,7 +2,10 @@ name: sogo
 
 services:
   redis:
-    image: redis:7
+    image: redis:8
+    command: redis-server /usr/local/etc/redis/redis.conf
+    volumes:
+      - ./conf/redis/redis.conf:/usr/local/etc/redis/redis.conf
 
   server:
     build:
@@ -14,8 +17,10 @@ services:
     # command: poetry run start --host='0.0.0.0'
     command: tail -f /dev/null
     environment:
-      SOGO_P_REDIS_URL: redis://redis:6379
+      SOGO_P_REDIS_URL: redis://sogo:sogo@redis:6379
       SECRET_KEY: "29630f23ca7c8557c75704935b6aa14a39ff28c437fcdbc10a370a4d461d0f52"
+      SOGO_P_SECRET: "bookshop's spangling fakir licencing"
+      SOGO_P_VOUCHER_SECRET: "dsqQHJD7dsq75aaadsqQHJD7dsq75aaa"
       SOGO_P_DB_USER: sogo
       SOGO_P_DB_PASS: sogo
       SOGO_P_DB_HOST: postgresql

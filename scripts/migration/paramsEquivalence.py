@@ -42,7 +42,7 @@ system_526 = {
     "SOGoEncryptionKey":            "",
 
     # Cache system, change from memcached to redis
-    "SOGoCacheCleanupInterval": "SOGO_P_REDIS_TTL", # ENV, but do we set it for all params????
+    "SOGoCacheCleanupInterval": None, # ENV, but do we set it for all params????
     "SOGoMemcachedHost":        None, # Redis is used now, see SOGO_P_REDIS_URL.
 
 
@@ -184,7 +184,7 @@ domain_526 = {
     "SOGoEnablePublicAccess":            "SOGO_D_CALDAV_PUBLIC_ACCESS_ENABLE", #Enable public acces to dav link #TODO, seperate in two settings SOGO_D_CARDAV_PUBLIC_ACCESS_ENABLE
 
     "SOGoFoldersSendEMailNotifications": "SOGO_U_FOLDER_CREATION_NOTIF", #Was domain but better at user's, change the default from False to True
-    "SOGoSearchMinimumWordLength":       "SOGO_D_AUTOCOMPLETION_MIN_LEN", #Minimum length of chars before searching for autocompletion
+    "SOGoSearchMinimumWordLength":       "SOGO_D_AUTOCOMPLETION_MIN_LEN", #Minimum length of chars before searching for autocompletion #TODO value in sogo 6 is +1 (2 in sogo 5 means 3 in sogo 6)
 
     #Imap Identities
     "SOGoCreateIdentitiesDisabled": "SOGO_D_IDENTITIES_ENABLED", #Allow user to create identities (from, reply-to, name, signature)
@@ -213,7 +213,7 @@ domain_526 = {
     "SOGoMailCertificateEnabled": None, #Allow or not to add s/mime certificat for itself. #TODO Why on earth we will forbid user to do that?
 
     # Password
-    "SOGoPasswordRecoveryFrom": "SOGO_D_MAIL_SYSTEM_FROM", #Nothing to do with imap, mail used as from for sending email recovery's password.
+    "SOGoPasswordRecoveryFrom": "SOGO_D_SMTP_MASTER_FROM", #Nothing to do with imap, mail used as from for sending email recovery's password.
                                                            #Diff with SOGoSMTPMasterUserUsername is this is not a user email.
                                                            #default is noreply@<domain> or the string "domain" if not defined
                                                            #btw this doesn't work if smtp forces auth because sogo won't
