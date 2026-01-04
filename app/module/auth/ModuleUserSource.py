@@ -72,3 +72,33 @@ class ModuleUserSource:
             }
         }
         return ret[uid]
+
+    def get_user_prefs(self, uid:str) -> dict:
+        ret = {
+            "sogo-tests1@example.org": {
+                "identities": 
+                    [
+                        {
+                            "username": "tkeriven@snapshot.alinto.org",
+                            "password": "Banane2!",
+                            "type": "imap",
+                            "server": "192.168.69.31",
+                            "port": 10143
+                        },
+                        {
+                            "username": "tkeriven3@snapshot.alinto.org",
+                            "password": "Banane01!",
+                            "type": "imap",
+                            "server": "192.168.69.31",
+                            "port": 10143
+                        }
+                    ]
+            },
+            "sogo-tests2@example.org": {
+
+            },
+            "sogo-tests3@example.org": {
+
+            }
+        }
+        return ret[uid]

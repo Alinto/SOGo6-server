@@ -9,7 +9,7 @@ They should not catch nor raise exceptions.
 
 == Interface
 Interface use one module and convert the data to be API ready. (= a json dict with the correct format)
-The yshould catch module exceptions and decide what the apropriate APi response is.
+They should catch module exceptions and decide what the apropriate APi response is.
 
 
 == Module

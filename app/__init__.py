@@ -20,6 +20,8 @@ from app.config.init_config import init_get_system_and_default_settings
 import app.utils.errors as err
 from app.utils.api.ApiBaseResponse import create_api_base_response, ApiBaseResponse
 from app.utils import constants as cs
+from app.utils.logger.logger import logger
+from app.utils.exceptions import AggravatedException
 
 #Apis
 from app.api import all_apis
@@ -75,13 +77,16 @@ def register_before_request(base_blueprint: Blueprint, kind: str, sogo_state: in
         :rtype: ResponseReturnValue | None
         """
         if request.method in {"POST", "PATCH", "PUT"}:
+            content_length = request.content_length
+            if content_length is not None and content_length == 0:
+                return None
             if not request.is_json:
-                return create_api_base_response(error_code=err.ERROR_API_CONTENT_TYPE), 400
+                return create_api_base_response(error=err.ERROR_API_CONTENT_TYPE), 400
             data = request.get_data(as_text=True)
             try:
                 loads(data)
             except (TypeError, JSONDecodeError):
-                return create_api_base_response(error_code=err.ERROR_API_NOT_JSON), 400
+                return create_api_base_response(error=err.ERROR_API_NOT_JSON), 400
         return None
 
     @base_blueprint.before_request
@@ -98,7 +103,7 @@ def register_before_request(base_blueprint: Blueprint, kind: str, sogo_state: in
             elif auth_header.type == 'basic' and current_app.config[cs.ALLOW_AUTH_BASIC]:
                 pass
             else:
-                return create_api_base_response(error_code=err.ERROR_WRONG_AUTHORIZATION_TYPE), 400
+                return create_api_base_response(error=err.ERROR_WRONG_AUTHORIZATION_TYPE), 400
         g.user = user
         #TODO check login? with interval?
         return None
@@ -114,7 +119,7 @@ def register_before_request(base_blueprint: Blueprint, kind: str, sogo_state: in
             "user.v1.ApiConfig.ApiAuthUserCallback",
         }
         if isinstance(g.user, UserAnonymous) and request.endpoint not in anon_endpoints:
-            return create_api_base_response(error_code=err.ERROR_AUTHENTICATED_ROUTE), 400
+            return create_api_base_response(error=err.ERROR_AUTHENTICATED_ROUTE), 401
         return None
 
     if sogo_state == cs.SOGO_NOT_INIT:
@@ -124,7 +129,7 @@ def register_before_request(base_blueprint: Blueprint, kind: str, sogo_state: in
                 """
                 Reject requests for basic api id sogo is not init
                 """
-                return create_api_base_response(error_code=err.ERROR_SOGO_INIT), 412
+                return create_api_base_response(error=err.ERROR_SOGO_INIT), 412
         elif kind == cs.API_ADMIN:
             @base_blueprint.before_request
             def add_process() -> None:
@@ -143,10 +148,16 @@ def register_before_request(base_blueprint: Blueprint, kind: str, sogo_state: in
             if 'process' not in g:
                 g.process = process_config
             system_settings, default_domain_settings = init_get_system_and_default_settings()
-            if 'system' not in g:
+            if 'system_settings' not in g:
                 g.system_settings = system_settings
-            if 'domain' not in g:
+            if 'default_domain' not in g:
                 g.default_domain = default_domain_settings
+            if 'user' in g:
+                #TODO retreive domain settings relative to user domain here (for now just get default)
+                g.user_domain = default_domain_settings
+            else:
+                logger.error("No user in Flask g")
+                raise AggravatedException("No user in Flask g")
 
 
 def register_after_request(base_blueprint: Blueprint) -> None:

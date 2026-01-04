@@ -30,8 +30,7 @@ class ModuleAdminConfig:
         """
         """
         self.process_settings  = process_settings
-        fake_process_settings_db = "PostgreSQL"
-        sogo_db_type = f"Client{fake_process_settings_db}"
+        sogo_db_type = f"Client{process_settings.SOGO_P_DB_TYPE}"
 
         self.sogo_db_manager: ClientSQL = import_and_instantiate_manager(module_path="app.manager.db",
                                                          module_and_class_name=sogo_db_type,
@@ -336,10 +335,10 @@ class ModuleAdminConfig:
             logger.error("Something went wrong when updating the system settings, rows updated: %s, should be 1", ret)
             raise BugException(f"Something went wrong when updating the system settings, rows updated: {ret}, should be 1", err.ERROR_TABLE_SYSTEM_NOT_UNIQUE)
 
-        return err.ERROR_NO_ERRROR, values
+        return err.ERROR_NO_ERRROR.c, values
 
 
-    def update_system_settings(self, new_param: dict) -> tuple[int, dict]:
+    def update_system_settings(self, new_param: dict) -> tuple[str, dict]:
         """
         Method to update/insert the system settings
 
@@ -469,7 +468,7 @@ class ModuleAdminConfig:
             "origin": origins,
         }
 
-        return err.ERROR_NO_ERRROR, result
+        return err.ERROR_NO_ERRROR.c, result
     
     def delete_one_domain_setting(self, domain_id:str) -> int:
         """

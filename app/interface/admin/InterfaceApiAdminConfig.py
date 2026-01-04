@@ -105,7 +105,7 @@ class InterfaceApiAdminConfig:
             try:
                 order = order_str_to_order_enum(order_str)
             except BugException as exc:
-                return 0, create_api_base_response(str(exc), err.ERROR_BUG_UNKNWON_ORDER), 400
+                return 0, create_api_base_response(str(exc), err.ERROR_BUG_UNKNWON_ORDER), 400 #TODO: 500?
         else:
             order = Order.ASC
 

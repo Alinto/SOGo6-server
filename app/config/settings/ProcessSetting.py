@@ -73,11 +73,12 @@ class ProcessSetting(FlaskConfig):
     SOGO_P_VOUCHER_SECRET: str #Fernet key must be 32 char string in utf-8.
 
 
+    SOGO_P_DB_TYPE: str = "PostgreSQL"
     SOGO_P_DB_USER: str = "admin"     #TODO test all that...
     SOGO_P_DB_PASS: str = "admin"
     SOGO_P_DB_HOST: str = "localhost"
     SOGO_P_DB_PORT: int = 5432
-    SOGO_P_DB_SSL: bool = False  #Check with sqlalchemy if this is needed or autodetected
+    SOGO_P_DB_SSL: bool = False 
     SOGO_P_DB_ENC: str  = "utf8" #encoding, needed or autodetected ?
 
     SOGO_LOG_PATH: str = "/var/log/sogo/sogo.log"

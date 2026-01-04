@@ -1,7 +1,7 @@
 from abc import ABCMeta, abstractmethod
-from typing import List, Optional, Any
+from typing import List, Any
 
-class AbstractMailClient(metaclass=ABCMeta):
+class ClientMailServer(metaclass=ABCMeta):
     """
     Abstract class for mail clients.
     All mail clients should inherit from this class and implement its methods.
@@ -20,8 +20,8 @@ class AbstractMailClient(metaclass=ABCMeta):
         """List all mailboxes/folders for the user."""
 
     @abstractmethod
-    def fetch_mail(self, mailbox: str, mail_id: str) -> Optional[Any]:
-        """Fetch a full mail by ID from a mailbox."""
+    def fetch_mail(self, mailbox: str, mail_uid: int) -> Any | None:
+        """Fetch a full mail by UID from a mailbox."""
 
     @abstractmethod
     def logout(self) -> None:
@@ -37,4 +37,4 @@ class AbstractMailClient(metaclass=ABCMeta):
 
     @abstractmethod
     def fetch_all_full_mails(self, mailbox: str) -> List[Any]:
-        """Fetch all full mails (RFC822) from a given mailbox/folder."""
+        """Fetch all full mails (RFC822) from a given mailbox/folders."""

@@ -57,7 +57,7 @@ class ModuleInitSogo:
         # For now, SOGo 6 forces the use of a postgresql database for its own data
         # If we want to change in the future, we must import the manager dynamically
         # to avoid a complete code rewritting.
-        fake_process_settings_db = "PostgreSQL"
+        fake_process_settings_db = self.process_settings.SOGO_P_DB_TYPE
         sogo_db_type = f"Client{fake_process_settings_db}"
 
         sogo_db_manager: ClientSQL = import_and_instantiate_manager(module_path="app.manager.db",

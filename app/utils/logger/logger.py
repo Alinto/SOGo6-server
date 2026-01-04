@@ -50,6 +50,7 @@ logger_auth       = getLogger("sogolog.auth")
 logger_sql        = getLogger("sogolog.sql")
 logger_imap       = getLogger("sogolog.imap")
 logger_cache      = getLogger("sogolog.cache")
+logger_mail_server = getLogger("sogolog.mailserver")
 
 logger_sql.setLevel(DEBUG)
 logger_cache.setLevel(DEBUG)

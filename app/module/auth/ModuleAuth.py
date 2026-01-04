@@ -72,7 +72,7 @@ class ModuleAuth:
         domain_auth_settings = self.default_auth
         domain_user_source = self.default_us
         if domain and self.do_domains:
-            fake_process_settings_db = "PostgreSQL"
+            fake_process_settings_db = self.process_settings.SOGO_P_DB_TYPE
             sogo_db_type = f"Client{fake_process_settings_db}"
 
             sogo_db_manager: ClientSQL = import_and_instantiate_manager(module_path="app.manager.db",

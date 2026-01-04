@@ -5,19 +5,22 @@ SOGo server, being an API, should never raise any exceptions. Instead, it should
 give a proper response to the client's API.
 """
 
+from app.utils.errors import E, ERROR_UNKOWN
+
 class SogoException(Exception):
     """
     Sogo exception with the error
     """
-    def __init__(self, message: str, error_code: int = 99999) -> None:
+    def __init__(self, message: str, error: E = ERROR_UNKOWN) -> None:
         super().__init__(message)
-        self.error_code = error_code
+        self.error_code = error
+        self.http_status = error.h
 
-    def err(self) -> int:
+    def err(self) -> str:
         """
         Return the code error of this Exception
         """
-        return self.error_code
+        return self.error_code.c
 
 class AggravatedException(SogoException):
     """
@@ -34,8 +37,11 @@ class RequestException(SogoException):
 
     Example: Attempting to import an event wich malformed icalender format
     Meaning: Something was wrong with the file, but sogo is still operationnal
-    Remediation: An admin should check the log, the input and may report a bug on github if necessary. 
+    Remediation: An admin should check the log, the input and may report a bug on github if necessary.
+    
+    The http_status attribute is automatically set based on the error_code using the error_http_status mapping.
     """
+
 
 class BugException(SogoException):
     """
