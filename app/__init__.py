@@ -108,19 +108,20 @@ def register_before_request(base_blueprint: Blueprint, kind: str, sogo_state: in
         #TODO check login? with interval?
         return None
 
-    @base_blueprint.before_request
-    def check_non_anonymous_endpoint() -> ResponseReturnValue | None:
-        """
-        Add the user instance, even if there is no user
-        """
-        anon_endpoints = {
-            "user.v1.ApiConfig.ApiAuthUserLogin", 
-            "user.v1.ApiConfig.ApiAuthUserMode",
-            "user.v1.ApiConfig.ApiAuthUserCallback",
-        }
-        if isinstance(g.user, UserAnonymous) and request.endpoint not in anon_endpoints:
-            return create_api_base_response(error=err.ERROR_AUTHENTICATED_ROUTE), 401
-        return None
+    if kind == cs.API_BASIC:
+        @base_blueprint.before_request
+        def check_non_anonymous_endpoint() -> ResponseReturnValue | None:
+            """
+            Add the user instance, even if there is no user
+            """
+            anon_endpoints = {
+                "user.v1.ApiConfig.ApiAuthUserLogin", 
+                "user.v1.ApiConfig.ApiAuthUserMode",
+                "user.v1.ApiConfig.ApiAuthUserCallback",
+            }
+            if isinstance(g.user, UserAnonymous) and request.endpoint not in anon_endpoints:
+                return create_api_base_response(error=err.ERROR_AUTHENTICATED_ROUTE), 401
+            return None
 
     if sogo_state == cs.SOGO_NOT_INIT:
         if kind == cs.API_BASIC:
