@@ -89,7 +89,7 @@ All queries will have WHERE uid = <uid>
 # identities: Identities and signature of this user
 # folders: folders id and name for this user
 # filters: sieve filters of this user
-# defapreferencesults: user settings
+# preferences: user settings
 # private_salt: unique salt generated for the user.
 # acl_given: acl given to users
 # acl_received: acl received from users
@@ -101,10 +101,10 @@ COL_USER_FOLDERS          = Column(name="folders", data_type="dict")
 COL_USER_IDENTITIES       = Column(name="identities", data_type="dict")
 COL_USER_FILTERS          = Column(name="filters", data_type="dict", is_nullable=True)
 COL_USER_PRIVATE_SALT     = Column(name="private_salt", data_type= "str", extra_args={"max_len": 4096})
-COL_USER_ACL_GIVEN        = Column(name="acl_given", data_type="list", extra_args={"data_type": "str", "extra_args": {"max_len": 512}})
-COL_USER_ACL_GOT          = Column(name="acl_received", data_type="list", extra_args={"data_type": "str", "extra_args": {"max_len": 512}})
-COL_USER_DELEGATION_GIVEN = Column(name="delegation_given", data_type="list", extra_args={"data_type": "str", "extra_args": {"max_len": 512}})
-COL_USER_DELEGATION_GOT   = Column(name="delegation_received", data_type="list", extra_args={"data_type": "str", "extra_args": {"max_len": 512}})
+COL_USER_ACL_GIVEN        = Column(name="acl_given", data_type="list", extra_args={"data_type": "str", "extra_args": {"max_len": 512}}, is_nullable=True)
+COL_USER_ACL_GOT          = Column(name="acl_received", data_type="list", extra_args={"data_type": "str", "extra_args": {"max_len": 512}}, is_nullable=True)
+COL_USER_DELEGATION_GIVEN = Column(name="delegation_given", data_type="list", extra_args={"data_type": "str", "extra_args": {"max_len": 512}}, is_nullable=True)
+COL_USER_DELEGATION_GOT   = Column(name="delegation_received", data_type="list", extra_args={"data_type": "str", "extra_args": {"max_len": 512}}, is_nullable=True)
 ALL_USER_COL              = [COL_ID,
                              COL_HASH,
                              COL_USER_UID,
