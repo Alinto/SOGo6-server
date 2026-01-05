@@ -11,7 +11,7 @@ class ApiBaseResponse(Schema):
     """
     data : fields.Field = fields.Field(required=True, allow_none=True)
     error_msg = fields.String(required=True)
-    error_code = fields.Integer(required=True)
+    error_code = fields.String(required=True)
 
 def create_api_base_response(data: Any|None = None, error: E = ERROR_NO_ERRROR) -> dict:
     """
