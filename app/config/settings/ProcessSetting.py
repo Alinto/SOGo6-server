@@ -78,7 +78,7 @@ class ProcessSetting(FlaskConfig):
     SOGO_P_DB_PASS: str = "admin"
     SOGO_P_DB_HOST: str = "localhost"
     SOGO_P_DB_PORT: int = 5432
-    SOGO_P_DB_SSL: bool = False 
+    SOGO_P_DB_SSL: bool = False
     SOGO_P_DB_ENC: str  = "utf8" #encoding, needed or autodetected ?
 
     SOGO_LOG_PATH: str = "/var/log/sogo/sogo.log"

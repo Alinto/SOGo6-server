@@ -98,7 +98,7 @@ All queries will have WHERE uid = <uid>
 COL_USER_UID              = Column(name="uid", data_type="str", extra_args={"max_len": 512}, is_unique=True)
 COL_USER_DEFAULTS         = Column(name="preferences", data_type="dict")
 COL_USER_FOLDERS          = Column(name="folders", data_type="dict")
-COL_USER_IDENTITIES       = Column(name="identities", data_type="dict")
+COL_USER_IDENTITIES       = Column(name="accounts", data_type="dict")
 COL_USER_FILTERS          = Column(name="filters", data_type="dict", is_nullable=True)
 COL_USER_PRIVATE_SALT     = Column(name="private_salt", data_type= "str", extra_args={"max_len": 4096})
 COL_USER_ACL_GIVEN        = Column(name="acl_given", data_type="list", extra_args={"data_type": "str", "extra_args": {"max_len": 512}}, is_nullable=True)
