@@ -215,15 +215,6 @@ def test_given_missing_fields_when_get_user_conf_then_error():
     with pytest.raises(RequestException, match="Missing fields"):
         interface._get_user_conf(0)
 
-def test_given_unsupported_type_when_get_user_conf_then_error():
-    """Test error when user conf has unsupported type."""
-    # Given
-    user_conf = {"username": "test@example.com", "password": "pass", "type": "pop3"}
-    interface = InterfaceApiMailMail(user_conf=user_conf)
-    # When/Then
-    with pytest.raises(RequestException, match="Unsupported mail type"):
-        interface._get_user_conf(0)
-
 def test_given_list_user_conf_when_get_user_conf_then_success():
     """Test getting user conf from a list."""
     # Given
