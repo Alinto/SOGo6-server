@@ -72,6 +72,11 @@ ERROR_IMAP_CONNECTION_FAILED = E("S000311", "IMAP connection failed", HTTPStatus
 ERROR_MAILBOX_NOT_FOUND      = E("S000312", "Mailbox Not Found", HTTPStatus.NOT_FOUND)
 ERRRIR_MAIL_DELETION         = E("S000313", "Mail Deletion Error", HTTPStatus.BAD_REQUEST)
 
+#User Profile
+ERROR_USER_PROFILE_DUPLICATE        = E("S000314", "Multiple User Profiles Found For Same UID", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_USER_PROFILE_CREATION_FAILED  = E("S000315", "User Profile Creation Failed", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_USER_PROFILE_INSERT_MISMATCH  = E("S000316", "User Profile Insert Row Count Mismatch", HTTPStatus.INTERNAL_SERVER_ERROR)
+
 #Database
 ERROR_BUG_UNKNWON_TABLE        = E("S000400", "Database Unknown Table", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_BUG_UNKNWON_COLUMN       = E("S000401", "Database Unknown Column", HTTPStatus.INTERNAL_SERVER_ERROR)

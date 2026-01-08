@@ -86,19 +86,21 @@ TABLE_RULES = Table(name="sogo_settings_rules", columns=ALL_RULE_COL, primary_ke
 All queries will have WHERE uid = <uid>
 """
 # uid: full email of the user, even if the login is domainless
-# identities: Identities and signature of this user
+# defaults: default user preferences
 # folders: folders id and name for this user
+# main_account: main account settings of this user
+# external_accounts: external accounts linked to this user
 # filters: sieve filters of this user
-# preferences: user settings
 # private_salt: unique salt generated for the user.
 # acl_given: acl given to users
 # acl_received: acl received from users
-# delegation_given: delegtation given to users
-# delegation_received: delegtation received from users
+# delegation_given: delegation given to users
+# delegation_received: delegation received from users
 COL_USER_UID              = Column(name="uid", data_type="str", extra_args={"max_len": 512}, is_unique=True)
 COL_USER_DEFAULTS         = Column(name="preferences", data_type="dict")
 COL_USER_FOLDERS          = Column(name="folders", data_type="dict")
-COL_USER_IDENTITIES       = Column(name="identities", data_type="dict")
+COL_USER_MAIN_ACCOUNT     = Column(name="main_account", data_type="dict")
+COL_USER_EXTERNAL_ACCOUNTS = Column(name="external_accounts", data_type="dict", is_nullable=True)
 COL_USER_FILTERS          = Column(name="filters", data_type="dict", is_nullable=True)
 COL_USER_PRIVATE_SALT     = Column(name="private_salt", data_type= "str", extra_args={"max_len": 4096})
 COL_USER_ACL_GIVEN        = Column(name="acl_given", data_type="list", extra_args={"data_type": "str", "extra_args": {"max_len": 512}}, is_nullable=True)
@@ -110,13 +112,15 @@ ALL_USER_COL              = [COL_ID,
                              COL_USER_UID,
                              COL_USER_DEFAULTS,
                              COL_USER_FOLDERS,
-                             COL_USER_IDENTITIES,
+                             COL_USER_MAIN_ACCOUNT,
+                             COL_USER_EXTERNAL_ACCOUNTS,
                              COL_USER_FILTERS,
                              COL_USER_PRIVATE_SALT,
                              COL_USER_ACL_GIVEN,
                              COL_USER_ACL_GOT,
                              COL_USER_DELEGATION_GIVEN,
-                             COL_USER_DELEGATION_GOT]
+                             COL_USER_DELEGATION_GOT,
+                             ]
 TABLE_USER = Table(name="sogo_user_profiles", columns=ALL_USER_COL, primary_keys=(COL_ID.name, COL_HASH.name, COL_USER_UID.name,))
 
 
