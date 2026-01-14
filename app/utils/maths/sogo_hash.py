@@ -55,7 +55,8 @@ Meaning that with a 9 long token, after 10000 hashes made, the chance to have tw
 MAX_USER   = 10000000 #10 millions user top
 MAX_DOMAIN =    10000 #10 thousand domains top
 MAX_RULES  =     1000 #1 rhousand rules top
-
+MAX_ACCOUNT=  100
+MAX_IDENTITY= 100
 
 def size_hash_length(max_unique_entities: int) -> int:
     """
@@ -66,6 +67,8 @@ def size_hash_length(max_unique_entities: int) -> int:
 HASH_SIZE_USER   = size_hash_length(MAX_USER)
 HASH_SIZE_DOMAIN = size_hash_length(MAX_DOMAIN)
 HASH_SIZE_RULES  = size_hash_length(MAX_RULES)
+HASH_SIZE_ACCOUNT= size_hash_length(MAX_ACCOUNT)
+HASH_SIZE_IDENTITY= size_hash_length(MAX_IDENTITY)
 
 def get_unique_token(size: int) -> str:
     """

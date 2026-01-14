@@ -4,9 +4,11 @@ from typing import TYPE_CHECKING, Any
 from app.config.settings.SystemSettings import SystemSettingsObj
 from app.config.settings.DomainSettings import AuthSettingsObj, UserSourceSettingsObj
 from app.module.auth.ModuleAuth import ModuleAuth
+from app.module.auth.ModuleUserSource import ModuleUserSource
+from app.module.user_profile.ModuleUserProfile import ModuleUserProfile
 from app.utils.api.ApiBaseResponse import create_api_base_response
 from app.utils.exceptions import RequestException, BugException
-from app.utils import errors as err
+from app.utils.logger.logger import logger_api
 
 if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
@@ -27,7 +29,9 @@ class InterfaceAuthUser:
         for source_uid, source_settings in default_us_source_raw.items():
             default_us_source[source_uid] = UserSourceSettingsObj(source_settings)
 
-        self.module = ModuleAuth(process, system_settings, default_auth, default_us_source)
+        self.module_auth = ModuleAuth(process, system_settings, default_auth, default_us_source)
+        self.module_user_source = ModuleUserSource(default_us_source)
+        self.module_user_profile = ModuleUserProfile(process)
 
 
 
@@ -41,7 +45,7 @@ class InterfaceAuthUser:
         :rtype: tuple[dict, int]
         """
         try:
-            ret = self.module.get_login_mech(user_uid)
+            ret = self.module_auth.get_login_mech(user_uid)
         except RequestException as e:
             return create_api_base_response(str(e), e.error_code), 400
         return create_api_base_response(ret), 200
@@ -59,9 +63,19 @@ class InterfaceAuthUser:
         uid = data["username"]
         password = data["password"]
 
-        success, ret = self.module.user_plain_login(uid, password)
+        success, ret = self.module_auth.user_plain_login(uid, password)
         if not success:
             return create_api_base_response(), 401
 
+        try:
+            if not self.module_user_profile.is_user_profile_present(uid):
+                contact_info = self.module_user_source.get_contact_info(uid)
+                self.module_user_profile.create_user_profile(uid, contact_info)
+        except RequestException as ex:
+            logger_api.error("Request exception when onboarding user %s: %s", uid, str(ex))
+            return create_api_base_response(None, ex.error_code), ex.http_status
+        except BugException as ex:
+            logger_api.error("Bug exception when onboarding user %s: %s", uid, str(ex))
+            return create_api_base_response(None, ex.error_code), ex.http_status
 
         return create_api_base_response(ret), 200
