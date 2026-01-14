@@ -126,7 +126,7 @@ class ModuleAuth:
         :type username: str
         :param password: _description_
         :type password: str
-        :return: _description_
+        :return: Tuple of (success, voucher_data)
         :rtype: tuple[bool, dict]
         """
 
@@ -143,9 +143,8 @@ class ModuleAuth:
         if not ret:
             return False, {}
 
-        #Generate theVoucher value and UserSession
+        # Generate the Voucher value and UserSession
         voucher_user_service = VoucherUserService(self.process_settings)
         voucher_data = voucher_user_service.generate_voucher_from_user(user)
 
         return True, {"jwt_token": voucher_data}
-
