@@ -385,7 +385,7 @@ class UserModuleSettings(SogoSchema):
     SOGO_D_IDENTITIES_CUSTOM_NAME_ENABLED = fields.Boolean(load_default=False, dump_default=False) #Allow users to have custom name  in their identities
     SOGO_D_IDENTITIES_CUSTOM_REPLY_TO_ENABLED = fields.Boolean(load_default=False, dump_default=False) #Allow users to have custom reply-to email in their identities
     SOGO_D_ALLOW_EXT_MAIL_ACCOUNT = fields.Boolean(load_default=False, dump_default=False) #Allow users to add external mail accounts
-
+    SOGO_D_SIGNATURE_SIZE_LIMIT = fields.Integer(load_default=200, dump_default=200, validate=validate.Range(min=0)) #Max size of a signature in KB (kilobytes). 0 means no limit. Default: 200 KB
 
     #Webmail
     SOGO_D_ALLOW_EXT_AVATAR = fields.Boolean(load_default=True, dump_default=True) #Allow users to load external avatar
@@ -414,6 +414,7 @@ class UserModuleSettingsObj(SettingsObj):
     SOGO_D_IDENTITIES_CUSTOM_NAME_ENABLED: bool = False
     SOGO_D_IDENTITIES_CUSTOM_REPLY_TO_ENABLED: bool = False
     SOGO_D_ALLOW_EXT_MAIL_ACCOUNT: bool = False
+    SOGO_D_SIGNATURE_SIZE_LIMIT: int = 200
     SOGO_D_ALLOW_EXT_AVATAR: bool = True
     SOGO_D_MAIL_REFRESH_INTERVAL_ALLOWED: list[int] = [0, 1, 2, 5, 10, 20, 30, 60]
     SOGO_D_MAIL_JUNK_SETTINGS: str = ""
