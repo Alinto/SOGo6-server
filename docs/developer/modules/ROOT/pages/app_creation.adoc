@@ -1,0 +1,668 @@
+= Flask Application Creation Process
+:toc: left
+:toclevels: 3
+:sectnums:
+:source-highlighter: rouge
+:icons: font
+
+== Introduction
+
+This document describes in detail the Flask application creation process in SOGo6. This process is triggered in the `/workspace/app/run.py` file by the call:
+
+[source,python]
+----
+app = create_app(sogo_state)
+----
+
+This function creates and configures the Flask application, registers all API routes, and sets up request/response interceptors (before_request and after_request handlers) that manage authentication, validation, and configuration loading.
+
+== Overview
+
+The `create_app()` function performs several critical operations:
+
+1. *Flask Application Creation* - Initializes the Flask application with configuration
+2. *API Registration* - Registers two separate APIs (User API and Admin API)
+3. *Route Registration* - Registers all endpoints from blueprints
+4. *Request Interceptors* - Sets up before_request handlers for authentication, validation, and state checking
+5. *Response Interceptors* - Sets up after_request handlers for response formatting
+6. *CORS Configuration* - Enables Cross-Origin Resource Sharing for frontend development
+
+== Entry Point: `create_app()`
+
+File: `/workspace/app/__init__.py`
+
+[source,python]
+----
+def create_app(sogo_state: int) -> Flask:
+    """
+    Create and configure the Flask application
+    """
+    app = Flask(__name__)
+    app.config.from_object(process_config)
+
+    if not app.config.get("DO_SWAGGER"):
+        app.config.pop("BASIC_OPENAPI_URL_PREFIX")
+        app.config.pop("ADMIN_OPENAPI_URL_PREFIX")
+
+    flask_api = Api(app, config_prefix="BASIC_")
+    admin_api = Api(app, config_prefix="ADMIN_")
+
+    register_route(flask_api, cs.API_BASIC, sogo_state)
+    register_route(admin_api, cs.API_ADMIN, sogo_state)
+
+    CORS(app, resources={r"/api/*": {"origins": "http://localhost:3000"}})
+
+    return app
+----
+
+=== Parameters
+
+* `sogo_state` (int): The initialization state of SOGo (0=NOT_OK, 1=NOT_INIT, 2=OK)
+
+=== Return Value
+
+* `Flask`: A configured Flask application instance ready to handle requests
+
+== Detailed Execution Flow
+
+=== 1. Flask Application Instantiation
+
+[source,python]
+----
+app = Flask(__name__)
+app.config.from_object(process_config)
+----
+
+Creates a Flask application and loads configuration from `process_config` (`ProcessSetting` class), which includes:
+
+* Flask settings (SECRET_KEY, DEBUG mode, etc.)
+* Database configuration
+* Redis configuration
+* OpenAPI/Swagger settings
+* Authentication settings
+
+=== 2. Swagger Configuration
+
+[source,python]
+----
+if not app.config.get("DO_SWAGGER"):
+    app.config.pop("BASIC_OPENAPI_URL_PREFIX")
+    app.config.pop("ADMIN_OPENAPI_URL_PREFIX")
+----
+
+If Swagger documentation is disabled (`DO_SWAGGER=False`), removes OpenAPI URL prefixes from configuration to prevent documentation endpoints from being registered.
+
+=== 3. API Instance Creation
+
+[source,python]
+----
+flask_api = Api(app, config_prefix="BASIC_")
+admin_api = Api(app, config_prefix="ADMIN_")
+----
+
+Creates two separate Flask-Smorest API instances:
+
+* *User API* (`flask_api`): For regular users, uses configuration with `BASIC_` prefix
+* *Admin API* (`admin_api`): For administrators, uses configuration with `ADMIN_` prefix
+
+Each API has its own:
+
+* OpenAPI specification endpoint
+* Swagger UI endpoint (if enabled)
+* URL prefix
+
+=== 4. Route Registration
+
+[source,python]
+----
+register_route(flask_api, cs.API_BASIC, sogo_state)
+register_route(admin_api, cs.API_ADMIN, sogo_state)
+----
+
+Registers all routes for both APIs. This process is detailed in the <<Route Registration Process>> section.
+
+=== 5. CORS Configuration
+
+[source,python]
+----
+CORS(app, resources={r"/api/*": {"origins": "http://localhost:3000"}})
+----
+
+Enables Cross-Origin Resource Sharing for all `/api/*` endpoints, allowing requests from `http://localhost:3000` (frontend dev).
+
+== Route Registration Process
+
+The `register_route()` function orchestrates the complete registration of API routes and interceptors.
+
+[source,python]
+----
+def register_route(flask_api: Api, name: str, sogo_state: int) -> None:
+    """
+    Register all blueprints
+    """
+    base_blueprint = Blueprint(name, name, url_prefix='/api')
+
+    register_after_request(base_blueprint)
+    register_before_request(base_blueprint, name, sogo_state)
+
+    for version, version_apis in all_apis.items():
+        version_blueprint = Blueprint(version, version, url_prefix=f'{name}/{version}')
+        basic_apis = version_apis[name]
+        for api in basic_apis:
+            version_blueprint.register_blueprint(api)
+        base_blueprint.register_blueprint(version_blueprint)
+
+    flask_api.register_blueprint(base_blueprint)
+----
+
+=== Hierarchy Structure
+
+The registration creates a hierarchical structure:
+
+[source,text]
+----
+Flask App
+│
+├── User API (flask_api)
+│   └── base_blueprint (/api)
+│       ├── before_request handlers
+│       ├── after_request handlers
+│       └── version_blueprint (/api/user/v1)
+│           ├── auth_apis (authentication endpoints)
+│           └── mail_apis (mail endpoints)
+│
+└── Admin API (admin_api)
+    └── base_blueprint (/api)
+        ├── before_request handlers
+        ├── after_request handlers
+        └── version_blueprint (/api/admin/v1)
+            └── admin_apis (admin endpoints)
+----
+
+=== URL Structure
+
+* *User API*: `/api/user/v1/...`
+* *Admin API*: `/api/admin/v1/...`
+
+Example endpoints:
+
+* `/api/user/v1/auth/login` - User login
+* `/api/user/v1/mail/folders` - List mail folders
+* `/api/admin/v1/config/system` - System configuration
+
+== Before Request Handlers
+
+Before request handlers are executed *before* each request reaches the endpoint. They perform validation, authentication, and setup operations. The handlers registered depend on the API type and SOGo state.
+
+=== Common Before Request Handlers
+
+These handlers are registered for both User and Admin APIs, regardless of SOGo state.
+
+==== 1. `check_json_and_content_type()`
+
+*Purpose*: Validate JSON content for POST/PATCH/PUT requests
+
+[source,python]
+----
+@base_blueprint.before_request
+def check_json_and_content_type() -> ResponseReturnValue | None:
+    if request.method in {"POST", "PATCH", "PUT"}:
+        content_length = request.content_length
+        if content_length is not None and content_length == 0:
+            return None
+        if not request.is_json:
+            return create_api_base_response(error=err.ERROR_API_CONTENT_TYPE), 400
+        data = request.get_data(as_text=True)
+        try:
+            loads(data)
+        except (TypeError, JSONDecodeError):
+            return create_api_base_response(error=err.ERROR_API_NOT_JSON), 400
+    return None
+----
+
+*Behavior*:
+
+1. Only applies to POST, PATCH, PUT methods
+2. Allows empty body (content_length == 0)
+3. Checks `Content-Type: application/json` header
+4. Validates that body is valid JSON
+
+*Error Responses*:
+
+[cols="1,2,1"]
+|===
+|Error Code |Message |HTTP Status
+
+|`S000205`
+|Request POST/PATCH/PUT Content-Type Is Not 'application/json'
+|400
+
+|`S000204`
+|Request POST/PATCH/PUT Body Is Not A Json
+|400
+|===
+
+==== 2. `get_user()`
+
+*Purpose*: Extract and validate user from authentication header
+
+[source,python]
+----
+@base_blueprint.before_request
+def get_user() -> ResponseReturnValue | None:
+    auth_header = request.authorization
+    user: User = UserAnonymous()
+    if auth_header:
+        if auth_header.type == 'bearer':
+            user = VoucherUserService(process_config).generate_user_from_voucher(auth_header.token)
+        elif auth_header.type == 'basic' and current_app.config[cs.ALLOW_AUTH_BASIC]:
+            pass
+        else:
+            return create_api_base_response(error=err.ERROR_WRONG_AUTHORIZATION_TYPE), 400
+    g.user = user
+    return None
+----
+
+*Behavior*:
+
+1. Checks for `Authorization` header
+2. Supports two authentication types:
+   * *Bearer token* (JWT): Default production method
+   * *Basic auth*: Only if `ALLOW_AUTH_BASIC` is enabled
+3. If no authentication, creates `UserAnonymous()` instance
+4. Stores user in Flask's global `g.user`
+
+*Authentication Flow*:
+
+[source,text]
+----
+Request with Authorization header
+│
+├── Bearer token?
+│   ├── Yes → Validate JWT voucher
+│   │         └── Create User instance
+│   └── No
+│       ├── Basic auth AND ALLOW_AUTH_BASIC?
+│       │   └── Yes → (TODO: implement basic auth)
+│       └── Other → ERROR_WRONG_AUTHORIZATION_TYPE
+│
+└── No Authorization header
+    └── Create UserAnonymous()
+----
+
+*Error Responses*:
+
+[cols="1,2,1"]
+|===
+|Error Code |Message |HTTP Status
+
+|`S000202`
+|Header Authorization Incorrect Format
+|400
+|===
+
+*User Object*:
+
+The `g.user` object contains:
+
+* `uid`: User unique identifier
+* `domain`: User's domain
+* `mail`: User's email address
+* `password`: User's password (for IMAP/SMTP connections)
+* `source_id`: User source identifier
+* `authenticated`: Boolean flag
+
+=== User API Specific Handler
+
+==== 3. `check_non_anonymous_endpoint()`
+
+*Purpose*: Block anonymous users from protected endpoints
+
+*Only registered for*: `API_BASIC` (User API)
+
+[source,python]
+----
+@base_blueprint.before_request
+def check_non_anonymous_endpoint() -> ResponseReturnValue | None:
+    anon_endpoints = {
+        "user.v1.ApiConfig.ApiAuthUserLogin", 
+        "user.v1.ApiConfig.ApiAuthUserMode",
+        "user.v1.ApiConfig.ApiAuthUserCallback",
+    }
+    if isinstance(g.user, UserAnonymous) and request.endpoint not in anon_endpoints:
+        return create_api_base_response(error=err.ERROR_AUTHENTICATED_ROUTE), 401
+    return None
+----
+
+*Behavior*:
+
+1. Defines whitelist of endpoints accessible to anonymous users
+2. Checks if user is anonymous (`UserAnonymous` instance)
+3. Checks if endpoint is in whitelist
+4. Blocks request if user is anonymous and endpoint requires authentication
+
+*Anonymous-Accessible Endpoints*:
+
+* `ApiAuthUserLogin`: Login endpoint
+* `ApiAuthUserMode`: Get authentication mode for domain
+* `ApiAuthUserCallback`: OAuth callback endpoint
+
+*Error Responses*:
+
+[cols="1,2,1"]
+|===
+|Error Code |Message |HTTP Status
+
+|`S000203`
+|Anonymous User On Protected Endpoint
+|401
+|===
+
+=== State-Dependent Before Request Handlers
+
+The following handlers are registered based on `sogo_state`.
+
+==== When `sogo_state == SOGO_NOT_INIT` (State 1)
+
+SOGo is functional but not yet configured. No system settings or default domain settings exist.
+
+===== User API: `block_sogo()`
+
+*Purpose*: Block all User API requests when SOGo is not initialized
+
+[source,python]
+----
+@base_blueprint.before_request
+def block_sogo() -> ResponseReturnValue:
+    return create_api_base_response(error=err.ERROR_SOGO_INIT), 412
+----
+
+*Behavior*:
+
+* Returns HTTP 412 (Precondition Failed) for all User API requests
+* User API is completely inaccessible until SOGo is configured
+
+Users cannot use SOGo (check mail, send mail, etc.) until an administrator configures system settings.
+
+*Error Responses*:
+
+[cols="1,2,1"]
+|===
+|Error Code |Message |HTTP Status
+
+|`S000001`
+|Sogo Has Not Been Configured Yet
+|412
+|===
+
+===== Admin API: `add_process()`
+
+*Purpose*: Add process configuration to Flask global context
+
+[source,python]
+----
+@base_blueprint.before_request
+def add_process() -> None:
+    if 'process' not in g:
+        g.process = process_config
+----
+
+*Behavior*:
+
+* Adds `process_config` to `g.process`
+* Allows admin endpoints to access process configuration
+* Admin can configure SOGo even when not initialized
+
+*Available in `g`*:
+
+* `g.user`: Current user (admin)
+* `g.process`: Process configuration (database, Redis, etc.)
+
+==== When `sogo_state == SOGO_OK` (State 2)
+
+SOGo is fully operational with complete configuration.
+
+===== Both APIs: `get_config()`
+
+*Purpose*: Load all necessary configuration for each request
+
+[source,python]
+----
+@base_blueprint.before_request
+def get_config() -> None:
+    if 'process' not in g:
+        g.process = process_config
+    system_settings, default_domain_settings = init_get_system_and_default_settings()
+    if 'system_settings' not in g:
+        g.system_settings = system_settings
+    if 'default_domain' not in g:
+        g.default_domain = default_domain_settings
+    if 'user' in g:
+        #TODO retrieve domain settings relative to user domain here (for now just get default)
+        g.user_domain = default_domain_settings
+    else:
+        logger.error("No user in Flask g")
+        raise AggravatedException("No user in Flask g")
+----
+
+*Behavior*:
+
+1. Adds process configuration to `g.process`
+2. Loads system settings from database
+3. Loads default domain settings from database
+4. For authenticated users, loads domain-specific settings (currently uses default)
+5. Raises critical error if user not found in `g` (should never happen)
+
+*Available in `g`*:
+
+* `g.user`: Current user
+* `g.process`: Process configuration
+* `g.system_settings`: System-wide settings
+* `g.default_domain`: Default domain settings
+* `g.user_domain`: User's domain settings (currently same as default)
+
+*Performance Note*:
+
+This handler queries the database on *every request* when SOGo is operational. This is by design to ensure settings changes are immediately reflected without restarting the application.
+
+*Future*:
+
+The TODO comment indicates that domain-specific settings retrieval will be implemented. Currently, all users get default domain settings.
+
+== Before Request Execution Order
+
+The order of execution is critical and follows this sequence:
+
+[cols="1,3,2"]
+|===
+|Order |Handler |Applies To
+
+|1
+|`check_json_and_content_type()`
+|All APIs, all states
+
+|2
+|`get_user()`
+|All APIs, all states
+
+|3
+|`check_non_anonymous_endpoint()`
+|User API only, all states
+
+|4
+|State-dependent handler
+|Depends on `sogo_state`
+|===
+
+=== Flow Diagram: Request Processing
+
+[source,text]
+----
+HTTP Request
+│
+├─ Check Content-Type & JSON (POST/PATCH/PUT only)
+│  ├─ Invalid → Return 400
+│  └─ Valid → Continue
+│
+├─ Extract & Validate User
+│  ├─ Invalid auth → Return 400
+│  └─ Valid/Anonymous → Store in g.user
+│
+├─ [User API only] Check Anonymous Access
+│  ├─ Anonymous + Protected endpoint → Return 401
+│  └─ Authorized → Continue
+│
+├─ [State: SOGO_NOT_INIT]
+│  ├─ User API → Return 412 (blocked)
+│  └─ Admin API → Add g.process → Continue
+│
+├─ [State: SOGO_OK]
+│  └─ Load all configuration → g.process, g.system_settings, g.default_domain, g.user_domain
+│
+└─ Execute endpoint handler
+----
+
+== After Request Handlers
+
+After request handlers are executed *after* the endpoint returns a response but *before* the response is sent to the client. They can modify the response.
+
+=== `bad_request_handler()`
+
+*Purpose*: Standardize error responses and format validation errors
+
+*Registered for*: All APIs
+
+[source,python]
+----
+@base_blueprint.after_request
+def bad_request_handler(response: Response) -> ResponseReturnValue:
+    if response.status_code == 400:
+        if response.content_type == "application/json":
+            body = response.get_json()
+            # Check if the body is a SOGo one
+            try:
+                ApiBaseResponse().load(body)
+            except ValidationError:
+                response.set_data(dumps(
+                    create_api_base_response(body, err.ERROR_VALIDATION_ERROR)
+                ))
+    return response
+----
+
+*Behavior*:
+
+1. Only processes responses with HTTP 400 status
+2. Only processes JSON responses
+3. Checks if response already follows SOGo's API format (`ApiBaseResponse`)
+4. If not (validation error from marshmallow), wraps it in standard format
+
+*Standard API Response Format*:
+
+All SOGo API responses follow this structure:
+
+[source,json]
+----
+{
+  "data": <response_data_or_null>,
+  "error_code": "<error_code>",
+  "error_msg": "<error_message>"
+}
+----
+
+*Example Transformation*:
+
+Before (marshmallow validation error):
+
+[source,json]
+----
+{
+  "email": ["Not a valid email address."],
+  "password": ["Field may not be blank."]
+}
+----
+
+After (wrapped in SOGo format):
+
+[source,json]
+----
+{
+  "data": {
+    "email": ["Not a valid email address."],
+    "password": ["Field may not be blank."]
+  },
+  "error_code": "S000300",
+  "error_msg": "Request Data Incorrect Format"
+}
+----
+
+== API Response Structure
+
+All SOGo API responses use a consistent structure defined by `ApiBaseResponse`:
+
+[source,python]
+----
+class ApiBaseResponse(Schema):
+    data : fields.Field = fields.Field(required=True, allow_none=True)
+    error_msg = fields.String(required=True)
+    error_code = fields.String(required=True)
+----
+
+=== Success Response
+
+[source,json]
+----
+{
+  "data": {
+    "user": "john@example.com",
+    "folders": ["INBOX", "Sent", "Drafts"]
+  },
+  "error_code": "",
+  "error_msg": ""
+}
+----
+
+=== Error Response
+
+[source,json]
+----
+{
+  "data": null,
+  "error_code": "S000203",
+  "error_msg": "Anonymous User On Protected Endpoint"
+}
+----
+
+== Comportment based on sogo state
+
+The behavior of the application changes significantly based on SOGo state:
+
+[cols="1,2,2,2"]
+|===
+|State |Value |User API |Admin API
+
+|`SOGO_NOT_OK`
+|0
+|*Not reachable* +
+Application doesn't start
+|*Not reachable* +
+Application doesn't start
+
+|`SOGO_NOT_INIT`
+|1
+|*Completely blocked* +
+Returns HTTP 412 +
+Only login endpoints accessible
+|*Fully functional* +
+Can configure system +
+Has `g.process`
+
+|`SOGO_OK`
+|2
+|*Fully operational* +
+All endpoints accessible +
+Has full config in `g`
+|*Fully operational* +
+All endpoints accessible +
+Has full config in `g`
+|===
+
