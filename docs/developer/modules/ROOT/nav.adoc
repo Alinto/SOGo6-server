@@ -7,3 +7,5 @@
 * xref:parameters.adoc[]
 ** xref:process_settings.adoc[]
 ** xref:dynamic_settings.adoc[]
+** xref:initialization.adoc[]
+** xref:app_creation.adoc[]

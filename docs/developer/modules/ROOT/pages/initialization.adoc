@@ -1,0 +1,552 @@
+= SOGo Initialization Process
+:toc: left
+:toclevels: 3
+:sectnums:
+:source-highlighter: rouge
+:icons: font
+
+== Introduction
+
+This document describes in detail the initialization process of the SOGo6 application during startup. This process is triggered in the `/workspace/app/run.py` file by the call:
+
+[source,python]
+----
+sogo_state, cache = init_sogo()
+----
+
+This function determines whether SOGo can start correctly and in what state.
+
+== Overview
+
+The initialization process verifies three essential components:
+
+1. *PostgreSQL Database* - Verification of connectivity and table structure
+2. *Redis Cache* - Verification of connectivity and basic operations
+3. *Celery Agent* - Agent verification (TODO - not currently implemented)
+
+At the end of these verifications, SOGo can be in one of the following three states:
+
+[cols="1,1,4"]
+|===
+|State |Value |Description
+
+|`SOGO_NOT_OK`
+|0
+|SOGo cannot function properly. Problems with database, Redis, or agent.
+
+|`SOGO_NOT_INIT`
+|1
+|SOGo can run but has no system configuration or default domain settings (first installation).
+
+|`SOGO_OK`
+|2
+|SOGo can function properly with complete configuration.
+|===
+
+== Detailed Execution Flow
+
+=== 1. Entry Point: `init_sogo()`
+
+File: `/workspace/app/config/init_config.py`
+
+[source,python]
+----
+def init_sogo() -> tuple[int, ClientRedis]:
+    """
+    Init sogo application
+    return True if sogo is ok and already configured, False instead
+    raises error if the initialization has problems
+    """
+    sogo_state = 0
+    
+    init_module = ModuleInitSogo(process_config)
+    init_module.check_sogo_database()
+    
+    cache_client = init_module.check_redis()
+    
+    #TODO
+    #check agent
+    
+    if init_module.errors:
+        raise AggravatedException(f"Sogo cannot be initiated because: {init_module.errors}")
+    
+    sogo_state = cs.SOGO_NOT_INIT
+    
+    #No errors, check if SOGo already has a configuration
+    if check_basic_config():
+        sogo_state = cs.SOGO_OK
+    
+    return sogo_state, cache_client
+----
+
+The function returns:
+
+* `sogo_state`: An integer representing SOGo's state (0, 1, or 2)
+* `cache_client`: A `ClientRedis` instance for cache operations
+
+=== 2. Initialization Module Creation
+
+[source,python]
+----
+init_module = ModuleInitSogo(process_config)
+----
+
+Creates an instance of `ModuleInitSogo` with process parameters. This class contains:
+
+* `process_settings`: Process configuration needed to start SOGo
+* `init_ok`: Boolean, True means SOGo is correctly initialized
+* `first_init`: Boolean, True if this is the first time SOGo is launched
+* `errors`: List of strings containing detected errors
+
+=== 3. Database Verification
+
+==== 3.1. Method: `check_sogo_database()`
+
+File: `/workspace/app/module/ModuleInitSogo.py`
+
+This method verifies connectivity and structure of the PostgreSQL database.
+
+===== 3.1.1. Database Client Instantiation
+
+[source,python]
+----
+fake_process_settings_db = self.process_settings.SOGO_P_DB_TYPE
+sogo_db_type = f"Client{fake_process_settings_db}"
+
+sogo_db_manager: ClientSQL = import_and_instantiate_manager(
+    module_path="app.manager.db",
+    module_and_class_name=sogo_db_type,
+    module_args=self.process_settings.get_db_settings()
+)
+----
+
+The database type is retrieved from `process_settings` and used to dynamically instantiate the correct manager (e.g., `ClientPostgresql`).
+
+===== 3.1.2. Table Structure Verification
+
+The method loops through all tables defined in `ALL_TABLES` (from `/workspace/app/config/db/tables.py`):
+
+* `TABLE_SETTINGS` - System and default domain settings
+* `TABLE_DOMAIN` - Domain-specific settings
+* `TABLE_RULES` - Configuration rules
+* `TABLE_USER` - User profiles
+
+For each table:
+
+[source,python]
+----
+for table in ALL_TABLES:
+    db_table_info = sogo_db_manager.get_table_info(table.name)
+    if db_table_info:
+        # Check columns
+        for column in table.columns:
+            if not column.name in db_table_info:
+                self.errors.append(f"Table {table.name}'s column {column.name} was not found in database")
+            if db_table_info[column.name] not in column.data_type_check:
+                self.errors.append(f"Table {table.name}'s column {column.name} has different data_type")
+        table_ok.append(table.name)
+    else:
+        # Missing table
+        temp_error.append(f"Table {table.name} missing")
+----
+
+===== 3.1.3. Three Possible Scenarios
+
+[cols="1,3"]
+|===
+|Scenario |Action
+
+|*No tables exist*
+a|
+* Log a warning: "SOGo database is empty. It's normal if this is the first time you run it"
+* Create all tables via `sogo_db_manager.create_several_table(ALL_TABLES)`
+* `first_init` remains `True`
+
+|*All tables exist and are correct*
+a|
+* All columns match specifications
+* `first_init` is set to `False`
+* No errors added
+
+|*Some tables exist, others don't*
+a|
+* Inconsistent/unknown state
+* Temporary errors are added to `self.errors`
+* Initialization will fail
+|===
+
+===== 3.1.4. Connection Closure
+
+[source,python]
+----
+sogo_db_manager.close()
+----
+
+=== 4. Redis Verification
+
+==== 4.1. Method: `check_redis()`
+
+File: `/workspace/app/module/ModuleInitSogo.py`
+
+[source,python]
+----
+def check_redis(self) -> ClientRedis:
+    redis_conf = self.process_settings.get_redis_settings()
+    cache_client = ClientRedis(**redis_conf)
+    
+    # Connectivity test
+    cache_client.ping()
+    
+    # Write, read, and delete test
+    cache_client.set("init", "simplestring", 60)
+    if ret:= cache_client.get("init", str) != "simplestring":
+        self.errors.append(f"Cache client did not read the correct string {ret}")
+    cache_client.delete("init")
+    
+    return cache_client
+----
+
+==== 4.2. Tests Performed
+
+1. *Connectivity test*: `cache_client.ping()`
+   * Verifies that Redis is accessible
+   * Raises an exception if Redis is inaccessible
+
+2. *Write test*: `cache_client.set("init", "simplestring", 60)`
+   * Writes a test value with 60-second TTL
+
+3. *Read test*: `cache_client.get("init", str)`
+   * Reads the value and verifies it matches
+
+4. *Delete test*: `cache_client.delete("init")`
+   * Cleans up the test key
+
+If any of these operations fail, an error is added to `self.errors`.
+
+=== 5. Celery Agent Verification
+
+==== 5.1. Method: `check_agent()`
+
+[NOTE]
+====
+This method is currently not implemented:
+
+[source,python]
+----
+def check_agent(self) -> None:
+    """
+    Check agent celery
+    """
+    pass
+----
+
+====
+
+=== 6. Error Evaluation
+
+[source,python]
+----
+if init_module.errors:
+    raise AggravatedException(f"Sogo cannot be initiated because: {init_module.errors}")
+----
+
+If errors have been collected during previous verifications, an `AggravatedException` is raised. This exception is considered critical and stops SOGo's start.
+
+==== Possible Error Types
+
+* Missing columns or incorrect data types in tables
+* Read/write issues with Redis
+* Inconsistency in database structure (partially present tables)
+
+=== 7. Initial State
+
+If no errors were detected, SOGo is at minimum in the `SOGO_NOT_INIT` state:
+
+[source,python]
+----
+sogo_state = cs.SOGO_NOT_INIT
+----
+
+=== 8. Basic Configuration Verification
+
+==== 8.1. Method: `check_basic_config()`
+
+File: `/workspace/app/config/init_config.py`
+
+[source,python]
+----
+def check_basic_config() -> bool:
+    config_module = ModuleAdminConfig(process_config)
+    system_settings = config_module.get_system_settings()
+    default_domain_settings = config_module.get_default_domain_settings()
+    
+    if system_settings and default_domain_settings:
+        return True
+    return False
+----
+
+This function verifies that SOGo has a viable configuration:
+
+* *System settings* (`system_settings`)
+* *Default domain settings* (`default_domain_settings`)
+
+==== 8.2. Settings Retrieval
+
+===== 8.2.1. Configuration Module Creation
+
+[source,python]
+----
+config_module = ModuleAdminConfig(process_config)
+----
+
+===== 8.2.2. System Settings Retrieval
+
+[source,python]
+----
+system_settings = config_module.get_system_settings()
+----
+
+The `get_system_settings()` method:
+
+1. Connects to the database
+2. Executes a query on the `sogo_settings` table
+3. Retrieves the `settings_system` column
+
+===== 8.2.3. Default Domain Settings Retrieval
+
+[source,python]
+----
+default_domain_settings = config_module.get_default_domain_settings()
+----
+
+The `get_default_domain_settings()` method:
+
+1. Connects to the database
+2. Executes a query on the `sogo_settings` table
+3. Retrieves the `settings_domain_default` column
+
+===== 8.2.4. Internal Mechanism: `_get_setting_from_table_settings()`
+
+[source,python]
+----
+def _get_setting_from_table_settings(self, column_tuple: tuple) -> tuple:
+    self.sogo_db_manager.connect()
+    
+    cond_select = NotEqualCondition(param_name=tbl.COL_SETTINGS_UNIQUE.name, param_value=0)
+    result = list(self.sogo_db_manager.select_from_table(
+        table_name=tbl.TABLE_SETTINGS.name,
+        column_tuple=column_tuple,
+        condition=cond_select
+    ))
+    size = len(result)
+----
+
+The `sogo_settings` table is designed to contain *a single row*:
+
+[cols="1,3"]
+|===
+|Number of rows |Behavior
+
+|`size > 1`
+a|
+* Log a critical error
+* Raise an `AggravatedException`
+* Message: "Table sogo_settings has more than one row which is not normal"
+
+|`size == 0`
+a|
+* Log a warning: "Table sogo_settings is empty, which is normal if this is the first time you use SOGo"
+* Return empty dictionaries `({},)`
+
+|`size == 1`
+a|
+* Normal situation
+* Return the row data
+|===
+
+=== 9. Final State Determination
+
+[source,python]
+----
+if check_basic_config():
+    sogo_state = cs.SOGO_OK
+----
+
+If `check_basic_config()` returns `True` (both configurations exist and are not empty), the state changes to `SOGO_OK`.
+
+== Flow Diagram
+
+[source,text]
+----
+┌─────────────────────────────┐
+│   init_sogo() called        │
+└──────────┬──────────────────┘
+           │
+           v
+┌─────────────────────────────┐
+│ Create ModuleInitSogo       │
+└──────────┬──────────────────┘
+           │
+           v
+┌─────────────────────────────┐
+│ check_sogo_database()       │
+│                             │
+│ • Verify DB connection      │
+│ • Verify table structure    │
+│ • Create tables if needed   │
+└──────────┬──────────────────┘
+           │
+           v
+┌─────────────────────────────┐
+│ check_redis()               │
+│                             │
+│ • Test ping                 │
+│ • Test set/get/delete       │
+└──────────┬──────────────────┘
+           │
+           v
+┌─────────────────────────────┐
+│ check_agent()               │
+│ (TODO - not implemented)    │
+└──────────┬──────────────────┘
+           │
+           v
+┌─────────────────────────────┐
+│ Errors collected?           │
+└──────────┬──────────────────┘
+           │
+    ┌──────┴──────┐
+    │             │
+   YES            NO
+    │             │
+    v             v
+┌─────────┐  ┌──────────────────┐
+│ ERROR   │  │ sogo_state =     │
+│         │  │ SOGO_NOT_INIT    │
+│ Raise   │  └────────┬─────────┘
+│ Aggrava-│           │
+│ ted     │           v
+│ Exception│  ┌──────────────────┐
+└─────────┘  │ check_basic_     │
+             │ config()         │
+             │                  │
+             │ • get_system_    │
+             │   settings()     │
+             │ • get_default_   │
+             │   domain_        │
+             │   settings()     │
+             └────────┬─────────┘
+                      │
+               ┌──────┴──────┐
+               │             │
+        Config exists    Config empty
+               │             │
+               v             v
+       ┌─────────────┐  ┌─────────────┐
+       │ sogo_state =│  │ sogo_state  │
+       │ SOGO_OK     │  │ remains     │
+       │             │  │ SOGO_NOT_   │
+       │             │  │ INIT        │
+       └──────┬──────┘  └──────┬──────┘
+              │                │
+              v                v
+       ┌──────────────────────────┐
+       │ Return (sogo_state,      │
+       │         cache_client)    │
+       └──────────────────────────┘
+----
+
+== Possible Issues and Scenarios
+
+=== Scenario 1: Successful First Installation
+
+*Context*: Empty database, functional Redis
+
+*Flow*:
+
+1. Empty database detected
+2. All tables are created
+3. Redis responds correctly
+4. No errors collected
+5. `check_basic_config()` returns `False` (empty table)
+6. *Final state*: `SOGO_NOT_INIT`
+
+*Meaning*: SOGo is ready to receive its initial configuration via the administration interface.
+
+=== Scenario 2: Normal Startup of Configured SOGo
+
+*Context*: Database with structure and data, functional Redis
+
+*Flow*:
+
+1. All tables exist and are correct
+2. Redis responds correctly
+3. No errors collected
+4. `check_basic_config()` returns `True`
+5. *Final state*: `SOGO_OK`
+
+*Meaning*: SOGo is fully operational.
+
+=== Scenario 3: Redis Inaccessible
+
+*Context*: Database OK, Redis offline
+
+*Flow*:
+
+1. Database verified successfully
+2. `cache_client.ping()` fails
+3. Error added to `init_module.errors`
+4. *Exception raised*: `AggravatedException`
+
+*Message*: "Sogo cannot be initiated because: [Redis error]"
+
+=== Scenario 4: Corrupted Database Structure
+
+*Context*: Some tables exist, others are missing
+
+*Flow*:
+
+1. Some tables detected
+2. Other tables missing
+3. Errors added for each missing table
+4. *Exception raised*: `AggravatedException`
+
+*Message*: "Sogo cannot be initiated because: [Table X missing, Table Y missing]"
+
+=== Scenario 5: Missing Column or Incorrect Type
+
+*Context*: Tables present but incorrect structure
+
+*Flow*:
+
+1. Tables detected
+2. Column verification reveals missing columns or incorrect types
+3. Errors collected for each anomaly
+4. *Exception raised*: `AggravatedException`
+
+*Message*: "Sogo cannot be initiated because: [Table X's column Y was not found, Table Z's column W has different data_type]"
+
+=== Scenario 6: sogo_settings Table with Multiple Rows
+
+*Context*: Data corruption - multiple rows in `sogo_settings`
+
+*Flow*:
+
+1. Initial verifications OK
+2. `check_basic_config()` called
+3. `_get_setting_from_table_settings()` detects multiple rows
+4. *Exception raised*: `AggravatedException`
+
+*Message*: "Table sogo_settings has more than one row (X) which is not normal. Please check manually this table"
+
+== Exceptions
+
+=== AggravatedException
+
+Critical exception that stops all operations.
+
+*Examples*:
+
+* SOGo cannot reach its database
+* Corrupted database structure
+* Redis inaccessible
