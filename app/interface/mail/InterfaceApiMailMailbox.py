@@ -77,6 +77,37 @@ class InterfaceApiMailMailbox:
         """
         return self.domain_settings.get("USER_MODULE_SETTINGS", {}).get("SOGO_D_IDENTITIES_CUSTOM_REPLY_TO_ENABLED", True)
 
+    def _get_signature_size_limit(self) -> int:
+        """Get the maximum signature size limit for this domain.
+        
+        :return: Maximum signature size in bytes, 0 means no limit
+        :rtype: int
+        """
+        size_limit_kb = self.domain_settings.get("USER_MODULE_SETTINGS", {}).get("SOGO_D_SIGNATURE_SIZE_LIMIT", 10240)
+        # Convert from KB to bytes (size_limit_kb is in kilobytes)
+        return size_limit_kb * 1024 if size_limit_kb > 0 else 0
+
+    def _validate_signatures_size(self, identities: List[Dict[str, Any]]) -> None:
+        """Validate that all signatures in identities do not exceed the size limit (bytes).
+        
+        :param identities: List of identity dictionaries containing signatures
+        :type identities: List[Dict[str, Any]]
+        :raises RequestException: If any signature exceeds the size limit
+        """
+        size_limit = self._get_signature_size_limit()
+        if size_limit <= 0:
+            return  # No limit set
+
+        for identity in identities:
+            signatures = identity.get("signatures", {})
+            if isinstance(signatures, dict):
+                for _, signature_value in signatures.items():
+                    if isinstance(signature_value, str) and len(signature_value.encode('utf-8')) > size_limit:
+                        raise RequestException(
+                            err.ERROR_SIGNATURE_SIZE_EXCEEDED.m,
+                            err.ERROR_SIGNATURE_SIZE_EXCEEDED
+                        )
+
     def _apply_identity_restrictions(self, account: Dict[str, Any]) -> Dict[str, Any]:
         """Apply identity restrictions to a main account based on domain settings.
         
@@ -169,6 +200,11 @@ class InterfaceApiMailMailbox:
             uid = self.user.uid
             if account_data is None:
                 account_data = {}
+
+            # Validate signature sizes
+            identities = account_data.get("identities", [])
+            self._validate_signatures_size(identities)
+
             account_response = self.module_user_profile.create_external_account(uid, account_data)
             return create_api_base_response(account_response), 201
         except RequestException as ex:
@@ -229,6 +265,10 @@ class InterfaceApiMailMailbox:
 
             if not account_data or not isinstance(account_data, dict):
                 return create_api_base_response(None, err.ERROR_API_NOT_JSON), 400
+
+            # Validate signature sizes for all accounts
+            identities = account_data.get("identities", [])
+            self._validate_signatures_size(identities)
 
             # Check if updating main account (account_id == "0") or external account
             if account_id == DEFAULT_IDENTITY_KEY_VALUE:

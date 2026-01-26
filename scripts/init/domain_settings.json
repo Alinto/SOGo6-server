@@ -72,6 +72,7 @@
             "SOGO_D_IDENTITIES_CUSTOM_NAME_ENABLED": true,
             "SOGO_D_IDENTITIES_CUSTOM_REPLY_TO_ENABLED": true,
             "SOGO_D_ALLOW_EXT_MAIL_ACCOUNT": true,
+            "SOGO_D_SIGNATURE_SIZE_LIMIT": 10240,
             "SOGO_D_ALLOW_EXT_AVATAR": true,
             "SOGO_D_MAIL_REFRESH_INTERVAL_ALLOWED": [
                 0,
