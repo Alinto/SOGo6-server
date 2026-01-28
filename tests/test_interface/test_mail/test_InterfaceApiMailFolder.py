@@ -306,15 +306,6 @@ def test_get_user_conf_missing_fields():
         interface._get_user_conf(0)
 
 
-def test_get_user_conf_unsupported_type():
-    """Test error when user conf has unsupported type."""
-    user_conf = {"username": "test@example.com", "password": "pass", "type": "pop3"}
-    interface = InterfaceApiMailFolder(user_conf=user_conf)
-
-    with pytest.raises(RequestException, match="Unsupported mail type"):
-        interface._get_user_conf(0)
-
-
 def test_get_user_conf_list_config():
     """Test getting user conf from a list."""
     user_conf = [

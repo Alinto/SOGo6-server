@@ -21,6 +21,7 @@ services:
       SECRET_KEY: "29630f23ca7c8557c75704935b6aa14a39ff28c437fcdbc10a370a4d461d0f52"
       SOGO_P_SECRET: "bookshop's spangling fakir licencing"
       SOGO_P_VOUCHER_SECRET: "dsqQHJD7dsq75aaadsqQHJD7dsq75aaa"
+      SOGO_AES_ENC_KEY: "A9fK2QxM7eR3PZLwH6Jd8sC4T5mNByU"
       SOGO_P_DB_USER: sogo
       SOGO_P_DB_PASS: sogo
       SOGO_P_DB_HOST: postgresql

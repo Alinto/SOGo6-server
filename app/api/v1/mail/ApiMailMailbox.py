@@ -8,9 +8,16 @@ from flask_smorest import Blueprint
 from app.interface.mail.InterfaceApiMailMailbox import InterfaceApiMailMailbox
 from app.utils.logger.logger import logger_api
 from app.utils.api.ApiBaseResponse import ApiBaseResponse
+from app.api.v1.mail.schemas.mailbox import (
+    MailboxCreateSchema,
+    MailboxUpdateSchema,
+    MailboxResponseSchema,
+    MailboxListResponseSchema
+)
 
 if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
+    from app.auth.User import User
 
 blp = Blueprint("ApiMailMailbox", __name__, url_prefix="/mailboxes")
 
@@ -25,36 +32,13 @@ def init_mail_config() -> None:
     """
     logger_api.debug("Calling before_request for ApiMailAccount")
     process: ProcessSetting = g.process
-    system_settings: dict = g.system_settings
-    domain_settings: dict = g.default_domain  # peut être None ou un dict
-    if isinstance(domain_settings, dict):
-        mail_settings = domain_settings.get("MAIL_SETTINGS", {})
-        if isinstance(mail_settings, dict):
-            imap_server = mail_settings.get("SOGO_D_IMAP_SERVER")
-            imap_port = mail_settings.get("SOGO_D_IMAP_PORT")
-            imap_type = mail_settings.get("SOGO_D_MAIL_SERVER_TYPE")
-
-    # Liste de configurations IMAP : index 0 = compte principal, index 1 = compte secondaire. A remplacer par un futur User?
-    user_conf_test = [
-        {
-            "username": "tkeriven@snapshot.alinto.org",
-            "password": "Banane2!",
-            "type": "imap",
-            "server": "192.168.69.31",
-            "port": 10143
-        },
-        {
-            "username": "tkeriven3@snapshot.alinto.org",
-            "password": "Banane01!",
-            "type": "imap",
-            "server": "192.168.69.31",
-            "port": 10143
-        }
-    ]
+    user: User = g.user
+    domain_settings: dict = g.default_domain
 
     interface_api = InterfaceApiMailMailbox(
         process_setting=process,
-        user_conf=user_conf_test,
+        user=user,
+        domain_settings=domain_settings,
     )
     g.inter = interface_api
 
@@ -65,41 +49,57 @@ class ApiMailBoxes(MethodView):
     API to manage mailboxes.
     """
 
-    @blp.response(200, ApiBaseResponse)
+    @blp.response(200, MailboxListResponseSchema)
     def get(self) -> ResponseReturnValue:
         """
-        List all configured mailboxes (NOT IMPLEMENTED)
+        List all configured mailboxes (0 = main account, others = external accounts)
         """
         logger_api.debug("Calling ApiMailBoxes.get to list all mailboxes")
         interface: InterfaceApiMailMailbox = g.inter
         return interface.list_mailboxes()
 
-    @blp.response(201, ApiBaseResponse)
-    def post(self) -> ResponseReturnValue:
+    @blp.arguments(MailboxCreateSchema, example=MailboxCreateSchema.example())
+    @blp.response(201, MailboxResponseSchema)
+    def post(self, mailbox_data: dict) -> ResponseReturnValue:
         """
-        Create a new mailbox (add external account) (NOT IMPLEMENTED)
+        Create a new mailbox (add external account)
         """
-        logger_api.debug("Calling ApiMailBoxes.post to create a new mailbox")
+        logger_api.debug("Calling ApiMailBoxes.post to create a new mailbox with data: %s", mailbox_data)
         interface: InterfaceApiMailMailbox = g.inter
-        return interface.create_mailbox()
+        return interface.create_mailbox(mailbox_data)
 
-
-@blp.route("/<int:account_id>")
+@blp.route("/<string:account_id>")
 class ApiMailBoxesAccount(MethodView):
     """
-    Resource: Mailbox by ID
+    Resource: Mailbox by hash
     """
-    def patch(self, account_id: int) -> ResponseReturnValue:
+    @blp.response(200, MailboxResponseSchema)
+    def get(self, account_id: str) -> ResponseReturnValue:
         """
-        Update mailbox settings (NOT IMPLEMENTED)
+        Get a specific account by its hash.
+        If account_id is "0", returns the main account.
+        Otherwise, returns the external account with the given hash.
         """
-        logger_api.debug("Calling ApiMailBoxesAccount.patch for account_id: %s", account_id)
+        logger_api.debug("Calling ApiMailBoxesAccount.get for account_id: %s", account_id)
         interface: InterfaceApiMailMailbox = g.inter
-        return interface.update_mailbox(account_id)
+        return interface.get_mailbox(account_id)
 
-    def delete(self, account_id: int) -> ResponseReturnValue:
+    @blp.arguments(MailboxUpdateSchema, example=MailboxUpdateSchema.example())
+    @blp.response(200, MailboxResponseSchema)
+    def patch(self, mailbox_data: dict, account_id: str) -> ResponseReturnValue:
         """
-        Delete a mailbox (only external accounts) (NOT IMPLEMENTED)
+        Update mailbox settings
+        If account_id is "0", updates the main account
+        Otherwise, updates the external account with the given hash
+        """
+        logger_api.debug("Calling ApiMailBoxesAccount.patch for account_id: %s with data: %s", account_id, mailbox_data)
+        interface: InterfaceApiMailMailbox = g.inter
+        return interface.update_mailbox(account_id, mailbox_data)
+
+    @blp.response(200, ApiBaseResponse)
+    def delete(self, account_id: str) -> ResponseReturnValue:
+        """
+        Delete a mailbox (only external accounts)
         """
         logger_api.debug("Calling ApiMailBoxesAccount.delete for account_id: %s", account_id)
         interface: InterfaceApiMailMailbox = g.inter

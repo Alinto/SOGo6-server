@@ -371,7 +371,7 @@ class UserModuleSettings(SogoSchema):
     SOGO_D_IDENTITIES_CUSTOM_FROM_ENABLED = fields.Boolean(load_default=False, dump_default=False) #Allow users to have custom "from" email in their identities
     SOGO_D_IDENTITIES_CUSTOM_NAME_ENABLED = fields.Boolean(load_default=False, dump_default=False) #Allow users to have custom name  in their identities
     SOGO_D_IDENTITIES_CUSTOM_REPLY_TO_ENABLED = fields.Boolean(load_default=False, dump_default=False) #Allow users to have custom reply-to email in their identities
-    SOGO_D_ALLOW_EXT_MAIL_ACCOUNT = fields.Boolean(load_default=False, dump_default=False) #Allow users to create identities for their main imap account
+    SOGO_D_ALLOW_EXT_MAIL_ACCOUNT = fields.Boolean(load_default=False, dump_default=False) #Allow users to add external mail accounts
 
 
     #Webmail

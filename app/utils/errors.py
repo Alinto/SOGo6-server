@@ -76,6 +76,25 @@ ERRRIR_MAIL_DELETION         = E("S000313", "Mail Deletion Error", HTTPStatus.BA
 ERROR_USER_PROFILE_DUPLICATE        = E("S000314", "Multiple User Profiles Found For Same UID", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_USER_PROFILE_CREATION_FAILED  = E("S000315", "User Profile Creation Failed", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_USER_PROFILE_INSERT_MISMATCH  = E("S000316", "User Profile Insert Row Count Mismatch", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_USER_PROFILE_NOT_FOUND        = E("S000317", "User Profile Not Found", HTTPStatus.NOT_FOUND)
+ERROR_USER_PROFILE_UPDATE_FAILED    = E("S000318", "User Profile Update Failed", HTTPStatus.INTERNAL_SERVER_ERROR)
+
+#External Accounts
+ERROR_EXTERNAL_ACCOUNT_NOT_FOUND    = E("S000320", "External Account Not Found", HTTPStatus.NOT_FOUND)
+ERROR_EXTERNAL_ACCOUNT_HASH_CONFLICT= E("S000321", "External Account Hash Conflict", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_EXTERNAL_ACCOUNT_INVALID_DATA = E("S000322", "External Account Invalid Data", HTTPStatus.BAD_REQUEST)
+ERROR_EXTERNAL_ACCOUNT_ALREADY_EXISTS = E("S000323", "External Account Already Exists", HTTPStatus.BAD_REQUEST)
+
+#Main Account
+ERROR_MAIN_ACCOUNT_NOT_FOUND = E("S000324", "Main Account Not Found", HTTPStatus.NOT_FOUND)
+ERROR_MAIN_ACCOUNT_CANNOT_BE_DELETED = E("S000325", "Main Account Cannot Be Deleted", HTTPStatus.FORBIDDEN)
+
+#Domain Restrictions
+ERROR_EXTERNAL_ACCOUNT_FORBIDDEN = E("S000330", "External account creation is forbidden for your domain", HTTPStatus.FORBIDDEN)
+ERROR_IDENTITIES_FORBIDDEN = E("S000331", "Multiple identities are forbidden in your main account for your domain", HTTPStatus.FORBIDDEN)
+ERROR_IDENTITIES_CUSTOM_FROM_FORBIDDEN = E("S000332", "Custom 'from' email in identities is forbidden for your domain", HTTPStatus.FORBIDDEN)
+ERROR_IDENTITIES_CUSTOM_NAME_FORBIDDEN = E("S000333", "Custom name in identities is forbidden for your domain", HTTPStatus.FORBIDDEN)
+ERROR_IDENTITIES_CUSTOM_REPLY_TO_FORBIDDEN = E("S000334", "Custom reply-to email in identities is forbidden for your domain", HTTPStatus.FORBIDDEN)
 
 #Database
 ERROR_BUG_UNKNWON_TABLE        = E("S000400", "Database Unknown Table", HTTPStatus.INTERNAL_SERVER_ERROR)
