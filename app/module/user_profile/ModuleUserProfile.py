@@ -1,9 +1,12 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
+
+from marshmallow import EXCLUDE, ValidationError
 
 from app.config.db import tables as tbl
+from app.config.settings.UserSettings import get_all_user_settings_schema
 from app.utils.db.Condition import EqualCondition
-from app.utils.exceptions import BugException, RequestException
+from app.utils.exceptions import BugException, AggravatedException
 from app.utils.logger.logger import logger_user_profile
 from app.utils.module.importManager import import_and_instantiate_manager
 from app.utils.maths.sogo_hash import get_unique_token, HASH_SIZE_USER, HASH_SIZE_ACCOUNT
@@ -20,7 +23,7 @@ class ModuleUserProfile:
     Module to handle user profiles in sogo_user_profiles table
     """
 
-    def __init__(self, process_settings: ProcessSetting):
+    def __init__(self, process_settings: ProcessSetting, default_domain: dict):
         """
         Initialize the module with database connection
         
@@ -28,6 +31,7 @@ class ModuleUserProfile:
         :type process_settings: ProcessSetting
         """
         self.process_settings = process_settings
+        self.default_domain = default_domain
         sogo_db_type = f"Client{process_settings.SOGO_P_DB_TYPE}"
 
         self.sogo_db_manager: ClientSQL = import_and_instantiate_manager(
@@ -55,12 +59,13 @@ class ModuleUserProfile:
         ))
         if len(result) == 1:
             logger_user_profile.debug("User profile found for uid: %s", uid)
+            return True
         elif len(result) > 1:
             logger_user_profile.error("Multiple user profiles found for uid: %s", uid)
-            raise BugException(err.ERROR_USER_PROFILE_DUPLICATE.m, err.ERROR_USER_PROFILE_DUPLICATE)
-        else:
-            logger_user_profile.debug("No user profile found for uid: %s", uid)
-        return len(result) == 1
+            raise AggravatedException(err.ERROR_USER_PROFILE_DUPLICATE.m, err.ERROR_USER_PROFILE_DUPLICATE)
+        
+        logger_user_profile.debug("No user profile found for uid: %s", uid)
+        return False
 
     def create_user_profile(self, uid: str, contact_info: dict) -> None:
         """
@@ -76,6 +81,7 @@ class ModuleUserProfile:
         # Generate unique hash for this user
         user_hash = get_unique_token(HASH_SIZE_USER)
 
+        # Generate the main account with the main identity
         main_account = {
             "receipts": {},
             "certificates": {},
@@ -88,10 +94,27 @@ class ModuleUserProfile:
             }]
         }
 
+        # Generate the default preferences
+        default_pref_by_admin = cast(dict[str, dict], self.default_domain.get("USER_DEFAULT", {}))
+        preferences: dict[str, dict] = {}
+        for user_schema in get_all_user_settings_schema():
+            default_schema = user_schema()
+            default_new: dict = {}
+            if default_schema.subparent in default_pref_by_admin:
+                try:
+                    default_new = default_schema.load(default_pref_by_admin[user_schema.subparent], unknown=EXCLUDE)
+                except ValidationError as e:
+                    logger.error("Default user settings set by admin are incorrect: %s\nContinue with true default", e)
+                    default_new = default_schema.load({}, unknown=EXCLUDE)
+            else:
+                default_new = default_schema.load({}, unknown=EXCLUDE)
+
+            preferences[default_schema.subparent] = default_new
+
         insert_values = [[
             user_hash,                    # hash
             uid,                          # uid
-            {},                           # preferences (empty dict)
+            preferences,                  # preferences
             {},                           # folders (empty dict)
             main_account,                 # main_account (with default)
             {},                           # external_accounts (empty dict)

@@ -251,7 +251,7 @@ class ModuleAdminConfig:
         return updated_data
 
 
-    def _update_setting_in_table_settings(self, new_param: dict, column_name: str, get_schema: Callable) -> tuple[int, dict]:
+    def _update_setting_in_table_settings(self, new_param: dict, column_name: str, get_schema: Callable) -> tuple[str, dict]:
         """
         new_param is expected to be of JSON merge patch.
         If the subparent allows multiple entrees, it should be a dict key=uid, value=dict of param
@@ -350,7 +350,7 @@ class ModuleAdminConfig:
 
         return self._update_setting_in_table_settings(new_param, tbl.COL_SETTINGS_SYSTEM.name, get_all_system_schemas)
 
-    def update_domain_default_settings(self, new_param: dict) -> tuple[int, dict]:
+    def update_domain_default_settings(self, new_param: dict) -> tuple[str, dict]:
         """
         Method to update/insert the default domain settings
 
@@ -362,7 +362,7 @@ class ModuleAdminConfig:
 
         return self._update_setting_in_table_settings(new_param, tbl.COL_SETTINGS_DOMAIN_DEFAULT.name, get_all_domain_schemas)
 
-    def create_domain_settings(self, new_param: dict) -> tuple[int, dict]:
+    def create_domain_settings(self, new_param: dict) -> tuple[str, dict]:
         """
         Create new domain settings
         """
@@ -423,9 +423,9 @@ class ModuleAdminConfig:
             "origin": origins,
         }
 
-        return err.ERROR_NO_ERRROR, result
+        return err.ERROR_NO_ERRROR.c, result
 
-    def update_one_domain_settings(self, domain_id:str, new_param: dict) -> tuple[int, dict]:
+    def update_one_domain_settings(self, domain_id:str, new_param: dict) -> tuple[str, dict]:
         """
         Method to update the default domain settings
 

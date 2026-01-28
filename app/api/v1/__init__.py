@@ -5,10 +5,13 @@ from app.utils import constants as cs
 from .admin import admin_apis
 from .auth import user_auth_apis
 from .mail import mail_apis
+from .profile import user_profile_apis
 
 v1_basic_apis: list[Blueprint] = []
 v1_basic_apis += user_auth_apis
+v1_basic_apis += user_profile_apis
 v1_basic_apis += mail_apis
+
 
 v1_admin_apis: list[Blueprint] = []
 v1_admin_apis += admin_apis

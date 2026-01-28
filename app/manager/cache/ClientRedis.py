@@ -30,7 +30,7 @@ class ClientRedis():
         SOGo greatly encourages the use of username/password with that can only access one redis db
         Such db being only for this user/SOGo.
 
-        SOGo use json to serialize data. The livrary picke is not safe as it will execute code.
+        SOGo use json to serialize data. The library pickle is not safe as it will execute code.
 
         :param redis_url: Url for redis
         :type redis_url: str
