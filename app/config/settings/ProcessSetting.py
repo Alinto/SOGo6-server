@@ -71,7 +71,7 @@ class ProcessSetting(FlaskConfig):
 
     SOGO_P_SECRET: str
     SOGO_P_VOUCHER_SECRET: str #Fernet key must be 32 char string in utf-8.
-
+    SOGO_AES_ENC_KEY: str #32 bytes key for AES-256
 
     SOGO_P_DB_TYPE: str = "PostgreSQL"
     SOGO_P_DB_USER: str = "admin"     #TODO test all that...
