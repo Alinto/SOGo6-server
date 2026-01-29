@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, cast
 from marshmallow import EXCLUDE, ValidationError
 
 from app.config.db import tables as tbl
-from app.config.settings.DomainSettings import get_all_domain_schemas
+from app.config.settings.DomainSettings import get_all_domain_schemas, UserSourceSettings
 from app.module.user.ModuleUserProfile import ModuleUserProfile
 from app.utils.api.ApiBaseResponse import create_api_base_response
 from app.utils.exceptions import BugException, RequestException
@@ -62,6 +62,8 @@ class InterfaceUserProfile:
         for domain_schema in get_all_domain_schemas():
             subparent = domain_schema.subparent
             domain_sub: dict = self.user_domain[subparent]
+            if domain_schema == UserSourceSettings:
+                domain_sub = domain_sub[self.user.source_id]
             for setting_needed in domain_schema.is_needed_by_ui:
                 admin_param[setting_needed] = domain_sub.get(setting_needed, None)
         data["ui"] = admin_param
