@@ -27,6 +27,9 @@ SESSION_SENSITIVE = "sensitive_data"
 JWT_ISS = "iss"
 JWT_EXP = "exp"
 
+# ACCOUNT AND IDENTITY
+DEFAULT_IDENTITY_KEY_VALUE = "0"
+
 #TTL
 TTL_1D = 86400
 TTL_1H =  3600
@@ -44,3 +47,5 @@ USERCANERASEMAILS = "userCanEraseMails"
 USERCANEXPUNGEFOLDER = "userCanExpungeFolder"
 USERCANWRITEMAILS = "userCanWriteMails"
 USERCANADMINISTRATOR = "userIsAdministrator"
+
+

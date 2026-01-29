@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
 
 
-blp = Blueprint("ApiConfig", __name__, url_prefix="/config")
+blp = Blueprint("Config", __name__, url_prefix="/config")
 
 # def my_pagination_metadata(page, page_size, item_count):
 #     return {"data": "hey i'm custom"}

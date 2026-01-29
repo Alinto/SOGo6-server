@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from app.utils.api.pagin_sort_filter import FakePaginationParameters
 
 
-blp = Blueprint("ApiConfig", __name__, url_prefix="/auth")
+blp = Blueprint("Auth", __name__, url_prefix="/auth")
 
 
 @blp.before_request
@@ -57,7 +57,7 @@ class ApiAuthUserLogin(MethodView):
     Action, plain login for user
     """
 
-    @blp.arguments(sch.AuthUserBasicPostShhema, error_status_code=400)
+    @blp.arguments(sch.AuthUserBasicPostSchema, example=sch.AuthUserBasicPostSchema.example(), error_status_code=400)
     @blp.response(200)
     def post(self, new_data:dict) -> ResponseReturnValue:
         """

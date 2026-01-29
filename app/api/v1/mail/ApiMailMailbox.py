@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
     from app.auth.User import User
 
-blp = Blueprint("ApiMailMailbox", __name__, url_prefix="/mailboxes")
+blp = Blueprint("Mail Account", __name__, url_prefix="/mailboxes")
 
 
 @blp.before_request
@@ -33,12 +33,12 @@ def init_mail_config() -> None:
     logger_api.debug("Calling before_request for ApiMailAccount")
     process: ProcessSetting = g.process
     user: User = g.user
-    domain_settings: dict = g.default_domain
+    user_domain: dict = g.user_domain
 
     interface_api = InterfaceApiMailMailbox(
         process_setting=process,
         user=user,
-        domain_settings=domain_settings,
+        user_domain=user_domain,
     )
     g.inter = interface_api
 

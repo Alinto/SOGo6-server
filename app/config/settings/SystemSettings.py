@@ -26,6 +26,8 @@ class SystemSettings(SogoSchema):
     """
     subparent = "SYSTEM_SETTINGS"
 
+    is_needed_by_ui = {"SOGO_S_DIRECT_LOGIN",}
+
     #Admin
     SOGO_S_DO_DOMAIN    = fields.Boolean(load_default=False, dump_default=False) #Allowed to have different rules according to domains
     SOGO_S_KNOWN_DOMAIN = fields.List(fields.String()) #List of domains that sogo should known. To use if they are restriction rule like SOGO_S_REJECT_UNKNOWN_DOMAIN

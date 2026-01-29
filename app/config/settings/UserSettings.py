@@ -119,7 +119,7 @@ class UserContactCategorySettings(SogoSchema):
     Schema for user contact category settings
     """
 
-    subparent = "USER_CONTACT_Category"
+    subparent = "USER_CONTACT_CATEGORY"
 
     SOGO_U_CONTACT_CATEGORIES = fields.List(fields.Tuple((fields.String(), fields.String(), fields.Boolean()))) #Contact categories tuple (name, can_be_translated)
 
@@ -219,7 +219,8 @@ def get_all_user_settings_schema() -> list[Type[SogoSchema]]:
                    UserContactGeneralSettings,
                    UserContactCategorySettings,
                    UserMailGeneralSettings,
-                   UserMailCategorySettings]
+                   UserMailCategorySettings,
+                   UserExtraSettings]
     return all_schemas
 
 user_settings_dict : dict[str, Type[SogoSchema]] = {
@@ -230,7 +231,8 @@ user_settings_dict : dict[str, Type[SogoSchema]] = {
     UserContactGeneralSettings.subparent.lower(): UserContactCategorySettings,
     UserMailGeneralSettings.subparent.lower(): UserMailGeneralSettings,
     UserMailCategorySettings.subparent.lower(): UserMailCategorySettings,
-    UserMailViewSettings.subparent.lower(): UserMailViewSettings
+    UserMailViewSettings.subparent.lower(): UserMailViewSettings,
+    UserExtraSettings.subparent.lower(): UserExtraSettings
 }
 
 def get_user_setting_scheme_for_subparent(subparent: str) -> None|Type[SogoSchema]:

@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
     from app.utils.api.pagin_sort_filter import FakePaginationParameters
 
-blp = Blueprint("ApiMailDetail", __name__, url_prefix="/mailboxes/<int:account_id>/folders/<path:folder_name>/mails")
+blp = Blueprint("Mail", __name__, url_prefix="/mailboxes/<int:account_id>/folders/<path:folder_name>/mails")
 
 
 @blp.before_request

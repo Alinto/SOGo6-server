@@ -7,7 +7,7 @@ from app.config.db import tables as tbl
 from app.config.settings.SystemSettings import get_all_system_schemas
 from app.config.settings.DomainSettings import get_all_domain_schemas
 from app.config.settings.DynamicFormSettings import create_dynamic_dict_for_settings
-from app.config.settings.SogoSchema import SogoSchema
+from app.config.settings.SogoSchema import SogoSchema, check_data_for_sogo_schemas
 from app.utils.dict import merge_patch, set_origin_from_settings
 from app.utils.db.Condition import EqualCondition, NotEqualCondition, TrueCondition, Order
 from app.utils.db.Table import Column
@@ -222,35 +222,6 @@ class ModuleAdminConfig:
 
         return ret
 
-
-    def _check_data(self, data: dict, get_all_schemas: Callable[[], list[Type[SogoSchema]]]) -> dict:
-        """
-        The data here is either the request data merged with the database data
-        OR, if this is the first time setting up SOGo, just the request data.
-        In both cases, data should satisfied all the domains schema.
-
-        After being validated by the schema.load() method, the function return
-        the dict completed by the default value.
-
-        :raises: ValidationError()
-        """
-        updated_data = {}
-        for schema in get_all_schemas():
-            check_schema = schema()
-            if check_schema.is_duplicable:
-                updated_data_dict: dict = {}
-                data_dict: dict[str, dict] = data.get(check_schema.subparent, [])
-                for data_uid, data_values in data_dict.items():
-                    updated_value = check_schema.load(data_values, unknown=EXCLUDE)
-                    updated_data_dict[data_uid]=updated_value
-                updated_data[check_schema.subparent] = updated_data_dict
-            else:
-                data_values = data.get(check_schema.subparent, {})
-                updated_value = check_schema.load(data_values, unknown=EXCLUDE)
-                updated_data[check_schema.subparent] = updated_value
-        return updated_data
-
-
     def _update_setting_in_table_settings(self, new_param: dict, column_name: str, get_schema: Callable) -> tuple[str, dict]:
         """
         new_param is expected to be of JSON merge patch.
@@ -306,7 +277,7 @@ class ModuleAdminConfig:
             logger.warning("Table %s is empty, which is normal if this is the first time you use SOGo", tbl.TABLE_SETTINGS.name)
             clean_param: dict = {}
             merge_patch(new_param, clean_param)
-            values = self._check_data(clean_param, get_schema)
+            values = check_data_for_sogo_schemas(clean_param, get_schema)
             if column_name == tbl.COL_SETTINGS_SYSTEM.name:
                 values_tuple = [1, values, {}]
             elif column_name == tbl.COL_SETTINGS_DOMAIN_DEFAULT.name:
@@ -322,7 +293,7 @@ class ModuleAdminConfig:
             merge_patch(new_param, current_settings)
 
 
-            values = self._check_data(current_settings, get_schema)
+            values = check_data_for_sogo_schemas(current_settings, get_schema)
 
             #Update the column
             cond_update = EqualCondition(param_name=tbl.COL_SETTINGS_UNIQUE.name, param_value=1)
@@ -386,7 +357,7 @@ class ModuleAdminConfig:
         origins = set_origin_from_settings(domain_name, values_new, values_default)
 
         values_default.update(values_new)
-        values = self._check_data(values_default, get_all_domain_schemas)
+        values = check_data_for_sogo_schemas(values_default, get_all_domain_schemas)
 
         value_hash = get_unique_token(HASH_SIZE_DOMAIN)
 
@@ -442,7 +413,7 @@ class ModuleAdminConfig:
 
         merge_patch(new_param, stored_data)
 
-        values = self._check_data(stored_data["settings"], get_all_domain_schemas)
+        values = check_data_for_sogo_schemas(stored_data["settings"], get_all_domain_schemas)
         values_default = self.get_default_domain_settings()
         origins = set_origin_from_settings(domain_id, values, values_default)
 

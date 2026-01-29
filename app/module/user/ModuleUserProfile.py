@@ -4,9 +4,12 @@ from typing import TYPE_CHECKING, cast
 from marshmallow import EXCLUDE, ValidationError
 
 from app.config.db import tables as tbl
-from app.config.settings.UserSettings import get_all_user_settings_schema
+from app.config.settings.UserSettings import get_all_user_settings_schema, user_settings_dict
+from app.config.settings.SogoSchema import check_data_for_sogo_schemas
+from app.config.settings.DomainSettings import UserModuleSettingsObj, UserModuleSettings
 from app.utils.db.Condition import EqualCondition
-from app.utils.exceptions import BugException, AggravatedException
+from app.utils.dict import merge_patch
+from app.utils.exceptions import BugException, RequestException, AggravatedException
 from app.utils.logger.logger import logger_user_profile
 from app.utils.module.importManager import import_and_instantiate_manager
 from app.utils.maths.sogo_hash import get_unique_token, HASH_SIZE_USER, HASH_SIZE_ACCOUNT
@@ -16,6 +19,7 @@ from app.utils.maths.crypto_utils import encrypt_password
 if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
     from app.manager.db.ClientSQL import ClientSQL
+    from app.auth.User import User
 
 
 class ModuleUserProfile:
@@ -23,15 +27,20 @@ class ModuleUserProfile:
     Module to handle user profiles in sogo_user_profiles table
     """
 
-    def __init__(self, process_settings: ProcessSetting, default_domain: dict):
+    def __init__(self, process_settings: ProcessSetting, domain_settings: dict):
         """
         Initialize the module with database connection
+
+        domain_settings can be aither default settings or user domain settings
         
         :param process_settings: Process settings containing database configuration
         :type process_settings: ProcessSetting
         """
         self.process_settings = process_settings
-        self.default_domain = default_domain
+        self.user_domain = domain_settings
+
+        self.user_module_settings = UserModuleSettingsObj(domain_settings[UserModuleSettings.subparent])
+
         sogo_db_type = f"Client{process_settings.SOGO_P_DB_TYPE}"
 
         self.sogo_db_manager: ClientSQL = import_and_instantiate_manager(
@@ -95,7 +104,7 @@ class ModuleUserProfile:
         }
 
         # Generate the default preferences
-        default_pref_by_admin = cast(dict[str, dict], self.default_domain.get("USER_DEFAULT", {}))
+        default_pref_by_admin = cast(dict[str, dict], self.user_domain.get("USER_DEFAULT", {}))
         preferences: dict[str, dict] = {}
         for user_schema in get_all_user_settings_schema():
             default_schema = user_schema()
@@ -104,7 +113,7 @@ class ModuleUserProfile:
                 try:
                     default_new = default_schema.load(default_pref_by_admin[user_schema.subparent], unknown=EXCLUDE)
                 except ValidationError as e:
-                    logger.error("Default user settings set by admin are incorrect: %s\nContinue with true default", e)
+                    logger_user_profile.error("Default user settings set by admin are incorrect: %s\nContinue with true default", e)
                     default_new = default_schema.load({}, unknown=EXCLUDE)
             else:
                 default_new = default_schema.load({}, unknown=EXCLUDE)
@@ -185,7 +194,7 @@ class ModuleUserProfile:
 
         if len(result) > 1:
             logger_user_profile.error("Multiple users found for uid: %s when retrieving field: %s", uid, field_name)
-            raise BugException(err.ERROR_USER_PROFILE_DUPLICATE.m, err.ERROR_USER_PROFILE_DUPLICATE)
+            raise AggravatedException(err.ERROR_USER_PROFILE_DUPLICATE.m, err.ERROR_USER_PROFILE_DUPLICATE)
 
         field_value = result[0][0]
         return field_value if field_value else {}
@@ -223,7 +232,7 @@ class ModuleUserProfile:
 
         logger_user_profile.info("Successfully updated %s for uid: %s", field_name, uid)
 
-    def list_accounts(self, uid: str) -> list:
+    def list_accounts(self, user: User) -> list:
         """
         List all external accounts for a user, including the main account as first element (id="0")
         
@@ -234,15 +243,34 @@ class ModuleUserProfile:
         :raises RequestException: If user profile not found
         :raises BugException: If multiple user profiles found
         """
-        logger_user_profile.debug("Listing external accounts for uid: %s", uid)
+        logger_user_profile.debug("Listing external accounts for uid: %s", user.uid)
 
-        external_accounts = self._get_user_column(uid, tbl.COL_USER_EXTERNAL_ACCOUNTS.name)
-        main_account = self._get_user_column(uid, tbl.COL_USER_MAIN_ACCOUNT.name)
+        #Get Main Account
+        main_account = self._get_user_column(user.uid, tbl.COL_USER_MAIN_ACCOUNT.name)
 
-        # Create list with main account first (with id "0"), followed by external accounts
+        #Cleanup main account according to domain_settings restriction
+        # If identities are disabled, only keep the original identity (should be at index 0)
+        if not self.user_module_settings.SOGO_D_IDENTITIES_ENABLED:
+            main_account["identities"] = [main_account["identities"][0]]
+            #TODO check this is correct and ensure that original identity is at 0 when modifying main naccount
+
+        # Apply field restrictions to all identities
+        identities: list[dict] = main_account["identities"]
+        for identity in identities:
+            if not self.user_module_settings.SOGO_D_IDENTITIES_CUSTOM_FROM_ENABLED or not self.user_module_settings.SOGO_D_IDENTITIES_ENABLED:
+                identity["mail"] = user.mail
+            if not self.user_module_settings.SOGO_D_IDENTITIES_CUSTOM_NAME_ENABLED or not self.user_module_settings.SOGO_D_IDENTITIES_ENABLED:
+                identity["name"] = user.cn
+            if not self.user_module_settings.SOGO_D_IDENTITIES_CUSTOM_REPLY_TO_ENABLED or not self.user_module_settings.SOGO_D_IDENTITIES_ENABLED:
+                identity["reply-to"] = user.mail
+
         result = [{"id": "0", **main_account}]
-        for account_hash, account_data in external_accounts.items():
-            result.append({"id": account_hash, **account_data})
+
+        #Add external accounts
+        if self.user_module_settings.SOGO_D_ALLOW_EXT_MAIL_ACCOUNT:
+            external_accounts = self._get_user_column(user.uid, tbl.COL_USER_EXTERNAL_ACCOUNTS.name)
+            for account_hash, account_data in external_accounts.items():
+                result.append({"id": account_hash, **account_data})
 
         return result
 
@@ -515,3 +543,73 @@ class ModuleUserProfile:
         logger_user_profile.info("Successfully updated main account for uid: %s", uid)
 
         return {"id": "0", **current_account}
+
+    def get_user_preferences(self, uid:str) -> dict:
+        """
+        Return the user preferences
+
+        :param uid: _description_
+        :type uid: str
+        :return: _description_
+        :rtype: dict
+        """
+
+        return self._get_user_column(uid, tbl.COL_USER_DEFAULTS.name)
+
+    def get_partial_user_preferences(self, uid:str, subparent:str) -> dict:
+        """
+        Return just a part of the user preferences
+
+        :param uid: UID of the user
+        :type uid: str
+        :param subparent: Name of the subparent
+        :type subparent: str
+        :raises RequestException: _description_
+        :return: _description_
+        :rtype: dict
+        """
+
+        if subparent.lower() not in user_settings_dict:
+            raise RequestException(f"Preferences asked {subparent} does not exist", err.ERROR_PREF_UNKNOWN_SUB)
+
+        prefs = self._get_user_column(uid, tbl.COL_USER_DEFAULTS.name)
+        real_subparent = user_settings_dict[subparent.lower()].subparent
+        ret = {
+            real_subparent: prefs.get(real_subparent, {})
+        }
+        return ret
+    
+    def update_user_preferences(self, uid:str, new_data:dict, subparent:str|None = None) -> dict:
+        """
+        Update all or a part of the user preferences
+
+        :param uid: UID of the user
+        :type uid: str
+        :param new_data: new data to be merge patch
+        :type new_data: dict
+        :param subparent: if the new data is only one part, name of the part, leave to None if this is all preferences
+        :type subparent: str | None, optional
+        :return: the new value of user preferences
+        :rtype: dict
+        """
+        current_data = self._get_user_column(uid, tbl.COL_USER_DEFAULTS.name)
+
+        if subparent:
+            real_subparent = user_settings_dict[subparent.lower()].subparent
+            patch = {real_subparent: new_data}
+        else:
+            patch = new_data
+
+        merge_patch(patch, current_data)
+
+        new_data = check_data_for_sogo_schemas(current_data, get_all_user_settings_schema)
+
+        self._update_user_column(uid, tbl.COL_USER_DEFAULTS.name, new_data)
+
+        if subparent:
+            real_subparent = user_settings_dict[subparent.lower()].subparent
+            return new_data[real_subparent]
+        return new_data
+            
+
+
