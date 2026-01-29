@@ -3,19 +3,17 @@ from typing import TYPE_CHECKING, Dict, Any, List, Union, Tuple, Optional
 
 from flask import request
 
-from app.module.user_profile.ModuleUserProfile import ModuleUserProfile
+from app.module.user.ModuleUserProfile import ModuleUserProfile
 from app.utils.exceptions import RequestException, BugException
 from app.utils.api.ApiBaseResponse import create_api_base_response
 from app.utils import errors as err
+from app.utils import constants as cs
 from app.utils.logger.logger import logger_api
 
 if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
     from app.auth.User import User
 
-UserConfType = Union[Dict[str, Any], List[Dict[str, Any]]]
-
-DEFAULT_IDENTITY_KEY_VALUE = "0"
 
 class InterfaceApiMailMailbox:
     """
@@ -28,14 +26,12 @@ class InterfaceApiMailMailbox:
         self,
         process_setting: ProcessSetting,
         user: User,
-        user_conf: UserConfType | None = None,
-        domain_settings: Dict[str, Any] | None = None
+        user_domain: Dict
     ) -> None:
         self.process_setting = process_setting
         self.user = user
-        self.user_conf = user_conf
-        self.domain_settings = domain_settings or {}
-        self.module_user_profile = ModuleUserProfile(process_setting)
+        self.user_domain = user_domain
+        self.module_user_profile = ModuleUserProfile(process_setting, user_domain)
 
     def _is_external_account_allowed(self) -> bool:
         """Check if external mail accounts are allowed for this domain.
@@ -43,7 +39,7 @@ class InterfaceApiMailMailbox:
         :return: True if external accounts are allowed, False otherwise
         :rtype: bool
         """
-        return self.domain_settings.get("USER_MODULE_SETTINGS", {}).get("SOGO_D_ALLOW_EXT_MAIL_ACCOUNT", True) #TODO: default to True?
+        return self.user_domain.get("USER_MODULE_SETTINGS", {}).get("SOGO_D_ALLOW_EXT_MAIL_ACCOUNT", True) #TODO: default to True?
 
     def _is_identities_enabled(self) -> bool:
         """Check if identities are enabled for this domain.
@@ -51,7 +47,7 @@ class InterfaceApiMailMailbox:
         :return: True if identities are enabled, False otherwise
         :rtype: bool
         """
-        return self.domain_settings.get("USER_MODULE_SETTINGS", {}).get("SOGO_D_IDENTITIES_ENABLED", True)
+        return self.user_domain.get("USER_MODULE_SETTINGS", {}).get("SOGO_D_IDENTITIES_ENABLED", True)
 
     def _is_custom_from_enabled(self) -> bool:
         """Check if custom 'from' email in identities is allowed for this domain.
@@ -59,7 +55,7 @@ class InterfaceApiMailMailbox:
         :return: True if custom from is allowed, False otherwise
         :rtype: bool
         """
-        return self.domain_settings.get("USER_MODULE_SETTINGS", {}).get("SOGO_D_IDENTITIES_CUSTOM_FROM_ENABLED", True)
+        return self.user_domain.get("USER_MODULE_SETTINGS", {}).get("SOGO_D_IDENTITIES_CUSTOM_FROM_ENABLED", True)
 
     def _is_custom_name_enabled(self) -> bool:
         """Check if custom name in identities is allowed for this domain.
@@ -67,7 +63,7 @@ class InterfaceApiMailMailbox:
         :return: True if custom name is allowed, False otherwise
         :rtype: bool
         """
-        return self.domain_settings.get("USER_MODULE_SETTINGS", {}).get("SOGO_D_IDENTITIES_CUSTOM_NAME_ENABLED", True)
+        return self.user_domain.get("USER_MODULE_SETTINGS", {}).get("SOGO_D_IDENTITIES_CUSTOM_NAME_ENABLED", True)
 
     def _is_custom_reply_to_enabled(self) -> bool:
         """Check if custom reply-to email in identities is allowed for this domain.
@@ -75,7 +71,7 @@ class InterfaceApiMailMailbox:
         :return: True if custom reply-to is allowed, False otherwise
         :rtype: bool
         """
-        return self.domain_settings.get("USER_MODULE_SETTINGS", {}).get("SOGO_D_IDENTITIES_CUSTOM_REPLY_TO_ENABLED", True)
+        return self.user_domain.get("USER_MODULE_SETTINGS", {}).get("SOGO_D_IDENTITIES_CUSTOM_REPLY_TO_ENABLED", True)
 
     def _apply_identity_restrictions(self, account: Dict[str, Any]) -> Dict[str, Any]:
         """Apply identity restrictions to a main account based on domain settings.
@@ -130,24 +126,10 @@ class InterfaceApiMailMailbox:
         :rtype: Tuple[Dict[str, Any], int]
         """
         try:
-            uid = self.user.uid
-            list_accounts = self.module_user_profile.list_accounts(uid)
-
-            # If external accounts are not allowed, keep only the main account (0)
-            if not self._is_external_account_allowed():
-                list_accounts = [acc for acc in list_accounts if acc["id"] == DEFAULT_IDENTITY_KEY_VALUE]
-
-            # Apply identity restrictions to main account (id == "0")
-            for account in list_accounts:
-                if account.get("id") == DEFAULT_IDENTITY_KEY_VALUE:
-                    self._apply_identity_restrictions(account)
-
+            list_accounts = self.module_user_profile.list_accounts(self.user)
             return create_api_base_response(list_accounts), 200
         except RequestException as ex:
             logger_api.error("Request exception in list_mailboxes for user %s: %s", self.user.uid, str(ex))
-            return create_api_base_response(None, ex.error_code), ex.http_status
-        except BugException as ex:
-            logger_api.error("Bug exception in list_mailboxes for user %s: %s", self.user.uid, str(ex))
             return create_api_base_response(None, ex.error_code), ex.http_status
 
     def create_mailbox(self, account_data: Optional[Dict[str, Any]] = None) -> Tuple[Dict[str, Any], int]:
@@ -190,7 +172,7 @@ class InterfaceApiMailMailbox:
         """
         try:
             # If requesting an external account (not "0") and external accounts are not allowed
-            if account_id != DEFAULT_IDENTITY_KEY_VALUE and not self._is_external_account_allowed():
+            if account_id != cs.DEFAULT_IDENTITY_KEY_VALUE and not self._is_external_account_allowed():
                 raise RequestException(
                     err.ERROR_EXTERNAL_ACCOUNT_FORBIDDEN.m,
                     err.ERROR_EXTERNAL_ACCOUNT_FORBIDDEN
@@ -199,7 +181,7 @@ class InterfaceApiMailMailbox:
             account = self.module_user_profile.get_account_detail(uid, account_id)
 
             # Apply identity restrictions to main account (id == "0")
-            if account_id == DEFAULT_IDENTITY_KEY_VALUE:
+            if account_id == cs.DEFAULT_IDENTITY_KEY_VALUE:
                 self._apply_identity_restrictions(account)
 
             return create_api_base_response(account), 200
@@ -231,7 +213,7 @@ class InterfaceApiMailMailbox:
                 return create_api_base_response(None, err.ERROR_API_NOT_JSON), 400
 
             # Check if updating main account (account_id == "0") or external account
-            if account_id == DEFAULT_IDENTITY_KEY_VALUE:
+            if account_id == cs.DEFAULT_IDENTITY_KEY_VALUE:
                 if not self._is_identities_enabled():
                     if len(account_data.get("identities", [])) > 1:
                         raise RequestException(
@@ -290,7 +272,7 @@ class InterfaceApiMailMailbox:
         """
         try:
             # Check if trying to delete main account (account_id == "0")
-            if account_id == DEFAULT_IDENTITY_KEY_VALUE:
+            if account_id == cs.DEFAULT_IDENTITY_KEY_VALUE:
                 raise RequestException(err.ERROR_MAIN_ACCOUNT_CANNOT_BE_DELETED.m, err.ERROR_MAIN_ACCOUNT_CANNOT_BE_DELETED)
             # Check if external accounts are allowed for this domain
             if not self._is_external_account_allowed():

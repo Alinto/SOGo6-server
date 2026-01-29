@@ -183,7 +183,7 @@ domain_526 = {
     "SOGoDisableSharingAnyAuthUser":     "SOGO_D_FOLDER_DISABLE_SHARING_ANY_AUTH", #Disable sharing for any authenticated user (remove the uppercase for value)
     "SOGoEnablePublicAccess":            "SOGO_D_CALDAV_PUBLIC_ACCESS_ENABLE", #Enable public acces to dav link #TODO, seperate in two settings SOGO_D_CARDAV_PUBLIC_ACCESS_ENABLE
 
-    "SOGoFoldersSendEMailNotifications": "SOGO_U_FOLDER_CREATION_NOTIF", #Was domain but better at user's, change the default from False to True
+    "SOGoFoldersSendEMailNotifications": "SOGO_U_CALENDAR_CREATION_NOTIF", #TODO and also SOGO_U_ADDRESSBOOK_CREATION_NOTIF was domain but better at user's, change the default from False to True
     "SOGoSearchMinimumWordLength":       "SOGO_D_AUTOCOMPLETION_MIN_LEN", #Minimum length of chars before searching for autocompletion #TODO value in sogo 6 is +1 (2 in sogo 5 means 3 in sogo 6)
 
     #Imap Identities
@@ -211,6 +211,7 @@ domain_526 = {
     "SOGoMailUseOutlookStyleReplies": None, #Not used by SOGo 5
     "SOGoMailListViewColumnsOrder": None, #Not used by SOGo 5
     "SOGoMailCertificateEnabled": None, #Allow or not to add s/mime certificat for itself. #TODO Why on earth we will forbid user to do that?
+
 
     # Password
     "SOGoPasswordRecoveryFrom": "SOGO_D_SMTP_MASTER_FROM", #Nothing to do with imap, mail used as from for sending email recovery's password.
@@ -387,23 +388,25 @@ user_source_256 = {
 
 }
 
-users_526 = {
+users_default_526 = {
 
     #Common
     "SOGoLanguage": "SOGO_U_LANGUAGE", #USer language
     "SOGoTimeZone": "SOGO_U_TIMEZONE", #Timezone for the user
     "SOGoTimeFormat": "SOGO_U_TIME_FORMAT", #format of the time. Beware, you have to convert objective c format to react format
+    "SOGoLongDateFormat": "SOGO_U_LONG_DATE", #Format of long date
+    "SOGoShortDateFormat": "SOGO_U_SHORT_DATE", #Short date format
     "SOGoDayStartTime": "SOGO_U_WORKDAY_START_TIME", #Tell at which hour the workday start, use by other functionalities
     "SOGoDayEndTime": "SOGO_U_WORKDAY_END_TIME",     #Same but for the end
     "SOGoBusyOffHours": "SOGO_U_BUSY_OFF_HOURS", #Automaticaly be busy outside of working hour defined by SOGoDayStartTime and SOGoDayEndTime
 
     #Passwords
-    #TODO Should not migrate that sensitive data about a user
-    "SOGoPasswordRecoveryMode": None, #Method (singular) set to recover password. Was SecretQuetion or SecondaryEmail in SOGo5
+    #TODO Should migrate that data about user but format change
+    "SOGoPasswordRecoveryMode": "SOGO_U_PWD_RECOVERY", #Method (singular) set to recover password. Was SecretQuetion or SecondaryEmail in SOGo5
                                                               #SHould be a tuple of all methods set
-    "SOGoPasswordRecoveryQuestion":       None,        #In SOGo 5 the question is written by the user as well as the answer (not bad)
-    "SOGoPasswordRecoveryQuestionAnswer": None, #Beware, answer and question should'nt be in plain text in database
-    "SOGoPasswordRecoverySecondaryEmail": None, #Only one mail for SOGo5, several for SOGo 6?
+    "SOGoPasswordRecoveryQuestion":       "SOGO_U_PWD_QUESTION",        #In SOGo 5 the question is written by the user as well as the answer (not bad)
+    "SOGoPasswordRecoveryQuestionAnswer": "SOGO_U_PWD_QUESTION_ANSWER", #Beware, answer and question should'nt be in plain text in database
+    "SOGoPasswordRecoverySecondaryEmail": "SOGO_U_PWD_SECOND_MAIL", #Only one mail for SOGo5, several for SOGo 6?
 
     #Mail Folders' name, user can change which folder is what from the webmail
     #TODO it does not change any imap property, it only change the name folder when you're doing action from webui like trash or junk
@@ -412,14 +415,18 @@ users_526 = {
     "SOGoSentFolderName":   "SOGO_U_SENT_FOLDER_NAME", #Name of the sent folder, default to 'Sent' (translated).
     "SOGoTrashFolderName":  "SOGO_U_TRASH_FOLDER_NAME", #Name of the trash folder, default to 'Trash' (translated).
     "SOGoJunkFolderName":   "SOGO_U_JUNK_FOLDER_NAME", #Name of the junk folder, default to 'Junk' (translated).
+    "SOGoTemplatesFolderName": "SOGO_U_TEMPLATE_FOLDER_NAME", #Name of the template folder
 
     #Accounts and mail
-    "SOGoMailShowSubscribedFoldersOnly": None, #TODO Only show subscribed mail folders... why?
+    "SOGoMailShowSubscribedFoldersOnly": "SOGO_U_ALLOW_MAIL_FOLDER_SUBSCRIBE", #Allow the user to select which mail box to show or not (use the ima psubscribe/unsubscribe button)
+    "SOGoMailSynchronizeOnlyDefaultFolders": None, #Skip junk folder for EAS (#TODO useful?)
+    "SOGoMailFetchAllUnseenCountFolders": "SOGO_U_SHOW_ALL_UNSEEN_COUNT", #Show all unseen counts, not only the selected folders
     "SOGoMailAuxiliaryUserAccountsEnabled": "SOGO_D_ALLOW_EXT_MAIL_ACCOUNT", #Allow user to add external account to their webmail
     "SOGoMailMessageForwarding": "SOGO_U_MAIL_FORWARDING_FORMAT", #Tell if the forwaded mail is in the body or in a attachment
     "SOGoMailDisplayFullEmail": None, #Instead of just showing the name of the sender, also display the full mail address
                                       #TODO Remove from SOGo 6 because it's on a tooltip instead.
-    "SOGoMailHideInlineAttachments": "SOGO_U_HIDE_INLINE_ATTACHMENT", #Do not hsow inline image as attachment in the webmail (useful with small pics for social networks)
+    "SOGoMailDisplayRemoteInlineImages": "SOGO_U_DISPLAY_REMOTE_INLINE", #DIsplay remote inline image (do not need to click on "show external image")
+    "SOGoMailHideInlineAttachments": "SOGO_U_HIDE_INLINE_ATTACHMENT", #Do not show inline image as attachment in the webmail (useful with small pics for social networks)
     "SOGoMailCustomFullName": None, #Was not used in SOGo5 anymore, only in previous version.
     "SOGoMailCustomEmail": None, #Idem
     "SOGoMailReplyTo": None, #Idem
@@ -430,13 +437,43 @@ users_526 = {
     "SOGoMailUseSignatureOnForward": None, #Idem
     "SOGoMailComposeMessageType": "SOGO_U_COMPOSE_MAIL_TYPE_DEFAULT", #TODO Should be a switch on the mail editor instead of a settings BUT is the default value
     "SOGoMailComposeWindow": "SOGO_U_COMPOSE_MAIL_WINDOW", #When writting a new mail, is in an inline html or a pop up?
+    "SOGoMailComposeFontSize": None, #TODO osef, Default font size apply to an html mail sent (you don't see the size when writting, only the receiver will see it)
+    "SOGoMailSortByThreads": "SOGO_U_SORT_BY_THREAD", #Sort or no by threads
+    "SOGoMailDisplayAttachmentAbove": "SOGO_U_ATTACHMENT_POSITION", #TODO from bool to string above/below
+    "SOGoMailAutoMarkAsReadDelay": "SOGO_U_MARK_READ_DELAY", #Time in second before a mail is marked as read (0 means immediately)
+    "SOGoMailAutoSave": "SOGO_U_DRAFT_AUTOSAVE", #Interval in minutes (???) when a draft is save automaticcaly
+    "SOGoMailReceiptAllow": None, #Allow mail to ask for receipt #TODO move to identities
+    "SOGoMailReceiptNonRecipientAction": None,
+    "SOGoMailReceiptOutsideDomainAction": None,
+    "SOGoMailReceiptAnyAction": None,
+    "SOGoMailLabelsColors": "SOGO_U_MAIL_CATEGORIES", #categorie and color of mail #TODO format of color are not the same maybe
+
+
+    # Accounts and identitites #TODO move to identities and accounts
+    "AuxiliaryMailAccounts": None, 
+    "SOGoMailIdentities": None,
+    "SOGoMailCertificate": None,
+    "SOGoMailCertificateAlwaysSign": None, #idem
+    "SOGoMailCertificateAlwaysEncrypt": None, #idem
+    "SOGoMailForceDefaultIdentity": None, #idem
+    # When encrypting, you use their public key to write a message and they use their private key to read it.
+    # The idea is that the message can't be possibly read by anyone other than them.
+    # When signing, you use your private key to generate the signature of the message, and they use your public key to check if the signature is really yours
+    # The idea is that the message can't have been possibly generated by anyone other than you.
 
     #Web page
     "SOGoLoginModule": "SOGO_U_FIRST_MODULE", #Tell what module (mail, calendar, contacts, last one used) to show first after connection
-                                              #TODO name changds (full lowercase)
-    "SOGoGravatarEnabled": "SOGO_U_GRAVATAR_ENABLED", #Allow to load gravatar pic if SOGO_D_ALLOW_EXT_AVATAR is enabled
+                                              #TODO name changed (full lowercase)
+    "SOGoRememberLastModule": None, #TODO USeful? Was used to know what was the  last module
+    "SOGoGravatarEnabled": "SOGO_U_EXT_AVATAR_ENABLED", #Allow to load gravatar pic if SOGO_D_ALLOW_EXT_AVATAR is enabled
+    "SOGoAlternateAvatar": None, #TODO If gravatar nof found, use this pic instead among "none", "identicon", "monsterid", "wavatar", "retro"
     "SOGoRefreshViewCheck": "SOGO_U_REFRESH_MAIL_VIEW", #Tell if the mail view lust be refresh manually or for some interval.
-    
+    "SOGoDesktopNotifications": "SOGO_U_BROWSER_NOTIF", #Enable browser to make notification
+    "SOGoAnimationMode": None, #Irrevelant for SOGo 6
+
+    #MFA
+    "SOGoTOTPEnabled": None, #User will have to make a new totp config
+
     #Calendar view
     "SOGoDefaultCalendar": "SOGO_U_CALENDAR_DEFAULT", #Name to the default calendar when creating event
     "SOGoFirstDayOfWeek": "SOGO_U_CALENDAR_VIEW_FIRST_DAY", #First day of the week for calendar week and months views
@@ -444,6 +481,8 @@ users_526 = {
                                                                 #'January1' -> not available in python
                                                                 #'First4DayWeek' -> '%V' in datetime format
                                                                 #'FirstFullWeek' -> either %U (first sunday) or %W (first monday)
+    "SOGoCalendarWeekdays": "SOGO_U_CALENDAR_DAYS_SHOWED", #Days to show in calendar view
+    "SOGoCalendarShouldDisplayWeekend": None, #Deprecated in SOGO 5 already
     "SOGoCalendarCategories": "SOGO_U_CALENDAR_CATEGORIES", #Name of the calendar categories, in an array 
     "SOGoCalendarCategoriesColors": None,                     #Colors of the calendar categories, in an array with same index
                                                             #TODO rework that for SOGo6 to not have 2 arrays, array of tuple (name, color, is_default)
@@ -452,14 +491,81 @@ users_526 = {
     "SOGoCalendarEventsDefaultClassification": "SOGO_U_EVENT_DEFAULT_CLASS", #Which event class is set when creating new event (public, confidential, private)
     "SOGoCalendarTasksDefaultClassification":  "SOGO_U_TASK_DEFAULT_CLASS", #Which task class is set when creating new task (public, confidential, private)
     "SOGoCalendarDefaultReminder": "SOGO_U_EVENT_DEFAULT_REMINDER", #Default reminder used for new events she enabling it
+    "PreventInvitations": "SOGO_U_NO_INVITATION", #Prevent user to be invited (by others internal user)
+    "PreventInvitationsWhitelist": "SOGO_U_NO_INVITATION_WHITELIST", #Whitelist for prevention
+    "InvitationNotificationsOnCalDavDisabled": "SOGO_U_DO_NOT_SEND_INVIT_FROM_DAV", #Prevent sogo to send a notificaiton after a cardav new event
+                                                                                    #Useful if the caldav client is already sending one
 
     #Contacts
     "SOGoMailAddOutgoingAddresses": "SOGO_U_COLLECT_UNKNWON_ADDRESSES", #Boolean, set to yes ot add unknwon address (= not in any addressbook folders, including the global one)
                                                                        #Add it to the next address book
-    "SOGoSelectedAddressBook": "SOGO_U_COLLECT_UNKNWON_ADDRESSEBOOK_NAME", #Name of the address book that collects all unknwonw address, default to 'Collected' (translated)
+    "SOGoSelectedAddressBook": "SOGO_U_COLLECT_UNKNWON_ADDRESSBOOK_NAME", #Name of the address book that collects all unknwonw address, default to 'Collected' (translated)
     "SOGoContactsCategories": "SOGO_U_CONTACT_CATEGORIES", #List of contacts category #TODO format change in SOGo 6
 
 
     #Sieve
-    "SOGoSieveFilters": "SOGO_D_SIEVE_FIRST_FILTER", #First sieve filtre set for new users, can be changed afterwards.
+    "SOGoSieveFilters": "SOGO_D_SIEVE_FIRST_FILTER", #TODO new format and location First sieve filtre set for new users, can be changed afterwards.
+    "Vacation": None, #TODO move to new location
+    "Forward": None, #idem
+    "Notification": None, #idem
 }
+
+
+# EXample d'un settings
+# {
+#    "Mail":{
+#       "ExpandedFolders":[
+#          "/0",
+#          "/0/folderINBOX",
+#          "/1"
+#       ],
+#       "SortingState":[
+#          "date",
+#          "0"
+#       ],
+#       "DelegateTo":[
+#       ]
+#    },
+#    "passwordRecoveryToken":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VybmFtZSI6InFoaXZlcnRAc25hcHNob3QuYWxpbnRvLm9yZyIsImRvbWFpbiI6bnVsbCwidWlkIjoicWhpdmVydEBzbmFwc2hvdC5hbGludG8ub3JnIiwiZXhwIjoiMTcwNDg5Mjk0NSJ9.1gxXo59J-mAeO2L-OkYI91k-3iz4O2sNoV_ldXtpqGA",
+#    "Contact":{
+#       "SortingState":[
+#          "c_cn",
+#          "1"
+#       ]
+#    },
+#    "Calendar":{
+#       "SelectedList":"eventsListView",
+#       "FoldersOrder":[
+#          "qhivert2_A_snapshot_D_alinto_D_org_personal",
+#          "personal"
+#       ],
+#       "FolderShowAlarms":{
+#          "qhivert2@snapshot.alinto.org:Calendar/personal":0
+#       },
+#       "PreventInvitationsWhitelist":{
+#       },
+#       "SubscribedFolders":[
+#          "qhivert2@snapshot.alinto.org:Calendar/personal"
+#       ],
+#       "TasksSortingState":[
+#          "status",
+#          "1"
+#       ],
+#       "TasksFilterState":"view_incomplete",
+#       "EventsFilterState":"view_next7",
+#       "InactiveFolders":[
+#       ],
+#       "FolderDisplayNames":{
+#          "qhivert2@snapshot.alinto.org:Calendar/personal":"Personal Calendar (quentin22222 <qhivert2@snapshot.alinto.org>)"
+#       },
+#       "EventsSortingState":[
+#          "start",
+#          "1"
+#       ],
+#       "View":"weekview"
+#    },
+#    "General":{
+#       "PrivateSalt":"432115c7abc00e165dd6b2ecfeabc06d329fdfed"
+#    },
+#    "ShowCompletedTasks":"0"
+# }

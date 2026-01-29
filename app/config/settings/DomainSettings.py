@@ -57,6 +57,9 @@ class AuthSettings(SogoSchema):
     }
     is_secret = {"SOGO_D_OPENID_CLIENT_SECRET",}
     is_required = {"SOGO_D_OPENID_CLIENT_NAME", "SOGO_D_OPENID_CLIENT_SECRET", "SOGO_D_OPENID_ALLOW_REDIRECT"}
+    is_needed_by_ui = {"SOGO_D_PWD_CHANGE_ENABLED", "SOGO_D_PWD_RECOVERY",
+                       "SOGO_D_PWD_RECOVERY_METHOD", "SOGO_D_LOGIN_MFA",
+                        "SOGO_D_LOGIN_MFA_METHOD"}
 
     #Type of authentication protocol used for this domain. Beware that if the value is not plain, more parameters are needed
     SOGO_D_AUTH_TYPE = fields.String(load_default="plain", dump_default="plain",
@@ -192,6 +195,11 @@ class UserSourceSettings(SogoSchema):
                    "US_SQL_USER_URL", "US_SQL_PREPEND_PWD_SCHEME"}
 
     is_secret = {"US_LDAP_BIND_DN_PWD",}
+    is_needed_by_ui = {"US_PWD_POLICY", "US_PWD_LEN_MIN",
+                    "US_PWD_LEN_MAX", "US_PWD_UPPERCASE_MIN",
+                    "US_PWD_LOWERCASE_MIN", "US_PWD_DIGITS_MIN",
+                    "US_PWD_SPECIAL_MIN", "US_PWD_SPECIAL_ALLOWED",
+                    "US_AUTO_SEARCH"}
 
     PWD_ALGO = ('none', 'plain',
                'crypt',
@@ -344,6 +352,11 @@ class UserModuleSettings(SogoSchema):
         "SOGO_D_MAIL_JUNK_MAIL_HAM": ("SOGO_D_MAIL_JUNK_SETTINGS", "mail")
     }
     is_secret = set()
+    is_needed_by_ui = {"SOGO_D_MODULE_ACCESS", "SOGO_D_FOLDER_DISABLE_EXPORT"
+                       "SOGO_D_FOLDER_DISABLE_SHARING", "SOGO_D_FOLDER_DISABLE_SHARING_ANY_AUTH",
+                       "SOGO_D_AUTOCOMPLETION_MIN_LEN", "SOGO_D_IDENTITIES_ENABLED",
+                       "SOGO_D_IDENTITIES_CUSTOM_FROM_ENABLED", "SOGO_D_IDENTITIES_CUSTOM_NAME_ENABLED",
+                       "SOGO_D_IDENTITIES_CUSTOM_REPLY_TO_ENABLED", "SOGO_D_ALLOW_EXT_MAIL_ACCOUNT",}
 
     SOGO_D_MODULE_ACCESS = fields.List(fields.String(), validate=validate.ContainsOnly(('mail', 'calendar', 'contact')),
                                     load_default=['mail', 'calendar', 'contact'],
@@ -376,9 +389,6 @@ class UserModuleSettings(SogoSchema):
 
     #Webmail
     SOGO_D_ALLOW_EXT_AVATAR = fields.Boolean(load_default=True, dump_default=True) #Allow users to load external avatar
-    SOGO_D_MAIL_REFRESH_INTERVAL_ALLOWED = fields.List(fields.Integer(), validate=validate.ContainsOnly((0, 1, 2, 5, 10, 20, 30, 60)),
-                                                     load_default=[0, 1, 2, 5, 10, 20, 30, 60],
-                                                     dump_default=[0, 1, 2, 5, 10, 20, 30, 60])
 
     SOGO_D_MAIL_JUNK_SETTINGS = fields.String(validate=validate.OneOf(('None', 'mail'))) #Define a behavior when users set a mail as junk or not junk
     SOGO_D_MAIL_JUNK_MAIL_SPAM = fields.Email() #When set as junk, the og mail is sent to this address
@@ -457,6 +467,10 @@ class MailSettings(SogoSchema):
 
     }
     is_secret = {"SOGO_D_SMTP_MASTER_PWD",}
+    is_needed_by_ui = {"SOGO_D_MAIL_PURGE_ALLOW", "SOGO_D_MAIL_PURGE_MIN_DATE",
+                       "SOGO_D_MAIL_FILTERING_ENABLED", "SOGO_D_VACATION_ENABLED",
+                       "SOGO_D_VACATION_ALLOW_RESPONSE_ALWAYS", "SOGO_D_FORWARD_ENABLED",
+                       "SOGO_D_NOTIFY_ENABLED", "SOGO_D_MAIL_MAX_RECIPIENT"}
 
     SOGO_D_MAIL_SERVER_TYPE = fields.String(load_default="imap", dump_default="imap", validate=validate.OneOf(('imap',))) #Could be jmap in the future...
     SOGO_D_IMAP_SERVER = fields.String() #Hostname or ip of the imap server
@@ -581,6 +595,10 @@ class CalendarContactSettings(SogoSchema):
 
     }
     is_secret = set()
+    is_needed_by_ui = {"SOGO_D_CALDAV_ENABLED", "SOGO_D_CALDAV_PUBLIC_ACCESS_ENABLE",
+                       "SOGO_D_CARDAV_ENABLED", "SOGO_D_CARDAV_PUBLIC_ACCESS_ENABLE",
+                       "SOGO_D_JITSI_LINK_ENABLED", "SOGO_D_JITSI_BASE_URL",
+                       "SOGO_D_REMINDER_ALLOW_MAIL"}
 
     SOGO_D_CALDAV_ENABLED = fields.Boolean(load_default=True, dump_default=True)
     SOGO_D_CALDAV_PUBLIC_ACCESS_ENABLE = fields.Boolean(load_default=False, dump_default=False) #Enable or not public caldav access

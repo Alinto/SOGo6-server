@@ -21,16 +21,16 @@ dependencies = [
     "marshmallow",
     "pydantic",
     "pydantic-settings",
-    "python-ldap (>=3.4.4,<4.0.0)",
-    "sqlalchemy (>=2.0.42,<3.0.0)",
-    "redis (>=6.2.0,<7.0.0)",
-    "psycopg (>=3.2.9,<4.0.0)",
-    "pytest-mock (>=3.15.0,<4.0.0)",
-    "flask-cors (>=6.0.1,<7.0.0)",
-    "types-smorest (>=1.1.2,<2.0.0)",
-    "pyjwt (>=2.10.1,<3.0.0)",
-    "yarl (>=1.22.0,<2.0.0)",
-    "cryptography (>=46.0.3,<47.0.0)",
+    "python-ldap",
+    "sqlalchemy",
+    "redis",
+    "psycopg",
+    "pytest-mock",
+    "flask-cors",
+    "types-smorest",
+    "pyjwt",
+    "yarl",
+    "cryptography",
 ]
 
 
@@ -43,10 +43,10 @@ packages = [
 exclude = ["tests"]
 
 [tool.poetry.group.dev.dependencies]
-pytest = "^7.0.0"
-pytest-cov = "^6.1.1"
-black = "^25.1"
-pylint = "^3.0.0"
+pytest = "^9.0.0"
+pytest-cov = "^7.0.0"
+black = "^26.1"
+pylint = "^4.0.0"
 pre-commit = "^4.2.0"
 mypy = "^1.17.1"
 

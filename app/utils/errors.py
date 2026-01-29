@@ -96,6 +96,9 @@ ERROR_IDENTITIES_CUSTOM_FROM_FORBIDDEN = E("S000332", "Custom 'from' email in id
 ERROR_IDENTITIES_CUSTOM_NAME_FORBIDDEN = E("S000333", "Custom name in identities is forbidden for your domain", HTTPStatus.FORBIDDEN)
 ERROR_IDENTITIES_CUSTOM_REPLY_TO_FORBIDDEN = E("S000334", "Custom reply-to email in identities is forbidden for your domain", HTTPStatus.FORBIDDEN)
 
+#Preferences
+ERROR_PREF_UNKNOWN_SUB = E("S000340", "Subparent of User Settings does not exist", HTTPStatus.BAD_REQUEST)
+
 #Database
 ERROR_BUG_UNKNWON_TABLE        = E("S000400", "Database Unknown Table", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_BUG_UNKNWON_COLUMN       = E("S000401", "Database Unknown Column", HTTPStatus.INTERNAL_SERVER_ERROR)

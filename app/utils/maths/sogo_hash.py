@@ -51,7 +51,7 @@ Meaning that with a 9 long token, after 10000 hashes made, the chance to have tw
 """
 
 
-#To put in SYSTEM_SETTINGS
+#TODO To put in SYSTEM_SETTINGS
 MAX_USER   = 10000000 #10 millions user top
 MAX_DOMAIN =    10000 #10 thousand domains top
 MAX_RULES  =     1000 #1 rhousand rules top

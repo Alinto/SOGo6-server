@@ -38,9 +38,8 @@ class RequestException(SogoException):
     Example: Attempting to import an event wich malformed icalender format
     Meaning: Something was wrong with the file, but sogo is still operationnal
     Remediation: An admin should check the log, the input and may report a bug on github if necessary.
-    
-    The http_status attribute is automatically set based on the error_code using the error_http_status mapping.
     """
+
 
 
 class BugException(SogoException):

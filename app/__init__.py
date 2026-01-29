@@ -115,9 +115,10 @@ def register_before_request(base_blueprint: Blueprint, kind: str, sogo_state: in
             Add the user instance, even if there is no user
             """
             anon_endpoints = {
-                "user.v1.ApiConfig.ApiAuthUserLogin", 
-                "user.v1.ApiConfig.ApiAuthUserMode",
-                "user.v1.ApiConfig.ApiAuthUserCallback",
+                "user#Auth.v1_Auth.Auth.ApiAuthUserMode", 
+                "user#Auth.v1_Auth.Auth.ApiAuthUserLogin",
+                "user#Auth.v1_Auth.Auth.ApiAuthUserCallback",
+                "user#System.v1_System.System.ApiSystem",
             }
             if isinstance(g.user, UserAnonymous) and request.endpoint not in anon_endpoints:
                 return create_api_base_response(error=err.ERROR_AUTHENTICATED_ROUTE), 401
@@ -189,16 +190,19 @@ def register_route(flask_api: Api, name: str, sogo_state: int) -> None:
     """
     Resgister all blueprints
     """
-    base_blueprint = Blueprint(name, name, url_prefix='/api')
+    # base_blueprint = Blueprint(f"{name}_banane", name, url_prefix='/api')
 
-    register_after_request(base_blueprint)
-    register_before_request(base_blueprint, name, sogo_state)
+    # register_after_request(base_blueprint)
+    # register_before_request(base_blueprint, name, sogo_state)
 
     for version, version_apis in all_apis.items():
-        version_blueprint = Blueprint(version, version, url_prefix=f'{name}/{version}')
         basic_apis = version_apis[name]
         for api in basic_apis:
+            version_blueprint = Blueprint(f"{version}_{api.name}", version, url_prefix=f'{name}/{version}')
             version_blueprint.register_blueprint(api)
-        base_blueprint.register_blueprint(version_blueprint)
+            base_blueprint = Blueprint(f"{name}#{api.name}", name, url_prefix='/api')
+            base_blueprint.register_blueprint(version_blueprint)
+            register_after_request(base_blueprint)
+            register_before_request(base_blueprint, name, sogo_state)
 
-    flask_api.register_blueprint(base_blueprint)
+            flask_api.register_blueprint(base_blueprint)

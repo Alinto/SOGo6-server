@@ -1,5 +1,5 @@
-from typing import Any
-from marshmallow import Schema, validates_schema, ValidationError
+from typing import Any, Callable, Type
+from marshmallow import Schema, validates_schema, ValidationError, EXCLUDE
 
 class SogoSchema(Schema):
     """
@@ -25,6 +25,9 @@ class SogoSchema(Schema):
 
     :param is_uid: If the schema is duplicable, set the key/pram which is unique accross all block
     :type data: str
+
+    :param is_needed_by_ui: Tell that this param should be return to UI for /system and /domain/<domain_name>
+    :type data: set
     """
     subparent = ""
     dependencies: dict[str, tuple[str, Any]] = {}
@@ -32,6 +35,7 @@ class SogoSchema(Schema):
     is_secret: set = set()
     is_duplicable: bool = False
     is_uid: str = ""
+    is_needed_by_ui: set = set()
 
     @validates_schema
     def validate_required_whith_dependency(self, data: dict, **kwargs: dict) -> None:
@@ -52,3 +56,31 @@ class SogoSchema(Schema):
                     errors[field] = [f"Missing required field as {dependency}={value}"]
         if errors:
             raise ValidationError(errors)
+
+def check_data_for_sogo_schemas(data: dict, get_all_schemas: Callable[[], list[Type[SogoSchema]]]) -> dict:
+    """
+    Check data that is a dict that represent several sogo schema.
+    Meaning the primary key are the subaprents name of each sogo schema.
+    And the value are the parameters defined by the sogo schema.
+
+    get_all_schemas must be a function that will return the list of all the sogo schemas involved
+
+    The function will check that each sogo schema is respected
+
+    :raises: ValidationError()
+    """
+    updated_data = {}
+    for schema in get_all_schemas():
+        check_schema = schema()
+        if check_schema.is_duplicable:
+            updated_data_dict: dict = {}
+            data_dict: dict[str, dict] = data.get(check_schema.subparent, [])
+            for data_uid, data_values in data_dict.items():
+                updated_value = check_schema.load(data_values, unknown=EXCLUDE)
+                updated_data_dict[data_uid]=updated_value
+            updated_data[check_schema.subparent] = updated_data_dict
+        else:
+            data_values = data.get(check_schema.subparent, {})
+            updated_value = check_schema.load(data_values, unknown=EXCLUDE)
+            updated_data[check_schema.subparent] = updated_value
+    return updated_data
