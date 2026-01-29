@@ -26,7 +26,7 @@ from .schemas.folder import (
 if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
 
-blp = Blueprint("ApiMailFolder", __name__, url_prefix="/mailboxes/<int:account_id>/folders")
+blp = Blueprint("Mail Folder", __name__, url_prefix="/mailboxes/<int:account_id>/folders")
 
 class EmptySchema(Schema):
     """Empty schema for requests without body"""

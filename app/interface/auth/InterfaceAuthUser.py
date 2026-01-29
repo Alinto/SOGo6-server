@@ -5,7 +5,7 @@ from app.config.settings.SystemSettings import SystemSettingsObj
 from app.config.settings.DomainSettings import AuthSettingsObj, UserSourceSettingsObj
 from app.module.auth.ModuleAuth import ModuleAuth
 from app.module.auth.ModuleUserSource import ModuleUserSource
-from app.module.user_profile.ModuleUserProfile import ModuleUserProfile
+from app.module.user.ModuleUserProfile import ModuleUserProfile
 from app.utils.api.ApiBaseResponse import create_api_base_response
 from app.utils.exceptions import RequestException, BugException
 from app.utils.logger.logger import logger_api
@@ -31,7 +31,7 @@ class InterfaceAuthUser:
 
         self.module_auth = ModuleAuth(process, system_settings, default_auth, default_us_source)
         self.module_user_source = ModuleUserSource(default_us_source)
-        self.module_user_profile = ModuleUserProfile(process)
+        self.module_user_profile = ModuleUserProfile(process, default_domain)
 
 
 
@@ -68,6 +68,7 @@ class InterfaceAuthUser:
             return create_api_base_response(), 401
 
         try:
+            self.module_user_profile
             if not self.module_user_profile.is_user_profile_present(uid):
                 contact_info = self.module_user_source.get_contact_info(uid)
                 self.module_user_profile.create_user_profile(uid, contact_info)

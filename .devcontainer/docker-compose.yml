@@ -58,7 +58,7 @@ services:
       - ./conf/db/init-sogo-mysql.db.sql:/docker-entrypoint-initdb.d/init-sogo-db.sql
 
   openldap:
-    image: bitnami/openldap:2.6
+    image: registry.alinto.net:5443/alinto/sogo6/openldap:2.6
     restart: unless-stopped
     ports:
       - "390:390"
