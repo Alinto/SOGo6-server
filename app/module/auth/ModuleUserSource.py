@@ -43,7 +43,7 @@ class ModuleUserSource:
         contact_info = self.get_contact_info(user.uid)
         user.cn = contact_info["cn"]
         user.mail = contact_info["email"]
-        user.source_id = "ldap.ex"
+        user.source_id = "ldap_ex"
         user.authenticated = True
         return ret
 

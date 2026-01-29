@@ -352,7 +352,7 @@ class UserModuleSettings(SogoSchema):
         "SOGO_D_MAIL_JUNK_MAIL_HAM": ("SOGO_D_MAIL_JUNK_SETTINGS", "mail")
     }
     is_secret = set()
-    is_needed_by_ui = {"SOGO_D_MODULE_ACCESS", "SOGO_D_FOLDER_DISABLE_EXPORT"
+    is_needed_by_ui = {"SOGO_D_MODULE_ACCESS", "SOGO_D_FOLDER_DISABLE_EXPORT",
                        "SOGO_D_FOLDER_DISABLE_SHARING", "SOGO_D_FOLDER_DISABLE_SHARING_ANY_AUTH",
                        "SOGO_D_AUTOCOMPLETION_MIN_LEN", "SOGO_D_IDENTITIES_ENABLED",
                        "SOGO_D_IDENTITIES_CUSTOM_FROM_ENABLED", "SOGO_D_IDENTITIES_CUSTOM_NAME_ENABLED",

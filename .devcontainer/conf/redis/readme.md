@@ -7,3 +7,4 @@
 `GET <key>` to get the value of the this key
 `SET <key> <value>` to set value for key
 `HGETALL <key>` to get all keys/values from a hashmap (dict)
+`DEL <key>` to delete a key
