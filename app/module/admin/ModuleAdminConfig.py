@@ -197,7 +197,7 @@ class ModuleAdminConfig:
         else:
             column_tuple = tuple(col.name for col in tbl.TABLE_DOMAIN.columns)
 
-        #Get the domain setting, purposely put a "true" condition to check if there is only 1 row.
+        #Get the domain setting
         cond_select = EqualCondition(param_name=tbl.COL_DOMAIN_NAME.name, param_value=domain_id)
         result = list(self.sogo_db_manager.select_from_table(table_name=tbl.TABLE_DOMAIN.name,
                                                column_tuple=column_tuple,
@@ -210,9 +210,16 @@ class ModuleAdminConfig:
 
         if size == 0:
             #Empty, the resource does not exist
-            logger.warning("Table %s is empty, which is normal if this is the first time you use SOGo", tbl.TABLE_SETTINGS.name)
-            raise RequestException("domain given does not exist", err.ERROR_DOMAIN_NAME_NOT_FOUND)
-
+            logger.debug("No domain found for name %s, return the default one", domain_id)
+            default_settings = self.get_default_domain_settings()
+            origins = set_origin_from_settings("default", default_settings, default_settings)
+            result = {
+                "domain_name": "default",
+                "settings": default_settings,
+                "origin": origins
+            }
+            return result
+            
         ret: dict = {}
         for idx, col in enumerate(column_tuple):
             if col == tbl.COL_DOMAIN_SETTINGS.name:
@@ -428,7 +435,7 @@ class ModuleAdminConfig:
                                             condition=cond)
         if row_updated != 1:
             #Only one row is supposed to be updated
-            logger.error("Something went wrong when updating the system settings, rows updated: %s, should be 1", row_updated)
+            logger.error("Something went wrong when updating the domain setting for %s, rows updated: %s, should be 1", domain_id, row_updated)
             raise BugException(f"Something went wrong when updating the system settings, rows updated: {row_updated}, should be 1", err.ERROR_TABLE_SYSTEM_NOT_UNIQUE)
 
         result = {
