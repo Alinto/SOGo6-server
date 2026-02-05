@@ -171,6 +171,7 @@ class AdminConfigDefaultDomainGetSchema(ApiBaseResponse):
                     "SOGO_D_IDENTITIES_CUSTOM_NAME_ENABLED": True,
                     "SOGO_D_IDENTITIES_CUSTOM_REPLY_TO_ENABLED": True,
                     "SOGO_D_ALLOW_EXT_MAIL_ACCOUNT": True,
+                    "SOGO_D_SIGNATURE_SIZE_LIMIT": 200,
                     "SOGO_D_ALLOW_EXT_AVATAR": True,
                     "SOGO_D_MAIL_REFRESH_INTERVAL_ALLOWED": [
                         0,
@@ -313,6 +314,7 @@ class AdminConfigDefaultDomainPatchSchema(Schema):
                         "SOGO_D_IDENTITIES_CUSTOM_NAME_ENABLED": True,
                         "SOGO_D_IDENTITIES_CUSTOM_REPLY_TO_ENABLED": True,
                         "SOGO_D_ALLOW_EXT_MAIL_ACCOUNT": True,
+                        "SOGO_D_SIGNATURE_SIZE_LIMIT": 200,
                         "SOGO_D_ALLOW_EXT_AVATAR": True,
                         "SOGO_D_MAIL_REFRESH_INTERVAL_ALLOWED": [
                             0,
@@ -484,6 +486,7 @@ class AdminConfigDomainGetSchema(ApiBaseResponse):
                         "SOGO_D_IDENTITIES_CUSTOM_NAME_ENABLED": True,
                         "SOGO_D_IDENTITIES_CUSTOM_REPLY_TO_ENABLED": True,
                         "SOGO_D_ALLOW_EXT_MAIL_ACCOUNT": True,
+                        "SOGO_D_SIGNATURE_SIZE_LIMIT": 200,
                         "SOGO_D_ALLOW_EXT_AVATAR": True,
                         "SOGO_D_MAIL_REFRESH_INTERVAL_ALLOWED": [
                             0,
@@ -637,6 +640,7 @@ class AdminConfigDomainPostSchema(Schema):
                     "SOGO_D_IDENTITIES_CUSTOM_NAME_ENABLED": True,
                     "SOGO_D_IDENTITIES_CUSTOM_REPLY_TO_ENABLED": True,
                     "SOGO_D_ALLOW_EXT_MAIL_ACCOUNT": True,
+                    "SOGO_D_SIGNATURE_SIZE_LIMIT": 200,
                     "SOGO_D_ALLOW_EXT_AVATAR": True,
                     "SOGO_D_MAIL_REFRESH_INTERVAL_ALLOWED": [
                         0,
@@ -785,6 +789,7 @@ class AdminConfigDomainPatchSchema(Schema):
                     "SOGO_D_IDENTITIES_CUSTOM_NAME_ENABLED": True,
                     "SOGO_D_IDENTITIES_CUSTOM_REPLY_TO_ENABLED": True,
                     "SOGO_D_ALLOW_EXT_MAIL_ACCOUNT": True,
+                    "SOGO_D_SIGNATURE_SIZE_LIMIT": 200,
                     "SOGO_D_ALLOW_EXT_AVATAR": True,
                     "SOGO_D_MAIL_REFRESH_INTERVAL_ALLOWED": [
                         0,
