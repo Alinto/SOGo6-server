@@ -9,7 +9,8 @@ import mysql.connector
 from mysql.connector import Error, ProgrammingError  # pylint: disable=no-name-in-module
 
 from app.utils.db.Table import Table, REX_VALID_NAMES
-from app.utils.db.Condition import Condition, EqualCondition, NotEqualCondition, AndCondition, OrCondition
+from app.utils.db.Condition import Condition, EqualCondition, NotEqualCondition, AndCondition, OrCondition, TrueCondition
+from app.utils import errors as err
 from app.utils.exceptions import RequestException, BugException
 from app.utils.logger.logger import logger, logger_sql
 from .ClientSQL import ClientSQL
@@ -135,6 +136,8 @@ def condition_to_query(condition: Condition, add_where: bool = False) -> Tuple[s
         sql_condition = f"({cond1_sql} OR {cond2_sql})"
         params.extend(cond1_params)
         params.extend(cond2_params)
+    elif isinstance(condition, TrueCondition):
+        sql_condition = "1 = 1"
     else:
         logger_sql.error("Unknown Condition type %s", type(condition))
         raise BugException("Unknown Condition type")
@@ -348,9 +351,25 @@ class ClientMySQL(ClientSQL):
 
         return ret
 
-    def select_from_table(self, table_name: str, column_tuple: tuple[str], condition: Condition) -> Generator[tuple[Any, ...], None, None]:
+    def select_from_table(self, table_name: str, column_tuple: tuple[str, ...], condition: Condition, offset: int = 0, limit: int = 0) -> Generator[tuple[Any, ...], None, None]:
         """
         Select values from a table under conditions
+
+        offset = 0 means no offset
+        limit = 0 means no limit (all rows)
+
+        :param table_name: Name of the table
+        :type table_name: str
+        :param column_tuple: Tuple of the column name to select
+        :type column_tuple: tuple[str, ...]
+        :param condition: Condition on the query
+        :type condition: Condition
+        :param offset: Number of rows to skip, defaults to 0
+        :type offset: int
+        :param limit: Maximum number of rows to return, defaults to 0 (no limit)
+        :type limit: int
+        :yield: A generator, each item is a tuple with the values corresponding to the column_tuple param
+        :rtype: Generator[tuple[Any, ...], None, None]
         """
         if self.db_conn and not self.db_conn.is_connected():
             self.connect()
@@ -363,7 +382,17 @@ class ClientMySQL(ClientSQL):
                 columns_sql = ", ".join(f"`{c}`" for c in column_tuple)
 
         cond_sql, params = condition_to_query(condition, add_where=True)
-        sql_query = f"SELECT {columns_sql} FROM `{table_name}` {cond_sql}"
+
+        # Build LIMIT and OFFSET clauses
+        limit_clause = ""
+        if limit > 0:
+            limit_clause = f" LIMIT {limit}"
+
+        offset_clause = ""
+        if offset > 0:
+            offset_clause = f" OFFSET {offset}"
+
+        sql_query = f"SELECT {columns_sql} FROM `{table_name}` {cond_sql}{limit_clause}{offset_clause}"
 
         logger_sql.info("QUERY COMMAND: %s -- params=%s", sql_query, params)
 
@@ -392,6 +421,108 @@ class ClientMySQL(ClientSQL):
         """
         logger_sql.error("Method 'select_from_several_table' of ClientMySQL must be implemented by the children %s", type(self).__name__)
         raise NotImplementedError
+
+    def count_row_in_table(self, table_name: str, condition: Condition, column_name: str = "*") -> int:
+        """
+        Count rows in a table under conditions
+
+        :param table_name: Name of the table
+        :type table_name: str
+        :param condition: Condition on the query
+        :type condition: Condition
+        :param column_name: Name of the column, or "*" by default
+        :type column_name: str
+        :return: A number indicates the number of rows of the result
+        :rtype: int
+        """
+        if self.db_conn and not self.db_conn.is_connected():
+            self.connect()
+
+        if column_name == "*":
+            count_query = "COUNT(*)"
+        else:
+            count_query = f"COUNT(`{column_name}`)"
+
+        cond_sql, params = condition_to_query(condition, add_where=True)
+        sql_query = f"SELECT {count_query} FROM `{table_name}` {cond_sql}"
+
+        logger_sql.info("QUERY COMMAND: %s -- params=%s", sql_query, params)
+
+        count_ret = 0
+        if self.db_conn is not None:
+            cursor = self.db_conn.cursor()
+            try:
+                cursor.execute(sql_query, tuple(params))
+                record = cursor.fetchone()
+                if record:
+                    count_ret = record[0]
+                logger_sql.info("QUERY RESULT: COUNT: %s rows", count_ret)
+            except Error as e:
+                logger_sql.error("Error when counting rows in table %s: %s", table_name, e)
+            finally:
+                cursor.close()
+
+        return count_ret
+
+    def delete_row_in_table(self, table_name: str, condition: Condition, expected_row: int = 0) -> int:
+        """
+        Delete rows in a table.
+
+        Condition cannot be of type TrueCondition
+
+        Set expected_row to a value greater than 0 to check beforehand with a COUNT if your condition
+        returns the expected number of rows. 0 or negative values will not trigger any check.
+
+        Example:
+        If you're sure that only one row will be deleted, set expected_row=1 and this method
+        will check before the delete query if, indeed, only 1 row will be deleted.
+
+        :param table_name: Name of the table
+        :type table_name: str
+        :param condition: Condition for the query
+        :type condition: Condition
+        :param expected_row: Expected number of rows to be deleted, defaults to 0
+        :type expected_row: int, optional
+        :raises BugException: raise if the condition is of type TrueCondition
+        :raises RequestException: raise if the expected number of rows doesn't match
+        :return: number of rows deleted
+        :rtype: int
+        """
+        if isinstance(condition, TrueCondition):
+            raise BugException("Condition for delete query is always True", err.ERROR_QUERY_DELETION_CONDITION)
+
+        if self.db_conn and not self.db_conn.is_connected():
+            self.connect()
+
+        if expected_row > 0:
+            # First count the rows to be deleted and check if it matches
+            row_affected = self.count_row_in_table(table_name, condition)
+            if expected_row != row_affected:
+                raise RequestException(f"Expected number of row deleted is different! expected: {expected_row}, real {row_affected}", err.ERROR_QUERY_DELETION_ROWS)
+
+        cond_sql, params = condition_to_query(condition, add_where=True)
+        sql_query = f"DELETE FROM `{table_name}` {cond_sql}"
+
+        logger_sql.info("QUERY COMMAND: %s -- params=%s", sql_query, params)
+
+        count_ret = 0
+        if self.db_conn is not None:
+            cursor = self.db_conn.cursor()
+            try:
+                cursor.execute(sql_query, tuple(params))
+                count_ret = cursor.rowcount or 0
+                if count_ret == 0:
+                    logger_sql.info("QUERY RESULT: None deleted")
+                else:
+                    logger_sql.info("QUERY RESULT: deleted %s rows", count_ret)
+                self.db_conn.commit()
+            except Error as e:
+                logger_sql.error("Error when deleting rows from table %s: %s", table_name, e)
+                self.db_conn.rollback()
+            finally:
+                cursor.close()
+
+        return count_ret
 
     def close(self) -> None:
         """
