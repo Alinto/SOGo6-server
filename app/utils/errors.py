@@ -99,6 +99,11 @@ ERROR_IDENTITIES_CUSTOM_REPLY_TO_FORBIDDEN = E("S000334", "Custom reply-to email
 #Preferences
 ERROR_PREF_UNKNOWN_SUB = E("S000340", "Subparent of User Settings does not exist", HTTPStatus.BAD_REQUEST)
 
+#Delegations
+ERROR_DELEGATION_NOT_FOUND = E("S000350", "Delegation Not Found", HTTPStatus.NOT_FOUND)
+ERROR_DELEGATION_ALREADY_EXISTS = E("S000351", "Delegation Already Exists", HTTPStatus.BAD_REQUEST)
+ERROR_DELEGATION_INVALID_EMAIL = E("S000352", "Invalid Email Address For Delegation", HTTPStatus.BAD_REQUEST)
+
 #Database
 ERROR_BUG_UNKNWON_TABLE        = E("S000400", "Database Unknown Table", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_BUG_UNKNWON_COLUMN       = E("S000401", "Database Unknown Column", HTTPStatus.INTERNAL_SERVER_ERROR)
