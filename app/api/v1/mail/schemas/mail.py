@@ -48,116 +48,11 @@ class MailFolderQueryArgsSchema(Schema):
 
 
 
-class AttachmentPartSchema(Schema):
-    """
-    Schema for an attachment part in an email
-    """
-    partId = fields.String()
-    name = fields.String()
-    contentType = fields.String()
-    size = fields.Integer()
-    downloadUri = fields.String()
-    displayUri = fields.String()
-
-
-class AttachmentsSchema(Schema):
-    """
-    Schema for the attachments group in a mail
-    """
-    parts = fields.List(fields.Nested(AttachmentPartSchema))
-    zipUri = fields.String()
-    count = fields.Integer()
-
-
-class AddressSchema(Schema):
-    """
-    Schema for an email address
-    """
-    name = fields.String()
-    email = fields.String()
-
-
-class AttachmentSchema(Schema):
-    """
-    Schema for an email attachment
-    """
-    filename = fields.String()
-    contentType = fields.String()
-    size = fields.Integer()
-    downloadUri = fields.String()
-    displayUri = fields.String()
-    extension = fields.String()
-
-class ContentSchema(Schema):
-    """
-    Schema for mail content
-    """
-    content = fields.String()
-    contentType = fields.String()
-    shouldDisplayAttachment = fields.Boolean()
-
-
-class CertificateSchema(Schema):
-    """Schema for email certificates
-    """
-    emails = fields.List(fields.String())
-
-
-class MetaDataMailSchema(Schema):
-    """
-    Schema for mail metadata
-    """
-    mail_type = fields.String()
-    mail_type_data = fields.Dict()
-
-class MailDetailSchema(Schema):
-    """
-    Schema for detailed mail information
-    """
-    uid = fields.String(required=True)
-    size = fields.Integer()
-
-    # system flags (https://datatracker.ietf.org/doc/html/rfc9051#name-flags-message-attribute)
-    seen = fields.Boolean() # match flag \SEEN
-    flagged = fields.Boolean() # match flag \FLAGGED
-    answered = fields.Boolean() # match flag \ANSWERED
-    forwarded = fields.Boolean() # match flag $FORWARDED
-    flags = fields.List(fields.String())
-    deleted = fields.Boolean() # match flag \DELETED ?? est ce qu'on l'envoie?
-
-    # header
-    to = fields.List(fields.Nested(AddressSchema))  # header To
-    from_ = fields.Nested(AddressSchema, data_key="from") #header From
-    cc = fields.List(fields.Nested(AddressSchema))  # header Cc
-    reply_to = fields.List(fields.Nested(AddressSchema))  # header Reply-To
-    subject = fields.String() # header Subject
-    date = fields.String() # match header Date
-    return_path = fields.String() # match header Return-Path
-
-    # body
-    contents = fields.List(fields.Nested(ContentSchema))
-    has_attachment = fields.Boolean()
-    attachments = fields.List(fields.Nested(AttachmentSchema))
-
-    # encryption
-    is_signed = fields.Boolean() # whether the mail is signed (S/MIME or PGP)
-    certificates = fields.List(fields.Nested(CertificateSchema)) # list of certificates if signed
-    valid = fields.Boolean() # whether the signature is valid
-
-    # others
-    priority = fields.Integer() # custom header X-Priority in sogo 5
-    should_ask_receipt = fields.Boolean() # header return-receipt-to/Disposition-Notification-To present
-
-    # isImageSafe = fields.Boolean() # whether images are safe to display TODO: geré coté front?
-
-    # mail type
-    metadatas = fields.List(fields.Nested(MetaDataMailSchema))
-
 class MailDetailResponseSchema(ApiBaseResponse):
     """
     Schema for GET /mailboxes/<account_id>/folders/<path:folder_name>/mails/<mail_uid> response
     """
-    data = fields.Nested(MailDetailSchema, required=True)
+    data = fields.Dict(required=False, allow_none=True)
 
     @classmethod
     def example(cls) -> dict:
@@ -220,10 +115,7 @@ class MailListResponseSchema(ApiBaseResponse):
     """
     Schema for GET /mailboxes/<account_id>/folders/<path:folder_name>/mails response
     """
-    data = fields.List(
-        fields.Nested(MailDetailSchema),
-        required=True
-    )
+    data = fields.List(fields.Dict(), required=False, allow_none=True)
 
     @classmethod
     def example(cls) -> dict:
@@ -286,7 +178,7 @@ class MailDeleteResponseSchema(ApiBaseResponse):
     """
     Schema for DELETE /mailboxes/<account_id>/folders/<path:folder_name>/mails/<mail_uid> response
     """
-    data = fields.Dict(keys=fields.String(), values=fields.Integer())
+    data = fields.Dict(required=False, allow_none=True)
 
     @classmethod
     def example(cls) -> dict:
@@ -308,7 +200,7 @@ class MailBulkDeleteResponseSchema(ApiBaseResponse):
     """
     Schema for deleting multiple mails response
     """
-    data = fields.Dict(keys=fields.String(), values=fields.List(fields.Integer()))
+    data = fields.Dict(required=False, allow_none=True)
 
     @classmethod
     def example(cls) -> dict:
@@ -330,7 +222,7 @@ class MailMoveResponseSchema(ApiBaseResponse):
     """
     Schema for moving mails response
     """
-    data = fields.Dict(keys=fields.String(), values=fields.List(fields.Integer()))
+    data = fields.Dict(required=False, allow_none=True)
 
     @classmethod
     def example(cls) -> dict:
@@ -352,7 +244,7 @@ class MailRawResponseSchema(ApiBaseResponse):
     """
     Schema for GET /mailboxes/<account_id>/folders/<path:folder_name>/mails/<mail_uid>/raw response
     """
-    data = fields.Dict(keys=fields.String(), values=fields.String())
+    data = fields.Dict(required=False, allow_none=True)
 
     @classmethod
     def example(cls) -> dict:
