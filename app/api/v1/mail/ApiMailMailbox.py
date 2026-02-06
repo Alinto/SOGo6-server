@@ -12,7 +12,10 @@ from app.api.v1.mail.schemas.mailbox import (
     MailboxCreateSchema,
     MailboxUpdateSchema,
     MailboxResponseSchema,
-    MailboxListResponseSchema
+    MailboxListResponseSchema,
+    DelegationCreateSchema,
+    DelegationListResponseSchema,
+    DelegationResponseSchema
 )
 
 if TYPE_CHECKING:
@@ -120,22 +123,29 @@ class ApiMailBoxesAccountCompose(MethodView):
         return interface.compose_email(account_id)
 
 
-@blp.route("/<int:account_id>/delegate")
+@blp.route("/<string:account_id>/delegate")
 class ApiMailBoxesAccountDelegates(MethodView):
     """
     Resource: Mailbox Delegations
     """
-    def get(self, account_id: int) -> ResponseReturnValue:
+    @blp.response(200, DelegationListResponseSchema)
+    def get(self, account_id: str) -> ResponseReturnValue:
         """
-        Get delegates for this mailbox (NOT IMPLEMENTED)
+        Get delegates for this mailbox
+        
+        Note: Currently only supported for main account (account_id="0")
         """
         logger_api.debug("Calling ApiMailBoxesAccountDelegates.get for account_id: %s", account_id)
         interface: InterfaceApiMailMailbox = g.inter
         return interface.get_mailbox_delegates(account_id)
 
-    def post(self, data: dict, account_id: int) -> ResponseReturnValue:
+    @blp.arguments(DelegationCreateSchema, example=DelegationCreateSchema.example())
+    @blp.response(201, DelegationResponseSchema)
+    def post(self, data: dict, account_id: str) -> ResponseReturnValue:
         """
-        Create a new delegate for this mailbox (NOT IMPLEMENTED)
+        Create a new delegate for this mailbox
+        
+        Note: Currently only supported for main account (account_id="0")
         """
         logger_api.debug("Calling ApiMailBoxesAccountDelegates.post for account_id: %s with data: %s", account_id, data)
         interface: InterfaceApiMailMailbox = g.inter

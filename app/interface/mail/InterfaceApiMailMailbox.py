@@ -351,49 +351,77 @@ class InterfaceApiMailMailbox:
         #     logger_api.error("Request exception in compose_email: %s", str(ex))
         #     return create_api_base_response(None, ex.error_code), ex.http_status
 
-    def get_mailbox_delegates(self, account_id: int) -> Tuple[Dict[str, Any], int]:
+    def get_mailbox_delegates(self, account_id: str) -> Tuple[Dict[str, Any], int]:
         """Get delegates for this mailbox.
         
-        :param account_id: The account identifier
-        :type account_id: int
+        Note: Delegations are currently only supported for the main account (account_id="0").
+        External accounts do not support delegations.
+        
+        :param account_id: The account identifier ("0" for main account)
+        :type account_id: str
         :return: A tuple of (API response dict, status code)
         :rtype: Tuple[Dict[str, Any], int]
         """
-        raise NotImplementedError("Get mailbox delegates is not implemented yet")
-        # try:
-        #     conf = self._get_user_conf(account_id)
-        #     module = ModuleMail(user_conf=conf)
-        #     delegates = module.get_mailbox_delegates()
-        #     return create_api_base_response({"delegates": delegates}), 200
-        # except ValidationError as ex:
-        #     logger_api.error("Validation error in get_mailbox_delegates: %s", ex.messages)
-        #     return create_api_base_response(None, err.ERROR_VALIDATION_ERROR), 400
-        # except RequestException as ex:
-        #     logger_api.error("Request exception in get_mailbox_delegates: %s", str(ex))
-        #     return create_api_base_response(None, ex.error_code), ex.http_status
+        try:
+            # Delegations are only supported for main account
+            if account_id != cs.DEFAULT_IDENTITY_KEY_VALUE:
+                raise RequestException(
+                    err.ERROR_EXTERNAL_ACCOUNT_FORBIDDEN.m,
+                    err.ERROR_EXTERNAL_ACCOUNT_FORBIDDEN
+                )
+            
+            uid = self.user.uid
+            print(self.user)
+            print(uid)
+            delegations = self.module_user_profile.get_delegations_given(uid)
+            return create_api_base_response(delegations), 200
+        except RequestException as ex:
+            logger_api.error("Request exception in get_mailbox_delegates for user %s, account %s: %s", self.user.uid, account_id, str(ex))
+            return create_api_base_response(None, ex.error_code), ex.http_status
+        except BugException as ex:
+            logger_api.error("Bug exception in get_mailbox_delegates for user %s, account %s: %s", self.user.uid, account_id, str(ex))
+            return create_api_base_response(None, ex.error_code), ex.http_status
 
-    def create_mailbox_delegate(self, account_id: int, data: dict) -> Tuple[Dict[str, Any], int]:
+
+    def create_mailbox_delegate(self, account_id: str, data: dict) -> Tuple[Dict[str, Any], int]:
         """Create a new delegate for this mailbox.
         
-        :param account_id: The account identifier
-        :type account_id: int
-        :param data: Delegate data
+        Note: Delegations are currently only supported for the main account (account_id="0").
+        External accounts do not support delegations.
+        
+        :param account_id: The account identifier ("0" for main account)
+        :type account_id: str
+        :param data: Delegate data containing 'email' field
         :type data: dict
         :return: A tuple of (API response dict, status code)
         :rtype: Tuple[Dict[str, Any], int]
         """
-        raise NotImplementedError("Create mailbox delegate is not implemented yet")
-        # try:
-        #     conf = self._get_user_conf(account_id)
-        #     module = ModuleMail(user_conf=conf)
-        #     delegate_data = module.create_mailbox_delegate(data)
-        #     return create_api_base_response(delegate_data), 201
-        # except ValidationError as ex:
-        #     logger_api.error("Validation error in create_mailbox_delegate: %s", ex.messages)
-        #     return create_api_base_response(None, err.ERROR_VALIDATION_ERROR), 400
-        # except RequestException as ex:
-        #     logger_api.error("Request exception in create_mailbox_delegate: %s", str(ex))
-        #     return create_api_base_response(None, ex.error_code), ex.http_status
+        try:
+            # Delegations are only supported for main account
+            if account_id != cs.DEFAULT_IDENTITY_KEY_VALUE:
+                raise RequestException(
+                    err.ERROR_EXTERNAL_ACCOUNT_FORBIDDEN.m,
+                    err.ERROR_EXTERNAL_ACCOUNT_FORBIDDEN
+                )
+            
+            uid = self.user.uid
+            delegate_email = data.get("email")
+            
+            if not delegate_email:
+                raise RequestException(
+                    err.ERROR_DELEGATION_INVALID_EMAIL.m,
+                    err.ERROR_DELEGATION_INVALID_EMAIL
+                )
+            
+            result = self.module_user_profile.add_delegation_given(uid, delegate_email)
+            return create_api_base_response(result), 201
+        except RequestException as ex:
+            logger_api.error("Request exception in create_mailbox_delegate for user %s, account %s: %s", self.user.uid, account_id, str(ex))
+            return create_api_base_response(None, ex.error_code), ex.http_status
+        except BugException as ex:
+            logger_api.error("Bug exception in create_mailbox_delegate for user %s, account %s: %s", self.user.uid, account_id, str(ex))
+            return create_api_base_response(None, ex.error_code), ex.http_status
+
 
     def purge_mailbox(self, account_id: int) -> Tuple[Union[str, Dict[str, Any]], int]:
         """Purge (all folders) from the specified mailbox.

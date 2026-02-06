@@ -378,3 +378,83 @@ class MailboxListResponseSchema(ApiBaseResponse):
                 }
             ]
         }
+
+
+class DelegationSchema(Schema):
+    """
+    Schema for a single delegation entry
+    """
+    email = fields.String(required=True, validate=validate.Email())
+
+    @classmethod
+    def example(cls) -> dict:
+        """Example data for a delegation.
+        
+        :return: Example delegation
+        :rtype: dict
+        """
+        return {
+            "email": "delegate@example.com"
+        }
+
+
+class DelegationCreateSchema(Schema):
+    """
+    Schema for POST /mailboxes/<account_id>/delegate - Add a delegation
+    """
+    email = fields.String(required=True, validate=validate.Email())
+
+    @classmethod
+    def example(cls) -> dict:
+        """Example data for creating a delegation.
+        
+        :return: Example delegation creation payload
+        :rtype: dict
+        """
+        return {
+            "email": "delegate@example.com"
+        }
+
+
+class DelegationListResponseSchema(ApiBaseResponse):
+    """
+    Schema for response when listing delegations
+    The 'data' field contains a list of email addresses
+    """
+    data = fields.List(fields.String(), required=False, allow_none=True)
+
+    @classmethod
+    def example(cls) -> dict:
+        """Example response for listing delegations.
+        
+        :return: Example delegation list response
+        :rtype: dict
+        """
+        return {
+            "error_code": 0,
+            "error_msg": "",
+            "data": [
+                "delegate1@example.com",
+                "delegate2@example.com"
+            ]
+        }
+
+
+class DelegationResponseSchema(ApiBaseResponse):
+    """
+    Schema for response when creating a delegation
+    """
+    data = fields.String(required=False, allow_none=True)
+
+    @classmethod
+    def example(cls) -> dict:
+        """Example response for creating a delegation.
+        
+        :return: Example delegation creation response
+        :rtype: dict
+        """
+        return {
+            "error_code": 0,
+            "error_msg": "",
+            "data": "delegate@example.com"
+        }

@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, cast, Any
 
 from marshmallow import EXCLUDE, ValidationError
 
@@ -72,7 +72,7 @@ class ModuleUserProfile:
         elif len(result) > 1:
             logger_user_profile.error("Multiple user profiles found for uid: %s", uid)
             raise AggravatedException(err.ERROR_USER_PROFILE_DUPLICATE.m, err.ERROR_USER_PROFILE_DUPLICATE)
-        
+
         logger_user_profile.debug("No user profile found for uid: %s", uid)
         return False
 
@@ -166,7 +166,7 @@ class ModuleUserProfile:
 
         logger_user_profile.info("Successfully created user profile for uid: %s", uid)
 
-    def _get_user_column(self, uid: str, field_name: str) -> dict:
+    def _get_user_column(self, uid: str, field_name: str) -> Any:
         """
         Generic method to get a specific field from user profile
         
@@ -174,8 +174,8 @@ class ModuleUserProfile:
         :type uid: str
         :param field_name: Name of the field to retrieve
         :type field_name: str
-        :return: Field value (dict or empty dict if None)
-        :rtype: dict
+        :return: Field value (dict, list, or empty dict if None)
+        :rtype: Any
         :raises RequestException: If no user found (ERROR_USER_PROFILE_NOT_FOUND)
         :raises BugException: If multiple users found (ERROR_USER_PROFILE_DUPLICATE)
         """
@@ -199,7 +199,7 @@ class ModuleUserProfile:
         field_value = result[0][0]
         return field_value if field_value else {}
 
-    def _update_user_column(self, uid: str, field_name: str, field_value: dict) -> None:
+    def _update_user_column(self, uid: str, field_name: str, field_value: Any) -> None:
         """
         Generic method to update a specific field in user profile
         
@@ -207,8 +207,8 @@ class ModuleUserProfile:
         :type uid: str
         :param field_name: Name of the field to update
         :type field_name: str
-        :param field_value: New value for the field
-        :type field_value: dict
+        :param field_value: New value for the field (dict, list, or other type)
+        :type field_value: Any
         :raises BugException: If update affects unexpected number of rows
         """
         self.sogo_db_manager.connect()
@@ -578,7 +578,7 @@ class ModuleUserProfile:
             real_subparent: prefs.get(real_subparent, {})
         }
         return ret
-    
+
     def update_user_preferences(self, uid:str, new_data:dict, subparent:str|None = None) -> dict:
         """
         Update all or a part of the user preferences
@@ -610,6 +610,61 @@ class ModuleUserProfile:
             real_subparent = user_settings_dict[subparent.lower()].subparent
             return new_data[real_subparent]
         return new_data
-            
 
+    def get_delegations_given(self, uid: str) -> list[str]:
+        """
+        Get all delegations given by the user
+        
+        :param uid: User unique identifier
+        :type uid: str
+        :return: List of email addresses that have delegation
+        :rtype: list[str]
+        :raises RequestException: If user profile not found
+        :raises BugException: If multiple user profiles found
+        """
+        logger_user_profile.debug("Getting delegations given for uid: %s", uid)
 
+        delegations = self._get_user_column(uid, tbl.COL_USER_DELEGATION_GIVEN.name)
+
+        # Ensure we return a list (handle None or empty dict)
+        if not delegations or not isinstance(delegations, list):
+            return []
+
+        return delegations
+
+    def add_delegation_given(self, uid: str, delegate_email: str) -> str:
+        """
+        Add a delegation to another user
+        
+        :param uid: User unique identifier
+        :type uid: str
+        :param delegate_email: Email address of the user to grant delegation
+        :type delegate_email: str
+        :return: The delegate email address
+        :rtype: str
+        :raises RequestException: If user profile not found or delegation already exists
+        :raises BugException: If multiple user profiles found or update fails
+        """
+        logger_user_profile.debug("Adding delegation given for uid: %s to %s", uid, delegate_email)
+
+        delegations_data = self._get_user_column(uid, tbl.COL_USER_DELEGATION_GIVEN.name)
+
+        # Ensure delegations is a list (handle None, empty dict, or actual list)
+        delegations: list[str] = []
+        if delegations_data and isinstance(delegations_data, list):
+            delegations = delegations_data
+
+        # Check if delegation already exists (case-insensitive)
+        delegate_email_lower = delegate_email.lower()
+        if any(email.lower() == delegate_email_lower for email in delegations):
+            logger_user_profile.error("Delegation already exists: %s for uid: %s", delegate_email, uid)
+            raise RequestException(err.ERROR_DELEGATION_ALREADY_EXISTS.m, err.ERROR_DELEGATION_ALREADY_EXISTS)
+
+        # Add the delegation
+        delegations.append(delegate_email)
+
+        self._update_user_column(uid, tbl.COL_USER_DELEGATION_GIVEN.name, delegations)
+
+        logger_user_profile.info("Successfully added delegation for uid: %s to %s", uid, delegate_email)
+
+        return delegate_email

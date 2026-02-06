@@ -443,7 +443,7 @@ class ClientPostgreSQL(ClientSQL):
 
         if self.db_conn and self.db_conn.closed:
             self.connect()
-        
+
         if expected_row > 0:
             #First count the row to be deleted and check if it matches
             row_affected = self.count_row_in_table(table_name, condition)
