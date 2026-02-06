@@ -142,27 +142,11 @@ class FolderShareSchema(Schema):
         ]
 
 
-class FolderDetailsSchema(Schema):
-    """
-    Schema for folder details data
-    """
-    name = fields.String()
-    path = fields.String()
-    subscribed = fields.Integer()
-    type = fields.String()
-    unseenCount = fields.Integer()
-    messageCount = fields.Integer()
-    children = fields.List(fields.Dict())
-
-
 class FolderListResponseSchema(ApiBaseResponse):
     """
     Schema for GET /mailboxes/<account_id>/folders response
     """
-    data = fields.List(
-        fields.Nested(FolderDetailsSchema),
-        required=True
-    )
+    data = fields.List(fields.Dict(), required=False, allow_none=True)
 
     @classmethod
     def example(cls) -> dict:
@@ -220,7 +204,7 @@ class FolderCreateResponseSchema(ApiBaseResponse):
     """
     Schema for POST /mailboxes/<account_id>/folders response
     """
-    data = fields.Dict(keys=fields.String(), values=fields.Raw())
+    data = fields.Dict(required=False, allow_none=True)
 
     @classmethod
     def example(cls) -> dict:
@@ -242,7 +226,7 @@ class FolderDetailsResponseSchema(ApiBaseResponse):
     """
     Schema for GET /mailboxes/<account_id>/folders/<path:folder_name> response
     """
-    data = fields.Nested(FolderDetailsSchema)
+    data = fields.Dict(required=False, allow_none=True)
 
     @classmethod
     def example(cls) -> dict:
@@ -270,7 +254,7 @@ class FolderUpdateResponseSchema(ApiBaseResponse):
     """
     Schema for PATCH /mailboxes/<account_id>/folders/<path:folder_name> response
     """
-    data = fields.Dict(keys=fields.String(), values=fields.Raw())
+    data = fields.Dict(required=False, allow_none=True)
 
     @classmethod
     def example(cls) -> dict:
@@ -298,7 +282,7 @@ class FolderExpungeResponseSchema(ApiBaseResponse):
     """
     Schema for POST /mailboxes/<account_id>/folders/<path:folder_name>/expunge response
     """
-    data = fields.Dict(keys=fields.String(), values=fields.Integer())
+    data = fields.Dict(required=False, allow_none=True)
 
     @classmethod
     def example(cls) -> dict:
@@ -320,7 +304,7 @@ class FolderPurgeResponseSchema(ApiBaseResponse):
     """
     Schema for POST /mailboxes/<account_id>/folders/<path:folder_name>/purge response
     """
-    data = fields.Dict(keys=fields.String(), values=fields.Integer())
+    data = fields.Dict(required=False, allow_none=True)
 
     @classmethod
     def example(cls) -> dict:
@@ -338,29 +322,11 @@ class FolderPurgeResponseSchema(ApiBaseResponse):
         }
 
 
-class FolderShareUserSchema(Schema):
-    """
-    Schema for a shared user in folder sharing
-    """
-    userClass = fields.String()
-    c_email = fields.String()
-    cn = fields.String()
-    uid = fields.String()
-    rights = fields.Nested(FolderShareRightsSchema)
-
-
-class FolderShareDataSchema(Schema):
-    """
-    Schema for folder share data
-    """
-    users = fields.Dict(keys=fields.String(), values=fields.Nested(FolderShareUserSchema))
-
-
 class FolderShareResponseSchema(ApiBaseResponse):
     """
     Schema for GET/POST /mailboxes/<account_id>/folders/<path:folder_name>/share response
     """
-    data = fields.Nested(FolderShareDataSchema)
+    data = fields.Dict(required=False, allow_none=True)
 
     @classmethod
     def example(cls) -> dict:
