@@ -124,24 +124,6 @@ class IdentitySchema(Schema):
         }
 
 
-class MailboxConfigSchema(Schema):
-    """
-    Schema for a complete mailbox configuration
-    This represents the value of the DRFK (or other key) in the JSON
-    """
-    name = fields.String(required=True, validate=validate.Length(min=1))
-    mail_server = fields.Nested(MailServerSchema, required=True)
-    receipts = fields.Dict(required=False, load_default={})
-    identities = fields.Dict(
-        keys=fields.String(),
-        values=fields.Nested(IdentitySchema),
-        required=False,
-        load_default={}
-    )
-    certificates = fields.Dict(required=False, load_default={})
-    mail_outgoing = fields.Nested(MailOutgoingSchema, required=True)
-
-
 class MailboxCreateSchema(Schema):
     """
     Schema for POST /mailboxes - Create a new external mailbox account
@@ -263,7 +245,7 @@ class MailboxResponseSchema(ApiBaseResponse):
     """
     Schema for response when getting or creating a mailbox
     """
-    data = fields.Dict(required=False)
+    data = fields.Dict(required=False, allow_none=True)
 
     @classmethod
     def example(cls) -> dict:
