@@ -61,7 +61,7 @@ class ApiMailBoxes(MethodView):
         interface: InterfaceApiMailMailbox = g.inter
         return interface.list_mailboxes()
 
-    @blp.arguments(MailboxCreateSchema, example=MailboxCreateSchema.example())
+    @blp.arguments(MailboxCreateSchema, example=MailboxCreateSchema.example(), error_status_code=400)
     @blp.response(201, MailboxResponseSchema)
     def post(self, mailbox_data: dict) -> ResponseReturnValue:
         """
@@ -87,7 +87,7 @@ class ApiMailBoxesAccount(MethodView):
         interface: InterfaceApiMailMailbox = g.inter
         return interface.get_mailbox(account_id)
 
-    @blp.arguments(MailboxUpdateSchema, example=MailboxUpdateSchema.example())
+    @blp.arguments(MailboxUpdateSchema, example=MailboxUpdateSchema.example(), error_status_code=400)
     @blp.response(200, MailboxResponseSchema)
     def patch(self, mailbox_data: dict, account_id: str) -> ResponseReturnValue:
         """
@@ -99,7 +99,7 @@ class ApiMailBoxesAccount(MethodView):
         interface: InterfaceApiMailMailbox = g.inter
         return interface.update_mailbox(account_id, mailbox_data)
 
-    @blp.response(200, ApiBaseResponse)
+    @blp.response(204, ApiBaseResponse)
     def delete(self, account_id: str) -> ResponseReturnValue:
         """
         Delete a mailbox (only external accounts)
@@ -126,7 +126,7 @@ class ApiMailBoxesAccountCompose(MethodView):
 @blp.route("/<string:account_id>/delegate")
 class ApiMailBoxesAccountDelegates(MethodView):
     """
-    Resource: Mailbox Delegations
+    Action: Mailbox Delegations
     """
     @blp.response(200, DelegationListResponseSchema)
     def get(self, account_id: str) -> ResponseReturnValue:
@@ -139,7 +139,7 @@ class ApiMailBoxesAccountDelegates(MethodView):
         interface: InterfaceApiMailMailbox = g.inter
         return interface.get_mailbox_delegates(account_id)
 
-    @blp.arguments(DelegationCreateSchema, example=DelegationCreateSchema.example())
+    @blp.arguments(DelegationCreateSchema, example=DelegationCreateSchema.example(), error_status_code=400)
     @blp.response(201, DelegationResponseSchema)
     def post(self, data: dict, account_id: str) -> ResponseReturnValue:
         """

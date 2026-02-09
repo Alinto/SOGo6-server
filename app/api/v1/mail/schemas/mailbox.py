@@ -135,8 +135,7 @@ class MailboxCreateSchema(Schema):
     receipts = fields.Dict(required=False, load_default={})
     identities = fields.List(
         fields.Nested(IdentitySchema),
-        required=True,
-        load_default=[]
+        required=True
     )
     certificates = fields.Dict(required=False, load_default={})
     mail_outgoing = fields.Nested(MailOutgoingSchema, required=True)
@@ -389,7 +388,7 @@ class DelegationCreateSchema(Schema):
     """
     Schema for POST /mailboxes/<account_id>/delegate - Add a delegation
     """
-    email = fields.String(required=True, validate=validate.Email())
+    email = fields.Email(required=True)
 
     @classmethod
     def example(cls) -> dict:
@@ -399,7 +398,7 @@ class DelegationCreateSchema(Schema):
         :rtype: dict
         """
         return {
-            "email": "delegate@example.com"
+            "emails": ["delegate@example.com", "delegate2@example.com"]
         }
 
 

@@ -426,7 +426,7 @@ class ModuleUserProfile:
 
         return response_data
 
-    def update_external_account(self, uid: User, account_id: str, account_data: dict) -> dict:
+    def update_external_account(self, user: User, account_id: str, account_data: dict) -> dict:
         """
         Update an existing external account
         
@@ -441,67 +441,47 @@ class ModuleUserProfile:
         :raises RequestException: If account not found or user profile not found
         :raises BugException: If multiple user profiles found or update fails
         """
-        logger_user_profile.debug("Updating external account %s for uid: %s", account_id, uid)
+        logger_user_profile.debug("Updating external account %s for uid: %s", account_id, user.uid)
 
-        external_accounts = self._get_user_column(uid, tbl.COL_USER_EXTERNAL_ACCOUNTS.name)
+        all_external_accounts = self._get_user_column(user.uid, tbl.COL_USER_EXTERNAL_ACCOUNTS.name)
 
-        if account_id not in external_accounts:
-            logger_user_profile.error("External account not found: %s for uid: %s", account_id, uid)
+        if account_id not in all_external_accounts:
+            logger_user_profile.error("External account not found: %s for uid: %s", account_id, user.uid)
             raise RequestException(err.ERROR_EXTERNAL_ACCOUNT_NOT_FOUND.m, err.ERROR_EXTERNAL_ACCOUNT_NOT_FOUND)
 
-        # Encrypt passwords and certificates if needed:
+        external_account: dict = all_external_accounts[account_id]
+        # Encrypt password of mail_server:
+        mail_server: dict
         if mail_server := account_data.get("mail_server", None):
-            if password := mail_server.get("password", None):
+            password = mail_server.get("password", None)
+            if password is None or len(password) < 1:
+                mail_server["password"] = encrypt_password(password)
                 
+        # Encrypt password of mail_outgoing:
+        mail_outgoing: dict
+        if mail_outgoing := account_data.get("mail_outgoing", None):
+            password = mail_outgoing.get("password", None)
+            if password is None or len(password) < 1:
+                mail_outgoing["password"] = encrypt_password(password)
+        
+        # Encrypt certificates
+        #TODO
 
+        # Partial update: merge with existing data, all_external_accounts, being a mutable dict, will be changed automatically
+        merge_patch(account_data, external_account)
 
-        # Partial update: merge with existing data
-        current_account = external_accounts[account_id]
+        self._update_user_column(user.uid, tbl.COL_USER_EXTERNAL_ACCOUNTS.name, all_external_accounts)
 
-        # Handle mail_server with detailed update
-        if "mail_server" in account_data:
-            if not isinstance(current_account.get("mail_server"), dict):
-                current_account["mail_server"] = {}
-
-            for field, value in account_data["mail_server"].items():
-                if field == "password" and value:
-                    # Encrypt password before storing
-                    current_account["mail_server"][field] = encrypt_password(value)
-                else:
-                    current_account["mail_server"][field] = value
-
-        # Handle mail_outgoing with detailed update
-        if "mail_outgoing" in account_data:
-            if not isinstance(current_account.get("mail_outgoing"), dict):
-                current_account["mail_outgoing"] = {}
-
-            for field, value in account_data["mail_outgoing"].items():
-                if field == "password" and value:
-                    # Encrypt password before storing
-                    current_account["mail_outgoing"][field] = encrypt_password(value)
-                else:
-                    current_account["mail_outgoing"][field] = value
-
-        external_accounts[account_id] = current_account
-
-        self._update_user_column(uid, tbl.COL_USER_EXTERNAL_ACCOUNTS.name, external_accounts)
-
-        logger_user_profile.info("Successfully updated external account %s for uid: %s", account_id, uid)
+        logger_user_profile.info("Successfully updated external account %s for uid: %s", account_id, user.uid)
 
         # Return the complete account data with the id field at the same level as other fields
         response_data = {
-            "id": account_id,
-            "name": current_account.get("name"),
-            "mail_server": current_account.get("mail_server"),
-            "mail_outgoing": current_account.get("mail_outgoing"),
-            "identities": current_account.get("identities"),
-            "receipts": current_account.get("receipts"),
-            "certificates": current_account.get("certificates")
+            "id": account_id, **external_account
         }
 
         return response_data
 
-    def delete_external_account(self, uid: str, account_id: str) -> None:
+    def delete_external_account(self, user: User, account_id: str) -> None:
         """
         Delete an external account
         
@@ -512,19 +492,19 @@ class ModuleUserProfile:
         :raises RequestException: If account not found or user profile not found
         :raises BugException: If multiple user profiles found or update fails
         """
-        logger_user_profile.debug("Deleting external account %s for uid: %s", account_id, uid)
+        logger_user_profile.debug("Deleting external account %s for uid: %s", account_id, user.uid)
 
-        external_accounts = self._get_user_column(uid, tbl.COL_USER_EXTERNAL_ACCOUNTS.name)
+        external_accounts: dict = self._get_user_column(user.uid, tbl.COL_USER_EXTERNAL_ACCOUNTS.name)
 
         if account_id not in external_accounts:
-            logger_user_profile.error("External account not found: %s for uid: %s", account_id, uid)
+            logger_user_profile.error("External account not found: %s for uid: %s", account_id, user.uid)
             raise RequestException(err.ERROR_EXTERNAL_ACCOUNT_NOT_FOUND.m, err.ERROR_EXTERNAL_ACCOUNT_NOT_FOUND)
 
-        del external_accounts[account_id]
+        external_accounts.pop(account_id, None)
 
-        self._update_user_column(uid, tbl.COL_USER_EXTERNAL_ACCOUNTS.name, external_accounts)
+        self._update_user_column(user.uid, tbl.COL_USER_EXTERNAL_ACCOUNTS.name, external_accounts)
 
-        logger_user_profile.info("Successfully deleted external account %s for uid: %s", account_id, uid)
+        logger_user_profile.info("Successfully deleted external account %s for uid: %s", account_id, user.uid)
 
 
     def update_main_account(self, user: User, account_data: dict) -> dict:
@@ -654,7 +634,7 @@ class ModuleUserProfile:
             return new_data[real_subparent]
         return new_data
 
-    def get_delegations_given(self, uid: str) -> list[str]:
+    def get_delegations_given(self, user: User) -> list[str]:
         """
         Get all delegations given by the user
         
@@ -665,9 +645,9 @@ class ModuleUserProfile:
         :raises RequestException: If user profile not found
         :raises BugException: If multiple user profiles found
         """
-        logger_user_profile.debug("Getting delegations given for uid: %s", uid)
+        logger_user_profile.debug("Getting delegations given for uid: %s", user.uid)
 
-        delegations = self._get_user_column(uid, tbl.COL_USER_DELEGATION_GIVEN.name)
+        delegations = self._get_user_column(user.uid, tbl.COL_USER_DELEGATION_GIVEN.name)
 
         # Ensure we return a list (handle None or empty dict)
         if not delegations or not isinstance(delegations, list):
@@ -675,39 +655,44 @@ class ModuleUserProfile:
 
         return delegations
 
-    def add_delegation_given(self, uid: str, delegate_email: str) -> str:
+    def add_delegation_given(self, user: User, delegate_email: str) -> str:
         """
-        Add a delegation to another user
+        Add delagation rights to user
         
-        :param uid: User unique identifier
-        :type uid: str
-        :param delegate_email: Email address of the user to grant delegation
-        :type delegate_email: str
-        :return: The delegate email address
-        :rtype: str
-        :raises RequestException: If user profile not found or delegation already exists
-        :raises BugException: If multiple user profiles found or update fails
         """
-        logger_user_profile.debug("Adding delegation given for uid: %s to %s", uid, delegate_email)
+        raise NotImplementedError()
+        # """
+        # Add a delegation to another user
+        
+        # :param uid: User unique identifier
+        # :type uid: str
+        # :param delegate_email: Email address of the user to grant delegation
+        # :type delegate_email: str
+        # :return: The delegate email address
+        # :rtype: str
+        # :raises RequestException: If user profile not found or delegation already exists
+        # :raises BugException: If multiple user profiles found or update fails
+        # """
+        # logger_user_profile.debug("Adding delegation given for uid: %s to %s", user.uid, delegate_email)
 
-        delegations_data = self._get_user_column(uid, tbl.COL_USER_DELEGATION_GIVEN.name)
+        # delegations_data = self._get_user_column(user.uid, tbl.COL_USER_DELEGATION_GIVEN.name)
 
-        # Ensure delegations is a list (handle None, empty dict, or actual list)
-        delegations: list[str] = []
-        if delegations_data and isinstance(delegations_data, list):
-            delegations = delegations_data
+        # # Ensure delegations is a list (handle None, empty dict, or actual list)
+        # delegations: list[str] = []
+        # if delegations_data and isinstance(delegations_data, list):
+        #     delegations = delegations_data
 
-        # Check if delegation already exists (case-insensitive)
-        delegate_email_lower = delegate_email.lower()
-        if any(email.lower() == delegate_email_lower for email in delegations):
-            logger_user_profile.error("Delegation already exists: %s for uid: %s", delegate_email, uid)
-            raise RequestException(err.ERROR_DELEGATION_ALREADY_EXISTS.m, err.ERROR_DELEGATION_ALREADY_EXISTS)
+        # # Check if delegation already exists (case-insensitive)
+        # delegate_email_lower = delegate_email.lower()
+        # if any(email.lower() == delegate_email_lower for email in delegations):
+        #     logger_user_profile.error("Delegation already exists: %s for uid: %s", delegate_email, user.uid)
+        #     raise RequestException(err.ERROR_DELEGATION_ALREADY_EXISTS.m, err.ERROR_DELEGATION_ALREADY_EXISTS)
 
-        # Add the delegation
-        delegations.append(delegate_email)
+        # # Add the delegation
+        # delegations.append(delegate_email)
 
-        self._update_user_column(uid, tbl.COL_USER_DELEGATION_GIVEN.name, delegations)
+        # self._update_user_column(user.uid, tbl.COL_USER_DELEGATION_GIVEN.name, delegations)
 
-        logger_user_profile.info("Successfully added delegation for uid: %s to %s", uid, delegate_email)
+        # logger_user_profile.info("Successfully added delegation for uid: %s to %s", uid, delegate_email)
 
-        return delegate_email
+        # return delegate_email
