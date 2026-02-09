@@ -41,7 +41,7 @@ def init_mail_config() -> None:
     Here we provide a list: index 0 = primary, index 1 = secondary.
     """
     logger_api.debug("Calling before_request for ApiMailFolder")
-    process: ProcessSetting = g.process
+    process: ProcessSetting = g.process_settings
 
     user_conf_test = [
         {

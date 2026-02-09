@@ -23,7 +23,7 @@ class AdminConfigSystemGetRetSchema(ApiBaseResponse):
     """
     Schema of the result GET /system
     """
-    data = fields.Dict(fields.String(), fields.Dict(fields.String(), fields.Raw()))
+    data = fields.Dict()
 
     @classmethod
     def example(cls) -> dict:
@@ -85,7 +85,7 @@ class AdminConfigDefaultDomainGetSchema(ApiBaseResponse):
     :type ApiBaseResponse: _type_
     """
 
-    data = data = fields.Dict(fields.String(), fields.Dict(fields.String(), fields.Raw()))
+    data = fields.Dict()
 
     @classmethod
     def example(cls) -> dict:

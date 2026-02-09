@@ -31,7 +31,7 @@ def init_admin_config() -> None:
     Init the interface and others if needed
     """
     logger_api.debug("Calling before_request for ApiAdminConfig")
-    process : ProcessSetting = g.process
+    process : ProcessSetting = g.process_settings
     interface_api = InterfaceApiAdminConfig(process_setting=process)
     g.inter = interface_api
     sogo_cache().set("test", "banane", 500)

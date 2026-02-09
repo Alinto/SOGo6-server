@@ -365,9 +365,15 @@ class UserModuleSettings(SogoSchema):
     SOGO_D_EAS_ACCESS = fields.Boolean(load_default=False, dump_default=False) #Allow user to access their data with EAS
 
     #Folder settings
-    SOGO_D_FOLDER_DISABLE_EXPORT           = fields.List(fields.String(), validate=validate.ContainsOnly(('mail', 'calendar', 'contact'))) #Disable or not folder export
-    SOGO_D_FOLDER_DISABLE_SHARING          = fields.List(fields.String(), validate=validate.ContainsOnly(('mail', 'calendar', 'contact'))) #Disable or not folder sharing
-    SOGO_D_FOLDER_DISABLE_SHARING_ANY_AUTH = fields.List(fields.String(), validate=validate.ContainsOnly(('mail', 'calendar', 'contact'))) #Disable or not folder sharing to any authenticated user from the domain
+    SOGO_D_FOLDER_DISABLE_EXPORT           = fields.List(fields.String(), load_default=['mail', 'calendar', 'contact'],
+                                                         dump_default=['mail', 'calendar', 'contact'],
+                                                         validate=validate.ContainsOnly(('mail', 'calendar', 'contact'))) #Disable or not folder export
+    SOGO_D_FOLDER_DISABLE_SHARING          = fields.List(fields.String(), load_default=['mail', 'calendar', 'contact'],
+                                                         dump_default=['mail', 'calendar', 'contact'],
+                                                         validate=validate.ContainsOnly(('mail', 'calendar', 'contact'))) #Disable or not folder sharing
+    SOGO_D_FOLDER_DISABLE_SHARING_ANY_AUTH = fields.List(fields.String(), load_default=['mail', 'calendar', 'contact'],
+                                                         dump_default=['mail', 'calendar', 'contact'],
+                                                         validate=validate.ContainsOnly(('mail', 'calendar', 'contact'))) #Disable or not folder sharing to any authenticated user from the domain
     
     SOGO_D_AUTOCOMPLETION_MIN_LEN          = fields.Integer(load_default=3, dump_default=3, validate=validate.Range(min=2)) #Number of chars needed to trigger the autocompletion search. At 3 it will trigger for the third char.
                                                                                                                             #TODO make sure that the front wait for a bit before doing the search, like waiting for the user to have ending its typing
@@ -610,7 +616,7 @@ class CalendarContactSettings(SogoSchema):
     SOGO_D_CARDAV_PUBLIC_ACCESS_ENABLE = fields.Boolean(load_default=False, dump_default=False) #Enable or not public cardav access
 
     SOGO_D_JITSI_LINK_ENABLED = fields.Boolean(load_default=True, dump_default=True)
-    SOGO_D_JITSI_BASE_URL     = fields.Url(schemes={'http','https'})
+    SOGO_D_JITSI_BASE_URL     = fields.Url(load_default="https://meet.jit.si", dump_default="https://meet.jit.si", schemes={'http','https'})
 
     SOGO_D_REMINDER_ALLOW_MAIL = fields.Boolean(load_default=True, dump_default=True) #Allow user to set reminder sent by email for events/tasks
 

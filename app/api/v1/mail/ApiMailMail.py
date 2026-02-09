@@ -31,7 +31,7 @@ def init_mail_config() -> None:
     Example below provides two accounts (primary index 0, secondary index 1).
     """
     logger_api.debug("Calling before_request for ApiMailDetail")
-    process: ProcessSetting = g.process
+    process: ProcessSetting = g.process_settings
 
     user_conf_test = [
         {

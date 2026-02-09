@@ -30,13 +30,13 @@ def init_mail_config() -> None:
     """
     Initialize the mail interface and any other required configuration for the request.
 
-    This reads IMAP server and port from g.default_domain if present (domain settings),
+    This reads IMAP server and port from g.default_domain_settings if present (domain settings),
     falling back to the previous defaults otherwise.
     """
     logger_api.debug("Calling before_request for ApiMailAccount")
-    process: ProcessSetting = g.process
+    process: ProcessSetting = g.process_settings
     user: User = g.user
-    user_domain: dict = g.user_domain
+    user_domain: dict = g.user_domain_settings
 
     interface_api = InterfaceApiMailMailbox(
         process_setting=process,

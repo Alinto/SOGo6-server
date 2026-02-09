@@ -139,7 +139,7 @@ def register_before_request(base_blueprint: Blueprint, kind: str, sogo_state: in
                 _Add the process settings in g
                 """
                 if 'process' not in g:
-                    g.process = process_config
+                    g.process_settings = process_config
 
     elif sogo_state == cs.SOGO_OK:
         @base_blueprint.before_request
@@ -148,15 +148,15 @@ def register_before_request(base_blueprint: Blueprint, kind: str, sogo_state: in
             Get and set the config in the global flask
             """
             if 'process' not in g:
-                g.process = process_config
+                g.process_settings = process_config
             system_settings, default_domain_settings = init_get_system_and_default_settings()
             if 'system_settings' not in g:
                 g.system_settings = system_settings
             if 'default_domain' not in g:
-                g.default_domain = default_domain_settings
+                g.default_domain_settings = default_domain_settings
             if 'user' in g:
                 #TODO retreive domain settings relative to user domain here (for now just get default)
-                g.user_domain = default_domain_settings
+                g.user_domain_settings = default_domain_settings
             else:
                 logger.error("No user in Flask g")
                 raise AggravatedException("No user in Flask g")

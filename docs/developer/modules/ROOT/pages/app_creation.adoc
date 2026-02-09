@@ -404,19 +404,19 @@ Users cannot use SOGo (check mail, send mail, etc.) until an administrator confi
 @base_blueprint.before_request
 def add_process() -> None:
     if 'process' not in g:
-        g.process = process_config
+        g.process_settings = process_config
 ----
 
 *Behavior*:
 
-* Adds `process_config` to `g.process`
+* Adds `process_config` to `g.process_settings`
 * Allows admin endpoints to access process configuration
 * Admin can configure SOGo even when not initialized
 
 *Available in `g`*:
 
 * `g.user`: Current user (admin)
-* `g.process`: Process configuration (database, Redis, etc.)
+* `g.process_settings`: Process configuration (database, Redis, etc.)
 
 ==== When `sogo_state == SOGO_OK` (State 2)
 
@@ -431,15 +431,15 @@ SOGo is fully operational with complete configuration.
 @base_blueprint.before_request
 def get_config() -> None:
     if 'process' not in g:
-        g.process = process_config
+        g.process_settings = process_config
     system_settings, default_domain_settings = init_get_system_and_default_settings()
     if 'system_settings' not in g:
         g.system_settings = system_settings
     if 'default_domain' not in g:
-        g.default_domain = default_domain_settings
+        g.default_domain_settings = default_domain_settings
     if 'user' in g:
         #TODO retrieve domain settings relative to user domain here (for now just get default)
-        g.user_domain = default_domain_settings
+        g.user_domain_settings = default_domain_settings
     else:
         logger.error("No user in Flask g")
         raise AggravatedException("No user in Flask g")
@@ -447,7 +447,7 @@ def get_config() -> None:
 
 *Behavior*:
 
-1. Adds process configuration to `g.process`
+1. Adds process configuration to `g.process_settings`
 2. Loads system settings from database
 3. Loads default domain settings from database
 4. For authenticated users, loads domain-specific settings (currently uses default)
@@ -456,10 +456,10 @@ def get_config() -> None:
 *Available in `g`*:
 
 * `g.user`: Current user
-* `g.process`: Process configuration
+* `g.process_settings`: Process configuration
 * `g.system_settings`: System-wide settings
-* `g.default_domain`: Default domain settings
-* `g.user_domain`: User's domain settings (currently same as default)
+* `g.default_domain_settings`: Default domain settings
+* `g.user_domain_settings`: User's domain settings (currently same as default)
 
 *Performance Note*:
 
@@ -514,10 +514,10 @@ HTTP Request
 │
 ├─ [State: SOGO_NOT_INIT]
 │  ├─ User API → Return 412 (blocked)
-│  └─ Admin API → Add g.process → Continue
+│  └─ Admin API → Add g.process_settings → Continue
 │
 ├─ [State: SOGO_OK]
-│  └─ Load all configuration → g.process, g.system_settings, g.default_domain, g.user_domain
+│  └─ Load all configuration → g.process_settings, g.system_settings, g.default_domain_settings, g.user_domain_settings
 │
 └─ Execute endpoint handler
 ----
@@ -654,7 +654,7 @@ Returns HTTP 412 +
 Only login endpoints accessible
 |*Fully functional* +
 Can configure system +
-Has `g.process`
+Has `g.process_settings`
 
 |`SOGO_OK`
 |2
