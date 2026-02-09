@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from app.config.settings.SystemSettings import SystemSettingsObj
 from app.config.settings.DomainSettings import AuthSettingsObj, UserSourceSettingsObj
@@ -30,7 +30,6 @@ class InterfaceAuthUser:
             default_us_source[source_uid] = UserSourceSettingsObj(source_settings)
 
         self.module_auth = ModuleAuth(process, system_settings, default_auth, default_us_source)
-        self.module_user_source = ModuleUserSource(default_us_source)
         self.module_user_profile = ModuleUserProfile(process, default_domain)
 
 
@@ -39,9 +38,11 @@ class InterfaceAuthUser:
         """
         Get the login mech from a uid
 
-        :param user_uid: _description_
+        :param user_uid: The user unique ID
         :type user_uid: str
-        :return: _description_
+        :param redirect: The redirect URL after authentication
+        :type redirect: str
+        :return: Tuple containing the API response dict and HTTP status code
         :rtype: tuple[dict, int]
         """
         try:
@@ -54,23 +55,30 @@ class InterfaceAuthUser:
         """
         Check a plain login uid/password.
 
-
-        :param data: _description_
+        :param data: Dictionary containing 'username' and 'password' keys
         :type data: dict
-        :return: _description_
-        :rtype: tuple[dict, str, int]
+        :return: Tuple containing the API response dict and HTTP status code
+        :rtype: tuple[dict, int]
         """
         uid = data["username"]
         password = data["password"]
 
-        success, ret = self.module_auth.user_plain_login(uid, password)
+        # Prepare the user object for authentication and get domain user sources
+        user, domain_user_sources = self.module_auth.get_user_and_domain_user_sources(uid, password)
+
+        # Check login using the user source module
+        module_us = ModuleUserSource(domain_user_sources)
+        success = module_us.check_login(user)
+
         if not success:
             return create_api_base_response(), 401
 
+        # Generate the voucher for the authenticated user
+        ret = self.module_auth.generate_voucher_from_user(user)
+
         try:
-            self.module_user_profile
             if not self.module_user_profile.is_user_profile_present(uid):
-                contact_info = self.module_user_source.get_contact_info(uid)
+                contact_info = module_us.get_contact_info(uid)
                 self.module_user_profile.create_user_profile(uid, contact_info)
         except RequestException as ex:
             logger_api.error("Request exception when onboarding user %s: %s", uid, str(ex))

@@ -22,10 +22,8 @@ class ModuleUserSource:
         """
         Check the login in the user source
 
-        :param uid: username/mail/uid of the suer
-        :type uid: str
-        :param password: password
-        :type password: str
+        :param user: User object containing authentication information
+        :type user: User
         :return: True if the user is correctly authenticated
         :rtype: bool
         """
@@ -49,10 +47,12 @@ class ModuleUserSource:
 
     def get_contact_info(self, uid:str) -> dict:
         """
-        Return the contact info of the user
+        Return the contact information of the user
 
-        :param uid: _description_
+        :param uid: The user unique ID
         :type uid: str
+        :return: Dictionary containing user contact information (uid, cn, email)
+        :rtype: dict
         """
         ret = {
             "sogo-tests1@example.org": {
@@ -72,4 +72,3 @@ class ModuleUserSource:
             }
         }
         return ret[uid]
-

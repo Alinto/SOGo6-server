@@ -85,17 +85,15 @@ class InterfaceApiAdminConfig:
         """
         Fetch all domains according to pagination params, order and sorting
 
-        Return: the total number of records, the API ready dictionnary, the http code status
-
-        :param page: _description_, defaults to 0
-        :type page: int, optional
-        :param page_size: _description_, defaults to 20
-        :type page_size: int, optional
-        :param sort: _description_, defaults to ""
-        :type sort: str, optional
-        :param order_str: _description_, defaults to ""
-        :type order_str: str, optional
-        :return: _description_
+        :param first_item: Index of the first item to retrieve, defaults to 0
+        :type first_item: int
+        :param last_item: Index of the last item to retrieve, defaults to 20
+        :type last_item: int
+        :param sort: Column name to sort by, defaults to ""
+        :type sort: str
+        :param order_str: Sort direction ("asc" or "desc"), defaults to ""
+        :type order_str: str
+        :return: Tuple containing total count, API response dict, and HTTP status code
         :rtype: tuple[int, dict, int]
         """
         offset = first_item
@@ -124,9 +122,9 @@ class InterfaceApiAdminConfig:
         """
         Create a new set of settings for a domain
 
-        :param new_domain: _description_
+        :param new_domain: Dictionary containing domain configuration (domain_name, domain_description, domain_info, settings)
         :type new_domain: dict
-        :return: _description_
+        :return: Tuple containing API response dict and HTTP status code
         :rtype: tuple[dict, int]
         """
 
@@ -140,11 +138,11 @@ class InterfaceApiAdminConfig:
 
     def get_domain_settings(self, domain_id: str) -> tuple[dict, int]:
         """
-        Get domain setting for a domain
+        Get domain settings for a domain
 
-        :param new_domain: _description_
-        :type new_domain: dict
-        :return: _description_
+        :param domain_id: The domain name/ID
+        :type domain_id: str
+        :return: Tuple containing API response dict and HTTP status code
         :rtype: tuple[dict, int]
         """
 
@@ -158,11 +156,11 @@ class InterfaceApiAdminConfig:
         """
         Update one domain settings
 
-        :param domain_id: _description_
+        :param domain_id: The domain name/ID
         :type domain_id: str
-        :param new_data: _description_
+        :param new_data: Dictionary containing updated domain configuration (JSON merge patch format)
         :type new_data: dict
-        :return: _description_
+        :return: Tuple containing API response dict and HTTP status code
         :rtype: tuple[dict, int]
         """
         try:
@@ -175,11 +173,11 @@ class InterfaceApiAdminConfig:
 
     def delete_domain_settings(self, domain_id: str) -> tuple[dict, int]:
         """
-        _summary_
+        Delete settings for a specific domain
 
-        :param domain_id: _description_
+        :param domain_id: The domain name/ID
         :type domain_id: str
-        :return: _description_
+        :return: Tuple containing API response dict and HTTP status code
         :rtype: tuple[dict, int]
         """
         try:
