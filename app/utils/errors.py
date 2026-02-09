@@ -78,6 +78,7 @@ ERROR_USER_PROFILE_CREATION_FAILED  = E("S000315", "User Profile Creation Failed
 ERROR_USER_PROFILE_INSERT_MISMATCH  = E("S000316", "User Profile Insert Row Count Mismatch", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_USER_PROFILE_NOT_FOUND        = E("S000317", "User Profile Not Found", HTTPStatus.NOT_FOUND)
 ERROR_USER_PROFILE_UPDATE_FAILED    = E("S000318", "User Profile Update Failed", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_USER_PROFILE_NO_IDENTITY      = E("S000319", "Account must have at least one identity", HTTPStatus.BAD_REQUEST)
 
 #External Accounts
 ERROR_EXTERNAL_ACCOUNT_NOT_FOUND    = E("S000320", "External Account Not Found", HTTPStatus.NOT_FOUND)
@@ -86,8 +87,9 @@ ERROR_EXTERNAL_ACCOUNT_INVALID_DATA = E("S000322", "External Account Invalid Dat
 ERROR_EXTERNAL_ACCOUNT_ALREADY_EXISTS = E("S000323", "External Account Already Exists", HTTPStatus.BAD_REQUEST)
 
 #Main Account
-ERROR_MAIN_ACCOUNT_NOT_FOUND = E("S000324", "Main Account Not Found", HTTPStatus.NOT_FOUND)
+ERROR_MAIN_ACCOUNT_NOT_FOUND = E("S000324", "Main Account Not Found", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_MAIN_ACCOUNT_CANNOT_BE_DELETED = E("S000325", "Main Account Cannot Be Deleted", HTTPStatus.FORBIDDEN)
+
 
 #Domain Restrictions
 ERROR_EXTERNAL_ACCOUNT_FORBIDDEN = E("S000330", "External account creation is forbidden for your domain", HTTPStatus.FORBIDDEN)

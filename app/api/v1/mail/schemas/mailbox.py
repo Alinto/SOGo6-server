@@ -135,7 +135,7 @@ class MailboxCreateSchema(Schema):
     receipts = fields.Dict(required=False, load_default={})
     identities = fields.List(
         fields.Nested(IdentitySchema),
-        required=False,
+        required=True,
         load_default=[]
     )
     certificates = fields.Dict(required=False, load_default={})
@@ -199,6 +199,11 @@ class MailboxUpdateSchema(MailboxCreateSchema):
     name = fields.String(required=False, validate=validate.Length(min=1))
     mail_server = fields.Nested(MailServerSchema, required=False)
     mail_outgoing = fields.Nested(MailOutgoingSchema, required=False)
+    identities = fields.List(
+        fields.Nested(IdentitySchema),
+        required=False,
+        load_default=[]
+    )
 
     @classmethod
     def example(cls) -> dict:

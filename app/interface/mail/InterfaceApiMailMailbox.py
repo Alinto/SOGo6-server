@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, Dict, Any, List, Union, Tuple, Optional
 
 from flask import request
 
+from app.config.settings.DomainSettings import UserModuleSettings, UserModuleSettingsObj
 from app.module.user.ModuleUserProfile import ModuleUserProfile
 from app.utils.exceptions import RequestException, BugException
 from app.utils.api.ApiBaseResponse import create_api_base_response
@@ -30,7 +31,7 @@ class InterfaceApiMailMailbox:
     ) -> None:
         self.process_setting = process_setting
         self.user = user
-        self.user_domain = user_domain
+        self.user_module_settings = UserModuleSettingsObj(user_domain[UserModuleSettings.subparent])
         self.module_user_profile = ModuleUserProfile(process_setting, user_domain)
 
     def _is_external_account_allowed(self) -> bool:
@@ -163,7 +164,7 @@ class InterfaceApiMailMailbox:
             logger_api.error("Request exception in list_mailboxes for user %s: %s", self.user.uid, str(ex))
             return create_api_base_response(None, ex.error_code), ex.http_status
 
-    def create_mailbox(self, account_data: Optional[Dict[str, Any]] = None) -> Tuple[Dict[str, Any], int]:
+    def create_mailbox(self, account_data: dict) -> tuple[dict, int]:
         """Create a new mailbox (add external account).
         
         :param account_data: Validated account data from schema
@@ -171,32 +172,18 @@ class InterfaceApiMailMailbox:
         :return: A tuple of (API response dict, status code)
         :rtype: Tuple[Dict[str, Any], int]
         """
+        # Check if external accounts are allowed for this domain
+        if not self.user_module_settings.SOGO_D_ALLOW_EXT_MAIL_ACCOUNT:
+            return create_api_base_response(error = err.ERROR_EXTERNAL_ACCOUNT_FORBIDDEN), err.ERROR_EXTERNAL_ACCOUNT_FORBIDDEN.h
+        
         try:
-            # Check if external accounts are allowed for this domain
-            if not self._is_external_account_allowed():
-                raise RequestException(
-                    err.ERROR_EXTERNAL_ACCOUNT_FORBIDDEN.m,
-                    err.ERROR_EXTERNAL_ACCOUNT_FORBIDDEN
-                )
-
-            uid = self.user.uid
-            if account_data is None:
-                account_data = {}
-
-            # Validate signature sizes
-            identities = account_data.get("identities", [])
-            self._validate_signatures_size(identities)
-
-            account_response = self.module_user_profile.create_external_account(uid, account_data)
+            account_response = self.module_user_profile.create_external_account(self.user.uid, account_data)
             return create_api_base_response(account_response), 201
         except RequestException as ex:
             logger_api.error("Request exception in create_mailbox for user %s: %s", self.user.uid, str(ex))
             return create_api_base_response(None, ex.error_code), ex.http_status
-        except BugException as ex:
-            logger_api.error("Bug exception in create_mailbox for user %s: %s", self.user.uid, str(ex))
-            return create_api_base_response(None, ex.error_code), ex.http_status
 
-    def get_mailbox(self, account_id: str) -> Tuple[Dict[str, Any], int]:
+    def get_mailbox(self, account_id: str) -> tuple[dict, int]:
         """Get a specific account by its hash, or main account if account_id is "0".
         
         If account_id is not "0" and external accounts are not allowed, returns 403.
@@ -206,29 +193,19 @@ class InterfaceApiMailMailbox:
         :return: A tuple of (API response dict, status code)
         :rtype: Tuple[Dict[str, Any], int]
         """
+        # If requesting an external account (not "0") and external accounts are not allowed
+        if account_id != cs.DEFAULT_IDENTITY_KEY_VALUE and not self.user_module_settings.SOGO_D_ALLOW_EXT_MAIL_ACCOUNT:
+            return create_api_base_response(error = err.ERROR_EXTERNAL_ACCOUNT_FORBIDDEN), err.ERROR_EXTERNAL_ACCOUNT_FORBIDDEN.h
+    
         try:
-            # If requesting an external account (not "0") and external accounts are not allowed
-            if account_id != cs.DEFAULT_IDENTITY_KEY_VALUE and not self._is_external_account_allowed():
-                raise RequestException(
-                    err.ERROR_EXTERNAL_ACCOUNT_FORBIDDEN.m,
-                    err.ERROR_EXTERNAL_ACCOUNT_FORBIDDEN
-                )
-            uid = self.user.uid
-            account = self.module_user_profile.get_account_detail(uid, account_id)
-
-            # Apply identity restrictions to main account (id == "0")
-            if account_id == cs.DEFAULT_IDENTITY_KEY_VALUE:
-                self._apply_identity_restrictions(account)
-
+            account = self.module_user_profile.get_account_detail(self.user, account_id)
             return create_api_base_response(account), 200
         except RequestException as ex:
             logger_api.error("Request exception in get_mailbox for user %s, account %s: %s", self.user.uid, account_id, str(ex))
             return create_api_base_response(None, ex.error_code), ex.http_status
-        except BugException as ex:
-            logger_api.error("Bug exception in get_mailbox for user %s, account %s: %s", self.user.uid, account_id, str(ex))
-            return create_api_base_response(None, ex.error_code), ex.http_status
 
-    def update_mailbox(self, account_id: str, account_data: Optional[Dict[str, Any]] = None) -> Tuple[Dict[str, Any], int]:
+
+    def update_mailbox(self, account_id: str, account_data: dict[str, Any]) -> tuple[dict, int]:
         """Update mailbox settings.
         
         :param account_id: The hash of the external account, or "0" for main account
@@ -238,69 +215,25 @@ class InterfaceApiMailMailbox:
         :return: A tuple of (API response dict, status code)
         :rtype: Tuple[Dict[str, Any], int]
         """
-        try:
-            uid = self.user.uid
 
-            # If account_data is not provided (backward compatibility), get it from request
-            if account_data is None:
-                account_data = request.get_json()
+        if account_id == cs.DEFAULT_IDENTITY_KEY_VALUE:
+            try:
+                updated_account = self.module_user_profile.update_main_account(self.user, account_data)
+            except RequestException as ex:
+                logger_api.error("Request exception in update_mailbox for user %s, account %s: %s", self.user.uid, account_id, str(ex))
+                return create_api_base_response(None, ex.error_code), ex.http_status
+            return create_api_base_response(updated_account), 200
+        else:
+            if not self.user_module_settings.SOGO_D_ALLOW_EXT_MAIL_ACCOUNT:
+                return create_api_base_response(error = err.ERROR_EXTERNAL_ACCOUNT_FORBIDDEN), err.ERROR_EXTERNAL_ACCOUNT_FORBIDDEN.h
+            try:
+                updated_account = self.module_user_profile.update_external_account(self.user, account_id, account_data)
+            except RequestException as ex:
+                logger_api.error("Request exception in update_mailbox for user %s, account %s: %s", self.user.uid, account_id, str(ex))
+                return create_api_base_response(None, ex.error_code), ex.http_status
+            return create_api_base_response(updated_account), 200
+        
 
-            if not account_data or not isinstance(account_data, dict):
-                return create_api_base_response(None, err.ERROR_API_NOT_JSON), 400
-
-            # Validate signature sizes for all accounts
-            identities = account_data.get("identities", [])
-            self._validate_signatures_size(identities)
-
-            # Check if updating main account (account_id == "0") or external account
-            if account_id == cs.DEFAULT_IDENTITY_KEY_VALUE:
-                if not self._is_identities_enabled():
-                    if len(account_data.get("identities", [])) > 1:
-                        raise RequestException(
-                            err.ERROR_IDENTITIES_FORBIDDEN.m,
-                            err.ERROR_IDENTITIES_FORBIDDEN
-                        )
-                    #only one identity
-                    identity = account_data.get("identities", [])[0]
-                    if not self._is_custom_from_enabled():
-                    #mail in identities has to be the same as mail in user object
-                        if identity.get("mail", "").lower() != self.user.mail.lower():
-                            raise RequestException(
-                                err.ERROR_IDENTITIES_CUSTOM_FROM_FORBIDDEN.m,
-                                err.ERROR_IDENTITIES_CUSTOM_FROM_FORBIDDEN
-                            )
-                    if not self._is_custom_name_enabled():
-                    # name in identity has to be the same as cn in user object
-                        if identity.get("name", "") != self.user.cn:
-                            raise RequestException(
-                                err.ERROR_IDENTITIES_CUSTOM_NAME_FORBIDDEN.m,
-                                err.ERROR_IDENTITIES_CUSTOM_NAME_FORBIDDEN
-                            )
-                    if not self._is_custom_reply_to_enabled():
-                    # reply-to in identity has to be the same as mail in user object
-                        if "reply-to" in identity and identity.get("reply-to", "").lower() != self.user.mail.lower():
-                            raise RequestException(
-                                err.ERROR_IDENTITIES_CUSTOM_REPLY_TO_FORBIDDEN.m,
-                                err.ERROR_IDENTITIES_CUSTOM_REPLY_TO_FORBIDDEN
-                            )
-
-                updated_account = self.module_user_profile.update_main_account(uid, account_data)
-                return create_api_base_response(updated_account), 200
-            else:
-                # Check if external accounts are allowed for this domain
-                if not self._is_external_account_allowed():
-                    raise RequestException(
-                        err.ERROR_EXTERNAL_ACCOUNT_FORBIDDEN.m,
-                        err.ERROR_EXTERNAL_ACCOUNT_FORBIDDEN
-                    )
-                updated_account = self.module_user_profile.update_external_account(uid, account_id, account_data)
-                return create_api_base_response(updated_account), 200
-        except RequestException as ex:
-            logger_api.error("Request exception in update_mailbox for user %s, account %s: %s", self.user.uid, account_id, str(ex))
-            return create_api_base_response(None, ex.error_code), ex.http_status
-        except BugException as ex:
-            logger_api.error("Bug exception in update_mailbox for user %s, account %s: %s", self.user.uid, account_id, str(ex))
-            return create_api_base_response(None, ex.error_code), ex.http_status
 
     def delete_mailbox(self, account_id: str) -> Tuple[Union[str, Dict[str, Any]], int]:
         """Delete a mailbox (only external accounts).
@@ -339,17 +272,6 @@ class InterfaceApiMailMailbox:
         :rtype: Tuple[Dict[str, Any], int]
         """
         raise NotImplementedError("Compose email is not implemented yet")
-        # try:
-        #     conf = self._get_user_conf(account_id)
-        #     module = ModuleMail(user_conf=conf)
-        #     email_data = module.compose_email()
-        #     return create_api_base_response(email_data), 200
-        # except ValidationError as ex:
-        #     logger_api.error("Validation error in compose_email: %s", ex.messages)
-        #     return create_api_base_response(None, err.ERROR_VALIDATION_ERROR), 400
-        # except RequestException as ex:
-        #     logger_api.error("Request exception in compose_email: %s", str(ex))
-        #     return create_api_base_response(None, ex.error_code), ex.http_status
 
     def get_mailbox_delegates(self, account_id: str) -> Tuple[Dict[str, Any], int]:
         """Get delegates for this mailbox.
@@ -432,14 +354,4 @@ class InterfaceApiMailMailbox:
         :rtype: Tuple[Union[str, Dict[str, Any]], int]
         """
         raise NotImplementedError("Purge mailbox is not implemented yet")
-        # try:
-        #     conf = self._get_user_conf(account_id)
-        #     module = ModuleMail(user_conf=conf)
-        #     module.purge_mailbox()
-        #     return "", 204
-        # except ValidationError as ex:
-        #     logger_api.error("Validation error in purge_mailbox: %s", ex.messages)
-        #     return create_api_base_response(None, err.ERROR_VALIDATION_ERROR), 400
-        # except RequestException as ex:
-        #     logger_api.error("Request exception in purge_mailbox: %s", str(ex))
-        #     return create_api_base_response(None, ex.error_code), ex.http_status
+

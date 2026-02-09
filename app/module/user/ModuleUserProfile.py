@@ -177,7 +177,7 @@ class ModuleUserProfile:
         :return: Field value (dict, list, or empty dict if None)
         :rtype: Any
         :raises RequestException: If no user found (ERROR_USER_PROFILE_NOT_FOUND)
-        :raises BugException: If multiple users found (ERROR_USER_PROFILE_DUPLICATE)
+        :raises AggravatedException: If multiple users found (ERROR_USER_PROFILE_DUPLICATE)
         """
         self.sogo_db_manager.connect()
 
@@ -209,7 +209,8 @@ class ModuleUserProfile:
         :type field_name: str
         :param field_value: New value for the field (dict, list, or other type)
         :type field_value: Any
-        :raises BugException: If update affects unexpected number of rows
+        :raises RequestException: If no user found (ERROR_USER_PROFILE_NOT_FOUND)
+        :raises AggravatedException: If update affects unexpected number of rows
         """
         self.sogo_db_manager.connect()
 
@@ -228,9 +229,33 @@ class ModuleUserProfile:
 
         if row_updated > 1:
             logger_user_profile.error("Multiple users found for uid: %s when updating field: %s", uid, field_name)
-            raise BugException(err.ERROR_USER_PROFILE_DUPLICATE.m, err.ERROR_USER_PROFILE_DUPLICATE)
+            raise AggravatedException(err.ERROR_USER_PROFILE_DUPLICATE.m, err.ERROR_USER_PROFILE_DUPLICATE)
 
         logger_user_profile.info("Successfully updated %s for uid: %s", field_name, uid)
+
+    def _clean_main_account(self, user: User, main_account: dict) -> None:
+        """
+        Clean main_account by setting the right identity with the right values.
+        Directly modifies main_account dict
+
+        :param main_account: Contains the user main account
+        :type main_account: dict
+        """
+        #Cleanup main account according to domain_settings restriction
+        # If identities are disabled, only keep the original identity (should be at index 0)
+        if not self.user_module_settings.SOGO_D_IDENTITIES_ENABLED:
+            main_account["identities"] = [main_account["identities"][0]]
+            #TODO check this is correct and ensure that original identity is at 0 when modifying main account
+
+        # Apply field restrictions to all identities
+        identities: list[dict] = main_account["identities"]
+        for identity in identities:
+            if not self.user_module_settings.SOGO_D_IDENTITIES_CUSTOM_FROM_ENABLED or not self.user_module_settings.SOGO_D_IDENTITIES_ENABLED:
+                identity["mail"] = user.mail
+            if not self.user_module_settings.SOGO_D_IDENTITIES_CUSTOM_NAME_ENABLED or not self.user_module_settings.SOGO_D_IDENTITIES_ENABLED:
+                identity["name"] = user.cn
+            if not self.user_module_settings.SOGO_D_IDENTITIES_CUSTOM_REPLY_TO_ENABLED or not self.user_module_settings.SOGO_D_IDENTITIES_ENABLED:
+                identity["reply-to"] = user.mail
 
     def list_accounts(self, user: User) -> list:
         """
@@ -249,20 +274,7 @@ class ModuleUserProfile:
         main_account = self._get_user_column(user.uid, tbl.COL_USER_MAIN_ACCOUNT.name)
 
         #Cleanup main account according to domain_settings restriction
-        # If identities are disabled, only keep the original identity (should be at index 0)
-        if not self.user_module_settings.SOGO_D_IDENTITIES_ENABLED:
-            main_account["identities"] = [main_account["identities"][0]]
-            #TODO check this is correct and ensure that original identity is at 0 when modifying main naccount
-
-        # Apply field restrictions to all identities
-        identities: list[dict] = main_account["identities"]
-        for identity in identities:
-            if not self.user_module_settings.SOGO_D_IDENTITIES_CUSTOM_FROM_ENABLED or not self.user_module_settings.SOGO_D_IDENTITIES_ENABLED:
-                identity["mail"] = user.mail
-            if not self.user_module_settings.SOGO_D_IDENTITIES_CUSTOM_NAME_ENABLED or not self.user_module_settings.SOGO_D_IDENTITIES_ENABLED:
-                identity["name"] = user.cn
-            if not self.user_module_settings.SOGO_D_IDENTITIES_CUSTOM_REPLY_TO_ENABLED or not self.user_module_settings.SOGO_D_IDENTITIES_ENABLED:
-                identity["reply-to"] = user.mail
+        self._clean_main_account(user, main_account)
 
         result = [{"id": "0", **main_account}]
 
@@ -274,7 +286,7 @@ class ModuleUserProfile:
 
         return result
 
-    def get_account_detail(self, uid: str, account_id: str) -> dict:
+    def get_account_detail(self, user: User, account_id: str) -> dict:
         """
         Get a specific external account by its hash, or main account if account_id is "0"
         
@@ -287,20 +299,53 @@ class ModuleUserProfile:
         :raises RequestException: If account not found or user profile not found
         :raises BugException: If multiple user profiles found
         """
-        logger_user_profile.debug("Getting account %s for uid: %s", account_id, uid)
+        logger_user_profile.debug("Getting account %s for uid: %s", account_id, user.uid)
 
         # If account_id is "0", return the main account
         if account_id == "0":
-            return self._get_user_column(uid, tbl.COL_USER_MAIN_ACCOUNT.name)
+            main_account: dict = self._get_user_column(user.uid, tbl.COL_USER_MAIN_ACCOUNT.name)
+            self._clean_main_account(user, main_account)
+            return main_account
 
         # Otherwise, retrieve external account
-        external_accounts = self._get_user_column(uid, tbl.COL_USER_EXTERNAL_ACCOUNTS.name)
+        external_accounts = self._get_user_column(user.uid, tbl.COL_USER_EXTERNAL_ACCOUNTS.name)
 
         if account_id not in external_accounts:
-            logger_user_profile.error("External account not found: %s for uid: %s", account_id, uid)
+            logger_user_profile.error("External account not found: %s for uid: %s", account_id, user.uid)
             raise RequestException(err.ERROR_EXTERNAL_ACCOUNT_NOT_FOUND.m, err.ERROR_EXTERNAL_ACCOUNT_NOT_FOUND)
 
         return external_accounts[account_id]
+
+    def _validate_signatures_size_for_one_identity(self, identity: dict, size_limit: int) -> None:
+        """
+        Check all signatures size for one identity
+
+        :param identity: identity dict
+        :type identity: dict
+        :raises RequestException: If the size limit is exceded
+        """
+        signatures: dict
+        if signatures := identity.get("signatures", {}):
+            for _, signature_value in signatures.items():
+                if isinstance(signature_value, str) and len(signature_value.encode('utf-8')) > size_limit:
+                    raise RequestException(
+                        err.ERROR_SIGNATURE_SIZE_EXCEEDED.m,
+                        err.ERROR_SIGNATURE_SIZE_EXCEEDED
+                    ) 
+
+    def _validate_signatures_size(self, identities: list[dict[str, Any]]) -> None:
+        """Validate that all signatures in identities do not exceed the size limit (bytes).
+        
+        :param identities: List of identity dictionaries containing signatures
+        :type identities: List[Dict[str, Any]]
+        :raises RequestException: If any signature exceeds the size limit
+        """
+        size_limit = self.user_module_settings.SOGO_D_SIGNATURE_SIZE_LIMIT * 1024
+        if size_limit <= 0:
+            return  # No limit set
+
+        for identity in identities:
+            self._validate_signatures_size_for_one_identity(identity, size_limit)
 
     def create_external_account(self, uid: str, account_data: dict) -> dict:
         """
@@ -322,6 +367,9 @@ class ModuleUserProfile:
         :raises BugException: If multiple user profiles found or update fails
         """
         logger_user_profile.debug("Creating external account for uid: %s", uid)
+
+        identities_list = account_data["identities"]
+        self._validate_signatures_size(identities_list)
 
         external_accounts = self._get_user_column(uid, tbl.COL_USER_EXTERNAL_ACCOUNTS.name)
 
@@ -378,7 +426,7 @@ class ModuleUserProfile:
 
         return response_data
 
-    def update_external_account(self, uid: str, account_id: str, account_data: dict) -> dict:
+    def update_external_account(self, uid: User, account_id: str, account_data: dict) -> dict:
         """
         Update an existing external account
         
@@ -401,17 +449,14 @@ class ModuleUserProfile:
             logger_user_profile.error("External account not found: %s for uid: %s", account_id, uid)
             raise RequestException(err.ERROR_EXTERNAL_ACCOUNT_NOT_FOUND.m, err.ERROR_EXTERNAL_ACCOUNT_NOT_FOUND)
 
+        # Encrypt passwords and certificates if needed:
+        if mail_server := account_data.get("mail_server", None):
+            if password := mail_server.get("password", None):
+                
+
+
         # Partial update: merge with existing data
         current_account = external_accounts[account_id]
-
-        # Update top-level fields if provided
-        for key in ["name", "receipts", "certificates", "identities"]:
-            if key in account_data:
-                if isinstance(account_data[key], dict) and isinstance(current_account.get(key), dict):
-                    # Deep merge for dict fields
-                    current_account[key].update(account_data[key])
-                else:
-                    current_account[key] = account_data[key]
 
         # Handle mail_server with detailed update
         if "mail_server" in account_data:
@@ -481,7 +526,8 @@ class ModuleUserProfile:
 
         logger_user_profile.info("Successfully deleted external account %s for uid: %s", account_id, uid)
 
-    def update_main_account(self, uid: str, account_data: dict) -> dict:
+
+    def update_main_account(self, user: User, account_data: dict) -> dict:
         """
         Update the main account
         
@@ -492,57 +538,54 @@ class ModuleUserProfile:
         :return: The updated main account data
         :rtype: dict
         :raises RequestException: If main account not found or user profile not found
-        :raises BugException: If multiple user profiles found or update fails
         """
-        logger_user_profile.debug("Updating main account for uid: %s", uid)
+        logger_user_profile.debug("Updating main account for uid: %s", user.uid)
 
-        main_account = self._get_user_column(uid, tbl.COL_USER_MAIN_ACCOUNT.name)
+
+        #Check identities' rights
+        all_identities = account_data.get("identities", None)
+        if not all_identities:
+            #Cannot delete identities (With merge_patch None means delete the parameter)
+            raise RequestException(err.ERROR_USER_PROFILE_NO_IDENTITY.m, err.ERROR_USER_PROFILE_NO_IDENTITY)
+
+        if not self.user_module_settings.SOGO_D_IDENTITIES_ENABLED:
+            if len(all_identities) > 1:
+                raise RequestException(err.ERROR_IDENTITIES_FORBIDDEN.m, err.ERROR_IDENTITIES_FORBIDDEN)
+        
+        size_limit = self.user_module_settings.SOGO_D_SIGNATURE_SIZE_LIMIT * 1024
+        identity: dict
+        for identity in all_identities:
+            if not self.user_module_settings.SOGO_D_IDENTITIES_CUSTOM_FROM_ENABLED and \
+                    identity["mail"] != user.mail:
+                raise RequestException(err.ERROR_IDENTITIES_CUSTOM_FROM_FORBIDDEN.m, err.ERROR_IDENTITIES_CUSTOM_FROM_FORBIDDEN)
+            if not self.user_module_settings.SOGO_D_IDENTITIES_CUSTOM_NAME_ENABLED and \
+                    identity["name"] != user.cn:
+                raise RequestException(err.ERROR_IDENTITIES_CUSTOM_NAME_FORBIDDEN.m, err.ERROR_IDENTITIES_CUSTOM_NAME_FORBIDDEN)
+            if not self.user_module_settings.SOGO_D_IDENTITIES_CUSTOM_REPLY_TO_ENABLED and \
+                    identity["reply-to"] != user.cn:
+                raise RequestException(err.ERROR_IDENTITIES_CUSTOM_REPLY_TO_FORBIDDEN.m, err.ERROR_IDENTITIES_CUSTOM_REPLY_TO_FORBIDDEN)
+            if size_limit > 0:
+                self._validate_signatures_size_for_one_identity(identity, size_limit)
+        
+        #Encrypt certificates if needed
+        #TODO
+
+        #Get the main account data
+        main_account = self._get_user_column(user.uid, tbl.COL_USER_MAIN_ACCOUNT.name)
 
         if not main_account:
-            logger_user_profile.error("Main account not found for uid: %s", uid)
-            raise RequestException(err.ERROR_MAIN_ACCOUNT_NOT_FOUND.m, err.ERROR_MAIN_ACCOUNT_NOT_FOUND)
+            logger_user_profile.error("Main account not found for uid: %s", user.uid)
+            raise AggravatedException(err.ERROR_MAIN_ACCOUNT_NOT_FOUND.m, err.ERROR_MAIN_ACCOUNT_NOT_FOUND)
 
         # Partial update: merge with existing data
-        current_account = main_account
+        merge_patch(account_data, main_account)
 
-        # Update top-level fields if provided
-        for key in ["name", "receipts", "certificates", "identities"]:
-            if key in account_data:
-                if isinstance(account_data[key], dict) and isinstance(current_account.get(key), dict):
-                    # Deep merge for dict fields
-                    current_account[key].update(account_data[key])
-                else:
-                    current_account[key] = account_data[key]
 
-        # Handle mail_server with detailed update
-        if "mail_server" in account_data:
-            if not isinstance(current_account.get("mail_server"), dict):
-                current_account["mail_server"] = {}
+        self._update_user_column(user.uid, tbl.COL_USER_MAIN_ACCOUNT.name, main_account)
 
-            for field, value in account_data["mail_server"].items():
-                if field == "password" and value:
-                    # Encrypt password before storing
-                    current_account["mail_server"][field] = encrypt_password(value)
-                else:
-                    current_account["mail_server"][field] = value
+        logger_user_profile.info("Successfully updated main account for uid: %s", user.uid)
 
-        # Handle mail_outgoing with detailed update
-        if "mail_outgoing" in account_data:
-            if not isinstance(current_account.get("mail_outgoing"), dict):
-                current_account["mail_outgoing"] = {}
-
-            for field, value in account_data["mail_outgoing"].items():
-                if field == "password" and value:
-                    # Encrypt password before storing
-                    current_account["mail_outgoing"][field] = encrypt_password(value)
-                else:
-                    current_account["mail_outgoing"][field] = value
-
-        self._update_user_column(uid, tbl.COL_USER_MAIN_ACCOUNT.name, current_account)
-
-        logger_user_profile.info("Successfully updated main account for uid: %s", uid)
-
-        return {"id": "0", **current_account}
+        return {"id": "0", **main_account}
 
     def get_user_preferences(self, uid:str) -> dict:
         """
