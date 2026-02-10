@@ -257,7 +257,7 @@ class ApiMailFolderIdShare(MethodView):
         :return: ApiBaseResponse with share result
         :rtype: ResponseReturnValue
         """
-        logger_api.debug("Calling ApiMailFolderIdShare.post for account_id: %s, folder_name: %s with data: %s", 
+        logger_api.debug("Calling ApiMailFolderIdShare.post for account_id: %s, folder_name: %s with data: %s",
                         account_id, folder_name, share_data)
         interface: InterfaceApiMailFolder = g.inter
         return interface.share_folder(account_id, folder_name, share_data)

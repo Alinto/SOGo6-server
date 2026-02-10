@@ -227,7 +227,6 @@ class AdminConfigDefaultDomainGetSchema(ApiBaseResponse):
                     "SOGO_D_JITSI_LINK_ENABLED": True,
                     "SOGO_D_REMINDER_ALLOW_MAIL": True
                 }
-                
             }
         }
 
@@ -240,6 +239,11 @@ class AdminConfigDefaultDomainPatchSchema(Schema):
 
     @classmethod
     def example(cls) -> dict:
+        """Example of the schema
+
+        :return: Example data
+        :rtype: dict
+        """
         return {
             "settings": {
                     "AUTH_SETTINGS": {

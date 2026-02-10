@@ -14,19 +14,19 @@ from app.utils import errors as err
 if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
     from app.auth.User import User
-    
+
 
 class InterfaceUserPreferences:
     """
     Interface for user profile
     """
-    
-    def __init__(self, process_settings: ProcessSetting, default_domain: dict, user: User):
+
+    def __init__(self, process_settings: ProcessSetting, user_domain: dict, user: User):
         self.process_settings = process_settings
         self.user = user
-        self.domain_settings = default_domain
-        self.module_user_profile = ModuleUserProfile(process_settings, default_domain)
-    
+        self.domain_settings = user_domain
+        self.module_user_profile = ModuleUserProfile(process_settings, user_domain)
+
     def get_all_preferences(self) -> tuple[dict, int]:
         """
         Retrun the complete profile of a user
@@ -42,6 +42,13 @@ class InterfaceUserPreferences:
 
 
     def get_partial_preferences(self, subparent:str) -> tuple[dict, int]:
+        """Get partial user preferences for a specific subparent
+
+        :param subparent: The subparent key to retrieve preferences for
+        :type subparent: str
+        :return: The user preferences for the specified subparent
+        :rtype: tuple[dict, int]
+        """
         try:
             data = self.module_user_profile.get_partial_user_preferences(self.user.uid, subparent)
         except RequestException as e:
@@ -49,6 +56,14 @@ class InterfaceUserPreferences:
         return create_api_base_response(data), 200
 
     def update_all_preferences(self, new_data:dict) -> tuple[dict, int]:
+        """
+        Update all user preferences
+
+        :param new_data: The new data to update
+        :type new_data: dict
+        :return: The updated user preferences
+        :rtype: tuple[dict, int]
+        """
         try:
             data = self.module_user_profile.update_user_preferences(self.user.uid, new_data)
         except ValidationError as ex:
@@ -56,8 +71,17 @@ class InterfaceUserPreferences:
         except RequestException as e:
             return create_api_base_response(error=e.error_code), e.http_status
         return create_api_base_response(data), 200
-    
+
     def update_partial_preferences(self, new_data:dict, subparent:str) -> tuple[dict, int]:
+        """Update partial user preferences for a specific subparent
+
+        :param new_data: The new data to update
+        :type new_data: dict
+        :param subparent: The subparent key to update preferences for
+        :type subparent: str
+        :return: The updated user preferences
+        :rtype: tuple[dict, int]
+        """
         try:
             data = self.module_user_profile.update_user_preferences(self.user.uid, new_data, subparent)
         except ValidationError as ex:

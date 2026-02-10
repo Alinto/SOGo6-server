@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 from app.auth.User import User
 from app.auth.service.VoucherUserService import VoucherUserService
 from app.config.db import tables as tbl
-from app.config.settings.DomainSettings import AuthSettings, UserSourceSettings
+from app.config.settings.DomainSettings import AuthSettings, AuthSettingsObj, UserSourceSettings, UserSourceSettingsObj
 from app.utils.db.Condition import EqualCondition
 from app.utils.exceptions import RequestException
 from app.utils.strings import get_domain_from_mail
@@ -91,10 +91,9 @@ class ModuleAuth:
             result = list(sogo_db_manager.select_from_table(tbl.TABLE_DOMAIN.name,
                                                 (tbl.COL_DOMAIN_SETTINGS.name,),
                                                 condition=condition))
-
             if len(result) == 1:
-                domain_auth_settings = AuthSettingsObj(result[0][0]["AUTH_SETTINGS"])
-                domain_user_source_raw = result[0][0]["USER_SOURCE"]
+                domain_auth_settings = AuthSettingsObj(result[0][0][AuthSettings.subparent]) #result[0][0]: first column of the first row of the result
+                domain_user_source_raw = result[0][0][UserSourceSettings.subparent]
                 domain_user_source = {}
                 for source_uid, source_settings in domain_user_source_raw.items():
                     domain_user_source[source_uid] = UserSourceSettingsObj(source_settings)
@@ -110,7 +109,6 @@ class ModuleAuth:
         :return: Dictionary containing the authentication kind and location
         :rtype: dict
         """
-
         domain = self._check_domain(uid)
         domain_auth_settings, _ = self._get_domain_auth_and_user_source_settings(domain)
 

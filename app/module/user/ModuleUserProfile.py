@@ -31,7 +31,7 @@ class ModuleUserProfile:
         """
         Initialize the module with database connection
 
-        domain_settings can be aither default settings or user domain settings
+        domain_settings can be either default_domain_settings or user_domain_settings
         
         :param process_settings: Process settings containing database configuration
         :type process_settings: ProcessSetting
@@ -456,14 +456,14 @@ class ModuleUserProfile:
             password = mail_server.get("password", None)
             if password is None or len(password) < 1:
                 mail_server["password"] = encrypt_password(password)
-                
+
         # Encrypt password of mail_outgoing:
         mail_outgoing: dict
         if mail_outgoing := account_data.get("mail_outgoing", None):
             password = mail_outgoing.get("password", None)
             if password is None or len(password) < 1:
                 mail_outgoing["password"] = encrypt_password(password)
-        
+
         # Encrypt certificates
         #TODO
 
@@ -531,7 +531,7 @@ class ModuleUserProfile:
         if not self.user_module_settings.SOGO_D_IDENTITIES_ENABLED:
             if len(all_identities) > 1:
                 raise RequestException(err.ERROR_IDENTITIES_FORBIDDEN.m, err.ERROR_IDENTITIES_FORBIDDEN)
-        
+
         size_limit = self.user_module_settings.SOGO_D_SIGNATURE_SIZE_LIMIT * 1024
         identity: dict
         for identity in all_identities:
@@ -546,7 +546,7 @@ class ModuleUserProfile:
                 raise RequestException(err.ERROR_IDENTITIES_CUSTOM_REPLY_TO_FORBIDDEN.m, err.ERROR_IDENTITIES_CUSTOM_REPLY_TO_FORBIDDEN)
             if size_limit > 0:
                 self._validate_signatures_size_for_one_identity(identity, size_limit)
-        
+
         #Encrypt certificates if needed
         #TODO
 
@@ -663,7 +663,7 @@ class ModuleUserProfile:
         raise NotImplementedError()
         # """
         # Add a delegation to another user
-        
+
         # :param uid: User unique identifier
         # :type uid: str
         # :param delegate_email: Email address of the user to grant delegation

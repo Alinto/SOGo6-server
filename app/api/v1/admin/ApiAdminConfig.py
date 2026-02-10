@@ -151,7 +151,7 @@ class ApiAdminConfigDomainSettings(MethodView):
         """
         interface_api : InterfaceApiAdminConfig = g.inter
         return interface_api.update_domain_settings(domain_name, new_data)
-    
+
     @blp.response(200)
     def delete(self, domain_name: str) -> None|ResponseReturnValue:
         """
@@ -162,7 +162,7 @@ class ApiAdminConfigDomainSettings(MethodView):
         if code == 200:
             return None
         return ret, code
-        
+
 # @blp.route("/rulesList")
 # class ApiAdminConfigRule(MethodView):
 #     """

@@ -1,8 +1,8 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
-from app.config.settings.SystemSettings import SystemSettingsObj
-from app.config.settings.DomainSettings import AuthSettingsObj, UserSourceSettingsObj
+from app.config.settings.SystemSettings import SystemSettingsObj, SystemSettings
+from app.config.settings.DomainSettings import AuthSettingsObj, AuthSettings, UserSourceSettings, UserSourceSettingsObj
 from app.module.auth.ModuleAuth import ModuleAuth
 from app.module.auth.ModuleUserSource import ModuleUserSource
 from app.module.user.ModuleUserProfile import ModuleUserProfile
@@ -20,11 +20,10 @@ class InterfaceAuthUser:
     """
 
     def __init__(self, process: ProcessSetting, system: dict, default_domain: dict):
-        system_settings = SystemSettingsObj(system["SYSTEM_SETTINGS"])
-        default_auth = AuthSettingsObj(default_domain["AUTH_SETTINGS"])
+        system_settings = SystemSettingsObj(system[SystemSettings.subparent])
+        default_auth = AuthSettingsObj(default_domain[AuthSettings.subparent])
 
-
-        default_us_source_raw: dict = default_domain["USER_SOURCE"]
+        default_us_source_raw: dict = default_domain[UserSourceSettings.subparent]
         default_us_source: dict = {}
         for source_uid, source_settings in default_us_source_raw.items():
             default_us_source[source_uid] = UserSourceSettingsObj(source_settings)

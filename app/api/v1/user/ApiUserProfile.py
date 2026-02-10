@@ -46,5 +46,3 @@ class ApiUserProfile(MethodView):
         """
         interface_api : InterfaceUserProfile = g.inter
         return interface_api.get_user_profile()
-
-

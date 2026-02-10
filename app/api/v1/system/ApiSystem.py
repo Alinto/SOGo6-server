@@ -45,5 +45,3 @@ class ApiSystem(MethodView):
         """
         interface_api : InterfaceSystem = g.inter
         return interface_api.get_ui_system_param()
-
-

@@ -47,5 +47,3 @@ USERCANERASEMAILS = "userCanEraseMails"
 USERCANEXPUNGEFOLDER = "userCanExpungeFolder"
 USERCANWRITEMAILS = "userCanWriteMails"
 USERCANADMINISTRATOR = "userIsAdministrator"
-
-
