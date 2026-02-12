@@ -114,6 +114,15 @@ class UserContactGeneralSettings(SogoSchema):
 
     SOGO_U_ADDRESSBOOK_CREATION_NOTIF = fields.Boolean(load_default=True, dump_default=True)
 
+class ContactCategorySchema(Schema):
+    """
+    Schema for a single contact category
+    """
+    name = fields.String(required=True)
+    color = fields.String(required=True)
+    can_be_translated = fields.Boolean(required=True)
+
+
 class UserContactCategorySettings(SogoSchema):
     """
     Schema for user contact category settings
@@ -121,7 +130,7 @@ class UserContactCategorySettings(SogoSchema):
 
     subparent = "USER_CONTACT_CATEGORY"
 
-    SOGO_U_CONTACT_CATEGORIES = fields.List(fields.Tuple((fields.String(), fields.String(), fields.Boolean()))) #Contact categories tuple (name, can_be_translated)
+    SOGO_U_CONTACT_CATEGORIES = fields.List(fields.Nested(ContactCategorySchema))
 
 
 class UserMailViewSettings(SogoSchema):
