@@ -193,7 +193,7 @@ class UserMailCategorySettings(SogoSchema):
     Schema for user mail category settings
     """
 
-    subparent = "USER_MAIL_GENERAL_SETTINGS"
+    subparent = "USER_MAIL_CATEGORY_SETTINGS"
 
     #Categories (Nom, couleur, is_default)
     SOGO_U_MAIL_CATEGORIES = fields.List(fields.Tuple((fields.String(), fields.String(), fields.Boolean())))
@@ -208,7 +208,7 @@ class UserExtraSettings(SogoSchema):
     There will be no control and they will not affect in any way the backend behavior
     """
 
-    subparent = "USER_MAIL_GENERAL_SETTINGS"
+    subparent = "USER_EXTRA_SETTINGS"
     #Extra parameters. No check on them, for UI that would need extra params not referenced here
     SOGO_U_EXTRA = fields.Dict()
 
