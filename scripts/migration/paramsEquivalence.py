@@ -292,9 +292,9 @@ user_source_256 = {
     "id":   "US_UID", #name used by sogo to identifies this user source among the others, must be unique
 
     #Common
-    "MailFieldNames": "US_MAIL", #Array of sqldap field that tell the user's mail. Default to ('mail'). Should be ('mail", 'alias')
+    "MailFieldNames": "US_MAIL", #Array of sqldap field that tell the user's mail. Default to ('mail'). Could be ('mail", 'alias')
     "SearchFieldNames": "US_SEARCH", #Array of sqldap field that will be query when doing an autocompletion/search of user.
-    "IMAPHostFieldName ": None, #sqldap field with the IMAP server's hostname for the user
+    "IMAPHostFieldName ": "US_IMAP_HOST_FIELDNAME", #sqldap field with the IMAP server's hostname for the user
                                 #Too much config available. A User Source is in a domain where an IMAP server ca be config +
                                 #SOGo6 is agnostic about the mail server (Imap, Jmap?) + do an imap proxy for that.
                                 ###ALAS, somes uses it...........
@@ -316,9 +316,9 @@ user_source_256 = {
                                                 #how much to return with pagination?
     "disableSubgroups": None, #It was add for a problem with SOGo5 that was looping when looking at a user with the same name as a group.
                               #No need to migrate it as the problem won't be migrated ;)
-    "ModulesConstraints": None, #Used to limit access to Mail, Calendar, ActiveSYnc to users dependings on a colomn
+    "ModulesConstraints": None, #Used to limit access to Mail, Calendar, ActiveSYnc to users dependings on a column
                                 #Exemple: only user with c_test = mailer can access Mail
-                                #TODO, move to domain settings SOGO_D_MODULE_ACCESS
+                                #TODO, move to domain settings SOGO_D_MODULE_ACCESS but for legacy let it be
         
     "mapping": "US_MAPPING", #TODO map sqldap field to vcard field https://www.sogo.nu/files/docs/SOGoInstallationGuide.html#_ldap_attributes_mapping
 

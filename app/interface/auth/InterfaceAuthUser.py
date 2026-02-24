@@ -1,8 +1,8 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
-from app.config.settings.SystemSettings import SystemSettingsObj
-from app.config.settings.DomainSettings import AuthSettingsObj, UserSourceSettingsObj
+from app.config.settings.SystemSettings import SystemSettingsObj, SystemSettings
+from app.config.settings.DomainSettings import AuthSettingsObj, AuthSettings, UserSourceSettings, UserSourceSettingsObj
 from app.module.auth.ModuleAuth import ModuleAuth
 from app.module.auth.ModuleUserSource import ModuleUserSource
 from app.module.user.ModuleUserProfile import ModuleUserProfile
@@ -12,6 +12,7 @@ from app.utils.logger.logger import logger_api
 
 if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
+    from app.auth.User import User, UserAnonymous
 
 
 class InterfaceAuthUser:
@@ -20,17 +21,15 @@ class InterfaceAuthUser:
     """
 
     def __init__(self, process: ProcessSetting, system: dict, default_domain: dict):
-        system_settings = SystemSettingsObj(system["SYSTEM_SETTINGS"])
-        default_auth = AuthSettingsObj(default_domain["AUTH_SETTINGS"])
+        system_settings = SystemSettingsObj(system[SystemSettings.subparent])
+        default_auth = AuthSettingsObj(default_domain[AuthSettings.subparent])
 
-
-        default_us_source_raw: dict = default_domain["USER_SOURCE"]
+        default_us_source_raw: dict = default_domain[UserSourceSettings.subparent]
         default_us_source: dict = {}
         for source_uid, source_settings in default_us_source_raw.items():
             default_us_source[source_uid] = UserSourceSettingsObj(source_settings)
 
         self.module_auth = ModuleAuth(process, system_settings, default_auth, default_us_source)
-        self.module_user_source = ModuleUserSource(default_us_source)
         self.module_user_profile = ModuleUserProfile(process, default_domain)
 
 
@@ -39,9 +38,11 @@ class InterfaceAuthUser:
         """
         Get the login mech from a uid
 
-        :param user_uid: _description_
+        :param user_uid: The user unique ID
         :type user_uid: str
-        :return: _description_
+        :param redirect: The redirect URL after authentication
+        :type redirect: str
+        :return: Tuple containing the API response dict and HTTP status code
         :rtype: tuple[dict, int]
         """
         try:
@@ -50,33 +51,67 @@ class InterfaceAuthUser:
             return create_api_base_response(str(e), e.error_code), 400
         return create_api_base_response(ret), 200
 
+    def _check_login(self, uid:str, password:str) -> tuple[bool, User, ModuleUserSource]:
+        """
+        Check credentials uid/password/token of a user
+        #TODO get login auth with AuthSettingsObj
+
+        :param uid: uid of the user
+        :type username: str
+        :param password: password or token or any equivalent
+        :type password: str
+        :return: True if success, instante of User, instande of Appropriate ModuleUserSource
+        :rtype: tuple[bool, User, ModuleUserSource]
+        """
+        # Prepare the user object for authentication and get domain user sources
+        user, domain_user_sources = self.module_auth.get_user_and_domain_user_sources(uid, password)
+
+        # Check login using the user source module
+        module_us = ModuleUserSource(domain_user_sources)
+        return module_us.check_login(user), user, module_us
+
     def plain_login(self, data:dict) -> tuple[dict, int]:
         """
         Check a plain login uid/password.
 
-
-        :param data: _description_
+        :param data: Dictionary containing 'username' and 'password' keys
         :type data: dict
-        :return: _description_
-        :rtype: tuple[dict, str, int]
+        :return: Tuple containing the API response dict and HTTP status code
+        :rtype: tuple[dict, int]
         """
         uid = data["username"]
         password = data["password"]
 
-        success, ret = self.module_auth.user_plain_login(uid, password)
+        success, user, module_us = self._check_login(uid, password)
+
         if not success:
             return create_api_base_response(), 401
 
+        # Generate the voucher for the authenticated user
+        ret = self.module_auth.generate_voucher_from_user(user)
+
         try:
-            self.module_user_profile
             if not self.module_user_profile.is_user_profile_present(uid):
-                contact_info = self.module_user_source.get_contact_info(uid)
-                self.module_user_profile.create_user_profile(uid, contact_info)
+                self.module_user_profile.create_user_profile(user)
         except RequestException as ex:
             logger_api.error("Request exception when onboarding user %s: %s", uid, str(ex))
             return create_api_base_response(None, ex.error_code), ex.http_status
-        except BugException as ex:
-            logger_api.error("Bug exception when onboarding user %s: %s", uid, str(ex))
-            return create_api_base_response(None, ex.error_code), ex.http_status
 
         return create_api_base_response(ret), 200
+
+    def check_user_and_fill_info(self, user:User) -> bool:
+        """
+        Directly used by the before_request at init.
+        Check that the user credentials is still relevant and fill the user instance with infos needed
+
+        :param user: _description_
+        :type user: User
+        :return: True if the user credentials are ok
+        :rtype: bool
+        """
+        success, _, module_us = self._check_login(user.uid, user.password)
+        if success:
+            module_us.fill_user(user)
+            self.module_user_profile.get_user_profile(user)
+        return success
+        

@@ -27,9 +27,9 @@ def init_user_profile() -> None:
     Init the interface and others if needed
     """
     logger_api.debug("Calling before_request for ApiUserPreferences")
-    process: ProcessSetting = g.process
+    process: ProcessSetting = g.process_settings
     system_settings: dict = g.system_settings
-    user_domain: dict = g.user_domain
+    user_domain: dict = g.user_domain_settings
     user: User = g.user
     interface_api = InterfaceUserProfile(process_settings=process, user_domain=user_domain, user=user)
     g.inter = interface_api
@@ -46,5 +46,3 @@ class ApiUserProfile(MethodView):
         """
         interface_api : InterfaceUserProfile = g.inter
         return interface_api.get_user_profile()
-
-

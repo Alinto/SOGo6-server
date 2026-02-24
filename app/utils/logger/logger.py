@@ -53,5 +53,5 @@ logger_cache      = getLogger("sogolog.cache")
 logger_mail_server = getLogger("sogolog.mailserver")
 logger_user_profile = getLogger("sogolog.userprofile")
 
-logger_sql.setLevel(DEBUG)
-logger_cache.setLevel(DEBUG)
+logger_sql.setLevel(ERROR)
+logger_cache.setLevel(ERROR)

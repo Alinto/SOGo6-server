@@ -26,9 +26,9 @@ def init_admin_config() -> None:
     Init the interface and others if needed 
     """
     logger_api.debug("Calling before_request for ApiAdminConfig")
-    process: ProcessSetting = g.process
+    process: ProcessSetting = g.process_settings
     system_settings: dict = g.system_settings
-    default_domain: dict = g.default_domain
+    default_domain: dict = g.default_domain_settings
     interface_api = InterfaceAuthUser(process, system_settings, default_domain)
     g.inter = interface_api
 

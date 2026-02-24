@@ -57,6 +57,7 @@ ERROR_AUTHENTICATED_ROUTE      = E("S000203", "Anonymous User On Protected Endpo
 ERROR_API_NOT_JSON             = E("S000204", "Request POST/PATCH/PUT Body Is Not A Json", HTTPStatus.BAD_REQUEST)
 ERROR_API_CONTENT_TYPE         = E("S000205", "Request POST/PATCH/PUT Content-Type Is Not 'application/json'", HTTPStatus.BAD_REQUEST)
 ERROR_VALIDITY_TIME_BELOW_0    = E("S000206", "Voucher Validity Time Below 0", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_USER_CREDS_NOT_VALID     = E("S000207", "User credentials stores in session are not valid anymore", HTTPStatus.UNAUTHORIZED)
 
 
 #API
@@ -73,11 +74,13 @@ ERROR_MAILBOX_NOT_FOUND      = E("S000312", "Mailbox Not Found", HTTPStatus.NOT_
 ERRRIR_MAIL_DELETION         = E("S000313", "Mail Deletion Error", HTTPStatus.BAD_REQUEST)
 
 #User Profile
-ERROR_USER_PROFILE_DUPLICATE        = E("S000314", "Multiple User Profiles Found For Same UID", HTTPStatus.INTERNAL_SERVER_ERROR)
-ERROR_USER_PROFILE_CREATION_FAILED  = E("S000315", "User Profile Creation Failed", HTTPStatus.INTERNAL_SERVER_ERROR)
-ERROR_USER_PROFILE_INSERT_MISMATCH  = E("S000316", "User Profile Insert Row Count Mismatch", HTTPStatus.INTERNAL_SERVER_ERROR)
-ERROR_USER_PROFILE_NOT_FOUND        = E("S000317", "User Profile Not Found", HTTPStatus.NOT_FOUND)
-ERROR_USER_PROFILE_UPDATE_FAILED    = E("S000318", "User Profile Update Failed", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_USER_PROFILE_DUPLICATE         = E("S000314", "Multiple User Profiles Found For Same UID", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_USER_PROFILE_CREATION_FAILED   = E("S000315", "User Profile Creation Failed", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_USER_PROFILE_INSERT_MISMATCH   = E("S000316", "User Profile Insert Row Count Mismatch", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_USER_PROFILE_NOT_FOUND         = E("S000317", "User Profile Not Found", HTTPStatus.NOT_FOUND)
+ERROR_USER_PROFILE_UPDATE_FAILED     = E("S000318", "User Profile Update Failed", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_USER_PROFILE_NO_IDENTITY       = E("S000319", "Account must have at least one identity", HTTPStatus.BAD_REQUEST)
+ERROR_USER_PROFILE_MISMATCH_CLASS_DB = E("S000326", "User profile colums differentiate from UserProfile class attributes", HTTPStatus.INTERNAL_SERVER_ERROR)
 
 #External Accounts
 ERROR_EXTERNAL_ACCOUNT_NOT_FOUND    = E("S000320", "External Account Not Found", HTTPStatus.NOT_FOUND)
@@ -86,8 +89,9 @@ ERROR_EXTERNAL_ACCOUNT_INVALID_DATA = E("S000322", "External Account Invalid Dat
 ERROR_EXTERNAL_ACCOUNT_ALREADY_EXISTS = E("S000323", "External Account Already Exists", HTTPStatus.BAD_REQUEST)
 
 #Main Account
-ERROR_MAIN_ACCOUNT_NOT_FOUND = E("S000324", "Main Account Not Found", HTTPStatus.NOT_FOUND)
+ERROR_MAIN_ACCOUNT_NOT_FOUND = E("S000324", "Main Account Not Found", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_MAIN_ACCOUNT_CANNOT_BE_DELETED = E("S000325", "Main Account Cannot Be Deleted", HTTPStatus.FORBIDDEN)
+
 
 #Domain Restrictions
 ERROR_EXTERNAL_ACCOUNT_FORBIDDEN = E("S000330", "External account creation is forbidden for your domain", HTTPStatus.FORBIDDEN)
@@ -108,9 +112,12 @@ ERROR_DELEGATION_INVALID_EMAIL = E("S000352", "Invalid Email Address For Delegat
 #Database
 ERROR_BUG_UNKNWON_TABLE        = E("S000400", "Database Unknown Table", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_BUG_UNKNWON_COLUMN       = E("S000401", "Database Unknown Column", HTTPStatus.INTERNAL_SERVER_ERROR)
-ERROR_BUG_UNKNWON_ORDER        = E("S000402", "Database Unknown Order Name", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_BUG_UNKNOWN_ORDER        = E("S000402", "Database Unknown Order Name", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_QUERY_DELETION_ROWS      = E("S000403", "Database Deletion Query Is Unexpected", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_QUERY_DELETION_CONDITION = E("S000404", "Database Deletion Query Delete Everything", HTTPStatus.INTERNAL_SERVER_ERROR)
+
+#Config
+ERROR_CONFIG_WRONG_MAIL_SERVER = E("S000500", "Mail server type is unknown or not supported", HTTPStatus.INTERNAL_SERVER_ERROR)
 
 #the bugs
 ERROR_UNKOWN = E("S999999", "Undefined Error", HTTPStatus.INTERNAL_SERVER_ERROR)

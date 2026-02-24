@@ -7,7 +7,6 @@ import re
 from typing import Any, Dict, Tuple, List, TYPE_CHECKING
 
 from app.manager.mail.ClientImap import ClientImap
-# from app.manager.mail.ClientJmap import ClientJmap
 from app.utils.exceptions import RequestException
 from app.utils import errors as err
 from app.utils.module.importManager import import_and_instantiate_manager
@@ -27,10 +26,6 @@ class ModuleMail:
         port: int = 143,
         client_registry: Dict[str, Tuple[str, str]] | None = None,
     ):
-        # user_conf est maintenant requis — l'appelant doit le fournir
-        if not user_conf:
-            raise RequestException("user_conf is required to initialize ModuleMail")
-
         self.server = server
         self.port = port
         self.client_registry: Dict[str, Tuple[str, str]] = (
@@ -38,6 +33,7 @@ class ModuleMail:
         )
 
         # validate/create client dès l'init — plus besoin de vérifier self.client dans chaque méthode
+        print(f"MY USER CONF: {user_conf}")
         self.conf = self._validate_user_conf(user_conf)
         self.client = self._open_client_for(self.conf)
 

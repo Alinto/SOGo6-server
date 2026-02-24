@@ -28,6 +28,10 @@ class ModuleAdminConfig:
     """
     def __init__(self, process_settings: ProcessSetting):
         """
+        Initialize the admin config module
+
+        :param process_settings: Process settings containing database configuration
+        :type process_settings: ProcessSetting
         """
         self.process_settings  = process_settings
         sogo_db_type = f"Client{process_settings.SOGO_P_DB_TYPE}"
@@ -35,7 +39,7 @@ class ModuleAdminConfig:
         self.sogo_db_manager: ClientSQL = import_and_instantiate_manager(module_path="app.manager.db",
                                                          module_and_class_name=sogo_db_type,
                                                          module_args=self.process_settings.get_db_settings())
-    
+
     def get_dynamic_form_settings(self) -> dict:
         """
         Return the full dictionnary with the dynamic form format
@@ -118,10 +122,10 @@ class ModuleAdminConfig:
 
     def get_both_system_and_default_domain_settings(self) -> tuple[dict, dict]:
         """
-        Return a tuple of both system settings and default_domain_settings
+        Return a tuple of both system settings and default domain settings
 
-        :return: _description_
-        :rtype: tuple[dict]
+        :return: Tuple containing system settings and default domain settings
+        :rtype: tuple[dict, dict]
         """
 
         return self._get_setting_from_table_settings((tbl.COL_SETTINGS_SYSTEM.name,tbl.COL_SETTINGS_DOMAIN_DEFAULT.name))
@@ -131,19 +135,20 @@ class ModuleAdminConfig:
                                  sort_by: Column|None = None,
                                  order: Order = Order.ASC) -> tuple[int,list]:
         """
-        Return all the settings for scpecific domains.
-        columns indicates which database column to query.
+        Return all the settings for specific domains with pagination and sorting
 
-        sort_by is a column_anme to apply a sort mechanism
-
-        order indicates the direction fo the sorting.
-
-        :param columns: _description_
-        :type columns: Column
-        :param sort_by: _description_, defaults to ""
-        :type sort_by: str, optional
-        :param order: _description_, defaults to Order.ASC
-        :type order: Order, optional
+        :param offset: Number of rows to skip, defaults to 0
+        :type offset: int
+        :param limit: Maximum number of rows to return, defaults to 0 (no limit)
+        :type limit: int
+        :param columns: Database columns to query, defaults to None (all columns)
+        :type columns: tuple[Column, ...]|None
+        :param sort_by: Column to sort by, defaults to None
+        :type sort_by: Column|None
+        :param order: Sort direction (ASC or DESC), defaults to Order.ASC
+        :type order: Order
+        :return: Tuple containing total count and list of domain settings
+        :rtype: tuple[int, list]
         """
 
         if columns is not None:
@@ -180,11 +185,13 @@ class ModuleAdminConfig:
 
     def get_one_domain_setting(self, domain_id:str, columns: tuple[Column, ...]|None = None) -> dict:
         """
-        Get one domain setting for domain_id
+        Get one domain setting for the specified domain ID
 
-        :param domain_id: _description_
+        :param domain_id: The domain name/ID
         :type domain_id: str
-        :return: _description_
+        :param columns: Database columns to query, defaults to None (all columns)
+        :type columns: tuple[Column, ...]|None
+        :return: Dictionary containing domain settings
         :rtype: dict
         """
         self.sogo_db_manager.connect()
@@ -213,13 +220,12 @@ class ModuleAdminConfig:
             logger.debug("No domain found for name %s, return the default one", domain_id)
             default_settings = self.get_default_domain_settings()
             origins = set_origin_from_settings("default", default_settings, default_settings)
-            result = {
+            return {
                 "domain_name": "default",
                 "settings": default_settings,
                 "origin": origins
             }
-            return result
-            
+
         ret: dict = {}
         for idx, col in enumerate(column_tuple):
             if col == tbl.COL_DOMAIN_SETTINGS.name:
@@ -447,7 +453,7 @@ class ModuleAdminConfig:
         }
 
         return err.ERROR_NO_ERRROR.c, result
-    
+
     def delete_one_domain_setting(self, domain_id:str) -> int:
         """
         Delete onr 
@@ -466,5 +472,3 @@ class ModuleAdminConfig:
         deleted_rows = self.sogo_db_manager.delete_row_in_table(tbl.TABLE_DOMAIN.name, cond, expected_row=1)
 
         return deleted_rows
-
-

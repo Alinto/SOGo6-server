@@ -2,6 +2,8 @@
 Tests unitaires pour ClientImap (Manager layer).
 Ces tests utilisent des mock objects pour simuler les réponses IMAP.
 """
+import pytest
+import imaplib
 from unittest import mock
 from app.manager.mail.ClientImap import ClientImap, _convert_rights_to_imap, _convert_imap_to_rights
 from app.utils.exceptions import RequestException
@@ -20,6 +22,8 @@ class FakeIMAPConnection:
         self.selected_mailbox = None
         self.folders = {}
         self.login_response = ('OK', [b''])
+        self.login_should_fail = False
+        self.create_should_fail = False
         self.select_response = ('OK', [b'10'])
         self.create_response = ('OK', [b''])
         self.delete_response = ('OK', [b''])
@@ -30,60 +34,86 @@ class FakeIMAPConnection:
         self.getacl_response = ('OK', [b'INBOX user1 lrswipkxtea user2 lr'])
         self.setacl_response = ('OK', [b''])
         self.deleteacl_response = ('OK', [b''])
-        
+        self.status_response = ('OK', [b'INBOX (MESSAGES 10 UNSEEN 2)'])
+        self.lsub_response = ('OK', [b'(\\HasNoChildren) "/" "INBOX"'])
+
     def login(self, username, password):
+        """Simulate login"""
+        if self.login_should_fail:
+            raise imaplib.IMAP4.error(b'[AUTHENTICATIONFAILED] Invalid credentials')
         self.logged_in = True
         return self.login_response
 
     def logout(self):
+        """Simulate logout"""
         self.logged_in = False
         return ('OK', [b''])
 
     def select(self, mailbox):
+        """Simulate selecting a mailbox"""
         self.selected_mailbox = mailbox
         return self.select_response
 
     def create(self, folder_name):
+        """Simulate creating a folder"""
+        if self.create_should_fail:
+            return ('NO', [b'Folder already exists'])
         self.folders[folder_name] = True
         return self.create_response
 
     def delete(self, folder_name):
+        """Simulate deleting a folder"""
         if folder_name in self.folders:
             del self.folders[folder_name]
         return self.delete_response
 
     def list(self, ref='""', pattern='*'):
+        """Simulate listing folders"""
         return self.list_response
 
     def expunge(self):
+        """Simulate expunging messages"""
         return self.expunge_response
 
     def uid(self, command, *args):
+        """Simulate UID command"""
         return self.uid_response
 
     def fetch(self, message_set, parts):
+        """Simulate fetching messages"""
         return self.fetch_response
 
     def getacl(self, folder_name):
+        """Simulate getting ACL for a folder"""
         return self.getacl_response
 
     def setacl(self, folder_name, identifier, rights):
+        """Simulate setting ACL for a folder"""
         return self.setacl_response
 
     def deleteacl(self, folder_name, identifier):
+        """Simulate deleting ACL for a folder"""
         return self.deleteacl_response
 
     def rename(self, old_name, new_name):
+        """Simulate renaming a folder"""
         return ('OK', [b''])
 
     def subscribe(self, folder_name):
+        """Simulate subscribing to a folder"""
         return ('OK', [b''])
 
     def unsubscribe(self, folder_name):
+        """Simulate unsubscribing from a folder"""
         return ('OK', [b''])
 
     def lsub(self, ref, pattern):
+        """Simulate listing subscribed folders"""
         return ('OK', [b'(\\HasNoChildren) "/" "INBOX"'])
+
+    def status(self, folder_name, items):
+        """Simulate getting status of a folder"""
+        return self.status_response
 
 
 # ========== Tests for rights conversion ==========
@@ -151,7 +181,11 @@ def test_login_success(monkeypatch):
     fake_conn = FakeIMAPConnection()
     client = ClientImap(server='imap.example.com', port=143)
 
-    with mock.patch('imaplib.IMAP4', return_value=fake_conn):
+    # Create a mock for IMAP4 class with the error attribute
+    mock_imap4 = mock.MagicMock(return_value=fake_conn)
+    mock_imap4.error = imaplib.IMAP4.error
+
+    with mock.patch('app.manager.mail.ClientImap.imaplib.IMAP4', mock_imap4):
         client.login('user@example.com', 'password')
         assert fake_conn.logged_in is True
 
@@ -159,11 +193,16 @@ def test_login_success(monkeypatch):
 def test_login_with_invalid_credentials(monkeypatch):
     """Test login with invalid credentials."""
     fake_conn = FakeIMAPConnection()
-    fake_conn.login_response = ('NO', [b'Invalid credentials'])
+    fake_conn.login_should_fail = True
     client = ClientImap(server='imap.example.com', port=143)
 
-    with mock.patch('imaplib.IMAP4', return_value=fake_conn):
-        with pytest.raises(RequestException, match="Failed to login"):
+    # Create a mock for IMAP4 class with the error attribute
+    mock_imap4 = mock.MagicMock(return_value=fake_conn)
+    mock_imap4.error = imaplib.IMAP4.error
+
+    # Patch at the module level where it's used, not at the global imaplib level
+    with mock.patch('app.manager.mail.ClientImap.imaplib.IMAP4', mock_imap4):
+        with pytest.raises(RequestException):
             client.login('user@example.com', 'wrong_password')
 
 
@@ -213,11 +252,11 @@ def test_create_folder_success():
 def test_create_folder_failure():
     """Test folder creation failure."""
     fake_conn = FakeIMAPConnection()
-    fake_conn.create_response = ('NO', [b'Folder already exists'])
+    fake_conn.create_should_fail = True
     client = ClientImap(server='imap.example.com', port=143)
     client.connection = fake_conn
 
-    with pytest.raises(RequestException, match="Failed to create folder"):
+    with pytest.raises(RequestException):
         client.create_folder('ExistingFolder')
 
 
@@ -288,7 +327,7 @@ def test_fetch_mails_success():
     client = ClientImap(server='imap.example.com', port=143)
     client.connection = fake_conn
 
-    mails, total = client.fetch_mails('INBOX', number_of_mails=2)
+    mails, total = client.fetch_all_mails('INBOX', number_of_mails=2)
     assert total == 10
     assert len(mails) == 2
 

@@ -1,14 +1,19 @@
+from __future__ import annotations
 from typing import TYPE_CHECKING, Dict, Any, List, Union, Tuple
 from marshmallow import ValidationError
 
 from app.utils.exceptions import RequestException
 from app.module.mail.ModuleMail import ModuleMail
+from app.config.settings.DomainSettings import MailSettings, MailSettingsObj, UserSourceSettings, UserSourceSettingsObj
 from app.utils.api.ApiBaseResponse import create_api_base_response
 from app.utils import errors as err
 from app.utils.logger.logger import logger_api
+from app.utils import constants as cs
+from app.utils.strings import get_imap_config_from_url
 
 if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
+    from app.auth.User import User
 
 UserConfType = Union[Dict[str, Any], List[Dict[str, Any]]]
 
@@ -18,43 +23,41 @@ class InterfaceApiMailMail:
     Handles mail retrieval for one or multiple configured IMAP accounts.
     """
 
-    def __init__(self, process_setting: "ProcessSetting" = None, user_conf: UserConfType | None = None) -> None:
+    def __init__(self, process_setting: ProcessSetting, user_domain_settings: dict, user: User) -> None:
         self.process_setting = process_setting
-        self.user_conf = user_conf
+        self.user_domain_settings = user_domain_settings
+        self.mail_settings = MailSettingsObj(user_domain_settings[MailSettings.subparent])
+        self.use_source_settings = UserSourceSettingsObj(user_domain_settings[UserSourceSettings.subparent][user.source_id])
+        self.user = user
 
-    def _get_user_conf(self, account_id: int) -> Dict[str, Any]:
-        """
-        Select and validate the configuration for a given account ID.
-        """
-        if not self.user_conf:
-            raise RequestException("No mailbox configuration available")
-
-        # Normalize to list for consistent handling
-        conf_list = self.user_conf if isinstance(self.user_conf, list) else [self.user_conf]
-
-        if not (0 <= account_id < len(conf_list)):
-            raise RequestException(f"Invalid account_id {account_id} (0..{len(conf_list)-1})")
-
-        conf = conf_list[account_id]
-
-        required_fields = ["username", "password", "type"]
-        missing = [f for f in required_fields if not conf.get(f)]
-        if missing:
-            raise RequestException(f"Missing fields in account config: {', '.join(missing)}")
-
-        if conf["type"].lower() != "imap":
-            raise RequestException(f"Unsupported mail type '{conf['type']}' (expected 'imap')")
-
-        return conf
+    def _get_user_conf(self, account_id: str) -> dict:
+        user_mail_conf: dict = {}
+        if account_id == cs.DEFAULT_IDENTITY_KEY_VALUE:
+            #Get info of the main account
+            user_mail_conf["username"] = self.user.login_mail_server
+            user_mail_conf["password"] = self.user.password
+            user_mail_conf["type"] = self.mail_settings.SOGO_D_MAIL_SERVER_TYPE
+            my_server = self.mail_settings.get_mail_server_settings_for_type(self.mail_settings.SOGO_D_MAIL_SERVER_TYPE)
+            #DEPRECATED but legacy
+            if self.mail_settings.SOGO_D_MAIL_SERVER_TYPE == "imap" and self.user.imap_host:
+                #extract host from user source
+                new_config = get_imap_config_from_url(self.user.imap_host)
+                my_server.update(new_config)
+            user_mail_conf.update(my_server)
+        else:
+            if not self.user.profile.external_accounts or account_id not in self.user.profile.external_accounts:
+                raise RequestException(err.ERROR_EXTERNAL_ACCOUNT_NOT_FOUND.m, error=err.ERROR_EXTERNAL_ACCOUNT_NOT_FOUND)
+            user_mail_conf = self.user.profile.external_accounts[account_id]
+        return user_mail_conf
 
 
     def get_mail_list(
-        self, account_id: int, folder_name: str, first: int, last: int
+        self, account_id: str, folder_name: str, first: int, last: int
     ) -> Tuple[int, Dict[str, Any], int]:
         """Retrieve a list of mails in a specific folder.
         
         :param account_id: The ID of the account
-        :type account_id: int
+        :type account_id: str
         :param folder_name: The ID of the folder
         :type folder_name: str
         :param first: The first item index (0-based)
@@ -77,11 +80,11 @@ class InterfaceApiMailMail:
             return 0, create_api_base_response(None, ex.error_code), ex.http_status
 
 
-    def get_mail_detail(self, account_id: int, folder_name: str, mail_uid: int) -> Tuple[Dict[str, Any], int]:
+    def get_mail_detail(self, account_id: str, folder_name: str, mail_uid: int) -> Tuple[Dict[str, Any], int]:
         """Retrieve detailed information about a specific mail.
 
         :param account_id: The ID of the account
-        :type account_id: int
+        :type account_id: str
         :param folder_name: The ID of the folder
         :type folder_name: str
         :param mail_uid: The unique identifier of the mail
@@ -101,11 +104,11 @@ class InterfaceApiMailMail:
             logger_api.error("Request exception in get_mail_detail: %s", str(ex))
             return create_api_base_response(None, ex.error_code), ex.http_status
 
-    def delete_mail(self, account_id: int, folder_name: str, mail_uid: int) -> Tuple[Dict[str, Any], int]:
+    def delete_mail(self, account_id: str, folder_name: str, mail_uid: int) -> Tuple[Dict[str, Any], int]:
         """Delete a specific mail (mark as deleted).
 
         :param account_id: The ID of the account
-        :type account_id: int
+        :type account_id: str
         :param folder_name: The ID of the folder
         :type folder_name: str
         :param mail_uid: The unique identifier of the mail
@@ -125,11 +128,11 @@ class InterfaceApiMailMail:
             logger_api.error("Request exception in delete_mail: %s", str(ex))
             return create_api_base_response(None, ex.error_code), ex.http_status
 
-    def reply_mail(self, account_id: int, folder_name: str, mail_uid: int) -> Tuple[Dict[str, Any], int]:
+    def reply_mail(self, account_id: str, folder_name: str, mail_uid: int) -> Tuple[Dict[str, Any], int]:
         """Reply to a specific mail.
 
         :param account_id: The ID of the account
-        :type account_id: int
+        :type account_id: str
         :param folder_name: The ID of the folder
         :type folder_name: str
         :param mail_uid: The unique identifier of the mail
@@ -149,11 +152,11 @@ class InterfaceApiMailMail:
             logger_api.error("Request exception in reply_mail: %s", str(ex))
             return create_api_base_response(None, ex.error_code), ex.http_status
 
-    def forward_mail(self, account_id: int, folder_name: str, mail_uid: int) -> Tuple[Dict[str, Any], int]:
+    def forward_mail(self, account_id: str, folder_name: str, mail_uid: int) -> Tuple[Dict[str, Any], int]:
         """Forward a specific mail.
 
         :param account_id: The ID of the account
-        :type account_id: int
+        :type account_id: str
         :param folder_name: The ID of the folder
         :type folder_name: str
         :param mail_uid: The unique identifier of the mail
@@ -173,11 +176,11 @@ class InterfaceApiMailMail:
             logger_api.error("Request exception in forward_mail: %s", str(ex))
             return create_api_base_response(None, ex.error_code), ex.http_status
 
-    def get_mail_raw(self, account_id: int, folder_name: str, mail_uid: int) -> Tuple[Dict[str, Any], int]:
+    def get_mail_raw(self, account_id: str, folder_name: str, mail_uid: int) -> Tuple[Dict[str, Any], int]:
         """Retrieve the raw content of a specific mail.
 
         :param account_id: The ID of the account
-        :type account_id: int
+        :type account_id: str
         :param folder_name: The ID of the folder
         :type folder_name: str
         :param mail_uid: The unique identifier of the mail

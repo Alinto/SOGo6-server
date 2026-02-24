@@ -1,19 +1,6 @@
-from typing import Any
 from marshmallow import Schema, fields, validate
 from app.utils.api.ApiBaseResponse import ApiBaseResponse
-
-
-def validate_email_or_empty(value: Any) -> None:
-    """
-    Validate that the value is either an empty string or a valid email address.
-    
-    :param value: The value to validate
-    :raises ValidationError: If value is not empty and not a valid email
-    """
-    if value and value.strip():  # If not empty or only whitespace
-        email_validator = validate.Email()
-        email_validator(value)
-    # If empty or None, validation passes
+from app.utils import constants as cs
 
 
 class MailServerSchema(Schema):
@@ -24,11 +11,11 @@ class MailServerSchema(Schema):
     port = fields.Integer(required=True, validate=validate.Range(min=1, max=65535))
     encryption = fields.String(
         required=True,
-        validate=validate.OneOf(["none", "ssl", "tls", "starttls"])
+        validate=validate.OneOf(cs.SOCK_ENC_LIST)
     )
     type_ = fields.String(
         required=True,
-        validate=validate.OneOf(["imap", "jmap"]),
+        validate=validate.OneOf(["imap"]),
         data_key="type"
     )
     password = fields.String(required=True, validate=validate.Length(min=1))
@@ -65,7 +52,7 @@ class MailOutgoingSchema(Schema):
     port = fields.Integer(required=True, validate=validate.Range(min=1, max=65535))
     encryption = fields.String(
         required=True,
-        validate=validate.OneOf(["none", "ssl", "tls", "starttls"])
+        validate=validate.OneOf(cs.SOCK_ENC_LIST)
     )
     password = fields.String(required=True, validate=validate.Length(min=1))
     username = fields.String(required=True, validate=validate.Length(min=1))
@@ -102,9 +89,9 @@ class IdentitySchema(Schema):
     """
     Schema for email identity
     """
-    mail = fields.String(required=True, validate=validate.Email())
+    mail = fields.Email(required=True)
     name = fields.String(required=True, validate=validate.Length(min=1))
-    replyTo = fields.String(required=False, allow_none=True, validate=validate_email_or_empty)
+    replyTo = fields.Email(required=False, allow_none=True)
     isDefault = fields.Boolean(required=False, load_default=False)
     signatures = fields.Dict(fields.String(), required=False, load_default={})
 
@@ -135,8 +122,7 @@ class MailboxCreateSchema(Schema):
     receipts = fields.Dict(required=False, load_default={})
     identities = fields.List(
         fields.Nested(IdentitySchema),
-        required=False,
-        load_default=[]
+        required=True
     )
     certificates = fields.Dict(required=False, load_default={})
     mail_outgoing = fields.Nested(MailOutgoingSchema, required=True)
@@ -199,6 +185,11 @@ class MailboxUpdateSchema(MailboxCreateSchema):
     name = fields.String(required=False, validate=validate.Length(min=1))
     mail_server = fields.Nested(MailServerSchema, required=False)
     mail_outgoing = fields.Nested(MailOutgoingSchema, required=False)
+    identities = fields.List(
+        fields.Nested(IdentitySchema),
+        required=False,
+        load_default=[]
+    )
 
     @classmethod
     def example(cls) -> dict:
@@ -384,7 +375,7 @@ class DelegationCreateSchema(Schema):
     """
     Schema for POST /mailboxes/<account_id>/delegate - Add a delegation
     """
-    email = fields.String(required=True, validate=validate.Email())
+    email = fields.Email(required=True)
 
     @classmethod
     def example(cls) -> dict:
@@ -394,7 +385,7 @@ class DelegationCreateSchema(Schema):
         :rtype: dict
         """
         return {
-            "email": "delegate@example.com"
+            "emails": ["delegate@example.com", "delegate2@example.com"]
         }
 
 
