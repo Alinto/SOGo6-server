@@ -15,19 +15,19 @@ from app.utils import errors as err
 if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
     from app.auth.User import User
-    
+
 
 class InterfaceUserProfile:
     """
     Interface for user profile
     """
-    
+
     def __init__(self, process_settings: ProcessSetting, user_domain: dict, user: User):
         self.process_settings = process_settings
         self.user = user
         self.user_domain = user_domain
         self.module_user_profile = ModuleUserProfile(process_settings, user_domain)
-    
+
     def get_user_profile(self) -> tuple[dict, int]:
         """
         User profile is:
@@ -54,9 +54,9 @@ class InterfaceUserProfile:
             data["prefs"] = self.module_user_profile.get_user_preferences(self.user.uid)
         except RequestException as e:
             return create_api_base_response(error=e.error_code), e.http_status
-        
+
         #TODO User folders view (NOT IMPLEMENTED)
-        
+
         #Admin param
         admin_param: dict = {}
         for domain_schema in get_all_domain_schemas():
@@ -69,4 +69,3 @@ class InterfaceUserProfile:
         data["ui"] = admin_param
 
         return create_api_base_response(data), 200
-

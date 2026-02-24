@@ -7,7 +7,9 @@ from typing import Type
 from marshmallow import fields, validate
 from app.config.settings.SogoSchema import SogoSchema
 from app.utils.config.generateObjFromSchema import SettingsObj
-
+from app.utils.exceptions import AggravatedException
+from app.utils import errors as err
+from app.utils import constants as cs
 
 def get_all_domain_schemas() -> list[Type[SogoSchema]]:
     """
@@ -18,7 +20,6 @@ def get_all_domain_schemas() -> list[Type[SogoSchema]]:
     """
     all_schemas = [AuthSettings, UserSourceSettings, UserModuleSettings, MailSettings, CalendarContactSettings]
     return all_schemas
-
 
 class AuthSettings(SogoSchema):
     """
@@ -262,8 +263,12 @@ class UserSourceSettings(SogoSchema):
     US_MAIL_SERVER_LOGIN    = fields.String() #sqldap field where to fetch the imap login for a user (default to UIDFieldName for ldap or c_uid for sql)
     US_MAIL_FILTERING_LOGIN = fields.String() #sqldap field where to fetch the sieve login for a user (default to UIDFieldName for ldap or c_uid for sql)
     US_MAIL_OUTGOING_LOGIN  = fields.String() #sqldap field where to fecth the smtp login for a user (default to UIDFieldName for ldap or c_uid for sql)
+    US_IMAP_HOST_FIELDNAME = fields.String() #sqldap field where the imap hostname is stored for a user (LEGACY - DEPRECATED)
 
     US_KIND = fields.String() #sqldap field where to check if a user is a resource or not
+    US_MODULE_ACCESS = fields.Dict(fields.String(validate=validate.OneOf(('Calendar', 'Mail', 'Contact'))),
+                                   fields.Dict()) # Module constraints. E.g. {"Calendars": {"c_calendar_disable": True}} means that all users that
+                                                  # have the sqldap field c_calendar_disable set at True, it doens't have Calendar access.
 
     US_IS_ADDRESSBOOK = fields.Boolean(required=True) #This US is shown for autocompletion and shared address book
     US_SEARCH = fields.List(fields.String()) #Array of sqldap field used for autocompletion/search of user
@@ -324,6 +329,8 @@ class UserSourceSettingsObj(SettingsObj):
     US_MAIL_SERVER_LOGIN: str = ""
     US_MAIL_FILTERING_LOGIN: str = ""
     US_MAIL_OUTGOING_LOGIN: str = ""
+    US_IMAP_HOST_FIELDNAME: str = ""
+    US_MODULE_ACCESS: dict[str, dict] = {}
     US_KIND: str = ""
     US_IS_ADDRESSBOOK: bool = False
     US_SEARCH: list[str] = []
@@ -365,9 +372,15 @@ class UserModuleSettings(SogoSchema):
     SOGO_D_EAS_ACCESS = fields.Boolean(load_default=False, dump_default=False) #Allow user to access their data with EAS
 
     #Folder settings
-    SOGO_D_FOLDER_DISABLE_EXPORT           = fields.List(fields.String(), validate=validate.ContainsOnly(('mail', 'calendar', 'contact'))) #Disable or not folder export
-    SOGO_D_FOLDER_DISABLE_SHARING          = fields.List(fields.String(), validate=validate.ContainsOnly(('mail', 'calendar', 'contact'))) #Disable or not folder sharing
-    SOGO_D_FOLDER_DISABLE_SHARING_ANY_AUTH = fields.List(fields.String(), validate=validate.ContainsOnly(('mail', 'calendar', 'contact'))) #Disable or not folder sharing to any authenticated user from the domain
+    SOGO_D_FOLDER_DISABLE_EXPORT           = fields.List(fields.String(), load_default=['mail', 'calendar', 'contact'],
+                                                         dump_default=['mail', 'calendar', 'contact'],
+                                                         validate=validate.ContainsOnly(('mail', 'calendar', 'contact'))) #Disable or not folder export
+    SOGO_D_FOLDER_DISABLE_SHARING          = fields.List(fields.String(), load_default=['mail', 'calendar', 'contact'],
+                                                         dump_default=['mail', 'calendar', 'contact'],
+                                                         validate=validate.ContainsOnly(('mail', 'calendar', 'contact'))) #Disable or not folder sharing
+    SOGO_D_FOLDER_DISABLE_SHARING_ANY_AUTH = fields.List(fields.String(), load_default=['mail', 'calendar', 'contact'],
+                                                         dump_default=['mail', 'calendar', 'contact'],
+                                                         validate=validate.ContainsOnly(('mail', 'calendar', 'contact'))) #Disable or not folder sharing to any authenticated user from the domain
     
     SOGO_D_AUTOCOMPLETION_MIN_LEN          = fields.Integer(load_default=3, dump_default=3, validate=validate.Range(min=2)) #Number of chars needed to trigger the autocompletion search. At 3 it will trigger for the third char.
                                                                                                                             #TODO make sure that the front wait for a bit before doing the search, like waiting for the user to have ending its typing
@@ -476,7 +489,7 @@ class MailSettings(SogoSchema):
     SOGO_D_MAIL_SERVER_TYPE = fields.String(load_default="imap", dump_default="imap", validate=validate.OneOf(('imap',))) #Could be jmap in the future...
     SOGO_D_IMAP_SERVER = fields.String() #Hostname or ip of the imap server
     SOGO_D_IMAP_PORT = fields.Integer(load_default=143, dump_default=143, validate=validate.Range(min=1, max=65535))
-    SOGO_D_IMAP_ENCRYPTION = fields.String(load_default="None", dump_default="None", validate=validate.OneOf(('None', 'TLS', 'SSL')))
+    SOGO_D_IMAP_ENCRYPTION = fields.String(load_default="None", dump_default="None", validate=validate.OneOf(cs.SOCK_ENC_LIST))
     SOGO_D_IMAP_AUTH_MECH =  fields.String(load_default="login", dump_default="login", validate=validate.OneOf(('login', 'plain', 'xoauth2')))
     SOGO_D_SOFT_EMAIL_QUOTA = fields.Integer(load_default=1, dump_default=1, validate=validate.Range(min=0, max=1, min_inclusive=False)) #Multiplier to the true quota for the user
     SOGO_D_MAIL_PURGE_ALLOW     = fields.Boolean(load_default=True, dump_default=True) #Allow user to purger their folder (delete all before a date)
@@ -486,7 +499,7 @@ class MailSettings(SogoSchema):
     SOGO_D_MAIL_FILTERING_TYPE = fields.String(load_default="sieve", dump_default="sieve", validate=validate.OneOf(('sieve',))) #For sendmail, look at SOGO_S_SENDMAIL
     SOGO_D_SIEVE_SERVER = fields.String() #Hostname or ip of the sieve server
     SOGO_D_SIEVE_PORT = fields.Integer(load_default=4190 , dump_default=4190 , validate=validate.Range(min=1, max=65535))
-    SOGO_D_SIEVE_ENCRYPTION = fields.String(load_default="None", dump_default="None", validate=validate.OneOf(('None', 'TLS', 'SSL')))
+    SOGO_D_SIEVE_ENCRYPTION = fields.String(load_default="None", dump_default="None", validate=validate.OneOf(cs.SOCK_ENC_LIST))
     SOGO_D_SIEVE_AUTH_MECH =  fields.String(load_default="None", dump_default="None", validate=validate.OneOf(('plain', 'xoauth2')))
     SOGO_D_SIEVE_FOLDER_ENCODING = fields.String(load_default="utf-7", dump_default="utf-7", validate=validate.OneOf(('utf-7', 'utf-8')))
     SOGO_D_SIEVE_HEADER = fields.String() #Sieve script that will be set for each user sieve script at the top level
@@ -511,7 +524,7 @@ class MailSettings(SogoSchema):
     SOGO_D_MAIL_OUTGOING_TYPE = fields.String(load_default="smtp", dump_default="smtp", validate=validate.OneOf(('smtp', 'sendmail'))) #For sendmail, look at SOGO_S_SENDMAIL
     SOGO_D_SMTP_SERVER = fields.String() #Hostname or ip of the smtp server
     SOGO_D_SMTP_PORT = fields.Integer(load_default=587, dump_default=584, validate=validate.Range(min=1, max=65535))
-    SOGO_D_SMTP_ENCRYPTION = fields.String(load_default="None", dump_default="None", validate=validate.OneOf(('None', 'TLS', 'SSL')))
+    SOGO_D_SMTP_ENCRYPTION = fields.String(load_default="None", dump_default="None", validate=validate.OneOf(cs.SOCK_ENC_LIST))
     SOGO_D_SMTP_AUTH_MECH =  fields.String(load_default="None", dump_default="None", validate=validate.OneOf(('None', 'plain', 'xoauth2')))
     SOGO_D_SMTP_MASTER_ENABLED = fields.Boolean(load_default=False, dump_default=False) #Use a master account for system message (notif, event) instead of using the user account
     SOGO_D_SMTP_MASTER_FROM = fields.Email() #Custom from used for system message (password recovery for now)
@@ -580,6 +593,25 @@ class MailSettingsObj(SettingsObj):
     SOGO_D_MAIL_MAX_RECIPIENT: int = 0
     SOGO_D_MAIL_SYSTEM_FROM: str = ""
 
+    def get_mail_server_settings_for_type(self, type_server: str) -> dict:
+        """
+        return the proper dict config for this type of mail server
+
+        :param type: _description_
+        :type type: str
+        :raises AggravatedException: _description_
+        :return: _description_
+        :rtype: dict
+        """
+        if type_server == "imap":
+            return {
+                "server": self.SOGO_D_IMAP_SERVER,
+                "port": self.SOGO_D_IMAP_PORT,
+                "encryption": self.SOGO_D_IMAP_ENCRYPTION,
+                "auth_mech": self.SOGO_D_IMAP_AUTH_MECH
+            }
+        raise AggravatedException(err.ERROR_CONFIG_WRONG_MAIL_SERVER.m, err.ERROR_CONFIG_WRONG_MAIL_SERVER)
+
 class CalendarContactSettings(SogoSchema):
     """
     Schema for calendar and contact settings
@@ -610,7 +642,7 @@ class CalendarContactSettings(SogoSchema):
     SOGO_D_CARDAV_PUBLIC_ACCESS_ENABLE = fields.Boolean(load_default=False, dump_default=False) #Enable or not public cardav access
 
     SOGO_D_JITSI_LINK_ENABLED = fields.Boolean(load_default=True, dump_default=True)
-    SOGO_D_JITSI_BASE_URL     = fields.Url(schemes={'http','https'})
+    SOGO_D_JITSI_BASE_URL     = fields.Url(load_default="https://meet.jit.si", dump_default="https://meet.jit.si", schemes={'http','https'})
 
     SOGO_D_REMINDER_ALLOW_MAIL = fields.Boolean(load_default=True, dump_default=True) #Allow user to set reminder sent by email for events/tasks
 

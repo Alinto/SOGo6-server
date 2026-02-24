@@ -1,15 +1,13 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Any, Type, Callable
+from typing import TYPE_CHECKING
 
 
 from app.auth.User import User
 from app.auth.service.VoucherUserService import VoucherUserService
-from app.module.auth.ModuleUserSource import ModuleUserSource
 from app.config.db import tables as tbl
-from app.service import sogo_cache
+from app.config.settings.DomainSettings import AuthSettings, AuthSettingsObj, UserSourceSettings, UserSourceSettingsObj
 from app.utils.db.Condition import EqualCondition
-from app.utils.exceptions import BugException, RequestException
-from app.utils import errors as err
+from app.utils.exceptions import RequestException
 from app.utils.strings import get_domain_from_mail
 from app.utils.module.importManager import import_and_instantiate_manager
 
@@ -28,6 +26,16 @@ class ModuleAuth:
                  default_auth_settings: AuthSettingsObj,
                  default_us_source: dict[str, UserSourceSettingsObj]):
         """
+        Initialize the authentication module
+
+        :param process: Process settings
+        :type process: ProcessSetting
+        :param system: System settings object
+        :type system: SystemSettingsObj
+        :param default_auth_settings: Default authentication settings
+        :type default_auth_settings: AuthSettingsObj
+        :param default_us_source: Default user source settings mapped by source UID
+        :type default_us_source: dict[str, UserSourceSettingsObj]
         """
         self.process_settings = process
 
@@ -41,12 +49,12 @@ class ModuleAuth:
 
     def _check_domain(self, uid:str) -> str:
         """
-        Check if a domain in found and if it match system settings rules
+        Check if a domain is found and if it matches system settings rules
 
-        :param uid: _description_
+        :param uid: The user unique ID
         :type uid: str
-        :raises RequestException: _description_
-        :raises RequestException: _description_
+        :raises RequestException: When no domain is given but domainless login is disabled
+        :raises RequestException: When domain is not in known domains and unknown domains are rejected
         :return: empty string or the domain
         :rtype: str
         """
@@ -62,12 +70,12 @@ class ModuleAuth:
 
     def _get_domain_auth_and_user_source_settings(self, domain:str) -> tuple[AuthSettingsObj, dict[str, UserSourceSettingsObj]]:
         """
-        Return the auth settings for this domain, or the default one
+        Return the authentication and user source settings for this domain, or the default ones
 
-        :param domain: _description_
+        :param domain: The domain name
         :type domain: str
-        :return: _description_
-        :rtype: AuthSettingsObj|None
+        :return: Tuple containing auth settings and user source settings mapped by source UID
+        :rtype: tuple[AuthSettingsObj, dict[str, UserSourceSettingsObj]]
         """
         domain_auth_settings = self.default_auth
         domain_user_source = self.default_us
@@ -83,10 +91,9 @@ class ModuleAuth:
             result = list(sogo_db_manager.select_from_table(tbl.TABLE_DOMAIN.name,
                                                 (tbl.COL_DOMAIN_SETTINGS.name,),
                                                 condition=condition))
-
             if len(result) == 1:
-                domain_auth_settings = AuthSettingsObj(result[0][0]["AUTH_SETTINGS"])
-                domain_user_source_raw = result[0][0]["USER_SOURCE"]
+                domain_auth_settings = AuthSettingsObj(result[0][0][AuthSettings.subparent]) #result[0][0]: first column of the first row of the result
+                domain_user_source_raw = result[0][0][UserSourceSettings.subparent]
                 domain_user_source = {}
                 for source_uid, source_settings in domain_user_source_raw.items():
                     domain_user_source[source_uid] = UserSourceSettingsObj(source_settings)
@@ -95,22 +102,19 @@ class ModuleAuth:
 
     def get_login_mech(self, uid:str) -> dict:
         """
-        Get the login mech for this uid
+        Get the login mechanism for this uid
 
-        :param uid: username/mail/uid of the suer
+        :param uid: username/mail/uid of the user
         :type uid: str
-        :param password: password
-        :type password: str
-        :return: True if the user is correctly authenticated
-        :rtype: bool
+        :return: Dictionary containing the authentication kind and location
+        :rtype: dict
         """
-        
         domain = self._check_domain(uid)
         domain_auth_settings, _ = self._get_domain_auth_and_user_source_settings(domain)
 
         kind = domain_auth_settings.SOGO_D_AUTH_TYPE
 
-        
+
         #TODO Only work for plain login, do it properly for openid,cas...
         ret = {
             "kind": kind,
@@ -118,16 +122,16 @@ class ModuleAuth:
         }
         return ret
 
-    def user_plain_login(self, username:str, password:str) -> tuple[bool, dict]:
+    def get_user_and_domain_user_sources(self, username:str, password:str) -> tuple[User, dict[str, UserSourceSettingsObj]]:
         """
-        Check a user plain login
+        Prepare a User object for plain login authentication and get the domain user sources
 
-        :param username: _description_
+        :param username: username/mail/uid of the user
         :type username: str
-        :param password: _description_
+        :param password: password
         :type password: str
-        :return: Tuple of (success, voucher_data)
-        :rtype: tuple[bool, dict]
+        :return: Tuple of (User object ready for authentication, domain user sources settings)
+        :rtype: tuple[User, dict[str, UserSourceSettingsObj]]
         """
 
         domain = self._check_domain(username)
@@ -138,13 +142,17 @@ class ModuleAuth:
         else:
             user = User(username, password, domain=domain)
 
-        module_us = ModuleUserSource(domain_user_sources)
-        ret = module_us.check_login(user)
-        if not ret:
-            return False, {}
+        return user, domain_user_sources
 
-        # Generate the Voucher value and UserSession
+    def generate_voucher_from_user(self, user: User) -> dict:
+        """
+        Generate a voucher from an authenticated user
+
+        :param user: Authenticated user object
+        :type user: User
+        :return: Dictionary containing the jwt_token
+        :rtype: dict
+        """
         voucher_user_service = VoucherUserService(self.process_settings)
         voucher_data = voucher_user_service.generate_voucher_from_user(user)
-
-        return True, {"jwt_token": voucher_data}
+        return {"jwt_token": voucher_data}

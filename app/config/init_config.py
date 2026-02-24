@@ -10,6 +10,7 @@ from .settings.ProcessSetting import process_config
 
 if TYPE_CHECKING:
     from app.manager.cache.ClientRedis import ClientRedis
+    from app.auth.User import User
 
 
 def check_basic_config() -> bool:
@@ -54,7 +55,7 @@ def init_sogo() -> tuple[int, ClientRedis]:
 
     return sogo_state, cache_client
 
-def init_get_system_and_default_settings() -> tuple[dict, dict]:
+def init_get_system_and_default_domain_settings() -> tuple[dict, dict]:
     """
     Return the sysem and default domain settings
 
@@ -63,3 +64,13 @@ def init_get_system_and_default_settings() -> tuple[dict, dict]:
     """
     config_module = ModuleAdminConfig(process_config)
     return config_module.get_both_system_and_default_domain_settings()
+
+def init_get_user_domain_settings(user: User) -> dict:
+    """
+    Return the sysem and default domain settings
+
+    :return: (system_settings, default_dimain_settings)
+    :rtype: tuple[dict, dict]
+    """
+    config_module = ModuleAdminConfig(process_config)
+    return config_module.get_one_domain_setting(user.domain)["settings"]

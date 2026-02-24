@@ -46,8 +46,8 @@ def merge_patch(patch: dict, resource: dict) -> None:
                 if new_value:
                     #Only add the value if the dict is not empty
                     resource[patch_key] = new_value
-            else:   
-                #Not a dict, simply add it 
+            else:
+                #Not a dict, simply add it
                 resource[patch_key] = patch_value
 
 

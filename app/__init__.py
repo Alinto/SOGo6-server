@@ -16,7 +16,7 @@ from app.auth.User import User, UserAnonymous
 from app.auth.service.VoucherUserService import VoucherUserService
 from app.config.settings.ProcessSetting import process_config
 from app.config.settings.SystemSettings import SystemSettingsObj
-from app.config.init_config import init_get_system_and_default_settings
+from app.config.init_config import init_get_system_and_default_domain_settings, init_get_user_domain_settings
 import app.utils.errors as err
 from app.utils.api.ApiBaseResponse import create_api_base_response, ApiBaseResponse
 from app.utils import constants as cs
@@ -25,7 +25,7 @@ from app.utils.exceptions import AggravatedException
 
 #Apis
 from app.api import all_apis
-
+from app.interface.auth.InterfaceAuthUser import InterfaceAuthUser
 
 
 __version__ = "6.0.0"
@@ -49,7 +49,7 @@ def create_app(sogo_state: int) -> Flask:
     register_route(flask_api, cs.API_BASIC, sogo_state)
     register_route(admin_api, cs.API_ADMIN, sogo_state)
 
-    CORS(app, resources={r"/api/*": {"origins": "http://localhost:3000"}})
+    CORS(app, resources={r"/api/*": {"origins": "http://localhost:3001"}})
 
     return app
 
@@ -105,7 +105,6 @@ def register_before_request(base_blueprint: Blueprint, kind: str, sogo_state: in
             else:
                 return create_api_base_response(error=err.ERROR_WRONG_AUTHORIZATION_TYPE), 400
         g.user = user
-        #TODO check login? with interval?
         return None
 
     if kind == cs.API_BASIC:
@@ -114,6 +113,10 @@ def register_before_request(base_blueprint: Blueprint, kind: str, sogo_state: in
             """
             Add the user instance, even if there is no user
             """
+            # Skip authentication check for OPTIONS (CORS preflight)
+            if request.method == "OPTIONS":
+                print("Skipping authentication check for OPTIONS request")
+                return None
             anon_endpoints = {
                 "user#Auth.v1_Auth.Auth.ApiAuthUserMode", 
                 "user#Auth.v1_Auth.Auth.ApiAuthUserLogin",
@@ -139,27 +142,35 @@ def register_before_request(base_blueprint: Blueprint, kind: str, sogo_state: in
                 _Add the process settings in g
                 """
                 if 'process' not in g:
-                    g.process = process_config
+                    g.process_settings = process_config
 
     elif sogo_state == cs.SOGO_OK:
         @base_blueprint.before_request
-        def get_config() -> None:
+        def get_config_and_user() -> ResponseReturnValue | None:
             """
             Get and set the config in the global flask
             """
             if 'process' not in g:
-                g.process = process_config
-            system_settings, default_domain_settings = init_get_system_and_default_settings()
+                g.process_settings = process_config
+            system_settings, default_domain_settings = init_get_system_and_default_domain_settings()
             if 'system_settings' not in g:
                 g.system_settings = system_settings
             if 'default_domain' not in g:
-                g.default_domain = default_domain_settings
+                g.default_domain_settings = default_domain_settings
             if 'user' in g:
-                #TODO retreive domain settings relative to user domain here (for now just get default)
-                g.user_domain = default_domain_settings
+                user: User = g.user
+                if isinstance(user, UserAnonymous):
+                    g.user_domain_settings = default_domain_settings
+                else:
+                    g.user_domain_settings = init_get_user_domain_settings(user)
+                    inter = InterfaceAuthUser(process_config, system_settings, g.user_domain_settings)
+                    creds_ok = inter.check_user_and_fill_info(user)
+                    if not creds_ok:
+                        return create_api_base_response(error=err.ERROR_USER_CREDS_NOT_VALID), err.ERROR_USER_CREDS_NOT_VALID.h
             else:
                 logger.error("No user in Flask g")
                 raise AggravatedException("No user in Flask g")
+            return None
 
 
 def register_after_request(base_blueprint: Blueprint) -> None:

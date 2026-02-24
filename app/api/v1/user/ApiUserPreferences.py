@@ -28,11 +28,11 @@ def init_user_profile() -> None:
     Init the interface and others if needed
     """
     logger_api.debug("Calling before_request for ApiUserPreferences")
-    process: ProcessSetting = g.process
+    process: ProcessSetting = g.process_settings
     system_settings: dict = g.system_settings
-    default_domain: dict = g.default_domain
+    user_domain: dict = g.user_domain_settings
     user: User = g.user
-    interface_api = InterfaceUserPreferences(process_settings=process, default_domain=default_domain, user=user)
+    interface_api = InterfaceUserPreferences(process_settings=process, user_domain=user_domain, user=user)
     g.inter = interface_api
 
 @blp.route("")
@@ -79,4 +79,3 @@ class ApiUserPreferences(MethodView):
 #         """
 #         interface_api : InterfaceUserPreferences = g.inter
 #         return interface_api.update_partial_preferences(new_data, pref_type)
-

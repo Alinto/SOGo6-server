@@ -162,6 +162,7 @@ class VoucherUserService:
             raise BugException("sensitive data for user session is not a json") from e
         
         user = User.init_from_user_session(user_data)
+        
 
         logger.info("From voucher get user: %s", user)
 

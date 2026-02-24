@@ -182,7 +182,7 @@ class ClientImap(ClientMailServer):
         mech_lower = mech.lower() if isinstance(mech, str) else "none"
 
         try:
-            if mech_lower in ("none", "null", ""):
+            if mech_lower in ("login", "none", "null", ""):
                 # Classic LOGIN
                 typ = conn.login(username, password)
                 if typ[0] != 'OK':
@@ -874,7 +874,7 @@ class ClientImap(ClientMailServer):
         try:
             # Get folder listing with attributes
             # Use '""' as reference parameter to ensure proper IMAP syntax
-            typ, data = self.connection.list('""', folder_name)
+            typ, data = self.connection.list('""', f'"{folder_name}"')
             if typ != 'OK' or not data or not data[0]:
                 raise RequestException(f"Folder '{folder_name}' not found.")
 
@@ -984,7 +984,7 @@ class ClientImap(ClientMailServer):
             # For IMAP: use "%"  to match direct children only (not recursive)
             # Reference parameter is '""' to ensure proper IMAP syntax
             if folder_name:
-                pattern = f"{folder_name}/%"
+                pattern = f'"{folder_name}/%"'
             else:
                 # For root level folders, just use "%"
                 pattern = "%"
@@ -1060,7 +1060,7 @@ class ClientImap(ClientMailServer):
         try:
             # Use STATUS command to get counts without selecting the mailbox
             # This is more efficient than SELECT for just getting counts
-            typ, data = self.connection.status(folder_name, '(MESSAGES UNSEEN)')
+            typ, data = self.connection.status(f'"{folder_name}"', '(MESSAGES UNSEEN)')
             
             if typ != 'OK' or not data or not data[0]:
                 # Fallback: return 0, 0 if STATUS fails
@@ -1101,7 +1101,7 @@ class ClientImap(ClientMailServer):
             raise RequestException("Not connected.")
 
         try:
-            typ, data = self.connection.lsub('""', folder_name)
+            typ, data = self.connection.lsub('""', f'"{folder_name}"')
             if typ == 'OK' and data and data[0]:
                 return True
             if typ == 'OK':

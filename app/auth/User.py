@@ -3,6 +3,59 @@ from __future__ import annotations
 from app.utils.strings import get_domain_from_mail
 from app.utils import constants as cs
 
+class ModuleAccess:
+    """
+    Simple class for Module Access' Right
+    """
+
+    def __init__(self) -> None:
+        """
+        Define attribute
+        """
+        self.calendar = True
+        self.mail = True
+        self.contact = True
+
+class UserProfile:
+    """
+    Simple class for User Profile
+    """
+    def __init__(self) -> None:
+        """
+        Define Attribute
+        /WARNING\ Must match columns names of table TABLE_USER
+        #TODO add a unit test to check that
+        """
+        self.id : str = ""
+        self.hash : str = ""
+        self.uid : str = ""
+        self.preferences : dict = {}
+        self.folders : dict = {}
+        self.main_account : dict = {}
+        self.external_accounts : dict[str, dict]|None = None
+        self.filters : dict|None = None
+        self.private_salt : str = ""
+        self.acl_given : list|None = None
+        self.acl_received : list|None = None
+        self.delegation_given : list|None = None
+        self.delegation_received : list|None = None
+
+    def __repr__(self) -> str:
+
+        exts = "["
+        if self.external_accounts:
+            for ext in self.external_accounts.values():
+                exts += f"(name={ext.get("name", None)}),"
+        exts += "]"
+
+        return f"""{self.__class__.__name__}:
+        uid='{self.uid}',
+        pref='{self.preferences}',
+        folders='{self.folders}',
+        main_account='identities:{self.main_account.get("identities", None)}',
+        external='{exts}',
+        """
+
 class User:
     """
     Reprensation of a User, can be anonymous
@@ -60,7 +113,18 @@ class User:
         #Those will be set after the login is checked
         self.mail: str = ""  #Don't assume that mail = uid or mail = uid + domain. Uid can be anything.
         self.source_id: str = "" #Set to avoid checking several user sources in the future for this user.
-        self.prefs: dict = {}
+        self.profile = UserProfile()
+        self.extra_mail: list = [] #List of aliases
+        self.extra_info: dict = {} #Contains extra info about the user (company name, telephone, ...)
+
+        self.login_mail_server: str = ""
+        self.login_mail_outgoing: str = ""
+        self.login_mail_filtering: str = ""
+        self.access = ModuleAccess()
+
+        #DEPRECATED but legacy, only work with imap
+        self.imap_host: str = ""
+
 
     def get_user_session(self) -> dict:
         """

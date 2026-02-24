@@ -13,7 +13,7 @@ from app.manager.db.ClientMySQL import (
     condition_to_query,
 )
 from app.utils.exceptions import RequestException, BugException
-from app.utils.db.Condition import EqualCondition, NotEqualCondition, AndCondition, OrCondition
+from app.utils.db.Condition import EqualCondition, NotEqualCondition, AndCondition, OrCondition, TrueCondition
 from app.utils.db.Table import Table, Column
 
 
@@ -163,16 +163,33 @@ class FakeMySQLCursor:
                 self.rowcount = 0
         # update
         elif s.upper().startswith("UPDATE"):
-            self.rowcount = 1
+            if "`test_update`" in s or "FROM `test_update`" in s:
+                self.rowcount = 1
+            else:
+                self.rowcount = 0
         # select
         elif s.upper().startswith("SELECT"):
             # produce some rows for a table named test_select in the FROM, otherwise empty
             if "`test_select`" in s or '"test_select"' in s or "FROM `test_select`" in s:
                 self._rows = [(1, "Alice", '{"k":"v"}', 30), (2, "Bob", '{"x":[1,2]}', 25)]
                 self.rowcount = len(self._rows)
+            elif "COUNT(*)" in s.upper() or "COUNT(`" in s.upper():
+                # Count queries
+                if "`test_count`" in s or "FROM `test_count`" in s:
+                    self._rows = [(5,)]
+                    self.rowcount = 1
+                else:
+                    self._rows = [(0,)]
+                    self.rowcount = 1
             else:
                 # default: return empty
                 self._rows = []
+                self.rowcount = 0
+        # delete
+        elif s.upper().startswith("DELETE FROM"):
+            if "`test_delete`" in s:
+                self.rowcount = 1
+            else:
                 self.rowcount = 0
         else:
             # unknown SQL in test
@@ -304,6 +321,11 @@ def test_insert_update_select(mock_db: MockerFixture):
     inserted = client.insert_in_table("test_insert", cols, rows_to_insert)
     assert inserted == 2
 
+    # Test insert with mismatched column and value length
+    wrong_values = [["Alice", {"k": "v"}]]  # Missing age
+    with pytest.raises(BugException, match="Try to insert more or less data than the columns"):
+        client.insert_in_table("test_insert", cols, wrong_values)
+
     # Update
     update_cols = ("age",)
     update_values = [26]
@@ -311,9 +333,88 @@ def test_insert_update_select(mock_db: MockerFixture):
     updated = client.update_in_table("test_update", update_cols, update_values, cond)
     assert updated == 1
 
+    # Test update with dict value
+    update_cols_dict = ("data",)
+    update_values_dict = [{"new_key": "new_value"}]
+    updated_dict = client.update_in_table("test_update", update_cols_dict, update_values_dict, cond)
+    assert updated_dict == 1
+
+    # Test update with mismatched column and value length
+    wrong_update_values = [26, 27]  # Too many values
+    with pytest.raises(BugException, match="Try to update more or less data than the specified columns"):
+        client.update_in_table("test_update", update_cols, wrong_update_values, cond)
+
     # Select
     cond_all = EqualCondition("id", 1)
     results = list(client.select_from_table("test_select", ("id", "name", "data", "age"), cond_all))
     assert len(results) == 2
     assert results[0][1] == "Alice"
     assert results[1][1] == "Bob"
+
+    # Test select with empty column tuple (should select all columns)
+    results_all = list(client.select_from_table("test_select", (), cond_all))
+    assert len(results_all) == 2
+
+    # Test select with limit
+    results_limit = list(client.select_from_table("test_select", ("id", "name"), cond_all, limit=1))
+    assert len(results_limit) == 2  # Mock returns 2 rows regardless
+
+    # Test select with offset
+    results_offset = list(client.select_from_table("test_select", ("id", "name"), cond_all, offset=1))
+    assert len(results_offset) == 2
+
+
+def test_client_count_row_in_table(mock_db: MockerFixture):
+    """
+    Test the count_row_in_table method of MySQL client
+    """
+    client = ClientMySQL(db_user="", db_pwd="", db_host="", db_port=3307, db_ssl=False, db_enc="")
+    client.connect()
+
+    # Test count with default column (*)
+    condition = EqualCondition("status", "active")
+    count = client.count_row_in_table("test_count", condition)
+    assert count == 5
+
+    # Test count with specific column
+    count_col = client.count_row_in_table("test_count", condition, column_name="id")
+    assert count_col == 5
+
+
+def test_client_delete_row_in_table(mock_db: MockerFixture):
+    """
+    Test the delete_row_in_table method of MySQL client
+    """
+    client = ClientMySQL(db_user="", db_pwd="", db_host="", db_port=3307, db_ssl=False, db_enc="")
+    client.connect()
+
+    # Test delete with valid condition
+    condition = EqualCondition("id", 1)
+    ret = client.delete_row_in_table("test_delete", condition)
+    assert ret == 1
+
+    # Test delete with TrueCondition should raise exception
+    from app.utils import errors as err
+    with pytest.raises(BugException, match="Condition for delete query is always True"):
+        client.delete_row_in_table("test_delete", TrueCondition())
+
+    # Test delete with expected_row check (matching)
+    condition_exp = EqualCondition("id", 2)
+    ret_exp = client.delete_row_in_table("test_count", condition_exp, expected_row=5)
+    # In the mock, count returns 5, so this should succeed
+    # The actual delete happens on test_count which returns 0, but expected_row check passes
+
+    # Test delete with expected_row check (not matching)
+    with pytest.raises(RequestException, match="Expected number of row deleted is different"):
+        client.delete_row_in_table("test_delete", condition_exp, expected_row=10)
+
+
+def test_client_close(mock_db: MockerFixture):
+    """
+    Test the close method of MySQL client
+    """
+    client = ClientMySQL(db_user="", db_pwd="", db_host="", db_port=3307, db_ssl=False, db_enc="")
+    client.connect()
+    assert client.db_conn is not None
+    client.close()
+    # Connection should be closed

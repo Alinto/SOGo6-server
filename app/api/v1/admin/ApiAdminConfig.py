@@ -31,7 +31,7 @@ def init_admin_config() -> None:
     Init the interface and others if needed
     """
     logger_api.debug("Calling before_request for ApiAdminConfig")
-    process : ProcessSetting = g.process
+    process : ProcessSetting = g.process_settings
     interface_api = InterfaceApiAdminConfig(process_setting=process)
     g.inter = interface_api
     sogo_cache().set("test", "banane", 500)
@@ -151,7 +151,7 @@ class ApiAdminConfigDomainSettings(MethodView):
         """
         interface_api : InterfaceApiAdminConfig = g.inter
         return interface_api.update_domain_settings(domain_name, new_data)
-    
+
     @blp.response(200)
     def delete(self, domain_name: str) -> None|ResponseReturnValue:
         """
@@ -162,7 +162,7 @@ class ApiAdminConfigDomainSettings(MethodView):
         if code == 200:
             return None
         return ret, code
-        
+
 # @blp.route("/rulesList")
 # class ApiAdminConfigRule(MethodView):
 #     """

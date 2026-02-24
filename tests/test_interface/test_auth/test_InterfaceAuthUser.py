@@ -1,0 +1,304 @@
+"""
+Tests unitaires pour InterfaceAuthUser (Interface layer).
+Ces tests utilisent des fake modules pour tester la logique de l'interface.
+"""
+from app.interface.auth.InterfaceAuthUser import InterfaceAuthUser
+from app.utils.exceptions import RequestException, BugException
+from app.utils import errors as err
+
+
+class FakeModuleAuth:
+    """Fake ModuleAuth for testing InterfaceAuthUser."""
+    def __init__(self, process, system_settings, default_auth, default_us_source):
+        self.process = process
+        self.system_settings = system_settings
+        self.default_auth = default_auth
+        self.default_us_source = default_us_source
+
+        # Tracking
+        self.get_login_mech_args = None
+        self.get_user_and_domain_user_sources_args = None
+        self.generate_voucher_from_user_args = None
+
+        # Results
+        self.get_login_mech_result = {"mechanism": "plain", "redirect": None}
+        self.get_user_and_domain_user_sources_result = (None, {})
+        self.generate_voucher_from_user_result = {"voucher": "test-voucher-123", "expiry": "2026-02-13"}
+
+    def get_login_mech(self, user_uid):
+        """Get login mechanism for user."""
+        self.get_login_mech_args = user_uid
+        return self.get_login_mech_result
+
+    def get_user_and_domain_user_sources(self, uid, password):
+        """Get user object and domain user sources."""
+        self.get_user_and_domain_user_sources_args = (uid, password)
+        return self.get_user_and_domain_user_sources_result
+
+    def generate_voucher_from_user(self, user):
+        """Generate voucher for authenticated user."""
+        self.generate_voucher_from_user_args = user
+        return self.generate_voucher_from_user_result
+
+
+class FakeModuleUserSource:
+    """Fake ModuleUserSource for testing."""
+    def __init__(self, domain_user_sources):
+        self.domain_user_sources = domain_user_sources
+
+        # Tracking
+        self.check_login_args = None
+        self.get_contact_info_args = None
+
+        # Results
+        self.check_login_result = True
+        self.get_contact_info_result = {
+            "email": "user@example.com",
+            "name": "Test User",
+            "phone": "+33123456789"
+        }
+
+    def check_login(self, user):
+        """Check if login is valid."""
+        self.check_login_args = user
+        return self.check_login_result
+
+    def get_contact_info(self, uid):
+        """Get contact info for user."""
+        self.get_contact_info_args = uid
+        return self.get_contact_info_result
+
+
+class FakeModuleUserProfile:
+    """Fake ModuleUserProfile for testing."""
+    def __init__(self, process, default_domain):
+        self.process = process
+        self.default_domain = default_domain
+
+        # Tracking
+        self.is_user_profile_present_args = None
+        self.create_user_profile_args = None
+
+        # Results
+        self.is_user_profile_present_result = False
+
+    def is_user_profile_present(self, uid):
+        """Check if user profile exists."""
+        self.is_user_profile_present_args = uid
+        return self.is_user_profile_present_result
+
+    def create_user_profile(self, uid, contact_info):
+        """Create user profile."""
+        self.create_user_profile_args = (uid, contact_info)
+
+
+def patch_modules_on_interface(monkeypatch, fake_module_auth, fake_module_user_profile, fake_module_user_source_class):
+    """Patch modules in InterfaceAuthUser."""
+    monkeypatch.setattr(
+        "app.interface.auth.InterfaceAuthUser.ModuleAuth",
+        lambda *args, **kwargs: fake_module_auth
+    )
+    monkeypatch.setattr(
+        "app.interface.auth.InterfaceAuthUser.ModuleUserProfile",
+        lambda *args, **kwargs: fake_module_user_profile
+    )
+    monkeypatch.setattr(
+        "app.interface.auth.InterfaceAuthUser.ModuleUserSource",
+        fake_module_user_source_class
+    )
+
+
+# ========== Tests for get_login_mech ==========
+
+def test_get_login_mech_success(monkeypatch):
+    """Test getting login mechanism for a valid user."""
+    fake_auth = FakeModuleAuth(None, None, None, None)
+    fake_profile = FakeModuleUserProfile(None, None)
+
+    patch_modules_on_interface(monkeypatch, fake_auth, fake_profile, FakeModuleUserSource)
+
+    interface = InterfaceAuthUser(
+        process={"test": "config"},
+        system={"SYSTEM_SETTINGS": {"test": "value"}},
+        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}}
+    )
+
+    result, status_code = interface.get_login_mech(user_uid="testuser@example.com", redirect="/dashboard")
+
+    assert status_code == 200
+    assert result["data"]["mechanism"] == "plain"
+    assert fake_auth.get_login_mech_args == "testuser@example.com"
+
+
+def test_get_login_mech_request_exception(monkeypatch):
+    """Test error handling when getting login mechanism fails."""
+    fake_auth = FakeModuleAuth(None, None, None, None)
+    fake_auth.get_login_mech = lambda x: (_ for _ in ()).throw(
+        RequestException("Domain not found", err.ERROR_DOMAIN_NAME_NOT_FOUND)
+    )
+    fake_profile = FakeModuleUserProfile(None, None)
+
+    patch_modules_on_interface(monkeypatch, fake_auth, fake_profile, FakeModuleUserSource)
+
+    interface = InterfaceAuthUser(
+        process={"test": "config"},
+        system={"SYSTEM_SETTINGS": {"test": "value"}},
+        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}}
+    )
+
+    result, status_code = interface.get_login_mech(user_uid="unknown@example.com", redirect="/dashboard")
+
+    assert status_code == 400
+    assert result["error_code"] == err.ERROR_DOMAIN_NAME_NOT_FOUND.c
+
+
+# ========== Tests for plain_login ==========
+
+def test_plain_login_success(monkeypatch):
+    """Test successful plain login."""
+    fake_auth = FakeModuleAuth(None, None, None, None)
+    fake_user = {"uid": "testuser@example.com", "password": "secret123"}
+    fake_auth.get_user_and_domain_user_sources_result = (fake_user, {"source1": {}})
+
+    fake_profile = FakeModuleUserProfile(None, None)
+    fake_profile.is_user_profile_present_result = True  # User already exists
+
+    fake_us_instance = FakeModuleUserSource({})
+    def fake_us_class(sources):
+        return fake_us_instance
+
+    patch_modules_on_interface(monkeypatch, fake_auth, fake_profile, fake_us_class)
+
+    interface = InterfaceAuthUser(
+        process={"test": "config"},
+        system={"SYSTEM_SETTINGS": {"test": "value"}},
+        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}}
+    )
+
+    data = {"username": "testuser@example.com", "password": "secret123"}
+    result, status_code = interface.plain_login(data)
+
+    assert status_code == 200
+    assert result["data"]["voucher"] == "test-voucher-123"
+    assert fake_auth.get_user_and_domain_user_sources_args == ("testuser@example.com", "secret123")
+    assert fake_us_instance.check_login_args == fake_user
+
+
+def test_plain_login_failed_authentication(monkeypatch):
+    """Test failed authentication."""
+    fake_auth = FakeModuleAuth(None, None, None, None)
+    fake_user = {"uid": "testuser@example.com", "password": "wrong"}
+    fake_auth.get_user_and_domain_user_sources_result = (fake_user, {"source1": {}})
+
+    fake_profile = FakeModuleUserProfile(None, None)
+
+    fake_us_instance = FakeModuleUserSource({})
+    fake_us_instance.check_login_result = False  # Login fails
+    def fake_us_class(sources):
+        return fake_us_instance
+
+    patch_modules_on_interface(monkeypatch, fake_auth, fake_profile, fake_us_class)
+
+    interface = InterfaceAuthUser(
+        process={"test": "config"},
+        system={"SYSTEM_SETTINGS": {"test": "value"}},
+        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}}
+    )
+
+    data = {"username": "testuser@example.com", "password": "wrong"}
+    _result, status_code = interface.plain_login(data)
+
+    assert status_code == 401
+
+
+def test_plain_login_create_user_profile(monkeypatch):
+    """Test plain login creates user profile if not present."""
+    fake_auth = FakeModuleAuth(None, None, None, None)
+    fake_user = {"uid": "newuser@example.com", "password": "secret123"}
+    fake_auth.get_user_and_domain_user_sources_result = (fake_user, {"source1": {}})
+
+    fake_profile = FakeModuleUserProfile(None, None)
+    fake_profile.is_user_profile_present_result = False  # New user
+
+    fake_us_instance = FakeModuleUserSource({})
+    def fake_us_class(sources):
+        return fake_us_instance
+
+    patch_modules_on_interface(monkeypatch, fake_auth, fake_profile, fake_us_class)
+
+    interface = InterfaceAuthUser(
+        process={"test": "config"},
+        system={"SYSTEM_SETTINGS": {"test": "value"}},
+        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}}
+    )
+
+    data = {"username": "newuser@example.com", "password": "secret123"}
+    _result, status_code = interface.plain_login(data)
+
+    assert status_code == 200
+    assert fake_profile.create_user_profile_args[0] == "newuser@example.com"
+    assert fake_profile.create_user_profile_args[1]["email"] == "user@example.com"
+
+
+def test_plain_login_profile_creation_request_exception(monkeypatch):
+    """Test error handling when user profile creation fails with RequestException."""
+    fake_auth = FakeModuleAuth(None, None, None, None)
+    fake_user = {"uid": "newuser@example.com", "password": "secret123"}
+    fake_auth.get_user_and_domain_user_sources_result = (fake_user, {"source1": {}})
+
+    fake_profile = FakeModuleUserProfile(None, None)
+    fake_profile.is_user_profile_present_result = False
+    fake_profile.create_user_profile = lambda *args: (_ for _ in ()).throw(
+        RequestException("User profile creation failed", err.ERROR_USER_PROFILE_CREATION_FAILED)
+    )
+
+    fake_us_instance = FakeModuleUserSource({})
+    def fake_us_class(sources):
+        return fake_us_instance
+
+    patch_modules_on_interface(monkeypatch, fake_auth, fake_profile, fake_us_class)
+
+    interface = InterfaceAuthUser(
+        process={"test": "config"},
+        system={"SYSTEM_SETTINGS": {"test": "value"}},
+        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}}
+    )
+
+    data = {"username": "newuser@example.com", "password": "secret123"}
+    result, status_code = interface.plain_login(data)
+
+    # RequestException should set the http_status
+    assert status_code >= 500
+    assert result["error_code"] == err.ERROR_USER_PROFILE_CREATION_FAILED.c
+
+
+def test_plain_login_profile_creation_bug_exception(monkeypatch):
+    """Test error handling when user profile creation fails with BugException."""
+    fake_auth = FakeModuleAuth(None, None, None, None)
+    fake_user = {"uid": "newuser@example.com", "password": "secret123"}
+    fake_auth.get_user_and_domain_user_sources_result = (fake_user, {"source1": {}})
+
+    fake_profile = FakeModuleUserProfile(None, None)
+    fake_profile.is_user_profile_present_result = False
+    fake_profile.create_user_profile = lambda *args: (_ for _ in ()).throw(
+        BugException("Unexpected error", err.ERROR_BUG_UNKNOWN_ORDER)
+    )
+
+    fake_us_instance = FakeModuleUserSource({})
+    def fake_us_class(sources):
+        return fake_us_instance
+
+    patch_modules_on_interface(monkeypatch, fake_auth, fake_profile, fake_us_class)
+
+    interface = InterfaceAuthUser(
+        process={"test": "config"},
+        system={"SYSTEM_SETTINGS": {"test": "value"}},
+        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}}
+    )
+
+    data = {"username": "newuser@example.com", "password": "secret123"}
+    result, status_code = interface.plain_login(data)
+
+    # BugException should set the http_status
+    assert status_code >= 500
+    assert result["error_code"] == err.ERROR_BUG_UNKNOWN_ORDER.c
