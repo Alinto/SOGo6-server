@@ -203,13 +203,9 @@ def test_create_user_profile_success(monkeypatch):
     domain_settings = get_default_domain_settings()
     module = ModuleUserProfile(process_settings, domain_settings)
 
-    contact_info = {
-        'uid': 'testuser',
-        'email': 'testuser@example.com',
-        'cn': 'Test User'
-    }
+    user = FakeUser()
 
-    module.create_user_profile('testuser', contact_info)
+    module.create_user_profile(user)
 
     assert len(fake_client.insert_calls) == 1
     assert fake_client.insert_calls[0]['table'] == tbl.TABLE_USER.name
@@ -225,10 +221,10 @@ def test_create_user_profile_insert_failed(monkeypatch):
     domain_settings = get_default_domain_settings()
     module = ModuleUserProfile(process_settings, domain_settings)
 
-    contact_info = {'uid': 'testuser', 'email': 'testuser@example.com', 'cn': 'Test User'}
+    user = FakeUser()
 
     with pytest.raises(BugException):
-        module.create_user_profile('testuser', contact_info)
+        module.create_user_profile(user)
 
 
 def test_create_user_profile_wrong_row_count(monkeypatch):
@@ -241,10 +237,10 @@ def test_create_user_profile_wrong_row_count(monkeypatch):
     domain_settings = get_default_domain_settings()
     module = ModuleUserProfile(process_settings, domain_settings)
 
-    contact_info = {'uid': 'testuser', 'email': 'testuser@example.com', 'cn': 'Test User'}
+    user = FakeUser()
 
     with pytest.raises(BugException):
-        module.create_user_profile('testuser', contact_info)
+        module.create_user_profile(user)
 
 
 # ========== Tests for _get_user_column ==========

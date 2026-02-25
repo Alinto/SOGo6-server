@@ -44,8 +44,6 @@ class InterfaceApiMailFolder:
         """
         try:
             folder_list = self.mail_module.get_folder_list(account_id)
-            # Module returns List[dict] with full folder details
-            print(f"MODULE: list folders: {folder_list}")
             return create_api_base_response(folder_list), 200
         except RequestException as ex:
             logger_api.error("Request exception in get_folder_list: %s", str(ex))

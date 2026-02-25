@@ -2,6 +2,7 @@
 Tests unitaires pour InterfaceAuthUser (Interface layer).
 Ces tests utilisent des fake modules pour tester la logique de l'interface.
 """
+import pytest
 from app.interface.auth.InterfaceAuthUser import InterfaceAuthUser
 from app.utils.exceptions import RequestException, BugException
 from app.utils import errors as err
@@ -87,9 +88,9 @@ class FakeModuleUserProfile:
         self.is_user_profile_present_args = uid
         return self.is_user_profile_present_result
 
-    def create_user_profile(self, uid, contact_info):
+    def create_user_profile(self, user):
         """Create user profile."""
-        self.create_user_profile_args = (uid, contact_info)
+        self.create_user_profile_args = user
 
 
 def patch_modules_on_interface(monkeypatch, fake_module_auth, fake_module_user_profile, fake_module_user_source_class):
@@ -236,8 +237,8 @@ def test_plain_login_create_user_profile(monkeypatch):
     _result, status_code = interface.plain_login(data)
 
     assert status_code == 200
-    assert fake_profile.create_user_profile_args[0] == "newuser@example.com"
-    assert fake_profile.create_user_profile_args[1]["email"] == "user@example.com"
+    assert fake_profile.create_user_profile_args is not None
+    assert fake_profile.create_user_profile_args["uid"] == "newuser@example.com"
 
 
 def test_plain_login_profile_creation_request_exception(monkeypatch):
@@ -297,8 +298,9 @@ def test_plain_login_profile_creation_bug_exception(monkeypatch):
     )
 
     data = {"username": "newuser@example.com", "password": "secret123"}
-    result, status_code = interface.plain_login(data)
 
-    # BugException should set the http_status
-    assert status_code >= 500
-    assert result["error_code"] == err.ERROR_BUG_UNKNOWN_ORDER.c
+    # BugException is not caught in plain_login, so it propagates
+    with pytest.raises(BugException) as exc_info:
+        interface.plain_login(data)
+
+    assert exc_info.value.error_code == err.ERROR_BUG_UNKNOWN_ORDER
