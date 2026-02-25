@@ -94,6 +94,13 @@ class UserCalendarGeneralSettings(SogoSchema):
     #DAV
     SOGO_U_DAV_FORCE_SYNC_FROM_CLIENT  = fields.Boolean(load_default=False, dump_default=False) #If events from the client are more recent, force the sync anyway.
 
+class CalendarCategorySchema(Schema):
+    """
+    Schema for a single contact category
+    """
+    name = fields.String(required=True)
+    color = fields.String(required=True)
+    is_default = fields.Boolean(required=True)
 
 class UserCalendarCategorySettings(SogoSchema):
     """
@@ -103,7 +110,7 @@ class UserCalendarCategorySettings(SogoSchema):
     subparent = "USER_CALENDAR_CATEGORY"
 
     #TODO tuple(name, color, is_default) color will HSL
-    SOGO_U_CALENDAR_CATEGORIES = fields.List(fields.Tuple((fields.String(), fields.String(), fields.Boolean())))
+    SOGO_U_CALENDAR_CATEGORIES = fields.List(fields.Nested(CalendarCategorySchema))
 
 class UserContactGeneralSettings(SogoSchema):
     """
