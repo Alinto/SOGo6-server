@@ -2,9 +2,73 @@
 Tests unitaires pour InterfaceApiMailFolder (Interface layer).
 Ces tests utilisent un fake ModuleMail pour tester la logique de l'interface.
 """
+import types
 from app.interface.mail.InterfaceApiMailFolder import InterfaceApiMailFolder
 from app.utils.exceptions import RequestException
 from app.utils import errors as err
+
+
+# def InterfaceApiMailFolderWithInjectedConf(user_conf):
+#     """
+#     Crée une InterfaceApiMailFolder en contournant __init__ (qui requiert process_setting,
+#     user_domain_settings et user), et injecte une implémentation simplifiée de _get_user_conf
+#     basée sur un user_conf de type dict, list ou None.
+#     """
+#     REQUIRED_FIELDS = {"username", "password", "type"}
+
+#     def _get_user_conf(self, account_id):
+#         if self._user_conf is None:
+#             raise RequestException("No mailbox configuration available", err.ERROR_UNKOWN)
+#         if isinstance(self._user_conf, list):
+#             try:
+#                 conf = self._user_conf[int(account_id)]
+#             except (IndexError, ValueError, TypeError) as exc:
+#                 raise RequestException("Account not found", err.ERROR_UNKOWN) from exc
+#         elif isinstance(self._user_conf, dict):
+#             if int(account_id) != 0:
+#                 raise RequestException("Account not found", err.ERROR_UNKOWN)
+#             conf = self._user_conf
+#         else:
+#             raise RequestException("No mailbox configuration available", err.ERROR_UNKOWN)
+#         missing = REQUIRED_FIELDS - conf.keys()
+#         if missing:
+#             raise RequestException(f"Missing fields: {missing}", err.ERROR_UNKOWN)
+#         return conf
+
+#     instance = object.__new__(InterfaceApiMailFolder)
+#     instance._user_conf = user_conf  # noqa: SLF001
+#     instance._get_user_conf = types.MethodType(_get_user_conf, instance)  # noqa: SLF001
+#     return instance
+
+class InterfaceApiMailFolderWithInjectedConf(InterfaceApiMailFolder):
+    """Subclass of InterfaceApiMailFolder that allows injecting user configuration directly for testing."""
+    def __init__(self, user_conf):
+        """Initialize with injected user configuration for testing."""
+        # Does not call the parent __init__ to avoid requiring all the parameters it needs
+        self._user_conf = user_conf  # noqa: SLF001
+
+    def _get_user_conf(self, account_id):
+        user_conf = self._user_conf
+        if user_conf is None:
+            raise RequestException("No mailbox configuration available", err.ERROR_UNKOWN)
+
+        try:
+            idx = int(account_id)
+        except (ValueError, TypeError) as exc:
+            raise RequestException("Account not found", err.ERROR_UNKOWN) from exc
+
+        if isinstance(user_conf, list):
+            try:
+                return user_conf[idx]
+            except IndexError as exc:
+                raise RequestException(err.ERROR_EXTERNAL_ACCOUNT_NOT_FOUND.m, error=err.ERROR_EXTERNAL_ACCOUNT_NOT_FOUND) from exc
+
+        if isinstance(user_conf, dict):
+            if idx != 0:
+                raise RequestException(err.ERROR_EXTERNAL_ACCOUNT_NOT_FOUND.m, error=err.ERROR_EXTERNAL_ACCOUNT_NOT_FOUND)
+            return user_conf
+
+        raise RequestException("No mailbox configuration available", err.ERROR_UNKOWN)
 
 
 class FakeModuleMail:
@@ -120,7 +184,7 @@ def test_get_folder_list_success(monkeypatch):
     fake_module = FakeModuleMail()
     patch_module_on_interface(monkeypatch, fake_module)
     user_conf = {"username": "test@example.com", "password": "pass", "type": "imap"}
-    interface = InterfaceApiMailFolder(user_conf=user_conf)
+    interface = InterfaceApiMailFolderWithInjectedConf(user_conf)
 
     result, status_code = interface.get_folder_list(account_id=0)
 
@@ -134,14 +198,13 @@ def test_get_folder_list_invalid_account_id(monkeypatch):
     fake_module = FakeModuleMail()
     patch_module_on_interface(monkeypatch, fake_module)
     user_conf = {"username": "test@example.com", "password": "pass", "type": "imap"}
-    interface = InterfaceApiMailFolder(user_conf=user_conf)
+    interface = InterfaceApiMailFolderWithInjectedConf(user_conf)
 
-    result, status_code = interface.get_folder_list(account_id=5)
+    result, status_code = interface.get_folder_list(account_id=505)
 
-    assert status_code >= 500
-    # The error_msg comes from the error_msg dict, not the exception message
-    assert result["error_code"] == "S999999"  # ERROR_UNKOWN
-    assert result["error_msg"] == "Undefined Error"
+    assert status_code == 404
+    assert result["error_code"] == "S000320"
+    assert result["error_msg"] == "External Account Not Found"
 
 
 def test_get_folder_list_module_exception(monkeypatch):
@@ -150,7 +213,7 @@ def test_get_folder_list_module_exception(monkeypatch):
     fake_module.get_folder_list = lambda: (_ for _ in ()).throw(RequestException("Connection failed", err.ERROR_IMAP_CONNECTION_FAILED))
     patch_module_on_interface(monkeypatch, fake_module)
     user_conf = {"username": "test@example.com", "password": "pass", "type": "imap"}
-    interface = InterfaceApiMailFolder(user_conf=user_conf)
+    interface = InterfaceApiMailFolderWithInjectedConf(user_conf)
 
     result, status_code = interface.get_folder_list(account_id=0)
 
@@ -166,7 +229,7 @@ def test_create_folder_success(monkeypatch):
     fake_module = FakeModuleMail()
     patch_module_on_interface(monkeypatch, fake_module)
     user_conf = {"username": "test@example.com", "password": "pass", "type": "imap"}
-    interface = InterfaceApiMailFolder(user_conf=user_conf)
+    interface = InterfaceApiMailFolderWithInjectedConf(user_conf)
 
     result, status_code = interface.create_folder(account_id=0, folder_name="NewFolder")
 
@@ -181,7 +244,7 @@ def test_create_folder_module_error(monkeypatch):
     fake_module.create_folder = lambda x: (_ for _ in ()).throw(RequestException("Folder exists", err.ERROR_VALIDATION_ERROR))
     patch_module_on_interface(monkeypatch, fake_module)
     user_conf = {"username": "test@example.com", "password": "pass", "type": "imap"}
-    interface = InterfaceApiMailFolder(user_conf=user_conf)
+    interface = InterfaceApiMailFolderWithInjectedConf(user_conf)
 
     result, status_code = interface.create_folder(account_id=0, folder_name="Existing")
     assert result["error_code"] == "S000300"
@@ -195,7 +258,7 @@ def test_delete_folder_success(monkeypatch):
     fake_module = FakeModuleMail()
     patch_module_on_interface(monkeypatch, fake_module)
     user_conf = {"username": "test@example.com", "password": "pass", "type": "imap"}
-    interface = InterfaceApiMailFolder(user_conf=user_conf)
+    interface = InterfaceApiMailFolderWithInjectedConf(user_conf)
 
     result, status_code = interface.delete_folder(account_id=0, folder_name="Archive")
 
@@ -210,7 +273,7 @@ def test_delete_folder_module_error(monkeypatch):
     fake_module.delete_folder = lambda x: (_ for _ in ()).throw(RequestException("Cannot delete", err.ERROR_VALIDATION_ERROR))
     patch_module_on_interface(monkeypatch, fake_module)
     user_conf = {"username": "test@example.com", "password": "pass", "type": "imap"}
-    interface = InterfaceApiMailFolder(user_conf=user_conf)
+    interface = InterfaceApiMailFolderWithInjectedConf(user_conf)
 
     result, status_code = interface.delete_folder(account_id=0, folder_name="Archive")
 
@@ -225,7 +288,7 @@ def test_delete_mails_success(monkeypatch):
     fake_module = FakeModuleMail()
     patch_module_on_interface(monkeypatch, fake_module)
     user_conf = {"username": "test@example.com", "password": "pass", "type": "imap"}
-    interface = InterfaceApiMailFolder(user_conf=user_conf)
+    interface = InterfaceApiMailFolderWithInjectedConf(user_conf)
 
     result, status_code = interface.delete_mails(account_id=0, folder_name="INBOX", mail_uids=[1, 2, 3])
 
@@ -240,7 +303,7 @@ def test_delete_mails_module_error(monkeypatch):
     fake_module.delete_mails = lambda *args: (_ for _ in ()).throw(RequestException("Cannot delete", err.ERROR_VALIDATION_ERROR))
     patch_module_on_interface(monkeypatch, fake_module)
     user_conf = {"username": "test@example.com", "password": "pass", "type": "imap"}
-    interface = InterfaceApiMailFolder(user_conf=user_conf)
+    interface = InterfaceApiMailFolderWithInjectedConf(user_conf)
 
     result, status_code = interface.delete_mails(account_id=0, folder_name="INBOX", mail_uids=[1, 2, 3])
 
@@ -255,7 +318,7 @@ def test_delete_all_mail_in_folder_success(monkeypatch):
     fake_module = FakeModuleMail()
     patch_module_on_interface(monkeypatch, fake_module)
     user_conf = {"username": "test@example.com", "password": "pass", "type": "imap"}
-    interface = InterfaceApiMailFolder(user_conf=user_conf)
+    interface = InterfaceApiMailFolderWithInjectedConf(user_conf)
 
     result, status_code = interface.delete_all_mail_in_folder(account_id=0, folder_name="INBOX", before_date="2024-01-01")
 
@@ -269,7 +332,7 @@ def test_delete_all_mail_in_folder_without_date(monkeypatch):
     fake_module = FakeModuleMail()
     patch_module_on_interface(monkeypatch, fake_module)
     user_conf = {"username": "test@example.com", "password": "pass", "type": "imap"}
-    interface = InterfaceApiMailFolder(user_conf=user_conf)
+    interface = InterfaceApiMailFolderWithInjectedConf(user_conf)
 
     result, status_code = interface.delete_all_mail_in_folder(account_id=0, folder_name="INBOX", before_date=None)
 
@@ -286,7 +349,7 @@ def test_move_mails_success(monkeypatch):
     fake_module.move_mails_result = {"moved_ids": [11, 22]}
     patch_module_on_interface(monkeypatch, fake_module)
     user_conf = {"username": "test@example.com", "password": "pass", "type": "imap"}
-    interface = InterfaceApiMailFolder(user_conf=user_conf)
+    interface = InterfaceApiMailFolderWithInjectedConf(user_conf)
 
     result, status_code = interface.move_mails(account_id=0, folder_name="INBOX", mail_uids=[11, 22], to_folder_name="Sent")
 
@@ -301,7 +364,7 @@ def test_move_mails_module_error(monkeypatch):
     fake_module.move_mails = lambda *args: (_ for _ in ()).throw(RequestException("Cannot move", err.ERROR_VALIDATION_ERROR))
     patch_module_on_interface(monkeypatch, fake_module)
     user_conf = {"username": "test@example.com", "password": "pass", "type": "imap"}
-    interface = InterfaceApiMailFolder(user_conf=user_conf)
+    interface = InterfaceApiMailFolderWithInjectedConf(user_conf)
 
     result, status_code = interface.move_mails(account_id=0, folder_name="INBOX", mail_uids=[1, 2], to_folder_name="Trash")
 
@@ -317,7 +380,7 @@ def test_expunge_folder_success(monkeypatch):
     fake_module.expunge_folder_result = {"mail_deleted": 10}
     patch_module_on_interface(monkeypatch, fake_module)
     user_conf = {"username": "test@example.com", "password": "pass", "type": "imap"}
-    interface = InterfaceApiMailFolder(user_conf=user_conf)
+    interface = InterfaceApiMailFolderWithInjectedConf(user_conf)
 
     result, status_code = interface.expunge_folder(account_id=0, folder_name="Trash")
 
@@ -332,7 +395,7 @@ def test_expunge_folder_module_error(monkeypatch):
     fake_module.expunge_folder = lambda x: (_ for _ in ()).throw(RequestException("Cannot expunge", err.ERROR_VALIDATION_ERROR))
     patch_module_on_interface(monkeypatch, fake_module)
     user_conf = {"username": "test@example.com", "password": "pass", "type": "imap"}
-    interface = InterfaceApiMailFolder(user_conf=user_conf)
+    interface = InterfaceApiMailFolderWithInjectedConf(user_conf)
 
     result, status_code = interface.expunge_folder(account_id=0, folder_name="Trash")
 
@@ -348,7 +411,7 @@ def test_update_folder_success(monkeypatch):
     fake_module.update_folder_result = {"name": "RenamedFolder", "subscribed": True}
     patch_module_on_interface(monkeypatch, fake_module)
     user_conf = {"username": "test@example.com", "password": "pass", "type": "imap"}
-    interface = InterfaceApiMailFolder(user_conf=user_conf)
+    interface = InterfaceApiMailFolderWithInjectedConf(user_conf)
 
     folder_data = {"name": "RenamedFolder", "subscribed": True}
     result, status_code = interface.update_folder(account_id=0, folder_name="OldFolder", folder_data=folder_data)
@@ -364,7 +427,7 @@ def test_update_folder_module_error(monkeypatch):
     fake_module.update_folder = lambda *args: (_ for _ in ()).throw(RequestException("Cannot update", err.ERROR_VALIDATION_ERROR))
     patch_module_on_interface(monkeypatch, fake_module)
     user_conf = {"username": "test@example.com", "password": "pass", "type": "imap"}
-    interface = InterfaceApiMailFolder(user_conf=user_conf)
+    interface = InterfaceApiMailFolderWithInjectedConf(user_conf)
 
     result, status_code = interface.update_folder(account_id=0, folder_name="INBOX", folder_data={"name": "NewName"})
 
@@ -380,7 +443,7 @@ def test_get_one_folder_success(monkeypatch):
     fake_module.get_one_folder_result = {"name": "INBOX", "path": "INBOX", "message_count": 100}
     patch_module_on_interface(monkeypatch, fake_module)
     user_conf = {"username": "test@example.com", "password": "pass", "type": "imap"}
-    interface = InterfaceApiMailFolder(user_conf=user_conf)
+    interface = InterfaceApiMailFolderWithInjectedConf(user_conf)
 
     result, status_code = interface.get_one_folder(account_id=0, folder_name="INBOX")
 
@@ -396,7 +459,7 @@ def test_get_one_folder_module_error(monkeypatch):
     fake_module.get_one_folder = lambda x: (_ for _ in ()).throw(RequestException("Folder not found", err.ERROR_VALIDATION_ERROR))
     patch_module_on_interface(monkeypatch, fake_module)
     user_conf = {"username": "test@example.com", "password": "pass", "type": "imap"}
-    interface = InterfaceApiMailFolder(user_conf=user_conf)
+    interface = InterfaceApiMailFolderWithInjectedConf(user_conf)
 
     result, status_code = interface.get_one_folder(account_id=0, folder_name="NonExistent")
 
@@ -412,7 +475,7 @@ def test_purge_folder_mails_success(monkeypatch):
     fake_module.purge_folder_mails_result = {"mails_deleted": 25}
     patch_module_on_interface(monkeypatch, fake_module)
     user_conf = {"username": "test@example.com", "password": "pass", "type": "imap"}
-    interface = InterfaceApiMailFolder(user_conf=user_conf)
+    interface = InterfaceApiMailFolderWithInjectedConf(user_conf)
 
     purge_data = {"permanently_delete": True, "date": "2024-01-01"}
     result, status_code = interface.purge_folder_mails(account_id=0, folder_name="Trash", purge_data=purge_data)
@@ -428,7 +491,7 @@ def test_purge_folder_mails_module_error(monkeypatch):
     fake_module.purge_folder_mails = lambda *args: (_ for _ in ()).throw(RequestException("Cannot purge", err.ERROR_VALIDATION_ERROR))
     patch_module_on_interface(monkeypatch, fake_module)
     user_conf = {"username": "test@example.com", "password": "pass", "type": "imap"}
-    interface = InterfaceApiMailFolder(user_conf=user_conf)
+    interface = InterfaceApiMailFolderWithInjectedConf(user_conf)
 
     result, status_code = interface.purge_folder_mails(account_id=0, folder_name="Trash", purge_data={})
 
@@ -443,7 +506,7 @@ def test_export_folder_mails_success(monkeypatch):
     fake_module = FakeModuleMail()
     patch_module_on_interface(monkeypatch, fake_module)
     user_conf = {"username": "test@example.com", "password": "pass", "type": "imap"}
-    interface = InterfaceApiMailFolder(user_conf=user_conf)
+    interface = InterfaceApiMailFolderWithInjectedConf(user_conf)
 
     result, status_code = interface.export_folder_mails(account_id=0, folder_name="INBOX")
 
@@ -459,7 +522,7 @@ def test_export_folder_mails_module_error(monkeypatch):
     fake_module.export_folder_mails = lambda x: (_ for _ in ()).throw(RequestException("Cannot export", err.ERROR_VALIDATION_ERROR))
     patch_module_on_interface(monkeypatch, fake_module)
     user_conf = {"username": "test@example.com", "password": "pass", "type": "imap"}
-    interface = InterfaceApiMailFolder(user_conf=user_conf)
+    interface = InterfaceApiMailFolderWithInjectedConf(user_conf)
 
     result, status_code = interface.export_folder_mails(account_id=0, folder_name="INBOX")
 
@@ -475,7 +538,7 @@ def test_get_folder_share_success(monkeypatch):
     fake_module.get_folder_share_result = {"users": {"user1@example.com": {"read": True, "write": False}}}
     patch_module_on_interface(monkeypatch, fake_module)
     user_conf = {"username": "test@example.com", "password": "pass", "type": "imap"}
-    interface = InterfaceApiMailFolder(user_conf=user_conf)
+    interface = InterfaceApiMailFolderWithInjectedConf(user_conf)
 
     result, status_code = interface.get_folder_share(account_id=0, folder_name="INBOX")
 
@@ -490,7 +553,7 @@ def test_get_folder_share_module_error(monkeypatch):
     fake_module.get_folder_share = lambda x: (_ for _ in ()).throw(RequestException("Cannot get share", err.ERROR_VALIDATION_ERROR))
     patch_module_on_interface(monkeypatch, fake_module)
     user_conf = {"username": "test@example.com", "password": "pass", "type": "imap"}
-    interface = InterfaceApiMailFolder(user_conf=user_conf)
+    interface = InterfaceApiMailFolderWithInjectedConf(user_conf)
 
     result, status_code = interface.get_folder_share(account_id=0, folder_name="INBOX")
 
@@ -506,7 +569,7 @@ def test_share_folder_success(monkeypatch):
     fake_module.share_folder_result = {"users": {"user2@example.com": {"read": True, "write": True}}}
     patch_module_on_interface(monkeypatch, fake_module)
     user_conf = {"username": "test@example.com", "password": "pass", "type": "imap"}
-    interface = InterfaceApiMailFolder(user_conf=user_conf)
+    interface = InterfaceApiMailFolderWithInjectedConf(user_conf)
 
     share_data = [{"email": "user2@example.com", "read": True, "write": True}]
     result, status_code = interface.share_folder(account_id=0, folder_name="INBOX", share_data=share_data)
@@ -522,7 +585,7 @@ def test_share_folder_module_error(monkeypatch):
     fake_module.share_folder = lambda *args: (_ for _ in ()).throw(RequestException("Cannot share", err.ERROR_VALIDATION_ERROR))
     patch_module_on_interface(monkeypatch, fake_module)
     user_conf = {"username": "test@example.com", "password": "pass", "type": "imap"}
-    interface = InterfaceApiMailFolder(user_conf=user_conf)
+    interface = InterfaceApiMailFolderWithInjectedConf(user_conf)
 
     result, status_code = interface.share_folder(account_id=0, folder_name="INBOX", share_data=[])
 

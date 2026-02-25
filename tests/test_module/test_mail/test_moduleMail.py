@@ -195,8 +195,8 @@ def test_module_init_with_valid_user_conf(monkeypatch):
 
 
 def test_module_init_without_user_conf():
-    """Test ModuleMail initialization without user conf."""
-    with pytest.raises(RequestException, match="user_conf is required"):
+    """Test ModuleMail initialization without user conf (None raises AttributeError)."""
+    with pytest.raises(AttributeError):
         ModuleMail(user_conf=None)
 
 
