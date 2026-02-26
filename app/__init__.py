@@ -81,12 +81,12 @@ def register_before_request(base_blueprint: Blueprint, kind: str, sogo_state: in
             if content_length is not None and content_length == 0:
                 return None
             if not request.is_json:
-                return create_api_base_response(error=err.ERROR_API_CONTENT_TYPE), 400
+                return create_api_base_response(error=err.ERROR_API_CONTENT_TYPE)
             data = request.get_data(as_text=True)
             try:
                 loads(data)
             except (TypeError, JSONDecodeError):
-                return create_api_base_response(error=err.ERROR_API_NOT_JSON), 400
+                return create_api_base_response(error=err.ERROR_API_NOT_JSON)
         return None
 
     @base_blueprint.before_request
@@ -103,7 +103,7 @@ def register_before_request(base_blueprint: Blueprint, kind: str, sogo_state: in
             elif auth_header.type == 'basic' and current_app.config[cs.ALLOW_AUTH_BASIC]:
                 pass
             else:
-                return create_api_base_response(error=err.ERROR_WRONG_AUTHORIZATION_TYPE), 400
+                return create_api_base_response(error=err.ERROR_WRONG_AUTHORIZATION_TYPE)
         g.user = user
         return None
 
@@ -124,7 +124,7 @@ def register_before_request(base_blueprint: Blueprint, kind: str, sogo_state: in
                 "user#System.v1_System.System.ApiSystem",
             }
             if isinstance(g.user, UserAnonymous) and request.endpoint not in anon_endpoints:
-                return create_api_base_response(error=err.ERROR_AUTHENTICATED_ROUTE), 401
+                return create_api_base_response(error=err.ERROR_AUTHENTICATED_ROUTE)
             return None
 
     if sogo_state == cs.SOGO_NOT_INIT:
@@ -134,7 +134,7 @@ def register_before_request(base_blueprint: Blueprint, kind: str, sogo_state: in
                 """
                 Reject requests for basic api id sogo is not init
                 """
-                return create_api_base_response(error=err.ERROR_SOGO_INIT), 412
+                return create_api_base_response(error=err.ERROR_SOGO_INIT)
         elif kind == cs.API_ADMIN:
             @base_blueprint.before_request
             def add_process() -> None:
@@ -166,7 +166,7 @@ def register_before_request(base_blueprint: Blueprint, kind: str, sogo_state: in
                     inter = InterfaceAuthUser(process_config, system_settings, g.user_domain_settings)
                     creds_ok = inter.check_user_and_fill_info(user)
                     if not creds_ok:
-                        return create_api_base_response(error=err.ERROR_USER_CREDS_NOT_VALID), err.ERROR_USER_CREDS_NOT_VALID.h
+                        return create_api_base_response(error=err.ERROR_USER_CREDS_NOT_VALID)
             else:
                 logger.error("No user in Flask g")
                 raise AggravatedException("No user in Flask g")

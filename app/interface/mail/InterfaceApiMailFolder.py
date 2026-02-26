@@ -44,10 +44,10 @@ class InterfaceApiMailFolder:
         """
         try:
             folder_list = self.mail_module.get_folder_list(account_id)
-            return create_api_base_response(folder_list), 200
+            return create_api_base_response(folder_list)
         except RequestException as ex:
             logger_api.error("Request exception in get_folder_list: %s", str(ex))
-            return create_api_base_response(None, ex.error_code), ex.http_status
+            return create_api_base_response(None, ex.error)
 
     def create_folder(self, account_id: str, folder_name: str, parent_path:str = "") -> tuple[dict[str, Any], int]:
         """Create a new mail folder for the configured account and return an ApiBaseResponse.
@@ -69,10 +69,10 @@ class InterfaceApiMailFolder:
         """
         try:
             folder_data = self.mail_module.create_folder(account_id, folder_name, parent_path)
-            return create_api_base_response(folder_data), 201
+            return create_api_base_response(folder_data, code=201)
         except RequestException as ex:
             logger_api.error("Request exception in create_folder: %s", str(ex))
-            return create_api_base_response(None, ex.error_code), ex.http_status
+            return create_api_base_response(None, ex.error)
 
     def get_one_folder(self, account_id: str, folder_name: str) -> tuple[dict[str, Any], int]:
         """Retrieve details of a specific mail folder.
@@ -86,10 +86,10 @@ class InterfaceApiMailFolder:
         """
         try:
             folder_details = self.mail_module.get_one_folder(account_id, folder_name)
-            return create_api_base_response(folder_details), 200
+            return create_api_base_response(folder_details)
         except RequestException as ex:
             logger_api.error("Request exception in get_one_folder: %s", str(ex))
-            return create_api_base_response(None, ex.error_code), ex.http_status
+            return create_api_base_response(None, ex)
 
     def delete_folder(self, account_id: str, folder_name: str) -> tuple[str|dict[str, Any], int]:
         """Delete a mail folder.
@@ -106,7 +106,7 @@ class InterfaceApiMailFolder:
             return "", 204
         except RequestException as ex:
             logger_api.error("Request exception in delete_folder: %s", str(ex))
-            return create_api_base_response(None, ex.error_code), ex.http_status
+            return create_api_base_response(None, ex.error)
 
     def update_folder(self, account_id: str, folder_name: str, folder_data: dict[str, Any]) -> tuple[dict[str, Any], int]:
         """Update name, type (junk, template...) and subscription status of a specific mail folder.
@@ -122,10 +122,10 @@ class InterfaceApiMailFolder:
         """
         try:
             updated_folder = self.mail_module.update_folder(folder_name, folder_data)
-            return create_api_base_response(updated_folder), 200
+            return create_api_base_response(updated_folder)
         except RequestException as ex:
             logger_api.error("Request exception in update_folder: %s", str(ex))
-            return create_api_base_response(None, ex.error_code), ex.http_status
+            return create_api_base_response(None, ex.error)
 
     def move_mails(
         self, account_id: str, folder_name: str, mail_uids: list[int], to_folder_name: str
@@ -146,10 +146,10 @@ class InterfaceApiMailFolder:
         """
         try:
             result = self.mail_module.move_mails(folder_name, mail_uids, to_folder_name)
-            return create_api_base_response(result), 200
+            return create_api_base_response(result)
         except RequestException as ex:
             logger_api.error("Request exception in move_mails: %s", str(ex))
-            return create_api_base_response(None, ex.error_code), ex.http_status
+            return create_api_base_response(None, ex.error)
 
 
     def expunge_folder(self, account_id: str, folder_name: str, expunge_data:dict) -> tuple[dict[str, Any], int]:
@@ -165,10 +165,10 @@ class InterfaceApiMailFolder:
         do_subfolders = expunge_data["do_subfolders"]
         try:
             result = self.mail_module.expunge_folder(account_id, folder_name, do_subfolders)
-            return create_api_base_response(result), 200
+            return create_api_base_response(result)
         except RequestException as ex:
             logger_api.error("Request exception in expunge_folder: %s", str(ex))
-            return create_api_base_response(None, ex.error_code), ex.http_status
+            return create_api_base_response(None, ex.error)
 
     def purge_folder_mails(self, account_id: str, folder_name: str, purge_data: dict[str, Any]) -> tuple[dict[str, Any], int]:
         """Purge all mails in the specified folder.
@@ -186,10 +186,10 @@ class InterfaceApiMailFolder:
         :rtype: tuple[Union[str, dict[str, Any]], int]
         """
         try:
-            return create_api_base_response(self.mail_module.purge_folder_mails(account_id, folder_name, purge_data)), 200
+            return create_api_base_response(self.mail_module.purge_folder_mails(account_id, folder_name, purge_data))
         except RequestException as ex:
             logger_api.error("Request exception in purge_folder_mails: %s", str(ex))
-            return create_api_base_response(None, ex.error_code), ex.http_status
+            return create_api_base_response(None, ex.error)
 
     def export_folder_mails(self, account_id: str, folder_name: str) -> tuple[dict[str, Any], int]:
         """Export all mails in the specified folder.
@@ -203,10 +203,10 @@ class InterfaceApiMailFolder:
         """
         try:
             export_data = self.mail_module.export_folder_mails(folder_name)
-            return create_api_base_response(export_data), 200
+            return create_api_base_response(export_data)
         except RequestException as ex:
             logger_api.error("Request exception in export_folder_mails: %s", str(ex))
-            return create_api_base_response(None, ex.error_code), ex.http_status
+            return create_api_base_response(None, ex.error)
 
     def get_folder_share(self, account_id: str, folder_path: str) -> tuple[dict[str, Any], int]:
         """Get share information for the specified folder.
@@ -261,10 +261,10 @@ class InterfaceApiMailFolder:
                         "uid": user.uid,
                         "rights": rights
                     }
-            return create_api_base_response(share_info), 200
+            return create_api_base_response(share_info)
         except RequestException as ex:
             logger_api.error("Request exception in get_folder_share: %s", str(ex))
-            return create_api_base_response(None, ex.error_code), ex.http_status
+            return create_api_base_response(None, ex.error)
 
     def share_folder(self, account_id: str, folder_path: str, share_data: list[dict[str, Any]]) -> tuple[dict[str, Any], int]:
         """Share the specified folder with another user.
@@ -323,7 +323,7 @@ class InterfaceApiMailFolder:
                         "rights": rights
                     }
 
-            return create_api_base_response(share_info), 200
+            return create_api_base_response(share_info)
         except RequestException as ex:
             logger_api.error("Request exception in share_folder: %s", str(ex))
-            return create_api_base_response(None, ex.error_code), ex.http_status
+            return create_api_base_response(None, ex.error)

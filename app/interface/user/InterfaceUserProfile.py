@@ -47,13 +47,13 @@ class InterfaceUserProfile:
         try:
             data["mailboxes"] = self.module_user_profile.list_accounts(self.user)
         except RequestException as ex:
-            return create_api_base_response(None, ex.error_code), ex.http_status
+            return create_api_base_response(None, ex.error)
 
         #User preferences
         try:
             data["prefs"] = self.module_user_profile.get_user_preferences(self.user.uid)
         except RequestException as e:
-            return create_api_base_response(error=e.error_code), e.http_status
+            return create_api_base_response(error=e.error)
 
         #TODO User folders view (NOT IMPLEMENTED)
 
@@ -68,4 +68,4 @@ class InterfaceUserProfile:
                 admin_param[setting_needed] = domain_sub.get(setting_needed, None)
         data["ui"] = admin_param
 
-        return create_api_base_response(data), 200
+        return create_api_base_response(data)

@@ -303,4 +303,4 @@ def test_plain_login_profile_creation_bug_exception(monkeypatch):
     with pytest.raises(BugException) as exc_info:
         interface.plain_login(data)
 
-    assert exc_info.value.error_code == err.ERROR_BUG_UNKNOWN_ORDER
+    assert exc_info.value.error == err.ERROR_BUG_UNKNOWN_ORDER
