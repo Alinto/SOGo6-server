@@ -127,7 +127,7 @@ class ContactCategorySchema(Schema):
     """
     name = fields.String(required=True)
     color = fields.String(required=True)
-    can_be_translated = fields.Boolean(required=True)
+    is_default = fields.Boolean(required=True)
 
 
 class UserContactCategorySettings(SogoSchema):
@@ -193,6 +193,13 @@ class UserMailGeneralSettings(SogoSchema):
     SOGO_U_COLLECT_UNKNWON_ADDRESSES = fields.Boolean(load_default=False, dump_default=False) #Collect address send to unknwon mail. (So next time it will be in autocompletion)
     SOGO_U_COLLECT_UNKNWON_ADDRESSBOOK_NAME = fields.String(load_default="Collected", dump_default="Collected") #Name of the collected addressbook if SOGO_U_COLLECT_UNKNWON_ADDRESSES=True
 
+class MailCategorySchema(Schema):
+    """
+    Schema for a single contact category
+    """
+    name = fields.String(required=True)
+    color = fields.String(required=True)
+    is_default = fields.Boolean(required=True)
 
 
 class UserMailCategorySettings(SogoSchema):
@@ -203,7 +210,7 @@ class UserMailCategorySettings(SogoSchema):
     subparent = "USER_MAIL_CATEGORY_SETTINGS"
 
     #Categories (Nom, couleur, is_default)
-    SOGO_U_MAIL_CATEGORIES = fields.List(fields.Tuple((fields.String(), fields.String(), fields.Boolean())))
+    SOGO_U_MAIL_CATEGORIES = fields.List(fields.Nested(MailCategorySchema))
 
 
 
