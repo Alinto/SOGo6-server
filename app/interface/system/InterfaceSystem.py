@@ -24,4 +24,4 @@ class InterfaceSystem:
             #We must fetch the default domain for rember password here
             ret["SOGO_D_PWD_RECOVERY"] = self.auth_default.SOGO_D_PWD_RECOVERY
 
-        return create_api_base_response({"system": ret}), 200
+        return create_api_base_response({"system": ret})

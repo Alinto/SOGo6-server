@@ -37,8 +37,8 @@ class InterfaceUserPreferences:
         try:
             data = self.module_user_profile.get_user_preferences(self.user.uid)
         except RequestException as e:
-            return create_api_base_response(error=e.error_code), e.http_status
-        return create_api_base_response(data), 200
+            return create_api_base_response(error=e.error)
+        return create_api_base_response(data)
 
 
     def get_partial_preferences(self, subparent:str) -> tuple[dict, int]:
@@ -52,8 +52,8 @@ class InterfaceUserPreferences:
         try:
             data = self.module_user_profile.get_partial_user_preferences(self.user.uid, subparent)
         except RequestException as e:
-            return create_api_base_response(error=e.error_code), e.http_status
-        return create_api_base_response(data), 200
+            return create_api_base_response(error=e.error)
+        return create_api_base_response(data)
 
     def update_all_preferences(self, new_data:dict) -> tuple[dict, int]:
         """
@@ -68,10 +68,10 @@ class InterfaceUserPreferences:
             data = self.module_user_profile.update_user_preferences(self.user.uid, new_data)
             print(data)
         except ValidationError as ex:
-            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
+            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR)
         except RequestException as e:
-            return create_api_base_response(error=e.error_code), e.http_status
-        return create_api_base_response(data), 200
+            return create_api_base_response(error=e.error)
+        return create_api_base_response(data)
 
     def update_partial_preferences(self, new_data:dict, subparent:str) -> tuple[dict, int]:
         """Update partial user preferences for a specific subparent
@@ -86,7 +86,7 @@ class InterfaceUserPreferences:
         try:
             data = self.module_user_profile.update_user_preferences(self.user.uid, new_data, subparent)
         except ValidationError as ex:
-            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
+            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR)
         except RequestException as e:
-            return create_api_base_response(error=e.error_code), e.http_status
-        return create_api_base_response(data), 200
+            return create_api_base_response(error=e.error)
+        return create_api_base_response(data)

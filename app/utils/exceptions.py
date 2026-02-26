@@ -11,16 +11,18 @@ class SogoException(Exception):
     """
     Sogo exception with the error
     """
-    def __init__(self, message: str, error: E = ERROR_UNKOWN) -> None:
+    def __init__(self, message: str = "", error: E = ERROR_UNKOWN) -> None:
+        if not message and error is not None:
+            message = error.m
         super().__init__(message)
-        self.error_code = error
+        self.error = error
         self.http_status = error.h
 
     def err(self) -> str:
         """
         Return the code error of this Exception
         """
-        return self.error_code.c
+        return self.error.c
 
 class AggravatedException(SogoException):
     """

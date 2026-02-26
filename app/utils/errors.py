@@ -36,7 +36,7 @@ class E:
         self.h = h
 
 #Start error
-ERROR_NO_ERRROR               = E("S000000", "No Error", HTTPStatus.OK)
+ERROR_NO_ERROR               = E("S000000", "No Error", HTTPStatus.OK)
 ERROR_SOGO_INIT               = E("S000001", "Sogo Has Not Been Configured Yet", HTTPStatus.PRECONDITION_FAILED)
 ERROR_SOGO_WRONG_STATE        = E("S000002", "Sogo Is In An Unknwon State And Can't Start", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_CACHE_NOT_REACHABLE     = E("S000005", "Cache Server Is Unreachable", HTTPStatus.PRECONDITION_FAILED)

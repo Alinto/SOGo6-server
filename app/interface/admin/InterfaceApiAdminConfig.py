@@ -26,7 +26,7 @@ class InterfaceApiAdminConfig:
         """
         self.module = ModuleAdminConfig(process_settings=process_setting)
 
-    def get_dynamic_setting_structure(self) -> dict:
+    def get_dynamic_setting_structure(self) -> tuple[dict, int]:
         """
         Return the dynamic table
         """
@@ -34,7 +34,7 @@ class InterfaceApiAdminConfig:
         return create_api_base_response(ret)
 
 
-    def get_all_setting_system(self) -> dict:
+    def get_all_setting_system(self) -> tuple[dict, int]:
         """
         Return the system setting
         """
@@ -54,10 +54,10 @@ class InterfaceApiAdminConfig:
         try:
             _, ret_values = self.module.update_system_settings(new_param)
         except ValidationError as ex:
-            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
-        return create_api_base_response(ret_values), 200
+            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR)
+        return create_api_base_response(ret_values)
 
-    def get_all_setting_domain_default(self) -> dict:
+    def get_all_setting_domain_default(self) -> tuple[dict, int]:
         """
         Return the default settings for all domains
         """
@@ -77,8 +77,8 @@ class InterfaceApiAdminConfig:
         try:
             _, ret_values = self.module.update_domain_default_settings(new_param)
         except ValidationError as ex:
-            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
-        return create_api_base_response(ret_values), 200
+            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR)
+        return create_api_base_response(ret_values)
 
 
     def get_all_domain_settings(self, first_item: int = 0, last_item: int = 20, sort: str = "", order_str: str = "") -> tuple[int, dict, int]:
@@ -103,7 +103,7 @@ class InterfaceApiAdminConfig:
             try:
                 order = order_str_to_order_enum(order_str)
             except BugException as exc:
-                return 0, create_api_base_response(str(exc), err.ERROR_BUG_UNKNOWN_ORDER), 400 #TODO: 500?
+                return 0, *create_api_base_response(str(exc), err.ERROR_BUG_UNKNOWN_ORDER) #TODO: 500?
         else:
             order = Order.ASC
 
@@ -111,12 +111,12 @@ class InterfaceApiAdminConfig:
             try:
                 sort_by = tbl.TABLE_DOMAIN.get_column_from_name(sort)
             except RequestException as exc:
-                return 0, create_api_base_response(str(exc), exc.error_code), 400
+                return 0, *create_api_base_response(str(exc), exc.error)
         else:
             sort_by = None
 
         count, ret = self.module.get_all_domains_settings(offset=offset, limit=limit, sort_by=sort_by, order=order)
-        return  count, create_api_base_response(ret), 200
+        return count, *create_api_base_response(ret)
 
     def post_new_domain_settings(self, new_domain: dict) ->tuple[dict, int]:
         """
@@ -131,10 +131,10 @@ class InterfaceApiAdminConfig:
         try:
             _, ret_values = self.module.create_domain_settings(new_domain)
         except ValidationError as ex:
-            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
+            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR)
         except RequestException as ex:
-            return create_api_base_response(str(ex), ex.error_code), 400
-        return create_api_base_response(ret_values), 200
+            return create_api_base_response(str(ex), ex.error)
+        return create_api_base_response(ret_values)
 
     def get_domain_settings(self, domain_id: str) -> tuple[dict, int]:
         """
@@ -149,8 +149,8 @@ class InterfaceApiAdminConfig:
         try:
             ret_values = self.module.get_one_domain_setting(domain_id)
         except RequestException as ex:
-            return create_api_base_response(str(ex), ex.error_code), 404
-        return create_api_base_response(ret_values), 200
+            return create_api_base_response(str(ex), ex.error)
+        return create_api_base_response(ret_values)
 
     def update_domain_settings(self, domain_id: str, new_data: dict) -> tuple[dict, int]:
         """
@@ -166,10 +166,10 @@ class InterfaceApiAdminConfig:
         try:
             _, ret_values = self.module.update_one_domain_settings(domain_id, new_data)
         except RequestException as ex:
-            return create_api_base_response(str(ex), ex.error_code), 404
+            return create_api_base_response(str(ex), ex.error)
         except ValidationError as ex:
-            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR), 400
-        return create_api_base_response(ret_values), 200
+            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR)
+        return create_api_base_response(ret_values)
 
     def delete_domain_settings(self, domain_id: str) -> tuple[dict, int]:
         """
@@ -183,5 +183,5 @@ class InterfaceApiAdminConfig:
         try:
             _ = self.module.delete_one_domain_setting(domain_id)
         except RequestException as ex:
-            return create_api_base_response(str(ex), ex.error_code), 404
+            return create_api_base_response(str(ex), ex.error)
         return {}, 200

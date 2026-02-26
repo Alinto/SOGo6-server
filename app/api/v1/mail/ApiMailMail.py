@@ -74,8 +74,8 @@ class ApiMailFolderIdMail(MethodView):
         interface: InterfaceApiMailMail = g.inter
         first = pagination_parameters.first_item
         last = pagination_parameters.last_item
-        pagination_parameters.item_count, ret, status = interface.get_mail_list(account_id, folder_name, first, last)
-        return ret, status
+        pagination_parameters.item_count, ret, http_code = interface.get_mail_list(account_id, folder_name, first, last)
+        return ret, http_code
 
 
 @blp.route("/batch-action")
@@ -204,7 +204,7 @@ class ApiMailDetailAction(MethodView):
                 filename = f"mail_{mail_uid}.zip"
             #TODO separate download/zip 
             return send_file(
-                ret,  # type: ignore[union-attr]
+                ret,  # type: ignore[arg-type]
                 mimetype="message/rfc822",
                 as_attachment=True,
                 download_name = filename

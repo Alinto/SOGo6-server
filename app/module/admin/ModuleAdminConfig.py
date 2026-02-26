@@ -318,7 +318,7 @@ class ModuleAdminConfig:
             logger.error("Something went wrong when updating the system settings, rows updated: %s, should be 1", ret)
             raise BugException(f"Something went wrong when updating the system settings, rows updated: {ret}, should be 1", err.ERROR_TABLE_SYSTEM_NOT_UNIQUE)
 
-        return err.ERROR_NO_ERRROR.c, values
+        return err.ERROR_NO_ERROR.c, values
 
 
     def update_system_settings(self, new_param: dict) -> tuple[str, dict]:
@@ -406,7 +406,7 @@ class ModuleAdminConfig:
             "origin": origins,
         }
 
-        return err.ERROR_NO_ERRROR.c, result
+        return err.ERROR_NO_ERROR.c, result
 
     def update_one_domain_settings(self, domain_id:str, new_param: dict) -> tuple[str, dict]:
         """
@@ -451,7 +451,7 @@ class ModuleAdminConfig:
             "origin": origins,
         }
 
-        return err.ERROR_NO_ERRROR.c, result
+        return err.ERROR_NO_ERROR.c, result
 
     def delete_one_domain_setting(self, domain_id:str) -> int:
         """

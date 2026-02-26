@@ -1,5 +1,6 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Dict, Any, Union, Tuple
+from http import HTTPStatus
 
 from flask import request
 
@@ -44,10 +45,10 @@ class InterfaceApiMailMailbox:
         """
         try:
             list_accounts = self.module_user_profile.list_accounts(self.user)
-            return create_api_base_response(list_accounts), 200
+            return create_api_base_response(list_accounts)
         except RequestException as ex:
             logger_api.error("Request exception in list_mailboxes for user %s: %s", self.user.uid, str(ex))
-            return create_api_base_response(None, ex.error_code), ex.http_status
+            return create_api_base_response(None, ex.error)
 
     def create_mailbox(self, account_data: dict) -> tuple[dict, int]:
         """Create a new mailbox (add external account).
@@ -59,14 +60,14 @@ class InterfaceApiMailMailbox:
         """
         # Check if external accounts are allowed for this domain
         if not self.user_module_settings.SOGO_D_ALLOW_EXT_MAIL_ACCOUNT:
-            return create_api_base_response(error = err.ERROR_EXTERNAL_ACCOUNT_FORBIDDEN), err.ERROR_EXTERNAL_ACCOUNT_FORBIDDEN.h
+            return create_api_base_response(error = err.ERROR_EXTERNAL_ACCOUNT_FORBIDDEN)
 
         try:
             account_response = self.module_user_profile.create_external_account(self.user.uid, account_data)
-            return create_api_base_response(account_response), 201
+            return create_api_base_response(account_response, code=HTTPStatus.CREATED)
         except RequestException as ex:
             logger_api.error("Request exception in create_mailbox for user %s: %s", self.user.uid, str(ex))
-            return create_api_base_response(None, ex.error_code), ex.http_status
+            return create_api_base_response(None, ex.error)
 
     def get_mailbox(self, account_id: str) -> tuple[dict, int]:
         """Get a specific account by its hash, or main account if account_id is "0".
@@ -80,14 +81,14 @@ class InterfaceApiMailMailbox:
         """
         # If requesting an external account (not "0") and external accounts are not allowed
         if account_id != cs.DEFAULT_IDENTITY_KEY_VALUE and not self.user_module_settings.SOGO_D_ALLOW_EXT_MAIL_ACCOUNT:
-            return create_api_base_response(error = err.ERROR_EXTERNAL_ACCOUNT_FORBIDDEN), err.ERROR_EXTERNAL_ACCOUNT_FORBIDDEN.h
+            return create_api_base_response(error = err.ERROR_EXTERNAL_ACCOUNT_FORBIDDEN)
 
         try:
             account = self.module_user_profile.get_account_detail(self.user, account_id)
-            return create_api_base_response(account), 200
+            return create_api_base_response(account)
         except RequestException as ex:
             logger_api.error("Request exception in get_mailbox for user %s, account %s: %s", self.user.uid, account_id, str(ex))
-            return create_api_base_response(None, ex.error_code), ex.http_status
+            return create_api_base_response(None, ex.error)
 
 
     def update_mailbox(self, account_id: str, account_data: dict[str, Any]) -> tuple[dict, int]:
@@ -106,17 +107,17 @@ class InterfaceApiMailMailbox:
                 updated_account = self.module_user_profile.update_main_account(self.user, account_data)
             except RequestException as ex:
                 logger_api.error("Request exception in update_mailbox for user %s, account %s: %s", self.user.uid, account_id, str(ex))
-                return create_api_base_response(None, ex.error_code), ex.http_status
-            return create_api_base_response(updated_account), 200
+                return create_api_base_response(None, ex.error)
+            return create_api_base_response(updated_account)
         else:
             if not self.user_module_settings.SOGO_D_ALLOW_EXT_MAIL_ACCOUNT:
-                return create_api_base_response(error = err.ERROR_EXTERNAL_ACCOUNT_FORBIDDEN), err.ERROR_EXTERNAL_ACCOUNT_FORBIDDEN.h
+                return create_api_base_response(error = err.ERROR_EXTERNAL_ACCOUNT_FORBIDDEN)
             try:
                 updated_account = self.module_user_profile.update_external_account(self.user, account_id, account_data)
             except RequestException as ex:
                 logger_api.error("Request exception in update_mailbox for user %s, account %s: %s", self.user.uid, account_id, str(ex))
-                return create_api_base_response(None, ex.error_code), ex.http_status
-            return create_api_base_response(updated_account), 200
+                return create_api_base_response(None, ex.error)
+            return create_api_base_response(updated_account)
 
 
     def delete_mailbox(self, account_id: str) -> tuple[str|dict, int]:
@@ -130,18 +131,18 @@ class InterfaceApiMailMailbox:
 
         # Check if trying to delete main account (account_id == "0")
         if account_id == cs.DEFAULT_IDENTITY_KEY_VALUE:
-            return create_api_base_response(error = err.ERROR_MAIN_ACCOUNT_CANNOT_BE_DELETED), err.ERROR_MAIN_ACCOUNT_CANNOT_BE_DELETED.h
+            return create_api_base_response(error = err.ERROR_MAIN_ACCOUNT_CANNOT_BE_DELETED)
 
         # Check if user can use external account
         if not self.user_module_settings.SOGO_D_ALLOW_EXT_MAIL_ACCOUNT:
-            return create_api_base_response(error = err.ERROR_EXTERNAL_ACCOUNT_FORBIDDEN), err.ERROR_EXTERNAL_ACCOUNT_FORBIDDEN.h
+            return create_api_base_response(error = err.ERROR_EXTERNAL_ACCOUNT_FORBIDDEN)
 
         try:
             self.module_user_profile.delete_external_account(self.user, account_id)
-            return "", 204
+            return "", HTTPStatus.NO_CONTENT
         except RequestException as ex:
             logger_api.error("Request exception in delete_mailbox for user %s, account %s: %s", self.user.uid, account_id, str(ex))
-            return create_api_base_response(None, ex.error_code), ex.http_status
+            return create_api_base_response(None, ex.error)
 
 
     def compose_email(self, account_id: int) ->  tuple[dict, int]:
@@ -167,13 +168,13 @@ class InterfaceApiMailMailbox:
         :rtype: tuple[dict, int]
         """
         if account_id != cs.DEFAULT_IDENTITY_KEY_VALUE:
-            return create_api_base_response(error = err.ERROR_EXTERNAL_ACCOUNT_FORBIDDEN), err.ERROR_EXTERNAL_ACCOUNT_FORBIDDEN.h
+            return create_api_base_response(error = err.ERROR_EXTERNAL_ACCOUNT_FORBIDDEN)
         try:
             delegations = self.module_user_profile.get_delegations_given(self.user)
-            return create_api_base_response(delegations), 200
+            return create_api_base_response(delegations)
         except RequestException as ex:
             logger_api.error("Request exception in get_mailbox_delegates for user %s, account %s: %s", self.user.uid, account_id, str(ex))
-            return create_api_base_response(None, ex.error_code), ex.http_status
+            return create_api_base_response(None, ex.error)
 
 
     def create_mailbox_delegate(self, account_id: str, data: dict) ->  tuple[dict, int]:
@@ -190,14 +191,14 @@ class InterfaceApiMailMailbox:
         :rtype: Tuple[Dict[str, Any], int]
         """
         if account_id != cs.DEFAULT_IDENTITY_KEY_VALUE:
-            return create_api_base_response(error = err.ERROR_EXTERNAL_ACCOUNT_FORBIDDEN), err.ERROR_EXTERNAL_ACCOUNT_FORBIDDEN.h
+            return create_api_base_response(error = err.ERROR_EXTERNAL_ACCOUNT_FORBIDDEN)
         try:
             delegate_email = data["email"]
             result = self.module_user_profile.add_delegation_given(self.user, delegate_email)
-            return create_api_base_response(result), 201
+            return create_api_base_response(result, code=HTTPStatus.CREATED)
         except RequestException as ex:
             logger_api.error("Request exception in create_mailbox_delegate for user %s, account %s: %s", self.user.uid, account_id, str(ex))
-            return create_api_base_response(None, ex.error_code), ex.http_status
+            return create_api_base_response(None, ex.error)
 
 
     def purge_mailbox(self, account_id: int) -> tuple[str|dict, int]:

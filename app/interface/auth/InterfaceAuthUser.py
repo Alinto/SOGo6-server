@@ -33,7 +33,6 @@ class InterfaceAuthUser:
         self.module_user_profile = ModuleUserProfile(process, default_domain)
 
 
-
     def get_login_mech(self, user_uid:str, redirect:str) -> tuple[dict, int]:
         """
         Get the login mech from a uid
@@ -48,8 +47,8 @@ class InterfaceAuthUser:
         try:
             ret = self.module_auth.get_login_mech(user_uid)
         except RequestException as e:
-            return create_api_base_response(str(e), e.error_code), 400
-        return create_api_base_response(ret), 200
+            return create_api_base_response(str(e), e.error)
+        return create_api_base_response(ret)
 
     def _check_login(self, uid:str, password:str) -> tuple[bool, User, ModuleUserSource]:
         """
@@ -85,7 +84,7 @@ class InterfaceAuthUser:
         success, user, module_us = self._check_login(uid, password)
 
         if not success:
-            return create_api_base_response(), 401
+            return create_api_base_response()
 
         # Generate the voucher for the authenticated user
         ret = self.module_auth.generate_voucher_from_user(user)
@@ -95,9 +94,9 @@ class InterfaceAuthUser:
                 self.module_user_profile.create_user_profile(user)
         except RequestException as ex:
             logger_api.error("Request exception when onboarding user %s: %s", uid, str(ex))
-            return create_api_base_response(None, ex.error_code), ex.http_status
+            return create_api_base_response(None, ex.error)
 
-        return create_api_base_response(ret), 200
+        return create_api_base_response(ret)
 
     def check_user_and_fill_info(self, user:User) -> bool:
         """
@@ -114,4 +113,4 @@ class InterfaceAuthUser:
             module_us.fill_user(user)
             self.module_user_profile.get_user_profile(user)
         return success
-        
+
