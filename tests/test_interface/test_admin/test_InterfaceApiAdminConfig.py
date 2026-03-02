@@ -97,9 +97,9 @@ class FakeModuleAdminConfig:
         self.update_domain_default_settings_args = new_param
         return self.update_domain_default_settings_result
 
-    def get_all_domains_settings(self, offset, limit, sort_by, order):
+    def get_all_domains_settings(self, offset, limit, columns=None, sort_by=None, order=None):
         """Get all domains settings."""
-        self.get_all_domains_settings_args = (offset, limit, sort_by, order)
+        self.get_all_domains_settings_args = (offset, limit, columns, sort_by, order)
         return self.get_all_domains_settings_result
 
     def create_domain_settings(self, new_domain):
@@ -263,7 +263,8 @@ def test_get_all_domain_settings_success(monkeypatch):
     interface = InterfaceApiAdminConfig(process_setting=process_setting)
 
     count, result, status_code = interface.get_all_domain_settings(
-        first_item=0, last_item=10, sort="domain_name", order_str="asc"
+        first_item=0, last_item=10,
+        sort_args={"sort_by": "domain_name", "sort_order": "asc"},
     )
 
     assert status_code == 200
@@ -272,7 +273,7 @@ def test_get_all_domain_settings_success(monkeypatch):
     assert result["data"][0]["domain_id"] == "example.com"
     assert fake_module.get_all_domains_settings_args[0] == 0  # offset
     assert fake_module.get_all_domains_settings_args[1] == 11  # limit
-    assert fake_module.get_all_domains_settings_args[3] == Order.ASC  # order
+    assert fake_module.get_all_domains_settings_args[4] == Order.ASC  # order
 
 
 def test_get_all_domain_settings_invalid_order(monkeypatch):
@@ -284,7 +285,8 @@ def test_get_all_domain_settings_invalid_order(monkeypatch):
     interface = InterfaceApiAdminConfig(process_setting=process_setting)
 
     count, result, status_code = interface.get_all_domain_settings(
-        first_item=0, last_item=10, sort="", order_str="invalid"
+        first_item=0, last_item=10,
+        sort_args={"sort_by": None, "sort_order": "invalid"},
     )
 
     assert status_code == 400
@@ -310,7 +312,8 @@ def test_get_all_domain_settings_invalid_sort_column(monkeypatch):
     interface = InterfaceApiAdminConfig(process_setting=process_setting)
 
     count, result, status_code = interface.get_all_domain_settings(
-        first_item=0, last_item=10, sort="invalid_column", order_str="asc"
+        first_item=0, last_item=10,
+        sort_args={"sort_by": "invalid_column", "sort_order": "asc"},
     )
 
     assert status_code == 400
@@ -330,15 +333,15 @@ def test_get_all_domain_settings_no_sort_order(monkeypatch):
     interface = InterfaceApiAdminConfig(process_setting=process_setting)
 
     count, _result, status_code = interface.get_all_domain_settings(
-        first_item=5, last_item=15, sort="", order_str=""
+        first_item=5, last_item=15,
     )
 
     assert status_code == 200
     assert count == 2
     assert fake_module.get_all_domains_settings_args[0] == 5  # offset
     assert fake_module.get_all_domains_settings_args[1] == 11  # limit
-    assert fake_module.get_all_domains_settings_args[2] is None  # sort_by
-    assert fake_module.get_all_domains_settings_args[3] == Order.ASC  # order (default)
+    assert fake_module.get_all_domains_settings_args[3] is None  # sort_by
+    assert fake_module.get_all_domains_settings_args[4] == Order.ASC  # order (default)
 
 
 # ========== Tests for post_new_domain_settings ==========

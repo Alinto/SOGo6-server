@@ -9,7 +9,7 @@ import mysql.connector
 from mysql.connector import Error, ProgrammingError  # pylint: disable=no-name-in-module
 
 from app.utils.db.Table import Table, REX_VALID_NAMES
-from app.utils.db.Condition import Condition, EqualCondition, NotEqualCondition, AndCondition, OrCondition, TrueCondition
+from app.utils.db.Condition import Condition, EqualCondition, NotEqualCondition, AndCondition, OrCondition, TrueCondition, Order
 from app.utils import errors as err
 from app.utils.exceptions import RequestException, BugException
 from app.utils.logger.logger import logger, logger_sql
@@ -351,7 +351,9 @@ class ClientMySQL(ClientSQL):
 
         return ret
 
-    def select_from_table(self, table_name: str, column_tuple: tuple[str, ...], condition: Condition, offset: int = 0, limit: int = 0) -> Generator[tuple[Any, ...], None, None]:
+    def select_from_table(self, table_name: str, column_tuple: tuple[str, ...], condition: Condition,
+                          offset: int = 0, limit: int = 0,
+                          sort_by: str | None = None, order: Order = Order.ASC) -> Generator[tuple[Any, ...], None, None]:
         """
         Select values from a table under conditions
 
@@ -368,6 +370,10 @@ class ClientMySQL(ClientSQL):
         :type offset: int
         :param limit: Maximum number of rows to return, defaults to 0 (no limit)
         :type limit: int
+        :param sort_by: Column name to sort by, defaults to None
+        :type sort_by: str | None
+        :param order: Sort direction (ASC or DESC), defaults to Order.ASC
+        :type order: Order
         :yield: A generator, each item is a tuple with the values corresponding to the column_tuple param
         :rtype: Generator[tuple[Any, ...], None, None]
         """
@@ -383,6 +389,12 @@ class ClientMySQL(ClientSQL):
 
         cond_sql, params = condition_to_query(condition, add_where=True)
 
+        # Build ORDER BY clause
+        order_clause = ""
+        if sort_by:
+            order_direction = "ASC" if order == Order.ASC else "DESC"
+            order_clause = f" ORDER BY `{sort_by}` {order_direction}"
+
         # Build LIMIT and OFFSET clauses
         limit_clause = ""
         if limit > 0:
@@ -392,7 +404,7 @@ class ClientMySQL(ClientSQL):
         if offset > 0:
             offset_clause = f" OFFSET {offset}"
 
-        sql_query = f"SELECT {columns_sql} FROM `{table_name}` {cond_sql}{limit_clause}{offset_clause}"
+        sql_query = f"SELECT {columns_sql} FROM `{table_name}` {cond_sql}{order_clause}{limit_clause}{offset_clause}"
 
         logger_sql.info("QUERY COMMAND: %s -- params=%s", sql_query, params)
 

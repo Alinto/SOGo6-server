@@ -2,14 +2,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Type, Callable
 
 from marshmallow import EXCLUDE
-
+import json
 from app.config.db import tables as tbl
 from app.config.settings.SystemSettings import get_all_system_schemas
 from app.config.settings.DomainSettings import get_all_domain_schemas
 from app.config.settings.DynamicFormSettings import create_dynamic_dict_for_settings
 from app.config.settings.SogoSchema import SogoSchema, check_data_for_sogo_schemas
 from app.utils.dict import merge_patch, set_origin_from_settings
-from app.utils.db.Condition import EqualCondition, NotEqualCondition, TrueCondition, Order
+from app.utils.db.Condition import EqualCondition, NotEqualCondition, TrueCondition, Order, order_str_to_order_enum
 from app.utils.db.Table import Column
 from app.utils.exceptions import AggravatedException, BugException, RequestException
 from app.utils.logger.logger import logger, logger_api
@@ -131,57 +131,46 @@ class ModuleAdminConfig:
         return self._get_setting_from_table_settings((tbl.COL_SETTINGS_SYSTEM.name,tbl.COL_SETTINGS_DOMAIN_DEFAULT.name))
 
     def get_all_domains_settings(self, offset: int = 0, limit: int = 0,
-                                 columns: tuple[Column, ...]|None = None,
-                                 sort_by: Column|None = None,
-                                 order: Order = Order.ASC) -> tuple[int,list]:
+                                include_fields: str | None = None,
+                                sort_by: str | None = None,
+                                sort_order: str = "asc") -> tuple[int, list]:
+        """Return a list of all domains settings with pagination, sorting and filtering options
         """
-        Return all the settings for specific domains with pagination and sorting
-
-        :param offset: Number of rows to skip, defaults to 0
-        :type offset: int
-        :param limit: Maximum number of rows to return, defaults to 0 (no limit)
-        :type limit: int
-        :param columns: Database columns to query, defaults to None (all columns)
-        :type columns: tuple[Column, ...]|None
-        :param sort_by: Column to sort by, defaults to None
-        :type sort_by: Column|None
-        :param order: Sort direction (ASC or DESC), defaults to Order.ASC
-        :type order: Order
-        :return: Tuple containing total count and list of domain settings
-        :rtype: tuple[int, list]
-        """
-
-        if columns is not None:
-            for column in columns:
-                if column.name not in tbl.TABLE_DOMAIN.columns_name:
-                    raise BugException(f"Trying to query a column {column.name} that does not exist in {tbl.TABLE_DOMAIN.name}")
-            column_tuple = tuple(col.name for col in columns)
+        # Validation of the requested columns.
+        if include_fields:
+            requested = {f.strip() for f in include_fields.split(",") if f.strip()}
+            columns = [tbl.TABLE_DOMAIN.get_column_from_name(f) for f in requested]
+            column_names = [col.name for col in columns]
         else:
-            column_tuple = tuple(col.name for col in tbl.TABLE_DOMAIN.columns)
+            column_names = [col.name for col in tbl.TABLE_DOMAIN.columns]
 
-        if sort_by and sort_by not in tbl.TABLE_DOMAIN.columns:
-            raise BugException(f"Trying to sort by a column {sort_by.name} that does not exist in {tbl.TABLE_DOMAIN.name}")
+        # Validation of sorting parameters
+        order = Order.ASC if sort_order == "asc" else Order.DESC
+        sort_column = tbl.TABLE_DOMAIN.get_column_from_name(sort_by).name if sort_by else None
 
+        # Fetch data from the database
         self.sogo_db_manager.connect()
-
-        #Get the current system settings, purposely put a "true" condition to check if there is only 1 row.
         cond_select = TrueCondition()
         count = self.sogo_db_manager.count_row_in_table(table_name=tbl.TABLE_DOMAIN.name, condition=cond_select)
-        result = []
-        for record in self.sogo_db_manager.select_from_table(table_name=tbl.TABLE_DOMAIN.name,
-                                               column_tuple=column_tuple,
-                                               condition=cond_select,
-                                               offset=offset,
-                                               limit=limit):
-            record_dict = {}
-            for idx, col in enumerate(column_tuple):
-                if col == tbl.COL_DOMAIN_SETTINGS.name:
-                    record_dict["settings"] = record[idx]
-                else:
-                    record_dict[col] = record[idx]
-            result.append(record_dict)
+        result = list(self.sogo_db_manager.select_from_table(
+            table_name=tbl.TABLE_DOMAIN.name,
+            column_tuple=tuple(column_names),
+            condition=cond_select,
+            offset=offset,
+            limit=limit,
+            sort_by=sort_column,
+            order=order,
+        ))
 
-        return count, result
+        # Process results into a list of dictionaries
+        ret = []
+        for record in result:
+            record_dict = dict(zip(column_names, record))
+            if "settings" in record_dict:
+                record_dict["settings"] = json.loads(record_dict["settings"])  # si nécessaire
+            ret.append(record_dict)
+
+        return count, ret
 
     def get_one_domain_setting(self, domain_id:str, columns: tuple[Column, ...]|None = None) -> dict:
         """

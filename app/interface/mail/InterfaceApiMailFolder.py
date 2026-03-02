@@ -89,7 +89,7 @@ class InterfaceApiMailFolder:
             return create_api_base_response(folder_details)
         except RequestException as ex:
             logger_api.error("Request exception in get_one_folder: %s", str(ex))
-            return create_api_base_response(None, ex)
+            return create_api_base_response(None, ex.error)
 
     def delete_folder(self, account_id: str, folder_name: str) -> tuple[str|dict[str, Any], int]:
         """Delete a mail folder.

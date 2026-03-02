@@ -1,12 +1,10 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from marshmallow.exceptions import ValidationError
 
-from app.config.db import tables as tbl
 from app.module.admin.ModuleAdminConfig import ModuleAdminConfig
 from app.utils.api.ApiBaseResponse import create_api_base_response
-from app.utils.db.Condition import Order, order_str_to_order_enum
 from app.utils.exceptions import RequestException, BugException
 from app.utils import errors as err
 
@@ -81,42 +79,31 @@ class InterfaceApiAdminConfig:
         return create_api_base_response(ret_values)
 
 
-    def get_all_domain_settings(self, first_item: int = 0, last_item: int = 20, sort: str = "", order_str: str = "") -> tuple[int, dict, int]:
+    def get_all_domain_settings(self, first_item: int = 0, last_item: int = 20,
+                                sort_args: dict | None = None,
+                                fields_args: dict | None = None) -> tuple[int, dict, int]:
         """
-        Fetch all domains according to pagination params, order and sorting
-
-        :param first_item: Index of the first item to retrieve, defaults to 0
-        :type first_item: int
-        :param last_item: Index of the last item to retrieve, defaults to 20
-        :type last_item: int
-        :param sort: Column name to sort by, defaults to ""
-        :type sort: str
-        :param order_str: Sort direction ("asc" or "desc"), defaults to ""
-        :type order_str: str
-        :return: Tuple containing total count, API response dict, and HTTP status code
-        :rtype: tuple[int, dict, int]
+        Return the list of all domains settings with pagination, sorting and filtering options
         """
         offset = first_item
         limit = last_item - first_item + 1
+        try:
+            count, ret = self.module.get_all_domains_settings(
+                offset=offset,
+                limit=limit,
+                include_fields=fields_args.get("include_fields") if fields_args else None,
+                sort_by=sort_args.get("sort_by") if sort_args else None,
+                sort_order=sort_args.get("sort_order", "asc") if sort_args else "asc",
+            )
+        except RequestException as ex:
+            response, status_code = create_api_base_response(str(ex), ex.error)
+            return 0, response, status_code
+        except BugException as ex:
+            response, status_code = create_api_base_response(str(ex), err.ERROR_BUG_UNKNWON_COLUMN)
+            return 0, response, status_code
+        response, status_code = create_api_base_response(ret)
+        return count, response, status_code
 
-        if order_str:
-            try:
-                order = order_str_to_order_enum(order_str)
-            except BugException as exc:
-                return 0, *create_api_base_response(str(exc), err.ERROR_BUG_UNKNOWN_ORDER) #TODO: 500?
-        else:
-            order = Order.ASC
-
-        if sort:
-            try:
-                sort_by = tbl.TABLE_DOMAIN.get_column_from_name(sort)
-            except RequestException as exc:
-                return 0, *create_api_base_response(str(exc), exc.error)
-        else:
-            sort_by = None
-
-        count, ret = self.module.get_all_domains_settings(offset=offset, limit=limit, sort_by=sort_by, order=order)
-        return count, *create_api_base_response(ret)
 
     def post_new_domain_settings(self, new_domain: dict) ->tuple[dict, int]:
         """
