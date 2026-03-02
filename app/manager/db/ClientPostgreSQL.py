@@ -10,7 +10,7 @@ from psycopg.sql import SQL, Literal, Placeholder, Identifier, Composed
 from psycopg.types.json import Jsonb
 
 from app.utils.db.Table import Table, REX_VALID_NAMES
-from app.utils.db.Condition import Condition, EqualCondition, NotEqualCondition, AndCondition, OrCondition, TrueCondition
+from app.utils.db.Condition import Condition, EqualCondition, NotEqualCondition, AndCondition, OrCondition, TrueCondition, Order
 from app.utils import errors as err
 from app.utils.exceptions import RequestException, BugException
 from app.utils.logger.logger import logger, logger_sql
@@ -318,19 +318,29 @@ class ClientPostgreSQL(ClientSQL):
 
         return ret
 
-    def select_from_table(self, table_name: str, column_tuple: tuple[str, ...], condition: Condition, offset: int = 0, limit: int = 0) -> Generator[tuple[Any, ...]]:
+    def select_from_table(self, table_name: str, column_tuple: tuple[str, ...], condition: Condition,
+                          offset: int = 0, limit: int = 0,
+                          sort_by: str | None = None, order: Order = Order.ASC) -> Generator[tuple[Any, ...]]:
         """
         Select values from a table under conditions
 
         offset = 0 means not offset
         limit = 0 means not limit (LIMIT ALL)
 
-        :param table_name: Name fo the table
+        :param table_name: Name of the table
         :type table_name: str
         :param column_tuple: Tuple of the column name to select
         :type column_tuple: tuple[str]
         :param condition: Condition on the query
         :type condition: Condition
+        :param offset: Number of rows to skip, defaults to 0
+        :type offset: int
+        :param limit: Maximum number of rows to return, defaults to 0 (no limit)
+        :type limit: int
+        :param sort_by: Column name to sort by, defaults to None
+        :type sort_by: str | None
+        :param order: Sort direction (ASC or DESC), defaults to Order.ASC
+        :type order: Order
         :yield: A generator, each item is a tuple with the values corresponding to the column_tuple param
         :rtype: Generator[tuple[Any, ...]]
         """
@@ -343,12 +353,23 @@ class ClientPostgreSQL(ClientSQL):
         else:
             limit_query = Composed([Literal(limit)])
 
-        sql_query = SQL("SELECT {columns} FROM {table_name} {conditions} LIMIT {limit} OFFSET {offset}").format(
+        # Build ORDER BY clause
+        if sort_by:
+            order_direction = SQL("ASC") if order == Order.ASC else SQL("DESC")
+            order_clause = SQL("ORDER BY {col} {dir}").format(
+                col=Identifier(sort_by),
+                dir=order_direction,
+            )
+        else:
+            order_clause = Composed([SQL("")])
+
+        sql_query = SQL("SELECT {columns} FROM {table_name} {conditions} {order} LIMIT {limit} OFFSET {offset}").format(
             columns=SQL(", ").join(map(SQL, column_tuple)),
             table_name=Identifier(table_name),
             conditions=condition_to_query(condition, add_where=True),
-            limit = limit_query,
-            offset = Literal(offset)
+            order=order_clause,
+            limit=limit_query,
+            offset=Literal(offset)
         )
 
         logger_sql.info("QUERY COMMAND 2: %s",sql_query.as_string())

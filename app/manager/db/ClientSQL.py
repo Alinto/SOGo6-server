@@ -3,7 +3,7 @@ from abc import abstractmethod, ABCMeta
 from app.utils.logger.logger import logger, logger_sql
 
 from app.utils.db.Table import Table
-from app.utils.db.Condition import Condition
+from app.utils.db.Condition import Condition, Order
 
 class ClientSQL(metaclass=ABCMeta):
     """
@@ -48,9 +48,26 @@ class ClientSQL(metaclass=ABCMeta):
         raise NotImplementedError
 
     @abstractmethod
-    def select_from_table(self, table_name: str, column_tuple: tuple[str, ...], condition: Condition, offset: int = 0, limit: int = 0) -> Generator[tuple[Any, ...]]:
+    def select_from_table(self, table_name: str, column_tuple: tuple[str, ...], condition: Condition,
+                          offset: int = 0, limit: int = 0,
+                          sort_by: str | None = None, order: Order = Order.ASC) -> Generator[tuple[Any, ...]]:
         """
         select values from a table
+
+        :param table_name: Name of the table
+        :type table_name: str
+        :param column_tuple: Tuple of the column names to select
+        :type column_tuple: tuple[str, ...]
+        :param condition: Condition on the query
+        :type condition: Condition
+        :param offset: Number of rows to skip, defaults to 0
+        :type offset: int
+        :param limit: Maximum number of rows to return, defaults to 0 (no limit)
+        :type limit: int
+        :param sort_by: Column name to sort by, defaults to None
+        :type sort_by: str | None
+        :param order: Sort direction (ASC or DESC), defaults to Order.ASC
+        :type order: Order
         """
         logger_sql.error("Method 'select_from_table' of clientSQL must be implemented by the children %s", type(self).__name__)
         raise NotImplementedError

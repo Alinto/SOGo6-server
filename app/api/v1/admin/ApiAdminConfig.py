@@ -9,12 +9,12 @@ from flask_smorest import Blueprint
 from app.service import sogo_cache
 from app.interface.admin.InterfaceApiAdminConfig import InterfaceApiAdminConfig
 from app.utils.logger.logger import logger_api
+from app.utils.api.paginate_sort_filter import custom_paginate
 
 from .schema import adminConfig as sch
 
 if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
-    from app.utils.api.pagin_sort_filter import FakePaginationParameters
 
 
 
@@ -105,17 +105,18 @@ class ApiAdminConfigDomain(MethodView):
     """
     Collection, each resource is the sogo's settings associated to a domain
     """
-    @blp.paginate(page=1, page_size=20, max_page_size=100)
     @blp.response(200)
-    def get(self, pagination_parameters: FakePaginationParameters) -> ResponseReturnValue:
+    @custom_paginate(blp)
+    def get(self, first: int, last: int, fields_args: dict, sort_args: dict) -> ResponseReturnValue:
         """
         Collection, get the list of domains settings
         """
         interface_api : InterfaceApiAdminConfig = g.inter
-        first = pagination_parameters.first_item
-        last = pagination_parameters.last_item
-        pagination_parameters.item_count, ret, status  = interface_api.get_all_domain_settings(first, last)
-        return ret, status
+        return interface_api.get_all_domain_settings( # type: ignore # TODO: fix type hinting for custom_paginate
+            first, last,
+            sort_args=sort_args,
+            fields_args=fields_args,
+        )
 
     @blp.arguments(sch.AdminConfigDomainPostSchema, example=sch.AdminConfigDomainPostSchema.example(), error_status_code=400)
     @blp.response(200, sch.AdminConfigDomainGetSchema, example=sch.AdminConfigDomainGetSchema.example())

@@ -10,6 +10,7 @@ from flask_smorest import Blueprint
 
 from app.interface.mail.InterfaceApiMailMail import InterfaceApiMailMail
 from app.utils.logger.logger import logger_api
+from app.utils.api.paginate_sort_filter import custom_paginate
 from .schemas.mail import (
     MailDetailResponseSchema,
     MailListResponseSchema,
@@ -20,7 +21,6 @@ from .schemas.mail import (
 
 if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
-    from app.utils.api.pagin_sort_filter import FakePaginationParameters
     from app.auth.User import User
 
 blp = Blueprint("Mail", __name__, url_prefix="/mailboxes/<string:account_id>/folders/<path:folder_name>/mails")
@@ -53,30 +53,41 @@ class ApiMailFolderIdMail(MethodView):
     API to list mails in a specific mail folder
     """
 
-    @blp.paginate(page=1, page_size=20, max_page_size=100)
     @blp.response(200, MailListResponseSchema, example=MailListResponseSchema.example())
-    def get(self, pagination_parameters: FakePaginationParameters, account_id: str, folder_name: str) -> ResponseReturnValue:
+    @custom_paginate(blp)
+    def get(self, first: int, last: int, fields_args: dict, sort_args: dict, account_id: str, folder_name: str) -> ResponseReturnValue:
         """Fetch the list of mails in a specific folder.
 
-        :param pagination_parameters: Flask-Smorest pagination parameters
-        :type pagination_parameters: FakePaginationParameters
-        :param account_id: The ID of the account
+        :param first: The index of the first mail to retrieve (for pagination)
+        :type first: int
+        :param last: The index of the last mail to retrieve (for pagination)
+        :type last: int
+        :param fields_args: The fields to include in the response (for field filtering)
+        :type fields_args: dict
+        :param sort_args: The sorting parameters (for sorting)
+        :type sort_args: dict
+        :param account_id: The account identifier
         :type account_id: str
-        :param folder_name: The ID of the folder
+        :param folder_name: The folder identifier
         :type folder_name: str
-        :return: A list of mails in the specified folder with pagination info
-        :rtype: ResponseReturnValue
+        :return: A tuple of (item count, API response dict, status code)
+        :rtype: Tuple[int, dict, int]
         """
         logger_api.debug(
-            "Calling ApiMailFolderIdMail: Fetching mail list for account_id: %s, folder_name: %s, first: %s, last: %s",
-            account_id, folder_name, pagination_parameters.first_item, pagination_parameters.last_item
+            "Calling ApiMailFolderIdMail: Fetching mail list for account_id: %s, folder_name: %s, first: %s, last: %s, sort_by: %s, sort_order: %s, fields: %s",
+            account_id, folder_name,
+            first, last,
+            sort_args.get("sort_by"), sort_args.get("sort_order"),
+            fields_args.get("include_fields"),
         )
         interface: InterfaceApiMailMail = g.inter
-        first = pagination_parameters.first_item
-        last = pagination_parameters.last_item
-        pagination_parameters.item_count, ret, http_code = interface.get_mail_list(account_id, folder_name, first, last)
-        return ret, http_code
 
+        item_count, response, status_code = (
+            interface.get_mail_list(account_id, folder_name, first, last)
+        )
+
+        #return item_count, response, status_code
+        return response, status_code
 
 @blp.route("/batch-action")
 class ApiMailFolderIdAction(MethodView):
