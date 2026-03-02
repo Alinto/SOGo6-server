@@ -513,7 +513,7 @@ class ClientImap(ClientMailServer):
                 # Get message counts (unseen and total)
                 if folder.nb_mails is None or folder.nb_unseen is None:
                     folder.nb_mails, folder.nb_unseen = self._get_folder_message_counts(folder.path)
-                
+
                 url_path = folder.path
                 if folder.delimiter != ".":
                     url_path = folder.path.replace(folder.delimiter, ".")
