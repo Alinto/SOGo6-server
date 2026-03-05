@@ -29,6 +29,18 @@ USER_CLASS_GROUP = "group"     #Group of one or sevral users
 USER_CLASS_RES   = "ressource" #Ressource, location, room, things...
 USER_CLASS_ANY   = "anyone"    #Anyone (and anything) that can be authenticated
 USER_CLASS_ANON  = "anonymous"
+# Sorted set used to index user sessions by last activity timestamp.
+# Each member is a ``user_session:<uuid>`` key and its score is the
+# Unix timestamp of the last activity.
+ZSET_USER_SESSIONS_ACTIVITY = "user_sessions:activity"
+# Sorted set used to index user sessions by uid (lexicographic score).
+# Each member is a ``user_session:<uuid>`` key and its score is derived
+# from the uid string so that sessions can be sorted / filtered by uid.
+ZSET_USER_SESSIONS_UID = "user_sessions:uid"
+# Sorted set used to index user sessions by domain (lexicographic score).
+# Each member is a ``user_session:<uuid>`` key and its score is derived
+# from the domain string so that sessions can be sorted / filtered by domain.
+ZSET_USER_SESSIONS_DOMAIN = "user_sessions:domain"
 
 JWT_ISS = "iss"
 JWT_EXP = "exp"

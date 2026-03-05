@@ -4,7 +4,6 @@ from cryptography.fernet import Fernet, InvalidToken
 from base64 import urlsafe_b64decode, urlsafe_b64encode
 from json import loads as js_loads, dumps as js_dumps, JSONDecodeError
 from uuid import uuid4
-from datetime import datetime, timezone
 import time
 
 from app.auth.User import User, UserAnonymous
@@ -58,11 +57,31 @@ class VoucherUserService:
 
         user_session = {
             cs.USER_UID: user.uid,
+            cs.USER_DOMAIN: user.domain,
             cs.SESSION_SENSITIVE: sensitive_data,
-            cs.SESSION_LAST_SEEN: datetime.now(timezone.utc).isoformat()
+            cs.SESSION_LAST_SEEN: int(time.time())
         }
 
         sogo_cache().hashset(f"user_session:{user_session_id}", user_session, cs.TTL_1D)
+        # Index the session in the sorted set so that we can paginate / sort
+        # active sessions by last-activity without scanning all keys.
+        sogo_cache().zset_add(
+            cs.ZSET_USER_SESSIONS_ACTIVITY,
+            f"user_session:{user_session_id}",
+            int(time.time()),
+        )
+        # Index the session by uid score so that sessions can be sorted / filtered by uid.
+        sogo_cache().zset_add(
+            cs.ZSET_USER_SESSIONS_UID,
+            f"user_session:{user_session_id}",
+            self._string_to_sort_score(user.uid),
+        )
+        # Index the session by domain score so that sessions can be sorted / filtered by domain.
+        sogo_cache().zset_add(
+            cs.ZSET_USER_SESSIONS_DOMAIN,
+            f"user_session:{user_session_id}",
+            self._string_to_sort_score(user.domain),
+        )
 
         #Generate the voucher
         voucher_payload = user.get_voucher_payload()
@@ -116,6 +135,12 @@ class VoucherUserService:
 
         raise RequestException("Wrong data type for voucher")
 
+    def _string_to_sort_score(self, s: str) -> int:
+        """Convert a string to an integer score for sorting purposes."""
+        score = 0
+        for char in s:
+            score = (score << 8) | ord(char)  # Décalage de 8 bits pour chaque caractère
+        return score
 
     def _get_user_session_from_payload(self, payload:dict) -> User:
         """
@@ -165,13 +190,30 @@ class VoucherUserService:
             raise BugException("sensitive data for user session is not a json") from e
 
         user = User.init_from_user_session(user_data)
-        # Update the last activity timestamp in Redis
+        # Update the last activity timestamp in both the hash and the sorted set
         new_last_seen = int(time.time())
         logger.debug("Updating last_activity for session %s: %s -> %s", session_id, user_session_data.get(cs.SESSION_LAST_SEEN), new_last_seen)
         sogo_cache().hashset(
             f"user_session:{session_id}",
             {cs.SESSION_LAST_SEEN: new_last_seen},
             ttl=0
+        )
+        sogo_cache().zset_add(
+            cs.ZSET_USER_SESSIONS_ACTIVITY,
+            f"user_session:{session_id}",
+            new_last_seen,
+        )
+        # Keep the uid score index in sync (uid doesn't change but the entry must remain consistent).
+        sogo_cache().zset_add(
+            cs.ZSET_USER_SESSIONS_UID,
+            f"user_session:{session_id}",
+            self._string_to_sort_score(user.uid),
+        )
+        # Keep the domain score index in sync.
+        sogo_cache().zset_add(
+            cs.ZSET_USER_SESSIONS_DOMAIN,
+            f"user_session:{session_id}",
+            self._string_to_sort_score(user.domain),
         )
         logger.info("From voucher get user: %s", user)
 
