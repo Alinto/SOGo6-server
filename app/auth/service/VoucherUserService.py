@@ -4,6 +4,8 @@ from cryptography.fernet import Fernet, InvalidToken
 from base64 import urlsafe_b64decode, urlsafe_b64encode
 from json import loads as js_loads, dumps as js_dumps, JSONDecodeError
 from uuid import uuid4
+from datetime import datetime, timezone
+import time
 
 from app.auth.User import User, UserAnonymous
 from app.auth.voucher.Voucher import Voucher
@@ -53,11 +55,11 @@ class VoucherUserService:
             sensitive_data = session_fernet.encrypt(user_session_sensitive_data.encode("utf-8"))
         except (ValueError,InvalidToken) as e:
             raise BugException("Cannot encrypt user session") from e
-        
+
         user_session = {
             cs.USER_UID: user.uid,
-            
-            cs.SESSION_SENSITIVE: sensitive_data
+            cs.SESSION_SENSITIVE: sensitive_data,
+            cs.SESSION_LAST_SEEN: datetime.now(timezone.utc).isoformat()
         }
 
         sogo_cache().hashset(f"user_session:{user_session_id}", user_session, cs.TTL_1D)
@@ -143,11 +145,11 @@ class VoucherUserService:
         if not user_session_data:
             logger_auth.info("User session for %s is expired or does not exist", voucher_user_uid)
             return UserAnonymous()
-        
+
         if not voucher_user_uid == user_session_data[cs.USER_UID]:
             logger_auth.warning("Voucher user uid %s does not match the user session uid", voucher_user_uid)
             return UserAnonymous()
-        
+
         #Get the sensitive data and try to decrypt it with session_token
         sensitive_data_encrypted = user_session_data[cs.SESSION_SENSITIVE]
         try:
@@ -155,18 +157,22 @@ class VoucherUserService:
             sensitive_data = session_fernet.decrypt(sensitive_data_encrypted)
         except (ValueError,InvalidToken) as e:
             raise RequestException("Cannot decrypt usser session with session token given in Voucher") from e
-        
+
         try:
             #sensitive data is supposed to be a json. At least check that
             user_data = js_loads(sensitive_data)
         except JSONDecodeError as e:
             raise BugException("sensitive data for user session is not a json") from e
-        
-        user = User.init_from_user_session(user_data)
-        
 
+        user = User.init_from_user_session(user_data)
+        # Update the last activity timestamp in Redis
+        new_last_seen = int(time.time())
+        logger.debug("Updating last_activity for session %s: %s -> %s", session_id, user_session_data.get(cs.SESSION_LAST_SEEN), new_last_seen)
+        sogo_cache().hashset(
+            f"user_session:{session_id}",
+            {cs.SESSION_LAST_SEEN: new_last_seen},
+            ttl=0
+        )
         logger.info("From voucher get user: %s", user)
 
         return user
-
-        
