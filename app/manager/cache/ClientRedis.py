@@ -1,3 +1,4 @@
+from collections.abc import Generator
 from json import dumps as json_dumps, loads as json_loads
 from json.decoder import JSONDecodeError
 from typing import cast, Type
@@ -126,7 +127,6 @@ class ClientRedis():
             try:
                 result: list|dict = json_loads(result_str)
             except (TypeError, JSONDecodeError) as e:
-                logger_cache.error("list/dict stored in redis is not a Json")
                 raise BugException("list/dict stored in redis is not a Json", err.ERROR_CACHE_DATA_NOT_JSON) from e
             return result
         logger_cache.info("Get no value for key '%s'", key)
@@ -174,6 +174,143 @@ class ClientRedis():
             logger_cache.info("Hashget no cached value for key '%s'", key)
         return ret
 
+
+    # -- Sorted-set helpers --------------------------------------------------
+
+    def zset_add(self, zset_key: str, member: str, score: float) -> None:
+        """
+        Add (or update) a member in a sorted set with the given score.
+
+        :param zset_key: name of the sorted set
+        :param member: member value (e.g. "user_session:<uuid>")
+        :param score: score used for ordering (e.g. a Unix timestamp)
+        """
+        self.redis.zadd(zset_key, {member: score})
+        logger_cache.debug("zadd %s -> member=%s score=%s", zset_key, member, score)
+
+    def zset_remove(self, zset_key: str, *members: str) -> int:
+        """
+        Remove one or more members from a sorted set.
+
+        :return: number of members actually removed
+        """
+        removed = cast(int, self.redis.zrem(zset_key, *members))
+        logger_cache.debug("zrem %s -> members=%s removed=%d", zset_key, members, removed)
+        return removed
+
+    def zset_count(self, zset_key: str) -> int:
+        """
+        Return the total number of members in a sorted set
+        """
+        return cast(int, self.redis.zcard(zset_key))
+
+    def zset_paginate_hashes(
+        self,
+        zset_key: str,
+        first: int = 0,
+        last: int = 0,
+        sort_by: str | None = None,
+        sort_order: str = "desc",
+        include_fields: str | None = None,
+    ) -> tuple[int, list[dict]]:
+        """
+        Paginate through hash keys referenced in a sorted set.
+
+        :param zset_key: name of the sorted set (e.g. "user_sessions:activity")
+        :param first: offset of the first item to return
+        :param last: index of the last item (exclusive).
+        :param sort_by: hash field to sort on.  None means use the
+            sorted-set score (fast path).  Any other value triggers the
+            in-memory fallback.
+        :param sort_order: "asc" or "desc" (default "desc")
+        :param include_fields: comma-separated list of hash fields to keep
+            in each returned dict (None = return all fields)
+        :return: (total_count, page_items)
+        """
+        logger_cache.info(
+            "zset_paginate_hashes zset=%s first=%s last=%s sort_by=%s sort_order=%s fields=%s",
+            zset_key, first, last, sort_by, sort_order, include_fields,
+        )
+
+        total_count = cast(int, self.redis.zcard(zset_key))
+
+        if total_count == 0:
+            return 0, []
+
+        reverse = sort_order == "desc"
+
+        # ----- sort by sorted-set score -----
+        if sort_by is None:
+            if last:
+                count = last - first
+            else:
+                count = total_count
+
+            member_keys: list[str] = cast(
+                list[str],
+                self.redis.zrange(
+                    zset_key,
+                    start=first,
+                    end=first + count - 1,
+                    desc=reverse,
+                ),
+            )
+
+            if not member_keys:
+                return total_count, []
+
+            items = self._pipeline_hgetall(member_keys)
+
+        else:
+            # Retrieve ALL member keys from the sorted set
+            all_keys: list[str] = cast(
+                list[str],
+                self.redis.zrange(zset_key, start=0, end=-1),
+            )
+
+            if not all_keys:
+                return total_count, []
+
+            # Retrieve ALL corresponding hashes in a single pipeline round-trip
+            items = self._pipeline_hgetall(all_keys)
+
+            # Sort in memory on the requested field
+            items.sort(key=lambda d: d.get(sort_by, ""), reverse=reverse)
+
+            # Paginate in memory
+            if last:
+                items = items[first:last]
+
+        # Field filtering (client-side, lightweight on a small page)
+        if include_fields:
+            wanted = {f.strip() for f in include_fields.split(",")}
+            items = [{k: v for k, v in d.items() if k in wanted} for d in items]
+
+        logger_cache.info(
+            "zset_paginate_hashes: total=%d page_size=%d", total_count, len(items),
+        )
+        return total_count, items
+
+    def _pipeline_hgetall(self, keys: list[str]) -> list[dict]:
+        """
+        Fetch multiple hashes in a single Redis round-trip.
+
+        Keys whose hash no longer exists (e.g. expired) are silently
+        skipped.
+
+        :param keys: list of Redis hash keys
+        :return: list of non-empty hash dicts
+        """
+        pipe = self.redis.pipeline(transaction=False)
+        for key in keys:
+            pipe.hgetall(key)
+        raw_results = pipe.execute()
+
+        items: list[dict] = []
+        for data in raw_results:
+            if data:
+                items.append(cast(dict, data))
+        return items
 
     def delete(self, *keys: str) -> int:
         """
