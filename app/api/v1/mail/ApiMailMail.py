@@ -115,14 +115,14 @@ class ApiMailFolderIdAction(MethodView):
         # return interface.batch_mail_action(account_id, folder_name, batch_data)
 
 
-@blp.route("/<int:mail_uid>")
+@blp.route("/<string:mail_uid>")
 class ApiMailDetail(MethodView):
     """
     API to fetch mail details.
     """
 
     @blp.response(200, MailDetailResponseSchema, example=MailDetailResponseSchema.example())
-    def get(self, account_id: str, folder_name: str, mail_uid: int) -> ResponseReturnValue:
+    def get(self, account_id: str, folder_name: str, mail_uid: str) -> ResponseReturnValue:
         """Retrieve detailed information about a specific mail.
 
         :param account_id: The account identifier.
@@ -130,7 +130,7 @@ class ApiMailDetail(MethodView):
         :param folder_name: The folder identifier.
         :type folder_name: str
         :param mail_uid: The unique identifier of the mail.
-        :type mail_uid: int
+        :type mail_uid: str
         :return: Detailed mail information.
         :rtype: ResponseReturnValue
         """
@@ -144,7 +144,7 @@ class ApiMailDetail(MethodView):
         return interface.get_mail_detail(account_id, folder_name, mail_uid)
 
     @blp.response(204, MailDeleteResponseSchema, example=MailDeleteResponseSchema.example())
-    def delete(self, account_id: str, folder_name: str, mail_uid: int) -> ResponseReturnValue:
+    def delete(self, account_id: str, folder_name: str, mail_uid: str) -> ResponseReturnValue:
         """Delete a specific mail (mark as deleted)
 
         Resource, delete (mark as deleted) a specific mail
@@ -154,7 +154,7 @@ class ApiMailDetail(MethodView):
         :param folder_name: The folder identifier.
         :type folder_name: str
         :param mail_uid: The unique identifier of the mail.
-        :type mail_uid: int
+        :type mail_uid: str
         :return: A response indicating the result of the deletion.
         :rtype: ResponseReturnValue
         """
@@ -164,11 +164,11 @@ class ApiMailDetail(MethodView):
 
 
 
-@blp.route("/<int:mail_uid>/action")
+@blp.route("/<string:mail_uid>/action")
 class ApiMailDetailAction(MethodView):
     """API to manage actions on a specific mail.
     """
-    def post(self, data: dict, account_id: str, folder_name: str, mail_uid: int) -> ResponseReturnValue:
+    def post(self, data: dict, account_id: str, folder_name: str, mail_uid: str) -> ResponseReturnValue:
         """Action: Perform an action (tag, move, spam, ham, download, zip, copy) on a specific mail in the specified folder. (NOT IMPLEMENTED)
         """
         if data.get("action") == "tag":
@@ -198,34 +198,34 @@ class ApiMailDetailAction(MethodView):
         # return interface.mail_action(account_id, folder_name, mail_uid, data)
 
 
-@blp.route("/<int:mail_uid>/reply")
+@blp.route("/<string:mail_uid>/reply")
 class ApiMailDetailReply(MethodView):
     """API to manage replies to a specific mail.
     """
-    def post(self, account_id: str, folder_name: str, mail_uid: int) -> ResponseReturnValue:
+    def post(self, account_id: str, folder_name: str, mail_uid: str) -> ResponseReturnValue:
         """Action: Reply to a specific mail in the specified folder. (NOT IMPLEMENTED)
         """
         logger_api.debug("Calling ApiMailDetailReply.post for account_id: %s, folder_name: %s, mail_uid: %s", account_id, folder_name, mail_uid)
         interface: InterfaceApiMailMail = g.inter
         return interface.reply_mail(account_id, folder_name, mail_uid)
 
-@blp.route("/<int:mail_uid>/forward")
+@blp.route("/<string:mail_uid>/forward")
 class ApiMailDetailForward(MethodView):
     """API to manage forwards of a specific mail.
     """
-    def post(self, account_id: str, folder_name: str, mail_uid: int) -> ResponseReturnValue:
+    def post(self, account_id: str, folder_name: str, mail_uid: str) -> ResponseReturnValue:
         """Action: Forward a specific mail in the specified folder. (NOT IMPLEMENTED)
         """
         logger_api.debug("Calling ApiMailDetailForward.post for account_id: %s, folder_name: %s, mail_uid: %s", account_id, folder_name, mail_uid)
         interface: InterfaceApiMailMail = g.inter
         return interface.forward_mail(account_id, folder_name, mail_uid)
 
-@blp.route("/<int:mail_uid>/raw")
+@blp.route("/<string:mail_uid>/raw")
 class ApiMailDetailRaw(MethodView):
     """API to fetch the raw content of a specific mail. 
     """
     @blp.response(200, MailRawResponseSchema, example=MailRawResponseSchema.example())
-    def get(self, account_id: str, folder_name: str, mail_uid: int) -> ResponseReturnValue:
+    def get(self, account_id: str, folder_name: str, mail_uid: str) -> ResponseReturnValue:
         """Retrieve the raw content of a specific mail in the specified folder.
 
         :param account_id: The ID of the account
@@ -233,7 +233,7 @@ class ApiMailDetailRaw(MethodView):
         :param folder_name: The ID of the folder
         :type folder_name: str
         :param mail_uid: The unique identifier of the mail
-        :type mail_uid: int
+        :type mail_uid: str
         :return: A tuple of (API response dict, status code)
         :rtype: Tuple[Dict[str, Any], int]
         """

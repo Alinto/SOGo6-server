@@ -20,7 +20,7 @@ class FakeModuleMail:
         self.move_mails_args = None
         self.expunge_folder_args = None
         self.update_folder_args = None
-        self.get_folder_details_args = None
+        self.get_one_folder_args = None
         self.purge_folder_mails_args = None
         self.get_folder_share_args = None
         self.share_folder_args = None
@@ -34,7 +34,7 @@ class FakeModuleMail:
         self.move_mails_result = {"moved_ids": [1, 2]}
         self.expunge_folder_result = {"mail_deleted": 5}
         self.update_folder_result = {"name": "UpdatedFolder"}
-        self.get_folder_details_result = {"name": "INBOX", "path": "INBOX"}
+        self.get_one_folder_result = {"name": "INBOX", "path": "INBOX"}
         self.purge_folder_mails_result = {"mails_deleted": 10}
         self.get_folder_share_result = {"users": {}}
         self.share_folder_result = {"users": {}}
@@ -79,10 +79,10 @@ class FakeModuleMail:
         self.update_folder_args = (folder_name, folder_data)
         return self.update_folder_result
 
-    def get_folder_details(self, folder_name):
+    def get_one_folder(self, folder_name):
         """Simulate getting folder details."""
-        self.get_folder_details_args = folder_name
-        return self.get_folder_details_result
+        self.get_one_folder_args = folder_name
+        return self.get_one_folder_result
 
     def purge_folder_mails(self, folder_name, purge_data):
         """Simulate purging mails in a folder."""
@@ -372,33 +372,33 @@ def test_update_folder_module_error(monkeypatch):
     assert status_code == 400
 
 
-# ========== Tests for get_folder_details ==========
+# ========== Tests for get_one_folder ==========
 
-def test_get_folder_details_success(monkeypatch):
+def test_get_one_folder_success(monkeypatch):
     """Test getting folder details for a valid account."""
     fake_module = FakeModuleMail()
-    fake_module.get_folder_details_result = {"name": "INBOX", "path": "INBOX", "message_count": 100}
+    fake_module.get_one_folder_result = {"name": "INBOX", "path": "INBOX", "message_count": 100}
     patch_module_on_interface(monkeypatch, fake_module)
     user_conf = {"username": "test@example.com", "password": "pass", "type": "imap"}
     interface = InterfaceApiMailFolder(user_conf=user_conf)
 
-    result, status_code = interface.get_folder_details(account_id=0, folder_name="INBOX")
+    result, status_code = interface.get_one_folder(account_id=0, folder_name="INBOX")
 
     assert status_code == 200
     assert result["data"]["name"] == "INBOX"
     assert result["data"]["message_count"] == 100
-    assert fake_module.get_folder_details_args == "INBOX"
+    assert fake_module.get_one_folder_args == "INBOX"
 
 
-def test_get_folder_details_module_error(monkeypatch):
+def test_get_one_folder_module_error(monkeypatch):
     """Test error handling when getting folder details fails."""
     fake_module = FakeModuleMail()
-    fake_module.get_folder_details = lambda x: (_ for _ in ()).throw(RequestException("Folder not found", err.ERROR_VALIDATION_ERROR))
+    fake_module.get_one_folder = lambda x: (_ for _ in ()).throw(RequestException("Folder not found", err.ERROR_VALIDATION_ERROR))
     patch_module_on_interface(monkeypatch, fake_module)
     user_conf = {"username": "test@example.com", "password": "pass", "type": "imap"}
     interface = InterfaceApiMailFolder(user_conf=user_conf)
 
-    result, status_code = interface.get_folder_details(account_id=0, folder_name="NonExistent")
+    result, status_code = interface.get_one_folder(account_id=0, folder_name="NonExistent")
 
     assert result["error_code"] == "S000300"
     assert status_code == 400
@@ -414,7 +414,7 @@ def test_purge_folder_mails_success(monkeypatch):
     user_conf = {"username": "test@example.com", "password": "pass", "type": "imap"}
     interface = InterfaceApiMailFolder(user_conf=user_conf)
 
-    purge_data = {"permanentlyDelete": True, "date": "2024-01-01"}
+    purge_data = {"permanently_delete": True, "date": "2024-01-01"}
     result, status_code = interface.purge_folder_mails(account_id=0, folder_name="Trash", purge_data=purge_data)
 
     assert status_code == 200

@@ -8,10 +8,10 @@ from unittest import mock
 from app.manager.mail.ClientImap import ClientImap, _convert_rights_to_imap, _convert_imap_to_rights
 from app.utils.exceptions import RequestException
 from app.utils.constants import (
-    USERCANVIEWFOLDER, USERCANREADMAILS, USERCANMARKMAILSREAD,
-    USERCANINSERTMAILS, USERCANPOSTMAILS, USERCANCREATESUBFOLDERS,
-    USERCANREMOVEFOLDER, USERCANERASEMAILS, USERCANEXPUNGEFOLDER,
-    USERCANADMINISTRATOR
+    USER_CAN_VIEW_FOLDER, USER_CAN_READ_MAILS, USER_CAN_MARK_MAILS_READ,
+    USER_CAN_INSERT_MAILS, USER_CAN_POST_MAILS, USER_CAN_CREATE_SUBFOLDERS,
+    USER_CAN_REMOVE_FOLDER, USER_CAN_ERASE_MAILS, USER_CAN_EXPUNGE_FOLDER,
+    USER_CAN_ADMINISTRATOR
 )
 
 
@@ -121,16 +121,16 @@ class FakeIMAPConnection:
 def test_convert_rights_to_imap_with_all_rights():
     """Test converting all SOGo rights to IMAP string."""
     rights_dict = {
-        USERCANVIEWFOLDER: 1,
-        USERCANREADMAILS: 1,
-        USERCANMARKMAILSREAD: 1,
-        USERCANINSERTMAILS: 1,
-        USERCANPOSTMAILS: 1,
-        USERCANCREATESUBFOLDERS: 1,
-        USERCANREMOVEFOLDER: 1,
-        USERCANERASEMAILS: 1,
-        USERCANEXPUNGEFOLDER: 1,
-        USERCANADMINISTRATOR: 1
+        USER_CAN_VIEW_FOLDER: 1,
+        USER_CAN_READ_MAILS: 1,
+        USER_CAN_MARK_MAILS_READ: 1,
+        USER_CAN_INSERT_MAILS: 1,
+        USER_CAN_POST_MAILS: 1,
+        USER_CAN_CREATE_SUBFOLDERS: 1,
+        USER_CAN_REMOVE_FOLDER: 1,
+        USER_CAN_ERASE_MAILS: 1,
+        USER_CAN_EXPUNGE_FOLDER: 1,
+        USER_CAN_ADMINISTRATOR: 1
     }
     result = _convert_rights_to_imap(rights_dict)
     assert 'l' in result
@@ -155,16 +155,16 @@ def test_convert_imap_to_rights_with_full_string():
     """Test converting full IMAP rights string to SOGo dict."""
     imap_rights = "lrswipkxtea"
     result = _convert_imap_to_rights(imap_rights)
-    assert result[USERCANVIEWFOLDER] == 1
-    assert result[USERCANREADMAILS] == 1
-    assert result[USERCANMARKMAILSREAD] == 1
-    assert result[USERCANINSERTMAILS] == 1
-    assert result[USERCANPOSTMAILS] == 1
-    assert result[USERCANCREATESUBFOLDERS] == 1
-    assert result[USERCANREMOVEFOLDER] == 1
-    assert result[USERCANERASEMAILS] == 1
-    assert result[USERCANEXPUNGEFOLDER] == 1
-    assert result[USERCANADMINISTRATOR] == 1
+    assert result[USER_CAN_VIEW_FOLDER] == 1
+    assert result[USER_CAN_READ_MAILS] == 1
+    assert result[USER_CAN_MARK_MAILS_READ] == 1
+    assert result[USER_CAN_INSERT_MAILS] == 1
+    assert result[USER_CAN_POST_MAILS] == 1
+    assert result[USER_CAN_CREATE_SUBFOLDERS] == 1
+    assert result[USER_CAN_REMOVE_FOLDER] == 1
+    assert result[USER_CAN_ERASE_MAILS] == 1
+    assert result[USER_CAN_EXPUNGE_FOLDER] == 1
+    assert result[USER_CAN_ADMINISTRATOR] == 1
 
 
 def test_convert_imap_to_rights_with_empty_string():
@@ -390,7 +390,7 @@ def test_set_acl_success():
     client = ClientImap(server='imap.example.com', port=143)
     client.connection = fake_conn
 
-    rights = {USERCANVIEWFOLDER: 1, USERCANREADMAILS: 1}
+    rights = {USER_CAN_VIEW_FOLDER: 1, USER_CAN_READ_MAILS: 1}
     client.set_acl('INBOX', 'user@example.com', rights)
     # No exception means success
 
@@ -408,7 +408,7 @@ def test_delete_acl_success():
 
 # ========== Tests for folder details ==========
 
-def test_get_folder_details_success():
+def test_get_one_folder_success():
     """Test getting folder details."""
     fake_conn = FakeIMAPConnection()
     fake_conn.list_response = ('OK', [b'(\\HasNoChildren) "/" "INBOX"'])
@@ -416,7 +416,7 @@ def test_get_folder_details_success():
     client = ClientImap(server='imap.example.com', port=143)
     client.connection = fake_conn
 
-    details = client.get_folder_details('INBOX')
+    details = client.get_one_folder('INBOX')
     assert details['name'] == 'INBOX'
     assert details['path'] == 'INBOX'
     assert details['subscribed'] == 1

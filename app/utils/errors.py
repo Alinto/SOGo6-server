@@ -43,6 +43,9 @@ ERROR_CACHE_NOT_REACHABLE     = E("S000005", "Cache Server Is Unreachable", HTTP
 ERROR_CACHE_AUTH_FAILED       = E("S000006", "Cache Server Authentication Failed", HTTPStatus.PRECONDITION_FAILED)
 ERROR_TABLE_SYSTEM_NOT_UNIQUE = E("S000007", "Sogo Table For System Settings Is Not Unique", HTTPStatus.PRECONDITION_FAILED)
 
+#General Error
+ERROR_CONFIG_ERROR = E("S000020", "A configuration Problem prevent SOGo to work properly", HTTPStatus.INTERNAL_SERVER_ERROR)
+
 #CACHE
 ERROR_CACHE_DATA_NOT_JSON  = E("S000100", "Cache Server Data Is Not A Json", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_CACHE_TTL_BELOW_0    = E("S000101", "Cache Server Data TTL Is Below 1", HTTPStatus.INTERNAL_SERVER_ERROR)
@@ -67,11 +70,22 @@ ERROR_DOMAIN_NAME_NOT_FOUND = E("S000302", "Domain's Name Not Found", HTTPStatus
 
 ERROR_MAIL_UID_NOT_FOUND    = E("S000303", "Mail's UID Not Found", HTTPStatus.NOT_FOUND)
 ERROR_FOLDER_NAME_NOT_FOUND = E("S000304", "Folder's Name Not Found", HTTPStatus.NOT_FOUND)
+ERROR_FOLDER_ALREADY_EXIST  = E("S000305", "Folder already exist", HTTPStatus.CONFLICT)
+ERROR_FOLDER_CANNOT_RENAME  = E("S000306", "Folder cannot be renamed", HTTPStatus.BAD_REQUEST)
+ERROR_FOLDER_NOT_UNIQUE     = E("S000307", "Folder is not unique", HTTPStatus.CONFLICT)
+ERROR_FOLDER_DELIMITER      = E("S000308", "Cannot create a folder with delimiter in the name", HTTPStatus.BAD_REQUEST)
 
 ERROR_IMAP_UNAUTHORIZED      = E("S000310", "IMAP Unauthorized - Invalid Credentials Or Insufficient Permissions", HTTPStatus.UNAUTHORIZED)
 ERROR_IMAP_CONNECTION_FAILED = E("S000311", "IMAP connection failed", HTTPStatus.SERVICE_UNAVAILABLE)
 ERROR_MAILBOX_NOT_FOUND      = E("S000312", "Mailbox Not Found", HTTPStatus.NOT_FOUND)
-ERRRIR_MAIL_DELETION         = E("S000313", "Mail Deletion Error", HTTPStatus.BAD_REQUEST)
+ERROR_MAIL_DELETION          = E("S000313", "Mail Deletion Error", HTTPStatus.BAD_REQUEST)
+ERROR_IMAP_LOGOUT            = E("S001300", "Try To Make An IMAP Command While Being In LOGOUT state", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_IMAP_UNAIVALABLE       = E("S001301", "IMAP Command Failed Momenteraly, Try Again Later", HTTPStatus.SERVICE_UNAVAILABLE)
+ERROR_IMAP_FAILED            = E("S001302", "IMAP Command Failed, See Logs To Get More Details", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_IMAP_UNKNWON_AUTH_MECH = E("S001303", "IMAP Auth Mechanism Unknown", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_IMAP_NOT_ASCII         = E("S001304", "Name for imap command is not ascii", HTTPStatus.BAD_REQUEST)
+ERROR_IMAP_READONLY          = E("S001305", "Writting Command to a readonly folder", HTTPStatus.INTERNAL_SERVER_ERROR)
+
 
 #User Profile
 ERROR_USER_PROFILE_DUPLICATE         = E("S000314", "Multiple User Profiles Found For Same UID", HTTPStatus.INTERNAL_SERVER_ERROR)

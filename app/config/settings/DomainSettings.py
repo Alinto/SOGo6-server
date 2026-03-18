@@ -491,6 +491,11 @@ class MailSettings(SogoSchema):
     SOGO_D_IMAP_PORT = fields.Integer(load_default=143, dump_default=143, validate=validate.Range(min=1, max=65535))
     SOGO_D_IMAP_ENCRYPTION = fields.String(load_default="None", dump_default="None", validate=validate.OneOf(cs.SOCK_ENC_LIST))
     SOGO_D_IMAP_AUTH_MECH =  fields.String(load_default="login", dump_default="login", validate=validate.OneOf(('login', 'plain', 'xoauth2')))
+    SOGO_D_MAIL_INBOX = fields.String(load_default="INBOX", dump_default="INBOX") #Name of the inbox folder, cannot be change by user
+    SOGO_D_MAIL_SENT = fields.String(load_default="Sent", dump_default="Sent") #Name of the inbox folder
+    SOGO_D_MAIL_DRAFT = fields.String(load_default="Drafts", dump_default="Drafts") #Name of the inbox folder
+    SOGO_D_MAIL_TRASH = fields.String(load_default="Trash", dump_default="Trash") #Name of the inbox folder
+    SOGO_D_MAIL_JUNK = fields.String(load_default="Junk", dump_default="Junk") #Name of the inbox folder
     SOGO_D_SOFT_EMAIL_QUOTA = fields.Integer(load_default=1, dump_default=1, validate=validate.Range(min=0, max=1, min_inclusive=False)) #Multiplier to the true quota for the user
     SOGO_D_MAIL_PURGE_ALLOW     = fields.Boolean(load_default=True, dump_default=True) #Allow user to purger their folder (delete all before a date)
     SOGO_D_MAIL_PURGE_MIN_DATE  = fields.Integer(load_default=0, dump_default=0) #Minimum age in days that a user can purge their mail (0 means they can purge everything)
@@ -553,6 +558,11 @@ class MailSettingsObj(SettingsObj):
     SOGO_D_IMAP_ENCRYPTION: str = "None"
     SOGO_D_IMAP_AUTH_MECH: str = "None"
     SOGO_D_SOFT_EMAIL_QUOTA: int = 1
+    SOGO_D_MAIL_INBOX: str = "INBOX"
+    SOGO_D_MAIL_SENT: str = "Sent"
+    SOGO_D_MAIL_DRAFT: str = "Drafts"
+    SOGO_D_MAIL_TRASH: str = "Trash"
+    SOGO_D_MAIL_JUNK: str = "Junk"
     SOGO_D_MAIL_PURGE_ALLOW: bool = True
     SOGO_D_MAIL_PURGE_MIN_DATE: int = 0
     SOGO_D_MAIL_FILTERING_ENABLED: bool = True
@@ -608,7 +618,14 @@ class MailSettingsObj(SettingsObj):
                 "server": self.SOGO_D_IMAP_SERVER,
                 "port": self.SOGO_D_IMAP_PORT,
                 "encryption": self.SOGO_D_IMAP_ENCRYPTION,
-                "auth_mech": self.SOGO_D_IMAP_AUTH_MECH
+                "auth_mech": self.SOGO_D_IMAP_AUTH_MECH,
+                "folders_map": {
+                    cs.MAIL_FOLDER_INBOX: self.SOGO_D_MAIL_INBOX,
+                    cs.MAIL_FOLDER_SENT: self.SOGO_D_MAIL_SENT,
+                    cs.MAIL_FOLDER_DRAFT: self.SOGO_D_MAIL_DRAFT,
+                    cs.MAIL_FOLDER_JUNK: self.SOGO_D_MAIL_JUNK,
+                    cs.MAIL_FOLDER_TRASH: self.SOGO_D_MAIL_TRASH,
+                }
             }
         raise AggravatedException(err.ERROR_CONFIG_WRONG_MAIL_SERVER.m, err.ERROR_CONFIG_WRONG_MAIL_SERVER)
 

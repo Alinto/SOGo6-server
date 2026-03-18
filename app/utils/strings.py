@@ -57,3 +57,29 @@ def get_imap_config_from_url(imap_str: str) -> dict:
         ret["encryption"] = encryption
 
     return ret
+
+def quote(input_str:str) -> str:
+    """
+    Quote a string with "
+
+    :param input: string to quote
+    :type input: str
+    :return: the string quoted
+    :rtype: str
+    """
+    # Check if the string is already wrapped in double quotes
+    if input_str.startswith('"') and input_str.endswith('"'):
+        return input_str
+    # Escape backslashes and double quotes
+    escaped = input_str.replace('\\', '\\\\').replace('"', '\\"')
+    return '"' + escaped + '"'
+
+def imap_join_folders(delimiter: str, first_path: str, second_path: str) -> str:
+    if first_path[-1] == '"':
+        # first paht like this '"my name"'
+        first_path = first_path[1:-1]
+    if second_path[0] == '"':
+        # second path like this '"my name"'
+        second_path = second_path[1:-1]
+    return quote(f"{first_path}{delimiter}{second_path}")
+     

@@ -1,10 +1,10 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
+from app.config.settings.DomainSettings import UserSourceSettingsObj, UserSourceSettings
 from app.utils import exceptions as exc
 
 if TYPE_CHECKING:
-    from app.config.settings.DomainSettings import UserSourceSettingsObj
     from app.auth.User import User
 
 class ModuleUserSource:
@@ -13,6 +13,23 @@ class ModuleUserSource:
     There are rules between the differents users sources about visibility.
 
     """
+
+    @staticmethod
+    def init_from_domain_settings(domain_settings:dict) -> ModuleUserSource:
+        """
+        Init the Module User Source from the domain settings
+
+        :param domain_settings: Domain settings
+        :type domain_settings: dict
+        :return: self
+        :rtype: ModuleUserSource
+        """
+        all_user_sources: dict = {}
+        domain_user_sources: dict = domain_settings[UserSourceSettings.subparent]
+        for user_source_id, user_source in domain_user_sources.items():
+            all_user_sources[user_source_id] = UserSourceSettingsObj(user_source)
+        return ModuleUserSource(domain_user_sources)
+
     def __init__(self, all_user_sources: dict[str, UserSourceSettingsObj]):
         """
         list_user_source is a dict where the keys are the soruce uid
@@ -152,7 +169,7 @@ class ModuleUserSource:
                 for cond_name, cond_value in conditions.items():
                     if user_info.get(cond_name, None) == cond_value:
                         setattr(user.access, module_name.lower(), False)
-    
+
     def fill_user(self, user:User) -> None:
         """
         Get a user and fill it with infos from user source
@@ -161,5 +178,8 @@ class ModuleUserSource:
         :type user: User
         """
         infos = self.fake_user_source_lookup(user.uid)
-        self.fill_user_with_contact_info(user, infos)
-        self.fill_user_with_source_info(user, infos)
+        if not infos:
+            user.anonymous = True
+        else:
+            self.fill_user_with_contact_info(user, infos)
+            self.fill_user_with_source_info(user, infos)

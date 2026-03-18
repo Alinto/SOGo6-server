@@ -18,6 +18,7 @@ from .schemas.folder import (
     FolderCreateResponseSchema,
     FolderDetailsResponseSchema,
     FolderUpdateResponseSchema,
+    FolderExpungeSchema,
     FolderExpungeResponseSchema,
     FolderPurgeResponseSchema,
     FolderShareResponseSchema,
@@ -90,7 +91,7 @@ class ApiMailAccount(MethodView):
         """
         logger_api.debug("Calling ApiMailAccount: Creating folder for account_id: %s with data: %s", account_id, folder_data)
         interface: InterfaceApiMailFolder = g.inter
-        return interface.create_folder(account_id, folder_data["name"])
+        return interface.create_folder(account_id, folder_name=folder_data["name"], parent_path=folder_data["parent"])
 
 
 @blp.route("/<path:folder_name>")
@@ -118,7 +119,8 @@ class ApiMailFolderId(MethodView):
     @blp.response(200, FolderUpdateResponseSchema, example=FolderUpdateResponseSchema.example())
     def patch(self, folder_data: dict, account_id: str, folder_name: str) -> ResponseReturnValue:
         """Update name, type (junk, template...) and subscription status of a specific mail folder.
-        
+        Notimplemented to rework how to set a type, rename, susbribed...
+
         :param folder_data: The folder update data (name, subscribed, type).
         :type folder_data: dict
         :param account_id: The account identifier
@@ -128,6 +130,7 @@ class ApiMailFolderId(MethodView):
         :return: ApiBaseResponse with updated folder info
         :rtype: ResponseReturnValue
         """
+        raise NotImplementedError()
         logger_api.debug("Calling ApiMailFolderId.patch for account_id: %s, folder_name: %s with data: %s", account_id, folder_name, folder_data)
         interface: InterfaceApiMailFolder = g.inter
         return interface.update_folder(account_id, folder_name, folder_data)
@@ -138,7 +141,7 @@ class ApiMailFolderId(MethodView):
         """
         logger_api.debug("Calling ApiMailFolderId.get for account_id: %s, folder_name: %s", account_id, folder_name)
         interface: InterfaceApiMailFolder = g.inter
-        return interface.get_folder_details(account_id, folder_name)
+        return interface.get_one_folder(account_id, folder_name)
 
 
 
@@ -146,8 +149,9 @@ class ApiMailFolderId(MethodView):
 class ApiMailFolderIdExpunge(MethodView):
     """API to expunge all mails in a specific folder.
     """
+    @blp.arguments(FolderExpungeSchema, example=FolderExpungeSchema.example())
     @blp.response(200, FolderExpungeResponseSchema, example=FolderExpungeResponseSchema.example())
-    def post(self, account_id: str, folder_name: str) -> ResponseReturnValue:
+    def post(self, expunge_data:dict, account_id: str, folder_name: str) -> ResponseReturnValue:
         """Action: Expunge (compact) all mails in the specified folder.
 
         Action: permanently remove deleted mails from the mailbox.
@@ -162,7 +166,7 @@ class ApiMailFolderIdExpunge(MethodView):
         """
         logger_api.debug("Calling ApiMailFolderIdExpunge: Expunging folder for account_id: %s, folder_name: %s", account_id, folder_name)
         interface: InterfaceApiMailFolder = g.inter
-        return interface.expunge_folder(account_id, folder_name)
+        return interface.expunge_folder(account_id, folder_name, expunge_data)
 
 
 @blp.route("/<path:folder_name>/purge")
@@ -175,9 +179,9 @@ class ApiMailFolderIdPurge(MethodView):
         """Action: Purge all mails in the specified folder.
         
         Mark mails as deleted (optionally before a specific date).
-        If permanentlyDelete is True, also expunge the folder to permanently remove deleted mails.
+        If permanently_delete is True, also expunge the folder to permanently remove deleted mails.
         
-        :param purge_data: The purge configuration (applyToSubfolders, permanentlyDelete, date)
+        :param purge_data: The purge configuration (do_subfolders, permanently_delete, date)
         :type purge_data: dict
         :param account_id: The ID of the account
         :type account_id: str

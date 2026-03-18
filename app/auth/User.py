@@ -23,7 +23,7 @@ class UserProfile:
     def __init__(self) -> None:
         """
         Define Attribute
-        /WARNING\ Must match columns names of table TABLE_USER
+        WARNING Must match columns names of table TABLE_USER
         #TODO add a unit test to check that
         """
         self.id : str = ""
@@ -81,7 +81,7 @@ class User:
         user.source_id = user_session[cs.USER_SRC_ID]
         return user
 
-    def __init__(self, uid:str, password:str, cn:str= "", domain:str= "", is_domainless:bool = False):
+    def __init__(self, uid:str, password:str= "", cn:str= "", domain:str= "", is_domainless:bool = False):
         """
         _summary_
 
@@ -101,6 +101,8 @@ class User:
         self.password = password
         self.is_domainless = is_domainless
         self.authenticated = False
+        self.anonymous = False
+        self.user_class = cs.USER_CLASS_USER
 
         uid_domain = get_domain_from_mail(uid)
 
@@ -176,3 +178,4 @@ class UserAnonymous(User):
     def __init__(self) -> None:
         super().__init__(uid="anonymous", password="anonymous")
         self.authenticated = False
+        self.anonymous = True
