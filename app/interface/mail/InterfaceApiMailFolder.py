@@ -108,27 +108,6 @@ class InterfaceApiMailFolder:
             logger_api.error("Request exception in delete_folder: %s", str(ex))
             return create_api_base_response(None, ex.error_code), ex.http_status
 
-    def delete_mails(
-        self, account_id: str, folder_name: str, mail_uids: list[int]
-    ) -> tuple[dict[str, Any], int]:
-        """Delete multiple mails by ID by delegating the list to the module layer.
-
-        :param account_id: The ID of the account
-        :type account_id: str
-        :param folder_name: The ID of the folder
-        :type folder_name: str
-        :param mail_uids: List of mail UIDs to delete (ints)
-        :type mail_uids: List[int]
-        :return: A tuple of (API response dict, status code)
-        :rtype: tuple[dict[str, Any], int]
-        """
-        try:
-            result = self.mail_module.delete_mails(folder_name, mail_uids)
-            return create_api_base_response(result), 200
-        except RequestException as ex:
-            logger_api.error("Request exception in delete_mails: %s", str(ex))
-            return create_api_base_response(None, ex.error_code), ex.http_status
-
     def update_folder(self, account_id: str, folder_name: str, folder_data: dict[str, Any]) -> tuple[dict[str, Any], int]:
         """Update name, type (junk, template...) and subscription status of a specific mail folder.
         

@@ -464,3 +464,82 @@ def test_purge_folder_success():
     with mock.patch.object(client, 'get_mail_uids_before_date', return_value=[1, 2, 3]):
         count = client.purge_folder('INBOX')
         assert count == 3
+
+
+# ========== Tests for uid_store_flags ==========
+
+def test_uid_store_flags_add_success():
+    """Test adding flags to a mail."""
+    fake_conn = FakeIMAPConnection()
+    fake_conn.uid_response = ('OK', [b''])
+    client = ClientImap(server='imap.example.com', port=143)
+    client.connection = fake_conn
+
+    client.uid_store_flags(100, ['\\Seen', '\\Flagged'], operation='+FLAGS')
+    # No exception means success
+
+
+def test_uid_store_flags_remove_success():
+    """Test removing flags from a mail."""
+    fake_conn = FakeIMAPConnection()
+    fake_conn.uid_response = ('OK', [b''])
+    client = ClientImap(server='imap.example.com', port=143)
+    client.connection = fake_conn
+
+    client.uid_store_flags(100, ['\\Seen'], operation='-FLAGS')
+    # No exception means success
+
+
+def test_uid_store_flags_set_success():
+    """Test setting flags on a mail (replace all flags)."""
+    fake_conn = FakeIMAPConnection()
+    fake_conn.uid_response = ('OK', [b''])
+    client = ClientImap(server='imap.example.com', port=143)
+    client.connection = fake_conn
+
+    client.uid_store_flags(100, ['\\Seen', '\\Answered'], operation='FLAGS')
+    # No exception means success
+
+
+def test_uid_store_flags_not_connected():
+    """Test storing flags when not connected."""
+    client = ClientImap(server='imap.example.com', port=143)
+    client.connection = None
+
+    with pytest.raises(RequestException, match="Not connected"):
+        client.uid_store_flags(100, ['\\Seen'], operation='+FLAGS')
+
+
+def test_uid_store_flags_invalid_uid():
+    """Test storing flags with invalid UID."""
+    fake_conn = FakeIMAPConnection()
+    client = ClientImap(server='imap.example.com', port=143)
+    client.connection = fake_conn
+
+    with pytest.raises(RequestException, match="Invalid mail UID"):
+        client.uid_store_flags(0, ['\\Seen'], operation='+FLAGS')
+
+    with pytest.raises(RequestException, match="Invalid mail UID"):
+        client.uid_store_flags(-1, ['\\Seen'], operation='+FLAGS')
+
+
+def test_uid_store_flags_failure():
+    """Test handling of UID STORE failure."""
+    fake_conn = FakeIMAPConnection()
+    fake_conn.uid_response = ('NO', [b'Command failed'])
+    client = ClientImap(server='imap.example.com', port=143)
+    client.connection = fake_conn
+
+    with pytest.raises(RequestException, match="UID STORE failed"):
+        client.uid_store_flags(100, ['\\Seen'], operation='+FLAGS')
+
+
+def test_uid_store_flags_custom_flags():
+    """Test storing custom flags/tags."""
+    fake_conn = FakeIMAPConnection()
+    fake_conn.uid_response = ('OK', [b''])
+    client = ClientImap(server='imap.example.com', port=143)
+    client.connection = fake_conn
+
+    client.uid_store_flags(100, ['Important', 'Work'], operation='+FLAGS')
+    # No exception means success

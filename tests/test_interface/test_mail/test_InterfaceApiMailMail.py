@@ -1,3 +1,4 @@
+# pylint: disable=invalid-sequence-index
 import pytest
 import types
 from app.interface.mail.InterfaceApiMailMail import InterfaceApiMailMail
@@ -47,6 +48,7 @@ class FakeModuleMail:
         self.get_mail_detail_args = None
         self.delete_mail_args = None
         self.get_mail_raw_args = None
+        self.perform_mail_action_args = None
 
         # --- Résultats configurables par test ---
         self.get_folder_mails_result = ([{"uid": 1, "subject": "Test"}], 100)
@@ -60,6 +62,7 @@ class FakeModuleMail:
         self.get_mail_raw_result = {"raw": "Raw email content"}
         self.reply_mail_result = {"reply": "Reply draft created"}
         self.forward_mail_result = {"forward": "Forward draft created"}
+        self.perform_mail_action_result = {"action": "tag", "mail_uid": 42, "tags_added": ["Important"]}
 
     def get_folder_mails(self, folder_name, first, last):
         """Fetch a list of mails from a folder."""
@@ -90,6 +93,11 @@ class FakeModuleMail:
         """Forward a mail."""
         self.forward_mail_args = (folder_name, mail_uid)
         return self.forward_mail_result
+
+    def perform_mail_action(self, folder_name, mail_uid, action_data):
+        """Perform an action on a mail."""
+        self.perform_mail_action_args = (folder_name, mail_uid, action_data)
+        return self.perform_mail_action_result
 
     # NotImplemented methods (kept for reference but now implemented above)
     # def reply_mail(self, folder_name, mail_uid):
@@ -319,3 +327,137 @@ def test_forward_mail_module_error(monkeypatch):
 
     assert result["error_code"] == "S000300"
     assert status_code == 400
+
+
+# ========== Tests for mail_action ==========
+
+def test_mail_action_tag_success(monkeypatch):
+    """Test tagging a mail for a valid account."""
+    fake_module = FakeModuleMail()
+    fake_module.perform_mail_action_result = {"action": "tag", "mail_uid": 42, "tags_added": ["Important"]}
+    patch_module_on_interface(monkeypatch, fake_module)
+    user_conf = {"username": "test@example.com", "password": "pass", "type": "imap"}
+    interface = InterfaceApiMailMailWithInjectedConf(user_conf)
+
+    action_data = {"action": "tag", "data": ["Important"]}
+    result, status_code = interface.mail_action(account_id=0, folder_name="INBOX", mail_uid=42, action_data=action_data)
+
+    assert status_code == 200
+    assert result["data"]["action"] == "tag"
+    assert result["data"]["mail_uid"] == 42
+    assert result["data"]["tags_added"] == ["Important"]
+    assert fake_module.perform_mail_action_args == ("INBOX", 42, action_data)
+
+
+def test_mail_action_untag_success(monkeypatch):
+    """Test untagging a mail for a valid account."""
+    fake_module = FakeModuleMail()
+    fake_module.perform_mail_action_result = {"action": "untag", "mail_uid": 42, "tags_removed": ["Important"]}
+    patch_module_on_interface(monkeypatch, fake_module)
+    user_conf = {"username": "test@example.com", "password": "pass", "type": "imap"}
+    interface = InterfaceApiMailMailWithInjectedConf(user_conf)
+
+    action_data = {"action": "untag", "data": ["Important"]}
+    result, status_code = interface.mail_action(account_id=0, folder_name="INBOX", mail_uid=42, action_data=action_data)
+
+    assert status_code == 200
+    assert result["data"]["action"] == "untag"
+    assert result["data"]["tags_removed"] == ["Important"]
+
+
+def test_mail_action_move_success(monkeypatch):
+    """Test moving a mail for a valid account."""
+    fake_module = FakeModuleMail()
+    fake_module.perform_mail_action_result = {"action": "move", "mail_uid": 42, "from_folder": "INBOX", "to_folder": "Archive"}
+    patch_module_on_interface(monkeypatch, fake_module)
+    user_conf = {"username": "test@example.com", "password": "pass", "type": "imap"}
+    interface = InterfaceApiMailMailWithInjectedConf(user_conf)
+
+    action_data = {"action": "move", "data": "Archive"}
+    result, status_code = interface.mail_action(account_id=0, folder_name="INBOX", mail_uid=42, action_data=action_data)
+
+    assert status_code == 200
+    assert result["data"]["action"] == "move"
+    assert result["data"]["to_folder"] == "Archive"
+
+
+def test_mail_action_spam_success(monkeypatch):
+    """Test marking a mail as spam for a valid account."""
+    fake_module = FakeModuleMail()
+    fake_module.perform_mail_action_result = {"action": "spam", "mail_uid": 42, "moved_to": "Junk"}
+    patch_module_on_interface(monkeypatch, fake_module)
+    user_conf = {"username": "test@example.com", "password": "pass", "type": "imap"}
+    interface = InterfaceApiMailMailWithInjectedConf(user_conf)
+
+    action_data = {"action": "spam"}
+    result, status_code = interface.mail_action(account_id=0, folder_name="INBOX", mail_uid=42, action_data=action_data)
+
+    assert status_code == 200
+    assert result["data"]["action"] == "spam"
+    assert result["data"]["moved_to"] == "Junk"
+
+
+def test_mail_action_ham_success(monkeypatch):
+    """Test marking a mail as ham for a valid account."""
+    fake_module = FakeModuleMail()
+    fake_module.perform_mail_action_result = {"action": "ham", "mail_uid": 42, "moved_to": "INBOX"}
+    patch_module_on_interface(monkeypatch, fake_module)
+    user_conf = {"username": "test@example.com", "password": "pass", "type": "imap"}
+    interface = InterfaceApiMailMailWithInjectedConf(user_conf)
+
+    action_data = {"action": "ham"}
+    result, status_code = interface.mail_action(account_id=0, folder_name="Junk", mail_uid=42, action_data=action_data)
+
+    assert status_code == 200
+    assert result["data"]["action"] == "ham"
+    assert result["data"]["moved_to"] == "INBOX"
+
+
+def test_mail_action_copy_success(monkeypatch):
+    """Test copying a mail for a valid account."""
+    fake_module = FakeModuleMail()
+    fake_module.perform_mail_action_result = {"action": "copy", "mail_uid": 42, "from_folder": "INBOX", "to_folder": "Archive"}
+    patch_module_on_interface(monkeypatch, fake_module)
+    user_conf = {"username": "test@example.com", "password": "pass", "type": "imap"}
+    interface = InterfaceApiMailMailWithInjectedConf(user_conf)
+
+    action_data = {"action": "copy", "data": "Archive"}
+    result, status_code = interface.mail_action(account_id=0, folder_name="INBOX", mail_uid=42, action_data=action_data)
+
+    assert status_code == 200
+    assert result["data"]["action"] == "copy"
+    assert result["data"]["to_folder"] == "Archive"
+
+
+def test_mail_action_invalid_action(monkeypatch):
+    """Test error handling for invalid action."""
+    fake_module = FakeModuleMail()
+    fake_module.perform_mail_action = lambda *args: (_ for _ in ()).throw(
+        RequestException("Invalid action: unknown", err.ERROR_INVALID_ACTION)
+    )
+    patch_module_on_interface(monkeypatch, fake_module)
+    user_conf = {"username": "test@example.com", "password": "pass", "type": "imap"}
+    interface = InterfaceApiMailMailWithInjectedConf(user_conf)
+
+    action_data = {"action": "unknown"}
+    result, status_code = interface.mail_action(account_id=0, folder_name="INBOX", mail_uid=42, action_data=action_data)
+
+    assert status_code == 400
+    assert result["error_code"] == "S000305"
+
+
+def test_mail_action_module_error(monkeypatch):
+    """Test error handling when module raises RequestException."""
+    fake_module = FakeModuleMail()
+    fake_module.perform_mail_action = lambda *args: (_ for _ in ()).throw(
+        RequestException("Action failed", err.ERROR_VALIDATION_ERROR)
+    )
+    patch_module_on_interface(monkeypatch, fake_module)
+    user_conf = {"username": "test@example.com", "password": "pass", "type": "imap"}
+    interface = InterfaceApiMailMailWithInjectedConf(user_conf)
+
+    action_data = {"action": "tag", "data": ["Important"]}
+    result, status_code = interface.mail_action(account_id=0, folder_name="INBOX", mail_uid=42, action_data=action_data)
+
+    assert status_code == 400
+    assert result["error_code"] == "S000300"

@@ -46,6 +46,27 @@ class MailFolderQueryArgsSchema(Schema):
     """
     before_date = fields.String(required=False, allow_none=True)
 
+class MailActionSchema(Schema):
+    """
+    Schema for performing actions on a mail.
+    """
+    action = fields.String(
+        required=True,
+        validate=validate.OneOf(['tag', 'untag', 'move', 'spam', 'ham', 'copy', 'download', 'zip'])
+    )
+    data = fields.Raw(required=False, allow_none=True)
+
+    @classmethod
+    def example(cls) -> dict:
+        """Example data for mail action.
+        
+        :return: Example mail action payload
+        :rtype: dict
+        """
+        return {
+            "action": "tag",
+            "data": ["important", "work"]
+        }
 
 
 class MailDetailResponseSchema(ApiBaseResponse):

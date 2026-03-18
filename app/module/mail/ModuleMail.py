@@ -6,6 +6,8 @@ from email.header import decode_header, make_header
 from email.utils import parseaddr, getaddresses
 from time import time
 from re import search as reg_search
+import zipfile
+from io import BytesIO
 
 from app.config.settings.UserSettings import UserMailViewSettings, UserMailViewSettingsObj
 from app.manager.mail.ClientMailServer import ClientMailServer
@@ -15,6 +17,7 @@ from app.utils.module.importManager import import_and_instantiate_manager
 from app.utils.logger.logger import logger_mail_server
 from app.utils import constants as cs
 from app.utils.strings import get_imap_config_from_url
+from app.utils import constants as cs
 
 if TYPE_CHECKING:
     from app.auth.User import User
@@ -34,6 +37,7 @@ class ModuleMail:
     def __init__(self, user: User, mail_settings: MailSettingsObj):
         self.user = user
         self.mail_settings = mail_settings
+        self.domain_mail_folder_name: dict = {}
 
     def _get_user_conf(self, account_id: str) -> dict:
         user_mail_conf: dict = {}
@@ -48,6 +52,8 @@ class ModuleMail:
             user_mail_folder_name = user_mail_view_settings.get_user_mail_folder_map()
             domain_mail_folder_name: dict = user_mail_conf["args"]["folders_map"]
             domain_mail_folder_name.update(user_mail_folder_name)
+
+            self.domain_mail_folder_name = domain_mail_folder_name
 
             #DEPRECATED but legacy
             if self.mail_settings.SOGO_D_MAIL_SERVER_TYPE == "imap" and self.user.imap_host:
@@ -735,3 +741,212 @@ class ModuleMail:
 
         raw_content = client.fetch_mail_raw(folder_name, mail_uid)
         return {"raw": raw_content}
+
+    def perform_mail_action(self, account_id:str, folder_name: str, mail_uid: str, action_data: dict) -> dict[str, Any] | tuple[bytes, str] | BytesIO:
+        """Perform an action on a specific mail.
+        
+        :param folder_name: The name of the folder
+        :type folder_name: str
+        :param mail_uid: The unique identifier of the mail
+        :type mail_uid: str
+        :param action_data: dictionary containing 'action' and optional 'data' fields
+        :type action_data: dict[str, Any]
+        :return: Result of the action
+        :rtype: dict[str, Any]
+        :raises RequestException: If validation or manager operations fail
+        """
+        action: str = action_data["action"]
+        # null if not provided
+        data = action_data.get("data")
+
+        client = self._open_client_for(account_id)
+
+        if action == "tag":
+            return self._action_tag(client, folder_name, mail_uid, data)
+        elif action == "untag":
+            return self._action_untag(client, folder_name, mail_uid, data)
+        elif action == "move":
+            return self._action_move(client, folder_name, mail_uid, data)
+        elif action == "spam":
+            return self._action_spam(client, folder_name, mail_uid)
+        elif action == "ham":
+            return self._action_ham(client, folder_name, mail_uid)
+        elif action == "copy":
+            return self._action_copy(client, folder_name, mail_uid, data)
+        elif action == "download":
+            return self._action_download(client, folder_name, mail_uid)
+        elif action == "zip":
+            return self._action_zip(client, folder_name, mail_uid)
+        else:
+            raise RequestException(f"Invalid action: {action}", err.ERROR_INVALID_ACTION)
+
+    def _action_tag(self, client: ClientMailServer, folder_name: str, mail_uid: str, tags: Any) -> dict[str, Any]:
+        """Add custom flags/tags to a mail.
+        
+        :param folder_name: The name of the folder
+        :type folder_name: str
+        :param mail_uid: The unique identifier of the mail
+        :type mail_uid: str
+        :param tags: List of tags to add or a single tag string
+        :type tags: Any
+        :return: Result with added tags
+        :rtype: dict[str, Any]
+        :raises RequestException: If tags data is missing or invalid
+        """
+        if not tags:
+            raise RequestException("Missing tags data for tag action", err.ERROR_MISSING_ACTION_DATA)
+
+        # Normalize tags to list
+        if isinstance(tags, str):
+            tag_list = [tags]
+        elif isinstance(tags, list):
+            tag_list = tags
+        else:
+            raise RequestException("Tags must be a string or list of strings", err.ERROR_MISSING_ACTION_DATA)
+
+        client.add_flags_to_mail(folder_name, mail_uid, tag_list)
+
+        return {"action": "tag", "mail_uid": mail_uid, "tags_added": tag_list}
+
+    def _action_untag(self, client: ClientMailServer, folder_name: str, mail_uid: str, tags: Any) -> dict[str, Any]:
+        """Remove custom flags/tags from a mail.
+        
+        :param folder_name: The name of the folder
+        :type folder_name: str
+        :param mail_uid: The unique identifier of the mail
+        :type mail_uid: str
+        :param tags: List of tags to remove or a single tag string
+        :type tags: Any
+        :return: Result with removed tags
+        :rtype: dict[str, Any]
+        :raises RequestException: If tags data is missing or invalid
+        """
+        if not tags:
+            raise RequestException("Missing tags data for untag action", err.ERROR_MISSING_ACTION_DATA)
+
+        # Normalize tags to list
+        if isinstance(tags, str):
+            tag_list = [tags]
+        elif isinstance(tags, list):
+            tag_list = tags
+        else:
+            raise RequestException("Tags must be a string or list of strings", err.ERROR_MISSING_ACTION_DATA)
+
+        client.remove_flags_to_mail(folder_name, mail_uid, tag_list)
+
+        return {"action": "untag", "mail_uid": mail_uid, "tags_removed": tag_list}
+
+    def _action_move(self, client: ClientMailServer, folder_name: str, mail_uid: str, destination: Any) -> dict[str, Any]:
+        """Move a mail to another folder.
+        
+        :param folder_name: The name of the source folder
+        :type folder_name: str
+        :param mail_uid: The unique identifier of the mail
+        :type mail_uid: str
+        :param destination: The destination folder name
+        :type destination: Any
+        :return: Result with moved mail info
+        :rtype: s[str, Any]
+        :raises RequestException: If destination is missing or invalid
+        """
+        if not destination or not isinstance(destination, str):
+            raise RequestException("Missing or invalid destination folder for move action", err.ERROR_MISSING_ACTION_DATA)
+
+        client.copy_mail_to_mailbox(folder_name, mail_uid, destination)
+        client.add_flags_to_mail(folder_name, mail_uid, ['\\Deleted'])
+
+        return {"action": "move", "mail_uid": mail_uid, "from_folder": folder_name, "to_folder": destination}
+
+    def _action_spam(self, client: ClientMailServer, folder_name: str, mail_uid: str) -> dict[str, Any]:
+        """Mark a mail as spam and move it to Junk folder.
+        
+        :param folder_name: The name of the folder
+        :type folder_name: str
+        :param mail_uid: The unique identifier of the mail
+        :type mail_uid: str
+        :return: Result with spam action info
+        :rtype: dict[str, Any]
+        :raises RequestException: If operation fails
+        """
+        #TODO mechanism to store the origin folder in the tag so when set as ham
+        junk_folder = self.domain_mail_folder_name.get(cs.MAIL_FOLDER_JUNK, "Junk")
+        client.copy_mail_to_mailbox(folder_name, mail_uid, junk_folder, create_dest=True)
+        client.add_flags_to_mail(folder_name, mail_uid, ['\\Deleted'])
+        #TODO : action de l'admin pour activer une option qui enverra le mail à une adresse définie
+        return {"action": "spam", "mail_uid": mail_uid, "moved_to": junk_folder}
+
+    def _action_ham(self, client: ClientMailServer, folder_name: str, mail_uid: str) -> dict[str, Any]:
+        """Mark a mail as ham (not spam) and move it to INBOX.
+        
+        :param folder_name: The name of the folder
+        :type folder_name: str
+        :param mail_uid: The unique identifier of the mail
+        :type mail_uid: str
+        :return: Result with ham action info
+        :rtype: dict[str, Any]
+        :raises RequestException: If operation fails
+        """
+        inbox_folder = self.domain_mail_folder_name.get(cs.MAIL_FOLDER_INBOX, "INBOX")
+        junk_folder = self.domain_mail_folder_name.get(cs.MAIL_FOLDER_JUNK, "Junk")
+        client.copy_mail_to_mailbox(junk_folder, mail_uid, inbox_folder)
+        client.add_flags_to_mail(folder_name, mail_uid, ['\\Deleted'])
+
+        return {"action": "ham", "mail_uid": mail_uid, "moved_to": inbox_folder}
+
+    def _action_copy(self, client: ClientMailServer, folder_name: str, mail_uid: str, destination: Any) -> dict[str, Any]:
+        """Copy a mail to another folder.
+        
+        :param folder_name: The name of the source folder
+        :type folder_name: str
+        :param mail_uid: The unique identifier of the mail
+        :type mail_uid: str
+        :param destination: The destination folder name
+        :type destination: Any
+        :return: Result with copied mail info
+        :rtype: dict[str, Any]
+        :raises RequestException: If destination is missing or invalid
+        """
+        if not destination or not isinstance(destination, str):
+            raise RequestException("Missing or invalid destination folder for copy action", err.ERROR_MISSING_ACTION_DATA)
+
+        client.copy_mail_to_mailbox(folder_name, mail_uid, destination)
+
+        return {"action": "copy", "mail_uid": mail_uid, "from_folder": folder_name, "to_folder": destination}
+
+    def _action_download(self, client: ClientMailServer, folder_name: str, mail_uid: str) -> BytesIO:
+        """Download a mail as raw .eml bytes.
+
+        :param folder_name: The name of the folder containing the mail.
+        :type folder_name: str
+        :param mail_uid: The unique identifier of the mail.
+        :type mail_uid: str
+        :return: A tuple of (raw .eml bytes, suggested filename).
+        :rtype: Tuple[bytes, str]
+        :raises RequestException: If fetching the mail fails.
+        """
+        mail_str = client.fetch_mail_raw(folder_name, mail_uid)
+        return BytesIO(mail_str.encode())
+
+    def _action_zip(self, client: ClientMailServer, folder_name: str, mail_uid: str) -> BytesIO:
+        """Download a mail as a .zip archive containing the .eml file.
+
+        :param folder_name: The name of the folder containing the mail.
+        :type folder_name: str
+        :param mail_uid: The unique identifier of the mail.
+        :type mail_uid: str
+        :return: A Flask send_file response with the zip archive.
+        :rtype: Any
+        :raises RequestException: If fetching or zipping the mail fails.
+        """
+        mail_str = client.fetch_mail_raw(folder_name, mail_uid)
+
+        eml_filename = f"mail_{mail_uid}.eml"
+        try:
+            zip_buffer = BytesIO()
+            with zipfile.ZipFile(zip_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+                zf.writestr(eml_filename, mail_str)
+            zip_buffer.seek(0)
+        except (OSError, zipfile.BadZipFile) as e:
+            raise RequestException(f"Failed to create zip archive for mail UID {mail_uid}: {e}", err.ERROR_MAIL_ZIP_FAILED) from e
+
+        return zip_buffer
