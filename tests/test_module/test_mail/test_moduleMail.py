@@ -22,7 +22,7 @@ class FakeClientImap:
         self.fetch_mails_result = ([], 0)
         self.fetch_mail_result = b'Subject: Test\r\nFrom: sender@example.com\r\nTo: recipient@example.com\r\n\r\nBody'
         self.expunge_folder_result = 5
-        self.get_folder_details_result = {'name': 'INBOX', 'path': 'INBOX', 'type': 'inbox', 'subscribed': 1, 'children': []}
+        self.get_one_folder_result = {'name': 'INBOX', 'path': 'INBOX', 'type': 'inbox', 'subscribed': 1, 'children': []}
         self.get_acl_result = [('user1@example.com', {'userCanViewFolder': 1})]
         self.purge_folder_result = 10
 
@@ -106,9 +106,9 @@ class FakeClientImap:
         """Expunge a folder."""
         return self.expunge_folder_result
 
-    def get_folder_details(self, folder_name):
+    def get_one_folder(self, folder_name):
         """Get details of a folder."""
-        return self.get_folder_details_result
+        return self.get_one_folder_result
 
     def rename_folder(self, old_name, new_name):
         """Rename a folder."""
@@ -241,7 +241,7 @@ def test_get_folder_list_with_client_error(monkeypatch):
 def test_create_folder_success(monkeypatch):
     """Test creating a folder."""
     fake_client = FakeClientImap()
-    fake_client.get_folder_details_result = {'name': 'NewFolder', 'path': 'NewFolder', 'type': 'folder', 'subscribed': 1, 'children': []}
+    fake_client.get_one_folder_result = {'name': 'NewFolder', 'path': 'NewFolder', 'type': 'folder', 'subscribed': 1, 'children': []}
     patch_import_manager(monkeypatch, fake_client)
 
     user_conf = {"username": "user@example.com", "password": "pass", "type": "imap"}
@@ -270,7 +270,7 @@ def test_create_folder_with_client_error(monkeypatch):
 def test_delete_folder_not_in_trash_moves_to_trash(monkeypatch):
     """Test deleting a folder that is NOT in Trash - should move to Trash."""
     fake_client = FakeClientImap()
-    fake_client.get_folder_details_result = {
+    fake_client.get_one_folder_result = {
         'name': 'OldFolder',
         'path': 'OldFolder',
         'type': 'folder',
@@ -302,7 +302,7 @@ def test_delete_folder_not_in_trash_moves_to_trash(monkeypatch):
 def test_delete_folder_in_trash_deletes_permanently(monkeypatch):
     """Test deleting a folder that IS in Trash - should permanently delete."""
     fake_client = FakeClientImap()
-    fake_client.get_folder_details_result = {
+    fake_client.get_one_folder_result = {
         'name': 'OldFolder_123',
         'path': 'Trash/OldFolder_123',
         'type': 'folder',
@@ -330,7 +330,7 @@ def test_delete_folder_in_trash_deletes_permanently(monkeypatch):
 def test_delete_trash_folder_itself(monkeypatch):
     """Test deleting the Trash folder itself - should permanently delete."""
     fake_client = FakeClientImap()
-    fake_client.get_folder_details_result = {
+    fake_client.get_one_folder_result = {
         'name': 'Trash',
         'path': 'Trash',
         'type': 'trash',
@@ -560,8 +560,8 @@ def test_get_mail_raw_success(monkeypatch):
 def test_update_folder_rename_success(monkeypatch):
     """Test updating folder with rename."""
     fake_client = FakeClientImap()
-    # Update the get_folder_details_result to return the new folder name after rename
-    fake_client.get_folder_details_result = {'name': 'NewName', 'path': 'NewName', 'type': 'folder', 'subscribed': 1, 'children': []}
+    # Update the get_one_folder_result to return the new folder name after rename
+    fake_client.get_one_folder_result = {'name': 'NewName', 'path': 'NewName', 'type': 'folder', 'subscribed': 1, 'children': []}
     patch_import_manager(monkeypatch, fake_client)
 
     user_conf = {"username": "user@example.com", "password": "pass", "type": "imap"}
@@ -651,7 +651,7 @@ def test_share_folder_success(monkeypatch):
     user_info = result['users']['user1@example.com']
 
     # Verify user metadata
-    assert user_info['userClass'] == 'normal-user'
+    assert user_info['user_class'] == 'normal-user'
     assert user_info['c_email'] == 'user1@example.com'
     assert user_info['uid'] == 'user1@example.com'
     assert 'cn' in user_info
@@ -669,7 +669,7 @@ def test_purge_folder_mails_success(monkeypatch):
     """Test purging folder mails."""
     fake_client = FakeClientImap()
     fake_client.purge_folder_result = 10
-    fake_client.get_folder_details_result = {
+    fake_client.get_one_folder_result = {
         'name': 'INBOX',
         'children': []
     }
@@ -678,7 +678,7 @@ def test_purge_folder_mails_success(monkeypatch):
     user_conf = {"username": "user@example.com", "password": "pass", "type": "imap"}
     module = ModuleMail(user_conf=user_conf)
 
-    purge_data = {"applyToSubfolders": False, "permanentlyDelete": False}
+    purge_data = {"do_subfolders": False, "permanently_delete": False}
     result = module.purge_folder_mails("INBOX", purge_data)
 
     assert result['mails_deleted'] == 10
@@ -688,7 +688,7 @@ def test_purge_folder_mails_with_subfolders(monkeypatch):
     """Test purging folder mails including subfolders."""
     fake_client = FakeClientImap()
     fake_client.purge_folder_result = 5
-    fake_client.get_folder_details_result = {
+    fake_client.get_one_folder_result = {
         'name': 'INBOX',
         'children': [
             {'path': 'INBOX/Sub1'},
@@ -696,7 +696,7 @@ def test_purge_folder_mails_with_subfolders(monkeypatch):
         ]
     }
 
-    def get_folder_details_dynamic(folder_name):
+    def get_one_folder_dynamic(folder_name):
         if folder_name == 'INBOX':
             return {
                 'name': 'INBOX',
@@ -707,13 +707,13 @@ def test_purge_folder_mails_with_subfolders(monkeypatch):
             }
         return {'name': folder_name, 'children': []}
 
-    fake_client.get_folder_details = get_folder_details_dynamic
+    fake_client.get_one_folder = get_one_folder_dynamic
     patch_import_manager(monkeypatch, fake_client)
 
     user_conf = {"username": "user@example.com", "password": "pass", "type": "imap"}
     module = ModuleMail(user_conf=user_conf)
 
-    purge_data = {"applyToSubfolders": True, "permanentlyDelete": False}
+    purge_data = {"do_subfolders": True, "permanently_delete": False}
     result = module.purge_folder_mails("INBOX", purge_data)
 
     # Should purge main folder + 2 subfolders = 15 mails total
@@ -724,7 +724,7 @@ def test_purge_folder_mails_with_date_filter(monkeypatch):
     """Test purging folder mails with date filter."""
     fake_client = FakeClientImap()
     fake_client.purge_folder_result = 3
-    fake_client.get_folder_details_result = {
+    fake_client.get_one_folder_result = {
         'name': 'INBOX',
         'children': []
     }
@@ -733,7 +733,7 @@ def test_purge_folder_mails_with_date_filter(monkeypatch):
     user_conf = {"username": "user@example.com", "password": "pass", "type": "imap"}
     module = ModuleMail(user_conf=user_conf)
 
-    purge_data = {"applyToSubfolders": False, "permanentlyDelete": False, "date": "2024-01-01"}
+    purge_data = {"do_subfolders": False, "permanently_delete": False, "date": "2024-01-01"}
     result = module.purge_folder_mails("INBOX", purge_data)
 
     assert result['mails_deleted'] == 3
@@ -744,7 +744,7 @@ def test_purge_folder_mails_with_permanent_delete(monkeypatch):
     fake_client = FakeClientImap()
     fake_client.purge_folder_result = 10
     fake_client.expunge_folder_result = 10
-    fake_client.get_folder_details_result = {
+    fake_client.get_one_folder_result = {
         'name': 'INBOX',
         'children': []
     }
@@ -753,18 +753,18 @@ def test_purge_folder_mails_with_permanent_delete(monkeypatch):
     user_conf = {"username": "user@example.com", "password": "pass", "type": "imap"}
     module = ModuleMail(user_conf=user_conf)
 
-    purge_data = {"applyToSubfolders": False, "permanentlyDelete": True}
+    purge_data = {"do_subfolders": False, "permanently_delete": True}
     result = module.purge_folder_mails("INBOX", purge_data)
 
     assert result['mails_deleted'] == 10
 
 
-# ========== Tests for get_folder_details ==========
+# ========== Tests for get_one_folder ==========
 
-def test_get_folder_details_success(monkeypatch):
+def test_get_one_folder_success(monkeypatch):
     """Test getting folder details."""
     fake_client = FakeClientImap()
-    fake_client.get_folder_details_result = {
+    fake_client.get_one_folder_result = {
         'name': 'INBOX',
         'path': 'INBOX',
         'type': 'inbox',
@@ -778,7 +778,7 @@ def test_get_folder_details_success(monkeypatch):
     user_conf = {"username": "user@example.com", "password": "pass", "type": "imap"}
     module = ModuleMail(user_conf=user_conf)
 
-    result = module.get_folder_details("INBOX")
+    result = module.get_one_folder("INBOX")
     assert result['name'] == 'INBOX'
     assert result['path'] == 'INBOX'
     assert result['type'] == 'inbox'
@@ -788,10 +788,10 @@ def test_get_folder_details_success(monkeypatch):
     assert 'INBOX' in fake_client.select_mailbox_calls
 
 
-def test_get_folder_details_with_children(monkeypatch):
+def test_get_one_folder_with_children(monkeypatch):
     """Test getting folder details with children."""
     fake_client = FakeClientImap()
-    fake_client.get_folder_details_result = {
+    fake_client.get_one_folder_result = {
         'name': 'Archive',
         'path': 'Archive',
         'type': 'folder',
@@ -808,7 +808,7 @@ def test_get_folder_details_with_children(monkeypatch):
     user_conf = {"username": "user@example.com", "password": "pass", "type": "imap"}
     module = ModuleMail(user_conf=user_conf)
 
-    result = module.get_folder_details("Archive")
+    result = module.get_one_folder("Archive")
     assert result['name'] == 'Archive'
     assert len(result['children']) == 2
     assert result['children'][0]['name'] == '2024'
@@ -819,7 +819,7 @@ def test_get_folder_details_with_children(monkeypatch):
 def test_collect_subfolders_no_children(monkeypatch):
     """Test collecting subfolders when there are none."""
     fake_client = FakeClientImap()
-    fake_client.get_folder_details_result = {
+    fake_client.get_one_folder_result = {
         'name': 'INBOX',
         'children': []
     }
@@ -836,7 +836,7 @@ def test_collect_subfolders_with_nested_folders(monkeypatch):
     """Test collecting subfolders with nested structure."""
     fake_client = FakeClientImap()
 
-    def get_folder_details_dynamic(folder_name):
+    def get_one_folder_dynamic(folder_name):
         if folder_name == 'Archive':
             return {
                 'name': 'Archive',
@@ -856,7 +856,7 @@ def test_collect_subfolders_with_nested_folders(monkeypatch):
 
         return {'name': folder_name.split('/')[-1], 'children': []}
 
-    fake_client.get_folder_details = get_folder_details_dynamic
+    fake_client.get_one_folder = get_one_folder_dynamic
     patch_import_manager(monkeypatch, fake_client)
 
     user_conf = {"username": "user@example.com", "password": "pass", "type": "imap"}

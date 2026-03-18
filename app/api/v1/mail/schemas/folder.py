@@ -6,6 +6,7 @@ class FolderCreateSchema(Schema):
     """
     Schema for creating a new mail folder.
     """
+    parent = fields.String(required=True)
     name = fields.String(required=True)
 
     @classmethod
@@ -17,7 +18,8 @@ class FolderCreateSchema(Schema):
         :rtype: dict
         """
         return {
-            "name": "NewFolder"
+            "name": "NewFolder",
+            "parent": ""
         }
 
 
@@ -48,9 +50,9 @@ class FolderPurgeSchema(Schema):
     """
     Schema for purging mails in a folder.
     """
-    applyToSubfolders = fields.Boolean()
-    permanentlyDelete = fields.Boolean()
-    date = fields.String()
+    do_subfolders = fields.Boolean(load_default=True, dump_default=True)
+    permanently_delete = fields.Boolean(load_default=False, dump_default=False)
+    date = fields.String(required=True)
 
     @classmethod
     def example(cls) -> dict:
@@ -61,8 +63,8 @@ class FolderPurgeSchema(Schema):
         :rtype: dict
         """
         return {
-            "applyToSubfolders": True,
-            "permanentlyDelete": True,
+            "do_subfolders": True,
+            "permanently_delete": True,
             "date": "2025-12-11"
         }
 
@@ -89,11 +91,11 @@ class FolderShareSchema(Schema):
     Schema for a user entry in folder sharing.
     Use with many=True to validate a list of users.
     """
-    isGroup = fields.Integer()
-    c_email = fields.String()
+    is_group = fields.Integer()
+    c_email = fields.String(required=True)
     cn = fields.String()
     uid = fields.String(required=True)
-    userClass = fields.String()
+    user_class = fields.String()
     rights = fields.Nested(FolderShareRightsSchema, )
 
     @classmethod
@@ -106,11 +108,10 @@ class FolderShareSchema(Schema):
         """
         return [
             {
-                "isGroup": 0,
                 "c_email": "tkeriven@snapshot.alinto.org",
                 "cn": "tkeriven",
                 "uid": "tkeriven@snapshot.alinto.org",
-                "userClass": "normal-user",
+                "user_class": "user",
                 "rights": {
                     "userCanInsertMails": 1,
                     "userCanMarkMailsRead": 1,
@@ -123,11 +124,10 @@ class FolderShareSchema(Schema):
                 }
             },
             {
-                "isGroup": 0,
                 "c_email": "jnadal@snapshot.alinto.org",
                 "cn": "jnadal",
                 "uid": "jnadal@snapshot.alinto.org",
-                "userClass": "normal-user",
+                "user_class": "user",
                 "rights": {
                     "userCanInsertMails": 1,
                     "userCanMarkMailsRead": 1,
@@ -277,6 +277,23 @@ class FolderUpdateResponseSchema(ApiBaseResponse):
             }
         }
 
+class FolderExpungeSchema(Schema):
+    """
+    Schema for purging mails in a folder.
+    """
+    do_subfolders = fields.Boolean(load_default=True, dump_default=True)
+
+    @classmethod
+    def example(cls) -> dict:
+        """
+        Example data for folder purge.
+
+        :return: Example folder purge payload.
+        :rtype: dict
+        """
+        return {
+            "do_subfolders": True,
+        }
 
 class FolderExpungeResponseSchema(ApiBaseResponse):
     """
@@ -341,7 +358,7 @@ class FolderShareResponseSchema(ApiBaseResponse):
             "data": {
                 "users": {
                     "tkeriven@snapshot.alinto.org": {
-                        "userClass": "normal-user",
+                        "user_class": "user",
                         "c_email": "tkeriven@snapshot.alinto.org",
                         "cn": "tkeriven",
                         "uid": "tkeriven@snapshot.alinto.org",
@@ -360,7 +377,7 @@ class FolderShareResponseSchema(ApiBaseResponse):
                         }
                     },
                     "anyone": {
-                        "userClass": "public-user",
+                        "user_class": "anyone",
                         "cn": "Tout utilisateur identifié",
                         "uid": "anyone",
                         "rights": {

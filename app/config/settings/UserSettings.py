@@ -7,6 +7,7 @@ from typing import Type
 from marshmallow import fields, validate
 from app.config.settings.SogoSchema import SogoSchema
 from app.utils.config.generateObjFromSchema import SettingsObj
+from app.utils import constants as cs
 
 import zoneinfo
 
@@ -81,9 +82,9 @@ class UserCalendarGeneralSettings(SogoSchema):
     SOGO_U_EVENT_DEFAULT_CLASS = fields.String(load_default="PUBLIC", dump_default="PUBLIC", validate=validate.OneOf(('PUBLIC', 'CONFIDENTIAL', 'PRIVATE')))
     SOGO_U_TASK_DEFAULT_CLASS = fields.String(load_default="PUBLIC", dump_default="PUBLIC", validate=validate.OneOf(('PUBLIC', 'CONFIDENTIAL', 'PRIVATE')))
     SOGO_U_JOURNAL_DEFAULT_CLASS = fields.String(load_default="PUBLIC", dump_default="PUBLIC", validate=validate.OneOf(('PUBLIC', 'CONFIDENTIAL', 'PRIVATE')))
-    SOGO_U_EVENT_DEFAULT_REMINDER = fields.String(load_default="-PT15M", dump_default="-PT15M") #TODO was fixed choices of values in SOGO in icalendar format like '-PT5M' or '-PT1W'
-    SOGO_U_TASK_DEFAULT_REMINDER = fields.String(load_default="-PT15M", dump_default="-PT15M") #TODO same as above
-    SOGO_U_JOURNAL_DEFAULT_REMINDER = fields.String(load_default="-PT15M", dump_default="-PT15M") #TODO don't know if journal can have reminder?
+    SOGO_U_EVENT_DEFAULT_REMINDER = fields.String(load_default="15", dump_default="15") #TODO was fixed choices of values in SOGO in icalendar format like '-PT5M' or '-PT1W'
+    SOGO_U_TASK_DEFAULT_REMINDER = fields.String(load_default="15", dump_default="15") #TODO same as above
+    SOGO_U_JOURNAL_DEFAULT_REMINDER = fields.String(load_default="15", dump_default="15") #TODO don't know if journal can have reminder?
 
     #Invitation
     SOGO_U_NO_INVITATION = fields.Boolean(load_default=False, dump_default=False) #Prevent user to be add as attendees by others users
@@ -148,14 +149,41 @@ class UserMailViewSettings(SogoSchema):
     subparent = "USER_MAIL_VIEW_SETTINGS"
 
     #Mail view
-    SOGO_U_DRAFT_FOLDER_NAME = fields.String(load_default="DRAFT", dump_default="DRAFT") #Name of the draft folder
-    SOGO_U_SENT_FOLDER_NAME  = fields.String(load_default="SENT", dump_default="SENT") #Name of the sent folder
-    SOGO_U_TRASH_FOLDER_NAME = fields.String(load_default="TRASH", dump_default="TRASH") #Name of the trash folder
-    SOGO_U_JUNK_FOLDER_NAME  = fields.String(load_default="JUNK", dump_default="JUNK") #Name of the junk folder
-    SOGO_U_TEMPLATE_FOLDER_NAME = fields.String(load_default="TEMPLATE", dump_default="TEMPLATE") #Name of the template folder
+    SOGO_U_DRAFT_FOLDER_NAME = fields.String() #No default value as this is defined by domain settings
+    SOGO_U_SENT_FOLDER_NAME  = fields.String() #idem
+    SOGO_U_TRASH_FOLDER_NAME = fields.String() #idem
+    SOGO_U_JUNK_FOLDER_NAME  = fields.String() #idem
+    SOGO_U_TEMPLATE_FOLDER_NAME = fields.String(load_default="Templates", dump_default="Templates") #Name of the template folder
 
-    #Mailfolder Subscribe
-    SOGO_U_MAILFOLDER_NOT_SUB = fields.List(fields.String()) #list of mailfoder that the user don't follow (default empty list means it follow everything)
+class UserMailViewSettingsObj(SettingsObj):
+    """
+    Object with UserMailViewSettings params as attributes
+    """
+
+    SOGO_U_DRAFT_FOLDER_NAME: str = ""
+    SOGO_U_SENT_FOLDER_NAME: str  = ""
+    SOGO_U_TRASH_FOLDER_NAME: str = ""
+    SOGO_U_JUNK_FOLDER_NAME: str  = ""
+    SOGO_U_TEMPLATE_FOLDER_NAME: str = "Templates"
+
+    def get_user_mail_folder_map(self) -> dict:
+        """
+        Return the map that link folder type to its name
+        """
+        ret: dict = {}
+        if self.SOGO_U_DRAFT_FOLDER_NAME:
+            ret[cs.MAIL_FOLDER_DRAFT] = self.SOGO_U_DRAFT_FOLDER_NAME
+        if self.SOGO_U_JUNK_FOLDER_NAME:
+            ret[cs.MAIL_FOLDER_JUNK] = self.SOGO_U_JUNK_FOLDER_NAME
+        if self.SOGO_U_TRASH_FOLDER_NAME:
+            ret[cs.MAIL_FOLDER_TRASH] = self.SOGO_U_TRASH_FOLDER_NAME
+        if self.SOGO_U_SENT_FOLDER_NAME:
+            ret[cs.MAIL_FOLDER_SENT] = self.SOGO_U_SENT_FOLDER_NAME
+        if self.SOGO_U_TEMPLATE_FOLDER_NAME:
+            ret[cs.MAIL_FOLDER_TEMPLATE] = self.SOGO_U_TEMPLATE_FOLDER_NAME
+        return ret
+
+
 
 class UserMailGeneralSettings(SogoSchema):
     """
@@ -172,9 +200,7 @@ class UserMailGeneralSettings(SogoSchema):
                                                         #Tell if the forwarded email is in the body or in attach file
     SOGO_U_ATTACHMENT_POSITION = fields.String(load_default="below", dump_default="below", validate=validate.OneOf(('below', 'above')))
     SOGO_U_HIDE_INLINE_ATTACHMENT = fields.Boolean(load_default=False, dump_default=False) #Do no show inline images as attachment file in the mail viewer
-    SOGO_U_DISPLAY_REMOTE_INLINE = fields.Boolean(load_default=False, dump_default=False) #Do not ask user to download external image, do it autimaticcaly
-                                                                                        #TODO not safe at all but sogo 5 allowed that...
-                                                                                        #TODO image proxying?
+
     SOGO_U_REPLY_POSITION = fields.String(load_default="below", dump_default="below", validate=validate.OneOf(('below', 'above')))
                                                         #Tell if the quoted email is shown above or below the user answer
     SOGO_U_SIGNATURE_POSITION = fields.String(load_default="below", dump_default="below", validate=validate.OneOf(('below', 'above')))
@@ -185,9 +211,8 @@ class UserMailGeneralSettings(SogoSchema):
     SOGO_U_COMPOSE_MAIL_TYPE_DEFAULT = fields.String(load_default="html", dump_default="html", validate=validate.OneOf(('html', 'text'))) #TODO directly in the composer
     SOGO_U_COMPOSE_MAIL_WINDOW = fields.String(load_default="inline", dump_default="inline", validate=validate.OneOf(('inline', 'popup')))
                                     #Does the mail composer opens in a popup or on the webmail page.
-    
+
     SOGO_U_MARK_READ_DELAY = fields.Integer(load_default=0, dump_default=0, validate=validate.Range(min=0)) #Delay in seconds before a mail is marked as read. 0 means no delay
-    SOGO_U_DRAFT_AUTOSAVE = fields.Integer(load_default=0, dump_default=0, validate=validate.Range(min=0)) #Interval in seconds when a draft is autosave, 0 means save always #TODO how??
     SOGO_U_MAIL_ALLOW_RECEIPT = fields.Boolean(load_default=True, dump_default=True) #Allow mail to ask for receipts
 
     SOGO_U_COLLECT_UNKNWON_ADDRESSES = fields.Boolean(load_default=False, dump_default=False) #Collect address send to unknwon mail. (So next time it will be in autocompletion)

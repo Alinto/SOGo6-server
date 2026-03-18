@@ -56,6 +56,7 @@ class VoucherUserService:
         
         user_session = {
             cs.USER_UID: user.uid,
+            
             cs.SESSION_SENSITIVE: sensitive_data
         }
 

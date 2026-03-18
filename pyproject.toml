@@ -22,7 +22,6 @@ dependencies = [
     "pydantic",
     "pydantic-settings",
     "python-ldap",
-    "sqlalchemy",
     "redis",
     "psycopg",
     "pytest-mock",

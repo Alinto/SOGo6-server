@@ -73,10 +73,10 @@ class ModuleInitSogo:
                 #Check the Columns
                 for column in table.columns:
                     if not column.name in db_table_info:
-                        self.errors.append(f"Table {table.name}'s colum {column.name} was not found in database")
+                        self.errors.append(f"Table {table.name}'s column {column.name} was not found in database")
                         continue
                     if db_table_info[column.name] not in column.data_type_check:
-                        self.errors.append(f"Table {table.name}'s colum {column.name} was found but from data_type different (expected among {column.data_type_check} and found {db_table_info[column.name]})")
+                        self.errors.append(f"Table {table.name}'s column {column.name} was found but from data_type different (expected among {column.data_type_check} and found {db_table_info[column.name]})")
                 table_ok.append(table.name)
             else:
                 #Table missing, it may be normal if this is the first init

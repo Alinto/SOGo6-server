@@ -305,7 +305,6 @@ class ModuleAdminConfig:
             current_settings: dict = result[0][0]
             merge_patch(new_param, current_settings)
 
-
             values = check_data_for_sogo_schemas(current_settings, get_schema)
 
             #Update the column
