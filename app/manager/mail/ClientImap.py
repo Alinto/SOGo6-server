@@ -1040,7 +1040,7 @@ class ClientImap(ClientMailServer):
         if self.connection is not None and self.authenticated:
             if not mailbox.isascii():
                 raise RequestException(f"Mailbox name is not ascii: {mailbox}", err.ERROR_IMAP_NOT_ASCII)
-            mailbox = quote(mailbox)
+            mailbox = quote(self._fix_folder_path(mailbox))
             success, datas = self._exec_imap4_method(self.connection.select, mailbox)
             if not success:
                 if datas[0].decode().startswith("Mailbox doesn't exist"):
@@ -1054,7 +1054,7 @@ class ClientImap(ClientMailServer):
 
     def uid_copy(self, mail_uid: str|list|Iterator, dest_mailbox: str) -> None:
         """
-        Copy a mail form the selected folder to another folder
+        Copy a mail from the selected folder to another folder
 
         :param mail_uid: uid of the mail
         :type mail_uid: int | str
@@ -1154,6 +1154,7 @@ class ClientImap(ClientMailServer):
             'flagged': '\\Flagged' in flags_list,
             'answered': '\\Answered' in flags_list,
             'forwarded': '$Forwarded' in flags_list or '\\Forwarded' in flags_list,
+            "deleted": '\\Deleted' in flags_list,
             'all': flags_list
         }
 
@@ -1377,7 +1378,7 @@ class ClientImap(ClientMailServer):
         else:
             raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
 
-    def copy_mail_to_mailbox(self, folder_path: str, mail_uid: str, dest_folder_path: str) -> None:
+    def copy_mail_to_mailbox(self, folder_path: str, mail_uid: str, dest_folder_path: str, create_dest: bool = False) -> None:
         """Copy a mail from one mailbox to another using UID.
         Wrapper selecting folder_path then using uid_copy primitive.
 
@@ -1387,14 +1388,19 @@ class ClientImap(ClientMailServer):
         :type mail_uid: int
         :param dest_folder_path: The destination folder_path.
         :type dest_folder_path: str
+        :param create_dest: True if the folder needs to be created (or ensure that it's already exist)
+        :param type: bool, default to False
         :raises RequestException: If the operation fails.
         """
         logger_imap.debug("Copying mail UID '%s' from '%s' to '%s'", mail_uid, folder_path, dest_folder_path)
         if self.connection is not None and self.authenticated:
             if not folder_path.isascii() or not dest_folder_path.isascii():
                 raise RequestException(f"Mailbox name is not ascii: {folder_path} and/or {dest_folder_path}", err.ERROR_IMAP_NOT_ASCII)
-            folder_path = quote(folder_path)
-            dest_folder_path = quote(folder_path)
+            folder_path = quote(self._fix_folder_path(folder_path))
+            dest_folder_path = quote(dest_folder_path)
+            if create_dest:
+                self._imap_create_folder(folder_path=dest_folder_path, no_error_if_exist=True)
+            self.select_mailbox(folder_path)
             self.uid_copy(mail_uid, dest_folder_path)
         else:
             raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
@@ -1415,8 +1421,31 @@ class ClientImap(ClientMailServer):
         if self.connection is not None and self.authenticated:
             if not folder_path.isascii():
                 raise RequestException(f"Mailbox name is not ascii: {folder_path}", err.ERROR_IMAP_NOT_ASCII)
-            folder_path = quote(folder_path)
+            folder_path = quote(self._fix_folder_path(folder_path))
+            self.select_mailbox(folder_path)
             self.uid_store_flags(mail_uid, flags, operation='+FLAGS')
+        else:
+            raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
+
+    def remove_flags_to_mail(self, folder_path: str, mail_uid: str, flags: list[str]) -> None:
+        """remove flags to a mail using UID.
+        Wrapper selecting folder then using uid_store_flags primitive.
+
+        :param folder_path: The folder containing the mail.
+        :type folder_path: str
+        :param mail_uid: The UID of the mail to modify.
+        :type mail_uid: int
+        :param flags: list of flags to add (e.g., ['\\Seen', '\\Flagged']).
+        :type flags: list[str]
+        :raises RequestException: If the operation fails.
+        """
+        logger_imap.debug("Adding flags %s to mail UID '%s' in '%s'", flags, mail_uid, folder_path)
+        if self.connection is not None and self.authenticated:
+            if not folder_path.isascii():
+                raise RequestException(f"Mailbox name is not ascii: {folder_path}", err.ERROR_IMAP_NOT_ASCII)
+            folder_path = quote(self._fix_folder_path(folder_path))
+            self.select_mailbox(folder_path)
+            self.uid_store_flags(mail_uid, flags, operation='-FLAGS')
         else:
             raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
 
@@ -1433,7 +1462,7 @@ class ClientImap(ClientMailServer):
         if self.connection is not None and self.authenticated:
             if not folder_path.isascii():
                 raise RequestException(f"Mailbox name is not ascii: {folder_path}", err.ERROR_IMAP_NOT_ASCII)
-            folder_path = quote(folder_path)
+            folder_path = quote(self._fix_folder_path(folder_path))
             self.select_mailbox(folder_path)
             # Copy mail to Trash folder
             self.uid_copy(mail_uid, self.folders_map_type_to_name[cs.MAIL_FOLDER_TRASH])

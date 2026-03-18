@@ -1003,3 +1003,199 @@ def test_forward_mail_not_implemented(monkeypatch):
 
     with pytest.raises(NotImplementedError, match="forward_mail is not implemented yet"):
         module.forward_mail("INBOX", 42)
+
+
+# ========== Tests for perform_mail_action ==========
+
+def test_perform_mail_action_tag_single_tag(monkeypatch):
+    """Test tagging a mail with a single tag."""
+    fake_client = FakeClientImap()
+    patch_import_manager(monkeypatch, fake_client)
+
+    user_conf = {"username": "user@example.com", "password": "pass", "type": "imap"}
+    module = ModuleMail(user_conf=user_conf)
+
+    action_data = {"action": "tag", "data": "Important"}
+    result = module.perform_mail_action("INBOX", 42, action_data)
+
+    assert result["action"] == "tag"
+    assert result["mail_uid"] == 42
+    assert result["tags_added"] == ["Important"]
+    assert fake_client.select_mailbox_calls[-1] == "INBOX"
+    assert (42, ["Important"], '+FLAGS') in fake_client.uid_store_flags_calls
+
+
+def test_perform_mail_action_tag_multiple_tags(monkeypatch):
+    """Test tagging a mail with multiple tags."""
+    fake_client = FakeClientImap()
+    patch_import_manager(monkeypatch, fake_client)
+
+    user_conf = {"username": "user@example.com", "password": "pass", "type": "imap"}
+    module = ModuleMail(user_conf=user_conf)
+
+    action_data = {"action": "tag", "data": ["Important", "Work"]}
+    result = module.perform_mail_action("INBOX", 42, action_data)
+
+    assert result["action"] == "tag"
+    assert result["tags_added"] == ["Important", "Work"]
+    assert (42, ["Important", "Work"], '+FLAGS') in fake_client.uid_store_flags_calls
+
+
+def test_perform_mail_action_tag_missing_data(monkeypatch):
+    """Test tagging without providing tags data."""
+    fake_client = FakeClientImap()
+    patch_import_manager(monkeypatch, fake_client)
+
+    user_conf = {"username": "user@example.com", "password": "pass", "type": "imap"}
+    module = ModuleMail(user_conf=user_conf)
+
+    action_data = {"action": "tag"}
+    with pytest.raises(RequestException, match="Missing tags data for tag action"):
+        module.perform_mail_action("INBOX", 42, action_data)
+
+
+def test_perform_mail_action_untag_single_tag(monkeypatch):
+    """Test untagging a mail with a single tag."""
+    fake_client = FakeClientImap()
+    patch_import_manager(monkeypatch, fake_client)
+
+    user_conf = {"username": "user@example.com", "password": "pass", "type": "imap"}
+    module = ModuleMail(user_conf=user_conf)
+
+    action_data = {"action": "untag", "data": "Important"}
+    result = module.perform_mail_action("INBOX", 42, action_data)
+
+    assert result["action"] == "untag"
+    assert result["mail_uid"] == 42
+    assert result["tags_removed"] == ["Important"]
+    assert (42, ["Important"], '-FLAGS') in fake_client.uid_store_flags_calls
+
+
+def test_perform_mail_action_untag_multiple_tags(monkeypatch):
+    """Test untagging a mail with multiple tags."""
+    fake_client = FakeClientImap()
+    patch_import_manager(monkeypatch, fake_client)
+
+    user_conf = {"username": "user@example.com", "password": "pass", "type": "imap"}
+    module = ModuleMail(user_conf=user_conf)
+
+    action_data = {"action": "untag", "data": ["Important", "Work"]}
+    result = module.perform_mail_action("INBOX", 42, action_data)
+
+    assert result["action"] == "untag"
+    assert result["tags_removed"] == ["Important", "Work"]
+    assert (42, ["Important", "Work"], '-FLAGS') in fake_client.uid_store_flags_calls
+
+
+def test_perform_mail_action_move_success(monkeypatch):
+    """Test moving a mail to another folder."""
+    fake_client = FakeClientImap()
+    patch_import_manager(monkeypatch, fake_client)
+
+    user_conf = {"username": "user@example.com", "password": "pass", "type": "imap"}
+    module = ModuleMail(user_conf=user_conf)
+
+    action_data = {"action": "move", "data": "Archive"}
+    result = module.perform_mail_action("INBOX", 42, action_data)
+
+    assert result["action"] == "move"
+    assert result["mail_uid"] == 42
+    assert result["from_folder"] == "INBOX"
+    assert result["to_folder"] == "Archive"
+    assert (42, "Archive") in fake_client.uid_copy_calls
+    assert (42, ['\\Deleted'], '+FLAGS') in fake_client.uid_store_flags_calls
+
+
+def test_perform_mail_action_move_missing_destination(monkeypatch):
+    """Test moving without providing destination folder."""
+    fake_client = FakeClientImap()
+    patch_import_manager(monkeypatch, fake_client)
+
+    user_conf = {"username": "user@example.com", "password": "pass", "type": "imap"}
+    module = ModuleMail(user_conf=user_conf)
+
+    action_data = {"action": "move"}
+    with pytest.raises(RequestException, match="Missing or invalid destination folder for move action"):
+        module.perform_mail_action("INBOX", 42, action_data)
+
+
+def test_perform_mail_action_spam_success(monkeypatch):
+    """Test marking a mail as spam."""
+    fake_client = FakeClientImap()
+    patch_import_manager(monkeypatch, fake_client)
+
+    user_conf = {"username": "user@example.com", "password": "pass", "type": "imap"}
+    module = ModuleMail(user_conf=user_conf)
+
+    action_data = {"action": "spam"}
+    result = module.perform_mail_action("INBOX", 42, action_data)
+
+    assert result["action"] == "spam"
+    assert result["mail_uid"] == 42
+    assert result["moved_to"] == "Junk"
+    assert (42, "Junk") in fake_client.uid_copy_calls
+    assert (42, ['\\Deleted'], '+FLAGS') in fake_client.uid_store_flags_calls
+
+
+def test_perform_mail_action_ham_success(monkeypatch):
+    """Test marking a mail as ham (not spam)."""
+    fake_client = FakeClientImap()
+    patch_import_manager(monkeypatch, fake_client)
+
+    user_conf = {"username": "user@example.com", "password": "pass", "type": "imap"}
+    module = ModuleMail(user_conf=user_conf)
+
+    action_data = {"action": "ham"}
+    result = module.perform_mail_action("Junk", 42, action_data)
+
+    assert result["action"] == "ham"
+    assert result["mail_uid"] == 42
+    assert result["moved_to"] == "INBOX"
+    assert (42, "INBOX") in fake_client.uid_copy_calls
+    assert (42, ['\\Deleted'], '+FLAGS') in fake_client.uid_store_flags_calls
+
+
+def test_perform_mail_action_copy_success(monkeypatch):
+    """Test copying a mail to another folder."""
+    fake_client = FakeClientImap()
+    patch_import_manager(monkeypatch, fake_client)
+
+    user_conf = {"username": "user@example.com", "password": "pass", "type": "imap"}
+    module = ModuleMail(user_conf=user_conf)
+
+    action_data = {"action": "copy", "data": "Archive"}
+    result = module.perform_mail_action("INBOX", 42, action_data)
+
+    assert result["action"] == "copy"
+    assert result["mail_uid"] == 42
+    assert result["from_folder"] == "INBOX"
+    assert result["to_folder"] == "Archive"
+    assert (42, "Archive") in fake_client.uid_copy_calls
+    # Copy should not delete the original mail
+    assert (42, ['\\Deleted'], '+FLAGS') not in fake_client.uid_store_flags_calls
+
+
+def test_perform_mail_action_copy_missing_destination(monkeypatch):
+    """Test copying without providing destination folder."""
+    fake_client = FakeClientImap()
+    patch_import_manager(monkeypatch, fake_client)
+
+    user_conf = {"username": "user@example.com", "password": "pass", "type": "imap"}
+    module = ModuleMail(user_conf=user_conf)
+
+    action_data = {"action": "copy"}
+    with pytest.raises(RequestException, match="Missing or invalid destination folder for copy action"):
+        module.perform_mail_action("INBOX", 42, action_data)
+
+
+def test_perform_mail_action_invalid_action(monkeypatch):
+    """Test handling of invalid action."""
+    fake_client = FakeClientImap()
+    patch_import_manager(monkeypatch, fake_client)
+
+    user_conf = {"username": "user@example.com", "password": "pass", "type": "imap"}
+    module = ModuleMail(user_conf=user_conf)
+
+    action_data = {"action": "invalid_action"}
+    with pytest.raises(RequestException, match="Invalid action: invalid_action"):
+        module.perform_mail_action("INBOX", 42, action_data)

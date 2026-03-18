@@ -1,7 +1,9 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
-from flask import g
+from io import BytesIO
+
+from flask import g, send_file
 from flask.views import MethodView
 from flask.typing import ResponseReturnValue
 from flask_smorest import Blueprint
@@ -13,6 +15,7 @@ from .schemas.mail import (
     MailListResponseSchema,
     MailDeleteResponseSchema,
     MailRawResponseSchema,
+    MailActionSchema,
 )
 
 if TYPE_CHECKING:
@@ -168,34 +171,47 @@ class ApiMailDetail(MethodView):
 class ApiMailDetailAction(MethodView):
     """API to manage actions on a specific mail.
     """
+    @blp.arguments(MailActionSchema, example=MailActionSchema.example(), error_status_code=400)
+    @blp.response(200)
     def post(self, data: dict, account_id: str, folder_name: str, mail_uid: str) -> ResponseReturnValue:
-        """Action: Perform an action (tag, move, spam, ham, download, zip, copy) on a specific mail in the specified folder. (NOT IMPLEMENTED)
+        """Perform an action (tag, untag, move, spam, ham, copy) on a specific mail in the specified folder.
+
+        :param data: The action data containing 'action' and optional 'data' field
+        :type data: dict
+        :param account_id: The account identifier
+        :type account_id: int
+        :param folder_name: The folder identifier
+        :type folder_name: str
+        :param mail_uid: The unique identifier of the mail
+        :type mail_uid: int
+        :return: A response indicating the result of the action
+        :rtype: ResponseReturnValue
         """
-        if data.get("action") == "tag":
-            # Implement tagging logic here
-            pass
-        if data.get("action") == "move":
-            # Implement move logic here
-            pass
-        if data.get("action") == "spam":
-            # Implement spam logic here
-            pass
-        if data.get("action") == "ham":
-            # Implement ham logic here
-            pass
-        if data.get("action") == "download":
-            # Implement download logic here
-            pass
-        if data.get("action") == "zip":
-            # Implement zip logic here
-            pass
-        if data.get("action") == "copy":
-            # Implement copy logic here
-            pass
-        raise NotImplementedError("Mail actions are not implemented yet.")
-        # logger_api.debug("Calling ApiMailDetailAction.post for account_id: %s, folder_name: %s, mail_uid: %s with action: %s", account_id, folder_name, mail_uid, data.get("action"))
-        # interface: InterfaceApiMailMail = g.inter
-        # return interface.mail_action(account_id, folder_name, mail_uid, data)
+        logger_api.debug(
+            "Calling ApiMailDetailAction.post for account_id: %s, folder_name: %s, mail_uid: %s with action: %s",
+            account_id,
+            folder_name,
+            mail_uid,
+            data["action"]
+        )
+        interface: InterfaceApiMailMail = g.inter
+
+        ret, http_code = interface.mail_action(account_id, folder_name, mail_uid, data)
+        if data["action"] in ("download", "zip"):
+            if data["action"] == "download":
+                filename = f"mail_{mail_uid}.eml"
+            else:
+                filename = f"mail_{mail_uid}.zip"
+            #TODO separate download/zip 
+            return send_file(
+                ret,  # type: ignore[union-attr]
+                mimetype="message/rfc822",
+                as_attachment=True,
+                download_name = filename
+            )
+
+        return ret, http_code
+
 
 
 @blp.route("/<string:mail_uid>/reply")

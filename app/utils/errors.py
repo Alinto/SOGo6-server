@@ -74,6 +74,8 @@ ERROR_FOLDER_ALREADY_EXIST  = E("S000305", "Folder already exist", HTTPStatus.CO
 ERROR_FOLDER_CANNOT_RENAME  = E("S000306", "Folder cannot be renamed", HTTPStatus.BAD_REQUEST)
 ERROR_FOLDER_NOT_UNIQUE     = E("S000307", "Folder is not unique", HTTPStatus.CONFLICT)
 ERROR_FOLDER_DELIMITER      = E("S000308", "Cannot create a folder with delimiter in the name", HTTPStatus.BAD_REQUEST)
+ERROR_INVALID_ACTION         = E("S000309", "Invalid Action Specified", HTTPStatus.BAD_REQUEST)
+ERROR_MISSING_ACTION_DATA    = E("S001306", "Missing Required Data For Action", HTTPStatus.BAD_REQUEST)
 
 ERROR_IMAP_UNAUTHORIZED      = E("S000310", "IMAP Unauthorized - Invalid Credentials Or Insufficient Permissions", HTTPStatus.UNAUTHORIZED)
 ERROR_IMAP_CONNECTION_FAILED = E("S000311", "IMAP connection failed", HTTPStatus.SERVICE_UNAVAILABLE)
@@ -86,6 +88,9 @@ ERROR_IMAP_UNKNWON_AUTH_MECH = E("S001303", "IMAP Auth Mechanism Unknown", HTTPS
 ERROR_IMAP_NOT_ASCII         = E("S001304", "Name for imap command is not ascii", HTTPStatus.BAD_REQUEST)
 ERROR_IMAP_READONLY          = E("S001305", "Writting Command to a readonly folder", HTTPStatus.INTERNAL_SERVER_ERROR)
 
+ERRRIR_MAIL_DELETION         = E("S001313", "Mail Deletion Error", HTTPStatus.BAD_REQUEST)
+ERROR_MAIL_DOWNLOAD_FAILED   = E("S000360", "Mail Download Failed", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_MAIL_ZIP_FAILED        = E("S000361", "Mail Zip Archive Creation Failed", HTTPStatus.INTERNAL_SERVER_ERROR)
 
 #User Profile
 ERROR_USER_PROFILE_DUPLICATE         = E("S000314", "Multiple User Profiles Found For Same UID", HTTPStatus.INTERNAL_SERVER_ERROR)
