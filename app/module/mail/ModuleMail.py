@@ -1,23 +1,23 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Iterator
 
-from email.message import Message
 from email.header import decode_header, make_header
+from email.message import Message
 from email.utils import parseaddr, getaddresses
-from time import time
+from io import BytesIO
 from re import search as reg_search
 import zipfile
-from io import BytesIO
 
 from app.config.settings.UserSettings import UserMailViewSettings, UserMailViewSettingsObj
 from app.manager.mail.ClientMailServer import ClientMailServer
-from app.utils.exceptions import RequestException
+from app.utils import constants as cs
 from app.utils import errors as err
+from app.utils.exceptions import RequestException
+from app.utils.maths.crypto_utils import decrypt_password
 from app.utils.module.importManager import import_and_instantiate_manager
 from app.utils.logger.logger import logger_mail_server
-from app.utils import constants as cs
 from app.utils.strings import get_imap_config_from_url
-from app.utils import constants as cs
+
 
 if TYPE_CHECKING:
     from app.auth.User import User
@@ -63,8 +63,19 @@ class ModuleMail:
         else:
             if not self.user.profile.external_accounts or account_id not in self.user.profile.external_accounts:
                 raise RequestException(err.ERROR_EXTERNAL_ACCOUNT_NOT_FOUND.m, error=err.ERROR_EXTERNAL_ACCOUNT_NOT_FOUND)
-            #TODO handle folder type
-            user_mail_conf = self.user.profile.external_accounts[account_id]
+            ext_account_config: dict = self.user.profile.external_accounts[account_id]["mail_server"]
+            user_mail_conf["username"] = ext_account_config["username"]
+            user_mail_conf["password"] = decrypt_password(ext_account_config["password"])
+            user_mail_conf["type"] = ext_account_config["type"]
+            user_mail_conf["args"] = {
+                "server": ext_account_config["server"],
+                "port": ext_account_config["port"],
+                "encryption": ext_account_config["encryption"],
+                "auth_mech": ext_account_config["auth_mech"]
+            }
+            #TODO How to handle folder type for external account ?? By name?
+            user_mail_conf["args"]["folders_map"] = self.mail_settings.get_mail_server_settings_for_type("imap")["folders_map"]
+
         return user_mail_conf
 
     def _open_client_for(self, account_id: str, do_login: bool = True) -> ClientMailServer:
