@@ -24,11 +24,13 @@ class AdminUserActiveSchema(ApiBaseResponse):
             "data": [
                 {
                     "uid": "jdoe@example.org",
-                    "last_activity": "2026-03-06T10:42:00+00:00"
+                    "last_activity": "2026-03-06T10:42:00+00:00",
+                    "session_key": "user_session:abc123"
                 },
                 {
                     "uid": "jsmith@example.org",
-                    "last_activity": "2026-03-06T11:00:00+00:00"
+                    "last_activity": "2026-03-06T11:00:00+00:00",
+                    "session_key": "user_session:def456"
                 }
             ]
         }
