@@ -2,8 +2,8 @@
 
 cd /workspace/scripts/init
 
-curl -X PATCH -H 'Content-Type: application/json' -d @system_settings.json http://localhost:5000/api/admin/v1/config/system
-curl -X PATCH -H 'Content-Type: application/json' -d @domain_settings.json http://localhost:5000/api/admin/v1/config/domain-default
+# curl -X PATCH -H 'Content-Type: application/json' -d @system_settings.json http://localhost:5000/api/admin/v1/config/system
+# curl -X PATCH -H 'Content-Type: application/json' -d @domain_settings.json http://localhost:5000/api/admin/v1/config/domain-default
 
 # Login and retrieve JWT token
 LOGIN_RESPONSE=$(curl -s -X POST \
@@ -38,7 +38,7 @@ curl -X POST \
     "type": "imap",
     "password": "Banane2!",
     "username": "tkeriven@snapshot.alinto.org",
-    "authMech": "plain"
+    "auth_mech": "plain"
   },
   "receipts": {},
   "identities": [
@@ -60,7 +60,7 @@ curl -X POST \
     "encryption": "SSL/TLS",
     "password": "secure_password",
     "username": "user@example.com",
-    "authMech": "plain",
+    "auth_mech": "plain",
     "type": "smtp"
   }
 }'

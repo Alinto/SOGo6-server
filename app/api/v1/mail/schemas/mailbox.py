@@ -1,4 +1,4 @@
-from marshmallow import Schema, fields, validate
+from marshmallow import Schema, fields, validate, post_load
 from app.utils.api.ApiBaseResponse import ApiBaseResponse
 from app.utils import constants as cs
 
@@ -14,17 +14,26 @@ class MailServerSchema(Schema):
         validate=validate.OneOf(cs.SOCK_ENC_LIST)
     )
     type_ = fields.String(
-        required=True,
+        load_default="imap",
+        dump_default="imap",
         validate=validate.OneOf(["imap"]),
         data_key="type"
     )
     password = fields.String(required=True, validate=validate.Length(min=1))
     username = fields.String(required=True, validate=validate.Length(min=1))
-    authMech = fields.String(
+    auth_mech = fields.String(
         required=False,
         allow_none=True,
         validate=validate.OneOf(["plain", "login", "xoauth2"])
     )
+
+    @post_load
+    def change_type(self, item: dict, many:bool, **kwargs: dict) -> dict:
+        """
+        Simply change the type name after a load
+        """
+        item["type"] = item.pop("type_")
+        return item
 
     @classmethod
     def example(cls) -> dict:
@@ -36,7 +45,7 @@ class MailServerSchema(Schema):
         return {
             "server": "imap.example.com",
             "port": 993,
-            "encryption": "ssl",
+            "encryption": "SSL/TLS",
             "type": "imap",
             "password": "secure_password",
             "username": "user@example.com",
@@ -56,7 +65,7 @@ class MailOutgoingSchema(Schema):
     )
     password = fields.String(required=True, validate=validate.Length(min=1))
     username = fields.String(required=True, validate=validate.Length(min=1))
-    authMech = fields.String(
+    auth_mech = fields.String(
         required=False,
         allow_none=True,
         validate=validate.OneOf(["plain", "login", "xoauth2"])
@@ -66,6 +75,14 @@ class MailOutgoingSchema(Schema):
         validate=validate.OneOf(["smtp"]),
         data_key="type"
     )
+
+    @post_load
+    def change_type(self, item: dict, many:bool, **kwargs: dict) -> dict:
+        """
+        Simply change the type name after a load
+        """
+        item["type"] = item.pop("type_")
+        return item
 
     @classmethod
     def example(cls) -> dict:
@@ -77,7 +94,7 @@ class MailOutgoingSchema(Schema):
         return {
             "server": "smtp.example.com",
             "port": 587,
-            "encryption": "starttls",
+            "encryption": "StartTLS",
             "password": "secure_password",
             "username": "user@example.com",
             "authMech": "plain",
@@ -110,6 +127,96 @@ class IdentitySchema(Schema):
             "signatures": {"default": "Best regards,\nJohn Doe"}
         }
 
+class MailServerUpdateSchema(Schema):
+    """
+    Schema for incoming mail server configuration (IMAP/POP3)
+    """
+    server = fields.String(validate=validate.Length(min=1))
+    port = fields.Integer(validate=validate.Range(min=1, max=65535))
+    encryption = fields.String(validate=validate.OneOf(cs.SOCK_ENC_LIST))
+    type_ = fields.String(
+        validate=validate.OneOf(["imap"]),
+        data_key="type"
+    )
+    password = fields.String(validate=validate.Length(min=1))
+    username = fields.String(validate=validate.Length(min=1))
+    auth_mech = fields.String(
+        allow_none=True,
+        validate=validate.OneOf(["plain", "login", "xoauth2"])
+    )
+
+    @post_load
+    def change_type(self, item: dict, many:bool, **kwargs: dict) -> dict:
+        """
+        Simply change the type name after a load
+        """
+        if "type_" in item:
+            item["type"] = item.pop("type_")
+        return item
+
+    @classmethod
+    def example(cls) -> dict:
+        """Example data for mail server configuration.
+        
+        :return: Example mail server configuration
+        :rtype: dict
+        """
+        return {
+            "server": "imap.example.com",
+            "port": 993,
+            "encryption": "SSL/TLS",
+            "type": "imap",
+            "password": "secure_password",
+            "username": "user@example.com",
+            "authMech": "plain"
+        }
+
+
+class MailOutgoingUpdateSchema(Schema):
+    """
+    Schema for outgoing mail server configuration (SMTP)
+    """
+    server = fields.String(validate=validate.Length(min=1))
+    port = fields.Integer(validate=validate.Range(min=1, max=65535))
+    encryption = fields.String(
+        validate=validate.OneOf(cs.SOCK_ENC_LIST)
+    )
+    password = fields.String(validate=validate.Length(min=1))
+    username = fields.String(validate=validate.Length(min=1))
+    auth_mech = fields.String(
+        allow_none=True,
+        validate=validate.OneOf(["plain", "login", "xoauth2"])
+    )
+    type_ = fields.String(
+        validate=validate.OneOf(["smtp"]),
+        data_key="type"
+    )
+
+    @post_load
+    def change_type(self, item: dict, many:bool, **kwargs: dict) -> dict:
+        """
+        Simply change the type name after a load
+        """
+        if "type_" in item:
+            item["type"] = item.pop("type")
+        return item
+
+    @classmethod
+    def example(cls) -> dict:
+        """Example data for outgoing mail server configuration.
+        
+        :return: Example outgoing mail server configuration
+        :rtype: dict
+        """
+        return {
+            "server": "smtp.example.com",
+            "port": 587,
+            "encryption": "StartTLS",
+            "password": "secure_password",
+            "username": "user@example.com",
+            "authMech": "plain",
+            "type": "smtp"
+        }
 
 class MailboxCreateSchema(Schema):
     """
@@ -139,7 +246,7 @@ class MailboxCreateSchema(Schema):
             "mail_server": {
                 "server": "imap.example.com",
                 "port": 993,
-                "encryption": "ssl",
+                "encryption": "None",
                 "type": "imap",
                 "password": "secure_password",
                 "username": "user@example.com",
@@ -166,7 +273,7 @@ class MailboxCreateSchema(Schema):
             "mail_outgoing": {
                 "server": "smtp.example.com",
                 "port": 587,
-                "encryption": "starttls",
+                "encryption": "StartTLS",
                 "password": "secure_password",
                 "username": "user@example.com",
                 "authMech": "plain",
@@ -175,7 +282,8 @@ class MailboxCreateSchema(Schema):
         }
 
 
-class MailboxUpdateSchema(MailboxCreateSchema):
+
+class MailboxUpdateSchema(Schema):
     """
     Schema for PATCH /mailboxes/<account_id> - Update an existing mailbox
     Uses the same structure as MailboxCreateSchema (identities as a list)
@@ -183,13 +291,13 @@ class MailboxUpdateSchema(MailboxCreateSchema):
     """
     # Inherit all fields from MailboxCreateSchema but make them optional
     name = fields.String(required=False, validate=validate.Length(min=1))
-    mail_server = fields.Nested(MailServerSchema, required=False)
-    mail_outgoing = fields.Nested(MailOutgoingSchema, required=False)
+    mail_server = fields.Nested(MailServerUpdateSchema, required=False)
+    mail_outgoing = fields.Nested(MailOutgoingUpdateSchema, required=False)
     identities = fields.List(
         fields.Nested(IdentitySchema),
-        required=False,
-        load_default=[]
     )
+    receipts = fields.Dict(required=False)
+    certificates = fields.Dict(required=False)
 
     @classmethod
     def example(cls) -> dict:
@@ -203,7 +311,7 @@ class MailboxUpdateSchema(MailboxCreateSchema):
             "mail_server": {
                 "server": "imap.newserver.com",
                 "port": 993,
-                "encryption": "ssl",
+                "encryption": "None",
                 "type": "imap",
                 "password": "new_secure_password",
                 "username": "newuser@example.com",
@@ -223,7 +331,7 @@ class MailboxUpdateSchema(MailboxCreateSchema):
             "mail_outgoing": {
                 "server": "smtp.newserver.com",
                 "port": 465,
-                "encryption": "ssl",
+                "encryption": "None",
                 "password": "new_secure_password",
                 "username": "newuser@example.com",
                 "authMech": "plain",
@@ -253,7 +361,7 @@ class MailboxResponseSchema(ApiBaseResponse):
                 "mail_server": {
                     "server": "imap.example.com",
                     "port": 993,
-                    "encryption": "ssl",
+                    "encryption": "None",
                     "type": "imap",
                     "password": "secure_password",
                     "username": "user@example.com",
@@ -273,7 +381,7 @@ class MailboxResponseSchema(ApiBaseResponse):
                 "mail_outgoing": {
                     "server": "smtp.example.com",
                     "port": 587,
-                    "encryption": "starttls",
+                    "encryption": "None",
                     "password": "secure_password",
                     "username": "user@example.com",
                     "authMech": "plain",
@@ -307,7 +415,7 @@ class MailboxListResponseSchema(ApiBaseResponse):
                     "mail_server": {
                         "server": "imap.main.com",
                         "port": 993,
-                        "encryption": "ssl",
+                        "encryption": "None",
                         "type": "imap",
                         "username": "main@example.com",
                         "authMech": "plain"
@@ -322,7 +430,7 @@ class MailboxListResponseSchema(ApiBaseResponse):
                     "mail_outgoing": {
                         "server": "smtp.main.com",
                         "port": 587,
-                        "encryption": "starttls"
+                        "encryption": "None"
                     }
                 },
                 {
@@ -331,7 +439,7 @@ class MailboxListResponseSchema(ApiBaseResponse):
                     "mail_server": {
                         "server": "imap.example.com",
                         "port": 993,
-                        "encryption": "ssl",
+                        "encryption": "None",
                         "type": "imap",
                         "username": "user@example.com",
                         "authMech": "plain"
@@ -346,7 +454,7 @@ class MailboxListResponseSchema(ApiBaseResponse):
                     "mail_outgoing": {
                         "server": "smtp.example.com",
                         "port": 587,
-                        "encryption": "starttls"
+                        "encryption": "None"
                     }
                 }
             ]

@@ -7,14 +7,15 @@ from app.config.db import tables as tbl
 from app.config.settings.UserSettings import get_all_user_settings_schema, user_settings_dict
 from app.config.settings.SogoSchema import check_data_for_sogo_schemas
 from app.config.settings.DomainSettings import UserModuleSettingsObj, UserModuleSettings
+from app.utils import constants as cs
+from app.utils import errors as err
 from app.utils.db.Condition import EqualCondition
 from app.utils.dict import merge_patch
 from app.utils.exceptions import BugException, RequestException, AggravatedException
 from app.utils.logger.logger import logger_user_profile
-from app.utils.module.importManager import import_and_instantiate_manager
 from app.utils.maths.sogo_hash import get_unique_token, HASH_SIZE_USER, HASH_SIZE_ACCOUNT
-from app.utils import errors as err
 from app.utils.maths.crypto_utils import encrypt_password
+from app.utils.module.importManager import import_and_instantiate_manager
 
 if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
@@ -280,8 +281,10 @@ class ModuleUserProfile:
 
         #Add external accounts
         if self.user_module_settings.SOGO_D_ALLOW_EXT_MAIL_ACCOUNT:
-            external_accounts = self._get_user_column(user.uid, tbl.COL_USER_EXTERNAL_ACCOUNTS.name)
+            external_accounts: dict = self._get_user_column(user.uid, tbl.COL_USER_EXTERNAL_ACCOUNTS.name)
             for account_hash, account_data in external_accounts.items():
+                account_data["mail_server"].pop("password")
+                account_data["mail_outgoing"].pop("password")
                 result.append({"id": account_hash, **account_data})
 
         return result
@@ -454,21 +457,24 @@ class ModuleUserProfile:
         mail_server: dict
         if mail_server := account_data.get("mail_server", None):
             password = mail_server.get("password", None)
-            if password is None or len(password) < 1:
+            if password and len(password) > 0:
                 mail_server["password"] = encrypt_password(password)
 
         # Encrypt password of mail_outgoing:
         mail_outgoing: dict
         if mail_outgoing := account_data.get("mail_outgoing", None):
             password = mail_outgoing.get("password", None)
-            if password is None or len(password) < 1:
+            if password and len(password) > 0:
                 mail_outgoing["password"] = encrypt_password(password)
 
         # Encrypt certificates
         #TODO
 
+        print(f"Current content: {external_account}")
+        print(f"Patch content: {account_data}")
         # Partial update: merge with existing data, all_external_accounts, being a mutable dict, will be changed automatically
         merge_patch(account_data, external_account)
+        print(f"Result content: {external_account}")
 
         self._update_user_column(user.uid, tbl.COL_USER_EXTERNAL_ACCOUNTS.name, all_external_accounts)
 
