@@ -74,4 +74,38 @@ class ApiAdminUserActive(MethodView):
             include_fields=fields_args.get("include_fields"),
         )
 
+        #return response, status_code
         return item_count, response, status_code
+
+
+@blp.route("/revoke")
+class ApiAdminUserRevoke(MethodView):
+    """
+    Revoke one or several user sessions from the cache.
+
+    Sending a list of UIDs will immediately invalidate all active sessions
+    belonging to those users.
+    """
+
+    @blp.arguments(sch.AdminUserRevokeBodySchema, example=sch.AdminUserRevokeBodySchema.example(), error_status_code=400)
+    @blp.response(200, sch.AdminUserRevokeSchema, example=sch.AdminUserRevokeSchema.example())
+    def post(self, body: dict) -> ResponseReturnValue:
+        """
+        Revoke all active sessions for the given UIDs.
+
+        Accepts a list of UIDs and removes every matching session hash from the
+        cache as well as all sorted-set indexes.  Returns the total number of
+        sessions that were deleted.
+
+        :param body: Request body containing the list of UIDs to revoke
+        :type body: dict
+        :return: API response dict with the revoke count
+        :rtype: ResponseReturnValue
+        """
+        uids: list[str] = body["uid"]
+        logger_api.debug("Calling ApiAdminUserRevoke: revoking sessions for uids: %s", uids)
+
+        interface: InterfaceApiAdminUser = g.inter
+        response, status_code = interface.revoke_users(uids)
+
+        return response, status_code

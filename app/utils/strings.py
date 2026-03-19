@@ -82,4 +82,10 @@ def imap_join_folders(delimiter: str, first_path: str, second_path: str) -> str:
         # second path like this '"my name"'
         second_path = second_path[1:-1]
     return quote(f"{first_path}{delimiter}{second_path}")
-     
+
+def string_to_sort_score(s: str) -> int:
+    """Convert a string to an integer score for sorting purposes."""
+    score = 0
+    for char in s:
+        score = (score << 8) | ord(char)  # Décalage de 8 bits pour chaque caractère
+    return score
