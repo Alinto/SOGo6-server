@@ -8,7 +8,7 @@ from flask_smorest import Blueprint
 
 from app.interface.admin.InterfaceApiAdminUser import InterfaceApiAdminUser
 from app.utils.logger.logger import logger_api
-from app.utils.api.paginate_sort_filter import custom_paginate
+from app.utils.api.paginate_sort_filter import custom_paginate, CustomPaginateResponse
 
 from .schema import adminUser as sch
 
@@ -40,7 +40,7 @@ class ApiAdminUserActive(MethodView):
 
     @blp.response(200, sch.AdminUserActiveSchema, example=sch.AdminUserActiveSchema.example())
     @custom_paginate(blp)
-    def get(self, first: int, last: int, fields_args: dict, sort_args: dict) -> ResponseReturnValue:
+    def get(self, first: int, last: int, fields_args: dict, sort_args: dict) -> CustomPaginateResponse:
         """
         Get the list of currently active users.
 
