@@ -12,7 +12,14 @@ from app.utils import errors as err
 from app.utils import constants as cs
 from app.utils.logger.logger import logger_cache
 
-
+# Mapping from hash field name to the sorted set that indexes that field.
+# When sort_by matches one of these keys, the corresponding sorted set is
+# used directly (redis-side sort + pagination via ZRANGE).
+SORT_FIELD_TO_ZSET: dict[str, str] = {
+    cs.SESSION_LAST_SEEN: cs.ZSET_USER_SESSIONS_ACTIVITY,
+    cs.USER_UID:          cs.ZSET_USER_SESSIONS_UID,
+    cs.USER_DOMAIN:       cs.ZSET_USER_SESSIONS_DOMAIN,
+}
 
 class ClientRedis():
     """
@@ -207,7 +214,6 @@ class ClientRedis():
 
     def zset_paginate_hashes(
         self,
-        zset_key: str,
         first: int = 0,
         last: int = 0,
         sort_by: str | None = None,
@@ -217,56 +223,70 @@ class ClientRedis():
         """
         Paginate through hash keys referenced in a sorted set.
 
-        :param zset_key: name of the sorted set (e.g. "user_sessions:activity")
+        When *sort_by* matches a field that has a dedicated sorted-set
+        index (see :pyattr:`SORT_FIELD_TO_ZSET`), that index is used
+        instead — still fully redis-side, no Python sort needed.
+
+        Only when *sort_by* has **no** matching sorted-set index does
+        the method fall back to fetching all hashes and sorting in memory.
+
         :param first: offset of the first item to return
         :param last: index of the last item (exclusive).
         :param sort_by: hash field to sort on.  None means use the
             sorted-set score (fast path).  Any other value triggers the
-            in-memory fallback.
+            in-memory fallback only if no dedicated index exists.
         :param sort_order: "asc" or "desc" (default "desc")
         :param include_fields: comma-separated list of hash fields to keep
             in each returned dict (None = return all fields)
         :return: (total_count, page_items)
         """
         logger_cache.info(
-            "zset_paginate_hashes zset=%s first=%s last=%s sort_by=%s sort_order=%s fields=%s",
-            zset_key, first, last, sort_by, sort_order, include_fields,
+            "zset_paginate_hashes first=%s last=%s sort_by=%s sort_order=%s fields=%s",
+            first, last, sort_by, sort_order, include_fields,
         )
-
-        total_count = cast(int, self.redis.zcard(zset_key))
+        # set default zset key
+        zset_key_default = cs.ZSET_USER_SESSIONS_ACTIVITY
+        total_count = cast(int, self.redis.zcard(zset_key_default))
 
         if total_count == 0:
             return 0, []
 
         reverse = sort_order == "desc"
 
-        # ----- sort by sorted-set score -----
-        if sort_by is None:
+        # Resolve which sorted set to query for ordering.
+        # If sort_by matches a dedicated index, use it (redis-side fast path).
+        resolved_zset: str | None = None
+        if sort_by is not None:
+            resolved_zset = SORT_FIELD_TO_ZSET.get(sort_by)
+
+        # ----- Fast path: sort by sorted-set score (redis-side) -----
+        if sort_by is None or resolved_zset is not None:
+            effective_zset = resolved_zset if resolved_zset is not None else zset_key_default
+
             if last:
                 count = last - first
             else:
                 count = total_count
 
-            member_keys: list[str] = cast(
+            sorted_keys: list[str] = cast(
                 list[str],
                 self.redis.zrange(
-                    zset_key,
+                    effective_zset,
                     start=first,
                     end=first + count - 1,
                     desc=reverse,
                 ),
             )
-
-            if not member_keys:
+            if not sorted_keys:
                 return total_count, []
-
-            items = self._pipeline_hgetall(member_keys)
+            items = self._pipeline_hgetall(sorted_keys)
 
         else:
+            # ----- Slow path: no dedicated index, in-memory fallback ----- TODO: useless part?
             # Retrieve ALL member keys from the sorted set
             all_keys: list[str] = cast(
                 list[str],
-                self.redis.zrange(zset_key, start=0, end=-1),
+                self.redis.zrange(zset_key_default, start=0, end=-1),
             )
 
             if not all_keys:
@@ -278,11 +298,11 @@ class ClientRedis():
             # Sort in memory on the requested field
             items.sort(key=lambda d: d.get(sort_by, ""), reverse=reverse)
 
-            # Paginate in memory
+            # Paginate
             if last:
                 items = items[first:last]
 
-        # Field filtering (client-side, lightweight on a small page)
+        # Field filtering
         if include_fields:
             wanted = {f.strip() for f in include_fields.split(",")}
             items = [{k: v for k, v in d.items() if k in wanted} for d in items]
@@ -297,7 +317,8 @@ class ClientRedis():
         Fetch multiple hashes in a single Redis round-trip.
 
         Keys whose hash no longer exists (e.g. expired) are silently
-        skipped.
+        skipped.  The Redis key itself is injected into each returned
+        dict under the :pyattr:`cs.SESSION_KEY` field.
 
         :param keys: list of Redis hash keys
         :return: list of non-empty hash dicts
@@ -309,9 +330,10 @@ class ClientRedis():
 
         items: list[dict] = []
         data: dict
-        for data in raw_results:
+        for key, data in zip(keys, raw_results):
             if data:
                 data.pop(cs.SESSION_SENSITIVE)
+                data[cs.SESSION_KEY] = key
                 items.append(data)
         return items
 

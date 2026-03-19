@@ -51,7 +51,7 @@ class ModuleAdminUser:
 
         try:
             total_count, active_users = cache.zset_paginate_hashes(
-                zset_key=cs.ZSET_USER_SESSIONS_ACTIVITY,
+                #zset_key=cs.ZSET_USER_SESSIONS_ACTIVITY,
                 first=first,
                 last=last,
                 sort_by=sort_by,
