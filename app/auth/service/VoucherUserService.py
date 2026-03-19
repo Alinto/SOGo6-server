@@ -16,6 +16,7 @@ from app.utils.exceptions import RequestException, AggravatedException, BugExcep
 from app.utils import constants as cs
 from app.utils.logger.logger import logger, logger_auth
 from app.utils.maths.sogo_hash import get_unique_token
+from app.utils.strings import string_to_sort_score
 
 
 class VoucherUserService:
@@ -74,13 +75,13 @@ class VoucherUserService:
         sogo_cache().zset_add(
             cs.ZSET_USER_SESSIONS_UID,
             f"user_session:{user_session_id}",
-            self._string_to_sort_score(user.uid),
+            string_to_sort_score(user.uid),
         )
         # Index the session by domain score so that sessions can be sorted / filtered by domain.
         sogo_cache().zset_add(
             cs.ZSET_USER_SESSIONS_DOMAIN,
             f"user_session:{user_session_id}",
-            self._string_to_sort_score(user.domain),
+            string_to_sort_score(user.domain),
         )
 
         #Generate the voucher
@@ -135,12 +136,6 @@ class VoucherUserService:
 
         raise RequestException("Wrong data type for voucher")
 
-    def _string_to_sort_score(self, s: str) -> int:
-        """Convert a string to an integer score for sorting purposes."""
-        score = 0
-        for char in s:
-            score = (score << 8) | ord(char)  # Décalage de 8 bits pour chaque caractère
-        return score
 
     def _get_user_session_from_payload(self, payload:dict) -> User:
         """
@@ -207,13 +202,13 @@ class VoucherUserService:
         sogo_cache().zset_add(
             cs.ZSET_USER_SESSIONS_UID,
             f"user_session:{session_id}",
-            self._string_to_sort_score(user.uid),
+            string_to_sort_score(user.uid),
         )
         # Keep the domain score index in sync.
         sogo_cache().zset_add(
             cs.ZSET_USER_SESSIONS_DOMAIN,
             f"user_session:{session_id}",
-            self._string_to_sort_score(user.domain),
+            string_to_sort_score(user.domain),
         )
         logger.info("From voucher get user: %s", user)
 

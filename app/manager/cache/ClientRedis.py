@@ -9,6 +9,7 @@ from yarl import URL
 
 from app.utils.exceptions import AggravatedException, BugException
 from app.utils import errors as err
+from app.utils import constants as cs
 from app.utils.logger.logger import logger_cache
 
 
@@ -307,9 +308,11 @@ class ClientRedis():
         raw_results = pipe.execute()
 
         items: list[dict] = []
+        data: dict
         for data in raw_results:
             if data:
-                items.append(cast(dict, data))
+                data.pop(cs.SESSION_SENSITIVE)
+                items.append(data)
         return items
 
     def delete(self, *keys: str) -> int:
@@ -324,3 +327,62 @@ class ClientRedis():
         logger_cache.info("Delete cached value for keys '%s'", keys)
 
         return ret
+
+    def revoke_user_sessions(self, uids: list[str]) -> int:
+        """
+        Revoke all cache sessions that belong to the given UIDs.
+        Not using delete because we need to remove the session keys from the sorted-set indexes as well.
+
+        For each member of every session sorted-set, the corresponding hash is
+        inspected.  When its uid field matches one of the requested UIDs the
+        hash key is collected.  Then all matching hash keys are deleted and removed
+        from every sorted-set index in a single pipeline round-trip.
+
+        :param uids: list of user UIDs whose sessions must be revoked
+        :type uids: list[str]
+        :return: number of session hashes deleted
+        :rtype: int
+        """
+        uid_set = set(uids)
+
+        # Retrieve all session keys from the activity sorted-set (canonical index)
+        all_keys: list[str] = cast(
+            list[str],
+            self.redis.zrange(cs.ZSET_USER_SESSIONS_ACTIVITY, start=0, end=-1),
+        )
+
+        if not all_keys:
+            logger_cache.info("revoke_user_sessions: no active sessions found")
+            return 0
+
+        # Fetch all hashes in one pipeline round-trip
+        pipe = self.redis.pipeline(transaction=False)
+        for key in all_keys:
+            pipe.hget(key, cs.USER_UID)
+        uid_values: list[str | None] = pipe.execute()
+
+        # Collect keys whose uid matches the requested set
+        keys_to_revoke: list[str] = [
+            key
+            for key, uid_val in zip(all_keys, uid_values)
+            if uid_val in uid_set
+        ]
+
+        if not keys_to_revoke:
+            logger_cache.info("revoke_user_sessions: no sessions found for uids %s", uids)
+            return 0
+
+        # Delete hash keys and remove from all sorted-set indexes in one pipeline
+        pipe = self.redis.pipeline(transaction=False)
+        for key in keys_to_revoke:
+            pipe.delete(key)
+            pipe.zrem(cs.ZSET_USER_SESSIONS_ACTIVITY, key)
+            pipe.zrem(cs.ZSET_USER_SESSIONS_UID, key)
+            pipe.zrem(cs.ZSET_USER_SESSIONS_DOMAIN, key)
+        pipe.execute()
+
+        logger_cache.info(
+            "revoke_user_sessions: revoked %d session(s) for uids %s",
+            len(keys_to_revoke), uids,
+        )
+        return len(keys_to_revoke)

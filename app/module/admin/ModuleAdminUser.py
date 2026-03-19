@@ -63,3 +63,23 @@ class ModuleAdminUser:
 
         logger.debug("%d active user session(s) (total: %d)", len(active_users), total_count)
         return total_count, active_users
+
+    def revoke_users(self, uids: list[str]) -> int:
+        """
+        Revoke all cache sessions for the given UIDs.
+
+        :param uids: list of user UIDs to revoke
+        :type uids: list[str]
+        :return: number of sessions revoked
+        :rtype: int
+        :raises RequestException: If the cache operation fails
+        """
+        cache = sogo_cache()
+
+        try:
+            revoked_count = cache.revoke_user_sessions(uids)
+        except Exception as e:
+            raise RequestException(str(e), error=err.ERROR_CACHE_REVOKE_FAILED) from e
+
+        logger.debug("Revoked %d session(s) for uid(s): %s", revoked_count, uids)
+        return revoked_count
