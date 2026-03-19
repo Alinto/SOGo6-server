@@ -10,7 +10,7 @@ from flask_smorest import Blueprint
 
 from app.interface.mail.InterfaceApiMailMail import InterfaceApiMailMail
 from app.utils.logger.logger import logger_api
-from app.utils.api.paginate_sort_filter import custom_paginate
+from app.utils.api.paginate_sort_filter import custom_paginate, CustomPaginateResponse
 from .schemas.mail import (
     MailDetailResponseSchema,
     MailListResponseSchema,
@@ -55,7 +55,7 @@ class ApiMailFolderIdMail(MethodView):
 
     @blp.response(200, MailListResponseSchema, example=MailListResponseSchema.example())
     @custom_paginate(blp)
-    def get(self, first: int, last: int, fields_args: dict, sort_args: dict, account_id: str, folder_name: str) -> ResponseReturnValue:
+    def get(self, first: int, last: int, fields_args: dict, sort_args: dict, account_id: str, folder_name: str) -> CustomPaginateResponse:
         """Fetch the list of mails in a specific folder.
 
         :param first: The index of the first mail to retrieve (for pagination)
@@ -86,8 +86,7 @@ class ApiMailFolderIdMail(MethodView):
             interface.get_mail_list(account_id, folder_name, first, last)
         )
 
-        #return item_count, response, status_code
-        return response, status_code
+        return item_count, response, status_code
 
 @blp.route("/batch-action")
 class ApiMailFolderIdAction(MethodView):

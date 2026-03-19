@@ -9,7 +9,7 @@ from flask_smorest import Blueprint
 from app.service import sogo_cache
 from app.interface.admin.InterfaceApiAdminConfig import InterfaceApiAdminConfig
 from app.utils.logger.logger import logger_api
-from app.utils.api.paginate_sort_filter import custom_paginate
+from app.utils.api.paginate_sort_filter import custom_paginate, CustomPaginateResponse
 
 from .schema import adminConfig as sch
 
@@ -107,12 +107,12 @@ class ApiAdminConfigDomain(MethodView):
     """
     @blp.response(200)
     @custom_paginate(blp)
-    def get(self, first: int, last: int, fields_args: dict, sort_args: dict) -> ResponseReturnValue:
+    def get(self, first: int, last: int, fields_args: dict, sort_args: dict) -> CustomPaginateResponse:
         """
         Collection, get the list of domains settings
         """
         interface_api : InterfaceApiAdminConfig = g.inter
-        return interface_api.get_all_domain_settings( # type: ignore # TODO: fix type hinting for custom_paginate
+        return interface_api.get_all_domain_settings(
             first, last,
             sort_args=sort_args,
             fields_args=fields_args,

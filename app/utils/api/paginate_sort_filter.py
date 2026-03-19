@@ -1,13 +1,16 @@
 # /workspace/app/utils/api/paginate_sort_filter.py
 from functools import wraps
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 
 from flask import make_response, jsonify
 from flask_smorest import Blueprint
 from marshmallow import Schema, fields, validate
 
-from app.utils.api.pagin_sort_filter import FakePaginationParameters
+
+# Return type for functions decorated with @custom_paginate.
+# The decorated function must return a tuple of (item_count, response_body, status_code).
+CustomPaginateResponse = tuple[int, dict, int]
 
 
 
@@ -66,3 +69,32 @@ def custom_paginate(blp: Blueprint, pagination_schema: type[Schema] | None = Non
             wrapped = blp.paginate()(wrapped)
         return wrapped
     return decorator
+
+
+class FakePaginationParameters:
+    """Fake class of PaginationParameters from flask-smorest as their typing don't work.
+
+    :param int page: Page number
+    :param int page_size: Page size
+    """
+
+    def __init__(self, page: int, page_size: int) -> None:
+        self.page = page
+        self.page_size = page_size
+        self.item_count: int|None = None
+
+    @property
+    def first_item(self) -> int:
+        """Return first item number"""
+        return (self.page - 1) * self.page_size
+
+    @property
+    def last_item(self) -> int:
+        """Return last item number"""
+        return self.first_item + self.page_size - 1
+
+    def __repr__(self) -> str:
+        return (
+            f"{self.__class__.__name__}"
+            f"(page={self.page!r},page_size={self.page_size!r})"
+        )
