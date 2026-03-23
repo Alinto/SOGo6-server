@@ -1,4 +1,4 @@
-from marshmallow import Schema, fields
+from marshmallow import Schema, fields, validates_schema, ValidationError
 
 from app.utils.api.ApiBaseResponse import ApiBaseResponse
 
@@ -63,8 +63,20 @@ class AdminUserRevokeSchema(ApiBaseResponse):
 class AdminUserRevokeBodySchema(Schema):
     """
     Schema for POST /users/revoke request body.
+    Exactly one of ``uid`` or ``redis_key`` must be provided.
     """
-    uid = fields.List(fields.String(), required=True, metadata={"description": "List of UIDs to revoke"})
+    uid = fields.List(fields.String(), load_default=None, metadata={"description": "List of UIDs to revoke"})
+    redis_key = fields.List(fields.String(), load_default=None, metadata={"description": "List of Redis keys to revoke"})
+
+    @validates_schema
+    def validate_exclusive_fields(self, data: dict, **kwargs: object) -> None:
+        """
+        Ensure exactly one of ``uid`` or ``redis_key`` is provided.
+        """
+        has_uid = data.get("uid") is not None
+        has_key = data.get("redis_key") is not None
+        if has_uid == has_key:
+            raise ValidationError("Exactly one of 'uid' or 'redis_key' must be provided.")
 
     @classmethod
     def example(cls) -> dict:
