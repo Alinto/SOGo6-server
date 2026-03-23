@@ -753,7 +753,7 @@ class ModuleMail:
         raw_content = client.fetch_mail_raw(folder_name, mail_uid)
         return {"raw": raw_content}
 
-    def perform_mail_action(self, account_id:str, folder_name: str, mail_uid: str, action_data: dict) -> dict[str, Any] | tuple[bytes, str] | BytesIO:
+    def perform_mail_action(self, account_id:str, folder_name: str, mail_uid: str, action_data: dict) -> dict[str, Any]:
         """Perform an action on a specific mail.
         
         :param folder_name: The name of the folder
@@ -784,12 +784,30 @@ class ModuleMail:
             return self._action_ham(client, folder_name, mail_uid)
         elif action == "copy":
             return self._action_copy(client, folder_name, mail_uid, data)
-        elif action == "download":
-            return self._action_download(client, folder_name, mail_uid)
-        elif action == "zip":
-            return self._action_zip(client, folder_name, mail_uid)
         else:
             raise RequestException(f"Invalid action: {action}", err.ERROR_INVALID_ACTION)
+
+    def download_mail(self, account_id: str, folder_name: str, mail_uid: str, download_format: str) -> BytesIO:
+        """Download a specific mail as .eml or .zip.
+
+        :param account_id: The account identifier
+        :type account_id: str
+        :param folder_name: The name of the folder containing the mail
+        :type folder_name: str
+        :param mail_uid: The unique identifier of the mail
+        :type mail_uid: str
+        :param download_format: The download format ('eml' or 'zip')
+        :type download_format: str
+        :return: A BytesIO buffer containing the mail file
+        :rtype: BytesIO
+        :raises RequestException: If fetching the mail fails
+        """
+        client = self._open_client_for(account_id)
+
+        if download_format == "zip":
+            return self._action_zip(client, folder_name, mail_uid)
+        else:
+            return self._action_download(client, folder_name, mail_uid)
 
     def _action_tag(self, client: ClientMailServer, folder_name: str, mail_uid: str, tags: Any) -> dict[str, Any]:
         """Add custom flags/tags to a mail.
