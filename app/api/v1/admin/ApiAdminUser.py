@@ -102,10 +102,11 @@ class ApiAdminUserRevoke(MethodView):
         :return: API response dict with the revoke count
         :rtype: ResponseReturnValue
         """
-        uids: list[str] = body["uid"]
-        logger_api.debug("Calling ApiAdminUserRevoke: revoking sessions for uids: %s", uids)
+        uids: list[str] | None = body.get("uid")
+        redis_keys: list[str] | None = body.get("redis_key")
+        logger_api.debug("Calling ApiAdminUserRevoke: revoking sessions for uids: %s, redis_keys: %s", uids, redis_keys)
 
         interface: InterfaceApiAdminUser = g.inter
-        response, status_code = interface.revoke_users(uids)
+        response, status_code = interface.revoke_users(uids=uids, redis_keys=redis_keys)
 
         return response, status_code

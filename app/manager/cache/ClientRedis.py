@@ -231,7 +231,7 @@ class ClientRedis():
         the method fall back to fetching all hashes and sorting in memory.
 
         :param first: offset of the first item to return
-        :param last: index of the last item (exclusive).
+        :param last: index of the last item (inclusive).
         :param sort_by: hash field to sort on.  None means use the
             sorted-set score (fast path).  Any other value triggers the
             in-memory fallback only if no dedicated index exists.
@@ -264,7 +264,7 @@ class ClientRedis():
             effective_zset = resolved_zset if resolved_zset is not None else zset_key_default
 
             if last:
-                count = last - first
+                count = last - first + 1
             else:
                 count = total_count
 
@@ -300,7 +300,7 @@ class ClientRedis():
 
             # Paginate
             if last:
-                items = items[first:last]
+                items = items[first:last + 1]
 
         # Field filtering
         if include_fields:
@@ -350,7 +350,7 @@ class ClientRedis():
 
         return ret
 
-    def revoke_user_sessions(self, uids: list[str]) -> int:
+    def revoke_user_sessions_by_uid(self, uids: list[str]) -> int:
         """
         Revoke all cache sessions that belong to the given UIDs.
         Not using delete because we need to remove the session keys from the sorted-set indexes as well.
@@ -374,7 +374,7 @@ class ClientRedis():
         )
 
         if not all_keys:
-            logger_cache.info("revoke_user_sessions: no active sessions found")
+            logger_cache.info("revoke_user_sessions_by_uid: no active sessions found")
             return 0
 
         # Fetch all hashes in one pipeline round-trip
@@ -391,7 +391,7 @@ class ClientRedis():
         ]
 
         if not keys_to_revoke:
-            logger_cache.info("revoke_user_sessions: no sessions found for uids %s", uids)
+            logger_cache.info("revoke_user_sessions_by_uid: no sessions found for uids %s", uids)
             return 0
 
         # Delete hash keys and remove from all sorted-set indexes in one pipeline
@@ -404,7 +404,45 @@ class ClientRedis():
         pipe.execute()
 
         logger_cache.info(
-            "revoke_user_sessions: revoked %d session(s) for uids %s",
+            "revoke_user_sessions_by_uid: revoked %d session(s) for uids %s",
             len(keys_to_revoke), uids,
         )
         return len(keys_to_revoke)
+
+    def revoke_user_sessions_by_key(self, redis_keys: list[str]) -> int:
+        """
+        Revoke cache sessions identified by their Redis keys directly.
+
+        Each key is deleted along with its entry in every sorted-set index
+        in a single pipeline round-trip.
+
+        :param redis_keys: list of Redis hash keys to revoke (e.g. ``user_session:<uuid>``)
+        :type redis_keys: list[str]
+        :return: number of session hashes deleted
+        :rtype: int
+        """
+        if not redis_keys:
+            logger_cache.info("revoke_user_sessions_by_key: no keys provided")
+            return 0
+
+        # Delete hash keys and remove from all sorted-set indexes in one pipeline
+        # Each key produces 4 commands: delete, zrem×3
+        pipe = self.redis.pipeline(transaction=False)
+        for key in redis_keys:
+            pipe.delete(key)
+            pipe.zrem(cs.ZSET_USER_SESSIONS_ACTIVITY, key)
+            pipe.zrem(cs.ZSET_USER_SESSIONS_UID, key)
+            pipe.zrem(cs.ZSET_USER_SESSIONS_DOMAIN, key)
+        results = pipe.execute()
+
+        # Count actually deleted keys by inspecting the delete result
+        # (every 4th result starting at index 0)
+        revoked_count = sum(
+            1 for i in range(0, len(results), 4) if results[i]
+        )
+
+        logger_cache.info(
+            "revoke_user_sessions_by_key: revoked %d session(s) for keys %s",
+            revoked_count, redis_keys,
+        )
+        return revoked_count

@@ -2,7 +2,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from app.service import sogo_cache
-from app.utils import constants as cs
 from app.utils import errors as err
 from app.utils.exceptions import RequestException
 from app.utils.logger.logger import logger
@@ -49,37 +48,52 @@ class ModuleAdminUser:
         """
         cache = sogo_cache()
 
-        try:
-            total_count, active_users = cache.zset_paginate_hashes(
-                #zset_key=cs.ZSET_USER_SESSIONS_ACTIVITY,
-                first=first,
-                last=last,
-                sort_by=sort_by,
-                sort_order=sort_order,
-                include_fields=include_fields,
-            )
-        except Exception as e:
-            raise RequestException(str(e), error=err.ERROR_CACHE_SCAN_FAILED) from e
+        total_count, active_users = cache.zset_paginate_hashes(
+            first=first,
+            last=last,
+            sort_by=sort_by,
+            sort_order=sort_order,
+            include_fields=include_fields,
+        )
 
         logger.debug("%d active user session(s) (total: %d)", len(active_users), total_count)
         return total_count, active_users
 
-    def revoke_users(self, uids: list[str]) -> int:
+    def revoke_users(self, uids: list[str] | None = None, redis_keys: list[str] | None = None) -> int:
         """
-        Revoke all cache sessions for the given UIDs.
+        Revoke cache sessions either by UID or by direct Redis key.
 
-        :param uids: list of user UIDs to revoke
-        :type uids: list[str]
+        Exactly one of *uids* or *redis_keys* must be provided.
+
+        :param uids: list of user UIDs to revoke (mutually exclusive with *redis_keys*)
+        :type uids: list[str] | None
+        :param redis_keys: list of Redis hash keys to revoke (mutually exclusive with *uids*)
+        :type redis_keys: list[str] | None
         :return: number of sessions revoked
         :rtype: int
-        :raises RequestException: If the cache operation fails
+        :raises RequestException: If the parameters are invalid or the cache operation fails
         """
         cache = sogo_cache()
 
-        try:
-            revoked_count = cache.revoke_user_sessions(uids)
-        except Exception as e:
-            raise RequestException(str(e), error=err.ERROR_CACHE_REVOKE_FAILED) from e
+        if uids is not None:
+            try:
+                revoked_count = cache.revoke_user_sessions_by_uid(uids)
+            except Exception as e:
+                raise RequestException(str(e), error=err.ERROR_CACHE_REVOKE_FAILED) from e
 
-        logger.debug("Revoked %d session(s) for uid(s): %s", revoked_count, uids)
-        return revoked_count
+            logger.debug("Revoked %d session(s) for uid(s): %s", revoked_count, uids)
+            return revoked_count
+
+        if redis_keys is not None:
+            try:
+                revoked_count = cache.revoke_user_sessions_by_key(redis_keys)
+            except Exception as e:
+                raise RequestException(str(e), error=err.ERROR_CACHE_REVOKE_KEY_FAILED) from e
+
+            logger.debug("Revoked %d session(s) for redis key(s): %s", revoked_count, redis_keys)
+            return revoked_count
+
+        raise RequestException(
+            "Exactly one of 'uid' or 'redis_key' must be provided",
+            error=err.ERROR_REVOKE_BODY_INVALID,
+        )
