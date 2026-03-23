@@ -198,7 +198,7 @@ class VoucherUserService:
             f"user_session:{session_id}",
             new_last_seen,
         )
-        # Keep the uid score index in sync (uid doesn't change but the entry must remain consistent).
+        # Keep the uid score index in sync.
         sogo_cache().zset_add(
             cs.ZSET_USER_SESSIONS_UID,
             f"user_session:{session_id}",

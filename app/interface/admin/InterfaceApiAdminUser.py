@@ -63,17 +63,21 @@ class InterfaceApiAdminUser:
             return 0, *create_api_base_response(None, ex.error)
         return total_count, *create_api_base_response(active_users)
 
-    def revoke_users(self, uids: list[str]) -> Tuple[Dict[str, Any], int]:
+    def revoke_users(self, uids: list[str] | None = None, redis_keys: list[str] | None = None) -> Tuple[Dict[str, Any], int]:
         """
-        Revoke all cache sessions for the given UIDs.
+        Revoke cache sessions either by UID or by direct Redis key.
 
-        :param uids: list of user UIDs to revoke
-        :type uids: list[str]
+        Exactly one of *uids* or *redis_keys* must be provided.
+
+        :param uids: list of user UIDs to revoke (mutually exclusive with *redis_keys*)
+        :type uids: list[str] | None
+        :param redis_keys: list of Redis hash keys to revoke (mutually exclusive with *uids*)
+        :type redis_keys: list[str] | None
         :return: Tuple of (API response dict, HTTP status code)
         :rtype: Tuple[Dict[str, Any], int]
         """
         try:
-            revoked_count = self.module.revoke_users(uids)
+            revoked_count = self.module.revoke_users(uids=uids, redis_keys=redis_keys)
         except RequestException as ex:
             logger_api.error("Request exception in revoke_users: %s", str(ex))
             return create_api_base_response(None, ex.error)

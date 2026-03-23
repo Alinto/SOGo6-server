@@ -52,6 +52,8 @@ ERROR_CACHE_TTL_BELOW_0    = E("S000101", "Cache Server Data TTL Is Below 1", HT
 ERROR_CACHE_RESPONSE_ERROR = E("S000102", "Cache Server Response Error", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_CACHE_SCAN_FAILED    = E("S000103", "Cache Server Scan Failed", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_CACHE_REVOKE_FAILED  = E("S000104", "Cache Server Session Revocation Failed", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_CACHE_REVOKE_KEY_FAILED = E("S000105", "Cache Server Session Revocation By Key Failed", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_REVOKE_BODY_INVALID  = E("S000106", "Revoke Request Must Contain Exactly One Of 'uid' Or 'redis_key'", HTTPStatus.BAD_REQUEST)
 
 
 #LOGIN
