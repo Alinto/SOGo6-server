@@ -439,3 +439,59 @@ class ClientRedis():
             revoked_count, redis_keys,
         )
         return revoked_count
+
+    def revoke_user_sessions_by_activity(self, timestamp: int) -> int:
+        """
+        Revoke all cache sessions whose last activity score is older than
+        (i.e. less than or equal to) the given Unix timestamp.
+
+        Uses ``ZRANGEBYSCORE`` on the activity sorted set to find members
+        with a score between ``-inf`` and *timestamp* (inclusive).
+        Then deletes the corresponding hash keys and removes the members
+        from every sorted-set index in a single pipeline round-trip.
+
+        :param timestamp: Unix timestamp.  Sessions with a
+            last-activity score ≤ this value are considered inactive.
+        :type timestamp: int
+        :return: number of session hashes deleted
+        :rtype: int
+        """
+        # Find all session keys whose activity score <= timestamp
+        keys_to_revoke: list[str] = cast(
+            list[str],
+            self.redis.zrangebyscore(
+                cs.ZSET_USER_SESSIONS_ACTIVITY,
+                min="-inf",
+                max=timestamp,
+            ),
+        )
+
+        if not keys_to_revoke:
+            logger_cache.info(
+                "revoke_user_sessions_by_activity: no sessions older than %d",
+                timestamp,
+            )
+            return 0
+
+        # Delete hash keys and remove from all sorted-set indexes in one pipeline.
+        # zremrangebyscore handles the activity set in bulk; the UID and domain
+        # sets are cleaned up per-key since they share the same member names.
+        pipe = self.redis.pipeline(transaction=False)
+        for key in keys_to_revoke:
+            pipe.delete(key)
+            pipe.zrem(cs.ZSET_USER_SESSIONS_UID, key)
+            pipe.zrem(cs.ZSET_USER_SESSIONS_DOMAIN, key)
+        pipe.zremrangebyscore(cs.ZSET_USER_SESSIONS_ACTIVITY, "-inf", timestamp)
+        results = pipe.execute()
+
+        # Count actually deleted keys by inspecting the delete result
+        # (every 3rd result starting at index 0, one delete + two zrem per key)
+        revoked_count = sum(
+            1 for i in range(0, len(results) - 1, 3) if results[i]
+        )
+
+        logger_cache.info(
+            "revoke_user_sessions_by_activity: revoked %d session(s) older than %d",
+            revoked_count, timestamp,
+        )
+        return revoked_count
