@@ -89,3 +89,21 @@ class ModuleAdminUser:
             "Exactly one of 'uid' or 'redis_key' must be provided",
             error=err.ERROR_REVOKE_BODY_INVALID,
         )
+
+    def revoke_inactive_users(self, timestamp: int) -> int:
+        """
+        Revoke all cache sessions whose last activity is older than the
+        given Unix timestamp.
+
+        :param timestamp: Unix timestamp.  Sessions with a
+            last-activity score ≤ this value are considered inactive.
+        :type timestamp: int
+        :return: number of sessions revoked
+        :rtype: int
+        """
+        cache = sogo_cache()
+
+        revoked_count = cache.revoke_user_sessions_by_activity(timestamp)
+
+        logger.debug("Revoked %d inactive session(s) older than %d", revoked_count, timestamp)
+        return revoked_count

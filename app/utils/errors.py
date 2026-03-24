@@ -54,6 +54,7 @@ ERROR_CACHE_SCAN_FAILED    = E("S000103", "Cache Server Scan Failed", HTTPStatus
 ERROR_CACHE_REVOKE_FAILED  = E("S000104", "Cache Server Session Revocation Failed", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_CACHE_REVOKE_KEY_FAILED = E("S000105", "Cache Server Session Revocation By Key Failed", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_REVOKE_BODY_INVALID  = E("S000106", "Revoke Request Must Contain Exactly One Of 'uid' Or 'redis_key'", HTTPStatus.BAD_REQUEST)
+ERROR_CACHE_REVOKE_INACTIVE_FAILED = E("S000107", "Cache Server Inactive Session Revocation Failed", HTTPStatus.INTERNAL_SERVER_ERROR)
 
 
 #LOGIN
