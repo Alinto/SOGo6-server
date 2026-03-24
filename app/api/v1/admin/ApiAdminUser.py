@@ -94,3 +94,37 @@ class ApiAdminUserRevoke(MethodView):
         response, status_code = interface.revoke_users(uids=uids, redis_keys=redis_keys)
 
         return response, status_code
+
+
+@blp.route("/inactive")
+class ApiAdminUserInactive(MethodView):
+    """
+    Revoke inactive user sessions from the cache.
+
+    Sending a Unix timestamp will remove all sessions whose last activity
+    is older than (≤) that timestamp.
+    """
+
+    @blp.arguments(sch.AdminUserInactiveBodySchema, example=sch.AdminUserInactiveBodySchema.example(), error_status_code=400)
+    @blp.response(200, sch.AdminUserInactiveSchema, example=sch.AdminUserInactiveSchema.example())
+    def post(self, body: dict) -> ResponseReturnValue:
+        """
+        Revoke all sessions whose last activity is older than the given timestamp.
+
+        Accepts a Unix timestamp and removes every session hash from the
+        cache whose last-activity score is ≤ that value, along with all
+        sorted-set index entries.  Returns the total number of sessions
+        that were deleted.
+
+        :param body: Request body containing the timestamp
+        :type body: dict
+        :return: API response dict with the revoke count
+        :rtype: ResponseReturnValue
+        """
+        timestamp: int = body["timestamp"]
+        logger_api.debug("Calling ApiAdminUserInactive: revoking sessions older than %d", timestamp)
+
+        interface: InterfaceApiAdminUser = g.inter
+        response, status_code = interface.revoke_inactive_users(timestamp=timestamp)
+
+        return response, status_code

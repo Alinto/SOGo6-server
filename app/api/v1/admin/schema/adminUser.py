@@ -101,3 +101,51 @@ class AdminUserRevokeBodySchema(Schema):
                 "jsmith@example.org"
             ]
         }
+
+
+class AdminUserInactiveBodySchema(Schema):
+    """
+    Schema for POST /users/inactive request body.
+    Contains a Unix timestamp; sessions whose last activity is older than
+    this value will be revoked.
+    """
+    timestamp = fields.Integer(
+        required=True,
+        metadata={"description": "Unix timestamp. Sessions with last activity ≤ this value are revoked."},
+    )
+
+    @classmethod
+    def example(cls) -> dict:
+        """
+        Example request body for an inactive revoke call.
+
+        :return: Example inactive revoke request body
+        :rtype: dict
+        """
+        return {
+            "timestamp": 1774283186
+        }
+
+
+class AdminUserInactiveSchema(ApiBaseResponse):
+    """
+    Schema for POST /users/inactive response.
+    Returns the number of inactive sessions that were revoked.
+    """
+    data = fields.Dict(required=False, allow_none=True)
+
+    @classmethod
+    def example(cls) -> dict:
+        """
+        Example response for an inactive revoke call.
+
+        :return: Example inactive revoke response
+        :rtype: dict
+        """
+        return {
+            "error_code": "S000000",
+            "error_msg": "No Error",
+            "data": {
+                "revoked": 5
+            }
+        }
