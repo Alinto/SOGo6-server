@@ -52,7 +52,7 @@ class MailActionSchema(Schema):
     """
     action = fields.String(
         required=True,
-        validate=validate.OneOf(['tag', 'untag', 'move', 'spam', 'ham', 'copy', 'download', 'zip'])
+        validate=validate.OneOf(['tag', 'untag', 'move', 'spam', 'ham', 'copy'])
     )
     data = fields.Raw(required=False, allow_none=True)
 
@@ -66,6 +66,27 @@ class MailActionSchema(Schema):
         return {
             "action": "tag",
             "data": ["important", "work"]
+        }
+
+
+class MailDownloadSchema(Schema):
+    """
+    Schema for downloading a mail as .eml or .zip.
+    """
+    format = fields.String(
+        required=True,
+        validate=validate.OneOf(['eml', 'zip'])
+    )
+
+    @classmethod
+    def example(cls) -> dict:
+        """Example data for mail download.
+        
+        :return: Example mail download payload
+        :rtype: dict
+        """
+        return {
+            "format": "eml"
         }
 
 

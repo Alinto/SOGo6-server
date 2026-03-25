@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from io import BytesIO
 
@@ -152,32 +152,46 @@ class InterfaceApiMailMail:
             logger_api.error("Request exception in get_mail_raw: %s", str(ex))
             return create_api_base_response(None, ex.error)
 
-    def mail_action(self, account_id: str, folder_name: str, mail_uid: str, action_data: dict[str, Any]) -> tuple[BytesIO|dict[str, Any], int]:
+    def mail_action(self, account_id: str, folder_name: str, mail_uid: str, action_data: dict[str, Any]) -> tuple[dict[str, Any], int]:
         """Perform an action on a specific mail.
 
-        For the 'download' action, returns a Flask send_file response with the raw .eml content.
-        For all other actions, returns a standard API response tuple.
-
         :param account_id: The ID of the account
-        :type account_id: int
+        :type account_id: str
         :param folder_name: The ID of the folder
         :type folder_name: str
         :param mail_uid: The unique identifier of the mail
-        :type mail_uid: int
+        :type mail_uid: str
         :param action_data: Dictionary containing 'action' and optional 'data' fields
-        :type action_data: Dict[str, Any]
+        :type action_data: dict[str, Any]
         :return: A tuple of (API response dict, status code)
-        :rtype: Tuple[Dict[str, Any], int]
+        :rtype: tuple[dict[str, Any], int]
         """
         try:
             result = self.mail_module.perform_mail_action(account_id, folder_name, mail_uid, action_data)
-            if action_data["action"] in ("download", "zip"):
-                # Cast send_file response to expected return type
-                return cast(BytesIO, result), 200
-            return create_api_base_response(cast(dict[str, Any], result))
+            return create_api_base_response(result)
         except ValidationError as ex:
             logger_api.error("Validation error in mail_action: %s", ex.messages)
             return create_api_base_response(None, err.ERROR_VALIDATION_ERROR)
         except RequestException as ex:
             logger_api.error("Request exception in mail_action: %s", str(ex))
+            return create_api_base_response(None, ex.error)
+
+    def download_mail(self, account_id: str, folder_name: str, mail_uid: str, download_format: str) -> BytesIO | tuple[dict[str, Any], int]:
+        """Download a specific mail as .eml or .zip.
+
+        :param account_id: The ID of the account
+        :type account_id: str
+        :param folder_name: The ID of the folder
+        :type folder_name: str
+        :param mail_uid: The unique identifier of the mail
+        :type mail_uid: str
+        :param download_format: The download format ('eml' or 'zip')
+        :type download_format: str
+        :return: A BytesIO buffer containing the mail file, or an error response tuple
+        :rtype: BytesIO | tuple[dict[str, Any], int]
+        """
+        try:
+            return self.mail_module.download_mail(account_id, folder_name, mail_uid, download_format)
+        except RequestException as ex:
+            logger_api.error("Request exception in download_mail: %s", str(ex))
             return create_api_base_response(None, ex.error)
