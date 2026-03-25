@@ -164,8 +164,8 @@ class FolderListResponseSchema(ApiBaseResponse):
                     "path": "INBOX",
                     "subscribed": 1,
                     "type": "inbox",
-                    "unseenCount": 5,
-                    "messageCount": 42,
+                    "unseen_count": 5,
+                    "message_count": 42,
                     "children": []
                 },
                 {
@@ -173,8 +173,8 @@ class FolderListResponseSchema(ApiBaseResponse):
                     "path": "Trash",
                     "subscribed": 0,
                     "type": "trash",
-                    "unseenCount": 0,
-                    "messageCount": 50,
+                    "unseen_count": 0,
+                    "message_count": 50,
                     "children": []
                 },
                 {
@@ -182,16 +182,16 @@ class FolderListResponseSchema(ApiBaseResponse):
                     "path": "piou",
                     "subscribed": 0,
                     "type": "folder",
-                    "unseenCount": 0,
-                    "messageCount": 50,
+                    "unseen_count": 0,
+                    "message_count": 50,
                     "children": [
                         {
                             "name": "test",
                             "path": "piou/test",
                             "subscribed": 0,
                             "type": "folder",
-                            "unseenCount": 0,
-                            "messageCount": 10,
+                            "unseen_count": 0,
+                            "message_count": 10,
                             "children": []
                         }
                     ]
@@ -243,8 +243,8 @@ class FolderDetailsResponseSchema(ApiBaseResponse):
                 "path": "INBOX",
                 "subscribed": 1,
                 "type": "folder",
-                "unseenCount": 5,
-                "messageCount": 42,
+                "unseen_count": 5,
+                "message_count": 42,
                 "children": []
             }
         }
@@ -271,8 +271,8 @@ class FolderUpdateResponseSchema(ApiBaseResponse):
                 "path": "RenamedFolder",
                 "subscribed": 1,
                 "type": "folder",
-                "unseenCount": 0,
-                "messageCount": 10,
+                "unseen_count": 0,
+                "message_count": 10,
                 "children": []
             }
         }

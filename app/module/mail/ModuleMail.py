@@ -547,7 +547,7 @@ class ModuleMail:
             "deleted": flags_dict.get('deleted', False),
             "flags": flags_dict.get('all', []),
             "to": to,
-            "from_": from_,
+            "from": from_,
             "cc": cc,
             "reply_to": reply_to,
             "return_path": return_path,

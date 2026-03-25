@@ -28,7 +28,7 @@ class ModuleUserSource:
         domain_user_sources: dict = domain_settings[UserSourceSettings.subparent]
         for user_source_id, user_source in domain_user_sources.items():
             all_user_sources[user_source_id] = UserSourceSettingsObj(user_source)
-        return ModuleUserSource(domain_user_sources)
+        return ModuleUserSource(all_user_sources)
 
     def __init__(self, all_user_sources: dict[str, UserSourceSettingsObj]):
         """

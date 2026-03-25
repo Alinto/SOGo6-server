@@ -52,6 +52,8 @@ IMAP_TO_SOGO: dict[str, list[str]] = {
     "e": [cs.USER_CAN_EXPUNGE_FOLDER],
     "d": [cs.USER_CAN_REMOVE_FOLDER, cs.USER_CAN_ERASE_MAILS, cs.USER_CAN_EXPUNGE_FOLDER],  # obsolete -> x+t+e
     "a": [cs.USER_CAN_ADMINISTRATOR],
+    "l": [cs.USER_CAN_VIEW_FOLDER],
+    "r": [cs.USER_CAN_VIEW_FOLDER],
 }
 
 def _convert_rights_to_imap(rights_dict: dict[str, Any]) -> str:
@@ -661,7 +663,7 @@ class ClientImap(ClientMailServer):
                     cs.FOLDER_PATH: folder.path,
                     cs.FOLDER_URL_PATH: url_path,
                     cs.FOLDER_FILTER_PATH: folder.path,
-                    cs.FOLDER_DELIMITER: folder.delimiter, 
+                    cs.FOLDER_DELIMITER: folder.delimiter,
                     cs.FOLDER_TYPE: folder.type,
                     cs.FOLDER_FLAGS: folder.flags,
                     cs.FOLDER_CHILDREN: [],

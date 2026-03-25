@@ -112,12 +112,10 @@ class ModuleAuth:
         domain = self._check_domain(uid)
         domain_auth_settings, _ = self._get_domain_auth_and_user_source_settings(domain)
 
-        kind = domain_auth_settings.SOGO_D_AUTH_TYPE
-
-
         #TODO Only work for plain login, do it properly for openid,cas...
         ret = {
-            "kind": kind,
+            "kind": domain_auth_settings.SOGO_D_AUTH_TYPE,
+            "SOGO_D_PWD_RECOVERY": domain_auth_settings.SOGO_D_PWD_RECOVERY,
             "location": ""
         }
         return ret

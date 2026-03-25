@@ -28,13 +28,13 @@ class ClientMailServer(metaclass=ABCMeta):
         {
             "name": str, name of the folder,
             "path": str, path of the folder (meaning parent1/parent2/name),
-            "filterPath": str, same as path but fot the filerting server,
+            "filter_path": str, same as path but fot the filerting server,
             "type": str, type of the folder, see MAIL_SERVER_FOLDER_TYPE in utils.contants
             "flags": set, flag of this folder
             "children": list, this same dict for children folders
             "subscribed": int 1/0, subscribed means the user want to see this folder and its mails
-            "unseenCount": int, number of mails not already seen
-            "messageCount": int, total number of mails in this folders
+            "unseen_count": int, number of mails not already seen
+            "message_count": int, total number of mails in this folders
         }
         """
 
@@ -45,13 +45,13 @@ class ClientMailServer(metaclass=ABCMeta):
         {
             "name": str, name of the folder,
             "path": str, path of the folder (meaning parent1/parent2/name),
-            "filterPath": str, same as path but fot the filerting server,
+            "filter_path": str, same as path but fot the filerting server,
             "type": str, type of the folder, see MAIL_SERVER_FOLDER_TYPE in utils.contants
             "flags": set, flag of this folder
             "children": list, this same dict for children folders
             "subscribed": int 1/0, subscribed means the user want to see this folder and its mails
-            "unseenCount": int, number of mails not already seen
-            "messageCount": int, total number of mails in this folders
+            "unseen_count": int, number of mails not already seen
+            "message_count": int, total number of mails in this folders
         }
         """
 
