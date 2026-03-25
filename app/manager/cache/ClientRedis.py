@@ -310,8 +310,10 @@ class ClientRedis():
         Fetch multiple hashes in a single Redis round-trip.
 
         Keys whose hash no longer exists (e.g. expired) are silently
-        skipped.  The Redis key itself is injected into each returned
-        dict under the :pyattr:`cs.SESSION_KEY` field.
+        skipped **and their orphaned entries are removed from the
+        sorted-set indexes** (lazy cleanup).  The Redis key itself is
+        injected into each returned dict under the
+        :pyattr:`cs.SESSION_KEY` field.
 
         :param keys: list of Redis hash keys
         :return: list of non-empty hash dicts
@@ -322,12 +324,28 @@ class ClientRedis():
         raw_results = pipe.execute()
 
         items: list[dict] = []
+        orphaned_keys: list[str] = []
         data: dict
         for key, data in zip(keys, raw_results):
             if data:
                 data.pop(cs.SESSION_SENSITIVE)
                 data[cs.SESSION_KEY] = key
                 items.append(data)
+            else:
+                orphaned_keys.append(key)
+
+        # Lazy cleanup: remove sorted-set entries whose hash has expired
+        if orphaned_keys:
+            cleanup_pipe = self.redis.pipeline(transaction=False)
+            for key in orphaned_keys:
+                cleanup_pipe.zrem(cs.ZSET_USER_SESSIONS_ACTIVITY, key)
+                cleanup_pipe.zrem(cs.ZSET_USER_SESSIONS_UID, key)
+                cleanup_pipe.zrem(cs.ZSET_USER_SESSIONS_DOMAIN, key)
+            cleanup_pipe.execute()
+            logger_cache.info(
+                "_pipeline_hgetall: cleaned up %d orphaned sorted-set entries",
+                len(orphaned_keys),
+            )
         return items
 
     def delete(self, *keys: str) -> int:

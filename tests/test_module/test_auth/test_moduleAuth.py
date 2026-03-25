@@ -63,8 +63,9 @@ class FakeSystemSettings:
 class FakeAuthSettings:
     """Fake AuthSettingsObj for testing."""
 
-    def __init__(self, auth_type="plain"):
+    def __init__(self, auth_type="plain", pwd_recovery=False):
         self.SOGO_D_AUTH_TYPE = auth_type
+        self.SOGO_D_PWD_RECOVERY = pwd_recovery
 
 
 class FakeUserSourceSettings:

@@ -199,7 +199,7 @@ def test_get_mailbox_main_account_success(monkeypatch):
     interface = create_interface_with_settings(monkeypatch, fake_module)
 
     result, status_code = interface.get_mailbox(account_id="0")
-
+    print("__________________________")
     assert status_code == 200
     assert result["data"]["id"] == "0"
     assert fake_module.get_account_detail_args[1] == "0"

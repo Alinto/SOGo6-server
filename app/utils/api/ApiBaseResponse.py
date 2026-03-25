@@ -3,7 +3,6 @@ from typing import Any
 from marshmallow import Schema, fields
 
 from app.utils.errors import E, ERROR_NO_ERROR
-from app.utils.exceptions import BugException
 
 class ApiBaseResponse(Schema):
     """
