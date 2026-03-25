@@ -1,8 +1,6 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
-from io import BytesIO
-
 from flask import g, send_file
 from flask.views import MethodView
 from flask.typing import ResponseReturnValue
@@ -17,6 +15,7 @@ from .schemas.mail import (
     MailDeleteResponseSchema,
     MailRawResponseSchema,
     MailActionSchema,
+    MailDownloadSchema,
 )
 
 if TYPE_CHECKING:
@@ -189,11 +188,11 @@ class ApiMailDetailAction(MethodView):
         :param data: The action data containing 'action' and optional 'data' field
         :type data: dict
         :param account_id: The account identifier
-        :type account_id: int
+        :type account_id: str
         :param folder_name: The folder identifier
         :type folder_name: str
         :param mail_uid: The unique identifier of the mail
-        :type mail_uid: int
+        :type mail_uid: str
         :return: A response indicating the result of the action
         :rtype: ResponseReturnValue
         """
@@ -206,22 +205,56 @@ class ApiMailDetailAction(MethodView):
         )
         interface: InterfaceApiMailMail = g.inter
 
-        ret, http_code = interface.mail_action(account_id, folder_name, mail_uid, data)
-        if data["action"] in ("download", "zip"):
-            if data["action"] == "download":
-                filename = f"mail_{mail_uid}.eml"
-            else:
-                filename = f"mail_{mail_uid}.zip"
-            #TODO separate download/zip 
-            return send_file(
-                ret,  # type: ignore[arg-type]
-                mimetype="message/rfc822",
-                as_attachment=True,
-                download_name = filename
-            )
+        return interface.mail_action(account_id, folder_name, mail_uid, data)
 
-        return ret, http_code
 
+
+@blp.route("/<string:mail_uid>/download")
+class ApiMailDetailDownload(MethodView):
+    """API to download a specific mail as .eml or .zip.
+    """
+    @blp.arguments(MailDownloadSchema, example=MailDownloadSchema.example(), error_status_code=400)
+    def post(self, data: dict, account_id: str, folder_name: str, mail_uid: str) -> ResponseReturnValue:
+        """Download a specific mail in the specified folder as .eml or .zip.
+
+        :param data: The download data containing 'format' field ('eml' or 'zip')
+        :type data: dict
+        :param account_id: The account identifier
+        :type account_id: str
+        :param folder_name: The folder identifier
+        :type folder_name: str
+        :param mail_uid: The unique identifier of the mail
+        :type mail_uid: str
+        :return: The mail file as an attachment
+        :rtype: ResponseReturnValue
+        """
+        logger_api.debug(
+            "Calling ApiMailDetailDownload.post for account_id: %s, folder_name: %s, mail_uid: %s with format: %s",
+            account_id,
+            folder_name,
+            mail_uid,
+            data["format"]
+        )
+        interface: InterfaceApiMailMail = g.inter
+
+        result = interface.download_mail(account_id, folder_name, mail_uid, data["format"])
+
+        if isinstance(result, tuple):
+            return result
+
+        if data["format"] == "zip":
+            filename = f"mail_{mail_uid}.zip"
+            mimetype = "application/zip"
+        else:
+            filename = f"mail_{mail_uid}.eml"
+            mimetype = "message/rfc822"
+
+        return send_file(
+            result,
+            mimetype=mimetype,
+            as_attachment=True,
+            download_name=filename
+        )
 
 
 @blp.route("/<string:mail_uid>/reply")
