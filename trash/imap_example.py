@@ -18,8 +18,12 @@ imap = imaplib.IMAP4('dovecot', 143)
 # imap = imaplib.IMAP4_SSL('dovecot', 993)
 
 
-# m = imap.login("sogo-tests1@example.org", "sogo")
-# print(m)
+m = imap.login("sogo-tests1@example.org", "sogo")
+print(m)
+
+m = imap.getquotaroot("'INBOX'")
+print(m)
+
 # m = imap.response('CAPABILITY')
 # print(m)
 
