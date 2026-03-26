@@ -21,7 +21,7 @@ imap = imaplib.IMAP4('dovecot', 143)
 m = imap.login("sogo-tests1@example.org", "sogo")
 print(m)
 
-m = imap.getquotaroot("'INBOX'")
+m = imap.select("INBOX")
 print(m)
 
 # m = imap.response('CAPABILITY')

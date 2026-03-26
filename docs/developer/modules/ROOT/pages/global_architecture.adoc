@@ -1,0 +1,26 @@
+= Global Architecture
+
+SOGo6-server is a restful API using Flask framework.
+
+== Core
+
+The goal of SOGo 6 is to be modular to easily get new features or services.
+As such, the code is mainly seperated between 4 categories:
+
+* *API*: defines the endpoints, the request or response schema.
+* *Manager*: requests external services (database, dovecot, ldap...)
+* *Module*: Use manager to read or write data. Contains the main logic of any operation
+* *Interface*: Link between API and Module; Call the right module, format the answer and code status for the API. Also catch exceptions.
+
+== Errors handling
+
+SOGo 6 defines three Exceptions (app/utils/exceptions.py):
+
+* *RequestException*: Raise when something went wrong, meaning a 2xx status code can't be answered, but SOGo can handle it and the next request may be ok.
+* *AggravatedException*: Means there is something wrong with SOGo or its external services and SOGo can't work properly. Admin attention is needed.
+* *BugException*: Means there is something wrong with the algorithme or code (e.g. having a string instead of an int). A Bug Report is needed.
+
+These Exceptions are raised with the approriate error define here /workspace/app/utils/errors.py
+
+An error has a code, a human readable message and a associated http code status if a API response should be done.
+
