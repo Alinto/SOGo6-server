@@ -32,10 +32,9 @@ def create_api_base_response(data: Any|None = None, error: E = ERROR_NO_ERROR, c
     :return: the common response
     :rtype: dict
     """
-    if code:
-        error.h = code
+    status = code if code else error.h
     return {
         "data": data,
         "error_code": error.c,
         "error_msg": error.m
-    }, error.h
+    }, status

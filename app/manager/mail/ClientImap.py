@@ -187,20 +187,29 @@ class ImapFolder:
         #Check type
         self.type =  folder_name_to_type.get(self.path, cs.MAIL_FOLDER_NORMAL)
 
-    def init_from_list_extended_response(self, response_list:str, response_status:str, folder_name_to_type: dict) -> None:
+    def init_from_list_extended_response(self, response_list:str, response_status:str, folder_name_to_type: dict) -> bool:
         """
         Same as init_from_list_response but with status too
         'xyz (MESSAGES 25 UNSEEN 12)'
         '"Junk Email" (MESSAGES 0 UNSEEN 0)'
 
+        If the response_staus given doesn't match the response_list, return False
         """
         self.init_from_list_response(response_list, folder_name_to_type)
 
         #Check status
-        match = re.search(r"MESSAGES\s+(\d+).*?UNSEEN\s+(\d+)", response_status)
+        match = re.search(r'^([^\s]+)\s+\(MESSAGES\s+(\d+).*?UNSEEN\s+(\d+)\)', response_status)
         if match:
-            self.nb_mails = int(match.group(1))
-            self.nb_unseen = int(match.group(2))
+            name = match.group(1)
+            if name == self.name:
+                self.nb_mails = int(match.group(2))
+                self.nb_unseen = int(match.group(3))
+                return True
+            else:
+                self.nb_mails = 0
+                self.nb_unseen = 0
+                return True
+        return False
 
     def __repr__(self) -> str:
         return str({
@@ -425,7 +434,6 @@ class ClientImap(ClientMailServer):
 
             for idx, namespaces in enumerate(re.findall(r'\(\(.*?\)\)', datas[0].decode())):
                 _extract_namespace(namespaces, idx == 0)
-            print(f"NAMESPACE: default: ({self.default_prefix} {self.default_delimiter}) and others: {self.others_prefixes}")
         else:
             raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
 
@@ -476,9 +484,13 @@ class ClientImap(ClientMailServer):
                     success_status, datas_status = self._exec_imap4_method(self.connection.response, 'STATUS')
                     if not success_status:
                         raise RequestException(f"Failed to status mailboxes: {datas_status}", err.ERROR_IMAP_FAILED)
-                    for data_list, data_status in zip(datas_list, datas_status):
+                    idx_status = 0
+                    for data in datas_list:
+                        status = datas_status[idx_status]
                         folder = ImapFolder()
-                        folder.init_from_list_extended_response(data_list.decode(), data_status.decode(), self.folders_map_name_to_type)
+                        status_sync = folder.init_from_list_extended_response(data.decode(), status.decode(), self.folders_map_name_to_type)
+                        if status_sync:
+                            idx_status += 1
                         yield folder
             else:
                 success, datas = self._exec_imap4_method(self.connection.list, '""', folder_path)
@@ -508,7 +520,6 @@ class ClientImap(ClientMailServer):
             all_folders: dict[str, dict] = {}
             for folder in self._imap_list_folders():
                 # Check subscription status
-                print(folder)
                 if folder.is_subscribed is None:
                     folder.is_subscribed = self._is_folder_subscribed(folder.path)
 
