@@ -49,7 +49,7 @@ class MailServerSchema(Schema):
             "type": "imap",
             "password": "secure_password",
             "username": "user@example.com",
-            "authMech": "plain"
+            "auth_mech": "plain"
         }
 
 
@@ -97,7 +97,7 @@ class MailOutgoingSchema(Schema):
             "encryption": "StartTLS",
             "password": "secure_password",
             "username": "user@example.com",
-            "authMech": "plain",
+            "auth_mech": "plain",
             "type": "smtp"
         }
 
@@ -168,7 +168,7 @@ class MailServerUpdateSchema(Schema):
             "type": "imap",
             "password": "secure_password",
             "username": "user@example.com",
-            "authMech": "plain"
+            "auth_mech": "plain"
         }
 
 
@@ -198,7 +198,7 @@ class MailOutgoingUpdateSchema(Schema):
         Simply change the type name after a load
         """
         if "type_" in item:
-            item["type"] = item.pop("type")
+            item["type"] = item.pop("type_")
         return item
 
     @classmethod
@@ -214,7 +214,7 @@ class MailOutgoingUpdateSchema(Schema):
             "encryption": "StartTLS",
             "password": "secure_password",
             "username": "user@example.com",
-            "authMech": "plain",
+            "auth_mech": "plain",
             "type": "smtp"
         }
 
@@ -250,7 +250,7 @@ class MailboxCreateSchema(Schema):
                 "type": "imap",
                 "password": "secure_password",
                 "username": "user@example.com",
-                "authMech": "plain"
+                "auth_mech": "plain"
             },
             "receipts": {},
             "identities": [
@@ -276,7 +276,7 @@ class MailboxCreateSchema(Schema):
                 "encryption": "StartTLS",
                 "password": "secure_password",
                 "username": "user@example.com",
-                "authMech": "plain",
+                "auth_mech": "plain",
                 "type": "smtp"
             }
         }
@@ -315,14 +315,14 @@ class MailboxUpdateSchema(Schema):
                 "type": "imap",
                 "password": "new_secure_password",
                 "username": "newuser@example.com",
-                "authMech": "plain"
+                "auth_mech": "plain"
             },
             "receipts": {},
             "identities": [
                 {
                     "mail": "newuser@example.com",
                     "name": "Jane Doe",
-                    "replyTo": "",
+                    "replyTo": "noreply@example.com",
                     "isDefault": True,
                     "signatures": {"default": "Kind regards,\nJane"}
                 }
@@ -334,7 +334,7 @@ class MailboxUpdateSchema(Schema):
                 "encryption": "None",
                 "password": "new_secure_password",
                 "username": "newuser@example.com",
-                "authMech": "plain",
+                "auth_mech": "plain",
                 "type": "smtp"
             }
         }
@@ -365,7 +365,7 @@ class MailboxResponseSchema(ApiBaseResponse):
                     "type": "imap",
                     "password": "secure_password",
                     "username": "user@example.com",
-                    "authMech": "plain"
+                    "auth_mech": "plain"
                 },
                 "receipts": {},
                 "identities": {
@@ -384,7 +384,7 @@ class MailboxResponseSchema(ApiBaseResponse):
                     "encryption": "None",
                     "password": "secure_password",
                     "username": "user@example.com",
-                    "authMech": "plain",
+                    "auth_mech": "plain",
                     "type": "smtp"
                 }
             }
@@ -418,7 +418,7 @@ class MailboxListResponseSchema(ApiBaseResponse):
                         "encryption": "None",
                         "type": "imap",
                         "username": "main@example.com",
-                        "authMech": "plain"
+                        "auth_mech": "plain"
                     },
                     "identities": {
                         "0000": {
@@ -442,7 +442,7 @@ class MailboxListResponseSchema(ApiBaseResponse):
                         "encryption": "None",
                         "type": "imap",
                         "username": "user@example.com",
-                        "authMech": "plain"
+                        "auth_mech": "plain"
                     },
                     "identities": {
                         "0000": {
