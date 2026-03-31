@@ -15,7 +15,9 @@ from app.api.v1.mail.schemas.mailbox import (
     MailboxListResponseSchema,
     DelegationCreateSchema,
     DelegationListResponseSchema,
-    DelegationResponseSchema
+    DelegationResponseSchema,
+    MailboxPurgeSchema,
+    MailboxPurgeResponseSchema,
 )
 
 if TYPE_CHECKING:
@@ -152,15 +154,17 @@ class ApiMailBoxesAccountDelegates(MethodView):
         return interface.create_mailbox_delegate(account_id, data)
 
 
-@blp.route("/<int:account_id>/purge")
+@blp.route("/<string:account_id>/purge")
 class ApiMailBoxesAccountPurge(MethodView):
     """
     Resource: Purge Mailbox
     """
-    def post(self, account_id: int) -> ResponseReturnValue:
+    @blp.arguments(MailboxPurgeSchema, example=MailboxPurgeSchema.example(), error_status_code=400)
+    @blp.response(200, MailboxPurgeResponseSchema, example=MailboxPurgeResponseSchema.example())
+    def post(self, purge_data: dict, account_id: str) -> ResponseReturnValue:
         """
-        Action: purge (all folders) from the specified mailbox (NOT IMPLEMENTED)
+        Action: purge all folders from the specified mailbox
         """
-        logger_api.debug("Calling ApiMailBoxesAccountPurge.post for account_id: %s", account_id)
+        logger_api.debug("Calling ApiMailBoxesAccountPurge.post for account_id: %s with data: %s", account_id, purge_data)
         interface: InterfaceApiMailMailbox = g.inter
-        return interface.purge_mailbox(account_id)
+        return interface.purge_mailbox(account_id, purge_data)
