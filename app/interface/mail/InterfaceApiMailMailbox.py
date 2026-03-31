@@ -217,12 +217,28 @@ class InterfaceApiMailMailbox:
             return create_api_base_response(None, ex.error)
 
 
-    def purge_mailbox(self, account_id: int) -> tuple[str|dict, int]:
-        """Purge (all folders) from the specified mailbox.
-        
-        :param account_id: The account identifier
-        :type account_id: int
-        :return: A tuple of (empty string or error dict, status code)
-        :rtype: Tuple[Union[str, Dict[str, Any]], int]
+    def purge_mailbox(self, account_id: str, purge_data: dict[str, Any]) -> tuple[dict, int]:
+        """Purge all folders from the specified mailbox.
+
+        Iterates over every folder in the account and purges mails
+        (optionally before a given date, optionally permanently).
+
+        :param account_id: The account identifier ("0" for main account, hash for external)
+        :type account_id: str
+        :param purge_data: dictionary containing purge options:
+            - permanently_delete (bool): Expunge after marking as deleted
+            - date (str): Delete mails before this date (YYYY-MM-DD format)
+        :type purge_data: dict[str, Any]
+        :return: A tuple of (API response dict, status code)
+        :rtype: tuple[dict, int]
         """
-        raise NotImplementedError("Purge mailbox is not implemented yet")
+        # If requesting an external account (not "0") and external accounts are not allowed
+        if account_id != cs.DEFAULT_IDENTITY_KEY_VALUE and not self.user_module_settings.SOGO_D_ALLOW_EXT_MAIL_ACCOUNT:
+            return create_api_base_response(error=err.ERROR_EXTERNAL_ACCOUNT_FORBIDDEN)
+
+        try:
+            result = self.mail_module.purge_all_folders(account_id, purge_data)
+            return create_api_base_response(result)
+        except RequestException as ex:
+            logger_api.error("Request exception in purge_mailbox for user %s, account %s: %s", self.user.uid, account_id, str(ex))
+            return create_api_base_response(None, ex.error)

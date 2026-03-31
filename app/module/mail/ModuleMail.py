@@ -242,6 +242,40 @@ class ModuleMail:
         logger_mail_server.info("Successfully purged %d folder(s), mails marked as deleted: %d", folder_path, res)
         return {"mails_deleted": res}
 
+    def purge_all_folders(self, account_id: str, purge_data: dict[str, Any]) -> dict[str, int]:
+        """Purge all mails in all folders of the specified account.
+
+        Opens a single client connection, lists all top-level folders,
+        and purges each one (with its subfolders).
+
+        :param account_id: The account identifier ("0" for main, hash for external)
+        :type account_id: str
+        :param purge_data: dictionary containing purge options:
+            - permanently_delete (bool): Expunge after marking as deleted
+            - date (str): Delete mails before this date (YYYY-MM-DD format)
+        :type purge_data: dict[str, Any]
+        :return: dict with total count of mails marked as deleted
+        :rtype: dict[str, int]
+        :raises RequestException: If connection or manager operations fail
+        """
+        client = self._open_client_for(account_id)
+
+        permanently_delete = purge_data["permanently_delete"]
+        before_date = purge_data["date"]
+
+        folders = client.list_folders()
+        total_deleted = 0
+
+        for folder in folders:
+            folder_path = folder["path"]
+            total_deleted += client.purge_folder(folder_path, before_date, do_children=True, permanently=permanently_delete)
+
+        logger_mail_server.info(
+            "Successfully purged all folders for account '%s', total mails marked as deleted: %d",
+            account_id, total_deleted
+        )
+        return {"mails_deleted": total_deleted}
+
     def get_folder_share(self, account_id: str, folder_path: str) -> Iterator[tuple[str, dict[str, int]]]:
         """
         Yield the acl for a folder.
