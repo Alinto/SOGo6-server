@@ -197,18 +197,17 @@ class ImapFolder:
         """
         self.init_from_list_response(response_list, folder_name_to_type)
 
+        if not self.can_be_select:
+            self.nb_mails = 0
+            self.nb_unseen = 0
+            return False
         #Check status
         match = re.search(r'^([^\s]+)\s+\(MESSAGES\s+(\d+).*?UNSEEN\s+(\d+)\)', response_status)
         if match:
             name = match.group(1)
-            if name == self.name:
-                self.nb_mails = int(match.group(2))
-                self.nb_unseen = int(match.group(3))
-                return True
-            else:
-                self.nb_mails = 0
-                self.nb_unseen = 0
-                return True
+            self.nb_mails = int(match.group(2))
+            self.nb_unseen = int(match.group(3))
+            return True
         return False
 
     def __repr__(self) -> str:
