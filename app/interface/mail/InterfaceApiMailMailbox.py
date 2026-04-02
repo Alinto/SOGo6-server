@@ -4,7 +4,8 @@ from http import HTTPStatus
 
 from flask import request
 
-from app.config.settings.DomainSettings import UserModuleSettings, UserModuleSettingsObj
+from app.config.settings.DomainSettings import UserModuleSettings, UserModuleSettingsObj, MailSettings, MailSettingsObj
+from app.module.mail.ModuleMail import ModuleMail
 from app.module.user.ModuleUserProfile import ModuleUserProfile
 from app.utils.exceptions import RequestException, BugException
 from app.utils.api.ApiBaseResponse import create_api_base_response
@@ -34,21 +35,30 @@ class InterfaceApiMailMailbox:
         self.user = user
         self.user_module_settings = UserModuleSettingsObj(user_domain[UserModuleSettings.subparent])
         self.module_user_profile = ModuleUserProfile(process_setting, user_domain)
+        self.mail_settings = MailSettingsObj(user_domain[MailSettings.subparent])
+        self.mail_module = ModuleMail(user, self.mail_settings)
 
     def list_mailboxes(self) -> Tuple[Dict[str, Any], int]:
         """List all configured mailboxes.
         
         If external accounts are not allowed for this domain, only returns the main account.
+        Enriches each account with quota information retrieved from the mail server.
         
         :return: A tuple of (API response dict, status code)
         :rtype: Tuple[Dict[str, Any], int]
         """
         try:
             list_accounts = self.module_user_profile.list_accounts(self.user)
-            return create_api_base_response(list_accounts)
         except RequestException as ex:
             logger_api.error("Request exception in list_mailboxes for user %s: %s", self.user.uid, str(ex))
             return create_api_base_response(None, ex.error)
+
+        for account in list_accounts:
+            quota = self.mail_module.get_mailbox_quota(account["id"])
+            if quota is not None:
+                account["quota"] = quota
+
+        return create_api_base_response(list_accounts)
 
     def create_mailbox(self, account_data: dict) -> tuple[dict, int]:
         """Create a new mailbox (add external account).
@@ -73,6 +83,7 @@ class InterfaceApiMailMailbox:
         """Get a specific account by its hash, or main account if account_id is "0".
         
         If account_id is not "0" and external accounts are not allowed, returns 403.
+        Enriches the account data with quota information retrieved from the mail server.
         
         :param account_id: The hash of the external account, or "0" for main account
         :type account_id: str
@@ -85,10 +96,15 @@ class InterfaceApiMailMailbox:
 
         try:
             account = self.module_user_profile.get_account_detail(self.user, account_id)
-            return create_api_base_response(account)
         except RequestException as ex:
             logger_api.error("Request exception in get_mailbox for user %s, account %s: %s", self.user.uid, account_id, str(ex))
             return create_api_base_response(None, ex.error)
+
+        quota = self.mail_module.get_mailbox_quota(account_id)
+        if quota is not None:
+            account["quota"] = quota
+
+        return create_api_base_response(account)
 
 
     def update_mailbox(self, account_id: str, account_data: dict[str, Any]) -> tuple[dict, int]:

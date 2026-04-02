@@ -218,6 +218,23 @@ class MailOutgoingUpdateSchema(Schema):
             "type": "smtp"
         }
 
+class QuotaSchema(Schema):
+    """
+    Schema for mailbox quota information
+    """
+    storage_used = fields.Integer(required=True, metadata={"description": "Storage used in KB"})
+    storage_limit = fields.Integer(required=True, metadata={"description": "Storage limit in KB (0 if unlimited)"})
+    soft_quota_value = fields.Integer(required=True, metadata={"description": "Soft quota value from domain settings (SOGO_D_SOFT_EMAIL_QUOTA)"})
+
+    @classmethod
+    def example(cls) -> dict:
+        return {
+            "storage_used": 1024,
+            "storage_limit": 512000,
+            "soft_quota_value": 10000,
+        }
+
+
 class MailboxCreateSchema(Schema):
     """
     Schema for POST /mailboxes - Create a new external mailbox account
@@ -386,6 +403,10 @@ class MailboxResponseSchema(ApiBaseResponse):
                     "username": "user@example.com",
                     "auth_mech": "plain",
                     "type": "smtp"
+                },
+                "quota": {
+                    "storage_used": 1024,
+                    "storage_limit": 512000,
                 }
             }
         }

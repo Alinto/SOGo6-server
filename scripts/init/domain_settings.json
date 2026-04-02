@@ -90,7 +90,7 @@
             "SOGO_D_IMAP_SERVER": "dovecot",
             "SOGO_D_IMAP_PORT": 143,
             "SOGO_D_MAIL_JUNK": "Junk Email",
-            "SOGO_D_SOFT_EMAIL_QUOTA": 1,
+            "SOGO_D_SOFT_EMAIL_QUOTA": 10000,
             "SOGO_D_MAIL_PURGE_ALLOW": true,
             "SOGO_D_MAIL_PURGE_MIN_DATE": 0,
             "SOGO_D_MAIL_FILTERING_ENABLED": true,
