@@ -10,6 +10,7 @@ from app.utils import errors as err
 
 if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
+    from app.utils.api.paginate_sort_filter import CollectionPaginateArgs
 
 class InterfaceApiAdminConfig:
     """
@@ -79,22 +80,12 @@ class InterfaceApiAdminConfig:
         return create_api_base_response(ret_values)
 
 
-    def get_all_domain_settings(self, first_item: int = 0, last_item: int = 20,
-                                sort_args: dict | None = None,
-                                fields_args: dict | None = None) -> tuple[int, dict, int]:
+    def get_all_domain_settings(self, collection_param: CollectionPaginateArgs) -> tuple[int, dict, int]:
         """
         Return the list of all domains settings with pagination, sorting and filtering options
         """
-        offset = first_item
-        limit = last_item - first_item + 1
         try:
-            count, ret = self.module.get_all_domains_settings(
-                offset=offset,
-                limit=limit,
-                include_fields=fields_args.get("include_fields") if fields_args else None,
-                sort_by=sort_args.get("sort_by") if sort_args else None,
-                sort_order=sort_args.get("sort_order", "asc") if sort_args else "asc",
-            )
+            count, ret = self.module.get_all_domains_settings(collection_param)
         except RequestException as ex:
             response, status_code = create_api_base_response(str(ex), ex.error)
             return 0, response, status_code

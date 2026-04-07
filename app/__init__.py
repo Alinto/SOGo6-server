@@ -201,10 +201,6 @@ def register_route(flask_api: Api, name: str, sogo_state: int) -> None:
     """
     Resgister all blueprints
     """
-    # base_blueprint = Blueprint(f"{name}_banane", name, url_prefix='/api')
-
-    # register_after_request(base_blueprint)
-    # register_before_request(base_blueprint, name, sogo_state)
 
     for version, version_apis in all_apis.items():
         basic_apis = version_apis[name]

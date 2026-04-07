@@ -9,21 +9,17 @@ from flask_smorest import Blueprint
 from app.service import sogo_cache
 from app.interface.admin.InterfaceApiAdminConfig import InterfaceApiAdminConfig
 from app.utils.logger.logger import logger_api
-from app.utils.api.paginate_sort_filter import custom_paginate, CustomPaginateResponse
+from app.utils.api.paginate_sort_filter import collection_paginate, CustomPaginateResponse
 
 from .schema import adminConfig as sch
 
 if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
+    from app.utils.api.paginate_sort_filter import CollectionPaginateArgs
 
 
 
 blp = Blueprint("Config", __name__, url_prefix="/config")
-
-# def my_pagination_metadata(page, page_size, item_count):
-#     return {"data": "hey i'm custom"}
-
-# blp._make_pagination_metadata = my_pagination_metadata
 
 @blp.before_request
 def init_admin_config() -> None:
@@ -105,18 +101,14 @@ class ApiAdminConfigDomain(MethodView):
     """
     Collection, each resource is the sogo's settings associated to a domain
     """
-    @blp.response(200)
-    @custom_paginate(blp)
-    def get(self, first: int, last: int, fields_args: dict, sort_args: dict) -> CustomPaginateResponse:
+    @blp.response(200, sch.AdminConfigDomainGetSchema, example=sch.AdminConfigDomainGetSchema.example())
+    @collection_paginate(blp, sort_value_set=sch.AdminConfigDomainGetSchema.sort_by_values(), filter_value_set=sch.AdminConfigDomainGetSchema.filter_by_values())
+    def get(self, collection_param: CollectionPaginateArgs) -> CustomPaginateResponse:
         """
         Collection, get the list of domains settings
         """
         interface_api : InterfaceApiAdminConfig = g.inter
-        return interface_api.get_all_domain_settings(
-            first, last,
-            sort_args=sort_args,
-            fields_args=fields_args,
-        )
+        return interface_api.get_all_domain_settings(collection_param)
 
     @blp.arguments(sch.AdminConfigDomainPostSchema, example=sch.AdminConfigDomainPostSchema.example(), error_status_code=400)
     @blp.response(200, sch.AdminConfigDomainGetSchema, example=sch.AdminConfigDomainGetSchema.example())

@@ -142,7 +142,7 @@ class ClientMailServer(metaclass=ABCMeta):
         """
 
     @abstractmethod
-    def fetch_all_mails(self, folder_path: str, number_of_mails: int, offset: int) -> Iterator[dict]:
+    def fetch_all_mails_with_content(self, folder_path: str, number_of_mails: int, offset: int) -> Iterator[dict]:
         """
         https://datatracker.ietf.org/doc/html/rfc9051#name-fetch-response
         Fetch a specific number of mails from a mailbox with full details.
@@ -156,6 +156,34 @@ class ClientMailServer(metaclass=ABCMeta):
             "flags": flags_dict, dict
             "size": size, int
         }
+
+        :param mailbox: The mailbox to fetch mails from.
+        :type mailbox: str
+        :param number_of_mails: The number of mails to fetch.
+        :type number_of_mails: int
+        :param offset: The offset of the mail to fetch.
+        :type number_of_mails: int
+        :raises RequestException: If fetching mails fails
+        :return: A tuple of (list of mail dicts with full details, total count)
+        :rtype: tuple[list[dict[str, Any]], int]
+        """
+
+    @abstractmethod
+    def fetch_all_mails_without_content(self, folder_path: str, number_of_mails: int, offset: int) -> Iterator[dict]:
+        """
+        https://datatracker.ietf.org/doc/html/rfc9051#name-fetch-response
+        Fetch a specific number of mails from a mailbox with full details.
+
+        {
+            "uid": uid, str
+            "mail": mail object, Message
+            "flags": flags_dict, dict
+            "size": size, int
+            "has_attachment": bool
+        }
+
+        Always yield the total number of mails of the folder
+        Then yield mail by mail, from the most recent to the oldest
 
         :param mailbox: The mailbox to fetch mails from.
         :type mailbox: str

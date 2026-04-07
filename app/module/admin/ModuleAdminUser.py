@@ -7,7 +7,7 @@ from app.utils.exceptions import RequestException
 from app.utils.logger.logger import logger
 
 if TYPE_CHECKING:
-    pass
+    from app.utils.api.paginate_sort_filter import CollectionPaginateArgs
 
 
 class ModuleAdminUser:
@@ -15,14 +15,7 @@ class ModuleAdminUser:
     Module to handle admin operations on users.
     """
 
-    def get_active_users(
-        self,
-        first: int = 0,
-        last: int = 0,
-        sort_by: str | None = None,
-        sort_order: str = "desc",
-        include_fields: str | None = None,
-    ) -> tuple[int, list[dict]]:
+    def get_active_users(self, collection_param: CollectionPaginateArgs) -> tuple[int, list[dict]]:
         """
         Return the list of currently active users by querying the
         ``user_sessions:activity`` sorted set in Redis.
@@ -49,11 +42,10 @@ class ModuleAdminUser:
         cache = sogo_cache()
 
         total_count, active_users = cache.zset_paginate_hashes(
-            first=first,
-            last=last,
-            sort_by=sort_by,
-            sort_order=sort_order,
-            include_fields=include_fields,
+            first=collection_param.first_item,
+            last=collection_param.last_item,
+            sort_by=collection_param.sort_by,
+            sort_order=collection_param.sort_order
         )
 
         logger.debug("%d active user session(s) (total: %d)", len(active_users), total_count)
