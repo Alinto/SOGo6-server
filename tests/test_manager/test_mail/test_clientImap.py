@@ -327,7 +327,7 @@ def test_fetch_mails_success():
     client = ClientImap(server='imap.example.com', port=143)
     client.connection = fake_conn
 
-    mails, total = client.fetch_all_mails('INBOX', number_of_mails=2)
+    mails, total = client.fetch_all_mails_with_content('INBOX', number_of_mails=2)
     assert total == 10
     assert len(mails) == 2
 

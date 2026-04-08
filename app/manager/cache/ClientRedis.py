@@ -217,8 +217,7 @@ class ClientRedis():
         first: int = 0,
         last: int = 0,
         sort_by: str | None = None,
-        sort_order: str = "desc",
-        include_fields: str | None = None,
+        sort_order: str | None = None
     ) -> tuple[int, list[dict]]:
         """
         Paginate through hash keys referenced in a sorted set.
@@ -240,16 +239,15 @@ class ClientRedis():
             in each returned dict (None = return all fields)
         :return: (total_count, page_items)
         """
-        logger_cache.info(
-            "zset_paginate_hashes first=%s last=%s sort_by=%s sort_order=%s fields=%s",
-            first, last, sort_by, sort_order, include_fields,
-        )
+        logger_cache.info("zset_paginate_hashes first=%s last=%s sort_by=%s sort_order=%s", first, last, sort_by, sort_order)
         # set default zset key
         zset_key_default = cs.ZSET_USER_SESSIONS_ACTIVITY
         total_count = cast(int, self.redis.zcard(zset_key_default))
 
         if total_count == 0:
             return 0, []
+        if sort_order is None:
+            sort_order = "desc"
 
         reverse = sort_order == "desc"
 
@@ -301,11 +299,6 @@ class ClientRedis():
             # Paginate
             if last:
                 items = items[first:last + 1]
-
-        # Field filtering
-        if include_fields:
-            wanted = {f.strip() for f in include_fields.split(",")}
-            items = [{k: v for k, v in d.items() if k in wanted} for d in items]
 
         logger_cache.info(
             "zset_paginate_hashes: total=%d page_size=%d", total_count, len(items),

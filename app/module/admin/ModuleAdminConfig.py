@@ -21,6 +21,7 @@ from app.utils import errors as err
 if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
     from app.manager.db.ClientSQL import ClientSQL
+    from app.utils.api.paginate_sort_filter import CollectionPaginateArgs
 
 class ModuleAdminConfig:
     """
@@ -130,23 +131,27 @@ class ModuleAdminConfig:
 
         return self._get_setting_from_table_settings((tbl.COL_SETTINGS_SYSTEM.name,tbl.COL_SETTINGS_DOMAIN_DEFAULT.name))
 
-    def get_all_domains_settings(self, offset: int = 0, limit: int = 0,
-                                include_fields: str | None = None,
-                                sort_by: str | None = None,
-                                sort_order: str = "asc") -> tuple[int, list]:
+    def get_all_domains_settings(self, collection_param: CollectionPaginateArgs) -> tuple[int, list]:
         """Return a list of all domains settings with pagination, sorting and filtering options
         """
+
+        offset = collection_param.first_item
+        limit = collection_param.last_item - offset + 1
+
         # Validation of the requested columns.
-        if include_fields:
-            requested = {f.strip() for f in include_fields.split(",") if f.strip()}
-            columns = [tbl.TABLE_DOMAIN.get_column_from_name(f) for f in requested]
-            column_names = [col.name for col in columns]
-        else:
-            column_names = [col.name for col in tbl.TABLE_DOMAIN.columns]
+        column_names = [col.name for col in tbl.TABLE_DOMAIN.columns]
+        if collection_param.fields:
+            requested = collection_param.fields.split(",")
+            if collection_param.fields_action == "include":
+                columns = [tbl.TABLE_DOMAIN.get_column_from_name(f) for f in requested]
+                column_names = [col.name for col in columns]
+            if collection_param.fields_action == "exclude":
+                for field in requested:
+                    column_names.remove(field)
 
         # Validation of sorting parameters
-        order = Order.ASC if sort_order == "asc" else Order.DESC
-        sort_column = tbl.TABLE_DOMAIN.get_column_from_name(sort_by).name if sort_by else None
+        order = Order.ASC if collection_param.sort_order == "asc" else Order.DESC
+        sort_column = tbl.TABLE_DOMAIN.get_column_from_name(collection_param.sort_by).name if collection_param.sort_by else None
 
         # Fetch data from the database
         self.sogo_db_manager.connect()
