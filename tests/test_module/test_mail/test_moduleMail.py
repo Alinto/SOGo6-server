@@ -163,7 +163,7 @@ class FakeClientImap:
             {'name': 'Sent', 'path': 'Sent'}
         ]
 
-    def fetch_all_mails(self, mailbox, number_of_mails):
+    def fetch_all_mails_with_content(self, mailbox, number_of_mails):
         """Fetch all mails from a mailbox (used by get_folder_mails)."""
         return self.fetch_mails_result
 

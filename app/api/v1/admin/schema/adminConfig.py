@@ -402,6 +402,20 @@ class AdminConfigDomainGetSchema(ApiBaseResponse):
 
     data = fields.Nested(AdminConfigDynamicFormData)
 
+    @staticmethod
+    def sort_by_values() -> set:
+        """
+        return values available for sorting by
+        """
+        return {"domain_name"}
+
+    @staticmethod
+    def filter_by_values() -> set:
+        """
+        return values available for sorting by
+        """
+        return {"domain_name", "domain_description", "domain_info", "domain_settings", "domain_origins"}
+
     @classmethod
     def example(cls) -> dict:
         """
@@ -417,7 +431,7 @@ class AdminConfigDomainGetSchema(ApiBaseResponse):
                 "domain_name": "default",
                 "domain_description": "This is a domain configuration",
                 "domain_info": "French ldap server",
-                "settings": {
+                "domain_settings": {
                     "AUTH_SETTINGS": {
                         "SOGO_D_AUTH_TYPE": "plain",
                         "SOGO_D_PWD_CHANGE_ENABLED": True,

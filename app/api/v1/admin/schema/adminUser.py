@@ -10,6 +10,13 @@ class AdminUserActiveSchema(ApiBaseResponse):
     """
     data = fields.List(fields.Dict(), required=False, allow_none=True)
 
+    @staticmethod
+    def sort_by_values() -> set:
+        """
+        return values available for sorting by
+        """
+        return {"uid", "domain", "last_activity"}
+
     @classmethod
     def example(cls) -> dict:
         """
@@ -24,12 +31,14 @@ class AdminUserActiveSchema(ApiBaseResponse):
             "data": [
                 {
                     "uid": "jdoe@example.org",
-                    "last_activity": "2026-03-06T10:42:00+00:00",
+                    "domain": "example.org",
+                    "last_activity": "1775049291",
                     "session_key": "user_session:abc123"
                 },
                 {
                     "uid": "jsmith@example.org",
-                    "last_activity": "2026-03-06T11:00:00+00:00",
+                    "domain": "example.org",
+                    "last_activity": "1775049289",
                     "session_key": "user_session:def456"
                 }
             ]

@@ -8,12 +8,13 @@ from flask_smorest import Blueprint
 
 from app.interface.admin.InterfaceApiAdminUser import InterfaceApiAdminUser
 from app.utils.logger.logger import logger_api
-from app.utils.api.paginate_sort_filter import custom_paginate, CustomPaginateResponse
+from app.utils.api.paginate_sort_filter import collection_paginate, CustomPaginateResponse
 
 from .schema import adminUser as sch
 
 if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
+    from app.utils.api.paginate_sort_filter import CollectionPaginateArgs
 
 
 blp = Blueprint("Admin Users", __name__, url_prefix="/users")
@@ -39,40 +40,23 @@ class ApiAdminUserActive(MethodView):
     """
 
     @blp.response(200, sch.AdminUserActiveSchema, example=sch.AdminUserActiveSchema.example())
-    @custom_paginate(blp)
-    def get(self, first: int, last: int, fields_args: dict, sort_args: dict) -> CustomPaginateResponse:
+    @collection_paginate(blp, sort_value_set=sch.AdminUserActiveSchema.sort_by_values(), can_filter=False)
+    def get(self, collection_param: CollectionPaginateArgs) -> CustomPaginateResponse:
         """
         Get the list of currently active users.
 
         Returns all users that have a live session in the cache, together
         with their last activity timestamp.
 
-        :param first: The index of the first item to retrieve (for pagination)
-        :type first: int
-        :param last: The index of the last item to retrieve (for pagination)
-        :type last: int
-        :param fields_args: The fields to include in the response (for field filtering)
-        :type fields_args: dict
-        :param sort_args: The sorting parameters (for sorting)
-        :type sort_args: dict
+        :param collection_param: The object for pagination, sorting anf filtering
+        :type collection_param: CollectionPaginateArgs
         :return: A tuple of (item count, API response dict, status code)
         :rtype: Tuple[int, dict, int]
         """
-        logger_api.debug(
-            "Calling ApiAdminUserActive: Fetching active users, first: %s, last: %s, sort_by: %s, sort_order: %s, fields: %s",
-            first, last,
-            sort_args.get("sort_by"), sort_args.get("sort_order"),
-            fields_args.get("include_fields"),
-        )
+        logger_api.debug("Calling ApiAdminUserActive: Fetching active users: %s", collection_param)
         interface: InterfaceApiAdminUser = g.inter
 
-        item_count, response, status_code = interface.get_active_users(
-            first=first,
-            last=last,
-            sort_by=sort_args.get("sort_by"),
-            sort_order=sort_args.get("sort_order", "desc"),
-            include_fields=fields_args.get("include_fields"),
-        )
+        item_count, response, status_code = interface.get_active_users(collection_param)
 
         #return response, status_code
         return item_count, response, status_code

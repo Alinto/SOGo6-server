@@ -139,7 +139,6 @@ class MailDetailResponseSchema(ApiBaseResponse):
                 ],
                 "is_signed": True,
                 "certificates": [],
-                "valid": True,
                 "priority": 1,
                 "should_ask_receipt": False,
                 "metadatas": [
@@ -158,6 +157,20 @@ class MailListResponseSchema(ApiBaseResponse):
     Schema for GET /mailboxes/<account_id>/folders/<path:folder_name>/mails response
     """
     data = fields.List(fields.Dict(), required=False, allow_none=True)
+
+    @staticmethod
+    def sort_by_values() -> set:
+        """
+        return values available for sorting by
+        """
+        return {"date", "size", "subject", "to", "from", "cc"}
+
+    @staticmethod
+    def filter_by_values() -> set:
+        """
+        return values available for sorting by
+        """
+        return {"contents"}
 
     @classmethod
     def example(cls) -> dict:
@@ -202,15 +215,10 @@ class MailListResponseSchema(ApiBaseResponse):
                     ],
                     "is_signed": True,
                     "certificates": [],
-                    "valid": True,
-                    "priority": 1,
+                    "priority": 3,
                     "should_ask_receipt": False,
-                    "metadatas": [
-                        {
-                            "mail_type": "normal",
-                            "mail_type_data": {}
-                        }
-                    ]
+                    "mail_type": [],
+                    "mail_type_data": []
                 }
             ]
         }

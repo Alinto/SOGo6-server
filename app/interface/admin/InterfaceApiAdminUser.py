@@ -8,6 +8,7 @@ from app.utils.logger.logger import logger_api
 
 if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
+    from app.utils.api.paginate_sort_filter import CollectionPaginateArgs
 
 
 class InterfaceApiAdminUser:
@@ -22,14 +23,7 @@ class InterfaceApiAdminUser:
         """
         self.module = ModuleAdminUser()
 
-    def get_active_users(
-        self,
-        first: int = 0,
-        last: int = 0,
-        sort_by: str | None = None,
-        sort_order: str = "desc",
-        include_fields: str | None = None,
-    ) -> Tuple[int, Dict[str, Any], int]:
+    def get_active_users(self, collection_param: CollectionPaginateArgs) -> Tuple[int, Dict[str, Any], int]:
         """
         Return the list of currently active users.
 
@@ -51,13 +45,7 @@ class InterfaceApiAdminUser:
         :rtype: Tuple[int, Dict[str, Any], int]
         """
         try:
-            total_count, active_users = self.module.get_active_users(
-                first=first,
-                last=last,
-                sort_by=sort_by,
-                sort_order=sort_order,
-                include_fields=include_fields,
-            )
+            total_count, active_users = self.module.get_active_users(collection_param)
         except RequestException as ex:
             logger_api.error("Request exception in get_active_users: %s", str(ex))
             return 0, *create_api_base_response(None, ex.error)
