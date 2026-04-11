@@ -1,0 +1,88 @@
+"""
+Unit tests for CalendarEventsDeserializerIcal.
+Verifies that a full VCALENDAR block is correctly parsed into a list of CalEvent objects.
+
+RFC 5545 examples: https://icalendar.org/iCalendar-RFC-5545/4-icalendar-object-examples.html
+"""
+import pytest
+
+from app.module.calendar.serializer.CalendarEventsDeserializerIcal import CalendarEventsDeserializerIcal
+from app.module.calendar.serializer.CalendarEventDeserializerIcal import CalendarEventDeserializerIcal
+from tests.test_calendar.ical_examples import (
+    ICAL_EXAMPLE_1,
+    ICAL_EXAMPLE_2,
+    ICAL_EXAMPLE_4,
+    ICAL_EXAMPLE_5,
+    ICAL_EXAMPLE_6,
+)
+
+ICAL_MULTI_EVENT = (
+    "BEGIN:VCALENDAR\r\n"
+    "VERSION:2.0\r\n"
+    "PRODID:-//Multi//EN\r\n"
+    "BEGIN:VEVENT\r\n"
+    "UID:evt1@example.com\r\n"
+    "SUMMARY:Event One\r\n"
+    "DTSTART:20260101T090000Z\r\n"
+    "DTEND:20260101T100000Z\r\n"
+    "END:VEVENT\r\n"
+    "BEGIN:VEVENT\r\n"
+    "UID:evt2@example.com\r\n"
+    "SUMMARY:Event Two\r\n"
+    "DTSTART:20260102T090000Z\r\n"
+    "DTEND:20260102T100000Z\r\n"
+    "END:VEVENT\r\n"
+    "END:VCALENDAR\r\n"
+)
+
+
+@pytest.fixture
+def deserializer():
+    return CalendarEventsDeserializerIcal(CalendarEventDeserializerIcal())
+
+
+def test_returns_list(deserializer):
+    assert isinstance(deserializer.deserialize(ICAL_EXAMPLE_1), list)
+
+
+def test_single_event_count(deserializer):
+    assert len(deserializer.deserialize(ICAL_EXAMPLE_1)) == 1
+
+
+def test_multi_event_count(deserializer):
+    assert len(deserializer.deserialize(ICAL_MULTI_EVENT)) == 2
+
+
+def test_event_uids(deserializer):
+    events = deserializer.deserialize(ICAL_MULTI_EVENT)
+    assert {e.uid for e in events} == {"evt1@example.com", "evt2@example.com"}
+
+
+def test_event_uid_example1(deserializer):
+    assert deserializer.deserialize(ICAL_EXAMPLE_1)[0].uid == "uid1@example.com"
+
+
+def test_event_title_example1(deserializer):
+    assert deserializer.deserialize(ICAL_EXAMPLE_1)[0].title == "Networld+Interop Conference"
+
+
+def test_vtimezone_not_yielded_as_event(deserializer):
+    assert len(deserializer.deserialize(ICAL_EXAMPLE_2)) == 1
+
+
+def test_vtodo_gives_empty_list(deserializer):
+    assert deserializer.deserialize(ICAL_EXAMPLE_4) == []
+
+
+def test_vjournal_gives_empty_list(deserializer):
+    assert deserializer.deserialize(ICAL_EXAMPLE_5) == []
+
+
+def test_vfreebusy_gives_empty_list(deserializer):
+    assert deserializer.deserialize(ICAL_EXAMPLE_6) == []
+
+
+def test_invalid_ics_raises(deserializer):
+    from app.utils.exceptions import RequestException
+    with pytest.raises(RequestException):
+        deserializer.deserialize("not valid ics")

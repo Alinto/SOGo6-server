@@ -140,5 +140,9 @@ ERROR_QUERY_DELETION_CONDITION = E("S000404", "Database Deletion Query Delete Ev
 #Config
 ERROR_CONFIG_WRONG_MAIL_SERVER = E("S000500", "Mail server type is unknown or not supported", HTTPStatus.INTERNAL_SERVER_ERROR)
 
+#Calendar
+ERROR_CALENDAR_ICS_FETCH_FAILED = E("S000600", "Failed To Fetch ICS Calendar Feed", HTTPStatus.BAD_GATEWAY)
+ERROR_CALENDAR_ICS_PARSE_FAILED = E("S000601", "Failed To Parse ICS Calendar Content", HTTPStatus.UNPROCESSABLE_ENTITY)
+
 #the bugs
 ERROR_UNKOWN = E("S999999", "Undefined Error", HTTPStatus.INTERNAL_SERVER_ERROR)
