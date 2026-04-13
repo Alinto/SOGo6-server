@@ -90,7 +90,7 @@ class InterfaceApiAdminConfig:
             response, status_code = create_api_base_response(str(ex), ex.error)
             return 0, response, status_code
         except BugException as ex:
-            response, status_code = create_api_base_response(str(ex), err.ERROR_BUG_UNKNWON_COLUMN)
+            response, status_code = create_api_base_response(str(ex), ex.error)
             return 0, response, status_code
         response, status_code = create_api_base_response(ret)
         return count, response, status_code

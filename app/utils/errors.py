@@ -66,6 +66,7 @@ ERROR_API_NOT_JSON             = E("S000204", "Request POST/PATCH/PUT Body Is No
 ERROR_API_CONTENT_TYPE         = E("S000205", "Request POST/PATCH/PUT Content-Type Is Not 'application/json'", HTTPStatus.BAD_REQUEST)
 ERROR_VALIDITY_TIME_BELOW_0    = E("S000206", "Voucher Validity Time Below 0", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_USER_CREDS_NOT_VALID     = E("S000207", "User credentials stores in session are not valid anymore", HTTPStatus.UNAUTHORIZED)
+ERROR_LOGIN_FAILED             = E("S000208", "Login Failed: Invalid Credentials", HTTPStatus.UNAUTHORIZED)
 
 
 #API

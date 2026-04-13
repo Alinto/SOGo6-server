@@ -5,9 +5,10 @@ Ces tests utilisent un fake ModuleAdminConfig pour tester la logique de l'interf
 from marshmallow.exceptions import ValidationError
 
 from app.interface.admin.InterfaceApiAdminConfig import InterfaceApiAdminConfig
-from app.utils.exceptions import RequestException
+from app.utils.exceptions import RequestException, BugException
 from app.utils import errors as err
-from app.utils.db.Condition import Order
+from app.utils.api.paginate_sort_filter import CollectionPaginateArgs
+from app.utils.db.Condition import order_str_to_order_enum
 
 
 class FakeModuleAdminConfig:
@@ -97,9 +98,18 @@ class FakeModuleAdminConfig:
         self.update_domain_default_settings_args = new_param
         return self.update_domain_default_settings_result
 
-    def get_all_domains_settings(self, offset, limit, columns=None, sort_by=None, order=None):
+    def get_all_domains_settings(self, collection_param):
         """Get all domains settings."""
-        self.get_all_domains_settings_args = (offset, limit, columns, sort_by, order)
+        # Validate sort_order like the real module does
+        if collection_param.sort_order:
+            order_str_to_order_enum(collection_param.sort_order)
+        self.get_all_domains_settings_args = (
+            collection_param.first_item,
+            collection_param.page_size,
+            collection_param.fields,
+            collection_param.sort_by,
+            collection_param.sort_order,
+        )
         return self.get_all_domains_settings_result
 
     def create_domain_settings(self, new_domain):
@@ -143,7 +153,7 @@ def test_get_dynamic_setting_structure_success(monkeypatch):
 
     result = interface.get_dynamic_setting_structure()
 
-    assert result["data"]["fields"][0]["name"] == "field1"
+    assert result[0]["data"]["fields"][0]["name"] == "field1"
     assert fake_module.get_dynamic_form_settings_called is True
 
 
@@ -159,8 +169,8 @@ def test_get_all_setting_system_success(monkeypatch):
 
     result = interface.get_all_setting_system()
 
-    assert result["data"]["setting1"] == "value1"
-    assert result["data"]["setting2"] == "value2"
+    assert result[0]["data"]["setting1"] == "value1"
+    assert result[0]["data"]["setting2"] == "value2"
     assert fake_module.get_system_settings_called is True
 
 
@@ -212,7 +222,7 @@ def test_get_all_setting_domain_default_success(monkeypatch):
 
     result = interface.get_all_setting_domain_default()
 
-    assert result["data"]["default_setting1"] == "default_value1"
+    assert result[0]["data"]["default_setting1"] == "default_value1"
     assert fake_module.get_default_domain_settings_called is True
 
 
@@ -263,17 +273,16 @@ def test_get_all_domain_settings_success(monkeypatch):
     interface = InterfaceApiAdminConfig(process_setting=process_setting)
 
     count, result, status_code = interface.get_all_domain_settings(
-        first_item=0, last_item=10,
-        sort_args={"sort_by": "domain_name", "sort_order": "asc"},
+        CollectionPaginateArgs(page=1, page_size=11, sort_by="domain_name", sort_order="asc"),
     )
 
     assert status_code == 200
     assert count == 2
     assert len(result["data"]) == 2
     assert result["data"][0]["domain_id"] == "example.com"
-    assert fake_module.get_all_domains_settings_args[0] == 0  # offset
-    assert fake_module.get_all_domains_settings_args[1] == 11  # limit
-    assert fake_module.get_all_domains_settings_args[4] == Order.ASC  # order
+    assert fake_module.get_all_domains_settings_args[0] == 0  # offset (first_item)
+    assert fake_module.get_all_domains_settings_args[1] == 11  # page_size
+    assert fake_module.get_all_domains_settings_args[4] == "asc"  # sort_order
 
 
 def test_get_all_domain_settings_invalid_order(monkeypatch):
@@ -285,11 +294,10 @@ def test_get_all_domain_settings_invalid_order(monkeypatch):
     interface = InterfaceApiAdminConfig(process_setting=process_setting)
 
     count, result, status_code = interface.get_all_domain_settings(
-        first_item=0, last_item=10,
-        sort_args={"sort_by": None, "sort_order": "invalid"},
+        CollectionPaginateArgs(page=1, page_size=11, sort_by=None, sort_order="invalid"),
     )
 
-    assert status_code == 400
+    assert status_code == 500
     assert count == 0
     assert result["error_code"] == err.ERROR_BUG_UNKNOWN_ORDER.c
 
@@ -297,31 +305,21 @@ def test_get_all_domain_settings_invalid_order(monkeypatch):
 def test_get_all_domain_settings_invalid_sort_column(monkeypatch):
     """Test error handling when sort column is invalid."""
     fake_module = FakeModuleAdminConfig(None)
+    fake_module.get_all_domains_settings = lambda *args, **kwargs: (_ for _ in ()).throw(
+        RequestException("Unknown column", err.ERROR_BUG_UNKNWON_COLUMN)
+    )
     patch_module_on_interface(monkeypatch, fake_module)
-
-    # Mock the TABLE_DOMAIN to raise RequestException
-    from app.config.db import tables as tbl
-    original_get_column = tbl.TABLE_DOMAIN.get_column_from_name
-
-    def mock_get_column(name):
-        raise RequestException("Unknown column", err.ERROR_BUG_UNKNWON_COLUMN)
-
-    monkeypatch.setattr(tbl.TABLE_DOMAIN, "get_column_from_name", mock_get_column)
 
     process_setting = {"test": "config"}
     interface = InterfaceApiAdminConfig(process_setting=process_setting)
 
     count, result, status_code = interface.get_all_domain_settings(
-        first_item=0, last_item=10,
-        sort_args={"sort_by": "invalid_column", "sort_order": "asc"},
+        CollectionPaginateArgs(page=1, page_size=11, sort_by="invalid_column", sort_order="asc"),
     )
 
-    assert status_code == 400
+    assert status_code == 500
     assert count == 0
     assert result["error_code"] == err.ERROR_BUG_UNKNWON_COLUMN.c
-
-    # Restore original
-    monkeypatch.setattr(tbl.TABLE_DOMAIN, "get_column_from_name", original_get_column)
 
 
 def test_get_all_domain_settings_no_sort_order(monkeypatch):
@@ -333,15 +331,15 @@ def test_get_all_domain_settings_no_sort_order(monkeypatch):
     interface = InterfaceApiAdminConfig(process_setting=process_setting)
 
     count, _result, status_code = interface.get_all_domain_settings(
-        first_item=5, last_item=15,
+        CollectionPaginateArgs(page=2, page_size=5),
     )
 
     assert status_code == 200
     assert count == 2
-    assert fake_module.get_all_domains_settings_args[0] == 5  # offset
-    assert fake_module.get_all_domains_settings_args[1] == 11  # limit
+    assert fake_module.get_all_domains_settings_args[0] == 5  # offset (first_item)
+    assert fake_module.get_all_domains_settings_args[1] == 5  # page_size
     assert fake_module.get_all_domains_settings_args[3] is None  # sort_by
-    assert fake_module.get_all_domains_settings_args[4] == Order.ASC  # order (default)
+    assert fake_module.get_all_domains_settings_args[4] is None  # sort_order (default)
 
 
 # ========== Tests for post_new_domain_settings ==========
