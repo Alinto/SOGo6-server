@@ -149,7 +149,7 @@ def test_get_login_mech_request_exception(monkeypatch):
 
     result, status_code = interface.get_login_mech(user_uid="unknown@example.com", redirect="/dashboard")
 
-    assert status_code == 400
+    assert status_code == 404
     assert result["error_code"] == err.ERROR_DOMAIN_NAME_NOT_FOUND.c
 
 
