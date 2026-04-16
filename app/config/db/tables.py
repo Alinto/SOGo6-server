@@ -125,7 +125,151 @@ TABLE_USER = Table(name="sogo_user_profiles", columns=ALL_USER_COL, primary_keys
 
 
 
+########################
+# Table sogo_calendars #
+########################
+"""
+Stores personal and external calendars for each user.
+All queries use WHERE user_uid = <uid>.
+External calendars (.ics / CalDAV) are differentiated by source_type;
+their sync metadata is stored in sync_config JSON to avoid polluting
+the schema with nullable columns only relevant to non-local calendars.
+"""
+# key: opaque token exposed in the API instead of id to prevent row enumeration (see sogo_hash.py HASH_SIZE_CALENDAR)
+# user_uid: owner of this calendar — FK to sogo_user_profiles.uid — present in every WHERE clause
+# is_default: marks the user's primary personal calendar; only one per user, enforced by service layer
+# source_type: discriminates calendar origin — 'local' (personal, full CRUD), 'ics' (read-only WebDAV subscription), 'caldav' (read-write CalDAV)
+# name: display name shown in the UI
+# color: hex color code (#RRGGBB) used to visually differentiate calendars
+# description: optional free-text description, nullable
+# timezone: default IANA timezone applied to events created in this calendar (e.g. Europe/Paris)
+# subscription_token: opaque token for the public .ics subscription URL (Jalon 2bis) — queried directly (WHERE subscription_token = ?) so must be a relational column, not JSON
+# ctag: collection tag incremented by the service layer on every event mutation — allows CalDAV clients to detect changes without listing all events (RFC 4791 / getctag extension)
+# sync_config: JSON blob grouping all external sync metadata — url, username, password (encrypted with SOGO_AES_ENC_KEY), etag, last_sync, cached_data, sync_interval_minutes — NULL for source_type='local'
+# created_at / updated_at: UTC timestamps stored as DATETIME
+COL_CAL_KEY               = Column(name="key",                data_type="str",      is_unique=True,                    extra_args={"max_len": 64})
+COL_CAL_USER_UID          = Column(name="user_uid",           data_type="str",                                         extra_args={"max_len": 512})
+COL_CAL_IS_DEFAULT        = Column(name="is_default",         data_type="bool")
+COL_CAL_SOURCE_TYPE       = Column(name="source_type",        data_type="str",                                         extra_args={"max_len": 6})
+COL_CAL_NAME              = Column(name="name",               data_type="str",                                         extra_args={"max_len": 255})
+COL_CAL_COLOR             = Column(name="color",              data_type="str",                                         extra_args={"max_len": 7})
+COL_CAL_DESCRIPTION       = Column(name="description",        data_type="text",     is_nullable=True)
+COL_CAL_TIMEZONE          = Column(name="timezone",           data_type="str",                                         extra_args={"max_len": 64})
+COL_CAL_SUBSCRIPTION_TOKEN= Column(name="subscription_token", data_type="str",      is_unique=True, is_nullable=True,  extra_args={"max_len": 64})
+COL_CAL_CTAG              = Column(name="ctag",               data_type="int")
+COL_CAL_SYNC_CONFIG       = Column(name="sync_config",        data_type="dict",     is_nullable=True)
+COL_CAL_CREATED_AT        = Column(name="created_at",         data_type="datetime")
+COL_CAL_UPDATED_AT        = Column(name="updated_at",         data_type="datetime")
+
+ALL_CAL_COL = [COL_ID,
+               COL_CAL_KEY,
+               COL_CAL_USER_UID,
+               COL_CAL_IS_DEFAULT,
+               COL_CAL_SOURCE_TYPE,
+               COL_CAL_NAME,
+               COL_CAL_COLOR,
+               COL_CAL_DESCRIPTION,
+               COL_CAL_TIMEZONE,
+               COL_CAL_SUBSCRIPTION_TOKEN,
+               COL_CAL_CTAG,
+               COL_CAL_SYNC_CONFIG,
+               COL_CAL_CREATED_AT,
+               COL_CAL_UPDATED_AT]
+
+TABLE_CALENDAR = Table(name="sogo_calendar_calendars", columns=ALL_CAL_COL, primary_keys=(COL_ID.name, COL_CAL_KEY.name))
+
+#####################
+# Table sogo_events #
+#####################
+"""
+Stores all calendar components (VEVENT, VTODO, VJOURNAL) for personal calendars.
+Pattern: relational columns only for SQL filtering/sorting; the full RFC 5545
+component is serialized in cal_event JSON (title, description, timezone, attendees, etc.).
+
+Key queries:
+  SELECT ... FROM sogo_events WHERE calendar_id = ? AND is_deleted = FALSE AND date_start <= ? AND date_end >= ?
+  SELECT ... FROM sogo_events WHERE calendar_id = ? AND rrule IS NOT NULL AND (date_end_recurrence IS NULL OR date_end_recurrence >= ?)
+  SELECT ... FROM sogo_events WHERE calendar_id = ? AND show_as = 'busy' AND is_deleted = FALSE  (FreeBusy)
+  SELECT ... FROM sogo_events WHERE parent_id = ?  (exceptions of a recurring event)
+"""
+# key: opaque token exposed in the API instead of id (see sogo_hash.py HASH_SIZE_EVENT)
+# calendar_id: FK to sogo_calendars.id — present in every WHERE clause
+# uid: RFC 5545 UID — unique per (calendar_id, uid); same uid appears in multiple calendars for iMIP copies (organizer + each attendee has their own row)
+# component_type: discriminates the RFC 5545 component — 'VEVENT' (event), 'VTODO' (task), 'VJOURNAL' (journal note); drives serialization logic
+# date_start: DTSTART in UTC — lower bound for date range queries
+# date_end: DTEND in UTC for VEVENT/VJOURNAL, DUE in UTC for VTODO; all-day events store DTEND-1s (DTEND is exclusive in RFC 5545, -1s makes SQL range queries inclusive)
+# show_as: RFC 5545 TRANSP — 'busy' (OPAQUE) or 'free' (TRANSPARENT) or 'out-of-office' / 'tentative' (Microsoft extensions); used in FreeBusy queries
+# rrule: RFC 5545 RRULE stored verbatim (e.g. FREQ=WEEKLY;BYDAY=MO;UNTIL=20261231T000000Z); NULL means non-recurring; queried as IS NOT NULL to identify recurring events for range expansion
+# date_end_recurrence: UTC datetime of the last occurrence's end; NULL for infinite recurrences; combined with rrule IS NOT NULL for efficient date range queries
+# recurrence_id: UTC datetime of the original occurrence this row replaces (RFC 5545 RECURRENCE-ID); NULL on master events; used for CalDAV per-occurrence addressing and THISANDFUTURE operations
+# parent_id: FK to sogo_events.id of the recurring master event; NULL on standalone/master events; enables retrieval of all exceptions for a given master
+# is_deleted: soft delete flag — never DELETE FROM sogo_events; deleted events return HTTP 404 in CalDAV sync reports (RFC 4791)
+# sequence: RFC 5545 SEQUENCE — incremented by the organizer on each modification; attendees use it to detect whether a received iMIP message supersedes their current copy
+# search_vector: aggregation of title + description + location maintained by the service layer; drives FULLTEXT index (MariaDB) or TSVECTOR GIN index (PostgreSQL)
+# cal_event: full serialized RFC 5545 component as JSON — contains all properties not needed for SQL filtering: title, description, location, url, timezone_start, timezone_end, all_day, status, visibility, color, priority, dtstamp, organizer, attendees, reminders, conference_data, attachments, recurrence_range (THISANDFUTURE), percent_complete (VTODO), completed_at (VTODO)
+# created_at / updated_at: UTC timestamps; updated_at serves as RFC 5545 LAST-MODIFIED when serializing to iCalendar
+COL_EVT_KEY               = Column(name="key",                  data_type="str",      is_unique=True,               extra_args={"max_len": 64})
+COL_EVT_CALENDAR_ID       = Column(name="calendar_id",          data_type="int")
+COL_EVT_UID               = Column(name="uid",                  data_type="str",                                    extra_args={"max_len": 512})
+COL_EVT_COMPONENT_TYPE    = Column(name="component_type",       data_type="str",                                    extra_args={"max_len": 10})
+COL_EVT_DATE_START        = Column(name="date_start",           data_type="datetime")
+COL_EVT_DATE_END          = Column(name="date_end",             data_type="datetime")
+COL_EVT_SHOW_AS           = Column(name="show_as",              data_type="str",                                    extra_args={"max_len": 12})
+COL_EVT_RRULE             = Column(name="rrule",                data_type="text",     is_nullable=True)
+COL_EVT_DATE_END_RECUR    = Column(name="date_end_recurrence",  data_type="datetime", is_nullable=True)
+COL_EVT_RECURRENCE_ID     = Column(name="recurrence_id",        data_type="datetime", is_nullable=True)
+COL_EVT_PARENT_ID         = Column(name="parent_id",            data_type="int",      is_nullable=True)
+COL_EVT_IS_DELETED        = Column(name="is_deleted",           data_type="bool")
+COL_EVT_SEQUENCE          = Column(name="sequence",             data_type="int")
+COL_EVT_SEARCH_VECTOR     = Column(name="search_vector",        data_type="text")
+COL_EVT_CAL_EVENT         = Column(name="cal_event",            data_type="dict")
+COL_EVT_CREATED_AT        = Column(name="created_at",           data_type="datetime")
+COL_EVT_UPDATED_AT        = Column(name="updated_at",           data_type="datetime")
+
+ALL_EVT_COL = [COL_ID,
+               COL_EVT_KEY,
+               COL_EVT_CALENDAR_ID,
+               COL_EVT_UID,
+               COL_EVT_COMPONENT_TYPE,
+               COL_EVT_DATE_START,
+               COL_EVT_DATE_END,
+               COL_EVT_SHOW_AS,
+               COL_EVT_RRULE,
+               COL_EVT_DATE_END_RECUR,
+               COL_EVT_RECURRENCE_ID,
+               COL_EVT_PARENT_ID,
+               COL_EVT_IS_DELETED,
+               COL_EVT_SEQUENCE,
+               COL_EVT_SEARCH_VECTOR,
+               COL_EVT_CAL_EVENT,
+               COL_EVT_CREATED_AT,
+               COL_EVT_UPDATED_AT]
+
+TABLE_EVENT = Table(name="sogo_calendar_events", columns=ALL_EVT_COL, primary_keys=(COL_ID.name, COL_EVT_KEY.name))
+
+##############################
+# Table sogo_event_categories #
+##############################
+"""
+Junction table linking events to their categories (RFC 5545 CATEGORIES property).
+Stored separately from cal_event JSON to allow filtering by category (WHERE category = ?).
+Composite PK (event_id, category) enforces uniqueness and acts as the implicit index on event_id.
+No id/key columns — this is a pure junction table.
+"""
+# event_id: FK to sogo_events.id — identifies the owning event
+# category: free-text category label as defined in RFC 5545 CATEGORIES (e.g. 'Work', 'Personal')
+COL_ECAT_EVENT_ID = Column(name="event_id",  data_type="int")
+COL_ECAT_CATEGORY = Column(name="category",  data_type="str",  extra_args={"max_len": 255})
+
+ALL_ECAT_COL = [COL_ECAT_EVENT_ID,
+                COL_ECAT_CATEGORY]
+
+TABLE_EVENT_CATEGORY = Table(name="sogo_calendar_categories", columns=ALL_ECAT_COL, primary_keys=(COL_ECAT_EVENT_ID.name, COL_ECAT_CATEGORY.name))
+
 ALL_TABLES = [TABLE_SETTINGS,
               TABLE_DOMAIN,
               TABLE_RULES,
-              TABLE_USER]
+              TABLE_USER,
+              TABLE_CALENDAR,
+              TABLE_EVENT,
+              TABLE_EVENT_CATEGORY]

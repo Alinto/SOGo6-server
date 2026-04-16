@@ -7,14 +7,18 @@ from app.utils import errors as err
 
 REX_VALID_NAMES = r"^[A-Za-z_0-9]+$" #We force the fact that tables and columns' name must be alphanumerical with underscore only
 
-SOGO_DB_DATA_TYPE = {"dict", "str", "list", "serial", "json", "int8"}
+SOGO_DB_DATA_TYPE = {"dict", "str", "list", "serial", "json", "int8", "bool", "datetime", "int", "text"}
 SOGO_DB_DATA_TYPE_VALIDATION = {
-    "dict":   {"dict", "json"} ,
-    "str":    {"str"},
-    "list":   {"list"},
-    "serial": {"serial", "int"},
-    "json":   {"dict", "json"},
-    "int8":   {"number", "smallint", "int8"}
+    "dict":     {"dict", "json"},
+    "str":      {"str"},
+    "list":     {"list"},
+    "serial":   {"serial", "int"},
+    "json":     {"dict", "json"},
+    "int8":     {"number", "smallint", "int8"},
+    "bool":     {"bool", "boolean", "int8"},
+    "datetime": {"datetime", "timestamp"},
+    "int":      {"int", "number", "integer", "bigint"},
+    "text":     {"str", "text"},
 }
 
 class Column:
