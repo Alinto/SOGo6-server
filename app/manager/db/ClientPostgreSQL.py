@@ -42,21 +42,31 @@ def list_to_array(data_type: str, extra_args: dict = None) -> str:
     return f"{data_type}[]"
 
 
-data_type_sogo_to_postgre : dict[str, Any]= {
-    "dict": "jsonb",
-    "json": "jsonb",
-    "str": str_to_varchar,
-    "list": list_to_array,
-    "serial": "serial",
-    "int8": "smallint"
+data_type_sogo_to_postgre: dict[str, Any] = {
+    "dict":     "jsonb",
+    "json":     "jsonb",
+    "str":      str_to_varchar,
+    "list":     list_to_array,
+    "serial":   "serial",
+    "int8":     "smallint",
+    "bool":     "boolean",
+    "datetime": "timestamp",
+    "int":      "integer",  # FK to serial (4-byte integer) in PostgreSQL
+    "text":     "text",
 }
 
-data_type_postgre_to_sogo : dict[str, Any]= {
-    "jsonb": "dict",
-    "integer": "int",
-    "character varying": "str",
-    "ARRAY": "list",
-    "smallint": "int8"
+data_type_postgre_to_sogo: dict[str, Any] = {
+    "jsonb":                       "dict",
+    "json":                        "dict",
+    "character varying":           "str",
+    "ARRAY":                       "list",
+    "smallint":                    "int8",
+    "boolean":                     "bool",
+    "timestamp without time zone": "datetime",
+    "timestamp with time zone":    "datetime",
+    "integer":                     "int",
+    "bigint":                      "int",
+    "text":                        "text",
 }
 
 def table_to_query(table: Table) -> Composed:

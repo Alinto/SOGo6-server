@@ -37,23 +37,32 @@ def list_to_json(data_type: str | None = None, extra_args: dict | None = None) -
 
 
 data_type_sogo_to_mysql: dict[str, Any] = {
-    "dict": "JSON",
-    "json": "JSON",
-    "str": str_to_varchar,
-    "list": list_to_json,
-    "serial": "BIGINT AUTO_INCREMENT",
-    "int8": "SMALLINT",
+    "dict":     "JSON",
+    "json":     "JSON",
+    "str":      str_to_varchar,
+    "list":     list_to_json,
+    "serial":   "BIGINT AUTO_INCREMENT",
+    "int8":     "SMALLINT",
+    "bool":     "TINYINT(1)",
+    "datetime": "DATETIME",
+    "int":      "BIGINT",   # FK to serial (BIGINT AUTO_INCREMENT) in MySQL
+    "text":     "MEDIUMTEXT",
 }
 
 data_type_mysql_to_sogo: dict[str, str] = {
-    "json": "dict",
-    "varchar": "str",
-    "char": "str",
-    "text": "str",
+    "json":       "dict",
+    "varchar":    "str",
+    "char":       "str",
+    "text":       "text",
+    "mediumtext": "text",
     "int": "int",
     "integer": "int",
     "bigint": "int",
-    "smallint": "int8",
+    "smallint":   "int8",
+    "tinyint(1)": "bool",
+    "datetime":   "datetime",
+    "bigint":     "int",
+    "int":        "int",
     "tinyint": "int",
 }
 
