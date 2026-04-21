@@ -274,3 +274,17 @@ class ClientMailServer(metaclass=ABCMeta):
     def logout(self) -> None:
         """Logout from the mail server."""
 
+    @abstractmethod
+    def get_quota(self) -> dict[str, Any] | None:
+        """Get quota information for the mailbox.
+
+        Uses the IMAP GETQUOTAROOT command on the inbox folder.
+        Returns None if the server does not support QUOTA or the command is unavailable.
+
+        :return: Dictionary containing quota info, or None if unavailable:
+            {
+                "storage_used": int,   # storage used in KB
+                "storage_limit": int,  # storage limit in KB (0 if unlimited)
+            }
+        :rtype: dict[str, Any] | None
+        """
