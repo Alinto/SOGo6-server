@@ -11,6 +11,7 @@ from app.module.calendar.model.enums.AttendeeRole import AttendeeRole
 from app.module.calendar.model.enums.AttendeeStatus import AttendeeStatus
 from app.module.calendar.model.enums.EventStatus import EventStatus
 from app.module.calendar.model.enums.ShowAs import ShowAs
+from app.module.calendar.model.enums.ComponentType import ComponentType
 from app.module.calendar.serializer.CalendarEventDeserializerJson import CalendarEventDeserializerJson
 
 FULL_EVENT = {
@@ -20,8 +21,8 @@ FULL_EVENT = {
     "title": "Team Standup",
     "description": "Daily team sync meeting",
     "location": "Conference Room A",
-    "start_date": "2026-03-19T09:30:00.000Z",
-    "end_date": "2026-03-19T10:00:00.000Z",
+    "date_start": "2026-03-19T09:30:00.000Z",
+    "date_end": "2026-03-19T10:00:00.000Z",
     "all_day": False,
     "timezone": "Europe/Paris",
     "status": "confirmed",
@@ -61,8 +62,8 @@ FULL_EVENT = {
 MINIMAL_EVENT = {
     "uid": "min@example.com",
     "title": "Minimal Event",
-    "start_date": "2026-01-01T00:00:00.000Z",
-    "end_date": "2026-01-01T01:00:00.000Z",
+    "date_start": "2026-01-01T00:00:00.000Z",
+    "date_end": "2026-01-01T01:00:00.000Z",
 }
 
 
@@ -86,8 +87,8 @@ def test_full_event_scalar_fields(deserializer):
 
 def test_dates_are_utc_aware(deserializer):
     event = deserializer.from_dict(FULL_EVENT)
-    assert event.start_date == datetime(2026, 3, 19, 9, 30, tzinfo=timezone.utc)
-    assert event.end_date == datetime(2026, 3, 19, 10, 0, tzinfo=timezone.utc)
+    assert event.date_start == datetime(2026, 3, 19, 9, 30, tzinfo=timezone.utc)
+    assert event.date_end == datetime(2026, 3, 19, 10, 0, tzinfo=timezone.utc)
     assert event.created_at == datetime(2026, 3, 12, 7, 53, 38, 581000, tzinfo=timezone.utc)
 
 
@@ -144,4 +145,37 @@ def test_from_dict_and_deserialize_are_equivalent(deserializer):
     via_dict = deserializer.from_dict(FULL_EVENT)
     via_str = deserializer.deserialize(json.dumps(FULL_EVENT))
     assert via_dict.uid == via_str.uid
-    assert via_dict.start_date == via_str.start_date
+    assert via_dict.date_start == via_str.date_start
+
+
+# ==========================================================================
+# VTODO fields
+# ==========================================================================
+
+def test_component_type_defaults_to_event(deserializer):
+    event = deserializer.from_dict(MINIMAL_EVENT)
+    assert event.component_type == ComponentType.EVENT
+
+
+def test_component_type_task(deserializer):
+    data = {**MINIMAL_EVENT, "component_type": "task"}
+    assert deserializer.from_dict(data).component_type == ComponentType.TASK
+
+
+def test_percent_complete_absent_is_none(deserializer):
+    assert deserializer.from_dict(MINIMAL_EVENT).percent_complete is None
+
+
+def test_percent_complete_parsed(deserializer):
+    data = {**MINIMAL_EVENT, "component_type": "task", "percent_complete": 80}
+    assert deserializer.from_dict(data).percent_complete == 80
+
+
+def test_completed_at_absent_is_none(deserializer):
+    assert deserializer.from_dict(MINIMAL_EVENT).completed_at is None
+
+
+def test_completed_at_parsed(deserializer):
+    data = {**MINIMAL_EVENT, "completed_at": "2026-01-15T12:00:00.000Z"}
+    event = deserializer.from_dict(data)
+    assert event.completed_at == datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)

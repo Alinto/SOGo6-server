@@ -31,14 +31,12 @@ class CalendarEventSerializerJson(CalendarEventSerializer):
     def to_dict(self, event: CalEvent) -> dict[str, Any]:
         """Convert a CalEvent to a plain dict matching the REST API schema."""
         return {
-            "id": event.id,
-            "calendar_id": event.calendar_id,
             "uid": event.uid,
             "title": event.title,
             "description": event.description,
             "location": event.location,
-            "start_date": self._fmt_dt(event.start_date),
-            "end_date": self._fmt_dt(event.end_date),
+            "date_start": self._fmt_dt(event.date_start),
+            "date_end": self._fmt_dt(event.date_end),
             "all_day": event.all_day,
             "timezone": event.timezone,
             "status": event.status.value,
@@ -57,6 +55,9 @@ class CalendarEventSerializerJson(CalendarEventSerializer):
             "attachments": [self._attachment_to_dict(a) for a in event.attachments],
             "created_at": self._fmt_dt(event.created_at) if event.created_at else None,
             "updated_at": self._fmt_dt(event.updated_at) if event.updated_at else None,
+            "component_type": event.component_type.value,
+            "percent_complete": event.percent_complete,
+            "completed_at": self._fmt_dt(event.completed_at) if event.completed_at else None,
         }
 
     # ------------------------------------------------------------------

@@ -11,6 +11,7 @@ from app.module.calendar.model.CalConferenceEntryPoint import CalConferenceEntry
 from app.module.calendar.model.CalEvent import CalEvent
 from app.module.calendar.model.CalOrganizer import CalOrganizer
 from app.module.calendar.model.CalReminder import CalReminder
+from app.module.calendar.model.enums.ComponentType import ComponentType
 from app.module.calendar.model.enums.AttendeeRole import AttendeeRole
 from app.module.calendar.model.enums.AttendeeStatus import AttendeeStatus
 from app.module.calendar.model.enums.EventStatus import EventStatus
@@ -46,8 +47,8 @@ class CalendarEventDeserializerJson(CalendarEventDeserializer):
             title=data.get("title", ""),
             description=data.get("description"),
             location=data.get("location"),
-            start_date=self._parse_dt(data["start_date"]),
-            end_date=self._parse_dt(data["end_date"]),
+            date_start=self._parse_dt(data["date_start"]),
+            date_end=self._parse_dt(data["date_end"]),
             all_day=data.get("all_day", False),
             timezone=data.get("timezone", "UTC"),
             status=self._parse_enum(EventStatus, data.get("status"), EventStatus.CONFIRMED),
@@ -62,6 +63,9 @@ class CalendarEventDeserializerJson(CalendarEventDeserializer):
             attachments=[self._parse_attachment(a) for a in data.get("attachments", [])],
             created_at=self._parse_dt_opt(data.get("created_at")),
             updated_at=self._parse_dt_opt(data.get("updated_at")),
+            component_type=self._parse_enum(ComponentType, data.get("component_type"), ComponentType.EVENT),
+            percent_complete=data.get("percent_complete"),
+            completed_at=self._parse_dt_opt(data.get("completed_at")),
         )
 
     # ------------------------------------------------------------------

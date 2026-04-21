@@ -12,6 +12,7 @@ import pytest
 
 import urllib.error
 
+from app.module.calendar.model.CalCalendar import CalCalendar
 from app.module.calendar.serializer.CalendarEventDeserializerIcal import CalendarEventDeserializerIcal
 from app.module.calendar.serializer.CalendarEventsDeserializerIcal import CalendarEventsDeserializerIcal
 from app.module.calendar.source.CalendarSourceIcs import CalendarSourceIcs
@@ -43,8 +44,9 @@ def _ics(uid, summary, dtstart, dtend):
 
 @pytest.fixture
 def source():
+    calendar = CalCalendar(user_uid="test", name="Test", source_type="ics")
     deserializer = CalendarEventsDeserializerIcal(CalendarEventDeserializerIcal())
-    return CalendarSourceIcs(ics_url="https://example.com/cal.ics", deserializer=deserializer)
+    return CalendarSourceIcs(calendar=calendar, ics_url="https://example.com/cal.ics", deserializer=deserializer)
 
 
 # ========== Timezone-aware filtering (TZID -> UTC) ==========
@@ -134,7 +136,7 @@ def test_pipeline_exdate(source):
     """DAILY;COUNT=3 starting Jan 5, EXDATE removes Jan 6 → only Jan 5 and Jan 7."""
     with patch.object(source, "_fetch_ics", return_value=ICS_RRULE_WITH_EXDATE):
         events = source.get_events(start=_dt(2026, 1, 5), end=_dt(2026, 1, 8))
-    starts = [e.start_date for e in events]
+    starts = [e.date_start for e in events]
     assert datetime(2026, 1, 5, 9, 0, 0, tzinfo=_UTC) in starts
     assert datetime(2026, 1, 6, 9, 0, 0, tzinfo=_UTC) not in starts
     assert datetime(2026, 1, 7, 9, 0, 0, tzinfo=_UTC) in starts
@@ -170,9 +172,9 @@ def test_pipeline_recurrence_id_override(source):
     with patch.object(source, "_fetch_ics", return_value=ICS_RRULE_WITH_OVERRIDE):
         events = source.get_events(start=_dt(2026, 1, 5), end=_dt(2026, 1, 8))
     assert len(events) == 3
-    jan6 = next(e for e in events if e.start_date == datetime(2026, 1, 6, 10, 0, 0, tzinfo=_UTC))
+    jan6 = next(e for e in events if e.date_start == datetime(2026, 1, 6, 10, 0, 0, tzinfo=_UTC))
     assert jan6.title == "Modified Jan 6"
-    assert not any(e.start_date == datetime(2026, 1, 6, 9, 0, 0, tzinfo=_UTC) for e in events)
+    assert not any(e.date_start == datetime(2026, 1, 6, 9, 0, 0, tzinfo=_UTC) for e in events)
 
 
 # ========== Error handling ==========

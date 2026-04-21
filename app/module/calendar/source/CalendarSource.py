@@ -6,8 +6,11 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from app.module.calendar.rrule.RruleEngine import RruleEngine
+from app.utils import errors as err
+from app.utils.exceptions import RequestException
 
 if TYPE_CHECKING:
+    from app.module.calendar.model.CalCalendar import CalCalendar
     from app.module.calendar.model.CalEvent import CalEvent
 
 _DEFAULT_START: datetime = datetime(1970, 1, 1, tzinfo=timezone.utc)
@@ -22,8 +25,14 @@ class CalendarSource(ABC):
     RRULE expansion and filtering.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, calendar: CalCalendar) -> None:
+        """Initialise the source with its associated calendar and the RRULE engine."""
+        self._calendar = calendar
         self._rrule_engine: RruleEngine = RruleEngine()
+
+    @property
+    def calendar(self) -> CalCalendar:
+        return self._calendar
 
     def get_events(
         self,
@@ -31,7 +40,7 @@ class CalendarSource(ABC):
         end: datetime | None = None,
         search: str | None = None,
     ) -> list[CalEvent]:
-        """Return events overlapping [start, end], sorted by start_date ASC.
+        """Return events overlapping [start, end], sorted by date_start ASC.
 
         Pipeline: resolve bounds → fetch raw → expand recurring → filter.
         start defaults to 1970-01-01 UTC, end defaults to now UTC.
@@ -48,7 +57,7 @@ class CalendarSource(ABC):
         raw: list[CalEvent] = self._fetch_events(resolved_start, resolved_end)
         expanded: list[CalEvent] = self._expand_recurring(raw, resolved_start, resolved_end)
         result: list[CalEvent] = self.filter(expanded, resolved_start, resolved_end, search)
-        result.sort(key=lambda e: e.start_date)
+        result.sort(key=lambda e: e.date_start)
         return result
 
     @abstractmethod
@@ -66,11 +75,7 @@ class CalendarSource(ABC):
         start: datetime,
         end: datetime,
     ) -> list[CalEvent]:
-        """Expand recurring master events into individual occurrences.
-
-        Separates events into singles / overrides (recurrence_id set) / masters (have rule),
-        then expands each master via RruleEngine.
-        """
+        """Expand recurring master events into individual occurrences."""
         singles: list[CalEvent] = []
         masters: list[CalEvent] = []
         overrides_by_uid: dict[str, list[CalEvent]] = {}
@@ -109,19 +114,18 @@ class CalendarSource(ABC):
     # TODO: Override with CalendarSourceDb  # pylint: disable=fixme
     def filter_date_start(self, events: list[CalEvent], start: datetime) -> list[CalEvent]:
         """Keep events that end at or after start (not already finished)."""
-        return [e for e in events if e.end_date >= start]
+        return [e for e in events if e.date_end >= start]
 
     # TODO: Override with CalendarSourceDb  # pylint: disable=fixme
     def filter_date_end(self, events: list[CalEvent], end: datetime) -> list[CalEvent]:
         """Keep events that start at or before end (not in the future)."""
-        return [e for e in events if e.start_date <= end]
+        return [e for e in events if e.date_start <= end]
 
     # TODO: Override with CalendarSourceDb  # pylint: disable=fixme
     def search(self, events: list[CalEvent], query: str) -> list[CalEvent]:
         """Keep events matching query in title, description or location.
 
         Matching is case-insensitive and accent-insensitive: "etape" matches "Étape".
-        Normalization strips diacritics via NFD decomposition (unicodedata stdlib).
         """
         needle: str = self._fold(query)
         return [
@@ -135,3 +139,31 @@ class CalendarSource(ABC):
     def _fold(text: str) -> str:
         """Lowercase and strip diacritics for accent-insensitive matching."""
         return unicodedata.normalize("NFD", text).encode("ascii", "ignore").decode("ascii").lower()
+
+    def is_writable(self) -> bool:
+        """Return True if this source supports write operations."""
+        return False
+
+    def save_calendar(self, calendar: CalCalendar) -> CalCalendar:
+        """Persist a new calendar. Raises NOT_SUPPORTED on read-only sources."""
+        raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
+
+    def update_calendar(self, calendar: CalCalendar) -> None:
+        """Update calendar metadata. Raises NOT_SUPPORTED on read-only sources."""
+        raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
+
+    def delete_calendar(self) -> None:
+        """Delete the calendar and all its events. Raises NOT_SUPPORTED on read-only sources."""
+        raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
+
+    def insert_event(self, event: CalEvent) -> CalEvent:
+        """Persist a new event. Raises NOT_SUPPORTED on read-only sources."""
+        raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
+
+    def update_event(self, event: CalEvent) -> None:
+        """Update an existing event. Raises NOT_SUPPORTED on read-only sources."""
+        raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
+
+    def delete_event(self, uid: str) -> None:
+        """Soft-delete an event by uid. Raises NOT_SUPPORTED on read-only sources."""
+        raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)

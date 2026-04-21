@@ -22,8 +22,8 @@ def one_event():
     return [CalEvent(
         uid="evt@example.com",
         title="Standup",
-        start_date=datetime(2026, 3, 19, 9, 30, tzinfo=timezone.utc),
-        end_date=datetime(2026, 3, 19, 10, 0, tzinfo=timezone.utc),
+        date_start=datetime(2026, 3, 19, 9, 30, tzinfo=timezone.utc),
+        date_end=datetime(2026, 3, 19, 10, 0, tzinfo=timezone.utc),
     )]
 
 
@@ -60,8 +60,8 @@ def test_multiple_events(serializer):
     events = [
         CalEvent(
             uid=f"e{i}@example.com", title=f"E{i}",
-            start_date=datetime(2026, 1, i + 1, tzinfo=timezone.utc),
-            end_date=datetime(2026, 1, i + 1, 1, tzinfo=timezone.utc),
+            date_start=datetime(2026, 1, i + 1, tzinfo=timezone.utc),
+            date_end=datetime(2026, 1, i + 1, 1, tzinfo=timezone.utc),
         )
         for i in range(3)
     ]

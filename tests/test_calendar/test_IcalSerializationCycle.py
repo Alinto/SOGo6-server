@@ -76,8 +76,8 @@ def _compare_events(a: CalEvent, b: CalEvent) -> None:
     assert a.description == b.description
     assert a.location == b.location
     assert a.url == b.url
-    assert a.start_date == b.start_date
-    assert a.end_date == b.end_date
+    assert a.date_start == b.date_start
+    assert a.date_end == b.date_end
     assert a.all_day == b.all_day
     # Le timezone est stocke en UTC apres deserialisation TZID : perdu apres un roundtrip
     assert a.status == b.status
@@ -189,15 +189,18 @@ def test_roundtrip_example3_string(deserializer, serializer):
 
 
 # ==========================================================================
-# Exemples non-VEVENT (VTODO, VJOURNAL, VFREEBUSY) — pas de crash
-# Le deserialiseur ne supporte pas ces composants ; on verifie uniquement
-# que le cycle deserialise->serialise s'execute sans exception.
+# Exemples non-VEVENT (VJOURNAL, VFREEBUSY) — pas de crash
+# Ces composants ne sont pas supportes ; on verifie uniquement l'absence
+# d'exception lors du cycle deserialise->serialise.
 # ==========================================================================
 
-def test_roundtrip_example4_no_crash(deserializer):
-    from app.utils.exceptions import RequestException
-    with pytest.raises(RequestException):
-        deserializer.deserialize(ICAL_EXAMPLE_4)
+def test_roundtrip_example4_vtodo(deserializer, serializer):
+    event = deserializer.deserialize(ICAL_EXAMPLE_4)
+    from app.module.calendar.model.enums.ComponentType import ComponentType
+    assert event.component_type == ComponentType.TASK
+    output = serializer.serialize(event)
+    assert "BEGIN:VTODO" in output
+    assert "SUMMARY:Submit Income Taxes" in output
 
 
 def test_roundtrip_example5_no_crash(deserializer):
@@ -220,16 +223,16 @@ def test_roundtrip_python_event_minimal(serializer, deserializer):
     original = CalEvent(
         uid="python-roundtrip@test.com",
         title="Python Event",
-        start_date=datetime(2024, 5, 10, 14, 0, 0, tzinfo=timezone.utc),
-        end_date=datetime(2024, 5, 10, 15, 30, 0, tzinfo=timezone.utc),
+        date_start=datetime(2024, 5, 10, 14, 0, 0, tzinfo=timezone.utc),
+        date_end=datetime(2024, 5, 10, 15, 30, 0, tzinfo=timezone.utc),
     )
     ical = serializer.serialize(original)
     parsed = deserializer.deserialize(ical)
 
     assert parsed.uid == original.uid
     assert parsed.title == original.title
-    assert parsed.start_date == original.start_date
-    assert parsed.end_date == original.end_date
+    assert parsed.date_start == original.date_start
+    assert parsed.date_end == original.date_end
 
 
 def test_roundtrip_python_event_with_rrule(serializer, deserializer):
@@ -241,8 +244,8 @@ def test_roundtrip_python_event_with_rrule(serializer, deserializer):
     original = CalEvent(
         uid="rrule-roundtrip@test.com",
         title="Bi-weekly standup",
-        start_date=datetime(2024, 1, 2, 9, 0, 0, tzinfo=timezone.utc),
-        end_date=datetime(2024, 1, 2, 9, 30, 0, tzinfo=timezone.utc),
+        date_start=datetime(2024, 1, 2, 9, 0, 0, tzinfo=timezone.utc),
+        date_end=datetime(2024, 1, 2, 9, 30, 0, tzinfo=timezone.utc),
         recurrence_rule=rule,
         categories=["MEETING"],
         description="Daily standup recurrent.",
@@ -263,8 +266,8 @@ def test_roundtrip_python_event_with_reminder(serializer, deserializer):
     original = CalEvent(
         uid="reminder-roundtrip@test.com",
         title="Event with reminder",
-        start_date=datetime(2024, 3, 20, 10, 0, 0, tzinfo=timezone.utc),
-        end_date=datetime(2024, 3, 20, 11, 0, 0, tzinfo=timezone.utc),
+        date_start=datetime(2024, 3, 20, 10, 0, 0, tzinfo=timezone.utc),
+        date_end=datetime(2024, 3, 20, 11, 0, 0, tzinfo=timezone.utc),
         reminders=[CalReminder(method=ReminderMethod.POPUP, minutes_before=10)],
     )
     ical = serializer.serialize(original)
@@ -279,8 +282,8 @@ def test_roundtrip_python_event_text_with_special_chars(serializer, deserializer
     original = CalEvent(
         uid="special-roundtrip@test.com",
         title="Meeting; Planning, Review",
-        start_date=datetime(2024, 1, 1, tzinfo=timezone.utc),
-        end_date=datetime(2024, 1, 1, 1, 0, 0, tzinfo=timezone.utc),
+        date_start=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        date_end=datetime(2024, 1, 1, 1, 0, 0, tzinfo=timezone.utc),
         description="Line 1\nLine 2\nBackslash: \\end",
         location="Room 42; Building A, Floor 3",
     )

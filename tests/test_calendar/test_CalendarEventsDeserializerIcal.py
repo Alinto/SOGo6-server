@@ -70,8 +70,12 @@ def test_vtimezone_not_yielded_as_event(deserializer):
     assert len(deserializer.deserialize(ICAL_EXAMPLE_2)) == 1
 
 
-def test_vtodo_gives_empty_list(deserializer):
-    assert deserializer.deserialize(ICAL_EXAMPLE_4) == []
+def test_vtodo_parsed_as_task(deserializer):
+    from app.module.calendar.model.enums.ComponentType import ComponentType
+    events = deserializer.deserialize(ICAL_EXAMPLE_4)
+    assert len(events) == 1
+    assert events[0].component_type == ComponentType.TASK
+    assert events[0].uid == "uid4@example.com"
 
 
 def test_vjournal_gives_empty_list(deserializer):
@@ -86,3 +90,32 @@ def test_invalid_ics_raises(deserializer):
     from app.utils.exceptions import RequestException
     with pytest.raises(RequestException):
         deserializer.deserialize("not valid ics")
+
+
+ICAL_MIXED = (
+    "BEGIN:VCALENDAR\r\n"
+    "VERSION:2.0\r\n"
+    "PRODID:-//Test//EN\r\n"
+    "BEGIN:VEVENT\r\n"
+    "UID:event@example.com\r\n"
+    "SUMMARY:A meeting\r\n"
+    "DTSTART:20260101T090000Z\r\n"
+    "DTEND:20260101T100000Z\r\n"
+    "END:VEVENT\r\n"
+    "BEGIN:VTODO\r\n"
+    "UID:task@example.com\r\n"
+    "SUMMARY:A task\r\n"
+    "DUE:20260131T235959Z\r\n"
+    "END:VTODO\r\n"
+    "END:VCALENDAR\r\n"
+)
+
+
+def test_mixed_vevent_and_vtodo_count(deserializer):
+    assert len(deserializer.deserialize(ICAL_MIXED)) == 2
+
+
+def test_mixed_component_types(deserializer):
+    from app.module.calendar.model.enums.ComponentType import ComponentType
+    components = {e.component_type for e in deserializer.deserialize(ICAL_MIXED)}
+    assert components == {ComponentType.EVENT, ComponentType.TASK}

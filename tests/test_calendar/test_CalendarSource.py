@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 
 import pytest
 
+from app.module.calendar.model.CalCalendar import CalCalendar
 from app.module.calendar.model.CalEvent import CalEvent
 from app.module.calendar.source.CalendarSource import CalendarSource, _DEFAULT_START
 
@@ -19,14 +20,14 @@ def _dt(year, month, day, hour=0):
 
 
 def _event(uid, start, end, **kwargs):
-    return CalEvent(uid=uid, title=kwargs.get("title", uid), start_date=start, end_date=end, **{
+    return CalEvent(uid=uid, title=kwargs.get("title", uid), date_start=start, date_end=end, **{
         k: v for k, v in kwargs.items() if k != "title"
     })
 
 
 class FakeCalendarSource(CalendarSource):
     def __init__(self, events=None):
-        super().__init__()
+        super().__init__(CalCalendar(user_uid="test", name="Test"))
         self._events = events or []
 
     def _fetch_events(self, start, end):

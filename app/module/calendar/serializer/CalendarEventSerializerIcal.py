@@ -3,8 +3,9 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
-from icalendar import Alarm, Calendar, Event, vBinary, vCalAddress, vRecur, vText
+from icalendar import Alarm, Calendar, Event, Todo, vBinary, vCalAddress, vRecur, vText
 
+from app.module.calendar.model.enums.ComponentType import ComponentType
 from app.module.calendar.serializer.IcalConst import CALSCALE, ICAL_VERSION, PRODID
 from app.module.calendar.model.CalAttachment import CalAttachment
 from app.module.calendar.model.CalAttendee import CalAttendee
@@ -78,6 +79,13 @@ _ACTION_OUT: dict[ReminderMethod, str] = {
     ReminderMethod.EMAIL: "EMAIL",
 }
 
+_STATUS_OUT_VTODO: dict[EventStatus, str] = {
+    EventStatus.NEEDS_ACTION: "NEEDS-ACTION",
+    EventStatus.IN_PROCESS: "IN-PROCESS",
+    EventStatus.COMPLETED: "COMPLETED",
+    EventStatus.CANCELLED: "CANCELLED",
+}
+
 _RELTYPE_OUT: dict[RelationType, str] = {
     RelationType.PARENT: "PARENT",
     RelationType.CHILD: "CHILD",
@@ -109,12 +117,19 @@ class CalendarEventSerializerIcal(CalendarEventSerializer):
         cal.add("version", ICAL_VERSION)
         cal.add("calscale", CALSCALE)
         for event in events:
-            cal.add_component(self._build_vevent(event))
+            if event.component_type == ComponentType.TASK:
+                cal.add_component(self._build_vtodo(event))
+            else:
+                cal.add_component(self._build_vevent(event))
         return cal.to_ical().decode("utf-8")
 
     def to_vevent(self, event: CalEvent) -> Event:
         """Build a VEVENT component from a CalEvent without the VCALENDAR wrapper."""
         return self._build_vevent(event)
+
+    def to_vtodo(self, event: CalEvent) -> Todo:
+        """Build a VTODO component from a CalEvent without the VCALENDAR wrapper."""
+        return self._build_vtodo(event)
 
     # ------------------------------------------------------------------
     # VEVENT builder
@@ -134,6 +149,24 @@ class CalendarEventSerializerIcal(CalendarEventSerializer):
         for prop_name, prop_value in event.extra_properties.items():
             vevent.add(prop_name, prop_value)
         return vevent
+
+    def _build_vtodo(self, event: CalEvent) -> Todo:
+        """Build a complete VTODO component from a CalEvent."""
+        vtodo: Todo = Todo()
+        self._add_core(vtodo, event)
+        self._add_dates_todo(vtodo, event)
+        self._add_status_todo(vtodo, event)
+        self._add_participants(vtodo, event)
+        self._add_recurrence(vtodo, event)
+        self._add_attachments(vtodo, event)
+        self._add_alarms(vtodo, event)
+        if event.percent_complete is not None:
+            vtodo.add("percent-complete", event.percent_complete)
+        if event.completed_at is not None:
+            vtodo.add("completed", event.completed_at)
+        for prop_name, prop_value in event.extra_properties.items():
+            vtodo.add(prop_name, prop_value)
+        return vtodo
 
     # ------------------------------------------------------------------
     # Property group builders
@@ -162,11 +195,11 @@ class CalendarEventSerializerIcal(CalendarEventSerializer):
     def _add_dates(self, vevent: Event, event: CalEvent) -> None:
         """Add DTSTART, DTEND, DTSTAMP, CREATED, LAST-MODIFIED, RECURRENCE-ID."""
         if event.all_day:
-            vevent.add("dtstart", event.start_date.date())
-            vevent.add("dtend", event.end_date.date())
+            vevent.add("dtstart", event.date_start.date())
+            vevent.add("dtend", event.date_end.date())
         else:
-            vevent.add("dtstart", event.start_date)
-            vevent.add("dtend", event.end_date)
+            vevent.add("dtstart", event.date_start)
+            vevent.add("dtend", event.date_end)
         vevent.add("dtstamp", datetime.now(timezone.utc))
         if event.created_at:
             vevent.add("created", event.created_at)
@@ -175,6 +208,20 @@ class CalendarEventSerializerIcal(CalendarEventSerializer):
         if event.recurrence_id:
             recid = event.recurrence_id.date() if event.all_day else event.recurrence_id
             vevent.add("recurrence-id", recid)
+
+    def _add_dates_todo(self, vtodo: Todo, event: CalEvent) -> None:
+        """Add DTSTART, DUE, DTSTAMP, CREATED, LAST-MODIFIED for a VTODO component."""
+        if event.all_day:
+            vtodo.add("dtstart", event.date_start.date())
+            vtodo.add("due", event.date_end.date())
+        else:
+            vtodo.add("dtstart", event.date_start)
+            vtodo.add("due", event.date_end)
+        vtodo.add("dtstamp", datetime.now(timezone.utc))
+        if event.created_at:
+            vtodo.add("created", event.created_at)
+        if event.updated_at:
+            vtodo.add("last-modified", event.updated_at)
 
     def _add_status(self, vevent: Event, event: CalEvent) -> None:
         """Add STATUS, CLASS, TRANSP, and optional X-MICROSOFT-CDO-BUSYSTATUS."""
@@ -185,6 +232,11 @@ class CalendarEventSerializerIcal(CalendarEventSerializer):
             vevent.add("x-microsoft-cdo-busystatus", "TENTATIVE")
         elif event.show_as == ShowAs.OUT_OF_OFFICE:
             vevent.add("x-microsoft-cdo-busystatus", "OOF")
+
+    def _add_status_todo(self, vtodo: Todo, event: CalEvent) -> None:
+        """Add STATUS and CLASS for a VTODO component."""
+        vtodo.add("status", _STATUS_OUT_VTODO.get(event.status, "NEEDS-ACTION"))
+        vtodo.add("class", _CLASS_OUT.get(event.visibility, "PUBLIC"))
 
     def _add_participants(self, vevent: Event, event: CalEvent) -> None:
         """Add ORGANIZER and ATTENDEE properties."""

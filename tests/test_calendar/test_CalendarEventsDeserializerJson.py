@@ -12,14 +12,14 @@ from app.module.calendar.serializer.CalendarEventsDeserializerJson import Calend
 EVENT_1 = {
     "uid": "evt1@example.com",
     "title": "Standup",
-    "start_date": "2026-03-19T09:30:00.000Z",
-    "end_date": "2026-03-19T10:00:00.000Z",
+    "date_start": "2026-03-19T09:30:00.000Z",
+    "date_end": "2026-03-19T10:00:00.000Z",
 }
 EVENT_2 = {
     "uid": "evt2@example.com",
     "title": "Review",
-    "start_date": "2026-03-20T14:00:00.000Z",
-    "end_date": "2026-03-20T15:00:00.000Z",
+    "date_start": "2026-03-20T14:00:00.000Z",
+    "date_end": "2026-03-20T15:00:00.000Z",
 }
 
 JSON_ARRAY = json.dumps([EVENT_1, EVENT_2])

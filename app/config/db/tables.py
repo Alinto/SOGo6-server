@@ -143,7 +143,7 @@ the schema with nullable columns only relevant to non-local calendars.
 # color: hex color code (#RRGGBB) used to visually differentiate calendars
 # description: optional free-text description, nullable
 # timezone: default IANA timezone applied to events created in this calendar (e.g. Europe/Paris)
-# subscription_token: opaque token for the public .ics subscription URL (Jalon 2bis) — queried directly (WHERE subscription_token = ?) so must be a relational column, not JSON
+# share_token: opaque token for the public .ics subscription URL — queried directly (WHERE share_token = ?) so must be a relational column, not JSON
 # ctag: collection tag incremented by the service layer on every event mutation — allows CalDAV clients to detect changes without listing all events (RFC 4791 / getctag extension)
 # sync_config: JSON blob grouping all external sync metadata — url, username, password (encrypted with SOGO_AES_ENC_KEY), etag, last_sync, cached_data, sync_interval_minutes — NULL for source_type='local'
 # created_at / updated_at: UTC timestamps stored as DATETIME
@@ -155,7 +155,7 @@ COL_CAL_NAME              = Column(name="name",               data_type="str",  
 COL_CAL_COLOR             = Column(name="color",              data_type="str",                                         extra_args={"max_len": 7})
 COL_CAL_DESCRIPTION       = Column(name="description",        data_type="text",     is_nullable=True)
 COL_CAL_TIMEZONE          = Column(name="timezone",           data_type="str",                                         extra_args={"max_len": 64})
-COL_CAL_SUBSCRIPTION_TOKEN= Column(name="subscription_token", data_type="str",      is_unique=True, is_nullable=True,  extra_args={"max_len": 64})
+COL_CAL_SHARE_TOKEN       = Column(name="share_token",        data_type="str",      is_unique=True, is_nullable=True,  extra_args={"max_len": 64})
 COL_CAL_CTAG              = Column(name="ctag",               data_type="int")
 COL_CAL_SYNC_CONFIG       = Column(name="sync_config",        data_type="dict",     is_nullable=True)
 COL_CAL_CREATED_AT        = Column(name="created_at",         data_type="datetime")
@@ -170,7 +170,7 @@ ALL_CAL_COL = [COL_ID,
                COL_CAL_COLOR,
                COL_CAL_DESCRIPTION,
                COL_CAL_TIMEZONE,
-               COL_CAL_SUBSCRIPTION_TOKEN,
+               COL_CAL_SHARE_TOKEN,
                COL_CAL_CTAG,
                COL_CAL_SYNC_CONFIG,
                COL_CAL_CREATED_AT,
@@ -195,7 +195,7 @@ Key queries:
 # key: opaque token exposed in the API instead of id (see sogo_hash.py HASH_SIZE_EVENT)
 # calendar_id: FK to sogo_calendars.id — present in every WHERE clause
 # uid: RFC 5545 UID — unique per (calendar_id, uid); same uid appears in multiple calendars for iMIP copies (organizer + each attendee has their own row)
-# component_type: discriminates the RFC 5545 component — 'VEVENT' (event), 'VTODO' (task), 'VJOURNAL' (journal note); drives serialization logic
+# component_type: domain type of the component — 'event', 'task', 'journal'; maps to RFC 5545 VEVENT/VTODO/VJOURNAL in the iCal layer
 # date_start: DTSTART in UTC — lower bound for date range queries
 # date_end: DTEND in UTC for VEVENT/VJOURNAL, DUE in UTC for VTODO; all-day events store DTEND-1s (DTEND is exclusive in RFC 5545, -1s makes SQL range queries inclusive)
 # show_as: RFC 5545 TRANSP — 'busy' (OPAQUE) or 'free' (TRANSPARENT) or 'out-of-office' / 'tentative' (Microsoft extensions); used in FreeBusy queries

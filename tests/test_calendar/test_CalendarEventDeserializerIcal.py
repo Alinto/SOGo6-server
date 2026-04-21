@@ -17,6 +17,7 @@ from tests.test_calendar.ical_examples import (
     ICAL_EXAMPLE_1,
     ICAL_EXAMPLE_2,
     ICAL_EXAMPLE_3,
+    ICAL_EXAMPLE_4,
 )
 
 ICAL_ALLDAY = (
@@ -105,8 +106,8 @@ def test_example1_title(deserializer):
 
 def test_example1_dates(deserializer):
     event = deserializer.deserialize(ICAL_EXAMPLE_1)
-    assert event.start_date == datetime(1996, 9, 18, 14, 30, 0, tzinfo=timezone.utc)
-    assert event.end_date == datetime(1996, 9, 20, 22, 0, 0, tzinfo=timezone.utc)
+    assert event.date_start == datetime(1996, 9, 18, 14, 30, 0, tzinfo=timezone.utc)
+    assert event.date_end == datetime(1996, 9, 20, 22, 0, 0, tzinfo=timezone.utc)
     assert not event.all_day
 
 
@@ -161,8 +162,8 @@ def test_example2_timezone_conversion(deserializer):
     # 1998-03-12 is before US DST (started 1998-04-05), so NY is at UTC-5 (EST)
     # 08:30 EST = 13:30 UTC, 09:30 EST = 14:30 UTC
     event = deserializer.deserialize(ICAL_EXAMPLE_2)
-    assert event.start_date == datetime(1998, 3, 12, 13, 30, 0, tzinfo=timezone.utc)
-    assert event.end_date == datetime(1998, 3, 12, 14, 30, 0, tzinfo=timezone.utc)
+    assert event.date_start == datetime(1998, 3, 12, 13, 30, 0, tzinfo=timezone.utc)
+    assert event.date_end == datetime(1998, 3, 12, 14, 30, 0, tzinfo=timezone.utc)
     assert event.timezone == "America/New_York"
     assert not event.all_day
 
@@ -241,9 +242,9 @@ def test_allday_flag(deserializer):
 
 def test_allday_dates(deserializer):
     event = deserializer.deserialize(ICAL_ALLDAY)
-    assert event.start_date.year == 2024
-    assert event.start_date.month == 3
-    assert event.start_date.day == 15
+    assert event.date_start.year == 2024
+    assert event.date_start.month == 3
+    assert event.date_start.day == 15
 
 
 # ==========================================================================
@@ -364,3 +365,95 @@ def test_recurrence_id_parsed(deserializer):
     if recurrence_id.tzinfo is None:
         recurrence_id = recurrence_id.replace(tzinfo=timezone.utc)
     assert recurrence_id == datetime(2026, 1, 6, 9, 0, 0, tzinfo=timezone.utc)
+
+
+# ==========================================================================
+# VTODO
+# ==========================================================================
+
+ICAL_VTODO_FULL = (
+    "BEGIN:VCALENDAR\r\n"
+    "VERSION:2.0\r\n"
+    "PRODID:-//Test//EN\r\n"
+    "BEGIN:VTODO\r\n"
+    "DTSTAMP:20260101T000000Z\r\n"
+    "UID:todo@test.com\r\n"
+    "DTSTART:20260101T090000Z\r\n"
+    "DUE:20260131T235959Z\r\n"
+    "SUMMARY:Prepare report\r\n"
+    "STATUS:IN-PROCESS\r\n"
+    "PERCENT-COMPLETE:50\r\n"
+    "COMPLETED:20260115T120000Z\r\n"
+    "CLASS:PRIVATE\r\n"
+    "END:VTODO\r\n"
+    "END:VCALENDAR\r\n"
+)
+
+ICAL_VTODO_NO_STATUS = (
+    "BEGIN:VCALENDAR\r\n"
+    "VERSION:2.0\r\n"
+    "PRODID:-//Test//EN\r\n"
+    "BEGIN:VTODO\r\n"
+    "DTSTAMP:20260101T000000Z\r\n"
+    "UID:todo-nostatus@test.com\r\n"
+    "DUE:20260131T235959Z\r\n"
+    "SUMMARY:Task without status\r\n"
+    "END:VTODO\r\n"
+    "END:VCALENDAR\r\n"
+)
+
+
+def test_vtodo_component_type(deserializer):
+    from app.module.calendar.model.enums.ComponentType import ComponentType
+    event = deserializer.deserialize(ICAL_EXAMPLE_4)
+    assert event.component_type == ComponentType.TASK
+
+
+def test_vtodo_uid(deserializer):
+    event = deserializer.deserialize(ICAL_EXAMPLE_4)
+    assert event.uid == "uid4@example.com"
+
+
+def test_vtodo_title(deserializer):
+    event = deserializer.deserialize(ICAL_EXAMPLE_4)
+    assert event.title == "Submit Income Taxes"
+
+
+def test_vtodo_status_needs_action(deserializer):
+    from app.module.calendar.model.enums.EventStatus import EventStatus
+    event = deserializer.deserialize(ICAL_EXAMPLE_4)
+    assert event.status == EventStatus.NEEDS_ACTION
+
+
+def test_vtodo_due_maps_to_date_end(deserializer):
+    event = deserializer.deserialize(ICAL_EXAMPLE_4)
+    # DUE:19980415T000000 (naive → UTC)
+    assert event.date_end == datetime(1998, 4, 15, 0, 0, 0, tzinfo=timezone.utc)
+
+
+def test_vtodo_status_in_process(deserializer):
+    from app.module.calendar.model.enums.EventStatus import EventStatus
+    event = deserializer.deserialize(ICAL_VTODO_FULL)
+    assert event.status == EventStatus.IN_PROCESS
+
+
+def test_vtodo_percent_complete(deserializer):
+    event = deserializer.deserialize(ICAL_VTODO_FULL)
+    assert event.percent_complete == 50
+
+
+def test_vtodo_completed_at(deserializer):
+    event = deserializer.deserialize(ICAL_VTODO_FULL)
+    assert event.completed_at == datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+
+
+def test_vtodo_no_status_defaults_to_needs_action(deserializer):
+    from app.module.calendar.model.enums.EventStatus import EventStatus
+    event = deserializer.deserialize(ICAL_VTODO_NO_STATUS)
+    assert event.status == EventStatus.NEEDS_ACTION
+
+
+def test_vevent_component_type(deserializer):
+    from app.module.calendar.model.enums.ComponentType import ComponentType
+    event = deserializer.deserialize(ICAL_EXAMPLE_1)
+    assert event.component_type == ComponentType.EVENT

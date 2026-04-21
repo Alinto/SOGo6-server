@@ -6,7 +6,8 @@ from typing import Any, NamedTuple
 
 from icalendar import Calendar
 
-from app.module.calendar.serializer.IcalConst import COMP_VALARM, COMP_VEVENT
+from app.module.calendar.model.enums.ComponentType import ComponentType
+from app.module.calendar.serializer.IcalConst import COMP_VALARM, COMP_VEVENT, COMP_VTODO
 from app.module.calendar.model.CalAttachment import CalAttachment
 from app.module.calendar.model.CalAttendee import CalAttendee
 from app.module.calendar.model.CalEvent import CalEvent
@@ -66,9 +67,14 @@ _CUTYPE_MAP: dict[str, CalUserType] = {
 }
 
 _STATUS_MAP: dict[str, EventStatus] = {
+    # VEVENT statuses (RFC 5545 §3.8.1.11)
     "CONFIRMED": EventStatus.CONFIRMED,
     "TENTATIVE": EventStatus.TENTATIVE,
     "CANCELLED": EventStatus.CANCELLED,
+    # VTODO statuses (RFC 5545 §3.8.1.11)
+    "NEEDS-ACTION": EventStatus.NEEDS_ACTION,
+    "IN-PROCESS": EventStatus.IN_PROCESS,
+    "COMPLETED": EventStatus.COMPLETED,
 }
 
 _CLASS_MAP: dict[str, EventVisibility] = {
@@ -141,15 +147,16 @@ class CalendarEventDeserializerIcal(CalendarEventDeserializer):
     # ------------------------------------------------------------------
 
     def deserialize(self, text: str) -> CalEvent:
-        """
-        Parse an iCalendar text (VCALENDAR or bare VEVENT block) and return
-        a single CalEvent.  Only the first VEVENT found is processed.
-        """
-        components = self.iter_vevents(text)
-        if not components:
-            raise RequestException(error=ERROR_CALENDAR_ICS_PARSE_FAILED)
-        alarms = self._parse_alarms(components[0])
-        return self._build_cal_event(components[0], alarms)
+        """Parse an iCalendar text and return the first VEVENT or VTODO found."""
+        vevents = self.iter_vevents(text)
+        if vevents:
+            alarms = self._parse_alarms(vevents[0])
+            return self._build_cal_event(vevents[0], alarms)
+        vtodos = self.iter_vtodos(text)
+        if vtodos:
+            alarms = self._parse_alarms(vtodos[0])
+            return self._build_cal_todo(vtodos[0], alarms)
+        raise RequestException(error=ERROR_CALENDAR_ICS_PARSE_FAILED)
 
     def iter_vevents(self, text: str) -> list[Any]:
         """Parse a VCALENDAR string and return the raw VEVENT components."""
@@ -160,10 +167,24 @@ class CalendarEventDeserializerIcal(CalendarEventDeserializer):
             raise RequestException(error=ERROR_CALENDAR_ICS_PARSE_FAILED) from exc
         return [comp for comp in cal.walk() if comp.name == COMP_VEVENT]
 
+    def iter_vtodos(self, text: str) -> list[Any]:
+        """Parse a VCALENDAR string and return the raw VTODO components."""
+        try:
+            cal: Calendar = Calendar.from_ical(text)
+        except Exception as exc:  # pylint: disable=broad-except
+            logger_calendar.error("Failed to parse VCALENDAR: %s", exc)
+            raise RequestException(error=ERROR_CALENDAR_ICS_PARSE_FAILED) from exc
+        return [comp for comp in cal.walk() if comp.name == COMP_VTODO]
+
     def deserialize_vevent(self, component: Any) -> CalEvent:
         """Deserialize a pre-parsed VEVENT component into a CalEvent."""
         alarms = self._parse_alarms(component)
         return self._build_cal_event(component, alarms)
+
+    def deserialize_vtodo(self, component: Any) -> CalEvent:
+        """Deserialize a pre-parsed VTODO component into a CalEvent."""
+        alarms = self._parse_alarms(component)
+        return self._build_cal_todo(component, alarms)
 
     # ------------------------------------------------------------------
     # Component navigation
@@ -246,31 +267,58 @@ class CalendarEventDeserializerIcal(CalendarEventDeserializer):
     def _extract_dates(self, vevent: Any) -> tuple[datetime, datetime, bool, str]:
         """
         Extract DTSTART, DTEND / DURATION.
-        Returns (start_date_utc, end_date_utc, all_day, timezone_str).
+        Returns (date_start_utc, date_end_utc, all_day, timezone_str).
         """
-        start_date, all_day, tzid = self._parse_dt_prop(vevent, "dtstart")
-        if start_date is None:
-            start_date, all_day, tzid = _EMPTY_START, False, None
+        date_start, all_day, tzid = self._parse_dt_prop(vevent, "dtstart")
+        if date_start is None:
+            date_start, all_day, tzid = _EMPTY_START, False, None
 
         timezone_str = tzid or "UTC"
 
-        end_date, _, _ = self._parse_dt_prop(vevent, "dtend")
-        if end_date is None:
+        date_end, _, _ = self._parse_dt_prop(vevent, "dtend")
+        if date_end is None:
             duration_prop = vevent.get("duration")
             if duration_prop is not None:
                 delta: timedelta = duration_prop.dt
-                end_date = start_date + delta
+                date_end = date_start + delta
             else:
-                end_date = start_date
+                date_end = date_start
 
-        return start_date, end_date, all_day, timezone_str
+        return date_start, date_end, all_day, timezone_str
 
-    def _extract_status_fields(self, vevent: Any) -> tuple[EventStatus, EventVisibility, ShowAs]:
+    def _extract_dates_todo(self, vtodo: Any) -> tuple[datetime, datetime, bool, str]:
+        """Extract DTSTART and DUE / DURATION for a VTODO component.
+
+        DTSTART is optional for VTODO (RFC 5545 §3.6.2); defaults to epoch.
+        DUE is the VTODO equivalent of DTEND.
+        """
+        date_start, all_day, tzid = self._parse_dt_prop(vtodo, "dtstart")
+        if date_start is None:
+            date_start, all_day, tzid = _EMPTY_START, False, None
+
+        timezone_str = tzid or "UTC"
+
+        date_end, _, _ = self._parse_dt_prop(vtodo, "due")
+        if date_end is None:
+            duration_prop = vtodo.get("duration")
+            if duration_prop is not None:
+                delta: timedelta = duration_prop.dt
+                date_end = date_start + delta
+            else:
+                date_end = date_start
+
+        return date_start, date_end, all_day, timezone_str
+
+    def _extract_status_fields(
+        self,
+        vevent: Any,
+        default_status: EventStatus = EventStatus.CONFIRMED,
+    ) -> tuple[EventStatus, EventVisibility, ShowAs]:
         """
         Extract STATUS, CLASS, TRANSP and Microsoft CDO extension.
         Returns (status, visibility, show_as).
         """
-        status = _STATUS_MAP.get(self._get_str(vevent, "status", "CONFIRMED").upper(), EventStatus.CONFIRMED)
+        status = _STATUS_MAP.get(self._get_str(vevent, "status", "").upper(), default_status)
         visibility = _CLASS_MAP.get(self._get_str(vevent, "class", "PUBLIC").upper(), EventVisibility.PUBLIC)
 
         show_as = ShowAs.BUSY
@@ -521,7 +569,7 @@ class CalendarEventDeserializerIcal(CalendarEventDeserializer):
     def _build_cal_event(self, vevent: Any, alarms: list[CalReminder]) -> CalEvent:
         """Assemble a CalEvent from a parsed VEVENT component and pre-built alarms."""
         text = self._extract_text_fields(vevent)
-        start_date, end_date, all_day, timezone_str = self._extract_dates(vevent)
+        date_start, date_end, all_day, timezone_str = self._extract_dates(vevent)
         status, visibility, show_as = self._extract_status_fields(vevent)
         recur = self._extract_recurrence(vevent)
         created_at, updated_at = self._extract_timestamps(vevent)
@@ -529,8 +577,8 @@ class CalendarEventDeserializerIcal(CalendarEventDeserializer):
         return CalEvent(
             uid=text.uid,
             title=text.title,
-            start_date=start_date,
-            end_date=end_date,
+            date_start=date_start,
+            date_end=date_end,
             all_day=all_day,
             timezone=timezone_str,
             description=text.description,
@@ -553,4 +601,50 @@ class CalendarEventDeserializerIcal(CalendarEventDeserializer):
             extra_properties=parts.extra_properties,
             created_at=created_at,
             updated_at=updated_at,
+            component_type=ComponentType.EVENT,
+        )
+
+    def _build_cal_todo(self, vtodo: Any, alarms: list[CalReminder]) -> CalEvent:
+        """Assemble a CalEvent from a parsed VTODO component and pre-built alarms."""
+        text = self._extract_text_fields(vtodo)
+        date_start, date_end, all_day, timezone_str = self._extract_dates_todo(vtodo)
+        status, visibility, show_as = self._extract_status_fields(vtodo, EventStatus.NEEDS_ACTION)
+        recur = self._extract_recurrence(vtodo)
+        created_at, updated_at = self._extract_timestamps(vtodo)
+        parts = self._extract_participant_fields(vtodo)
+
+        pct_val = vtodo.get("percent-complete")
+        percent_complete = int(str(pct_val)) if pct_val is not None else None
+        completed_at, _, _ = self._parse_dt_prop(vtodo, "completed")
+
+        return CalEvent(
+            uid=text.uid,
+            title=text.title,
+            date_start=date_start,
+            date_end=date_end,
+            all_day=all_day,
+            timezone=timezone_str,
+            description=text.description,
+            location=text.location,
+            status=status,
+            visibility=visibility,
+            show_as=show_as,
+            color=self._extract_color(vtodo),
+            sequence=text.sequence,
+            url=text.url,
+            organizer=parts.organizer,
+            attendees=parts.attendees,
+            reminders=alarms,
+            attachments=parts.attachments,
+            categories=parts.categories,
+            related_to=parts.related_to,
+            recurrence_rule=recur.rule,
+            recurrence_exceptions=recur.exceptions,
+            recurrence_id=recur.recurrence_id,
+            extra_properties=parts.extra_properties,
+            created_at=created_at,
+            updated_at=updated_at,
+            component_type=ComponentType.TASK,
+            percent_complete=percent_complete,
+            completed_at=completed_at,
         )
