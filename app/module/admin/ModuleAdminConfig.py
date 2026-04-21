@@ -1,6 +1,7 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Type, Callable
 
+from copy import deepcopy
 from marshmallow import EXCLUDE
 import json
 from app.config.db import tables as tbl
@@ -22,6 +23,31 @@ if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
     from app.manager.db.ClientSQL import ClientSQL
     from app.utils.api.paginate_sort_filter import CollectionPaginateArgs
+
+
+def _compute_diff(merged: dict, defaults: dict) -> dict:
+    """
+    Compute the diff between merged settings and default settings.
+    Returns only the keys/values that differ from the defaults.
+
+    :param merged: The full merged settings dict (defaults + domain-specific)
+    :type merged: dict
+    :param defaults: The default settings dict
+    :type defaults: dict
+    :return: Dict containing only the domain-specific overrides
+    :rtype: dict
+    """
+    diff: dict = {}
+    for key, value in merged.items():
+        if key not in defaults:
+            diff[key] = value
+        elif isinstance(value, dict) and isinstance(defaults[key], dict):
+            sub_diff = _compute_diff(value, defaults[key])
+            if sub_diff:
+                diff[key] = sub_diff
+        elif value != defaults[key]:
+            diff[key] = value
+    return diff
 
 class ModuleAdminConfig:
     """
@@ -177,6 +203,29 @@ class ModuleAdminConfig:
 
         return count, ret
 
+    def get_one_domain_setting_diff(self, domain_id: str) -> dict:
+        """
+        Get the raw stored domain-specific diff for a domain (without merging with defaults).
+        Returns an empty dict if the domain has no specific settings.
+
+        :param domain_id: The domain name
+        :type domain_id: str
+        :return: The raw domain-specific diff dict
+        :rtype: dict
+        """
+        self.sogo_db_manager.connect()
+        cond_select = EqualCondition(param_name=tbl.COL_DOMAIN_NAME.name, param_value=domain_id)
+        result = list(self.sogo_db_manager.select_from_table(
+            table_name=tbl.TABLE_DOMAIN.name,
+            column_tuple=(tbl.COL_DOMAIN_SETTINGS.name,),
+            condition=cond_select
+        ))
+
+        if len(result) == 0:
+            return {}
+
+        return result[0][0] if result[0][0] else {}
+
     def get_one_domain_setting(self, domain_id:str, columns: tuple[Column, ...]|None = None) -> dict:
         """
         Get one domain setting for the specified domain ID
@@ -209,10 +258,11 @@ class ModuleAdminConfig:
             logger.error("Table %s has more than one row (%s}) with the same domain_name: %s. Please check manually this table", tbl.TABLE_DOMAIN.name, size, domain_id)
             raise AggravatedException(f"Table {tbl.TABLE_SETTINGS.name} has more than one row ({size}) with the same domain_name {domain_id}. Please check manually this table")
 
+        default_settings = self.get_default_domain_settings()
+
         if size == 0:
             #Empty, the resource does not exist
             logger.debug("No domain found for name %s, return the default one", domain_id)
-            default_settings = self.get_default_domain_settings()
             origins = set_origin_from_settings("default", default_settings, default_settings)
             return {
                 "domain_name": "default",
@@ -221,11 +271,22 @@ class ModuleAdminConfig:
             }
 
         ret: dict = {}
+        domain_specific_settings: dict = {}
         for idx, col in enumerate(column_tuple):
             if col == tbl.COL_DOMAIN_SETTINGS.name:
-                ret["settings"] = result[0][idx]
+                domain_specific_settings = result[0][idx]
             else:
                 ret[col] = result[0][idx]
+
+        # Dynamically merge: deepcopy defaults then apply domain-specific diff
+        merged_settings = deepcopy(default_settings)
+        merge_patch(domain_specific_settings, merged_settings)
+
+        # Dynamically recompute origins from the diff vs defaults
+        origins = set_origin_from_settings(domain_id, domain_specific_settings, default_settings)
+
+        ret["settings"] = merged_settings
+        ret["origin"] = origins
 
         return ret
 
@@ -362,12 +423,16 @@ class ModuleAdminConfig:
 
         origins = set_origin_from_settings(domain_name, values_new, values_default)
 
-        values_default.update(values_new)
-        values = check_data_for_sogo_schemas(values_default, get_all_domain_schemas)
+        # Validate that the diff is valid by merging with defaults, then store only the diff
+        merged = deepcopy(values_default)
+        merge_patch(values_new, merged)
+        check_data_for_sogo_schemas(merged, get_all_domain_schemas)
+        # Store only the domain-specific diff
+        diff = values_new
 
         value_hash = get_unique_token(HASH_SIZE_DOMAIN)
 
-        insert_values = [[value_hash, domain_name, domain_description, domain_info, values, origins]]
+        insert_values = [[value_hash, domain_name, domain_description, domain_info, diff, origins]]
         colums = (tbl.COL_HASH.name, tbl.COL_DOMAIN_NAME.name, tbl.COL_DOMAIN_DESCRIPTION.name, tbl.COL_DOMAIN_INFO.name, tbl.COL_DOMAIN_SETTINGS.name, tbl.COL_DOMAIN_ORIGIN.name)
 
         #Insert in column
@@ -391,12 +456,17 @@ class ModuleAdminConfig:
             logger.error("Something went wrong when updating the system settings, rows updated: %s, should be 1", row_updated)
             raise BugException(f"Something went wrong when updating the system settings, rows updated: {row_updated}, should be 1", err.ERROR_TABLE_SYSTEM_NOT_UNIQUE)
 
+        # The merged settings are returned in the API response
+        # but only the diff is stored in the database
+        merged_settings = deepcopy(values_default)
+        merge_patch(diff, merged_settings)
+
         result = {
             "hash": value_hash,
             "domain_name": domain_name,
             "domain_description": domain_description,
             "domain_info": domain_info,
-            "settings": values,
+            "settings": merged_settings,
             "origin": origins,
         }
 
@@ -419,11 +489,19 @@ class ModuleAdminConfig:
 
         merge_patch(new_param, stored_data)
 
-        values = check_data_for_sogo_schemas(stored_data["settings"], get_all_domain_schemas)
         values_default = self.get_default_domain_settings()
-        origins = set_origin_from_settings(domain_id, values, values_default)
 
-        update_values = [stored_data["domain_description"], stored_data["domain_info"], values, origins]
+        # stored_data["settings"] is the merged (full) view; we need to recompute the diff
+        # by applying new_param on top of the previously merged settings
+        # The new diff is: all keys in merged settings that differ from defaults
+        merged_settings = stored_data["settings"]
+        check_data_for_sogo_schemas(merged_settings, get_all_domain_schemas)
+
+        # Compute the new diff: keep only keys that differ from defaults
+        new_diff = _compute_diff(merged_settings, values_default)
+        origins = set_origin_from_settings(domain_id, new_diff, values_default)
+
+        update_values = [stored_data["domain_description"], stored_data["domain_info"], new_diff, origins]
         colums = (tbl.COL_DOMAIN_DESCRIPTION.name, tbl.COL_DOMAIN_INFO.name, tbl.COL_DOMAIN_SETTINGS.name, tbl.COL_DOMAIN_ORIGIN.name)
 
         #Update in column
@@ -441,7 +519,7 @@ class ModuleAdminConfig:
             "domain_name": domain_id,
             "domain_description": stored_data["domain_description"],
             "domain_info": stored_data["domain_info"],
-            "settings": values,
+            "settings": merged_settings,
             "origin": origins,
         }
 

@@ -1,9 +1,11 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
+from copy import deepcopy
 import importlib
 import json
 import os
+from marshmallow import ValidationError
 
 import app.module
 from app.agent.Agent import agent
@@ -14,8 +16,8 @@ from app.module.ModuleInitSogo import ModuleInitSogo
 from app.module.admin.ModuleAdminConfig import ModuleAdminConfig
 from app.utils.exceptions import AggravatedException, BugException
 from app.utils.logger.logger import logger
+from app.utils.dict import merge_patch
 from app.utils import constants as cs
-from marshmallow import ValidationError
 
 from .settings.ProcessSetting import process_config
 
@@ -147,15 +149,26 @@ def init_get_system_and_default_domain_settings() -> tuple[dict, dict]:
     config_module = ModuleAdminConfig(process_config)
     return config_module.get_both_system_and_default_domain_settings()
 
-def init_get_user_domain_settings(user: User) -> dict:
+def init_get_user_domain_settings(user: User, default_domain_settings: dict) -> dict:
     """
-    Return the sysem and default domain settings
+    Return the domain settings for a user's domain, merged on top of the default domain settings.
 
-    :return: (system_settings, default_dimain_settings)
-    :rtype: tuple[dict, dict]
+    Fetches only the domain-specific diff from the database, then applies it on a deepcopy
+    of the default settings.
+
+    :param user: The authenticated user
+    :type user: User
+    :param default_domain_settings: The default domain settings
+    :type default_domain_settings: dict
+    :return: The merged domain settings for the user's domain
+    :rtype: dict
     """
     config_module = ModuleAdminConfig(process_config)
-    return config_module.get_one_domain_setting(user.domain)["settings"]
+    domain_diff = config_module.get_one_domain_setting_diff(user.domain)
+
+    merged = deepcopy(default_domain_settings)
+    merge_patch(domain_diff, merged)
+    return merged
 
 def init_jobs() -> None:
     """Discover and register every Agent job, then wire them into the agent.
