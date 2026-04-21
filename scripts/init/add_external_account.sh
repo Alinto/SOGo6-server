@@ -31,7 +31,7 @@ curl -X POST \
   "mail_server": {
     "server": "192.168.69.31",
     "port": 10143,
-    "encryption": "SSL/TLS",
+    "encryption": "None",
     "type": "imap",
     "password": "Banane2!",
     "username": "tkeriven@snapshot.alinto.org",

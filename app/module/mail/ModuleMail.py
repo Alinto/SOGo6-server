@@ -682,6 +682,29 @@ class ModuleMail:
         """
         raise NotImplementedError("Message from ModuleMail.py: list_mailboxes is not implemented yet")
 
+    def get_mailbox_quota(self, account_id: str) -> dict[str, Any] | None:
+        """Get the quota information for a mailbox.
+
+        Opens a mail client for the given account, retrieves the quota using
+        GETQUOTAROOT on INBOX, and returns the quota data.
+        Returns None if the server does not support quota for this configuration.
+
+        :param account_id: The account identifier (cs.DEFAULT_IDENTITY_KEY_VALUE for main account)
+        :type account_id: str
+        :return: Dictionary containing quota info, or None if unavailable:
+            {
+                "storage_used": int,        # storage used in KB
+                "storage_limit": int,       # storage limit in KB (0 if unlimited)
+                "soft_quota_value": int,    # soft quota value from domain settings (SOGO_D_SOFT_EMAIL_QUOTA)
+            }
+        :rtype: dict[str, Any] | None
+        """
+        client = self._open_client_for(account_id)
+        quota = client.get_quota()
+        if quota is not None:
+            quota["soft_quota_value"] = self.mail_settings.SOGO_D_SOFT_EMAIL_QUOTA
+        return quota
+
     def create_mailbox(self) -> dict[str, Any]:
         """Create a new mailbox (add external account).
         

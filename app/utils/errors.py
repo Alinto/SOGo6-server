@@ -126,6 +126,10 @@ ERROR_IDENTITIES_CUSTOM_NAME_FORBIDDEN = E("S000333", "Custom name in identities
 ERROR_IDENTITIES_CUSTOM_REPLY_TO_FORBIDDEN = E("S000334", "Custom reply-to email in identities is forbidden for your domain", HTTPStatus.FORBIDDEN)
 ERROR_SIGNATURE_SIZE_EXCEEDED = E("S000335", "Signature size exceeds the maximum allowed limit for your domain", HTTPStatus.FORBIDDEN)
 
+#Quota
+ERROR_IMAP_QUOTA_NOT_SUPPORTED = E("S000336", "IMAP server does not support QUOTA extension", HTTPStatus.NOT_IMPLEMENTED)
+ERROR_IMAP_QUOTA_FAILED        = E("S000337", "IMAP GETQUOTAROOT command failed", HTTPStatus.INTERNAL_SERVER_ERROR)
+
 #Preferences
 ERROR_PREF_UNKNOWN_SUB = E("S000340", "Subparent of User Settings does not exist", HTTPStatus.BAD_REQUEST)
 

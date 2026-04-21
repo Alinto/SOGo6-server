@@ -1677,6 +1677,66 @@ class ClientImap(ClientMailServer):
         else:
             raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
 
+    def get_quota(self) -> dict[str, Any] | None:
+        """Get quota information for the mailbox using GETQUOTAROOT.
+
+        Returns None if the server does not support the QUOTA extension or if
+        the command is not available for this configuration (non-blocking).
+
+        The inbox folder name is retrieved from the folders map to ensure the
+        correct folder name is used regardless of server configuration.
+
+        :return: Dictionary containing quota info, or None if unavailable:
+            {
+                "storage_used": int,   # storage used in KB
+                "storage_limit": int,  # storage limit in KB (0 if unlimited)
+            }
+        :rtype: dict[str, Any] | None
+        :raises BugException: If not authenticated.
+        """
+        folder_path = self.folders_map_type_to_name[cs.MAIL_FOLDER_INBOX]
+        logger_imap.debug("Getting quota for folder '%s'", folder_path)
+        if self.connection is None or not self.authenticated:
+            raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
+
+        if "QUOTA" not in self.capabilities:
+            logger_imap.info("QUOTA extension not supported by this IMAP server, skipping quota retrieval")
+            return None
+
+        folder_path = self._fix_folder_path(folder_path)
+        success, datas = self._exec_imap4_method(self.connection.getquotaroot, folder_path)
+        if not success:
+            logger_imap.info("GETQUOTAROOT command failed for '%s', quota not available with this server configuration", folder_path)
+            return None
+
+        # imaplib.getquotaroot returns [quotaroot_responses, quota_responses]
+        # where each element is itself a list of bytes items.
+        # We flatten all items and search for the STORAGE entry.
+        storage_used = 0
+        storage_limit = 0
+        for item in datas:
+            if not item:
+                continue
+            # Each item may be a list of bytes (QUOTAROOT or QUOTA responses)
+            sub_items = item if isinstance(item, list) else [item]
+            for sub in sub_items:
+                if not sub:
+                    continue
+                line = sub.decode() if isinstance(sub, bytes) else str(sub)
+                match = re.search(r'STORAGE\s+(\d+)\s+(\d+)', line, re.IGNORECASE)
+                if match:
+                    storage_used = int(match.group(1))
+                    storage_limit = int(match.group(2))
+                    break
+            if storage_limit or storage_used:
+                break
+
+        logger_imap.info("Quota for '%s': used=%d KB, limit=%d KB", folder_path, storage_used, storage_limit)
+        return {
+            "storage_used": storage_used,
+            "storage_limit": storage_limit,
+        }
+
     def logout(self) -> None:
         """
         Log out from the IMAP server.
