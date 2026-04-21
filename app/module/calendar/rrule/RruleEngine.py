@@ -58,7 +58,7 @@ class RruleEngine:
             return [master]
 
         rule: CalRecurrenceRule = master.recurrence_rule
-        duration: timedelta = master.end_date - master.start_date
+        duration: timedelta = master.date_end - master.date_start
 
         override_map: dict[datetime, CalEvent] = {}
         if overrides:
@@ -66,7 +66,7 @@ class RruleEngine:
                 if ov.recurrence_id is not None:
                     override_map[self._normalize_dt(ov.recurrence_id)] = ov
 
-        occurrence_starts: list[datetime] = self._generate_dates(rule, master.start_date, end)
+        occurrence_starts: list[datetime] = self._generate_dates(rule, master.date_start, end)
 
         result: list[CalEvent] = []
         for occ_start in occurrence_starts:
@@ -81,7 +81,7 @@ class RruleEngine:
             occ_key: datetime = self._normalize_dt(occ_start)
             if occ_key in override_map:
                 override_event: CalEvent = override_map[occ_key]
-                if override_event.end_date >= start and override_event.start_date <= end:
+                if override_event.date_end >= start and override_event.date_start <= end:
                     result.append(override_event)
             else:
                 result.append(self._make_occurrence(master, occ_start, occ_end))
@@ -93,14 +93,14 @@ class RruleEngine:
 
         RFC 5545 §3.3.10 — The recurrence set starts at DTSTART.
         """
-        return master.start_date
+        return master.date_start
 
     def get_max_date(self, master: CalEvent) -> datetime | None:
         """Return the end of the last occurrence, or None for an unbounded series.
 
         RFC 5545 §3.3.10 — UNTIL and COUNT bound the series.
         Returns None when neither is set (the recurrence extends indefinitely).
-        For non-recurring events, returns end_date directly.
+        For non-recurring events, returns date_end directly.
 
         Note: this method computes the actual last occurrence, not just UNTIL.
         For example, WEEKLY;BYDAY=MO;UNTIL=Thursday will return the Monday before
@@ -108,14 +108,14 @@ class RruleEngine:
         """
         rule: CalRecurrenceRule | None = master.recurrence_rule
         if rule is None:
-            return master.end_date
+            return master.date_end
         if rule.until is None and rule.count is None:
             return None
         limit: datetime = rule.until if rule.until is not None else datetime(9999, 1, 1, tzinfo=timezone.utc)
-        dates: list[datetime] = self._generate_dates(rule, master.start_date, limit)
+        dates: list[datetime] = self._generate_dates(rule, master.date_start, limit)
         if not dates:
-            return master.end_date
-        return dates[-1] + (master.end_date - master.start_date)
+            return master.date_end
+        return dates[-1] + (master.date_end - master.date_start)
 
     # ------------------------------------------------------------------
     # Date generation
@@ -565,8 +565,8 @@ class RruleEngine:
         # original occurrence datetime as its recurrence identifier
         return dataclasses.replace(
             master,
-            start_date=start,
-            end_date=end,
+            date_start=start,
+            date_end=end,
             recurrence_id=start,
             recurrence_rule=None,
             recurrence_exceptions=[],

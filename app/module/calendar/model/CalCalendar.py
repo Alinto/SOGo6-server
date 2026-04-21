@@ -7,34 +7,60 @@ from datetime import datetime
 @dataclass
 class CalCalendar:  # pylint: disable=too-many-instance-attributes
     """
-    Format-agnostic representation of a calendar (personal agenda).
+    Format-agnostic representation of a calendar (RFC 4791 §4.2 calendar collection).
 
-    Maps to the sogo_calendars table. The id field is the internal integer PK;
-    hash is the opaque public identifier exposed in the API.
+    Maps to sogo_calendar_calendars. id is the internal integer PK; key is the opaque
+    public identifier exposed in the API (prevents row enumeration).
 
-    iCalendar-level properties (prodid, calscale, method) are populated when
-    the object is built from a VCALENDAR source (ICS / CalDAV).
-    Unknown or vendor-specific properties (X-WR-*, X-APPLE-*, etc.) are
-    collected in extra_properties.
+    source_type drives CalendarSources dispatch:
+      'local'  — personal calendar stored in DB, full CRUD
+      'ics'    — read-only subscription to a remote .ics URL (RFC 5545 / WebDAV)
+      'caldav' — read-write sync with a remote CalDAV server (RFC 4791)
+
+    External sync metadata (URL, credentials, etag, last_sync) lives in sync_config JSON.
+    prodid, calscale, method are VCALENDAR-level properties not stored in DB — populated
+    only when building from an ICS source (import/export).
     """
-
-    owner_uid: str
+    # Internal — owner's uid, FK to sogo_user_profiles.uid
+    user_uid: str
+    # RFC 4791 §5.2.1 — display name of the calendar collection (DAV:displayname)
     name: str
 
+    # Internal — database auto-increment PK
     id: int | None = None
-    hash: str | None = None
+    # Internal — opaque token exposed in the API (see generate_uuid)
+    key: str | None = None
+    # RFC 7986 §5.9 COLOR — hex color #RRGGBB for UI display
     color: str | None = None
+    # RFC 4791 §5.2.1 — free-text description (DAV:comment or CALDAV:calendar-description)
     description: str | None = None
+    # RFC 5545 §3.2.19 TZID — default IANA timezone for new events (e.g. "Europe/Paris")
     timezone: str = "UTC"
+    # Internal — marks the user's primary personal calendar; uniqueness enforced by service layer
     is_default: bool = False
-    subscription_token: str | None = None
+    # Internal — discriminates calendar backend: 'local', 'ics', 'caldav'
+    source_type: str = "local"
+    # CalDAV CS:getctag extension (draft-daboo-caldav-extensions) — opaque token incremented
+    # by the service layer on every event mutation (insert / update / delete).
+    # CalDAV clients compare it against their cached value to detect changes without
+    # fetching the full event list — avoids unnecessary sync traffic.
+    ctag: int = 0
+    # Internal — opaque token for the public .ics subscription URL.
+    # Stored as a relational column (not in JSON) because it is queried directly:
+    # WHERE share_token = ?
+    share_token: str | None = None
+    # External sync metadata — NULL for source_type='local'.
+    # Schema: {url, username, password (AES-encrypted), etag, last_sync,
+    #          sync_interval_minutes}
+    sync_config: dict | None = None
 
-    # iCalendar VCALENDAR-level properties
+    # RFC 5545 §3.7.3 PRODID — identifies the product that created the VCALENDAR object
     prodid: str | None = None
+    # RFC 5545 §3.7.1 CALSCALE — calendar scale, almost always "GREGORIAN"
     calscale: str | None = None
+    # RFC 5546 §2.1.4 METHOD — iTIP method (REQUEST, REPLY, CANCEL…) for iMIP messages
     method: str | None = None
-
-    # Vendor / unknown X-* properties (e.g. X-WR-CALNAME, X-WR-CALDESC)
+    # Catch-all for non-standard VCALENDAR-level X-* properties
     extra_properties: dict[str, str] = field(default_factory=dict)
 
     created_at: datetime | None = None

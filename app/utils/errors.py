@@ -143,6 +143,11 @@ ERROR_CONFIG_WRONG_MAIL_SERVER = E("S000500", "Mail server type is unknown or no
 #Calendar
 ERROR_CALENDAR_ICS_FETCH_FAILED = E("S000600", "Failed To Fetch ICS Calendar Feed", HTTPStatus.BAD_GATEWAY)
 ERROR_CALENDAR_ICS_PARSE_FAILED = E("S000601", "Failed To Parse ICS Calendar Content", HTTPStatus.UNPROCESSABLE_ENTITY)
+ERROR_CALENDAR_NOT_FOUND        = E("S000602", "Calendar Not Found", HTTPStatus.NOT_FOUND)
+ERROR_CALENDAR_DUPLICATE        = E("S000603", "Calendar Already Exists", HTTPStatus.CONFLICT)
+ERROR_CALENDAR_NOT_SUPPORTED    = E("S000604", "Operation Not Supported On This Calendar Source", HTTPStatus.METHOD_NOT_ALLOWED)
+ERROR_CALENDAR_EVENT_NOT_FOUND  = E("S000605", "Calendar Event Not Found", HTTPStatus.NOT_FOUND)
+ERROR_CALENDAR_DATE_RANGE_TOO_LARGE = E("S000606", "Event Fetch Range Exceeds Maximum Allowed Period", HTTPStatus.BAD_REQUEST)
 
 #the bugs
 ERROR_UNKOWN = E("S999999", "Undefined Error", HTTPStatus.INTERNAL_SERVER_ERROR)

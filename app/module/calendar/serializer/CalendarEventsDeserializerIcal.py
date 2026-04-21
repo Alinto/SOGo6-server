@@ -22,10 +22,10 @@ class CalendarEventsDeserializerIcal(CalendarEventsDeserializer):
         self._event_deserializer: CalendarEventDeserializerIcal = event_deserializer
 
     def deserialize(self, text: str) -> list[CalEvent]:
-        """Parse ICS text and return all VEVENT components as CalEvent objects.
+        """Parse ICS text and return all VEVENT and VTODO components as CalEvent objects.
 
         Raises RequestException if the ICS structure is unparseable.
-        Individual malformed VEVENTs are skipped with a warning.
+        Individual malformed components are skipped with a warning.
         """
         events: list[CalEvent] = []
         component: Any
@@ -34,4 +34,9 @@ class CalendarEventsDeserializerIcal(CalendarEventsDeserializer):
                 events.append(self._event_deserializer.deserialize_vevent(component))
             except Exception as exc:  # pylint: disable=broad-except
                 logger_calendar.warning("Skipping malformed VEVENT: %s", exc)
+        for component in self._event_deserializer.iter_vtodos(text):
+            try:
+                events.append(self._event_deserializer.deserialize_vtodo(component))
+            except Exception as exc:  # pylint: disable=broad-except
+                logger_calendar.warning("Skipping malformed VTODO: %s", exc)
         return events

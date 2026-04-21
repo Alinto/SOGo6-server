@@ -23,6 +23,7 @@ from app.module.calendar.model.enums.EventVisibility import EventVisibility
 from app.module.calendar.model.enums.RelationType import RelationType
 from app.module.calendar.model.enums.ReminderMethod import ReminderMethod
 from app.module.calendar.model.enums.ShowAs import ShowAs
+from app.module.calendar.model.enums.ComponentType import ComponentType
 from app.module.calendar.serializer.CalendarEventSerializerJson import CalendarEventSerializerJson
 
 _UTC = timezone.utc
@@ -38,8 +39,8 @@ def minimal_event():
     return CalEvent(
         uid="evt@example.com",
         title="Standup",
-        start_date=datetime(2026, 3, 19, 9, 30, tzinfo=_UTC),
-        end_date=datetime(2026, 3, 19, 10, 0, tzinfo=_UTC),
+        date_start=datetime(2026, 3, 19, 9, 30, tzinfo=_UTC),
+        date_end=datetime(2026, 3, 19, 10, 0, tzinfo=_UTC),
     )
 
 
@@ -49,24 +50,24 @@ def test_serialize_returns_valid_json(serializer, minimal_event):
 
 def test_dates_are_iso_utc_with_milliseconds(serializer, minimal_event):
     d = serializer.to_dict(minimal_event)
-    assert d["start_date"] == "2026-03-19T09:30:00.000Z"
-    assert d["end_date"] == "2026-03-19T10:00:00.000Z"
+    assert d["date_start"] == "2026-03-19T09:30:00.000Z"
+    assert d["date_end"] == "2026-03-19T10:00:00.000Z"
 
 
 def test_microseconds_truncated_to_milliseconds(serializer):
     event = CalEvent(
         uid="u@e.com", title="T",
-        start_date=datetime(2026, 1, 1, 12, 0, 0, 500123, tzinfo=_UTC),
-        end_date=datetime(2026, 1, 1, 13, tzinfo=_UTC),
+        date_start=datetime(2026, 1, 1, 12, 0, 0, 500123, tzinfo=_UTC),
+        date_end=datetime(2026, 1, 1, 13, tzinfo=_UTC),
     )
-    assert serializer.to_dict(event)["start_date"] == "2026-01-01T12:00:00.500Z"
+    assert serializer.to_dict(event)["date_start"] == "2026-01-01T12:00:00.500Z"
 
 
 def test_enums_serialized_as_lowercase_strings(serializer):
     event = CalEvent(
         uid="u@e.com", title="T",
-        start_date=datetime(2026, 1, 1, tzinfo=_UTC),
-        end_date=datetime(2026, 1, 1, 1, tzinfo=_UTC),
+        date_start=datetime(2026, 1, 1, tzinfo=_UTC),
+        date_end=datetime(2026, 1, 1, 1, tzinfo=_UTC),
         status=EventStatus.CANCELLED,
         visibility=EventVisibility.PRIVATE,
         show_as=ShowAs.OUT_OF_OFFICE,
@@ -79,7 +80,6 @@ def test_enums_serialized_as_lowercase_strings(serializer):
 
 def test_optional_fields_null_or_empty_when_absent(serializer, minimal_event):
     d = serializer.to_dict(minimal_event)
-    assert d["id"] is None
     assert d["description"] is None
     assert d["url"] is None
     assert d["color"] is None
@@ -97,8 +97,8 @@ def test_optional_fields_null_or_empty_when_absent(serializer, minimal_event):
 def test_organizer_all_fields(serializer):
     event = CalEvent(
         uid="u@e.com", title="T",
-        start_date=datetime(2026, 1, 1, tzinfo=_UTC),
-        end_date=datetime(2026, 1, 1, 1, tzinfo=_UTC),
+        date_start=datetime(2026, 1, 1, tzinfo=_UTC),
+        date_end=datetime(2026, 1, 1, 1, tzinfo=_UTC),
         organizer=CalOrganizer(
             email="manager@example.com", name="Sarah",
             role=AttendeeRole.CHAIR, status=AttendeeStatus.ACCEPTED,
@@ -116,8 +116,8 @@ def test_organizer_all_fields(serializer):
 def test_attendee_all_fields(serializer):
     event = CalEvent(
         uid="u@e.com", title="T",
-        start_date=datetime(2026, 1, 1, tzinfo=_UTC),
-        end_date=datetime(2026, 1, 1, 1, tzinfo=_UTC),
+        date_start=datetime(2026, 1, 1, tzinfo=_UTC),
+        date_end=datetime(2026, 1, 1, 1, tzinfo=_UTC),
         attendees=[CalAttendee(
             email="room@example.com", name="Room A",
             role=AttendeeRole.NON_PARTICIPANT, status=AttendeeStatus.ACCEPTED,
@@ -138,8 +138,8 @@ def test_attendee_all_fields(serializer):
 def test_related_to(serializer):
     event = CalEvent(
         uid="u@e.com", title="T",
-        start_date=datetime(2026, 1, 1, tzinfo=_UTC),
-        end_date=datetime(2026, 1, 1, 1, tzinfo=_UTC),
+        date_start=datetime(2026, 1, 1, tzinfo=_UTC),
+        date_end=datetime(2026, 1, 1, 1, tzinfo=_UTC),
         related_to=[CalEventRelation(uid="parent@example.com", relation_type=RelationType.PARENT)],
     )
     rels = serializer.to_dict(event)["related_to"]
@@ -149,8 +149,8 @@ def test_related_to(serializer):
 def test_extra_properties(serializer):
     event = CalEvent(
         uid="u@e.com", title="T",
-        start_date=datetime(2026, 1, 1, tzinfo=_UTC),
-        end_date=datetime(2026, 1, 1, 1, tzinfo=_UTC),
+        date_start=datetime(2026, 1, 1, tzinfo=_UTC),
+        date_end=datetime(2026, 1, 1, 1, tzinfo=_UTC),
         extra_properties={"X-CUSTOM-FIELD": "value"},
     )
     assert serializer.to_dict(event)["extra_properties"] == {"X-CUSTOM-FIELD": "value"}
@@ -159,8 +159,8 @@ def test_extra_properties(serializer):
 def test_reminders(serializer):
     event = CalEvent(
         uid="u@e.com", title="T",
-        start_date=datetime(2026, 1, 1, tzinfo=_UTC),
-        end_date=datetime(2026, 1, 1, 1, tzinfo=_UTC),
+        date_start=datetime(2026, 1, 1, tzinfo=_UTC),
+        date_end=datetime(2026, 1, 1, 1, tzinfo=_UTC),
         reminders=[
             CalReminder(method=ReminderMethod.POPUP, minutes_before=15),
             CalReminder(method=ReminderMethod.EMAIL, minutes_before=60),
@@ -171,11 +171,59 @@ def test_reminders(serializer):
     assert rems[1] == {"method": "email", "minutes_before": 60}
 
 
+# ==========================================================================
+# VTODO fields
+# ==========================================================================
+
+def test_component_type_event_default(serializer, minimal_event):
+    assert serializer.to_dict(minimal_event)["component_type"] == "event"
+
+
+def test_component_type_task(serializer):
+    event = CalEvent(
+        uid="t@e.com", title="T",
+        date_start=datetime(2026, 1, 1, tzinfo=_UTC),
+        date_end=datetime(2026, 1, 31, tzinfo=_UTC),
+        component_type=ComponentType.TASK,
+    )
+    assert serializer.to_dict(event)["component_type"] == "task"
+
+
+def test_percent_complete_null_when_absent(serializer, minimal_event):
+    assert serializer.to_dict(minimal_event)["percent_complete"] is None
+
+
+def test_percent_complete_value(serializer):
+    event = CalEvent(
+        uid="t@e.com", title="T",
+        date_start=datetime(2026, 1, 1, tzinfo=_UTC),
+        date_end=datetime(2026, 1, 31, tzinfo=_UTC),
+        component_type=ComponentType.TASK,
+        percent_complete=60,
+    )
+    assert serializer.to_dict(event)["percent_complete"] == 60
+
+
+def test_completed_at_null_when_absent(serializer, minimal_event):
+    assert serializer.to_dict(minimal_event)["completed_at"] is None
+
+
+def test_completed_at_serialized(serializer):
+    event = CalEvent(
+        uid="t@e.com", title="T",
+        date_start=datetime(2026, 1, 1, tzinfo=_UTC),
+        date_end=datetime(2026, 1, 31, tzinfo=_UTC),
+        component_type=ComponentType.TASK,
+        completed_at=datetime(2026, 1, 15, 12, 0, 0, tzinfo=_UTC),
+    )
+    assert serializer.to_dict(event)["completed_at"] == "2026-01-15T12:00:00.000Z"
+
+
 def test_conference_data_and_attachment(serializer):
     event = CalEvent(
         uid="u@e.com", title="T",
-        start_date=datetime(2026, 1, 1, tzinfo=_UTC),
-        end_date=datetime(2026, 1, 1, 1, tzinfo=_UTC),
+        date_start=datetime(2026, 1, 1, tzinfo=_UTC),
+        date_end=datetime(2026, 1, 1, 1, tzinfo=_UTC),
         conference_data=CalConferenceData(
             type="zoom", url="https://zoom.us/j/123", conference_id="123",
             entry_points=[CalConferenceEntryPoint(type="video", uri="https://zoom.us/j/123", label="Zoom")],

@@ -20,6 +20,7 @@ from app.module.calendar.model.enums.EventVisibility import EventVisibility
 from app.module.calendar.model.enums.RecurrenceFrequency import RecurrenceFrequency
 from app.module.calendar.model.enums.ReminderMethod import ReminderMethod
 from app.module.calendar.model.enums.ShowAs import ShowAs
+from app.module.calendar.model.enums.ComponentType import ComponentType
 from app.module.calendar.serializer.CalendarEventSerializerIcal import CalendarEventSerializerIcal
 
 
@@ -47,8 +48,8 @@ def minimal_event():
     return CalEvent(
         uid="test-uid@example.com",
         title="Test Event",
-        start_date=datetime(2024, 3, 15, 9, 0, 0, tzinfo=timezone.utc),
-        end_date=datetime(2024, 3, 15, 10, 0, 0, tzinfo=timezone.utc),
+        date_start=datetime(2024, 3, 15, 9, 0, 0, tzinfo=timezone.utc),
+        date_end=datetime(2024, 3, 15, 10, 0, 0, tzinfo=timezone.utc),
     )
 
 
@@ -95,8 +96,8 @@ def test_optional_text_properties(serializer):
     event = CalEvent(
         uid="opt@test.com",
         title="With Optionals",
-        start_date=datetime(2024, 1, 1, 10, 0, tzinfo=timezone.utc),
-        end_date=datetime(2024, 1, 1, 11, 0, tzinfo=timezone.utc),
+        date_start=datetime(2024, 1, 1, 10, 0, tzinfo=timezone.utc),
+        date_end=datetime(2024, 1, 1, 11, 0, tzinfo=timezone.utc),
         description="A description.",
         location="Room 101",
         url="https://example.com",
@@ -113,8 +114,8 @@ def test_status_and_visibility(serializer):
     event = CalEvent(
         uid="sv@test.com",
         title="Status Test",
-        start_date=datetime(2024, 1, 1, tzinfo=timezone.utc),
-        end_date=datetime(2024, 1, 1, 1, tzinfo=timezone.utc),
+        date_start=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        date_end=datetime(2024, 1, 1, 1, tzinfo=timezone.utc),
         status=EventStatus.TENTATIVE,
         visibility=EventVisibility.PRIVATE,
         show_as=ShowAs.FREE,
@@ -129,8 +130,8 @@ def test_show_as_out_of_office(serializer):
     event = CalEvent(
         uid="ooo@test.com",
         title="OOO",
-        start_date=datetime(2024, 1, 1, tzinfo=timezone.utc),
-        end_date=datetime(2024, 1, 1, 1, tzinfo=timezone.utc),
+        date_start=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        date_end=datetime(2024, 1, 1, 1, tzinfo=timezone.utc),
         show_as=ShowAs.OUT_OF_OFFICE,
     )
     output = serializer.serialize(event)
@@ -142,8 +143,8 @@ def test_categories(serializer):
     event = CalEvent(
         uid="cat@test.com",
         title="Categorized",
-        start_date=datetime(2024, 1, 1, tzinfo=timezone.utc),
-        end_date=datetime(2024, 1, 1, 1, tzinfo=timezone.utc),
+        date_start=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        date_end=datetime(2024, 1, 1, 1, tzinfo=timezone.utc),
         categories=["MEETING", "PROJECT"],
     )
     output = serializer.serialize(event)
@@ -158,8 +159,8 @@ def test_text_escape_semicolon(serializer):
     event = CalEvent(
         uid="esc@test.com",
         title="Meeting; Planning",
-        start_date=datetime(2024, 1, 1, tzinfo=timezone.utc),
-        end_date=datetime(2024, 1, 1, 1, tzinfo=timezone.utc),
+        date_start=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        date_end=datetime(2024, 1, 1, 1, tzinfo=timezone.utc),
     )
     output = serializer.serialize(event)
     assert _has_line(output, r"SUMMARY:Meeting\; Planning")
@@ -169,8 +170,8 @@ def test_text_escape_comma(serializer):
     event = CalEvent(
         uid="esc@test.com",
         title="A, B",
-        start_date=datetime(2024, 1, 1, tzinfo=timezone.utc),
-        end_date=datetime(2024, 1, 1, 1, tzinfo=timezone.utc),
+        date_start=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        date_end=datetime(2024, 1, 1, 1, tzinfo=timezone.utc),
     )
     output = serializer.serialize(event)
     assert _has_line(output, r"SUMMARY:A\, B")
@@ -180,8 +181,8 @@ def test_text_escape_backslash(serializer):
     event = CalEvent(
         uid="esc@test.com",
         title=r"Path\to\file",
-        start_date=datetime(2024, 1, 1, tzinfo=timezone.utc),
-        end_date=datetime(2024, 1, 1, 1, tzinfo=timezone.utc),
+        date_start=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        date_end=datetime(2024, 1, 1, 1, tzinfo=timezone.utc),
     )
     output = serializer.serialize(event)
     assert _has_line(output, r"SUMMARY:Path\\to\\file")
@@ -191,8 +192,8 @@ def test_text_escape_newline_in_description(serializer):
     event = CalEvent(
         uid="esc@test.com",
         title="Event",
-        start_date=datetime(2024, 1, 1, tzinfo=timezone.utc),
-        end_date=datetime(2024, 1, 1, 1, tzinfo=timezone.utc),
+        date_start=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        date_end=datetime(2024, 1, 1, 1, tzinfo=timezone.utc),
         description="Line 1\nLine 2",
     )
     output = serializer.serialize(event)
@@ -209,8 +210,8 @@ def test_long_line_is_folded(serializer):
     event = CalEvent(
         uid="fold@test.com",
         title=long_title,
-        start_date=datetime(2024, 1, 1, tzinfo=timezone.utc),
-        end_date=datetime(2024, 1, 1, 1, tzinfo=timezone.utc),
+        date_start=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        date_end=datetime(2024, 1, 1, 1, tzinfo=timezone.utc),
     )
     output = serializer.serialize(event)
     raw_lines = output.split("\r\n")
@@ -223,8 +224,8 @@ def test_folded_line_continuation_starts_with_space(serializer):
     event = CalEvent(
         uid="fold@test.com",
         title=long_title,
-        start_date=datetime(2024, 1, 1, tzinfo=timezone.utc),
-        end_date=datetime(2024, 1, 1, 1, tzinfo=timezone.utc),
+        date_start=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        date_end=datetime(2024, 1, 1, 1, tzinfo=timezone.utc),
     )
     output = serializer.serialize(event)
     raw_lines = output.split("\r\n")
@@ -241,8 +242,8 @@ def test_allday_uses_date_format(serializer):
     event = CalEvent(
         uid="allday@test.com",
         title="Birthday",
-        start_date=datetime(2024, 6, 15, tzinfo=timezone.utc),
-        end_date=datetime(2024, 6, 16, tzinfo=timezone.utc),
+        date_start=datetime(2024, 6, 15, tzinfo=timezone.utc),
+        date_end=datetime(2024, 6, 16, tzinfo=timezone.utc),
         all_day=True,
     )
     output = serializer.serialize(event)
@@ -259,8 +260,8 @@ def test_tzid_datetime(serializer):
     event = CalEvent(
         uid="tz@test.com",
         title="Paris Meeting",
-        start_date=datetime(2024, 3, 15, 9, 0, 0, tzinfo=ZoneInfo("Europe/Paris")),
-        end_date=datetime(2024, 3, 15, 10, 0, 0, tzinfo=ZoneInfo("Europe/Paris")),
+        date_start=datetime(2024, 3, 15, 9, 0, 0, tzinfo=ZoneInfo("Europe/Paris")),
+        date_end=datetime(2024, 3, 15, 10, 0, 0, tzinfo=ZoneInfo("Europe/Paris")),
         timezone="Europe/Paris",
     )
     output = serializer.serialize(event)
@@ -276,8 +277,8 @@ def test_organizer_email_only(serializer):
     event = CalEvent(
         uid="org@test.com",
         title="Meeting",
-        start_date=datetime(2024, 1, 1, tzinfo=timezone.utc),
-        end_date=datetime(2024, 1, 1, 1, tzinfo=timezone.utc),
+        date_start=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        date_end=datetime(2024, 1, 1, 1, tzinfo=timezone.utc),
         organizer=CalOrganizer(email="boss@example.com"),
     )
     output = serializer.serialize(event)
@@ -288,14 +289,117 @@ def test_organizer_with_cn(serializer):
     event = CalEvent(
         uid="org@test.com",
         title="Meeting",
-        start_date=datetime(2024, 1, 1, tzinfo=timezone.utc),
-        end_date=datetime(2024, 1, 1, 1, tzinfo=timezone.utc),
+        date_start=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        date_end=datetime(2024, 1, 1, 1, tzinfo=timezone.utc),
         organizer=CalOrganizer(email="boss@example.com", name="John Smith"),
     )
     output = serializer.serialize(event)
     lines = _unfolded_lines(output)
     # RFC 5545 §3.2 : les valeurs de parametres contenant des espaces sont quotees
     assert any("ORGANIZER" in ln and 'CN="John Smith"' in ln and "mailto:boss@example.com" in ln for ln in lines)
+
+
+# ==========================================================================
+# VTODO
+# ==========================================================================
+
+def test_vtodo_begin_vtodo(serializer):
+    event = CalEvent(
+        uid="task@test.com", title="My Task",
+        date_start=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        date_end=datetime(2026, 1, 31, tzinfo=timezone.utc),
+        component_type=ComponentType.TASK,
+    )
+    output = serializer.serialize(event)
+    assert "BEGIN:VTODO" in output
+    assert "BEGIN:VEVENT" not in output
+
+
+def test_vtodo_uses_due_not_dtend(serializer):
+    event = CalEvent(
+        uid="task@test.com", title="My Task",
+        date_start=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        date_end=datetime(2026, 1, 31, tzinfo=timezone.utc),
+        component_type=ComponentType.TASK,
+    )
+    lines = _unfolded_lines(serializer.serialize(event))
+    assert any(ln.startswith("DUE:") for ln in lines)
+    assert not any(ln.startswith("DTEND:") for ln in lines)
+
+
+def test_vtodo_status_needs_action(serializer):
+    from app.module.calendar.model.enums.EventStatus import EventStatus
+    event = CalEvent(
+        uid="task@test.com", title="My Task",
+        date_start=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        date_end=datetime(2026, 1, 31, tzinfo=timezone.utc),
+        component_type=ComponentType.TASK,
+        status=EventStatus.NEEDS_ACTION,
+    )
+    assert _has_line(serializer.serialize(event), "STATUS:NEEDS-ACTION")
+
+
+def test_vtodo_status_completed(serializer):
+    from app.module.calendar.model.enums.EventStatus import EventStatus
+    event = CalEvent(
+        uid="task@test.com", title="Done Task",
+        date_start=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        date_end=datetime(2026, 1, 31, tzinfo=timezone.utc),
+        component_type=ComponentType.TASK,
+        status=EventStatus.COMPLETED,
+    )
+    assert _has_line(serializer.serialize(event), "STATUS:COMPLETED")
+
+
+def test_vtodo_percent_complete(serializer):
+    event = CalEvent(
+        uid="task@test.com", title="Partial Task",
+        date_start=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        date_end=datetime(2026, 1, 31, tzinfo=timezone.utc),
+        component_type=ComponentType.TASK,
+        percent_complete=75,
+    )
+    assert _has_line(serializer.serialize(event), "PERCENT-COMPLETE:75")
+
+
+def test_vtodo_percent_complete_absent_when_none(serializer):
+    event = CalEvent(
+        uid="task@test.com", title="Task",
+        date_start=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        date_end=datetime(2026, 1, 31, tzinfo=timezone.utc),
+        component_type=ComponentType.TASK,
+    )
+    lines = _unfolded_lines(serializer.serialize(event))
+    assert not any(ln.startswith("PERCENT-COMPLETE") for ln in lines)
+
+
+def test_vtodo_completed_at(serializer):
+    event = CalEvent(
+        uid="task@test.com", title="Done Task",
+        date_start=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        date_end=datetime(2026, 1, 31, tzinfo=timezone.utc),
+        component_type=ComponentType.TASK,
+        completed_at=datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc),
+    )
+    lines = _unfolded_lines(serializer.serialize(event))
+    assert any(ln.startswith("COMPLETED:") for ln in lines)
+
+
+def test_build_vcalendar_dispatches_vtodo_and_vevent(serializer):
+    event = CalEvent(
+        uid="evt@test.com", title="Event",
+        date_start=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        date_end=datetime(2026, 1, 1, 1, tzinfo=timezone.utc),
+    )
+    task = CalEvent(
+        uid="task@test.com", title="Task",
+        date_start=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        date_end=datetime(2026, 1, 31, tzinfo=timezone.utc),
+        component_type=ComponentType.TASK,
+    )
+    output = serializer.build_vcalendar([event, task])
+    assert "BEGIN:VEVENT" in output
+    assert "BEGIN:VTODO" in output
 
 
 # ==========================================================================
@@ -306,8 +410,8 @@ def test_attendee_basic(serializer):
     event = CalEvent(
         uid="att@test.com",
         title="Meeting",
-        start_date=datetime(2024, 1, 1, tzinfo=timezone.utc),
-        end_date=datetime(2024, 1, 1, 1, tzinfo=timezone.utc),
+        date_start=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        date_end=datetime(2024, 1, 1, 1, tzinfo=timezone.utc),
         attendees=[CalAttendee(email="alice@example.com", rsvp=True)],
     )
     output = serializer.serialize(event)
@@ -319,8 +423,8 @@ def test_attendee_role_and_status(serializer):
     event = CalEvent(
         uid="att@test.com",
         title="Meeting",
-        start_date=datetime(2024, 1, 1, tzinfo=timezone.utc),
-        end_date=datetime(2024, 1, 1, 1, tzinfo=timezone.utc),
+        date_start=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        date_end=datetime(2024, 1, 1, 1, tzinfo=timezone.utc),
         attendees=[CalAttendee(
             email="bob@example.com",
             role=AttendeeRole.OPTIONAL,
@@ -347,8 +451,8 @@ def test_rrule_weekly_with_count(serializer):
     event = CalEvent(
         uid="rrule@test.com",
         title="Recurring",
-        start_date=datetime(2024, 1, 1, 9, 0, tzinfo=timezone.utc),
-        end_date=datetime(2024, 1, 1, 10, 0, tzinfo=timezone.utc),
+        date_start=datetime(2024, 1, 1, 9, 0, tzinfo=timezone.utc),
+        date_end=datetime(2024, 1, 1, 10, 0, tzinfo=timezone.utc),
         recurrence_rule=rule,
     )
     output = serializer.serialize(event)
@@ -368,8 +472,8 @@ def test_rrule_monthly_with_until(serializer):
     event = CalEvent(
         uid="rrule@test.com",
         title="Monthly",
-        start_date=datetime(2024, 1, 1, 9, 0, tzinfo=timezone.utc),
-        end_date=datetime(2024, 1, 1, 10, 0, tzinfo=timezone.utc),
+        date_start=datetime(2024, 1, 1, 9, 0, tzinfo=timezone.utc),
+        date_end=datetime(2024, 1, 1, 10, 0, tzinfo=timezone.utc),
         recurrence_rule=rule,
     )
     output = serializer.serialize(event)
@@ -388,8 +492,8 @@ def test_valarm_display(serializer):
     event = CalEvent(
         uid="alarm@test.com",
         title="Meeting",
-        start_date=datetime(2024, 1, 1, 9, 0, tzinfo=timezone.utc),
-        end_date=datetime(2024, 1, 1, 10, 0, tzinfo=timezone.utc),
+        date_start=datetime(2024, 1, 1, 9, 0, tzinfo=timezone.utc),
+        date_end=datetime(2024, 1, 1, 10, 0, tzinfo=timezone.utc),
         reminders=[CalReminder(method=ReminderMethod.POPUP, minutes_before=15)],
     )
     output = serializer.serialize(event)
@@ -403,8 +507,8 @@ def test_valarm_email(serializer):
     event = CalEvent(
         uid="alarm@test.com",
         title="Meeting",
-        start_date=datetime(2024, 1, 1, 9, 0, tzinfo=timezone.utc),
-        end_date=datetime(2024, 1, 1, 10, 0, tzinfo=timezone.utc),
+        date_start=datetime(2024, 1, 1, 9, 0, tzinfo=timezone.utc),
+        date_end=datetime(2024, 1, 1, 10, 0, tzinfo=timezone.utc),
         reminders=[CalReminder(method=ReminderMethod.EMAIL, minutes_before=30)],
     )
     output = serializer.serialize(event)
@@ -420,8 +524,8 @@ def test_attach_uri(serializer):
     event = CalEvent(
         uid="attach@test.com",
         title="Meeting",
-        start_date=datetime(2024, 1, 1, tzinfo=timezone.utc),
-        end_date=datetime(2024, 1, 1, 1, tzinfo=timezone.utc),
+        date_start=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        date_end=datetime(2024, 1, 1, 1, tzinfo=timezone.utc),
         attachments=[CalAttachment(
             url="https://example.com/doc.pdf",
             mime_type="application/pdf",
@@ -435,8 +539,8 @@ def test_attach_binary(serializer):
     event = CalEvent(
         uid="attach@test.com",
         title="Meeting",
-        start_date=datetime(2024, 1, 1, tzinfo=timezone.utc),
-        end_date=datetime(2024, 1, 1, 1, tzinfo=timezone.utc),
+        date_start=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        date_end=datetime(2024, 1, 1, 1, tzinfo=timezone.utc),
         attachments=[CalAttachment(data=b"hello", mime_type="text/plain")],
     )
     output = serializer.serialize(event)

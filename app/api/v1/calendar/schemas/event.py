@@ -73,8 +73,8 @@ class CalendarEventSchema(Schema):
     title = fields.String()
     description = fields.String(allow_none=True)
     location = fields.String(allow_none=True)
-    start_date = fields.String(metadata={"description": "ISO 8601 UTC with millisecond precision."})
-    end_date = fields.String(metadata={"description": "ISO 8601 UTC with millisecond precision."})
+    date_start = fields.String(metadata={"description": "ISO 8601 UTC with millisecond precision."})
+    date_end = fields.String(metadata={"description": "ISO 8601 UTC with millisecond precision."})
     all_day = fields.Boolean()
     timezone = fields.String()
     status = fields.String()
@@ -92,6 +92,9 @@ class CalendarEventSchema(Schema):
     attachments = fields.List(fields.Dict())
     created_at = fields.String(allow_none=True)
     updated_at = fields.String(allow_none=True)
+    component_type = fields.String()
+    percent_complete = fields.Integer(allow_none=True)
+    completed_at = fields.String(allow_none=True)
 
 
 class CalendarEventListDataSchema(Schema):
@@ -119,8 +122,8 @@ class CalendarEventListResponseSchema(ApiBaseResponse):
                         "title": "Team Standup",
                         "description": "Daily team sync meeting",
                         "location": "Conference Room A",
-                        "start_date": "2026-03-19T09:30:00.000Z",
-                        "end_date": "2026-03-19T10:00:00.000Z",
+                        "date_start": "2026-03-19T09:30:00.000Z",
+                        "date_end": "2026-03-19T10:00:00.000Z",
                         "all_day": False,
                         "timezone": "Europe/Paris",
                         "status": "confirmed",

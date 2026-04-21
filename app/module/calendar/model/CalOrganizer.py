@@ -9,13 +9,17 @@ from app.module.calendar.model.enums.AttendeeStatus import AttendeeStatus
 @dataclass
 class CalOrganizer:
     """
-    Organizer of a calendar event (RFC 5545 ORGANIZER).
-    role and status are not part of RFC 5545 ORGANIZER but are used in the JSON API
-    to represent the organizer's participation role and confirmation status.
+    Organizer of a calendar event (RFC 5545 §3.8.4.3 ORGANIZER).
     """
+    # RFC 5545 §3.3.3 CAL-ADDRESS — mailto: URI of the organizer
     email: str
+    # RFC 5545 §3.2.2 CN parameter — common name for display
     name: str | None = None
+    # RFC 5545 §3.2.16 ROLE parameter — organizational role (e.g. CHAIR)
     role: AttendeeRole | None = None
+    # RFC 5545 §3.2.12 PARTSTAT parameter — participation status of the organizer
     status: AttendeeStatus | None = None
+    # RFC 5545 §3.2.18 SENT-BY parameter — acting on behalf of another calendar user
     sent_by: str | None = None
+    # RFC 5545 §3.2.6 DIR parameter — URI to a directory entry (e.g. ldap://…)
     dir_ref: str | None = None

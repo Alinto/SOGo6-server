@@ -1,5 +1,5 @@
 from flask_smorest import Blueprint
 
-from .ApiCalendarEvents import blp as calendar_events_blueprint
+from .ApiCalendar import blp as calendar_blueprint
 
-calendar_apis: list[Blueprint] = [calendar_events_blueprint]
+calendar_apis: list[Blueprint] = [calendar_blueprint]

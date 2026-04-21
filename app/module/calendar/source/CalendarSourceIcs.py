@@ -15,6 +15,7 @@ from app.utils.exceptions import RequestException
 from app.utils.logger.logger import logger_calendar
 
 if TYPE_CHECKING:
+    from app.module.calendar.model.CalCalendar import CalCalendar
     from app.module.calendar.model.CalEvent import CalEvent
     from app.module.calendar.serializer.CalendarEventsDeserializerIcal import CalendarEventsDeserializerIcal
 
@@ -29,8 +30,8 @@ class CalendarSourceIcs(CalendarSource):
     and search are handled by the base class.
     """
 
-    def __init__(self, ics_url: str, deserializer: CalendarEventsDeserializerIcal) -> None:
-        super().__init__()
+    def __init__(self, calendar: CalCalendar, ics_url: str, deserializer: CalendarEventsDeserializerIcal) -> None:
+        super().__init__(calendar)
         self._validate_url(ics_url)
         self._ics_url: str = ics_url
         self._deserializer: CalendarEventsDeserializerIcal = deserializer
