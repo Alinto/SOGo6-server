@@ -114,7 +114,9 @@ class RepositoryEvent:
             OrCondition(non_recurring, recurring),
         )
         if search:
-            condition = AndCondition(condition, LikeCondition(tbl.COL_EVT_SEARCH_VECTOR.name, f"%{search}%"))
+            # Escape LIKE special characters so the search is a literal substring match.
+            safe = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            condition = AndCondition(condition, LikeCondition(tbl.COL_EVT_SEARCH_VECTOR.name, f"%{safe}%"))
         rows = self._db.select_from_table(
             table_name=tbl.TABLE_EVENT.name,
             column_tuple=_ALL_COLS,

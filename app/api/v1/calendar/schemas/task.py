@@ -45,28 +45,34 @@ class CalendarTaskCreateSchema(Schema):
     """Request body for creating a new VTODO."""
 
     uid = fields.String(load_default=None, allow_none=True)
-    title = fields.String(required=True)
-    description = fields.String(load_default=None, allow_none=True)
+    title = fields.String(required=True, metadata={"example": "Prepare the meeting"})
+    description = fields.String(load_default=None, allow_none=True, metadata={"example": "Agenda and slides"})
     date_start = fields.String(load_default=None, allow_none=True,
-                               metadata={"description": "ISO 8601 UTC. Defaults to now if absent."})
+                               metadata={"description": "ISO 8601 UTC. Defaults to now if absent.",
+                                         "example": "2026-04-22T09:00:00.000Z"})
     due = fields.String(load_default=None, allow_none=True,
-                        metadata={"description": "ISO 8601 UTC due date (RFC 5545 DUE). No limit if absent."})
+                        metadata={"description": "ISO 8601 UTC due date (RFC 5545 DUE). No limit if absent.",
+                                  "example": "2026-04-23T17:00:00.000Z"})
     status = fields.String(load_default=None, allow_none=True,
-                           metadata={"description": "needs_action | in_process | completed | cancelled"})
-    visibility = fields.String(load_default=None, allow_none=True)
-    priority = fields.Integer(load_default=0, validate=validate.Range(min=0, max=9))
+                           metadata={"description": "needs_action | in_process | completed | cancelled",
+                                     "example": "needs_action"})
+    visibility = fields.String(load_default=None, allow_none=True,
+                               metadata={"example": "public"})
+    priority = fields.Integer(load_default=0, validate=validate.Range(min=0, max=9),
+                              metadata={"example": 1})
     percent_complete = fields.Integer(load_default=None, allow_none=True,
-                                      validate=validate.Range(min=0, max=100))
+                                      validate=validate.Range(min=0, max=100),
+                                      metadata={"example": 0})
     completed_at = fields.String(load_default=None, allow_none=True)
-    categories = fields.List(fields.String(), load_default=list)
-    reminders = fields.List(fields.Dict(), load_default=list)
-    organizer = fields.Dict(load_default=None, allow_none=True)
-    attendees = fields.List(fields.Dict(), load_default=list)
-    related_to = fields.List(fields.Dict(), load_default=list)
-    attachments = fields.List(fields.Dict(), load_default=list)
-    extra_properties = fields.Dict(load_default=dict)
-    recurrence_rule = fields.Dict(load_default=None, allow_none=True)
-    recurrence_exceptions = fields.List(fields.String(), load_default=list)
+    categories = fields.List(fields.String(), load_default=list, metadata={"example": []})
+    reminders = fields.List(fields.Dict(), load_default=list, metadata={"example": []})
+    organizer = fields.Dict(load_default=None, allow_none=True, metadata={"example": None})
+    attendees = fields.List(fields.Dict(), load_default=list, metadata={"example": []})
+    related_to = fields.List(fields.Dict(), load_default=list, metadata={"example": []})
+    attachments = fields.List(fields.Dict(), load_default=list, metadata={"example": []})
+    extra_properties = fields.Dict(load_default=dict, metadata={"example": {}})
+    recurrence_rule = fields.Dict(load_default=None, allow_none=True, metadata={"example": None})
+    recurrence_exceptions = fields.List(fields.String(), load_default=list, metadata={"example": []})
 
 
 class CalendarTaskPatchSchema(Schema):

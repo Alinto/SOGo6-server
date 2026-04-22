@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import os
 from datetime import datetime
+
+# pylint: disable=fixme
 from typing import TYPE_CHECKING
 
+from app.module.calendar.model.CalCalendar import CalCalendar
 from app.module.calendar.repository.RepositoryCalendar import RepositoryCalendar
 from app.module.calendar.serializer.CalendarEventDeserializerIcal import CalendarEventDeserializerIcal
 from app.module.calendar.serializer.CalendarEventsDeserializerIcal import CalendarEventsDeserializerIcal
@@ -14,12 +18,12 @@ from app.utils.logger.logger import logger_calendar
 
 if TYPE_CHECKING:
     from app.manager.db.ClientSQL import ClientSQL
-    from app.module.calendar.model.CalCalendar import CalCalendar
     from app.module.calendar.model.CalEvent import CalEvent
     from app.module.calendar.source.CalendarSource import CalendarSource
 
 _SOURCE_TYPE_LOCAL = "local"
 _SOURCE_TYPE_ICS = "ics"
+_ICS_STUB_KEY = "ics"  # TODO: TO DELETE
 
 
 class CalendarSources:
@@ -55,6 +59,13 @@ class CalendarSources:
 
     def get_by_key(self, user_uid: str, key: str) -> CalendarSource | None:
         """Return the source for a specific calendar, or None if not found."""
+        # TODO: TO DELETE — ICS stub: calendar_key "ics" resolves to ICS_STUB_URL env var
+        if key == _ICS_STUB_KEY:
+            url = os.getenv("ICS_STUB_URL") or "https://calendar.google.com/calendar/ical/8f0aaf825b126f8f3f8ae5799c3c8699bcf04b115bfee085467e19f71ba084ba%40group.calendar.google.com/private-5e54ad70f6be3e5a740648483b0469dd/basic.ics"
+            if not url:
+                return None
+            stub_cal = CalCalendar(user_uid=user_uid, name="ICS Stub", key=_ICS_STUB_KEY, source_type=_SOURCE_TYPE_ICS)
+            return CalendarSourceIcs(stub_cal, url, CalendarEventsDeserializerIcal(CalendarEventDeserializerIcal()))
         cal = self._repo_calendar.find_by_key(user_uid, key)
         return self.get(cal) if cal is not None else None
 

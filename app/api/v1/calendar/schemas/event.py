@@ -5,11 +5,16 @@ from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Any
 
-from marshmallow import Schema, fields, validate
+from marshmallow import Schema, ValidationError, fields, validate
 
 from app.utils.api.ApiBaseResponse import ApiBaseResponse
 
 _SEARCH_MAX_LENGTH = 200
+
+
+def _validate_search(value: str | None) -> None:
+    if value is not None and len(value.strip()) < 2:
+        raise ValidationError("Search query must contain at least 2 non-whitespace characters.")
 
 class DateTimeUtcField(fields.DateTime):
     """DateTime field that always returns a UTC-aware datetime.
@@ -56,8 +61,8 @@ class CalendarEventQueryArgsSchema(Schema):
     search = fields.String(
         load_default=None,
         allow_none=True,
-        validate=validate.Length(max=_SEARCH_MAX_LENGTH),
-        metadata={"description": "Full-text search in title, description and location."},
+        validate=[validate.Length(max=_SEARCH_MAX_LENGTH), _validate_search],
+        metadata={"description": "Full-text search in title, description and location. Must contain at least 2 non-whitespace characters."},
     )
 
 
@@ -108,29 +113,39 @@ class CalendarEventCreateSchema(Schema):
     """Request body for creating a new event."""
 
     uid = fields.String(load_default=None, allow_none=True)
-    title = fields.String(required=True)
-    description = fields.String(load_default=None, allow_none=True)
-    location = fields.String(load_default=None, allow_none=True)
-    date_start = fields.String(required=True, metadata={"description": "ISO 8601 UTC datetime."})
-    date_end = fields.String(required=True, metadata={"description": "ISO 8601 UTC datetime."})
+    title = fields.String(required=True, metadata={"example": "Team Standup"})
+    description = fields.String(load_default=None, allow_none=True, metadata={"example": "Daily sync"})
+    location = fields.String(load_default=None, allow_none=True, metadata={"example": "Conference Room A"})
+    date_start = fields.String(required=True,
+                               metadata={"description": "ISO 8601 UTC datetime.",
+                                         "example": "2026-04-22T09:30:00.000Z"})
+    date_end = fields.String(required=True,
+                             metadata={"description": "ISO 8601 UTC datetime.",
+                                       "example": "2026-04-22T10:00:00.000Z"})
     all_day = fields.Boolean(load_default=False)
-    timezone = fields.String(load_default="UTC")
-    status = fields.String(load_default=None, allow_none=True)
-    visibility = fields.String(load_default=None, allow_none=True)
-    show_as = fields.String(load_default=None, allow_none=True)
+    timezone = fields.String(load_default="UTC", metadata={"example": "Europe/Paris"})
+    status = fields.String(load_default=None, allow_none=True,
+                           metadata={"description": "confirmed | tentative | cancelled",
+                                     "example": "confirmed"})
+    visibility = fields.String(load_default=None, allow_none=True,
+                               metadata={"description": "public | private | confidential",
+                                         "example": "public"})
+    show_as = fields.String(load_default=None, allow_none=True,
+                            metadata={"description": "busy | free | out-of-office | tentative",
+                                      "example": "busy"})
     url = fields.String(load_default=None, allow_none=True)
-    color = fields.String(load_default=None, allow_none=True)
-    categories = fields.List(fields.String(), load_default=list)
+    color = fields.String(load_default=None, allow_none=True, metadata={"example": "#3B82F6"})
+    categories = fields.List(fields.String(), load_default=list, metadata={"example": []})
     sequence = fields.Integer(load_default=0)
-    organizer = fields.Dict(load_default=None, allow_none=True)
-    attendees = fields.List(fields.Dict(), load_default=list)
-    reminders = fields.List(fields.Dict(), load_default=list)
-    conference_data = fields.Dict(load_default=None, allow_none=True)
-    related_to = fields.List(fields.Dict(), load_default=list)
-    attachments = fields.List(fields.Dict(), load_default=list)
-    extra_properties = fields.Dict(load_default=dict)
-    recurrence_rule = fields.Dict(load_default=None, allow_none=True)
-    recurrence_exceptions = fields.List(fields.String(), load_default=list)
+    organizer = fields.Dict(load_default=None, allow_none=True, metadata={"example": None})
+    attendees = fields.List(fields.Dict(), load_default=list, metadata={"example": []})
+    reminders = fields.List(fields.Dict(), load_default=list, metadata={"example": []})
+    conference_data = fields.Dict(load_default=None, allow_none=True, metadata={"example": None})
+    related_to = fields.List(fields.Dict(), load_default=list, metadata={"example": []})
+    attachments = fields.List(fields.Dict(), load_default=list, metadata={"example": []})
+    extra_properties = fields.Dict(load_default=dict, metadata={"example": {}})
+    recurrence_rule = fields.Dict(load_default=None, allow_none=True, metadata={"example": None})
+    recurrence_exceptions = fields.List(fields.String(), load_default=list, metadata={"example": []})
     recurrence_id = fields.String(load_default=None, allow_none=True)
     percent_complete = fields.Integer(load_default=None, allow_none=True)
     completed_at = fields.String(load_default=None, allow_none=True)

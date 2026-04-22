@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import calendar
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
@@ -20,6 +21,15 @@ if TYPE_CHECKING:
     from app.module.calendar.model.CalEvent import CalEvent
 
 _FAR_FUTURE = "9999-12-31T23:59:59Z"
+
+
+def _add_months(dt: datetime, months: int) -> datetime:
+    """Return dt shifted by the given number of months, clamping to the last day if needed."""
+    total = dt.month - 1 + months
+    year = dt.year + total // 12
+    month = total % 12 + 1
+    day = min(dt.day, calendar.monthrange(year, month)[1])
+    return dt.replace(year=year, month=month, day=day)
 
 
 class InterfaceApiCalendarCalendar:
@@ -181,10 +191,14 @@ class InterfaceApiCalendarCalendar:
             return create_api_base_response(None, ERROR_UNKOWN)
 
     def get_tasks(self, key: str | None, query_args: dict[str, Any]) -> tuple[dict[str, Any], int]:
-        """List VTODO tasks in a calendar with optional date range and search filters."""
+        """List VTODO tasks in a calendar with optional date range and search filters.
+
+        When no date bounds are provided, defaults to 3 months ago → 9 months ahead.
+        """
         try:
-            start: datetime | None = query_args.get("start_date_time")
-            end: datetime | None = query_args.get("end_date_time")
+            now = datetime.now(timezone.utc)
+            start: datetime = query_args.get("start_date_time") or _add_months(now, -3)
+            end: datetime = query_args.get("end_date_time") or _add_months(now, 9)
             search: str | None = query_args.get("search")
             tasks: list[CalEvent] = self.module.get_tasks(start, end, search, key)
             data = {"tasks": [self._event_serializer.to_dict(t) for t in tasks], "total_count": len(tasks)}

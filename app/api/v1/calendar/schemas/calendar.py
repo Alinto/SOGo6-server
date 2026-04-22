@@ -10,19 +10,27 @@ _COLOR_REGEX = r"^#[0-9A-Fa-f]{6}$"
 class CalendarCreateSchema(Schema):
     """Request body for creating a calendar."""
 
-    name        = fields.String(required=True, validate=validate.Length(min=1, max=255))
-    color       = fields.String(load_default="#3B82F6", validate=validate.Regexp(_COLOR_REGEX))
-    description = fields.String(load_default=None, allow_none=True)
-    timezone    = fields.String(load_default="UTC", validate=validate.Length(max=64))
+    name        = fields.String(required=True, validate=validate.Length(min=1, max=255),
+                                metadata={"example": "Work"})
+    color       = fields.String(load_default="#3B82F6", validate=validate.Regexp(_COLOR_REGEX),
+                                metadata={"example": "#3B82F6"})
+    description = fields.String(load_default=None, allow_none=True,
+                                metadata={"example": "Professional calendar"})
+    timezone    = fields.String(load_default="UTC", validate=validate.Length(max=64),
+                                metadata={"example": "Europe/Paris"})
 
 
 class CalendarUpdateSchema(Schema):
     """Request body for updating a calendar (all fields optional)."""
 
-    name        = fields.String(validate=validate.Length(min=1, max=255))
-    color       = fields.String(validate=validate.Regexp(_COLOR_REGEX))
-    description = fields.String(allow_none=True)
-    timezone    = fields.String(validate=validate.Length(max=64))
+    name        = fields.String(validate=validate.Length(min=1, max=255),
+                                metadata={"example": "Work"})
+    color       = fields.String(validate=validate.Regexp(_COLOR_REGEX),
+                                metadata={"example": "#3B82F6"})
+    description = fields.String(allow_none=True,
+                                metadata={"example": "Professional calendar"})
+    timezone    = fields.String(validate=validate.Length(max=64),
+                                metadata={"example": "Europe/Paris"})
     is_default  = fields.Boolean()
 
 

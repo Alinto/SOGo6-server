@@ -1,193 +1,108 @@
 = Calendar Module
 
-The calendar module manages calendar events from multiple sources (external ICS feeds, database, CalDAV servers).
-It is structured around a single domain object, `CalEvent`, that flows through a pipeline of sources, serializers and deserializers without any format leaking across layers.
+The calendar module manages calendars and events stored in the database or fetched from external ICS feeds.
+It is built around two domain objects — `CalCalendar` and `CalEvent` — that flow through sources, repositories, RRULE expansion, and serializers without any format leaking across layers.
 
 == Architecture overview
 
 ----
   Data sources                    Consumers
   ─────────────                   ─────────
-  External ICS URL                REST API
-  Database                        CalDAV server
-  CalDAV server
+  Database (sogo_events)          REST API (JSON)
+  Remote ICS URL                  CalDAV server (ICS)
          │                               │
          ▼                               ▼
-   CalendarSource              Serializer (JSON / ICS)
-   (fetch + pipeline)                    │
+   CalendarSources (factory)       Serializer (JSON / ICS)
          │                               │
-         └────────── list[CalEvent] ─────┘
+   CalendarSource (pipeline)            │
+         │                              │
+         └──────── list[CalEvent] ──────┘
 ----
 
-Everything inside the module manipulates only `CalEvent` objects.
-No ICS text, raw dict or database row ever crosses a layer boundary.
-
-== UTC everywhere
-
-All datetime values in the calendar module are stored and processed in UTC.
-This applies at every stage of the pipeline:
-
-* *Deserialization* — `CalendarEventDeserializerIcal` converts every date/time property to UTC regardless of its original form: TZID-qualified values are converted via `zoneinfo`, naive values are assumed UTC, and date-only (all-day) values become midnight UTC.
-* *Domain model* — `CalEvent.start_date` and `CalEvent.end_date` are always UTC-aware `datetime` objects. The original timezone identifier is preserved separately in `CalEvent.timezone` for display purposes only.
-* *Filtering* — `CalendarSource` normalizes the `start` and `end` bounds to UTC before applying any filter. Naive bounds are treated as UTC.
-* *Serialization* — `CalendarEventSerializerJson` formats all datetimes as ISO 8601 UTC with millisecond precision and a trailing `Z` (e.g. `2026-03-19T09:30:00.000Z`).
+`ModuleCalendar` is the single entry point for all business logic.
+It delegates source resolution to `CalendarSources`, which returns the right `CalendarSource` implementation for each calendar.
 
 == Domain model
 
-=== CalEvent
-
-`app/module/calendar/model/CalEvent.py`
-
-`CalEvent` is the single canonical representation of a calendar event, regardless of its origin.
+`CalEvent` (`app/module/calendar/model/CalEvent.py`) is the single canonical representation of a calendar component (VEVENT, VTODO or VJOURNAL).
 It is a plain Python dataclass with no dependency on any serialization format.
+The `component_type` field (`EVENT`, `TASK`, `JOURNAL`) discriminates between component kinds stored in the same table.
 
-Key fields:
+Fields are either *relational* (stored as dedicated columns for filtering: `date_start`, `date_end`, `component_type`, `show_as`, `rrule`, `is_deleted`, `recurrence_id`) or *blob* (everything else, stored as JSON in `cal_event`).
+`calendar_key` and `calendar_timezone` are set by the source layer at query time and never persisted in the blob.
 
-[%autowidth]
-|===
-|Field |Type |Description
+`CalCalendar` (`app/module/calendar/model/CalCalendar.py`) maps to the `sogo_calendars` table.
+The `source_type` field (`'local'`, `'ics'`, `'caldav'`) drives dispatch in `CalendarSources`.
+`ctag` is incremented on every event mutation and used by CalDAV clients to detect changes without fetching the full event list.
+External sync metadata (URL, credentials, etag) lives in the `sync_config` JSON column, which is `NULL` for local calendars.
 
-|`uid` |`str` |RFC 5545 UID — globally unique identifier
-|`title` |`str` |SUMMARY property
-|`start_date` |`datetime` |Always UTC-aware
-|`end_date` |`datetime` |Always UTC-aware
-|`all_day` |`bool` |True when the source carries a DATE (not DATE-TIME) value
-|`timezone` |`str` |Original TZID string (e.g. `Europe/Paris`), preserved for display only
-|`status` |`EventStatus` |`confirmed`, `tentative`, `cancelled`
-|`visibility` |`EventVisibility` |`public`, `private`, `confidential`
-|`show_as` |`ShowAs` |`busy`, `free`, `out-of-office`, `tentative`
-|`recurrence_rule` |`CalRecurrenceRule \| None` |Parsed RRULE; `None` for single events
-|`recurrence_exceptions` |`list[datetime]` |EXDATE occurrences to suppress
-|`recurrence_id` |`datetime \| None` |Set on override events (RECURRENCE-ID)
-|`extra_properties` |`dict[str, str]` |Raw `X-*` extension properties
-|===
-
-=== Sub-models
-
-[%autowidth]
-|===
-|Class |RFC 5545 property |Role
-
-|`CalOrganizer` |`ORGANIZER` |Event organizer (email, name, role, status)
-|`CalAttendee` |`ATTENDEE` |Participant; `cutype` distinguishes individuals, rooms and groups
-|`CalReminder` |`VALARM` |Alarm attached to the event (method + minutes_before)
-|`CalAttachment` |`ATTACH` |URI or inline binary attachment
-|`CalConferenceData` |`X-*` extensions |Conference call metadata (Zoom, Meet, etc.)
-|`CalRecurrenceRule` |`RRULE` |Recurrence parameters (frequency, interval, count, until, by_day, etc.)
-|`CalEventRelation` |`RELATED-TO` |Reference to a parent, child or sibling event
-|===
-
-All enum values are serialized as their lowercase string representation in JSON (e.g. `AttendeeRole.CHAIR` → `"chair"`).
-
-== Serialization
-
-Serializers and deserializers live in `app/module/calendar/serializer/`.
-Two formats are supported: iCalendar (RFC 5545) and JSON (REST API).
-
-=== ICS — iCalendar (RFC 5545)
-
-----
-ICS text
-   │
-   ▼
-CalendarEventsDeserializerIcal      (one VCALENDAR → list[CalEvent])
-   └── CalendarEventDeserializerIcal  (one VEVENT → CalEvent)
-
-CalEvent
-   │
-   ▼
-CalendarEventSerializerIcal         (CalEvent → VCALENDAR text)
-CalendarEventsSerializerIcal        (list[CalEvent] → VCALENDAR text)
-----
-
-`CalendarEventsDeserializerIcal` walks the VCALENDAR component tree and delegates each `VEVENT` to `CalendarEventDeserializerIcal`.
-`VTIMEZONE`, `VTODO`, `VJOURNAL` and `VFREEBUSY` components are silently ignored.
-A malformed `VEVENT` is skipped with a warning; a completely unparseable VCALENDAR raises a `RequestException`.
-
-`CalendarEventDeserializerIcal` maps RFC 5545 property names to `CalEvent` fields using module-level lookup tables (e.g. `_ROLE_MAP`, `_PARTSTAT_MAP`).
-
-=== JSON (REST API)
-
-----
-CalEvent
-   │
-   ▼
-CalendarEventSerializerJson         (CalEvent → dict)
-CalendarEventsSerializerJson        (list[CalEvent] → { "events": [...], "total_count": N })
-----
-
-`CalendarEventSerializerJson.to_dict()` produces a flat dict matching the SOGo6 REST API schema.
-Datetimes are formatted as ISO 8601 UTC with millisecond precision (`2026-03-19T09:30:00.000Z`).
-All fields are always present: optional fields are `null`, empty lists are `[]`, empty dicts are `{}`.
-
-== Recurrence — RruleEngine
-
-`app/module/calendar/rrule/RruleEngine.py`
-
-`RruleEngine` expands a recurring master `CalEvent` into a flat list of occurrence `CalEvent` objects within a given date window.
-It is implemented entirely with Python stdlib (`datetime`, `zoneinfo`) — no external library.
-
-----
-master CalEvent (has recurrence_rule)
-+ list[CalEvent] overrides (have recurrence_id)
-+ start / end window
-         │
-         ▼
-    RruleEngine.expand()
-         │
-         ├── generate_dates()  — applies RRULE + RDATE
-         ├── suppress EXDATE occurrences
-         ├── replace overridden occurrences (RECURRENCE-ID)
-         └── clone master for each remaining date
-         │
-         ▼
-    list[CalEvent]  (one entry per occurrence in the window)
-----
-
-Each occurrence is a copy of the master with `start_date` / `end_date` adjusted to the occurrence date.
-Override events (those with a `recurrence_id`) replace their corresponding generated occurrence.
-
-Two utility methods support database optimization:
-
-* `get_min_date(master)` — returns the start of the first occurrence.
-* `get_max_date(master)` — returns the end of the last occurrence, or `None` for unbounded series.
-
-These allow a SQL query to pre-filter recurring events by their overall date range before expanding occurrences.
+All datetime values in the module are stored and processed in UTC.
+Naive datetimes are assumed UTC. The original TZID is preserved in `CalEvent.timezone` for display purposes only.
 
 == Calendar sources
 
 `app/module/calendar/source/`
 
-A *calendar source* abstracts where events come from.
-The abstract base class `CalendarSource` defines a fixed processing pipeline; subclasses only implement `_fetch_events()`.
+`CalendarSource` is an abstract base class that defines a fixed processing pipeline.
+Subclasses implement `_fetch_events()` (and optionally `_fetch_tasks()`); everything else is handled by the base class.
 
-=== CalendarSource (abstract)
+`get_events(start, end, search)` runs:
 
-`CalendarSource.get_events(start, end, search)` runs the following pipeline:
+. Resolve and normalize bounds to UTC
+. `_fetch_events()` — subclass fetches raw events
+. `_expand_recurring()` — RRULE expansion (see below)
+. `filter()` — date range check + optional full-text search
+. Sort ascending by `date_start`
+. Stamp `calendar_key` and `calendar_timezone` on each event
 
-----
-1. Resolve bounds      — defaults: start = 1970-01-01 UTC, end = now UTC
-2. _fetch_events()     — implemented by subclass, returns raw list[CalEvent]
-3. _expand_recurring() — RruleEngine expands masters, applies EXDATE and overrides
-4. filter()            — date range filter + optional full-text search
-5. sort               — ascending by start_date
-----
+The Python filter step after expansion is necessary: the DB pre-filters recurring *series* by `date_end_recurrence`, but individual occurrences generated by expansion must still be checked against the exact requested bounds.
 
-The search filter is case-insensitive and accent-insensitive (NFD normalization),
-so `"etape"` matches `"Étape"`.
+Two source implementations exist:
 
-=== Available implementations
+* `CalendarSourceDb` — backed by the local database. Writable (full CRUD). On event insert, `date_end_recurrence` is pre-computed for recurring events to enable SQL-level filtering. Soft-deletes only (`is_deleted = True`) — events are never hard-deleted, which is required for CalDAV sync reports.
+* `CalendarSourceIcs` — read-only, backed by a remote ICS URL fetched on every call. Size is capped at 10 MB; requests time out after 10 s. URLs are validated at construction time to reject private/loopback addresses (SSRF protection).
 
-[%autowidth]
-|===
-|Class |Source
+`CalendarSources` (`app/module/calendar/source/CalendarSources.py`) is the factory and the ownership enforcer.
+All reads are always scoped to a `user_uid`. It merges events from all user calendars when no `calendar_key` is specified.
 
-|`CalendarSourceIcs` |Remote ICS URL over HTTP
-|`CalendarSourceDb` |Local database (`sogo_events`)
-|===
+== Recurrence — RruleEngine
 
-`CalendarSourceIcs` downloads the full ICS feed on each call.
-UTF-8 is attempted first; latin-1 is used as fallback for Outlook-generated feeds.
+`app/module/calendar/rrule/RruleEngine.py`
 
-`CalendarSourceDb` uses `min_date` / `max_date` columns pre-computed by `RruleEngine`
-to filter recurring events at the SQL level before expanding occurrences in memory.
+`RruleEngine.expand()` expands a recurring master event into a flat list of occurrences within a date window.
+It segregates singles, masters, and detached overrides (events with `recurrence_id`), generates dates from the RRULE, suppresses EXDATE entries, replaces overridden occurrences, and clones the master for each remaining date.
+
+`get_max_date(master)` returns the end of the last occurrence (or `None` for unbounded series) and is used to populate `date_end_recurrence` in the database.
+
+== Repositories
+
+`app/module/calendar/repository/`
+
+Repositories are the only classes that issue SQL.
+`RepositoryCalendar` handles reads and writes for `sogo_calendars`.
+`RepositoryEvent` handles reads and writes for `sogo_events`.
+
+All queries use structured `Condition` objects translated by `ClientSQL` to parameterized statements — no string interpolation.
+The `find_by_calendar` method applies two different SQL conditions depending on whether an event is recurring or not: non-recurring events are matched on `date_start`/`date_end`; recurring events are matched on `date_start`/`date_end_recurrence` to pre-filter at series level before in-memory expansion.
+
+== Serialization
+
+`app/module/calendar/serializer/`
+
+Two formats are supported:
+
+* *ICS (RFC 5545)* — `CalendarEventsDeserializerIcal` parses a VCALENDAR into a list of `CalEvent`. `CalendarEventSerializerIcal` produces VCALENDAR text. The `icalendar` library is used here and *only* here.
+* *JSON (REST API)* — `CalendarEventSerializerJson` / `CalendarEventDeserializerJson` convert between `CalEvent` and flat dicts. `CalendarEventsSerializerJson.to_response()` wraps the list with a `total_count` field.
+
+== Module — ModuleCalendar
+
+`app/module/calendar/ModuleCalendar.py`
+
+`ModuleCalendar` contains all business logic and is instantiated per request.
+It exposes calendar CRUD, event CRUD (VEVENT), and task CRUD (VTODO).
+
+On event delete, it dispatches to `delete_detached_occurrence` when `recurrence_id` is set (soft-deletes the occurrence row and adds the date to the master EXDATE), otherwise deletes the master and all its detached rows by UID.
+
+Every mutation calls `_bump_ctag` to increment the calendar's `ctag`.
+
+`get_events` and `get_tasks` enforce a maximum date range of 31 days unless a search query is present.

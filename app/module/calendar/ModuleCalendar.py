@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 # pylint: disable=fixme
 
-from app.module.calendar.CalendarConst import MAX_EVENT_FETCH_DAYS
+from app.module.calendar.CalendarConst import MAX_EVENT_FETCH_DAYS, MAX_TASK_FETCH_DAYS
 from app.module.calendar.model.CalCalendar import CalCalendar
 from app.module.calendar.model.enums.ComponentType import ComponentType
 from app.module.calendar.source.CalendarSources import CalendarSources
@@ -278,7 +278,7 @@ class ModuleCalendar:
         The date-range limit is bypassed when a search query is present.
         """
         if search is None and start is not None and end is not None:
-            if (end - start) > timedelta(days=MAX_EVENT_FETCH_DAYS):
+            if (end - start) > timedelta(days=MAX_TASK_FETCH_DAYS):
                 raise RequestException(error=err.ERROR_CALENDAR_DATE_RANGE_TOO_LARGE)
         try:
             tasks: list[CalEvent] = self._sources.get_tasks(self.user.uid, start, end, search, key)
