@@ -15,13 +15,26 @@ from .schemas.calendar import (
     CalendarListResponseSchema,
     CalendarResponseSchema,
 )
-from .schemas.event import CalendarEventQueryArgsSchema, CalendarEventListResponseSchema
+from .schemas.event import (
+    CalendarEventQueryArgsSchema,
+    CalendarEventListResponseSchema,
+    CalendarEventCreateSchema,
+    CalendarEventPatchSchema,
+    CalendarEventResponseSchema,
+)
+from .schemas.task import (
+    CalendarTaskQueryArgsSchema,
+    CalendarTaskListResponseSchema,
+    CalendarTaskCreateSchema,
+    CalendarTaskPatchSchema,
+    CalendarTaskResponseSchema,
+)
 
 if TYPE_CHECKING:
     from app.auth.User import User
     from app.config.settings.ProcessSetting import ProcessSetting
 
-blp = Blueprint("Calendar", __name__, url_prefix="/calendars")
+blp = Blueprint("Calendar", __name__, url_prefix="")
 
 
 @blp.before_request
@@ -33,7 +46,7 @@ def init_calendar_config() -> None:  # pylint: disable=missing-function-docstrin
     )
 
 
-@blp.route("")
+@blp.route("/calendars")
 class ApiCalendarList(MethodView):
     """API to list and create calendars."""
 
@@ -51,7 +64,7 @@ class ApiCalendarList(MethodView):
         return g.inter.create_calendar(body)
 
 
-@blp.route("/<string:key>")
+@blp.route("/calendars/<string:key>")
 class ApiCalendarDetail(MethodView):
     """API to retrieve, update and delete a single calendar."""
 
@@ -75,13 +88,87 @@ class ApiCalendarDetail(MethodView):
         return g.inter.delete_calendar(key)
 
 
-@blp.route("/<string:key>/events")
+@blp.route("/calendars/<string:key>/events")
 class ApiCalendarEventList(MethodView):
-    """API to list events in a specific calendar."""
+    """API to list and create events in a calendar."""
 
     @blp.arguments(CalendarEventQueryArgsSchema, location="query", arg_name="query_args")
     @blp.response(200, CalendarEventListResponseSchema, example=CalendarEventListResponseSchema.example())
     def get(self, query_args: dict, key: str) -> ResponseReturnValue:
         """List events in a calendar, with optional date range and search."""
         logger_api.debug("GET /calendars/%s/events args=%s", key, query_args)
-        return g.inter.get_calendar_events(key, query_args)
+        return g.inter.get_events(key, query_args)
+
+    @blp.arguments(CalendarEventCreateSchema)
+    @blp.response(200, CalendarEventResponseSchema)
+    def post(self, body: dict, key: str) -> ResponseReturnValue:
+        """Create a new event in the calendar."""
+        logger_api.debug("POST /calendars/%s/events user=%s", key, g.user.uid)
+        return g.inter.create_event(key, body)
+
+
+@blp.route("/events/<string:event_key>")
+class ApiEventDetail(MethodView):
+    """API to retrieve, update and delete a single event."""
+
+    @blp.response(200, CalendarEventResponseSchema)
+    def get(self, event_key: str) -> ResponseReturnValue:
+        """Get a single event by its key."""
+        logger_api.debug("GET /events/%s user=%s", event_key, g.user.uid)
+        return g.inter.get_event(event_key)
+
+    @blp.arguments(CalendarEventPatchSchema)
+    @blp.response(200, CalendarEventResponseSchema)
+    def patch(self, body: dict, event_key: str) -> ResponseReturnValue:
+        """Partially update an event."""
+        logger_api.debug("PATCH /events/%s user=%s", event_key, g.user.uid)
+        return g.inter.patch_event(event_key, body)
+
+    @blp.response(200, CalendarEventResponseSchema)
+    def delete(self, event_key: str) -> ResponseReturnValue:
+        """Delete an event."""
+        logger_api.debug("DELETE /events/%s user=%s", event_key, g.user.uid)
+        return g.inter.delete_event(event_key)
+
+
+@blp.route("/calendars/<string:key>/tasks")
+class ApiCalendarTaskList(MethodView):
+    """API to list and create tasks (VTODO) in a calendar."""
+
+    @blp.arguments(CalendarTaskQueryArgsSchema, location="query", arg_name="query_args")
+    @blp.response(200, CalendarTaskListResponseSchema)
+    def get(self, query_args: dict, key: str) -> ResponseReturnValue:
+        """List tasks in a calendar, with optional date range and search."""
+        logger_api.debug("GET /calendars/%s/tasks args=%s", key, query_args)
+        return g.inter.get_tasks(key, query_args)
+
+    @blp.arguments(CalendarTaskCreateSchema)
+    @blp.response(200, CalendarTaskResponseSchema)
+    def post(self, body: dict, key: str) -> ResponseReturnValue:
+        """Create a new task in the calendar."""
+        logger_api.debug("POST /calendars/%s/tasks user=%s", key, g.user.uid)
+        return g.inter.create_task(key, body)
+
+
+@blp.route("/tasks/<string:task_key>")
+class ApiTaskDetail(MethodView):
+    """API to retrieve, update and delete a single task."""
+
+    @blp.response(200, CalendarTaskResponseSchema)
+    def get(self, task_key: str) -> ResponseReturnValue:
+        """Get a single task by its key."""
+        logger_api.debug("GET /tasks/%s user=%s", task_key, g.user.uid)
+        return g.inter.get_task(task_key)
+
+    @blp.arguments(CalendarTaskPatchSchema)
+    @blp.response(200, CalendarTaskResponseSchema)
+    def patch(self, body: dict, task_key: str) -> ResponseReturnValue:
+        """Partially update a task."""
+        logger_api.debug("PATCH /tasks/%s user=%s", task_key, g.user.uid)
+        return g.inter.patch_task(task_key, body)
+
+    @blp.response(200, CalendarTaskResponseSchema)
+    def delete(self, task_key: str) -> ResponseReturnValue:
+        """Delete a task."""
+        logger_api.debug("DELETE /tasks/%s user=%s", task_key, g.user.uid)
+        return g.inter.delete_task(task_key)

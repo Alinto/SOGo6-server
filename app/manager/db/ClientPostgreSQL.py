@@ -10,7 +10,9 @@ from psycopg.sql import SQL, Literal, Placeholder, Identifier, Composed
 from psycopg.types.json import Jsonb
 
 from app.utils.db.Table import Table, REX_VALID_NAMES
-from app.utils.db.Condition import Condition, EqualCondition, NotEqualCondition, AndCondition, OrCondition, TrueCondition, Order
+from app.utils.db.Condition import (Condition, EqualCondition, NotEqualCondition, AndCondition, OrCondition,
+                                    TrueCondition, LessOrEqualCondition, GreaterOrEqualCondition,
+                                    IsNullCondition, IsNotNullCondition, LikeCondition, Order)
 from app.utils import errors as err
 from app.utils.exceptions import RequestException, BugException
 from app.utils.logger.logger import logger, logger_sql
@@ -129,6 +131,16 @@ def condition_to_query(condition: Condition, add_where : bool = False) -> Compos
         condition1 = condition_to_query(condition.condition1)
         condition2 = condition_to_query(condition.condition2)
         sql_condition = SQL("({cond1} OR {cond2})").format(cond1=condition1, cond2=condition2)
+    elif isinstance(condition, LessOrEqualCondition):
+        sql_condition = SQL("{param} <= {value}").format(param=Identifier(condition.param_name), value=Literal(condition.param_value))
+    elif isinstance(condition, GreaterOrEqualCondition):
+        sql_condition = SQL("{param} >= {value}").format(param=Identifier(condition.param_name), value=Literal(condition.param_value))
+    elif isinstance(condition, IsNullCondition):
+        sql_condition = SQL("{param} IS NULL").format(param=Identifier(condition.param_name))
+    elif isinstance(condition, IsNotNullCondition):
+        sql_condition = SQL("{param} IS NOT NULL").format(param=Identifier(condition.param_name))
+    elif isinstance(condition, LikeCondition):
+        sql_condition = SQL("{param} ILIKE {value}").format(param=Identifier(condition.param_name), value=Literal(condition.pattern))
     elif isinstance(condition, TrueCondition):
         sql_condition = Composed([SQL("1 = 1")])
     else:

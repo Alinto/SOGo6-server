@@ -81,3 +81,40 @@ class OrCondition(Condition):
         super().__init__()
         self.condition1 = condition1
         self.condition2 = condition2
+
+class LessOrEqualCondition(Condition):
+    """Check if a named parameter is less than or equal to a value."""
+    def __init__(self, param_name: str, param_value):
+        super().__init__()
+        self.param_name = param_name
+        self.param_value = param_value
+
+class GreaterOrEqualCondition(Condition):
+    """Check if a named parameter is greater than or equal to a value."""
+    def __init__(self, param_name: str, param_value):
+        super().__init__()
+        self.param_name = param_name
+        self.param_value = param_value
+
+class IsNullCondition(Condition):
+    """Check if a named parameter is NULL."""
+    def __init__(self, param_name: str):
+        super().__init__()
+        self.param_name = param_name
+
+class IsNotNullCondition(Condition):
+    """Check if a named parameter is NOT NULL."""
+    def __init__(self, param_name: str):
+        super().__init__()
+        self.param_name = param_name
+
+class LikeCondition(Condition):
+    """Case-insensitive substring match on a named parameter.
+
+    The pattern must include wildcard characters explicitly (e.g. '%keyword%').
+    PostgreSQL maps this to ILIKE; MySQL LIKE is already case-insensitive with utf8mb4.
+    """
+    def __init__(self, param_name: str, pattern: str):
+        super().__init__()
+        self.param_name = param_name
+        self.pattern = pattern

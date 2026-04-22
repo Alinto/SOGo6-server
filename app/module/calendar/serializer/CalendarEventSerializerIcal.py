@@ -123,6 +123,22 @@ class CalendarEventSerializerIcal(CalendarEventSerializer):
                 cal.add_component(self._build_vevent(event))
         return cal.to_ical().decode("utf-8")
 
+    def build_imip(self, event: CalEvent, method: str) -> str:
+        """Build an iTIP VCALENDAR with a METHOD property for iMIP email delivery (RFC 6047).
+
+        method should be one of REQUEST, REPLY, CANCEL, ADD, REFRESH, COUNTER, DECLINECOUNTER.
+        """
+        cal: Calendar = Calendar()
+        cal.add("prodid", PRODID)
+        cal.add("version", ICAL_VERSION)
+        cal.add("calscale", CALSCALE)
+        cal.add("method", method.upper())
+        if event.component_type == ComponentType.TASK:
+            cal.add_component(self._build_vtodo(event))
+        else:
+            cal.add_component(self._build_vevent(event))
+        return cal.to_ical().decode("utf-8")
+
     def to_vevent(self, event: CalEvent) -> Event:
         """Build a VEVENT component from a CalEvent without the VCALENDAR wrapper."""
         return self._build_vevent(event)

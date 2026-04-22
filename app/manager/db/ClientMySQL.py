@@ -9,7 +9,9 @@ import mysql.connector
 from mysql.connector import Error, ProgrammingError  # pylint: disable=no-name-in-module
 
 from app.utils.db.Table import Table, REX_VALID_NAMES
-from app.utils.db.Condition import Condition, EqualCondition, NotEqualCondition, AndCondition, OrCondition, TrueCondition, Order
+from app.utils.db.Condition import (Condition, EqualCondition, NotEqualCondition, AndCondition, OrCondition,
+                                    TrueCondition, LessOrEqualCondition, GreaterOrEqualCondition,
+                                    IsNullCondition, IsNotNullCondition, LikeCondition, Order)
 from app.utils import errors as err
 from app.utils.exceptions import RequestException, BugException
 from app.utils.logger.logger import logger, logger_sql
@@ -145,6 +147,19 @@ def condition_to_query(condition: Condition, add_where: bool = False) -> Tuple[s
         sql_condition = f"({cond1_sql} OR {cond2_sql})"
         params.extend(cond1_params)
         params.extend(cond2_params)
+    elif isinstance(condition, LessOrEqualCondition):
+        sql_condition = f"`{condition.param_name}` <= %s"
+        params.append(condition.param_value)
+    elif isinstance(condition, GreaterOrEqualCondition):
+        sql_condition = f"`{condition.param_name}` >= %s"
+        params.append(condition.param_value)
+    elif isinstance(condition, IsNullCondition):
+        sql_condition = f"`{condition.param_name}` IS NULL"
+    elif isinstance(condition, IsNotNullCondition):
+        sql_condition = f"`{condition.param_name}` IS NOT NULL"
+    elif isinstance(condition, LikeCondition):
+        sql_condition = f"`{condition.param_name}` LIKE %s"
+        params.append(condition.pattern)
     elif isinstance(condition, TrueCondition):
         sql_condition = "1 = 1"
     else:

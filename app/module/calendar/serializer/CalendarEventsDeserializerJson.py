@@ -6,6 +6,8 @@ from typing import Any
 from app.module.calendar.serializer.CalendarEventsDeserializer import CalendarEventsDeserializer
 from app.module.calendar.serializer.CalendarEventDeserializerJson import CalendarEventDeserializerJson
 from app.module.calendar.model.CalEvent import CalEvent
+from app.utils import errors as err
+from app.utils.exceptions import RequestException
 
 
 class CalendarEventsDeserializerJson(CalendarEventsDeserializer):
@@ -19,7 +21,10 @@ class CalendarEventsDeserializerJson(CalendarEventsDeserializer):
 
     def deserialize(self, text: str) -> list[CalEvent]:
         """Deserialize a JSON string into a list of CalEvent objects."""
-        data: Any = json.loads(text)
+        try:
+            data: Any = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise RequestException(error=err.ERROR_CALENDAR_JSON_PARSE_FAILED) from exc
         return self.from_list(data if isinstance(data, list) else data.get("events", []))
 
     def from_list(self, items: list[dict[str, Any]]) -> list[CalEvent]:

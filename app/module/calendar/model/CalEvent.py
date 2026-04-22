@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Any
 
 from app.module.calendar.model.CalAttachment import CalAttachment
 from app.module.calendar.model.CalAttendee import CalAttendee
@@ -17,7 +18,7 @@ from app.module.calendar.model.enums.ShowAs import ShowAs
 
 
 @dataclass
-class CalEvent:  # pylint: disable=too-many-instance-attributes
+class CalEvent:  # pylint: disable=too-many-instance-attributes,invalid-name
     """
     Format-agnostic representation of a calendar event/task/journal.
     """
@@ -34,8 +35,8 @@ class CalEvent:  # pylint: disable=too-many-instance-attributes
     id: str | None = None
     # Opaque public identifier exposed in the API
     key: str | None = None
-    # Internal — parent calendar identifier
-    calendar_id: str | None = None
+    # UUID key of the parent calendar — stored in DB and exposed in the API
+    calendar_key: str | None = None
     # Domain type of the component — drives serialization dispatch
     component_type: ComponentType = ComponentType.EVENT
     # RFC 5545 §3.3.4 — DATE value type vs DATE-TIME
@@ -102,3 +103,17 @@ class CalEvent:  # pylint: disable=too-many-instance-attributes
     created_at: datetime | None = None
     # RFC 5545 §3.8.7.3 (LAST-MODIFIED)
     updated_at: datetime | None = None
+
+    MUTABLE_FIELDS: frozenset[str] = frozenset({
+        "title", "description", "location", "url", "date_start", "date_end",
+        "all_day", "timezone", "status", "visibility", "show_as", "color",
+        "sequence", "organizer", "attendees", "reminders", "conference_data",
+        "attachments", "categories", "related_to", "extra_properties",
+        "recurrence_rule", "recurrence_exceptions", "percent_complete", "completed_at",
+    })
+
+    def apply_update(self, updates: dict[str, Any]) -> None:
+        """Apply a partial update dict to this event, ignoring unknown or immutable fields."""
+        for field_name, value in updates.items():
+            if field_name in self.MUTABLE_FIELDS:
+                setattr(self, field_name, value)
