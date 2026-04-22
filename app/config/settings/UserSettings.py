@@ -218,6 +218,17 @@ class UserMailGeneralSettings(SogoSchema):
     SOGO_U_COLLECT_UNKNWON_ADDRESSES = fields.Boolean(load_default=False, dump_default=False) #Collect address send to unknwon mail. (So next time it will be in autocompletion)
     SOGO_U_COLLECT_UNKNWON_ADDRESSBOOK_NAME = fields.String(load_default="Collected", dump_default="Collected") #Name of the collected addressbook if SOGO_U_COLLECT_UNKNWON_ADDRESSES=True
 
+    SOGO_U_MAIL_DELETE_BEHAVIOR = fields.String(
+        load_default="MOVE_TO_TRASH_AND_EXPUNGE",
+        dump_default="MOVE_TO_TRASH_AND_EXPUNGE",
+        validate=validate.OneOf((
+            "MOVE_TO_TRASH_AND_EXPUNGE",  # Option 1 (default): flag Deleted + expunge + copy to Trash
+            "FLAG_DELETED_ONLY",          # Option 2: flag Deleted only (mail appears struck-through/greyed in UI)
+            "EXPUNGE_ONLY",               # Option 3: flag Deleted + expunge, no copy to Trash
+            "MOVE_TO_TRASH_ONLY",         # Option 4: flag Deleted + copy to Trash, no expunge
+        ))
+    )
+
 class MailCategorySchema(Schema):
     """
     Schema for a single contact category

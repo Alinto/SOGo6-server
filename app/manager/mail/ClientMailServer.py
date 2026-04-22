@@ -214,13 +214,17 @@ class ClientMailServer(metaclass=ABCMeta):
         """Fetch a the raw mail (eml) by UID from a mailbox."""
 
     @abstractmethod
-    def delete_mails_by_uid(self, folder_path: str, mail_uid: str|list[str]) -> None:
-        """Delete a specific mail by UID (copy to Trash and mark as deleted).
+    def delete_mails_by_uid(self, folder_path: str, mail_uid: str|list[str], move_to_trash: bool = True, permanently: bool = True) -> None:
+        """Delete a specific mail by UID according to the requested behaviour.
 
         :param folder_path: The folder containing the mail.
         :type folder_path: str
         :param mail_uid: The UID or a list of uids of the mail to delete.
         :type mail_uid: str or list[str]
+        :param move_to_trash: Copy the mail to the Trash folder before deletion.
+        :type move_to_trash: bool
+        :param permanently: Expunge the mail after flagging it as deleted.
+        :type permanently: bool
         :raises RequestException: If the operation fails.
         """
 

@@ -8,7 +8,7 @@ from io import BytesIO
 from re import search as reg_search
 import zipfile
 
-from app.config.settings.UserSettings import UserMailViewSettings, UserMailViewSettingsObj
+from app.config.settings.UserSettings import UserMailViewSettings, UserMailViewSettingsObj, UserMailGeneralSettings
 from app.manager.mail.ClientMailServer import ClientMailServer
 from app.utils import constants as cs
 from app.utils import errors as err
@@ -17,7 +17,7 @@ from app.utils.maths.crypto_utils import decrypt_password
 from app.utils.module.importManager import import_and_instantiate_manager
 from app.utils.logger.logger import logger_mail_server
 from app.utils.strings import get_imap_config_from_url
-
+from app.utils.constants import DELETE_MAIL_BEHAVIOR_MAP
 
 if TYPE_CHECKING:
     from app.auth.User import User
@@ -621,16 +621,32 @@ class ModuleMail:
     def delete_mails(self, account_id:str, folder_path: str, mail_uids: str|list[str]) -> None:
         """Delete multiple mails by UIDs in a single client session.
 
-        :param folder_name: The name of the folder containing the mails.
-        :type folder_name: str
-        :param mail_uids: A list of mail UIDs to delete.
-        :type mail_uids: list[int]
+        The deletion behaviour is driven by the user preference
+        ``SOGO_U_MAIL_DELETE_BEHAVIOR`` stored in the user's mail general settings:
+
+        * ``MOVE_TO_TRASH_AND_EXPUNGE`` (default): copy to Trash + flag Deleted + expunge.
+        * ``FLAG_DELETED_ONLY``: flag Deleted only (mail appears struck-through/greyed in UI).
+        * ``EXPUNGE_ONLY``: flag Deleted + expunge, no copy to Trash.
+        * ``MOVE_TO_TRASH_ONLY``: copy to Trash + flag Deleted, no expunge.
+
+        :param account_id: The account identifier.
+        :type account_id: str
+        :param folder_path: The name of the folder containing the mails.
+        :type folder_path: str
+        :param mail_uids: A mail UID or a list of mail UIDs to delete.
+        :type mail_uids: str or list[str]
         :raises RequestException: If deletion fails for any mail
-        :return: A dict with list of deleted mail UIDs
-        :rtype: dict[str, Any]
         """
+        # Get raw dict from user preferences (may be empty or missing keys)
+        raw_mail_general_prefs: dict = self.user.profile.preferences.get(UserMailGeneralSettings.subparent, {})
+        # Load through schema to apply default values for missing keys
+        mail_general_prefs: dict = UserMailGeneralSettings().load(raw_mail_general_prefs)
+
+        delete_behavior: str = mail_general_prefs["SOGO_U_MAIL_DELETE_BEHAVIOR"]
+        move_to_trash, permanently = DELETE_MAIL_BEHAVIOR_MAP.get(delete_behavior, (True, True))
+
         client = self._open_client_for(account_id)
-        client.delete_mails_by_uid(folder_path, mail_uids)
+        client.delete_mails_by_uid(folder_path, mail_uids, move_to_trash=move_to_trash, permanently=permanently)
 
     def move_mails(self, from_folder: str, mail_uids: list[int], to_folder: str) -> dict[str, Any]:
         """Move multiple mails from one folder to another.
