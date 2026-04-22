@@ -188,7 +188,7 @@ class AdminConfigDefaultDomainGetSchema(ApiBaseResponse):
                     "SOGO_D_MAIL_SERVER_TYPE": "imap",
                     "SOGO_D_IMAP_SERVER": "dovecot",
                     "SOGO_D_IMAP_PORT": 143,
-                    "SOGO_D_SOFT_EMAIL_QUOTA": 1,
+                    "SOGO_D_SOFT_EMAIL_QUOTA": 10000,
                     "SOGO_D_MAIL_PURGE_ALLOW": True,
                     "SOGO_D_MAIL_PURGE_MIN_DATE": 0,
                     "SOGO_D_CARDAV_PUBLIC_ACCESS_ENABLE": False,
@@ -335,7 +335,7 @@ class AdminConfigDefaultDomainPatchSchema(Schema):
                         "SOGO_D_MAIL_SERVER_TYPE": "imap",
                         "SOGO_D_IMAP_SERVER": "dovecot",
                         "SOGO_D_IMAP_PORT": 143,
-                        "SOGO_D_SOFT_EMAIL_QUOTA": 1,
+                        "SOGO_D_SOFT_EMAIL_QUOTA": 10000,
                         "SOGO_D_MAIL_PURGE_ALLOW": True,
                         "SOGO_D_MAIL_PURGE_MIN_DATE": 0,
                         "SOGO_D_CARDAV_PUBLIC_ACCESS_ENABLE": False,
@@ -402,6 +402,20 @@ class AdminConfigDomainGetSchema(ApiBaseResponse):
 
     data = fields.Nested(AdminConfigDynamicFormData)
 
+    @staticmethod
+    def sort_by_values() -> set:
+        """
+        return values available for sorting by
+        """
+        return {"domain_name"}
+
+    @staticmethod
+    def filter_by_values() -> set:
+        """
+        return values available for sorting by
+        """
+        return {"domain_name", "domain_description", "domain_info", "domain_settings", "domain_origins"}
+
     @classmethod
     def example(cls) -> dict:
         """
@@ -417,7 +431,7 @@ class AdminConfigDomainGetSchema(ApiBaseResponse):
                 "domain_name": "default",
                 "domain_description": "This is a domain configuration",
                 "domain_info": "French ldap server",
-                "settings": {
+                "domain_settings": {
                     "AUTH_SETTINGS": {
                         "SOGO_D_AUTH_TYPE": "plain",
                         "SOGO_D_PWD_CHANGE_ENABLED": True,
@@ -507,7 +521,7 @@ class AdminConfigDomainGetSchema(ApiBaseResponse):
                         "SOGO_D_MAIL_SERVER_TYPE": "imap",
                         "SOGO_D_IMAP_SERVER": "dovecot",
                         "SOGO_D_IMAP_PORT": 143,
-                        "SOGO_D_SOFT_EMAIL_QUOTA": 1,
+                        "SOGO_D_SOFT_EMAIL_QUOTA": 10000,
                         "SOGO_D_MAIL_PURGE_ALLOW": True,
                         "SOGO_D_MAIL_PURGE_MIN_DATE": 0,
                         "SOGO_D_CARDAV_PUBLIC_ACCESS_ENABLE": False,
@@ -661,7 +675,7 @@ class AdminConfigDomainPostSchema(Schema):
                     "SOGO_D_MAIL_SERVER_TYPE": "imap",
                     "SOGO_D_IMAP_SERVER": "dovecot",
                     "SOGO_D_IMAP_PORT": 143,
-                    "SOGO_D_SOFT_EMAIL_QUOTA": 1,
+                    "SOGO_D_SOFT_EMAIL_QUOTA": 10000,
                     "SOGO_D_MAIL_PURGE_ALLOW": True,
                     "SOGO_D_MAIL_PURGE_MIN_DATE": 0,
                     "SOGO_D_MAIL_FILTERING_ENABLED": True,
@@ -810,7 +824,7 @@ class AdminConfigDomainPatchSchema(Schema):
                     "SOGO_D_MAIL_SERVER_TYPE": "imap",
                     "SOGO_D_IMAP_SERVER": "dovecot",
                     "SOGO_D_IMAP_PORT": 143,
-                    "SOGO_D_SOFT_EMAIL_QUOTA": 1,
+                    "SOGO_D_SOFT_EMAIL_QUOTA": 10000,
                     "SOGO_D_MAIL_PURGE_ALLOW": True,
                     "SOGO_D_MAIL_PURGE_MIN_DATE": 0,
                     "SOGO_D_MAIL_FILTERING_ENABLED": True,

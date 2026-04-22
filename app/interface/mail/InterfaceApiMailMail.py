@@ -15,8 +15,9 @@ from app.utils.logger.logger import logger_api
 from app.utils import constants as cs
 
 if TYPE_CHECKING:
-    from app.config.settings.ProcessSetting import ProcessSetting
     from app.auth.User import User
+    from app.config.settings.ProcessSetting import ProcessSetting
+    from app.utils.api.paginate_sort_filter import CollectionPaginateArgs
 
 
 class InterfaceApiMailMail:
@@ -33,9 +34,7 @@ class InterfaceApiMailMail:
 
         self.mail_module = ModuleMail(self.user, self.mail_settings)
 
-    def get_mail_list(
-        self, account_id: str, folder_name: str, first: int, last: int
-    ) -> tuple[int, dict[str, Any], int]:
+    def get_mail_list(self, account_id: str, folder_name: str, collection_param: CollectionPaginateArgs) -> tuple[int, dict[str, Any], int]:
         """Retrieve a list of mails in a specific folder.
         
         :param account_id: The ID of the account
@@ -50,7 +49,7 @@ class InterfaceApiMailMail:
         :rtype: tuple[int, dict[str, Any], int]
         """
         try:
-            result, total_count = self.mail_module.get_folder_mails(account_id, folder_name, first, last)
+            result, total_count = self.mail_module.get_folder_mails(account_id, folder_name, collection_param)
             return total_count, *create_api_base_response(result)
         except RequestException as ex:
             logger_api.error("Request exception in get_mail_list: %s", str(ex))

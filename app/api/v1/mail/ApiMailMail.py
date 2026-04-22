@@ -8,7 +8,7 @@ from flask_smorest import Blueprint
 
 from app.interface.mail.InterfaceApiMailMail import InterfaceApiMailMail
 from app.utils.logger.logger import logger_api
-from app.utils.api.paginate_sort_filter import custom_paginate, CustomPaginateResponse
+from app.utils.api.paginate_sort_filter import collection_paginate, CustomPaginateResponse
 from .schemas.mail import (
     MailDetailResponseSchema,
     MailListResponseSchema,
@@ -19,8 +19,9 @@ from .schemas.mail import (
 )
 
 if TYPE_CHECKING:
-    from app.config.settings.ProcessSetting import ProcessSetting
     from app.auth.User import User
+    from app.config.settings.ProcessSetting import ProcessSetting
+    from app.utils.api.paginate_sort_filter import CollectionPaginateArgs
 
 blp = Blueprint("Mail", __name__, url_prefix="/mailboxes/<string:account_id>/folders/<path:folder_name>/mails")
 
@@ -53,18 +54,50 @@ class ApiMailFolderIdMail(MethodView):
     """
 
     @blp.response(200, MailListResponseSchema, example=MailListResponseSchema.example())
-    @custom_paginate(blp)
-    def get(self, first: int, last: int, fields_args: dict, sort_args: dict, account_id: str, folder_name: str) -> CustomPaginateResponse:
+    @collection_paginate(blp, sort_value_set=MailListResponseSchema.sort_by_values(), filter_value_set=MailListResponseSchema.filter_by_values())
+    def get(self, collection_param: CollectionPaginateArgs, account_id: str, folder_name: str) -> CustomPaginateResponse:
         """Fetch the list of mails in a specific folder.
 
-        :param first: The index of the first mail to retrieve (for pagination)
-        :type first: int
-        :param last: The index of the last mail to retrieve (for pagination)
-        :type last: int
-        :param fields_args: The fields to include in the response (for field filtering)
-        :type fields_args: dict
-        :param sort_args: The sorting parameters (for sorting)
-        :type sort_args: dict
+        The filtering for this endpoint is special:\r\n
+        By default, the content of the mail is returned. But this is heavy load both for the api request and
+        the mail server (imap) request.\r\n
+        Without content you will have:
+
+        * **uid**: str, Unique identifier of the mail. Use with others mails endpoint,
+        * **size**: int, size in kb of the mail
+        * **deleted**: bool, the mail is flag as deleted
+        * **seen**: bool, if the mail has already been seen
+        * **flagged**: bool, the mail is flag as important
+        * **answered**: bool, the mail has been answered
+        * **forwarded**: bool, the mail has been forwarded
+        * **flags**: list of str, all the flags for this mail
+        * **from**: dict, name and email of the denser
+        * **to**: list of dict, list of recipients (name and email)
+        * **cc**: list of dict, list of recipients in copy (name and email)
+        * **reply_to**: list of dict, list of contact in reply-to header (name and email)
+        * **subject**: str, subject of the mail
+        * **date**: str, date of the mail
+        * **return_path**: str, value of the return path
+        * **has_attachment**: bool, this mail has attachment
+        * **is_signed**: bool, this mail has a signature
+        * **priority**: int, between 1 (highest priority) and 5 (lowest priority). 3 is normal 
+        * **should_ask_receipt**: bool, this mail ask for a receipt
+        * **mail_type**: list of str, say the type of mail/content (value can event or contact)
+
+        With content, all the above plus:
+
+        * **contents**: list of dict, each item is a content object 
+        * **attachments**: list of dict, each item describe the attachment
+        * **certificates**: list of dict, certificates in the mail
+        * **mail_type_data**: list of dict, metadata for the mail_type (same index as mail_type)
+
+        If you want just to list the mails while not needing the actual content,
+        set `fields="contents"` and `fields_action="exclude"`.
+
+        ---
+
+        :param collection_param: pagination, sorting and filtering args
+        :type collection_param: CollectionPaginateArgs
         :param account_id: The account identifier
         :type account_id: str
         :param folder_name: The folder identifier
@@ -72,18 +105,10 @@ class ApiMailFolderIdMail(MethodView):
         :return: A tuple of (item count, API response dict, status code)
         :rtype: Tuple[int, dict, int]
         """
-        logger_api.debug(
-            "Calling ApiMailFolderIdMail: Fetching mail list for account_id: %s, folder_name: %s, first: %s, last: %s, sort_by: %s, sort_order: %s, fields: %s",
-            account_id, folder_name,
-            first, last,
-            sort_args.get("sort_by"), sort_args.get("sort_order"),
-            fields_args.get("include_fields"),
-        )
+        logger_api.debug("Calling ApiMailFolderIdMail: Fetching mail list for account_id: %s, folder_name: %s, params: %s", account_id, folder_name, collection_param)
         interface: InterfaceApiMailMail = g.inter
 
-        item_count, response, status_code = (
-            interface.get_mail_list(account_id, folder_name, first, last)
-        )
+        item_count, response, status_code = interface.get_mail_list(account_id, folder_name, collection_param)
 
         return item_count, response, status_code
 

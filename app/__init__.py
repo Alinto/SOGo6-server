@@ -49,7 +49,8 @@ def create_app(sogo_state: int) -> Flask:
     register_route(flask_api, cs.API_BASIC, sogo_state)
     register_route(admin_api, cs.API_ADMIN, sogo_state)
 
-    CORS(app, resources={r"/api/*": {"origins": "http://localhost:3001"}})
+    CORS(app, resources={r"/api/*": {"origins": "*", "expose_headers": ["X-Pagination"]}}) 
+    #TODO: remove CORS policy when we have a proper frontend
 
     return app
 
@@ -201,10 +202,6 @@ def register_route(flask_api: Api, name: str, sogo_state: int) -> None:
     """
     Resgister all blueprints
     """
-    # base_blueprint = Blueprint(f"{name}_banane", name, url_prefix='/api')
-
-    # register_after_request(base_blueprint)
-    # register_before_request(base_blueprint, name, sogo_state)
 
     for version, version_apis in all_apis.items():
         basic_apis = version_apis[name]

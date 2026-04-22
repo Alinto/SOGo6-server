@@ -1,6 +1,7 @@
 from enum import IntEnum
 from app.utils.logger.logger import logger
 from app.utils.exceptions import BugException
+from app.utils import errors as err
 
 
 
@@ -29,7 +30,7 @@ def order_str_to_order_enum(order:str)->Order:
         return Order.ASC
     if order_lower in {"descendant", "desc", "down"}:
         return Order.DESC
-    raise BugException(f"Trying to use an order not defined or expected {order}")
+    raise BugException(f"Trying to use an order not defined or expected {order}", err.ERROR_BUG_UNKNOWN_ORDER)
 
 class Condition:
     """

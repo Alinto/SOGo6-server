@@ -12,7 +12,14 @@ from app.utils import errors as err
 from app.utils import constants as cs
 from app.utils.logger.logger import logger_cache
 
-
+# Mapping from hash field name to the sorted set that indexes that field.
+# When sort_by matches one of these keys, the corresponding sorted set is
+# used directly (redis-side sort + pagination via ZRANGE).
+SORT_FIELD_TO_ZSET: dict[str, str] = {
+    cs.SESSION_LAST_SEEN: cs.ZSET_USER_SESSIONS_ACTIVITY,
+    cs.USER_UID:          cs.ZSET_USER_SESSIONS_UID,
+    cs.USER_DOMAIN:       cs.ZSET_USER_SESSIONS_DOMAIN,
+}
 
 class ClientRedis():
     """
@@ -207,66 +214,77 @@ class ClientRedis():
 
     def zset_paginate_hashes(
         self,
-        zset_key: str,
         first: int = 0,
         last: int = 0,
         sort_by: str | None = None,
-        sort_order: str = "desc",
-        include_fields: str | None = None,
+        sort_order: str | None = None
     ) -> tuple[int, list[dict]]:
         """
         Paginate through hash keys referenced in a sorted set.
 
-        :param zset_key: name of the sorted set (e.g. "user_sessions:activity")
+        When *sort_by* matches a field that has a dedicated sorted-set
+        index (see :pyattr:`SORT_FIELD_TO_ZSET`), that index is used
+        instead — still fully redis-side, no Python sort needed.
+
+        Only when *sort_by* has **no** matching sorted-set index does
+        the method fall back to fetching all hashes and sorting in memory.
+
         :param first: offset of the first item to return
-        :param last: index of the last item (exclusive).
+        :param last: index of the last item (inclusive).
         :param sort_by: hash field to sort on.  None means use the
             sorted-set score (fast path).  Any other value triggers the
-            in-memory fallback.
+            in-memory fallback only if no dedicated index exists.
         :param sort_order: "asc" or "desc" (default "desc")
         :param include_fields: comma-separated list of hash fields to keep
             in each returned dict (None = return all fields)
         :return: (total_count, page_items)
         """
-        logger_cache.info(
-            "zset_paginate_hashes zset=%s first=%s last=%s sort_by=%s sort_order=%s fields=%s",
-            zset_key, first, last, sort_by, sort_order, include_fields,
-        )
-
-        total_count = cast(int, self.redis.zcard(zset_key))
+        logger_cache.info("zset_paginate_hashes first=%s last=%s sort_by=%s sort_order=%s", first, last, sort_by, sort_order)
+        # set default zset key
+        zset_key_default = cs.ZSET_USER_SESSIONS_ACTIVITY
+        total_count = cast(int, self.redis.zcard(zset_key_default))
 
         if total_count == 0:
             return 0, []
+        if sort_order is None:
+            sort_order = "desc"
 
         reverse = sort_order == "desc"
 
-        # ----- sort by sorted-set score -----
-        if sort_by is None:
+        # Resolve which sorted set to query for ordering.
+        # If sort_by matches a dedicated index, use it (redis-side fast path).
+        resolved_zset: str | None = None
+        if sort_by is not None:
+            resolved_zset = SORT_FIELD_TO_ZSET.get(sort_by)
+
+        # ----- Fast path: sort by sorted-set score (redis-side) -----
+        if sort_by is None or resolved_zset is not None:
+            effective_zset = resolved_zset if resolved_zset is not None else zset_key_default
+
             if last:
-                count = last - first
+                count = last - first + 1
             else:
                 count = total_count
 
-            member_keys: list[str] = cast(
+            sorted_keys: list[str] = cast(
                 list[str],
                 self.redis.zrange(
-                    zset_key,
+                    effective_zset,
                     start=first,
                     end=first + count - 1,
                     desc=reverse,
                 ),
             )
-
-            if not member_keys:
+            if not sorted_keys:
                 return total_count, []
-
-            items = self._pipeline_hgetall(member_keys)
+            items = self._pipeline_hgetall(sorted_keys)
 
         else:
+            # ----- Slow path: no dedicated index, in-memory fallback ----- TODO: useless part?
             # Retrieve ALL member keys from the sorted set
             all_keys: list[str] = cast(
                 list[str],
-                self.redis.zrange(zset_key, start=0, end=-1),
+                self.redis.zrange(zset_key_default, start=0, end=-1),
             )
 
             if not all_keys:
@@ -278,14 +296,9 @@ class ClientRedis():
             # Sort in memory on the requested field
             items.sort(key=lambda d: d.get(sort_by, ""), reverse=reverse)
 
-            # Paginate in memory
+            # Paginate
             if last:
-                items = items[first:last]
-
-        # Field filtering (client-side, lightweight on a small page)
-        if include_fields:
-            wanted = {f.strip() for f in include_fields.split(",")}
-            items = [{k: v for k, v in d.items() if k in wanted} for d in items]
+                items = items[first:last + 1]
 
         logger_cache.info(
             "zset_paginate_hashes: total=%d page_size=%d", total_count, len(items),
@@ -297,7 +310,10 @@ class ClientRedis():
         Fetch multiple hashes in a single Redis round-trip.
 
         Keys whose hash no longer exists (e.g. expired) are silently
-        skipped.
+        skipped **and their orphaned entries are removed from the
+        sorted-set indexes** (lazy cleanup).  The Redis key itself is
+        injected into each returned dict under the
+        :pyattr:`cs.SESSION_KEY` field.
 
         :param keys: list of Redis hash keys
         :return: list of non-empty hash dicts
@@ -308,11 +324,28 @@ class ClientRedis():
         raw_results = pipe.execute()
 
         items: list[dict] = []
+        orphaned_keys: list[str] = []
         data: dict
-        for data in raw_results:
+        for key, data in zip(keys, raw_results):
             if data:
                 data.pop(cs.SESSION_SENSITIVE)
+                data[cs.SESSION_KEY] = key
                 items.append(data)
+            else:
+                orphaned_keys.append(key)
+
+        # Lazy cleanup: remove sorted-set entries whose hash has expired
+        if orphaned_keys:
+            cleanup_pipe = self.redis.pipeline(transaction=False)
+            for key in orphaned_keys:
+                cleanup_pipe.zrem(cs.ZSET_USER_SESSIONS_ACTIVITY, key)
+                cleanup_pipe.zrem(cs.ZSET_USER_SESSIONS_UID, key)
+                cleanup_pipe.zrem(cs.ZSET_USER_SESSIONS_DOMAIN, key)
+            cleanup_pipe.execute()
+            logger_cache.info(
+                "_pipeline_hgetall: cleaned up %d orphaned sorted-set entries",
+                len(orphaned_keys),
+            )
         return items
 
     def delete(self, *keys: str) -> int:
@@ -328,7 +361,7 @@ class ClientRedis():
 
         return ret
 
-    def revoke_user_sessions(self, uids: list[str]) -> int:
+    def revoke_user_sessions_by_uid(self, uids: list[str]) -> int:
         """
         Revoke all cache sessions that belong to the given UIDs.
         Not using delete because we need to remove the session keys from the sorted-set indexes as well.
@@ -352,7 +385,7 @@ class ClientRedis():
         )
 
         if not all_keys:
-            logger_cache.info("revoke_user_sessions: no active sessions found")
+            logger_cache.info("revoke_user_sessions_by_uid: no active sessions found")
             return 0
 
         # Fetch all hashes in one pipeline round-trip
@@ -369,7 +402,7 @@ class ClientRedis():
         ]
 
         if not keys_to_revoke:
-            logger_cache.info("revoke_user_sessions: no sessions found for uids %s", uids)
+            logger_cache.info("revoke_user_sessions_by_uid: no sessions found for uids %s", uids)
             return 0
 
         # Delete hash keys and remove from all sorted-set indexes in one pipeline
@@ -382,7 +415,101 @@ class ClientRedis():
         pipe.execute()
 
         logger_cache.info(
-            "revoke_user_sessions: revoked %d session(s) for uids %s",
+            "revoke_user_sessions_by_uid: revoked %d session(s) for uids %s",
             len(keys_to_revoke), uids,
         )
         return len(keys_to_revoke)
+
+    def revoke_user_sessions_by_key(self, redis_keys: list[str]) -> int:
+        """
+        Revoke cache sessions identified by their Redis keys directly.
+
+        Each key is deleted along with its entry in every sorted-set index
+        in a single pipeline round-trip.
+
+        :param redis_keys: list of Redis hash keys to revoke (e.g. ``user_session:<uuid>``)
+        :type redis_keys: list[str]
+        :return: number of session hashes deleted
+        :rtype: int
+        """
+        if not redis_keys:
+            logger_cache.info("revoke_user_sessions_by_key: no keys provided")
+            return 0
+
+        # Delete hash keys and remove from all sorted-set indexes in one pipeline
+        # Each key produces 4 commands: delete, zrem×3
+        pipe = self.redis.pipeline(transaction=False)
+        for key in redis_keys:
+            pipe.delete(key)
+            pipe.zrem(cs.ZSET_USER_SESSIONS_ACTIVITY, key)
+            pipe.zrem(cs.ZSET_USER_SESSIONS_UID, key)
+            pipe.zrem(cs.ZSET_USER_SESSIONS_DOMAIN, key)
+        results = pipe.execute()
+
+        # Count actually deleted keys by inspecting the delete result
+        # (every 4th result starting at index 0)
+        revoked_count = sum(
+            1 for i in range(0, len(results), 4) if results[i]
+        )
+
+        logger_cache.info(
+            "revoke_user_sessions_by_key: revoked %d session(s) for keys %s",
+            revoked_count, redis_keys,
+        )
+        return revoked_count
+
+    def revoke_user_sessions_by_activity(self, timestamp: int) -> int:
+        """
+        Revoke all cache sessions whose last activity score is older than
+        (i.e. less than or equal to) the given Unix timestamp.
+
+        Uses ``ZRANGEBYSCORE`` on the activity sorted set to find members
+        with a score between ``-inf`` and *timestamp* (inclusive).
+        Then deletes the corresponding hash keys and removes the members
+        from every sorted-set index in a single pipeline round-trip.
+
+        :param timestamp: Unix timestamp.  Sessions with a
+            last-activity score ≤ this value are considered inactive.
+        :type timestamp: int
+        :return: number of session hashes deleted
+        :rtype: int
+        """
+        # Find all session keys whose activity score <= timestamp
+        keys_to_revoke: list[str] = cast(
+            list[str],
+            self.redis.zrangebyscore(
+                cs.ZSET_USER_SESSIONS_ACTIVITY,
+                min="-inf",
+                max=timestamp,
+            ),
+        )
+
+        if not keys_to_revoke:
+            logger_cache.info(
+                "revoke_user_sessions_by_activity: no sessions older than %d",
+                timestamp,
+            )
+            return 0
+
+        # Delete hash keys and remove from all sorted-set indexes in one pipeline.
+        # zremrangebyscore handles the activity set in bulk; the UID and domain
+        # sets are cleaned up per-key since they share the same member names.
+        pipe = self.redis.pipeline(transaction=False)
+        for key in keys_to_revoke:
+            pipe.delete(key)
+            pipe.zrem(cs.ZSET_USER_SESSIONS_UID, key)
+            pipe.zrem(cs.ZSET_USER_SESSIONS_DOMAIN, key)
+        pipe.zremrangebyscore(cs.ZSET_USER_SESSIONS_ACTIVITY, "-inf", timestamp)
+        results = pipe.execute()
+
+        # Count actually deleted keys by inspecting the delete result
+        # (every 3rd result starting at index 0, one delete + two zrem per key)
+        revoked_count = sum(
+            1 for i in range(0, len(results) - 1, 3) if results[i]
+        )
+
+        logger_cache.info(
+            "revoke_user_sessions_by_activity: revoked %d session(s) older than %d",
+            revoked_count, timestamp,
+        )
+        return revoked_count
