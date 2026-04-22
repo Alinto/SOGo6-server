@@ -97,7 +97,7 @@ class FakeClientMailServer:
     def fetch_mail_raw(self, folder_name, mail_uid):
         return self.fetch_mail_raw_result
 
-    def delete_mails_by_uid(self, folder_path, mail_uids):
+    def delete_mails_by_uid(self, folder_path, mail_uids, move_to_trash=True, permanently=True):
         self.delete_mails_by_uid_calls.append((folder_path, mail_uids))
 
     def copy_mail_to_mailbox(self, src_folder, mail_uid, dest_folder, create_dest=False):
@@ -173,6 +173,7 @@ def _make_module(monkeypatch, fake_client=None):
 
     mock_user = MagicMock()
     mock_user.login_mail_server = 'user@example.com'
+    mock_user.profile.preferences.get.return_value = {}
     mock_mail_settings = MagicMock()
 
     module = ModuleMail(user=mock_user, mail_settings=mock_mail_settings)
@@ -319,7 +320,7 @@ def test_delete_mails_client_error(monkeypatch):
     """Test deleting mails propagates client error."""
     module, fake_client = _make_module(monkeypatch)
 
-    def raise_error(folder_path, mail_uids):
+    def raise_error(folder_path, mail_uids, move_to_trash=True, permanently=True):
         raise RequestException("Delete failed")
 
     fake_client.delete_mails_by_uid = raise_error
