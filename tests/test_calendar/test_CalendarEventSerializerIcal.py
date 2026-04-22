@@ -4,6 +4,7 @@ Verifie la conformite RFC 5545 des proprietes, de l'encodage TEXT et du folding.
 """
 import re
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -256,7 +257,6 @@ def test_allday_uses_date_format(serializer):
 # ==========================================================================
 
 def test_tzid_datetime(serializer):
-    from zoneinfo import ZoneInfo
     event = CalEvent(
         uid="tz@test.com",
         title="Paris Meeting",
@@ -328,7 +328,6 @@ def test_vtodo_uses_due_not_dtend(serializer):
 
 
 def test_vtodo_status_needs_action(serializer):
-    from app.module.calendar.model.enums.EventStatus import EventStatus
     event = CalEvent(
         uid="task@test.com", title="My Task",
         date_start=datetime(2026, 1, 1, tzinfo=timezone.utc),
@@ -340,7 +339,6 @@ def test_vtodo_status_needs_action(serializer):
 
 
 def test_vtodo_status_completed(serializer):
-    from app.module.calendar.model.enums.EventStatus import EventStatus
     event = CalEvent(
         uid="task@test.com", title="Done Task",
         date_start=datetime(2026, 1, 1, tzinfo=timezone.utc),

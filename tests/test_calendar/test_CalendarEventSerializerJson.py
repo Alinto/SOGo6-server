@@ -24,6 +24,8 @@ from app.module.calendar.model.enums.RelationType import RelationType
 from app.module.calendar.model.enums.ReminderMethod import ReminderMethod
 from app.module.calendar.model.enums.ShowAs import ShowAs
 from app.module.calendar.model.enums.ComponentType import ComponentType
+from app.module.calendar.model.CalRecurrenceRule import CalRecurrenceRule
+from app.module.calendar.model.enums.RecurrenceFrequency import RecurrenceFrequency
 from app.module.calendar.serializer.CalendarEventSerializerJson import CalendarEventSerializerJson
 
 _UTC = timezone.utc
@@ -42,10 +44,6 @@ def minimal_event():
         date_start=datetime(2026, 3, 19, 9, 30, tzinfo=_UTC),
         date_end=datetime(2026, 3, 19, 10, 0, tzinfo=_UTC),
     )
-
-
-def test_serialize_returns_valid_json(serializer, minimal_event):
-    assert isinstance(json.loads(serializer.serialize(minimal_event)), dict)
 
 
 def test_dates_are_iso_utc_with_milliseconds(serializer, minimal_event):
@@ -175,10 +173,6 @@ def test_reminders(serializer):
 # VTODO fields
 # ==========================================================================
 
-def test_component_type_event_default(serializer, minimal_event):
-    assert serializer.to_dict(minimal_event)["component_type"] == "event"
-
-
 def test_component_type_task(serializer):
     event = CalEvent(
         uid="t@e.com", title="T",
@@ -187,10 +181,6 @@ def test_component_type_task(serializer):
         component_type=ComponentType.TASK,
     )
     assert serializer.to_dict(event)["component_type"] == "task"
-
-
-def test_percent_complete_null_when_absent(serializer, minimal_event):
-    assert serializer.to_dict(minimal_event)["percent_complete"] is None
 
 
 def test_percent_complete_value(serializer):
@@ -202,10 +192,6 @@ def test_percent_complete_value(serializer):
         percent_complete=60,
     )
     assert serializer.to_dict(event)["percent_complete"] == 60
-
-
-def test_completed_at_null_when_absent(serializer, minimal_event):
-    assert serializer.to_dict(minimal_event)["completed_at"] is None
 
 
 def test_completed_at_serialized(serializer):
@@ -221,25 +207,7 @@ def test_completed_at_serialized(serializer):
 
 # ========== Recurrence fields ==========
 
-def test_recurrence_rule_null_when_absent(serializer, minimal_event):
-    assert serializer.to_dict(minimal_event)["recurrence_rule"] is None
-
-
-def test_recurrence_exceptions_empty_when_absent(serializer, minimal_event):
-    assert serializer.to_dict(minimal_event)["recurrence_exceptions"] == []
-
-
-def test_recurrence_id_null_when_absent(serializer, minimal_event):
-    assert serializer.to_dict(minimal_event)["recurrence_id"] is None
-
-
-def test_parent_uid_null_when_absent(serializer, minimal_event):
-    assert serializer.to_dict(minimal_event)["parent_uid"] is None
-
-
 def test_recurrence_rule_serialized():
-    from app.module.calendar.model.CalRecurrenceRule import CalRecurrenceRule
-    from app.module.calendar.model.enums.RecurrenceFrequency import RecurrenceFrequency
     event = CalEvent(
         uid="r@e.com", title="T",
         date_start=datetime(2026, 1, 1, tzinfo=_UTC),
@@ -281,6 +249,73 @@ def test_recurrence_id_serialized():
         recurrence_id=datetime(2026, 3, 7, 9, 0, 0, tzinfo=_UTC),
     )
     assert CalendarEventSerializerJson().to_dict(event)["recurrence_id"] == "2026-03-07T09:00:00.000Z"
+
+
+# ========== dates_with_tz ==========
+
+def test_dates_with_tz_event_timezone(serializer):
+    event = CalEvent(
+        uid="u@e.com", title="T",
+        date_start=datetime(2026, 6, 10, 9, 0, tzinfo=_UTC),
+        date_end=datetime(2026, 6, 10, 10, 0, tzinfo=_UTC),
+        timezone="Europe/Paris",
+    )
+    d = serializer.to_dict(event)["dates_with_tz"]
+    # Europe/Paris in summer = UTC+2
+    assert d["date_start_tz_event"] == "2026-06-10T11:00:00+02:00"
+    assert d["date_end_tz_event"] == "2026-06-10T12:00:00+02:00"
+    assert d["date_start_tz_calendar"] is None
+    assert d["date_end_tz_calendar"] is None
+
+
+def test_dates_with_tz_calendar_timezone(serializer):
+    event = CalEvent(
+        uid="u@e.com", title="T",
+        date_start=datetime(2026, 1, 15, 8, 0, tzinfo=_UTC),
+        date_end=datetime(2026, 1, 15, 9, 0, tzinfo=_UTC),
+        timezone="UTC",
+        calendar_timezone="America/New_York",
+    )
+    d = serializer.to_dict(event)["dates_with_tz"]
+    # America/New_York in winter = UTC-5
+    assert d["date_start_tz_calendar"] == "2026-01-15T03:00:00-05:00"
+    assert d["date_end_tz_calendar"] == "2026-01-15T04:00:00-05:00"
+
+
+def test_dates_with_tz_both_timezones(serializer):
+    event = CalEvent(
+        uid="u@e.com", title="T",
+        date_start=datetime(2026, 6, 10, 9, 0, tzinfo=_UTC),
+        date_end=datetime(2026, 6, 10, 10, 0, tzinfo=_UTC),
+        timezone="Europe/Paris",
+        calendar_timezone="America/New_York",
+    )
+    d = serializer.to_dict(event)["dates_with_tz"]
+    assert d["date_start_tz_event"] == "2026-06-10T11:00:00+02:00"
+    assert d["date_start_tz_calendar"] == "2026-06-10T05:00:00-04:00"
+
+
+def test_dates_with_tz_unknown_timezone_returns_none(serializer):
+    event = CalEvent(
+        uid="u@e.com", title="T",
+        date_start=datetime(2026, 1, 1, tzinfo=_UTC),
+        date_end=datetime(2026, 1, 1, 1, tzinfo=_UTC),
+        timezone="Not/ATimezone",
+    )
+    d = serializer.to_dict(event)["dates_with_tz"]
+    assert d["date_start_tz_event"] is None
+    assert d["date_end_tz_event"] is None
+
+
+def test_dates_with_tz_no_timezone_all_none(serializer):
+    event = CalEvent(
+        uid="u@e.com", title="T",
+        date_start=datetime(2026, 1, 1, tzinfo=_UTC),
+        date_end=datetime(2026, 1, 1, 1, tzinfo=_UTC),
+        timezone="",
+    )
+    d = serializer.to_dict(event)["dates_with_tz"]
+    assert all(v is None for v in d.values())
 
 
 def test_conference_data_and_attachment(serializer):

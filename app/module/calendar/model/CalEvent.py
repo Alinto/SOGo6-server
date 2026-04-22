@@ -37,6 +37,8 @@ class CalEvent:  # pylint: disable=too-many-instance-attributes,invalid-name
     key: str | None = None
     # UUID key of the parent calendar — stored in DB and exposed in the API
     calendar_key: str | None = None
+    # IANA timezone of the parent calendar — transient, not persisted, set by CalendarSource
+    calendar_timezone: str | None = None
     # Domain type of the component — drives serialization dispatch
     component_type: ComponentType = ComponentType.EVENT
     # RFC 5545 §3.3.4 — DATE value type vs DATE-TIME
@@ -86,10 +88,10 @@ class CalEvent:  # pylint: disable=too-many-instance-attributes,invalid-name
     recurrence_exceptions: list[datetime] = field(default_factory=list)
     # RFC 5545 §3.8.4.4 (RECURRENCE-ID)
     recurrence_id: datetime | None = None
-    # RFC 5545 UID of the master event for detached occurrences
-    parent_uid: str | None = None
     # RFC 5545 §3.8.5.3 RANGE=THISANDFUTURE — None or 'THISANDFUTURE'
     recurrence_range: str | None = None
+    # UID of the master recurring event — set on detached occurrences (RECURRENCE-ID rows)
+    parent_uid: str | None = None
 
     # RFC 5545 §3.8.1.8 (PERCENT-COMPLETE) — VTODO only
     percent_complete: int | None = None

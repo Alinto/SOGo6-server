@@ -8,11 +8,13 @@ import pytest
 
 from app.module.calendar.model.enums.AttendeeRole import AttendeeRole
 from app.module.calendar.model.enums.CalUserType import CalUserType
+from app.module.calendar.model.enums.ComponentType import ComponentType
 from app.module.calendar.model.enums.EventStatus import EventStatus
 from app.module.calendar.model.enums.EventVisibility import EventVisibility
 from app.module.calendar.model.enums.RecurrenceFrequency import RecurrenceFrequency
 from app.module.calendar.model.enums.ReminderMethod import ReminderMethod
 from app.module.calendar.serializer.CalendarEventDeserializerIcal import CalendarEventDeserializerIcal
+from app.module.calendar.serializer.CalendarEventsDeserializerIcal import CalendarEventsDeserializerIcal
 from tests.test_calendar.ical_examples import (
     ICAL_EXAMPLE_1,
     ICAL_EXAMPLE_2,
@@ -351,8 +353,6 @@ ICAL_RECURRENCE_ID = (
 
 def test_recurrence_id_parsed(deserializer):
     """Override VEVENT must have recurrence_id pointing to the original occurrence datetime."""
-    from app.module.calendar.serializer.CalendarEventsDeserializerIcal import CalendarEventsDeserializerIcal
-
     events_deserializer = CalendarEventsDeserializerIcal(deserializer)
     events = events_deserializer.deserialize(ICAL_RECURRENCE_ID)
 
@@ -404,7 +404,6 @@ ICAL_VTODO_NO_STATUS = (
 
 
 def test_vtodo_component_type(deserializer):
-    from app.module.calendar.model.enums.ComponentType import ComponentType
     event = deserializer.deserialize(ICAL_EXAMPLE_4)
     assert event.component_type == ComponentType.TASK
 
@@ -420,7 +419,6 @@ def test_vtodo_title(deserializer):
 
 
 def test_vtodo_status_needs_action(deserializer):
-    from app.module.calendar.model.enums.EventStatus import EventStatus
     event = deserializer.deserialize(ICAL_EXAMPLE_4)
     assert event.status == EventStatus.NEEDS_ACTION
 
@@ -432,7 +430,6 @@ def test_vtodo_due_maps_to_date_end(deserializer):
 
 
 def test_vtodo_status_in_process(deserializer):
-    from app.module.calendar.model.enums.EventStatus import EventStatus
     event = deserializer.deserialize(ICAL_VTODO_FULL)
     assert event.status == EventStatus.IN_PROCESS
 
@@ -448,12 +445,10 @@ def test_vtodo_completed_at(deserializer):
 
 
 def test_vtodo_no_status_defaults_to_needs_action(deserializer):
-    from app.module.calendar.model.enums.EventStatus import EventStatus
     event = deserializer.deserialize(ICAL_VTODO_NO_STATUS)
     assert event.status == EventStatus.NEEDS_ACTION
 
 
 def test_vevent_component_type(deserializer):
-    from app.module.calendar.model.enums.ComponentType import ComponentType
     event = deserializer.deserialize(ICAL_EXAMPLE_1)
     assert event.component_type == ComponentType.EVENT

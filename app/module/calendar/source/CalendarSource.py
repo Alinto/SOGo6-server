@@ -67,6 +67,7 @@ class CalendarSource(ABC):
         expanded: list[CalEvent] = self._expand_recurring(raw, resolved_start, resolved_end)
         result: list[CalEvent] = self.filter(expanded, resolved_start, resolved_end, search)
         result.sort(key=lambda e: e.date_start)
+        self._stamp_calendar_tz(result)
         return result
 
     @abstractmethod
@@ -105,6 +106,7 @@ class CalendarSource(ABC):
         expanded: list[CalEvent] = self._expand_recurring(raw, resolved_start, resolved_end)
         result: list[CalEvent] = self.filter(expanded, resolved_start, resolved_end, search)
         result.sort(key=lambda e: e.date_start)
+        self._stamp_calendar_tz(result)
         return result
 
     def _fetch_tasks(self, start: datetime, end: datetime, search: str | None = None) -> list[CalEvent]:
@@ -182,6 +184,16 @@ class CalendarSource(ABC):
         """Lowercase and strip diacritics for accent-insensitive matching."""
         return unicodedata.normalize("NFD", text).encode("ascii", "ignore").decode("ascii").lower()
 
+    def _stamp_calendar_tz(self, events: list[CalEvent]) -> None:
+        """Stamp calendar_key and calendar_timezone on each event from the associated calendar."""
+        key = self._calendar.key
+        tz = self._calendar.timezone
+        for event in events:
+            if key:
+                event.calendar_key = key
+            if tz:
+                event.calendar_timezone = tz
+
     def is_writable(self) -> bool:
         """Return True if this source supports write operations."""
         return False
@@ -212,4 +224,12 @@ class CalendarSource(ABC):
 
     def delete_event(self, uid: str) -> None:
         """Soft-delete an event by uid. Raises NOT_SUPPORTED on read-only sources."""
+        raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
+
+    def delete_detached_occurrence(self, occurrence: CalEvent) -> None:
+        """Soft-delete a detached occurrence and add its recurrence_id to the master EXDATE.
+
+        Called instead of delete_event when the event being deleted has recurrence_id set.
+        Raises NOT_SUPPORTED on read-only sources.
+        """
         raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)

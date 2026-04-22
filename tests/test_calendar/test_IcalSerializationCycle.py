@@ -26,10 +26,12 @@ import pytest
 from app.module.calendar.model.CalEvent import CalEvent
 from app.module.calendar.model.CalRecurrenceRule import CalRecurrenceRule
 from app.module.calendar.model.CalReminder import CalReminder
+from app.module.calendar.model.enums.ComponentType import ComponentType
 from app.module.calendar.model.enums.RecurrenceFrequency import RecurrenceFrequency
 from app.module.calendar.model.enums.ReminderMethod import ReminderMethod
 from app.module.calendar.serializer.CalendarEventDeserializerIcal import CalendarEventDeserializerIcal
 from app.module.calendar.serializer.CalendarEventSerializerIcal import CalendarEventSerializerIcal
+from app.utils.exceptions import RequestException
 from tests.test_calendar.ical_examples import (
     ICAL_EXAMPLE_1,
     ICAL_EXAMPLE_2,
@@ -196,7 +198,6 @@ def test_roundtrip_example3_string(deserializer, serializer):
 
 def test_roundtrip_example4_vtodo(deserializer, serializer):
     event = deserializer.deserialize(ICAL_EXAMPLE_4)
-    from app.module.calendar.model.enums.ComponentType import ComponentType
     assert event.component_type == ComponentType.TASK
     output = serializer.serialize(event)
     assert "BEGIN:VTODO" in output
@@ -204,13 +205,11 @@ def test_roundtrip_example4_vtodo(deserializer, serializer):
 
 
 def test_roundtrip_example5_no_crash(deserializer):
-    from app.utils.exceptions import RequestException
     with pytest.raises(RequestException):
         deserializer.deserialize(ICAL_EXAMPLE_5)
 
 
 def test_roundtrip_example6_no_crash(deserializer):
-    from app.utils.exceptions import RequestException
     with pytest.raises(RequestException):
         deserializer.deserialize(ICAL_EXAMPLE_6)
 

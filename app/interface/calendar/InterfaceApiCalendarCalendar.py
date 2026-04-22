@@ -3,8 +3,6 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
-_FAR_FUTURE = "9999-12-31T23:59:59Z"
-
 from app.config.settings.DomainSettings import CalendarContactSettings, CalendarContactSettingsObj
 from app.module.calendar.ModuleCalendar import ModuleCalendar
 from app.module.calendar.model.CalCalendar import CalCalendar
@@ -20,6 +18,8 @@ if TYPE_CHECKING:
     from app.auth.User import User
     from app.config.settings.ProcessSetting import ProcessSetting
     from app.module.calendar.model.CalEvent import CalEvent
+
+_FAR_FUTURE = "9999-12-31T23:59:59Z"
 
 
 class InterfaceApiCalendarCalendar:
@@ -76,7 +76,7 @@ class InterfaceApiCalendarCalendar:
                 timezone=body.get("timezone", "UTC"),
             )
             created = self.module.create_calendar(cal)
-            return create_api_base_response(self._serialize_calendar(created))
+            return create_api_base_response(self._serialize_calendar(created), code=201)
         except RequestException as ex:
             logger_api.error("create_calendar failed for user %s: %s", self.user.uid, ex)
             return create_api_base_response(None, ex.error)
@@ -113,7 +113,7 @@ class InterfaceApiCalendarCalendar:
         try:
             event: CalEvent = self._event_deserializer.from_dict(body)
             created = self.module.create_event(calendar_key, event)
-            return create_api_base_response(self._event_serializer.to_dict(created))
+            return create_api_base_response(self._event_serializer.to_dict(created), code=201)
         except RequestException as ex:
             logger_api.error("create_event failed for user %s calendar %s: %s", self.user.uid, calendar_key, ex)
             return create_api_base_response(None, ex.error)
@@ -158,7 +158,7 @@ class InterfaceApiCalendarCalendar:
             logger_api.error("Unexpected error in delete_event for user %s event %s: %s", self.user.uid, event_key, exc)
             return create_api_base_response(None, ERROR_UNKOWN)
 
-    def get_events(self, key: str, query_args: dict[str, Any]) -> tuple[dict[str, Any], int]:
+    def get_events(self, key: str | None, query_args: dict[str, Any]) -> tuple[dict[str, Any], int]:
         """List events in a calendar, applying optional date range and search filters.
 
         When no dates are provided and there is no search query, defaults to the current calendar day (UTC).
@@ -171,7 +171,7 @@ class InterfaceApiCalendarCalendar:
                 today = datetime.now(timezone.utc).date()
                 start = datetime(today.year, today.month, today.day, 0, 0, 0, tzinfo=timezone.utc)
                 end = datetime(today.year, today.month, today.day, 23, 59, 59, tzinfo=timezone.utc)
-            events: list[CalEvent] = self.module.get_events(key, start, end, search)
+            events: list[CalEvent] = self.module.get_events(start, end, search, key)
             return create_api_base_response(self._events_serializer.to_response(events))
         except RequestException as ex:
             logger_api.error("get_events failed for user %s, calendar %s: %s", self.user.uid, key, ex)
@@ -180,17 +180,14 @@ class InterfaceApiCalendarCalendar:
             logger_api.error("Unexpected error in get_events for user %s, calendar %s: %s", self.user.uid, key, exc)
             return create_api_base_response(None, ERROR_UNKOWN)
 
-    def get_tasks(self, key: str, query_args: dict[str, Any]) -> tuple[dict[str, Any], int]:
+    def get_tasks(self, key: str | None, query_args: dict[str, Any]) -> tuple[dict[str, Any], int]:
         """List VTODO tasks in a calendar with optional date range and search filters."""
         try:
             start: datetime | None = query_args.get("start_date_time")
             end: datetime | None = query_args.get("end_date_time")
             search: str | None = query_args.get("search")
-            if search is None and start is None and end is None:
-                start = None
-                end = None
-            tasks: list[CalEvent] = self.module.get_tasks(key, start, end, search)
-            data = {"tasks": [self._serialize_task(t) for t in tasks], "total_count": len(tasks)}
+            tasks: list[CalEvent] = self.module.get_tasks(start, end, search, key)
+            data = {"tasks": [self._event_serializer.to_dict(t) for t in tasks], "total_count": len(tasks)}
             return create_api_base_response(data)
         except RequestException as ex:
             logger_api.error("get_tasks failed for user %s, calendar %s: %s", self.user.uid, key, ex)
@@ -205,7 +202,7 @@ class InterfaceApiCalendarCalendar:
             task_body = self._normalize_task_body(body)
             task: CalEvent = self._event_deserializer.from_dict(task_body)
             created = self.module.create_task(calendar_key, task)
-            return create_api_base_response(self._serialize_task(created))
+            return create_api_base_response(self._event_serializer.to_dict(created), code=201)
         except RequestException as ex:
             logger_api.error("create_task failed for user %s calendar %s: %s", self.user.uid, calendar_key, ex)
             return create_api_base_response(None, ex.error)
@@ -217,7 +214,7 @@ class InterfaceApiCalendarCalendar:
         """Get a single VTODO by key."""
         try:
             task = self.module.get_task(task_key)
-            return create_api_base_response(self._serialize_task(task))
+            return create_api_base_response(self._event_serializer.to_dict(task))
         except RequestException as ex:
             logger_api.error("get_task failed for user %s task %s: %s", self.user.uid, task_key, ex)
             return create_api_base_response(None, ex.error)
@@ -233,7 +230,7 @@ class InterfaceApiCalendarCalendar:
                 body["date_end"] = body.pop("due")
             parsed = self._event_deserializer.parse_patch_fields(body)
             updated = self.module.update_task(task_key, parsed)
-            return create_api_base_response(self._serialize_task(updated))
+            return create_api_base_response(self._event_serializer.to_dict(updated))
         except RequestException as ex:
             logger_api.error("patch_task failed for user %s task %s: %s", self.user.uid, task_key, ex)
             return create_api_base_response(None, ex.error)
@@ -262,48 +259,6 @@ class InterfaceApiCalendarCalendar:
         task_body["date_end"] = task_body.pop("due", None) or _FAR_FUTURE
         task_body["component_type"] = "task"
         return task_body
-
-    @staticmethod
-    def _serialize_task(task: CalEvent) -> dict[str, Any]:
-        """Convert a VTODO CalEvent to a dict for API responses."""
-        return {
-            "id": task.key,
-            "calendar_id": task.calendar_key,
-            "uid": task.uid,
-            "title": task.title,
-            "description": task.description,
-            "date_start": task.date_start.isoformat() if task.date_start else None,
-            "due": task.date_end.isoformat() if task.date_end else None,
-            "status": task.status.value,
-            "visibility": task.visibility.value,
-            "priority": task.priority,
-            "percent_complete": task.percent_complete,
-            "completed_at": task.completed_at.isoformat() if task.completed_at else None,
-            "categories": task.categories,
-            "reminders": [
-                {"method": r.method.value, "minutes_before": r.minutes_before}
-                for r in task.reminders
-            ],
-            "organizer": None if not task.organizer else {
-                "email": task.organizer.email, "name": task.organizer.name,
-            },
-            "attendees": [
-                {"email": a.email, "name": a.name, "role": a.role.value,
-                 "status": a.status.value, "rsvp": a.rsvp}
-                for a in task.attendees
-            ],
-            "related_to": [{"uid": r.uid, "relation_type": r.relation_type.value} for r in task.related_to],
-            "attachments": [
-                {"filename": a.filename, "mime_type": a.mime_type, "url": a.url, "size": a.size}
-                for a in task.attachments
-            ],
-            "extra_properties": task.extra_properties,
-            "recurrence_rule": task.recurrence_rule.to_dict() if task.recurrence_rule else None,
-            "recurrence_exceptions": [d.isoformat() for d in task.recurrence_exceptions],
-            "component_type": task.component_type.value,
-            "created_at": task.created_at.isoformat() if task.created_at else None,
-            "updated_at": task.updated_at.isoformat() if task.updated_at else None,
-        }
 
     @staticmethod
     def _serialize_calendar(cal: CalCalendar) -> dict[str, Any]:

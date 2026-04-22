@@ -68,7 +68,7 @@ class CalendarEventSchema(Schema):
     """
 
     id = fields.String(allow_none=True)
-    calendar_id = fields.String(allow_none=True)
+    calendar_key = fields.String(allow_none=True)
     uid = fields.String()
     title = fields.String()
     description = fields.String(allow_none=True)
@@ -99,8 +99,9 @@ class CalendarEventSchema(Schema):
     recurrence_rule = fields.Dict(allow_none=True)
     recurrence_exceptions = fields.List(fields.String())
     recurrence_id = fields.String(allow_none=True)
-    parent_uid = fields.String(allow_none=True)
     recurrence_range = fields.String(allow_none=True)
+    parent_uid = fields.String(allow_none=True)
+    dates_with_tz = fields.Dict(allow_none=True)
 
 
 class CalendarEventCreateSchema(Schema):
@@ -130,6 +131,7 @@ class CalendarEventCreateSchema(Schema):
     extra_properties = fields.Dict(load_default=dict)
     recurrence_rule = fields.Dict(load_default=None, allow_none=True)
     recurrence_exceptions = fields.List(fields.String(), load_default=list)
+    recurrence_id = fields.String(load_default=None, allow_none=True)
     percent_complete = fields.Integer(load_default=None, allow_none=True)
     completed_at = fields.String(load_default=None, allow_none=True)
 

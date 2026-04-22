@@ -6,8 +6,10 @@ RFC 5545 examples: https://icalendar.org/iCalendar-RFC-5545/4-icalendar-object-e
 """
 import pytest
 
+from app.module.calendar.model.enums.ComponentType import ComponentType
 from app.module.calendar.serializer.CalendarEventsDeserializerIcal import CalendarEventsDeserializerIcal
 from app.module.calendar.serializer.CalendarEventDeserializerIcal import CalendarEventDeserializerIcal
+from app.utils.exceptions import RequestException
 from tests.test_calendar.ical_examples import (
     ICAL_EXAMPLE_1,
     ICAL_EXAMPLE_2,
@@ -71,7 +73,6 @@ def test_vtimezone_not_yielded_as_event(deserializer):
 
 
 def test_vtodo_parsed_as_task(deserializer):
-    from app.module.calendar.model.enums.ComponentType import ComponentType
     events = deserializer.deserialize(ICAL_EXAMPLE_4)
     assert len(events) == 1
     assert events[0].component_type == ComponentType.TASK
@@ -87,7 +88,6 @@ def test_vfreebusy_gives_empty_list(deserializer):
 
 
 def test_invalid_ics_raises(deserializer):
-    from app.utils.exceptions import RequestException
     with pytest.raises(RequestException):
         deserializer.deserialize("not valid ics")
 
@@ -116,6 +116,5 @@ def test_mixed_vevent_and_vtodo_count(deserializer):
 
 
 def test_mixed_component_types(deserializer):
-    from app.module.calendar.model.enums.ComponentType import ComponentType
     components = {e.component_type for e in deserializer.deserialize(ICAL_MIXED)}
     assert components == {ComponentType.EVENT, ComponentType.TASK}
