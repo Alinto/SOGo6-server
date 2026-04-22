@@ -92,7 +92,7 @@ class CalendarEventDeserializerJson(CalendarEventDeserializer):
 
     def _parse_organizer(self, data: dict[str, Any]) -> CalOrganizer:
         return CalOrganizer(
-            email=data["email"],
+            email=data.get("email", ""),
             name=data.get("name"),
             role=self._parse_enum(AttendeeRole, data.get("role"), None),
             status=self._parse_enum(AttendeeStatus, data.get("status"), None),
@@ -103,7 +103,7 @@ class CalendarEventDeserializerJson(CalendarEventDeserializer):
     @staticmethod
     def _parse_attendee(data: dict[str, Any]) -> CalAttendee:
         return CalAttendee(
-            email=data["email"],
+            email=data.get("email", ""),
             name=data.get("name"),
             role=AttendeeRole(data["role"]) if "role" in data else AttendeeRole.REQUIRED,
             status=AttendeeStatus(data["status"]) if "status" in data else AttendeeStatus.NEEDS_ACTION,
@@ -118,8 +118,8 @@ class CalendarEventDeserializerJson(CalendarEventDeserializer):
     @staticmethod
     def _parse_reminder(data: dict[str, Any]) -> CalReminder:
         return CalReminder(
-            method=ReminderMethod(data["method"]),
-            minutes_before=data["minutes_before"],
+            method=ReminderMethod(data.get("method", "display")),
+            minutes_before=data.get("minutes_before", 15),
         )
 
     @staticmethod
@@ -142,7 +142,7 @@ class CalendarEventDeserializerJson(CalendarEventDeserializer):
             for ep in data.get("entry_points", [])
         ]
         return CalConferenceData(
-            type=data["type"],
+            type=data.get("type", ""),
             url=data.get("url"),
             conference_id=data.get("conference_id"),
             entry_points=entry_points,
@@ -151,7 +151,7 @@ class CalendarEventDeserializerJson(CalendarEventDeserializer):
     @staticmethod
     def _parse_relation(data: dict[str, Any]) -> CalEventRelation:
         return CalEventRelation(
-            uid=data["uid"],
+            uid=data.get("uid", ""),
             relation_type=RelationType(data["relation_type"]) if "relation_type" in data else RelationType.PARENT,
         )
 

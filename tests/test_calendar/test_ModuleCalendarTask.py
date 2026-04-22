@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from app.module.calendar.CalendarConst import MAX_TASK_FETCH_DAYS
 from app.module.calendar.ModuleCalendar import ModuleCalendar
 from app.module.calendar.model.CalCalendar import CalCalendar
 from app.module.calendar.model.CalEvent import CalEvent
@@ -289,3 +290,24 @@ def test_get_tasks_no_key_merges_all_calendars():
 def test_get_tasks_no_key_empty_when_no_calendars():
     module = _build_module({})
     assert module.get_tasks(None, None, None) == []
+
+
+def test_get_tasks_date_range_too_large_raises():
+    source = _make_source("cal-key")
+    module = _build_module({"cal-key": source})
+    start = datetime(2026, 1, 1, tzinfo=_UTC)
+    end = datetime(2027, 3, 1, tzinfo=_UTC)
+    assert (end - start).days > MAX_TASK_FETCH_DAYS
+    with pytest.raises(RequestException) as exc_info:
+        module.get_tasks(start, end, None, "cal-key")
+    assert exc_info.value.error == err.ERROR_CALENDAR_DATE_RANGE_TOO_LARGE
+
+
+def test_get_tasks_search_bypasses_date_range_limit():
+    source = _make_source("cal-key")
+    module = _build_module({"cal-key": source})
+    start = datetime(2026, 1, 1, tzinfo=_UTC)
+    end = datetime(2028, 1, 1, tzinfo=_UTC)
+    assert (end - start).days > MAX_TASK_FETCH_DAYS
+    results = module.get_tasks(start, end, "meeting", "cal-key")
+    assert results is not None
