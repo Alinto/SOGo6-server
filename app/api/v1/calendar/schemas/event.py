@@ -90,11 +90,84 @@ class CalendarEventSchema(Schema):
     conference_data = fields.Dict(allow_none=True)
     related_to = fields.List(fields.Dict())
     attachments = fields.List(fields.Dict())
+    extra_properties = fields.Dict()
     created_at = fields.String(allow_none=True)
     updated_at = fields.String(allow_none=True)
     component_type = fields.String()
     percent_complete = fields.Integer(allow_none=True)
     completed_at = fields.String(allow_none=True)
+    recurrence_rule = fields.Dict(allow_none=True)
+    recurrence_exceptions = fields.List(fields.String())
+    recurrence_id = fields.String(allow_none=True)
+    parent_uid = fields.String(allow_none=True)
+    recurrence_range = fields.String(allow_none=True)
+
+
+class CalendarEventCreateSchema(Schema):
+    """Request body for creating a new event."""
+
+    uid = fields.String(load_default=None, allow_none=True)
+    title = fields.String(required=True)
+    description = fields.String(load_default=None, allow_none=True)
+    location = fields.String(load_default=None, allow_none=True)
+    date_start = fields.String(required=True, metadata={"description": "ISO 8601 UTC datetime."})
+    date_end = fields.String(required=True, metadata={"description": "ISO 8601 UTC datetime."})
+    all_day = fields.Boolean(load_default=False)
+    timezone = fields.String(load_default="UTC")
+    status = fields.String(load_default=None, allow_none=True)
+    visibility = fields.String(load_default=None, allow_none=True)
+    show_as = fields.String(load_default=None, allow_none=True)
+    url = fields.String(load_default=None, allow_none=True)
+    color = fields.String(load_default=None, allow_none=True)
+    categories = fields.List(fields.String(), load_default=list)
+    sequence = fields.Integer(load_default=0)
+    organizer = fields.Dict(load_default=None, allow_none=True)
+    attendees = fields.List(fields.Dict(), load_default=list)
+    reminders = fields.List(fields.Dict(), load_default=list)
+    conference_data = fields.Dict(load_default=None, allow_none=True)
+    related_to = fields.List(fields.Dict(), load_default=list)
+    attachments = fields.List(fields.Dict(), load_default=list)
+    extra_properties = fields.Dict(load_default=dict)
+    recurrence_rule = fields.Dict(load_default=None, allow_none=True)
+    recurrence_exceptions = fields.List(fields.String(), load_default=list)
+    percent_complete = fields.Integer(load_default=None, allow_none=True)
+    completed_at = fields.String(load_default=None, allow_none=True)
+
+
+class CalendarEventPatchSchema(Schema):
+    """Request body for partially updating an event. All fields are optional."""
+
+    title = fields.String()
+    description = fields.String(allow_none=True)
+    location = fields.String(allow_none=True)
+    date_start = fields.String(metadata={"description": "ISO 8601 UTC datetime."})
+    date_end = fields.String(metadata={"description": "ISO 8601 UTC datetime."})
+    all_day = fields.Boolean()
+    timezone = fields.String()
+    status = fields.String(allow_none=True)
+    visibility = fields.String(allow_none=True)
+    show_as = fields.String(allow_none=True)
+    url = fields.String(allow_none=True)
+    color = fields.String(allow_none=True)
+    categories = fields.List(fields.String())
+    sequence = fields.Integer()
+    organizer = fields.Dict(allow_none=True)
+    attendees = fields.List(fields.Dict())
+    reminders = fields.List(fields.Dict())
+    conference_data = fields.Dict(allow_none=True)
+    related_to = fields.List(fields.Dict())
+    attachments = fields.List(fields.Dict())
+    extra_properties = fields.Dict()
+    recurrence_rule = fields.Dict(allow_none=True)
+    recurrence_exceptions = fields.List(fields.String())
+    percent_complete = fields.Integer(allow_none=True)
+    completed_at = fields.String(allow_none=True)
+
+
+class CalendarEventResponseSchema(ApiBaseResponse):
+    """Response schema for a single calendar event."""
+
+    data = fields.Nested(CalendarEventSchema, allow_none=True)
 
 
 class CalendarEventListDataSchema(Schema):

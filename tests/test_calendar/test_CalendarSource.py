@@ -30,7 +30,7 @@ class FakeCalendarSource(CalendarSource):
         super().__init__(CalCalendar(user_uid="test", name="Test"))
         self._events = events or []
 
-    def _fetch_events(self, start, end):
+    def _fetch_events(self, start, end, search=None):
         return list(self._events)
 
 

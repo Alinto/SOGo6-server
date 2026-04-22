@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from app.module.calendar.model.CalEvent import CalEvent
 
 _DEFAULT_START: datetime = datetime(1970, 1, 1, tzinfo=timezone.utc)
+_DEFAULT_END_SEARCH: datetime = datetime(9999, 12, 31, tzinfo=timezone.utc)
 
 
 class CalendarSource(ABC):
@@ -32,6 +33,7 @@ class CalendarSource(ABC):
 
     @property
     def calendar(self) -> CalCalendar:
+        """The calendar associated with this source."""
         return self._calendar
 
     def get_events(
@@ -43,31 +45,71 @@ class CalendarSource(ABC):
         """Return events overlapping [start, end], sorted by date_start ASC.
 
         Pipeline: resolve bounds → fetch raw → expand recurring → filter.
-        start defaults to 1970-01-01 UTC, end defaults to now UTC.
+        start defaults to 1970-01-01 UTC.
+        end defaults to 9999-12-31 when a search query is provided (no date constraint),
+        or to now UTC otherwise.
         Naive datetimes are treated as UTC.
         """
         resolved_start: datetime = start if start is not None else _DEFAULT_START
-        resolved_end: datetime = end if end is not None else datetime.now(timezone.utc)
+        if end is not None:
+            resolved_end: datetime = end
+        elif search is not None:
+            resolved_end = _DEFAULT_END_SEARCH
+        else:
+            resolved_end = datetime.now(timezone.utc)
 
         if resolved_start.tzinfo is None:
             resolved_start = resolved_start.replace(tzinfo=timezone.utc)
         if resolved_end.tzinfo is None:
             resolved_end = resolved_end.replace(tzinfo=timezone.utc)
 
-        raw: list[CalEvent] = self._fetch_events(resolved_start, resolved_end)
+        raw: list[CalEvent] = self._fetch_events(resolved_start, resolved_end, search)
         expanded: list[CalEvent] = self._expand_recurring(raw, resolved_start, resolved_end)
         result: list[CalEvent] = self.filter(expanded, resolved_start, resolved_end, search)
         result.sort(key=lambda e: e.date_start)
         return result
 
     @abstractmethod
-    def _fetch_events(self, start: datetime, end: datetime) -> list[CalEvent]:
-        """Return raw, unfiltered CalEvent objects for the given date range.
+    def _fetch_events(self, start: datetime, end: datetime, search: str | None = None) -> list[CalEvent]:
+        """Return raw CalEvent objects for the given date range.
 
-        Receives non-None UTC-aware datetimes. Should return all events
-        (masters + overrides + singles) without filtering — the base class handles that.
+        Receives non-None UTC-aware datetimes. DB-backed sources may push the search filter
+        to SQL; other sources ignore it here and rely on the base class Python filter.
         """
         raise NotImplementedError
+
+    def get_tasks(
+        self,
+        start: datetime | None = None,
+        end: datetime | None = None,
+        search: str | None = None,
+    ) -> list[CalEvent]:
+        """Return tasks (VTODO) overlapping [start, end], sorted by date_start ASC.
+
+        Same resolution and filtering pipeline as get_events, applied to VTODO components.
+        """
+        resolved_start: datetime = start if start is not None else _DEFAULT_START
+        if end is not None:
+            resolved_end: datetime = end
+        elif search is not None:
+            resolved_end = _DEFAULT_END_SEARCH
+        else:
+            resolved_end = datetime.now(timezone.utc)
+
+        if resolved_start.tzinfo is None:
+            resolved_start = resolved_start.replace(tzinfo=timezone.utc)
+        if resolved_end.tzinfo is None:
+            resolved_end = resolved_end.replace(tzinfo=timezone.utc)
+
+        raw: list[CalEvent] = self._fetch_tasks(resolved_start, resolved_end, search)
+        expanded: list[CalEvent] = self._expand_recurring(raw, resolved_start, resolved_end)
+        result: list[CalEvent] = self.filter(expanded, resolved_start, resolved_end, search)
+        result.sort(key=lambda e: e.date_start)
+        return result
+
+    def _fetch_tasks(self, start: datetime, end: datetime, search: str | None = None) -> list[CalEvent]:
+        """Return raw VTODO CalEvent objects. Override in DB-backed sources."""
+        return []
 
     def _expand_recurring(
         self,
@@ -155,6 +197,10 @@ class CalendarSource(ABC):
     def delete_calendar(self) -> None:
         """Delete the calendar and all its events. Raises NOT_SUPPORTED on read-only sources."""
         raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
+
+    def get_event(self, event_key: str) -> CalEvent | None:
+        """Return a single event by key, or None if not found or not supported by this source."""
+        return None
 
     def insert_event(self, event: CalEvent) -> CalEvent:
         """Persist a new event. Raises NOT_SUPPORTED on read-only sources."""

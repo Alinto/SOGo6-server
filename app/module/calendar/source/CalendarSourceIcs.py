@@ -9,6 +9,7 @@ import urllib.error
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+from app.module.calendar.CalendarConst import FETCH_TIMEOUT_SECONDS, MAX_ICS_BYTES
 from app.module.calendar.source.CalendarSource import CalendarSource
 from app.utils.errors import ERROR_CALENDAR_ICS_FETCH_FAILED
 from app.utils.exceptions import RequestException
@@ -18,9 +19,6 @@ if TYPE_CHECKING:
     from app.module.calendar.model.CalCalendar import CalCalendar
     from app.module.calendar.model.CalEvent import CalEvent
     from app.module.calendar.serializer.CalendarEventsDeserializerIcal import CalendarEventsDeserializerIcal
-
-_MAX_ICS_BYTES = 10 * 1024 * 1024  # 10 MB
-_FETCH_TIMEOUT_SECONDS = 10
 
 
 class CalendarSourceIcs(CalendarSource):
@@ -36,7 +34,7 @@ class CalendarSourceIcs(CalendarSource):
         self._ics_url: str = ics_url
         self._deserializer: CalendarEventsDeserializerIcal = deserializer
 
-    def _fetch_events(self, start: datetime, end: datetime) -> list[CalEvent]:
+    def _fetch_events(self, start: datetime, end: datetime, search: str | None = None) -> list[CalEvent]:  # pylint: disable=unused-argument
         ics_text: str = self._fetch_ics()
         events: list[CalEvent] = self._deserializer.deserialize(ics_text)
         logger_calendar.debug("ICS feed returned %d raw events", len(events))
@@ -46,10 +44,10 @@ class CalendarSourceIcs(CalendarSource):
         """Download ICS content from the configured URL."""
         logger_calendar.debug("Fetching ICS from %s", self._ics_url)
         try:
-            with urllib.request.urlopen(self._ics_url, timeout=_FETCH_TIMEOUT_SECONDS) as response:
-                raw: bytes = response.read(_MAX_ICS_BYTES + 1)
-                if len(raw) > _MAX_ICS_BYTES:
-                    logger_calendar.error("ICS feed from %s exceeds size limit (%d bytes)", self._ics_url, _MAX_ICS_BYTES)
+            with urllib.request.urlopen(self._ics_url, timeout=FETCH_TIMEOUT_SECONDS) as response:
+                raw: bytes = response.read(MAX_ICS_BYTES + 1)
+                if len(raw) > MAX_ICS_BYTES:
+                    logger_calendar.error("ICS feed from %s exceeds size limit (%d bytes)", self._ics_url, MAX_ICS_BYTES)
                     raise RequestException(error=ERROR_CALENDAR_ICS_FETCH_FAILED)
                 try:
                     return raw.decode("utf-8")

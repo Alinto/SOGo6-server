@@ -152,7 +152,7 @@ COL_CAL_USER_UID          = Column(name="user_uid",           data_type="str",  
 COL_CAL_IS_DEFAULT        = Column(name="is_default",         data_type="bool")
 COL_CAL_SOURCE_TYPE       = Column(name="source_type",        data_type="str",                                         extra_args={"max_len": 6})
 COL_CAL_NAME              = Column(name="name",               data_type="str",                                         extra_args={"max_len": 255})
-COL_CAL_COLOR             = Column(name="color",              data_type="str",                                         extra_args={"max_len": 7})
+COL_CAL_COLOR             = Column(name="color",              data_type="str",      is_nullable=True,                extra_args={"max_len": 7})
 COL_CAL_DESCRIPTION       = Column(name="description",        data_type="text",     is_nullable=True)
 COL_CAL_TIMEZONE          = Column(name="timezone",           data_type="str",                                         extra_args={"max_len": 64})
 COL_CAL_SHARE_TOKEN       = Column(name="share_token",        data_type="str",      is_unique=True, is_nullable=True,  extra_args={"max_len": 64})
@@ -209,13 +209,13 @@ Key queries:
 # cal_event: full serialized RFC 5545 component as JSON — contains all properties not needed for SQL filtering: title, description, location, url, timezone_start, timezone_end, all_day, status, visibility, color, priority, dtstamp, organizer, attendees, reminders, conference_data, attachments, recurrence_range (THISANDFUTURE), percent_complete (VTODO), completed_at (VTODO)
 # created_at / updated_at: UTC timestamps; updated_at serves as RFC 5545 LAST-MODIFIED when serializing to iCalendar
 COL_EVT_KEY               = Column(name="key",                  data_type="str",      is_unique=True,               extra_args={"max_len": 64})
-COL_EVT_CALENDAR_ID       = Column(name="calendar_id",          data_type="int")
+COL_EVT_CALENDAR_KEY      = Column(name="calendar_key",         data_type="str",      extra_args={"max_len": 64})
 COL_EVT_UID               = Column(name="uid",                  data_type="str",                                    extra_args={"max_len": 512})
 COL_EVT_COMPONENT_TYPE    = Column(name="component_type",       data_type="str",                                    extra_args={"max_len": 10})
 COL_EVT_DATE_START        = Column(name="date_start",           data_type="datetime")
 COL_EVT_DATE_END          = Column(name="date_end",             data_type="datetime")
 COL_EVT_SHOW_AS           = Column(name="show_as",              data_type="str",                                    extra_args={"max_len": 12})
-COL_EVT_RRULE             = Column(name="rrule",                data_type="text",     is_nullable=True)
+COL_EVT_RRULE             = Column(name="rrule",                data_type="dict",     is_nullable=True)
 COL_EVT_DATE_END_RECUR    = Column(name="date_end_recurrence",  data_type="datetime", is_nullable=True)
 COL_EVT_RECURRENCE_ID     = Column(name="recurrence_id",        data_type="datetime", is_nullable=True)
 COL_EVT_PARENT_ID         = Column(name="parent_id",            data_type="int",      is_nullable=True)
@@ -228,7 +228,7 @@ COL_EVT_UPDATED_AT        = Column(name="updated_at",           data_type="datet
 
 ALL_EVT_COL = [COL_ID,
                COL_EVT_KEY,
-               COL_EVT_CALENDAR_ID,
+               COL_EVT_CALENDAR_KEY,
                COL_EVT_UID,
                COL_EVT_COMPONENT_TYPE,
                COL_EVT_DATE_START,
@@ -247,29 +247,9 @@ ALL_EVT_COL = [COL_ID,
 
 TABLE_EVENT = Table(name="sogo_calendar_events", columns=ALL_EVT_COL, primary_keys=(COL_ID.name, COL_EVT_KEY.name))
 
-##############################
-# Table sogo_event_categories #
-##############################
-"""
-Junction table linking events to their categories (RFC 5545 CATEGORIES property).
-Stored separately from cal_event JSON to allow filtering by category (WHERE category = ?).
-Composite PK (event_id, category) enforces uniqueness and acts as the implicit index on event_id.
-No id/key columns — this is a pure junction table.
-"""
-# event_id: FK to sogo_events.id — identifies the owning event
-# category: free-text category label as defined in RFC 5545 CATEGORIES (e.g. 'Work', 'Personal')
-COL_ECAT_EVENT_ID = Column(name="event_id",  data_type="int")
-COL_ECAT_CATEGORY = Column(name="category",  data_type="str",  extra_args={"max_len": 255})
-
-ALL_ECAT_COL = [COL_ECAT_EVENT_ID,
-                COL_ECAT_CATEGORY]
-
-TABLE_EVENT_CATEGORY = Table(name="sogo_calendar_categories", columns=ALL_ECAT_COL, primary_keys=(COL_ECAT_EVENT_ID.name, COL_ECAT_CATEGORY.name))
-
 ALL_TABLES = [TABLE_SETTINGS,
               TABLE_DOMAIN,
               TABLE_RULES,
               TABLE_USER,
               TABLE_CALENDAR,
-              TABLE_EVENT,
-              TABLE_EVENT_CATEGORY]
+              TABLE_EVENT]

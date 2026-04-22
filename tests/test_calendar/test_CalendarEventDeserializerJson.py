@@ -179,3 +179,109 @@ def test_completed_at_parsed(deserializer):
     data = {**MINIMAL_EVENT, "completed_at": "2026-01-15T12:00:00.000Z"}
     event = deserializer.from_dict(data)
     assert event.completed_at == datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+
+
+# ==========================================================================
+# New fields: url, categories, related_to, extra_properties, recurrence
+# ==========================================================================
+
+def test_url_parsed(deserializer):
+    data = {**MINIMAL_EVENT, "url": "https://example.com/event"}
+    assert deserializer.from_dict(data).url == "https://example.com/event"
+
+
+def test_url_absent_is_none(deserializer):
+    assert deserializer.from_dict(MINIMAL_EVENT).url is None
+
+
+def test_categories_parsed(deserializer):
+    data = {**MINIMAL_EVENT, "categories": ["work", "meeting"]}
+    assert deserializer.from_dict(data).categories == ["work", "meeting"]
+
+
+def test_categories_absent_is_empty(deserializer):
+    assert deserializer.from_dict(MINIMAL_EVENT).categories == []
+
+
+def test_extra_properties_parsed(deserializer):
+    data = {**MINIMAL_EVENT, "extra_properties": {"X-CUSTOM": "value"}}
+    assert deserializer.from_dict(data).extra_properties == {"X-CUSTOM": "value"}
+
+
+def test_extra_properties_absent_is_empty(deserializer):
+    assert deserializer.from_dict(MINIMAL_EVENT).extra_properties == {}
+
+
+def test_related_to_parsed(deserializer):
+    data = {**MINIMAL_EVENT, "related_to": [{"uid": "parent@example.com", "relation_type": "parent"}]}
+    relations = deserializer.from_dict(data).related_to
+    assert len(relations) == 1
+    assert relations[0].uid == "parent@example.com"
+
+
+def test_recurrence_rule_absent_is_none(deserializer):
+    assert deserializer.from_dict(MINIMAL_EVENT).recurrence_rule is None
+
+
+def test_recurrence_rule_parsed(deserializer):
+    data = {**MINIMAL_EVENT, "recurrence_rule": {
+        "frequency": "weekly",
+        "interval": 2,
+        "by_day": ["MO", "FR"],
+        "count": 5,
+    }}
+    rule = deserializer.from_dict(data).recurrence_rule
+    assert rule is not None
+    assert rule.frequency.value == "weekly"
+    assert rule.interval == 2
+    assert rule.count == 5
+    assert rule.by_day == ["MO", "FR"]
+
+
+def test_recurrence_exceptions_parsed(deserializer):
+    data = {**MINIMAL_EVENT, "recurrence_exceptions": ["2026-03-07T09:00:00.000Z"]}
+    exceptions = deserializer.from_dict(data).recurrence_exceptions
+    assert len(exceptions) == 1
+    assert exceptions[0] == datetime(2026, 3, 7, 9, 0, 0, tzinfo=timezone.utc)
+
+
+def test_recurrence_id_parsed(deserializer):
+    data = {**MINIMAL_EVENT, "recurrence_id": "2026-03-07T09:00:00.000Z"}
+    assert deserializer.from_dict(data).recurrence_id == datetime(2026, 3, 7, 9, 0, 0, tzinfo=timezone.utc)
+
+
+def test_parent_uid_parsed(deserializer):
+    data = {**MINIMAL_EVENT, "parent_uid": "master@example.com"}
+    assert deserializer.from_dict(data).parent_uid == "master@example.com"
+
+
+def test_recurrence_roundtrip():
+    """Serialize then deserialize a recurring event and verify lossless round-trip."""
+    from app.module.calendar.model.CalRecurrenceRule import CalRecurrenceRule
+    from app.module.calendar.model.enums.RecurrenceFrequency import RecurrenceFrequency
+    from app.module.calendar.serializer.CalendarEventSerializerJson import CalendarEventSerializerJson
+    from app.module.calendar.model.CalEvent import CalEvent
+
+    event = CalEvent(
+        uid="r@example.com",
+        title="Weekly sync",
+        date_start=datetime(2026, 3, 2, 9, 0, 0, tzinfo=timezone.utc),
+        date_end=datetime(2026, 3, 2, 10, 0, 0, tzinfo=timezone.utc),
+        recurrence_rule=CalRecurrenceRule(
+            frequency=RecurrenceFrequency.WEEKLY,
+            interval=1,
+            by_day=["MO"],
+            count=10,
+        ),
+        recurrence_exceptions=[datetime(2026, 3, 9, 9, 0, 0, tzinfo=timezone.utc)],
+        parent_uid="master@example.com",
+    )
+
+    blob = CalendarEventSerializerJson().to_dict(event)
+    restored = CalendarEventDeserializerJson().from_dict(blob)
+
+    assert restored.recurrence_rule.frequency.value == "weekly"
+    assert restored.recurrence_rule.by_day == ["MO"]
+    assert restored.recurrence_rule.count == 10
+    assert len(restored.recurrence_exceptions) == 1
+    assert restored.parent_uid == "master@example.com"

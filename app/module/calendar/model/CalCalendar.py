@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Any
 
 
 @dataclass
-class CalCalendar:  # pylint: disable=too-many-instance-attributes
+class CalCalendar:  # pylint: disable=too-many-instance-attributes,invalid-name
     """
     Format-agnostic representation of a calendar (RFC 4791 §4.2 calendar collection).
 
@@ -65,3 +66,11 @@ class CalCalendar:  # pylint: disable=too-many-instance-attributes
 
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+    MUTABLE_FIELDS: frozenset[str] = frozenset({"name", "color", "description", "timezone", "is_default"})
+
+    def apply_update(self, updates: dict[str, Any]) -> None:
+        """Apply a partial update dict to this calendar, ignoring unknown or immutable fields."""
+        for field_name, value in updates.items():
+            if field_name in self.MUTABLE_FIELDS:
+                setattr(self, field_name, value)

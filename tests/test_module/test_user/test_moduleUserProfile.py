@@ -199,16 +199,19 @@ def test_create_user_profile_success(monkeypatch):
     fake_client.insert_result = 1
     patch_import_manager(monkeypatch, fake_client)
 
+    mock_calendar_cls = mock.MagicMock()
+    monkeypatch.setattr("app.module.user.ModuleUserProfile.ModuleCalendar", mock_calendar_cls)
+
     process_settings = FakeProcessSettings()
     domain_settings = get_default_domain_settings()
     module = ModuleUserProfile(process_settings, domain_settings)
 
     user = FakeUser()
-
     module.create_user_profile(user)
 
     assert len(fake_client.insert_calls) == 1
     assert fake_client.insert_calls[0]['table'] == tbl.TABLE_USER.name
+    mock_calendar_cls.return_value.create_personal_calendar.assert_called_once_with(user.uid)
 
 
 def test_create_user_profile_insert_failed(monkeypatch):

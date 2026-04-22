@@ -9,6 +9,7 @@ from app.module.calendar.model.CalAttendee import CalAttendee
 from app.module.calendar.model.CalConferenceData import CalConferenceData
 from app.module.calendar.model.CalEventRelation import CalEventRelation
 from app.module.calendar.model.CalOrganizer import CalOrganizer
+from app.module.calendar.model.CalRecurrenceRule import CalRecurrenceRule
 from app.module.calendar.model.CalReminder import CalReminder
 from app.module.calendar.serializer.CalendarEventSerializer import CalendarEventSerializer
 
@@ -31,6 +32,8 @@ class CalendarEventSerializerJson(CalendarEventSerializer):
     def to_dict(self, event: CalEvent) -> dict[str, Any]:
         """Convert a CalEvent to a plain dict matching the REST API schema."""
         return {
+            "id": event.key,
+            "calendar_key": event.calendar_key,
             "uid": event.uid,
             "title": event.title,
             "description": event.description,
@@ -44,6 +47,7 @@ class CalendarEventSerializerJson(CalendarEventSerializer):
             "show_as": event.show_as.value,
             "color": event.color,
             "sequence": event.sequence,
+            "priority": event.priority,
             "organizer": self._organizer_to_dict(event.organizer) if event.organizer else None,
             "attendees": [self._attendee_to_dict(a) for a in event.attendees],
             "reminders": [self._reminder_to_dict(r) for r in event.reminders],
@@ -58,6 +62,11 @@ class CalendarEventSerializerJson(CalendarEventSerializer):
             "component_type": event.component_type.value,
             "percent_complete": event.percent_complete,
             "completed_at": self._fmt_dt(event.completed_at) if event.completed_at else None,
+            "recurrence_rule": self._recurrence_rule_to_dict(event.recurrence_rule) if event.recurrence_rule else None,
+            "recurrence_exceptions": [self._fmt_dt(d) for d in event.recurrence_exceptions],
+            "recurrence_id": self._fmt_dt(event.recurrence_id) if event.recurrence_id else None,
+            "parent_uid": event.parent_uid,
+            "recurrence_range": event.recurrence_range,
         }
 
     # ------------------------------------------------------------------
@@ -123,6 +132,25 @@ class CalendarEventSerializerJson(CalendarEventSerializer):
                 {"type": ep.type, "uri": ep.uri, "label": ep.label}
                 for ep in cd.entry_points
             ],
+        }
+
+    @staticmethod
+    def _recurrence_rule_to_dict(rule: CalRecurrenceRule) -> dict[str, Any]:
+        return {
+            "frequency": rule.frequency.value,
+            "interval": rule.interval,
+            "until": CalendarEventSerializerJson._fmt_dt(rule.until) if rule.until else None,
+            "count": rule.count,
+            "by_day": rule.by_day,
+            "by_month_day": rule.by_month_day,
+            "by_month": rule.by_month,
+            "by_year_day": rule.by_year_day,
+            "by_week_no": rule.by_week_no,
+            "by_set_pos": rule.by_set_pos,
+            "by_hour": rule.by_hour,
+            "by_minute": rule.by_minute,
+            "by_second": rule.by_second,
+            "week_start": rule.week_start,
         }
 
     # ------------------------------------------------------------------

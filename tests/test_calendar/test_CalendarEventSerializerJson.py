@@ -219,6 +219,70 @@ def test_completed_at_serialized(serializer):
     assert serializer.to_dict(event)["completed_at"] == "2026-01-15T12:00:00.000Z"
 
 
+# ========== Recurrence fields ==========
+
+def test_recurrence_rule_null_when_absent(serializer, minimal_event):
+    assert serializer.to_dict(minimal_event)["recurrence_rule"] is None
+
+
+def test_recurrence_exceptions_empty_when_absent(serializer, minimal_event):
+    assert serializer.to_dict(minimal_event)["recurrence_exceptions"] == []
+
+
+def test_recurrence_id_null_when_absent(serializer, minimal_event):
+    assert serializer.to_dict(minimal_event)["recurrence_id"] is None
+
+
+def test_parent_uid_null_when_absent(serializer, minimal_event):
+    assert serializer.to_dict(minimal_event)["parent_uid"] is None
+
+
+def test_recurrence_rule_serialized():
+    from app.module.calendar.model.CalRecurrenceRule import CalRecurrenceRule
+    from app.module.calendar.model.enums.RecurrenceFrequency import RecurrenceFrequency
+    event = CalEvent(
+        uid="r@e.com", title="T",
+        date_start=datetime(2026, 1, 1, tzinfo=_UTC),
+        date_end=datetime(2026, 1, 1, 1, tzinfo=_UTC),
+        recurrence_rule=CalRecurrenceRule(
+            frequency=RecurrenceFrequency.WEEKLY,
+            interval=2,
+            by_day=["MO", "FR"],
+            count=5,
+        ),
+    )
+    rule = CalendarEventSerializerJson().to_dict(event)["recurrence_rule"]
+    assert rule["frequency"] == "weekly"
+    assert rule["interval"] == 2
+    assert rule["by_day"] == ["MO", "FR"]
+    assert rule["count"] == 5
+    assert rule["until"] is None
+
+
+def test_recurrence_exceptions_serialized():
+    event = CalEvent(
+        uid="r@e.com", title="T",
+        date_start=datetime(2026, 1, 1, tzinfo=_UTC),
+        date_end=datetime(2026, 1, 1, 1, tzinfo=_UTC),
+        recurrence_exceptions=[
+            datetime(2026, 3, 7, 9, 0, 0, tzinfo=_UTC),
+            datetime(2026, 3, 14, 9, 0, 0, tzinfo=_UTC),
+        ],
+    )
+    exceptions = CalendarEventSerializerJson().to_dict(event)["recurrence_exceptions"]
+    assert exceptions == ["2026-03-07T09:00:00.000Z", "2026-03-14T09:00:00.000Z"]
+
+
+def test_recurrence_id_serialized():
+    event = CalEvent(
+        uid="r@e.com", title="T",
+        date_start=datetime(2026, 3, 7, 9, 0, 0, tzinfo=_UTC),
+        date_end=datetime(2026, 3, 7, 10, 0, 0, tzinfo=_UTC),
+        recurrence_id=datetime(2026, 3, 7, 9, 0, 0, tzinfo=_UTC),
+    )
+    assert CalendarEventSerializerJson().to_dict(event)["recurrence_id"] == "2026-03-07T09:00:00.000Z"
+
+
 def test_conference_data_and_attachment(serializer):
     event = CalEvent(
         uid="u@e.com", title="T",

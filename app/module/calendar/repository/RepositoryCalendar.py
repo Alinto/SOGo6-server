@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 from app.config.db import tables as tbl
 from app.module.calendar.model.CalCalendar import CalCalendar
 from app.utils import errors as err
-from app.utils.db.Condition import AndCondition, EqualCondition
+from app.utils.db.Condition import AndCondition, EqualCondition, NotEqualCondition
 from app.utils.exceptions import BugException, RequestException
 from app.utils.logger.logger import logger_calendar
 
@@ -153,6 +153,19 @@ class RepositoryCalendar:
         if updated == 0:
             logger_calendar.error("Calendar id=%s not found on update", cal.id)
             raise RequestException(error=err.ERROR_CALENDAR_NOT_FOUND)
+
+    def clear_default(self, user_uid: str, exclude_id: int) -> None:
+        """Set is_default=False on every calendar of user_uid except exclude_id."""
+        condition = AndCondition(
+            EqualCondition(tbl.COL_CAL_USER_UID.name, user_uid),
+            NotEqualCondition(tbl.COL_ID.name, exclude_id),
+        )
+        self._db.update_in_table(
+            table_name=tbl.TABLE_CALENDAR.name,
+            column_tuple=(tbl.COL_CAL_IS_DEFAULT.name,),
+            values_list=[False],
+            condition=condition,
+        )
 
     def delete(self, cal_id: int) -> None:
         """Physically delete a calendar row. The caller must delete its events first."""
