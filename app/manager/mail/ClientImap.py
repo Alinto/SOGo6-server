@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Any, Callable, TypeVar, ParamSpec, Iterator
+from typing import Any, Callable, TypeVar, ParamSpec, Iterator, cast
 
 from email import message_from_bytes
 import imaplib
@@ -197,18 +197,17 @@ class ImapFolder:
         """
         self.init_from_list_response(response_list, folder_name_to_type)
 
+        if not self.can_be_select:
+            self.nb_mails = 0
+            self.nb_unseen = 0
+            return False
         #Check status
         match = re.search(r'^([^\s]+)\s+\(MESSAGES\s+(\d+).*?UNSEEN\s+(\d+)\)', response_status)
         if match:
             name = match.group(1)
-            if name == self.name:
-                self.nb_mails = int(match.group(2))
-                self.nb_unseen = int(match.group(3))
-                return True
-            else:
-                self.nb_mails = 0
-                self.nb_unseen = 0
-                return True
+            self.nb_mails = int(match.group(2))
+            self.nb_unseen = int(match.group(3))
+            return True
         return False
 
     def __repr__(self) -> str:
@@ -342,6 +341,7 @@ class ClientImap(ClientMailServer):
         except imaplib.IMAP4.error as e:
             # e.args is a tuple of bytes
             logger_imap.warning("IMAP command returns this error %s", e)
+            print(list(e.args))
             return False, list(e.args)
 
     def login(self, username: str, password: str, authname: str = "") -> None:
@@ -1124,7 +1124,7 @@ class ClientImap(ClientMailServer):
             raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
 
 
-    def _parse_mail_fetching(self, message_parts: tuple[bytes, bytes]) -> dict:
+    def _parse_mail_with_content_fetching(self, message_parts: tuple[bytes, bytes]) -> dict:
         """
         Parse the answer of a fetch command, only works if the fetch was requesting
         (BODY.PEEK[] FLAGS UID). The dict returned has thoses info:
@@ -1178,7 +1178,7 @@ class ClientImap(ClientMailServer):
             "size": size
         }
 
-    def fetch_all_mails(self, folder_path: str, number_of_mails: int, offset: int) -> Iterator[dict]:
+    def fetch_all_mails_with_content(self, folder_path: str, number_of_mails: int, offset: int) -> Iterator[dict]:
         """
         https://datatracker.ietf.org/doc/html/rfc9051#name-fetch-response
         Fetch a specific number of mails from a mailbox with full details.
@@ -1216,22 +1216,181 @@ class ClientImap(ClientMailServer):
                 return
 
             #Recent mail have the higest ID number, so we fetch from descending
-            range_arg = f'{max(1, mailbox_len - number_of_mails + 1)}:{mailbox_len - offset}'
+            range_arg = f'{max(1, mailbox_len - offset + 1 - number_of_mails + 1)}:{mailbox_len - offset + 1}'
             # Fetch full message, flags, and UID (size is included in BODY.PEEK[] response)
             # If success, datas will be of length 2*nb_mails. Each mail is
             # a tuple (b'metadata', b'body') and  a singular b')'
             success, datas = self._exec_imap4_method(self.connection.fetch, range_arg, '(BODY.PEEK[] FLAGS UID)')
 
             if not success:
-                if datas[0].decode().startswith("Error in IMAP command FETCH: Invalid messageset"):
+                if isinstance(datas[0], str) and "Invalid messageset" in datas[0]:
                     #Goes here means our range args is wrong, it should'nt happen
-                    raise BugException("Try to fetch mail with an unvalid messageset")
+                    raise BugException(f"Try to fetch mail with an unvalid messageset: {range_arg}")
                 raise RequestException(f"Fail to fetch mails: {datas}", err.ERROR_IMAP_FAILED)
 
             for part in reversed(datas):
                 if not isinstance(part, tuple):
                     continue
-                yield self._parse_mail_fetching(part)
+                yield self._parse_mail_with_content_fetching(part)
+        else:
+            raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
+
+    def _parse_body_structure_for_attachment(self, bodystructure: bytes) -> dict[str, bool]:
+        """
+        BODSYSTRUCTURE of an mail is a complex structure https://datatracker.ietf.org/doc/html/rfc9051#section-7.5.2-4.10.1
+        But will only need to know if the mail has at least one attachment, if is signed, if has at least
+        one vcard (contact) or one ics (event).
+
+        For this, we'll look the first "attachment" (double-quote included).
+        Could get false positive if a file would have been named exactly attachment without extension.
+        But to properly parse a bodystructure would take way much time se we let
+        this flaw.
+
+        {
+            "has_attachment": has_att,
+            "is_signed": is_signed,
+            "has_event": has_event,
+            "has_contact": has_contact
+        }
+
+        :param bodystructure: direct bytes result of the bodystrucure command
+        :type bodystructure: bytes
+        :return: 
+        :rtype: dict
+        """
+
+
+        has_att = bool(re.search(rb'\(.*?"attachment".*?\)', bodystructure, re.IGNORECASE))
+        is_signed = bool(re.search(rb'\(.*?"application".*?"(pkcs7|x-pkcs7|pgp)-signature".*?\)', bodystructure, re.IGNORECASE))
+        has_event = bool(re.search(rb'\(.*?("text".*?"calendar")|("application".*?"ics").*?\)', bodystructure, re.IGNORECASE))
+        has_contact = bool(re.search(rb'\(.*?"(vcard|x-vcard)".*?\)', bodystructure, re.IGNORECASE))
+        return {"has_attachment": has_att,
+                "is_signed": is_signed,
+                "has_event": has_event,
+                "has_contact": has_contact}
+
+
+    def _parse_mail_without_content_fetching(self, message_parts: tuple[bytes, bytes], extra_info: dict|None = None) -> dict:
+        """
+        Parse the answer of a fetch command, only works if the fetch was requesting
+        (BODY.PEEK[HEADER] BODYSTRUCTURE FLAGS UID RFC822.SIZE. The dict returned has thoses info:
+
+        ```    
+        {
+            "uid": uid, str
+            "mail": mail object, Message (will only be the headers here)
+            "flags": flags_dict, dict
+            "size": size, int
+            "has_attachment": True, bool
+        }
+        ```
+
+        :param message_parts: (b'enevellope', b'data')
+        :type message_parts: tuple[bytes, bytes]
+        :return: _description_
+        :rtype: dict
+        """
+        meta_bytes, mail_bytes = message_parts
+        meta = meta_bytes.decode()
+        try:
+            # Envellope parsing
+            #'1 (FLAGS (\\Draft) UID 47 RFC822.SIZE 74732 BODY[HEADER] {1080}
+            # Parse UID
+            uid_match = re.search(r'UID (\d+)', meta)
+            uid = int(uid_match.group(1)) if uid_match else ""
+
+            # Parse FLAGS
+            flags_match = re.search(r'FLAGS \((.*?)\)', meta)
+            flags_list = flags_match.group(1).split() if flags_match else []
+
+            # Parse size from BODY[] {size} format in meta
+            size_match = re.search(r'RFC822.SIZE (\d+)', meta)
+            size = int(size_match.group(1)) if size_match else len(mail_bytes)
+        except IndexError as e:
+            logger_imap.error("Can't parse the meta from mail: %s", meta)
+            raise BugException(f"Can't parse the meta from mail: {meta}") from e
+
+        # Structure flags
+        flags_dict = {
+            'seen': '\\Seen' in flags_list,
+            'flagged': '\\Flagged' in flags_list,
+            'answered': '\\Answered' in flags_list,
+            'forwarded': '$Forwarded' in flags_list or '\\Forwarded' in flags_list,
+            "deleted": '\\Deleted' in flags_list,
+            'all': flags_list
+        }
+
+        ret = {
+            "uid": uid,
+            "mail": message_from_bytes(mail_bytes),
+            "flags": flags_dict,
+            "size": size
+        }
+
+        if extra_info:
+            ret.update(extra_info)
+
+        return ret
+
+    def fetch_all_mails_without_content(self, folder_path: str, number_of_mails: int, offset: int) -> Iterator[dict]:
+        """
+        https://datatracker.ietf.org/doc/html/rfc9051#name-fetch-response
+        Fetch a specific number of mails from a mailbox with full details.
+
+        {
+            "uid": uid, str
+            "mail": mail object, Message
+            "flags": flags_dict, dict
+            "size": size, int
+            "has_attachment": bool
+        }
+
+        Always yield the total number of mails of the folder
+        Then yield mail by mail, from the most recent to the oldest
+
+        :param mailbox: The mailbox to fetch mails from.
+        :type mailbox: str
+        :param number_of_mails: The number of mails to fetch.
+        :type number_of_mails: int
+        :param offset: The offset of the mail to fetch.
+        :type number_of_mails: int
+        :raises RequestException: If fetching mails fails
+        :return: A tuple of (list of mail dicts with full details, total count)
+        :rtype: tuple[list[dict[str, Any]], int]
+        """
+        logger_imap.debug("Fetching %d mails from '%s'", number_of_mails, folder_path)
+        if self.connection is not None and self.authenticated:
+            if not folder_path.isascii():
+                raise RequestException(f"Mailbox name is not ascii: {folder_path}", err.ERROR_IMAP_NOT_ASCII)
+            folder_path = quote(folder_path)
+            mailbox_len = self.select_mailbox(folder_path)
+
+            #yield length
+            yield {"nb_mails": mailbox_len}
+            if mailbox_len == 0:
+                return
+
+            #Recent mail have the higest ID number, so we fetch from descending
+            range_arg = f'{max(1, mailbox_len - offset + 1 - number_of_mails + 1)}:{mailbox_len - offset + 1}'
+            # Fetch headers, bodystruscture, flags, UID and size
+            # If success, datas will be of length 2*nb_mails. Each mail is
+            # a tuple (b'metadata', b'body') and  a singular b'BODYSTRUCTURE'
+            success, datas = self._exec_imap4_method(self.connection.fetch, range_arg, '(BODY.PEEK[HEADER] BODYSTRUCTURE FLAGS UID RFC822.SIZE)')
+
+            if not success:
+                if isinstance(datas[0], str) and "Invalid messageset" in datas[0]:
+                    #Goes here means our range args is wrong, it should'nt happen
+                    raise BugException(f"Try to fetch mail with an unvalid messageset: {range_arg}")
+                raise RequestException(f"Fail to fetch mails: {datas}", err.ERROR_IMAP_FAILED)
+
+            # Iterate from the end, two items at a time
+            for i in range(len(datas) - 1, -1, -2):
+                pair = datas[i-1:i+1]  # Get the current and previous item
+                bodystruct = pair[1]
+                message_parts = cast(tuple[bytes, bytes], pair[0])
+                has_attachment = self._parse_body_structure_for_attachment(bodystruct)
+                #b'1 (FLAGS (\\Draft) UID 47 RFC822.SIZE 74732 BODY[HEADER] {1080}
+                yield self._parse_mail_without_content_fetching(message_parts, has_attachment)
         else:
             raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
 
@@ -1270,7 +1429,7 @@ class ClientImap(ClientMailServer):
             for part in datas:
                 if not isinstance(part, tuple):
                     continue
-                mail_list.append(self._parse_mail_fetching(part))
+                mail_list.append(self._parse_mail_with_content_fetching(part))
             return mail_list
         else:
             raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
@@ -1387,7 +1546,7 @@ class ClientImap(ClientMailServer):
             if not datas or not isinstance(datas[0], tuple):
                 raise RequestException(f"Mail UID {mail_uid} not found in {folder_path}.", err.ERROR_MAIL_UID_NOT_FOUND)
 
-            return self._parse_mail_fetching(datas[0])
+            return self._parse_mail_with_content_fetching(datas[0])
         else:
             raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
 
@@ -1517,6 +1676,66 @@ class ClientImap(ClientMailServer):
             return message_count, unseen_count
         else:
             raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
+
+    def get_quota(self) -> dict[str, Any] | None:
+        """Get quota information for the mailbox using GETQUOTAROOT.
+
+        Returns None if the server does not support the QUOTA extension or if
+        the command is not available for this configuration (non-blocking).
+
+        The inbox folder name is retrieved from the folders map to ensure the
+        correct folder name is used regardless of server configuration.
+
+        :return: Dictionary containing quota info, or None if unavailable:
+            {
+                "storage_used": int,   # storage used in KB
+                "storage_limit": int,  # storage limit in KB (0 if unlimited)
+            }
+        :rtype: dict[str, Any] | None
+        :raises BugException: If not authenticated.
+        """
+        folder_path = self.folders_map_type_to_name[cs.MAIL_FOLDER_INBOX]
+        logger_imap.debug("Getting quota for folder '%s'", folder_path)
+        if self.connection is None or not self.authenticated:
+            raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
+
+        if "QUOTA" not in self.capabilities:
+            logger_imap.info("QUOTA extension not supported by this IMAP server, skipping quota retrieval")
+            return None
+
+        folder_path = self._fix_folder_path(folder_path)
+        success, datas = self._exec_imap4_method(self.connection.getquotaroot, folder_path)
+        if not success:
+            logger_imap.info("GETQUOTAROOT command failed for '%s', quota not available with this server configuration", folder_path)
+            return None
+
+        # imaplib.getquotaroot returns [quotaroot_responses, quota_responses]
+        # where each element is itself a list of bytes items.
+        # We flatten all items and search for the STORAGE entry.
+        storage_used = 0
+        storage_limit = 0
+        for item in datas:
+            if not item:
+                continue
+            # Each item may be a list of bytes (QUOTAROOT or QUOTA responses)
+            sub_items = item if isinstance(item, list) else [item]
+            for sub in sub_items:
+                if not sub:
+                    continue
+                line = sub.decode() if isinstance(sub, bytes) else str(sub)
+                match = re.search(r'STORAGE\s+(\d+)\s+(\d+)', line, re.IGNORECASE)
+                if match:
+                    storage_used = int(match.group(1))
+                    storage_limit = int(match.group(2))
+                    break
+            if storage_limit or storage_used:
+                break
+
+        logger_imap.info("Quota for '%s': used=%d KB, limit=%d KB", folder_path, storage_used, storage_limit)
+        return {
+            "storage_used": storage_used,
+            "storage_limit": storage_limit,
+        }
 
     def logout(self) -> None:
         """

@@ -52,6 +52,9 @@ ERROR_CACHE_TTL_BELOW_0    = E("S000101", "Cache Server Data TTL Is Below 1", HT
 ERROR_CACHE_RESPONSE_ERROR = E("S000102", "Cache Server Response Error", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_CACHE_SCAN_FAILED    = E("S000103", "Cache Server Scan Failed", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_CACHE_REVOKE_FAILED  = E("S000104", "Cache Server Session Revocation Failed", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_CACHE_REVOKE_KEY_FAILED = E("S000105", "Cache Server Session Revocation By Key Failed", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_REVOKE_BODY_INVALID  = E("S000106", "Revoke Request Must Contain Exactly One Of 'uid' Or 'redis_key'", HTTPStatus.BAD_REQUEST)
+ERROR_CACHE_REVOKE_INACTIVE_FAILED = E("S000107", "Cache Server Inactive Session Revocation Failed", HTTPStatus.INTERNAL_SERVER_ERROR)
 
 
 #LOGIN
@@ -63,6 +66,7 @@ ERROR_API_NOT_JSON             = E("S000204", "Request POST/PATCH/PUT Body Is No
 ERROR_API_CONTENT_TYPE         = E("S000205", "Request POST/PATCH/PUT Content-Type Is Not 'application/json'", HTTPStatus.BAD_REQUEST)
 ERROR_VALIDITY_TIME_BELOW_0    = E("S000206", "Voucher Validity Time Below 0", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_USER_CREDS_NOT_VALID     = E("S000207", "User credentials stores in session are not valid anymore", HTTPStatus.UNAUTHORIZED)
+ERROR_LOGIN_FAILED             = E("S000208", "Login Failed: Invalid Credentials", HTTPStatus.UNAUTHORIZED)
 
 
 #API
@@ -121,6 +125,10 @@ ERROR_IDENTITIES_CUSTOM_FROM_FORBIDDEN = E("S000332", "Custom 'from' email in id
 ERROR_IDENTITIES_CUSTOM_NAME_FORBIDDEN = E("S000333", "Custom name in identities is forbidden for your domain", HTTPStatus.FORBIDDEN)
 ERROR_IDENTITIES_CUSTOM_REPLY_TO_FORBIDDEN = E("S000334", "Custom reply-to email in identities is forbidden for your domain", HTTPStatus.FORBIDDEN)
 ERROR_SIGNATURE_SIZE_EXCEEDED = E("S000335", "Signature size exceeds the maximum allowed limit for your domain", HTTPStatus.FORBIDDEN)
+
+#Quota
+ERROR_IMAP_QUOTA_NOT_SUPPORTED = E("S000336", "IMAP server does not support QUOTA extension", HTTPStatus.NOT_IMPLEMENTED)
+ERROR_IMAP_QUOTA_FAILED        = E("S000337", "IMAP GETQUOTAROOT command failed", HTTPStatus.INTERNAL_SERVER_ERROR)
 
 #Preferences
 ERROR_PREF_UNKNOWN_SUB = E("S000340", "Subparent of User Settings does not exist", HTTPStatus.BAD_REQUEST)

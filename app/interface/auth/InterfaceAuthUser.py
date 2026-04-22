@@ -8,6 +8,7 @@ from app.module.auth.ModuleUserSource import ModuleUserSource
 from app.module.user.ModuleUserProfile import ModuleUserProfile
 from app.utils.api.ApiBaseResponse import create_api_base_response
 from app.utils.exceptions import RequestException, BugException
+from app.utils import errors as err
 from app.utils.logger.logger import logger_api
 
 if TYPE_CHECKING:
@@ -84,7 +85,7 @@ class InterfaceAuthUser:
         success, user, module_us = self._check_login(uid, password)
 
         if not success:
-            return create_api_base_response()
+            return create_api_base_response(None, err.ERROR_LOGIN_FAILED)
 
         # Generate the voucher for the authenticated user
         ret = self.module_auth.generate_voucher_from_user(user)

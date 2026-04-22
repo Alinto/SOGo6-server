@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Tuple, Dict, Any
+from typing import TYPE_CHECKING, Any
 
 from app.module.admin.ModuleAdminUser import ModuleAdminUser
 from app.utils.api.ApiBaseResponse import create_api_base_response
@@ -8,6 +8,7 @@ from app.utils.logger.logger import logger_api
 
 if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
+    from app.utils.api.paginate_sort_filter import CollectionPaginateArgs
 
 
 class InterfaceApiAdminUser:
@@ -22,14 +23,7 @@ class InterfaceApiAdminUser:
         """
         self.module = ModuleAdminUser()
 
-    def get_active_users(
-        self,
-        first: int = 0,
-        last: int = 0,
-        sort_by: str | None = None,
-        sort_order: str = "desc",
-        include_fields: str | None = None,
-    ) -> Tuple[int, Dict[str, Any], int]:
+    def get_active_users(self, collection_param: CollectionPaginateArgs) -> tuple[int, dict[str, Any], int]:
         """
         Return the list of currently active users.
 
@@ -51,30 +45,46 @@ class InterfaceApiAdminUser:
         :rtype: Tuple[int, Dict[str, Any], int]
         """
         try:
-            total_count, active_users = self.module.get_active_users(
-                first=first,
-                last=last,
-                sort_by=sort_by,
-                sort_order=sort_order,
-                include_fields=include_fields,
-            )
+            total_count, active_users = self.module.get_active_users(collection_param)
         except RequestException as ex:
             logger_api.error("Request exception in get_active_users: %s", str(ex))
             return 0, *create_api_base_response(None, ex.error)
         return total_count, *create_api_base_response(active_users)
 
-    def revoke_users(self, uids: list[str]) -> Tuple[Dict[str, Any], int]:
+    def revoke_users(self, uids: list[str] | None = None, redis_keys: list[str] | None = None) -> tuple[dict[str, Any], int]:
         """
-        Revoke all cache sessions for the given UIDs.
+        Revoke cache sessions either by UID or by direct Redis key.
 
-        :param uids: list of user UIDs to revoke
-        :type uids: list[str]
+        Exactly one of *uids* or *redis_keys* must be provided.
+
+        :param uids: list of user UIDs to revoke (mutually exclusive with *redis_keys*)
+        :type uids: list[str] | None
+        :param redis_keys: list of Redis hash keys to revoke (mutually exclusive with *uids*)
+        :type redis_keys: list[str] | None
         :return: Tuple of (API response dict, HTTP status code)
         :rtype: Tuple[Dict[str, Any], int]
         """
         try:
-            revoked_count = self.module.revoke_users(uids)
+            revoked_count = self.module.revoke_users(uids=uids, redis_keys=redis_keys)
         except RequestException as ex:
             logger_api.error("Request exception in revoke_users: %s", str(ex))
+            return create_api_base_response(None, ex.error)
+        return create_api_base_response({"revoked": revoked_count})
+
+    def revoke_inactive_users(self, timestamp: int) -> tuple[dict[str, Any], int]:
+        """
+        Revoke cache sessions whose last activity is older than the given
+        Unix timestamp.
+
+        :param timestamp: Unix timestamp.  Sessions with a
+            last-activity score ≤ this value are considered inactive.
+        :type timestamp: int
+        :return: Tuple of (API response dict, HTTP status code)
+        :rtype: Tuple[Dict[str, Any], int]
+        """
+        try:
+            revoked_count = self.module.revoke_inactive_users(timestamp)
+        except RequestException as ex:
+            logger_api.error("Request exception in revoke_inactive_users: %s", str(ex))
             return create_api_base_response(None, ex.error)
         return create_api_base_response({"revoked": revoked_count})

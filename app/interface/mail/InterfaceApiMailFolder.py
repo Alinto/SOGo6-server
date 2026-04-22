@@ -1,5 +1,6 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Any
+from http import HTTPStatus
 
 from app.auth.User import User
 from app.module.mail.ModuleMail import ModuleMail
@@ -12,7 +13,7 @@ from app.utils.logger.logger import logger_api
 
 if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
-    
+
 
 class InterfaceApiMailFolder:
     """
@@ -69,7 +70,7 @@ class InterfaceApiMailFolder:
         """
         try:
             folder_data = self.mail_module.create_folder(account_id, folder_name, parent_path)
-            return create_api_base_response(folder_data, code=201)
+            return create_api_base_response(folder_data, code=HTTPStatus.CREATED)
         except RequestException as ex:
             logger_api.error("Request exception in create_folder: %s", str(ex))
             return create_api_base_response(None, ex.error)

@@ -21,11 +21,16 @@ imap = imaplib.IMAP4('dovecot', 143)
 m = imap.login("sogo-tests1@example.org", "sogo")
 print(m)
 
-m = imap.select("INBOX")
+# imap.getquotaroot("INBOX")
+
+m = imap.select("Drafts")
 print(m)
 
-# m = imap.response('CAPABILITY')
-# print(m)
+
+# # m = imap.fetch("1", "(BODYSTRUCTURE FLAGS UID)")
+m = imap.fetch("1:*", "(BODY.PEEK[HEADER] BODYSTRUCTURE FLAGS UID RFC822.SIZE)")
+# # m = imap.response('CAPABILITY')
+print(m)
 
 
 # m = imap.namespace()
@@ -63,8 +68,8 @@ print(m)
 #     # Remove outer parentheses and split inner pairs
 #     print(f"ns: {ns}")
 #     _extract_namespace(ns)
-d = imap.authenticate('PLAIN', lambda _: auth_string)
-print(d)
+# d = imap.authenticate('PLAIN', lambda _: auth_string)
+# print(d)
 # imap.select("INBOX")
 # m = imap.fetch("1:*", "(UID FLAGS)")
 # print(m)
@@ -85,15 +90,15 @@ print(d)
 # print(m)
 
 
-m = imap.select("INBOX")
-print(m)
+# m = imap.select("INBOX")
+# print(m)
 
 # m = imap.fetch("1:*", '(UID)')
 # print(m)
 
 
-m = imap.uid('COPY', "36,37,5500", "StepParent")
-print(m)
+# m = imap.uid('COPY', "36,37,5500", "StepParent")
+# print(m)
 
 # m = imap.select("StepParent")
 # print(m)

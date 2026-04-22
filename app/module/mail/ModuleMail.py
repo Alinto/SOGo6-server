@@ -22,6 +22,7 @@ from app.utils.strings import get_imap_config_from_url
 if TYPE_CHECKING:
     from app.auth.User import User
     from app.config.settings.DomainSettings import MailSettingsObj
+    from app.utils.api.paginate_sort_filter import CollectionPaginateArgs
 
 
 REGISTRY_MANAGER : dict[str, str] = {
@@ -432,8 +433,6 @@ class ModuleMail:
                     priority = p if 1 <= p <= 5 else 3
                 except ValueError:
                     priority = 3
-            else:
-                raise ValueError("No numeric priority found") #TODO: handle this case
 
         # Check for read receipt
         should_ask_receipt = bool(email.get("Disposition-Notification-To") or email.get("Return-Receipt-To"))
@@ -443,14 +442,15 @@ class ModuleMail:
         attachments = []
         is_signed = False
         certificates: list[dict[str, Any]] = []
-        valid = None
-        mail_type = "normal"
-        mail_type_data: dict[str, Any] = {}
+        mail_type = []
+        mail_type_data: list[dict[str, Any]] = []
+        has_walked = False
 
         for part in email.walk():
             #The first part will be the full email, skip it
             if part.get_content_maintype() == "multipart":
                 continue
+            has_walked = True
 
             content_disposition = str(part.get("Content-Disposition", ""))
             content_type = part.get_content_type()
@@ -512,30 +512,41 @@ class ModuleMail:
 
             # Check for calendar events (ICS)
             if content_type in ("text/calendar", "application/ics"):
-                mail_type = "ics"
+                mail_type.append("event")
                 try:
                     payload = part.get_payload(decode=True)
                     if payload and isinstance(payload, bytes):
                         charset = part.get_content_charset() or 'utf-8'
                         ics_content = payload.decode(charset, errors='replace')
-                        mail_type_data = {"ics_content": ics_content}
+                        mail_type_data.append({"ics_content": ics_content})
                 except (AttributeError, TypeError, UnicodeDecodeError) as e:
                     logger_mail_server.warning("Error parsing ICS content for UID %s: %s", uid, e)
                 continue
 
             # Check for vCard
             if content_type in ("text/vcard", "text/x-vcard"):
-                mail_type = "vcard"
+                mail_type.append("contact")
                 try:
                     payload = part.get_payload(decode=True)
                     if payload and isinstance(payload, bytes):
                         charset = part.get_content_charset() or 'utf-8'
                         vcard_content = payload.decode(charset, errors='replace')
-                        mail_type_data = {"vcard_content": vcard_content}
+                        mail_type_data.append({"vcard_content": vcard_content})
                 except (AttributeError, TypeError, UnicodeDecodeError) as e:
                     logger_mail_server.warning("Error parsing vCard content for UID %s: %s", uid, e)
                 continue
 
+        # Check if mail has extra info
+        has_attachment = len(attachments) > 0
+        if not has_walked:
+            has_attachment = mail_dict["has_attachment"] if mail_dict.get("has_attachment", None) is not None else has_attachment
+            is_signed = mail_dict["is_signed"] if mail_dict.get("is_signed", None) is not None else is_signed
+            if mail_dict.get("has_event", False):
+                mail_type.append("event")
+            if mail_dict.get("has_contact", False):
+                mail_type.append("contact")
+
+        
         # Build mail entry with full details
         return {
             "uid": str(uid),
@@ -554,18 +565,17 @@ class ModuleMail:
             "subject": subject,
             "date": date,
             "contents": contents,
-            "has_attachment": len(attachments) > 0,
+            "has_attachment": has_attachment,
             "attachments": attachments,
             "is_signed": is_signed,
             "certificates": certificates,
-            "valid": valid,
             "priority": priority,
             "should_ask_receipt": should_ask_receipt,
             "mail_type": mail_type,
             "mail_type_data": mail_type_data
         }
 
-    def get_folder_mails(self, account_id: str, folder_name: str, first: int, last: int) -> tuple[list[dict[str, Any]], int]:
+    def get_folder_mails(self, account_id: str, folder_name: str, collection_param: CollectionPaginateArgs) -> tuple[list[dict[str, Any]], int]:
         """Retrieve a list of mails in a specific folder with full details.
 
         :param folder_name: The name of the folder to fetch mails from.
@@ -579,12 +589,32 @@ class ModuleMail:
         :rtype: tuple[list[dict[str, Any]], int]
         """
         client = self._open_client_for(account_id)
-        mail_iter = client.fetch_all_mails(folder_name, number_of_mails=last - first + 1, offset=first)
+        offset = collection_param.first_item + 1 #First mail is index 1 not zero
+        nb_mails = collection_param.last_item - collection_param.first_item + 1
+        logger_mail_server.info("Try to fetch %s mails with offset %s", nb_mails, offset)
+        mail_iter: Iterator|None = None
+        without_content = False
+        if collection_param.fields:
+            requested = collection_param.fields.split(",")
+            if collection_param.fields_action == "include" and "contents" not in requested:
+                without_content = True
+                mail_iter = client.fetch_all_mails_without_content(folder_name, number_of_mails=nb_mails, offset=offset)
+            if collection_param.fields_action == "exclude" and "contents" in requested:
+                without_content = True
+                mail_iter = client.fetch_all_mails_without_content(folder_name, number_of_mails=nb_mails, offset=offset)
+        if mail_iter is None:
+            mail_iter = client.fetch_all_mails_with_content(folder_name, number_of_mails=nb_mails, offset=offset)
         total_count = next(mail_iter)["nb_mails"]
         mails = []
 
         for raw_entry in mail_iter:
-            mails.append(self._parse_mail(raw_entry))
+            parsed_mail = self._parse_mail(raw_entry)
+            if without_content:
+                parsed_mail.pop("contents", None)
+                parsed_mail.pop("attachments", None)
+                parsed_mail.pop("certificates", None)
+                parsed_mail.pop("mail_type_data", None)
+            mails.append(parsed_mail)
 
         return mails, total_count
 
@@ -651,6 +681,29 @@ class ModuleMail:
         :rtype: list[dict[str, Any]]
         """
         raise NotImplementedError("Message from ModuleMail.py: list_mailboxes is not implemented yet")
+
+    def get_mailbox_quota(self, account_id: str) -> dict[str, Any] | None:
+        """Get the quota information for a mailbox.
+
+        Opens a mail client for the given account, retrieves the quota using
+        GETQUOTAROOT on INBOX, and returns the quota data.
+        Returns None if the server does not support quota for this configuration.
+
+        :param account_id: The account identifier (cs.DEFAULT_IDENTITY_KEY_VALUE for main account)
+        :type account_id: str
+        :return: Dictionary containing quota info, or None if unavailable:
+            {
+                "storage_used": int,        # storage used in KB
+                "storage_limit": int,       # storage limit in KB (0 if unlimited)
+                "soft_quota_value": int,    # soft quota value from domain settings (SOGO_D_SOFT_EMAIL_QUOTA)
+            }
+        :rtype: dict[str, Any] | None
+        """
+        client = self._open_client_for(account_id)
+        quota = client.get_quota()
+        if quota is not None:
+            quota["soft_quota_value"] = self.mail_settings.SOGO_D_SOFT_EMAIL_QUOTA
+        return quota
 
     def create_mailbox(self) -> dict[str, Any]:
         """Create a new mailbox (add external account).

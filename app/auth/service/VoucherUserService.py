@@ -163,6 +163,16 @@ class VoucherUserService:
 
         user_session_data = sogo_cache().hashget(f"user_session:{session_id}")
         if not user_session_data:
+            # The hash has expired but sorted-set entries may linger – clean them up.
+            sogo_cache().zset_remove(
+                cs.ZSET_USER_SESSIONS_ACTIVITY, f"user_session:{session_id}"
+            )
+            sogo_cache().zset_remove(
+                cs.ZSET_USER_SESSIONS_UID, f"user_session:{session_id}"
+            )
+            sogo_cache().zset_remove(
+                cs.ZSET_USER_SESSIONS_DOMAIN, f"user_session:{session_id}"
+            )
             logger_auth.info("User session for %s is expired or does not exist", voucher_user_uid)
             return UserAnonymous()
 
@@ -198,7 +208,7 @@ class VoucherUserService:
             f"user_session:{session_id}",
             new_last_seen,
         )
-        # Keep the uid score index in sync (uid doesn't change but the entry must remain consistent).
+        # Keep the uid score index in sync.
         sogo_cache().zset_add(
             cs.ZSET_USER_SESSIONS_UID,
             f"user_session:{session_id}",

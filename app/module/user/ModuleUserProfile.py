@@ -289,8 +289,10 @@ class ModuleUserProfile:
         if self.user_module_settings.SOGO_D_ALLOW_EXT_MAIL_ACCOUNT:
             external_accounts: dict = self._get_user_column(user.uid, tbl.COL_USER_EXTERNAL_ACCOUNTS.name)
             for account_hash, account_data in external_accounts.items():
-                account_data["mail_server"].pop("password")
-                account_data["mail_outgoing"].pop("password")
+                if "password" in account_data["mail_server"]:
+                    account_data["mail_server"].pop("password")
+                if "password" in account_data["mail_outgoing"]:
+                    account_data["mail_outgoing"].pop("password")
                 result.append({"id": account_hash, **account_data})
 
         return result

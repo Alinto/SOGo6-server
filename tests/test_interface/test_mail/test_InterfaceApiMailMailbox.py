@@ -110,9 +110,34 @@ def create_interface_with_settings(monkeypatch, fake_module, allow_external=True
         FakeUserModuleSettings
     )
 
+    # Mock MailSettingsObj
+    class FakeMailSettings:
+        """Fake MailSettingsObj for testing."""
+        def __init__(self, data):
+            pass
+
+    monkeypatch.setattr(
+        "app.interface.mail.InterfaceApiMailMailbox.MailSettingsObj",
+        FakeMailSettings
+    )
+
+    # Mock ModuleMail
+    class FakeModuleMail:
+        """Fake ModuleMail for testing."""
+        def __init__(self, user, mail_settings):
+            pass
+
+        def get_mailbox_quota(self, account_id):
+            return None
+
+    monkeypatch.setattr(
+        "app.interface.mail.InterfaceApiMailMailbox.ModuleMail",
+        FakeModuleMail
+    )
+
     process_setting = FakeProcessSetting()
     user = FakeUser()
-    user_domain = {"USER_MODULE_SETTINGS": {}}
+    user_domain = {"USER_MODULE_SETTINGS": {}, "MAIL_SETTINGS": {}}
 
     interface = InterfaceApiMailMailbox(
         process_setting=process_setting,
@@ -199,7 +224,6 @@ def test_get_mailbox_main_account_success(monkeypatch):
     interface = create_interface_with_settings(monkeypatch, fake_module)
 
     result, status_code = interface.get_mailbox(account_id="0")
-
     assert status_code == 200
     assert result["data"]["id"] == "0"
     assert fake_module.get_account_detail_args[1] == "0"
