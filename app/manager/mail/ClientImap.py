@@ -1621,25 +1621,41 @@ class ClientImap(ClientMailServer):
         else:
             raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
 
-    def delete_mails_by_uid(self, folder_path: str, mail_uid: str|list[str]) -> None:
-        """Delete a specific mail by UID (copy to Trash and mark as deleted).
+    def delete_mails_by_uid(self, folder_path: str, mail_uid: str|list[str], move_to_trash: bool = True, permanently: bool = True) -> None:
+        """Delete a specific mail by UID according to the requested behaviour.
+
+        * ``move_to_trash=True,  permanently=True``  – copy to Trash, flag Deleted, expunge (default).
+        * ``move_to_trash=False, permanently=False`` – flag Deleted only.
+        * ``move_to_trash=False, permanently=True``  – flag Deleted then expunge, no Trash copy.
+        * ``move_to_trash=True,  permanently=False`` – copy to Trash and flag Deleted, no expunge.
 
         :param folder_path: The folder containing the mail.
         :type folder_path: str
         :param mail_uid: The UID or a list of uids of the mail to delete.
         :type mail_uid: str or list[str]
+        :param move_to_trash: Copy the mail to the Trash folder before deletion.
+        :type move_to_trash: bool
+        :param permanently: Expunge the mail after flagging it as deleted.
+        :type permanently: bool
         :raises RequestException: If the operation fails.
         """
-        logger_imap.debug("Deleting mail UID '%s' from mailbox '%s'", mail_uid, folder_path)
+        logger_imap.debug(
+            "Deleting mail UID '%s' from mailbox '%s' (move_to_trash=%s, permanently=%s)",
+            mail_uid, folder_path, move_to_trash, permanently
+        )
         if self.connection is not None and self.authenticated:
             if not folder_path.isascii():
                 raise RequestException(f"Mailbox name is not ascii: {folder_path}", err.ERROR_IMAP_NOT_ASCII)
             folder_path = quote(self._fix_folder_path(folder_path))
             self.select_mailbox(folder_path)
-            # Copy mail to Trash folder
-            self.uid_copy(mail_uid, self.folders_map_type_to_name[cs.MAIL_FOLDER_TRASH])
-            # Mark mail as deleted and seen
+            # Optionally copy to Trash before flagging
+            if move_to_trash:
+                self.uid_copy(mail_uid, self.folders_map_type_to_name[cs.MAIL_FOLDER_TRASH])
+            # Flag mail as deleted
             self.uid_store_flags(mail_uid, ['\\Deleted'], operation='+FLAGS')
+            # Optionally expunge immediately
+            if permanently:
+                self.expunge_folder(folder_path, do_children=False)
         else:
             raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
 
