@@ -16,6 +16,7 @@ from app.module.calendar.model.CalReminder import CalReminder
 from app.module.calendar.model.enums.ComponentType import ComponentType
 from app.module.calendar.model.enums.AttendeeRole import AttendeeRole
 from app.module.calendar.model.enums.AttendeeStatus import AttendeeStatus
+from app.module.calendar.model.enums.CalUserType import CalUserType
 from app.module.calendar.model.enums.EventStatus import EventStatus
 from app.module.calendar.model.enums.EventVisibility import EventVisibility
 from app.module.calendar.model.enums.RecurrenceFrequency import RecurrenceFrequency
@@ -75,16 +76,14 @@ class CalendarEventDeserializerJson(CalendarEventDeserializer):
             related_to=[self._parse_relation(r) for r in data.get("related_to", [])],
             extra_properties=data.get("extra_properties", {}),
             priority=data.get("priority", 0),
-            created_at=self._parse_dt_opt(data.get("created_at")),
-            updated_at=self._parse_dt_opt(data.get("updated_at")),
             component_type=self._parse_enum(ComponentType, data.get("component_type"), ComponentType.EVENT),
             percent_complete=data.get("percent_complete"),
             completed_at=self._parse_dt_opt(data.get("completed_at")),
             recurrence_rule=self._parse_recurrence_rule(data.get("recurrence_rule")),
             recurrence_exceptions=[self._parse_dt(d) for d in data.get("recurrence_exceptions", [])],
             recurrence_id=self._parse_dt_opt(data.get("recurrence_id")),
-            parent_uid=data.get("parent_uid"),
             recurrence_range=data.get("recurrence_range"),
+            parent_uid=data.get("parent_uid"),
         )
 
     # ------------------------------------------------------------------
@@ -97,6 +96,8 @@ class CalendarEventDeserializerJson(CalendarEventDeserializer):
             name=data.get("name"),
             role=self._parse_enum(AttendeeRole, data.get("role"), None),
             status=self._parse_enum(AttendeeStatus, data.get("status"), None),
+            sent_by=data.get("sent_by"),
+            dir_ref=data.get("dir_ref"),
         )
 
     @staticmethod
@@ -107,6 +108,11 @@ class CalendarEventDeserializerJson(CalendarEventDeserializer):
             role=AttendeeRole(data["role"]) if "role" in data else AttendeeRole.REQUIRED,
             status=AttendeeStatus(data["status"]) if "status" in data else AttendeeStatus.NEEDS_ACTION,
             rsvp=data.get("rsvp", False),
+            cutype=CalUserType(data["cutype"]) if "cutype" in data else CalUserType.INDIVIDUAL,
+            delegated_from=data.get("delegated_from"),
+            delegated_to=data.get("delegated_to"),
+            sent_by=data.get("sent_by"),
+            dir_ref=data.get("dir_ref"),
         )
 
     @staticmethod
@@ -170,6 +176,8 @@ class CalendarEventDeserializerJson(CalendarEventDeserializer):
             result["attachments"] = [self._parse_attachment(a) for a in result["attachments"]]
         if "related_to" in result:
             result["related_to"] = [self._parse_relation(r) for r in result["related_to"]]
+        if "recurrence_exceptions" in result:
+            result["recurrence_exceptions"] = [self._parse_dt(d) for d in result["recurrence_exceptions"]]
         return result
 
     def _parse_recurrence_rule(self, data: dict[str, Any] | None) -> CalRecurrenceRule | None:

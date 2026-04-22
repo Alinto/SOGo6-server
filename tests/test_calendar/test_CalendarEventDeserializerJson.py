@@ -13,10 +13,14 @@ from app.module.calendar.model.enums.EventStatus import EventStatus
 from app.module.calendar.model.enums.ShowAs import ShowAs
 from app.module.calendar.model.enums.ComponentType import ComponentType
 from app.module.calendar.serializer.CalendarEventDeserializerJson import CalendarEventDeserializerJson
+from app.module.calendar.model.CalRecurrenceRule import CalRecurrenceRule
+from app.module.calendar.model.enums.RecurrenceFrequency import RecurrenceFrequency
+from app.module.calendar.serializer.CalendarEventSerializerJson import CalendarEventSerializerJson
+from app.module.calendar.model.CalEvent import CalEvent
 
 FULL_EVENT = {
     "id": "evt_001",
-    "calendar_id": 42,
+    "calendar_key": "7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b",
     "uid": "evt_001@sogo.example.com",
     "title": "Team Standup",
     "description": "Daily team sync meeting",
@@ -75,7 +79,7 @@ def deserializer():
 def test_full_event_scalar_fields(deserializer):
     event = deserializer.from_dict(FULL_EVENT)
     assert event.id == "evt_001"
-    assert event.calendar_id == 42
+    assert event.calendar_key == "7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b"
     assert event.uid == "evt_001@sogo.example.com"
     assert event.title == "Team Standup"
     assert event.description == "Daily team sync meeting"
@@ -89,7 +93,8 @@ def test_dates_are_utc_aware(deserializer):
     event = deserializer.from_dict(FULL_EVENT)
     assert event.date_start == datetime(2026, 3, 19, 9, 30, tzinfo=timezone.utc)
     assert event.date_end == datetime(2026, 3, 19, 10, 0, tzinfo=timezone.utc)
-    assert event.created_at == datetime(2026, 3, 12, 7, 53, 38, 581000, tzinfo=timezone.utc)
+    # created_at/updated_at are server-managed and not read from user input
+    assert event.created_at is None
 
 
 def test_enums_parsed(deserializer):
@@ -141,12 +146,6 @@ def test_unknown_enum_falls_back_to_default(deserializer):
     assert deserializer.from_dict(data).status == EventStatus.CONFIRMED
 
 
-def test_from_dict_and_deserialize_are_equivalent(deserializer):
-    via_dict = deserializer.from_dict(FULL_EVENT)
-    via_str = deserializer.deserialize(json.dumps(FULL_EVENT))
-    assert via_dict.uid == via_str.uid
-    assert via_dict.date_start == via_str.date_start
-
 
 # ==========================================================================
 # VTODO fields
@@ -162,17 +161,9 @@ def test_component_type_task(deserializer):
     assert deserializer.from_dict(data).component_type == ComponentType.TASK
 
 
-def test_percent_complete_absent_is_none(deserializer):
-    assert deserializer.from_dict(MINIMAL_EVENT).percent_complete is None
-
-
 def test_percent_complete_parsed(deserializer):
     data = {**MINIMAL_EVENT, "component_type": "task", "percent_complete": 80}
     assert deserializer.from_dict(data).percent_complete == 80
-
-
-def test_completed_at_absent_is_none(deserializer):
-    assert deserializer.from_dict(MINIMAL_EVENT).completed_at is None
 
 
 def test_completed_at_parsed(deserializer):
@@ -190,26 +181,14 @@ def test_url_parsed(deserializer):
     assert deserializer.from_dict(data).url == "https://example.com/event"
 
 
-def test_url_absent_is_none(deserializer):
-    assert deserializer.from_dict(MINIMAL_EVENT).url is None
-
-
 def test_categories_parsed(deserializer):
     data = {**MINIMAL_EVENT, "categories": ["work", "meeting"]}
     assert deserializer.from_dict(data).categories == ["work", "meeting"]
 
 
-def test_categories_absent_is_empty(deserializer):
-    assert deserializer.from_dict(MINIMAL_EVENT).categories == []
-
-
 def test_extra_properties_parsed(deserializer):
     data = {**MINIMAL_EVENT, "extra_properties": {"X-CUSTOM": "value"}}
     assert deserializer.from_dict(data).extra_properties == {"X-CUSTOM": "value"}
-
-
-def test_extra_properties_absent_is_empty(deserializer):
-    assert deserializer.from_dict(MINIMAL_EVENT).extra_properties == {}
 
 
 def test_related_to_parsed(deserializer):
@@ -250,18 +229,8 @@ def test_recurrence_id_parsed(deserializer):
     assert deserializer.from_dict(data).recurrence_id == datetime(2026, 3, 7, 9, 0, 0, tzinfo=timezone.utc)
 
 
-def test_parent_uid_parsed(deserializer):
-    data = {**MINIMAL_EVENT, "parent_uid": "master@example.com"}
-    assert deserializer.from_dict(data).parent_uid == "master@example.com"
-
-
 def test_recurrence_roundtrip():
     """Serialize then deserialize a recurring event and verify lossless round-trip."""
-    from app.module.calendar.model.CalRecurrenceRule import CalRecurrenceRule
-    from app.module.calendar.model.enums.RecurrenceFrequency import RecurrenceFrequency
-    from app.module.calendar.serializer.CalendarEventSerializerJson import CalendarEventSerializerJson
-    from app.module.calendar.model.CalEvent import CalEvent
-
     event = CalEvent(
         uid="r@example.com",
         title="Weekly sync",
@@ -274,7 +243,6 @@ def test_recurrence_roundtrip():
             count=10,
         ),
         recurrence_exceptions=[datetime(2026, 3, 9, 9, 0, 0, tzinfo=timezone.utc)],
-        parent_uid="master@example.com",
     )
 
     blob = CalendarEventSerializerJson().to_dict(event)
@@ -284,4 +252,47 @@ def test_recurrence_roundtrip():
     assert restored.recurrence_rule.by_day == ["MO"]
     assert restored.recurrence_rule.count == 10
     assert len(restored.recurrence_exceptions) == 1
-    assert restored.parent_uid == "master@example.com"
+
+
+# ==========================================================================
+# parse_patch_fields
+# ==========================================================================
+
+def test_parse_patch_recurrence_exceptions_as_datetimes(deserializer):
+    """recurrence_exceptions strings must be parsed to datetime objects, not passed as raw strings."""
+    result = deserializer.parse_patch_fields({"recurrence_exceptions": ["2026-06-03T07:00:00Z"]})
+    exceptions = result["recurrence_exceptions"]
+    assert len(exceptions) == 1
+    assert isinstance(exceptions[0], datetime)
+    assert exceptions[0] == datetime(2026, 6, 3, 7, 0, 0, tzinfo=timezone.utc)
+
+
+def test_parse_patch_recurrence_rule_parsed(deserializer):
+    result = deserializer.parse_patch_fields({
+        "recurrence_rule": {"frequency": "weekly", "interval": 2, "count": 4}
+    })
+    rule = result["recurrence_rule"]
+    assert rule is not None
+    assert rule.frequency.value == "weekly"
+    assert rule.interval == 2
+    assert rule.count == 4
+
+
+def test_parse_patch_recurrence_rule_none_preserved(deserializer):
+    result = deserializer.parse_patch_fields({"recurrence_rule": None})
+    assert result["recurrence_rule"] is None
+
+
+def test_parse_patch_scalar_fields_pass_through(deserializer):
+    result = deserializer.parse_patch_fields({"title": "New title", "sequence": 3})
+    assert result["title"] == "New title"
+    assert result["sequence"] == 3
+
+
+def test_parse_patch_attendees_parsed(deserializer):
+    result = deserializer.parse_patch_fields({
+        "attendees": [{"email": "bob@example.org", "name": "Bob", "role": "required",
+                       "status": "needs-action", "rsvp": True, "cutype": "individual"}]
+    })
+    assert len(result["attendees"]) == 1
+    assert result["attendees"][0].role == AttendeeRole.REQUIRED

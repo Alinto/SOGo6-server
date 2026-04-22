@@ -190,7 +190,6 @@ Key queries:
   SELECT ... FROM sogo_events WHERE calendar_id = ? AND is_deleted = FALSE AND date_start <= ? AND date_end >= ?
   SELECT ... FROM sogo_events WHERE calendar_id = ? AND rrule IS NOT NULL AND (date_end_recurrence IS NULL OR date_end_recurrence >= ?)
   SELECT ... FROM sogo_events WHERE calendar_id = ? AND show_as = 'busy' AND is_deleted = FALSE  (FreeBusy)
-  SELECT ... FROM sogo_events WHERE parent_id = ?  (exceptions of a recurring event)
 """
 # key: opaque token exposed in the API instead of id (see sogo_hash.py HASH_SIZE_EVENT)
 # calendar_id: FK to sogo_calendars.id — present in every WHERE clause
@@ -202,7 +201,6 @@ Key queries:
 # rrule: RFC 5545 RRULE stored verbatim (e.g. FREQ=WEEKLY;BYDAY=MO;UNTIL=20261231T000000Z); NULL means non-recurring; queried as IS NOT NULL to identify recurring events for range expansion
 # date_end_recurrence: UTC datetime of the last occurrence's end; NULL for infinite recurrences; combined with rrule IS NOT NULL for efficient date range queries
 # recurrence_id: UTC datetime of the original occurrence this row replaces (RFC 5545 RECURRENCE-ID); NULL on master events; used for CalDAV per-occurrence addressing and THISANDFUTURE operations
-# parent_id: FK to sogo_events.id of the recurring master event; NULL on standalone/master events; enables retrieval of all exceptions for a given master
 # is_deleted: soft delete flag — never DELETE FROM sogo_events; deleted events return HTTP 404 in CalDAV sync reports (RFC 4791)
 # sequence: RFC 5545 SEQUENCE — incremented by the organizer on each modification; attendees use it to detect whether a received iMIP message supersedes their current copy
 # search_vector: aggregation of title + description + location maintained by the service layer; drives FULLTEXT index (MariaDB) or TSVECTOR GIN index (PostgreSQL)
@@ -218,7 +216,6 @@ COL_EVT_SHOW_AS           = Column(name="show_as",              data_type="str",
 COL_EVT_RRULE             = Column(name="rrule",                data_type="dict",     is_nullable=True)
 COL_EVT_DATE_END_RECUR    = Column(name="date_end_recurrence",  data_type="datetime", is_nullable=True)
 COL_EVT_RECURRENCE_ID     = Column(name="recurrence_id",        data_type="datetime", is_nullable=True)
-COL_EVT_PARENT_ID         = Column(name="parent_id",            data_type="int",      is_nullable=True)
 COL_EVT_IS_DELETED        = Column(name="is_deleted",           data_type="bool")
 COL_EVT_SEQUENCE          = Column(name="sequence",             data_type="int")
 COL_EVT_SEARCH_VECTOR     = Column(name="search_vector",        data_type="text")
@@ -237,7 +234,6 @@ ALL_EVT_COL = [COL_ID,
                COL_EVT_RRULE,
                COL_EVT_DATE_END_RECUR,
                COL_EVT_RECURRENCE_ID,
-               COL_EVT_PARENT_ID,
                COL_EVT_IS_DELETED,
                COL_EVT_SEQUENCE,
                COL_EVT_SEARCH_VECTOR,

@@ -70,7 +70,6 @@ def _build_row(event: CalEvent, event_id: int = 1) -> tuple:
         "rrule": rrule_dict,
         "date_end_recurrence": None,
         "recurrence_id": event.recurrence_id,
-        "parent_id": None,
         "is_deleted": False,
         "sequence": event.sequence,
         "search_vector": event.title,
@@ -257,3 +256,108 @@ def test_find_by_key_returns_event():
     result = repo.find_by_key("cal-key-5", "my-key")
     assert result is not None
     assert result.uid == "evt@example.com"
+
+
+# ========== update ==========
+
+def test_update_persists_changed_fields():
+    db = FakeDB()
+    event = _make_event(calendar_key="cal-key-1", title="Updated title")
+    event.id = "42"
+    event.key = "some-key"
+    repo = RepositoryEvent(db)
+    repo.update(event)
+    assert len(db.updated_rows) == 1
+    update = db.updated_rows[0]
+    assert update["cond"].param_value == 42
+    uid_idx = list(update["cols"]).index("uid")
+    assert update["vals"][uid_idx] == "evt@example.com"
+
+
+def test_update_requires_event_id():
+    db = FakeDB()
+    event = _make_event()
+    event.id = None
+    repo = RepositoryEvent(db)
+    with pytest.raises(Exception):
+        repo.update(event)
+
+
+def test_update_sets_updated_at():
+    db = FakeDB()
+    event = _make_event(calendar_key="cal-key-1")
+    event.id = "10"
+    repo = RepositoryEvent(db)
+    repo.update(event)
+    update = db.updated_rows[0]
+    updated_at_idx = list(update["cols"]).index("updated_at")
+    assert update["vals"][updated_at_idx] is not None
+
+
+# ========== find_master_by_uid / find_detached_occurrences ==========
+
+def _make_master(**kwargs):
+    defaults = dict(
+        uid="master@example.com",
+        title="Weekly sync",
+        date_start=datetime(2026, 3, 2, 9, 0, tzinfo=_UTC),
+        date_end=datetime(2026, 3, 2, 10, 0, tzinfo=_UTC),
+        calendar_key="cal-uuid-1",
+        recurrence_rule=CalRecurrenceRule(frequency=RecurrenceFrequency.WEEKLY, interval=1, count=10),
+    )
+    defaults.update(kwargs)
+    return CalEvent(**defaults)
+
+
+def test_find_master_by_uid_returns_none_when_absent():
+    db = FakeDB()
+    db.select_result = []
+    assert RepositoryEvent(db).find_master_by_uid("cal-key", "unknown@example.com") is None
+
+
+def test_find_master_by_uid_returns_master():
+    master = _make_master()
+    master.key = "master-key"
+    db = FakeDB()
+    db.select_result = [_build_row(master)]
+    result = RepositoryEvent(db).find_master_by_uid("cal-uuid-1", master.uid)
+    assert result is not None
+    assert result.uid == master.uid
+    assert result.recurrence_rule is not None
+
+
+def test_find_detached_occurrences_returns_rows():
+    master = _make_master()
+    rid = datetime(2026, 3, 9, 9, 0, tzinfo=_UTC)
+    occ = CalEvent(
+        uid=master.uid, title="Modified",
+        date_start=rid, date_end=rid.replace(hour=11),
+        calendar_key=master.calendar_key,
+        recurrence_id=rid, parent_uid=master.uid,
+    )
+    occ.key = "occ-key"
+    db = FakeDB()
+    db.select_result = [_build_row(occ, event_id=2)]
+    result = RepositoryEvent(db).find_detached_occurrences("cal-uuid-1", master.uid)
+    assert len(result) == 1
+    assert result[0].recurrence_id == rid
+
+
+# ========== delete_by_key / delete_occurrence ==========
+
+def test_delete_by_key_sends_update():
+    db = FakeDB()
+    RepositoryEvent(db).delete_by_key("cal-key", "some-event-key")
+    assert len(db.updated_rows) == 1
+    update = db.updated_rows[0]
+    is_deleted_idx = list(update["cols"]).index("is_deleted")
+    assert update["vals"][is_deleted_idx] is True
+
+
+def test_delete_occurrence_sends_update():
+    db = FakeDB()
+    rid = datetime(2026, 3, 9, 9, 0, tzinfo=_UTC)
+    RepositoryEvent(db).delete_occurrence("cal-key", "master@example.com", rid)
+    update = db.updated_rows[0]
+    is_deleted_idx = list(update["cols"]).index("is_deleted")
+    assert update["vals"][is_deleted_idx] is True

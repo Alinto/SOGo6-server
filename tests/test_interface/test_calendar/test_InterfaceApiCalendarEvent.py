@@ -157,3 +157,41 @@ def test_delete_event_unexpected_error_returns_unknown():
     inter = _build_interface(module)
     response, _ = inter.delete_event("evt-key")
     assert response["error_code"] == err.ERROR_UNKOWN.c
+
+
+# ========== get_events ==========
+
+def test_get_events_defaults_to_today_when_no_filters():
+    event = _make_event()
+    module = MagicMock()
+    module.get_events.return_value = [event]
+    inter = _build_interface(module)
+    response, _ = inter.get_events("cal-key", {})
+    assert response["error_code"] == "S000000"
+    assert response["data"]["total_count"] == 1
+    call_args = module.get_events.call_args
+    start_arg = call_args[0][1]
+    end_arg = call_args[0][2]
+    assert start_arg is not None
+    assert end_arg is not None
+
+
+def test_get_events_passes_explicit_dates():
+    event = _make_event()
+    module = MagicMock()
+    module.get_events.return_value = [event]
+    inter = _build_interface(module)
+    query = {"start_date_time": _dt(2026, 1, 1), "end_date_time": _dt(2026, 12, 31)}
+    response, _ = inter.get_events("cal-key", query)
+    assert response["error_code"] == "S000000"
+    call_args = module.get_events.call_args
+    assert call_args[0][1] == _dt(2026, 1, 1)
+    assert call_args[0][2] == _dt(2026, 12, 31)
+
+
+def test_get_events_error_returns_error():
+    module = MagicMock()
+    module.get_events.side_effect = RequestException(error=err.ERROR_CALENDAR_NOT_FOUND)
+    inter = _build_interface(module)
+    response, _ = inter.get_events("cal-key", {})
+    assert response["error_code"] == err.ERROR_CALENDAR_NOT_FOUND.c

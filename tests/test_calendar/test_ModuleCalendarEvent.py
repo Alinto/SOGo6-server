@@ -4,6 +4,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from app.module.calendar.CalendarConst import MAX_EVENT_FETCH_DAYS
+from app.module.calendar.ModuleCalendar import ModuleCalendar
 from app.module.calendar.model.CalCalendar import CalCalendar
 from app.module.calendar.model.CalEvent import CalEvent
 from app.module.calendar.source.CalendarSource import CalendarSource
@@ -36,6 +38,7 @@ class FakeCalendarSource(CalendarSource):
         self.inserted = []
         self.updated = []
         self.deleted_uids = []
+        self.deleted_occurrence_keys = []
         self.calendar_updated = False
 
     def _fetch_events(self, start, end, search=None):
@@ -61,6 +64,9 @@ class FakeCalendarSource(CalendarSource):
     def delete_event(self, uid):
         self.deleted_uids.append(uid)
 
+    def delete_detached_occurrence(self, occurrence):
+        self.deleted_occurrence_keys.append(occurrence.key)
+
     def update_calendar(self, calendar):
         self.calendar_updated = True
         self._calendar = calendar
@@ -68,7 +74,6 @@ class FakeCalendarSource(CalendarSource):
 
 def _build_module(sources: dict):
     """Return a ModuleCalendar with injected sources and mocked infrastructure."""
-    from app.module.calendar.ModuleCalendar import ModuleCalendar
     module = object.__new__(ModuleCalendar)
     module.user = MagicMock()
     module.user.uid = "user@example.com"
@@ -76,6 +81,16 @@ def _build_module(sources: dict):
     sources_mock.get_all.return_value = list(sources.values())
     sources_mock.get_by_key.side_effect = lambda uid, key: sources.get(key)
     sources_mock.get.side_effect = lambda cal: sources.get(cal.key)
+
+    def _get_events(uid, start, end, search, calendar_key=None):
+        if calendar_key is not None:
+            source = sources.get(calendar_key)
+            if source is None:
+                raise RequestException(error=err.ERROR_CALENDAR_NOT_FOUND)
+            return source.get_events(start, end, search)
+        return [e for s in sources.values() for e in s.get_events(start, end, search)]
+
+    sources_mock.get_events.side_effect = _get_events
     module._sources = sources_mock
     module._db = MagicMock()
     return module
@@ -115,12 +130,12 @@ def test_get_event_searches_all_sources():
 
 # ========== create_event ==========
 
-def test_create_event_sets_calendar_id():
+def test_create_event_sets_calendar_key():
     source = _make_source("cal-key")
     module = _build_module({"cal-key": source})
     event = _make_event()
     result = module.create_event("cal-key", event)
-    assert result.calendar_id == source.calendar.id
+    assert result.calendar_key == source.calendar.key
 
 
 def test_create_event_generates_uid_when_absent():
@@ -239,3 +254,56 @@ def test_delete_event_read_only_raises():
     with pytest.raises(RequestException) as exc_info:
         module.delete_event("evt-key")
     assert exc_info.value.error == err.ERROR_CALENDAR_NOT_SUPPORTED
+
+
+# ========== get_events ==========
+
+def test_delete_event_occurrence_routes_to_delete_detached():
+    """delete_event on a detached occurrence (recurrence_id set) must call
+    delete_detached_occurrence, not delete_event(uid), to avoid deleting the master."""
+    rid = datetime(2026, 3, 9, 9, 0, tzinfo=_UTC)
+    occurrence = _make_event(key="occ-key", uid="master@example.com", recurrence_id=rid)
+    source = _make_source(events=[occurrence])
+    module = _build_module({"cal-key": source})
+    module.delete_event("occ-key")
+    assert "occ-key" in source.deleted_occurrence_keys
+    assert "master@example.com" not in source.deleted_uids
+
+
+def test_get_events_date_range_too_large_raises():
+    source = _make_source("cal-key")
+    module = _build_module({"cal-key": source})
+    start = datetime(2026, 1, 1, tzinfo=_UTC)
+    end = datetime(2026, 2, 15, tzinfo=_UTC)
+    assert (end - start).days > MAX_EVENT_FETCH_DAYS
+    with pytest.raises(RequestException) as exc_info:
+        module.get_events(start, end, None, "cal-key")
+    assert exc_info.value.error == err.ERROR_CALENDAR_DATE_RANGE_TOO_LARGE
+
+
+def test_get_events_search_bypasses_date_range_limit():
+    source = _make_source("cal-key")
+    module = _build_module({"cal-key": source})
+    start = datetime(2026, 1, 1, tzinfo=_UTC)
+    end = datetime(2027, 1, 1, tzinfo=_UTC)
+    assert (end - start).days > MAX_EVENT_FETCH_DAYS
+    results = module.get_events(start, end, "meeting", "cal-key")
+    assert results is not None
+
+
+def test_get_events_no_key_merges_all_calendars():
+    evt1 = _make_event(key="e1", uid="e1@example.com", calendar_key="cal-a")
+    evt2 = _make_event(key="e2", uid="e2@example.com", calendar_key="cal-b")
+    source_a = _make_source("cal-a", events=[evt1])
+    source_b = _make_source("cal-b", events=[evt2])
+    module = _build_module({"cal-a": source_a, "cal-b": source_b})
+    results = module.get_events(None, None, None)
+    assert len(results) == 2
+    keys = {e.key for e in results}
+    assert keys == {"e1", "e2"}
+
+
+def test_get_events_no_key_unknown_calendar_not_raised():
+    module = _build_module({})
+    results = module.get_events(None, None, None)
+    assert results == []

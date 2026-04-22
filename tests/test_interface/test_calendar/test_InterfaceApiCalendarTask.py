@@ -31,10 +31,12 @@ def _make_task(**kwargs):
 
 
 def _build_interface(module=None):
+    from app.module.calendar.serializer.CalendarEventSerializerJson import CalendarEventSerializerJson
     inter = object.__new__(InterfaceApiCalendarCalendar)
     inter.user = MagicMock()
     inter.user.uid = "user@example.com"
     inter.module = module if module is not None else MagicMock()
+    inter._event_serializer = CalendarEventSerializerJson()  # pylint: disable=protected-access
     inter._event_deserializer = CalendarEventDeserializerJson()  # pylint: disable=protected-access
     return inter
 
@@ -147,13 +149,13 @@ def test_get_task_not_found():
     assert response["error_code"] == err.ERROR_CALENDAR_TASK_NOT_FOUND.c
 
 
-def test_get_task_serializes_due():
+def test_get_task_serializes_date_end():
     task = _make_task(date_end=_dt(2026, 6, 15, 12))
     module = MagicMock()
     module.get_task.return_value = task
     inter = _build_interface(module)
     response, _ = inter.get_task("task-key")
-    assert "2026-06-15" in response["data"]["due"]
+    assert "2026-06-15" in response["data"]["date_end"]
 
 
 # ========== patch_task ==========

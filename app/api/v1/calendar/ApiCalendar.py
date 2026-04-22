@@ -57,7 +57,7 @@ class ApiCalendarList(MethodView):
         return g.inter.get_all_calendars()
 
     @blp.arguments(CalendarCreateSchema)
-    @blp.response(200, CalendarResponseSchema)
+    @blp.response(201, CalendarResponseSchema)
     def post(self, body: dict) -> ResponseReturnValue:
         """Create a new calendar."""
         logger_api.debug("POST /calendars user=%s body=%s", g.user.uid, body)
@@ -100,11 +100,23 @@ class ApiCalendarEventList(MethodView):
         return g.inter.get_events(key, query_args)
 
     @blp.arguments(CalendarEventCreateSchema)
-    @blp.response(200, CalendarEventResponseSchema)
+    @blp.response(201, CalendarEventResponseSchema)
     def post(self, body: dict, key: str) -> ResponseReturnValue:
         """Create a new event in the calendar."""
         logger_api.debug("POST /calendars/%s/events user=%s", key, g.user.uid)
         return g.inter.create_event(key, body)
+
+
+@blp.route("/events")
+class ApiEventList(MethodView):
+    """API to list events across all user calendars."""
+
+    @blp.arguments(CalendarEventQueryArgsSchema, location="query", arg_name="query_args")
+    @blp.response(200, CalendarEventListResponseSchema)
+    def get(self, query_args: dict) -> ResponseReturnValue:
+        """List events across all calendars of the current user."""
+        logger_api.debug("GET /events args=%s user=%s", query_args, g.user.uid)
+        return g.inter.get_events(None, query_args)
 
 
 @blp.route("/events/<string:event_key>")
@@ -143,11 +155,23 @@ class ApiCalendarTaskList(MethodView):
         return g.inter.get_tasks(key, query_args)
 
     @blp.arguments(CalendarTaskCreateSchema)
-    @blp.response(200, CalendarTaskResponseSchema)
+    @blp.response(201, CalendarTaskResponseSchema)
     def post(self, body: dict, key: str) -> ResponseReturnValue:
         """Create a new task in the calendar."""
         logger_api.debug("POST /calendars/%s/tasks user=%s", key, g.user.uid)
         return g.inter.create_task(key, body)
+
+
+@blp.route("/tasks")
+class ApiTaskList(MethodView):
+    """API to list tasks across all user calendars."""
+
+    @blp.arguments(CalendarTaskQueryArgsSchema, location="query", arg_name="query_args")
+    @blp.response(200, CalendarTaskListResponseSchema)
+    def get(self, query_args: dict) -> ResponseReturnValue:
+        """List tasks across all calendars of the current user."""
+        logger_api.debug("GET /tasks args=%s user=%s", query_args, g.user.uid)
+        return g.inter.get_tasks(None, query_args)
 
 
 @blp.route("/tasks/<string:task_key>")

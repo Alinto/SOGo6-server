@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from app.config.db import tables as tbl
@@ -48,10 +49,10 @@ class RepositoryCalendar:
         )
 
     def insert(self, cal: CalCalendar) -> CalCalendar:
-        """Persist a new calendar and return it with id populated.
-
-        cal.key, cal.created_at and cal.updated_at must be set by the caller.
-        """
+        """Persist a new calendar and return it with id populated."""
+        now = datetime.now(timezone.utc)
+        cal.created_at = now
+        cal.updated_at = now
         values = [[
             cal.key,
             cal.user_uid,
@@ -120,6 +121,7 @@ class RepositoryCalendar:
         if cal.id is None:
             raise BugException("RepositoryCalendar.update called with cal.id=None")
 
+        cal.updated_at = datetime.now(timezone.utc)
         update_cols = (
             tbl.COL_CAL_NAME.name,
             tbl.COL_CAL_COLOR.name,

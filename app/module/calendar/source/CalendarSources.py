@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 from app.module.calendar.repository.RepositoryCalendar import RepositoryCalendar
@@ -14,6 +15,7 @@ from app.utils.logger.logger import logger_calendar
 if TYPE_CHECKING:
     from app.manager.db.ClientSQL import ClientSQL
     from app.module.calendar.model.CalCalendar import CalCalendar
+    from app.module.calendar.model.CalEvent import CalEvent
     from app.module.calendar.source.CalendarSource import CalendarSource
 
 _SOURCE_TYPE_LOCAL = "local"
@@ -55,3 +57,51 @@ class CalendarSources:
         """Return the source for a specific calendar, or None if not found."""
         cal = self._repo_calendar.find_by_key(user_uid, key)
         return self.get(cal) if cal is not None else None
+
+    def get_events(
+        self,
+        user_uid: str,
+        start: datetime | None = None,
+        end: datetime | None = None,
+        search: str | None = None,
+        calendar_key: str | None = None,
+    ) -> list[CalEvent]:
+        """Return events for user_uid, optionally restricted to a single calendar.
+
+        When calendar_key is None, events from all user calendars are merged and sorted.
+        Raises ERROR_CALENDAR_NOT_FOUND if calendar_key is given but does not exist.
+        """
+        if calendar_key is not None:
+            source = self.get_by_key(user_uid, calendar_key)
+            if source is None:
+                raise RequestException(error=err.ERROR_CALENDAR_NOT_FOUND)
+            return source.get_events(start, end, search)
+        events: list[CalEvent] = []
+        for source in self.get_all(user_uid):
+            events.extend(source.get_events(start, end, search))
+        events.sort(key=lambda e: e.date_start)
+        return events
+
+    def get_tasks(
+        self,
+        user_uid: str,
+        start: datetime | None = None,
+        end: datetime | None = None,
+        search: str | None = None,
+        calendar_key: str | None = None,
+    ) -> list[CalEvent]:
+        """Return tasks for user_uid, optionally restricted to a single calendar.
+
+        When calendar_key is None, tasks from all user calendars are merged and sorted.
+        Raises ERROR_CALENDAR_NOT_FOUND if calendar_key is given but does not exist.
+        """
+        if calendar_key is not None:
+            source = self.get_by_key(user_uid, calendar_key)
+            if source is None:
+                raise RequestException(error=err.ERROR_CALENDAR_NOT_FOUND)
+            return source.get_tasks(start, end, search)
+        tasks: list[CalEvent] = []
+        for source in self.get_all(user_uid):
+            tasks.extend(source.get_tasks(start, end, search))
+        tasks.sort(key=lambda e: e.date_start)
+        return tasks

@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from app.module.calendar.ModuleCalendar import ModuleCalendar
 from app.module.calendar.model.CalCalendar import CalCalendar
 from app.module.calendar.model.CalEvent import CalEvent
 from app.module.calendar.model.enums.ComponentType import ComponentType
@@ -72,7 +73,6 @@ class FakeTaskSource(CalendarSource):
 
 
 def _build_module(sources: dict):
-    from app.module.calendar.ModuleCalendar import ModuleCalendar
     module = object.__new__(ModuleCalendar)
     module.user = MagicMock()
     module.user.uid = "user@example.com"
@@ -80,6 +80,16 @@ def _build_module(sources: dict):
     sources_mock.get_all.return_value = list(sources.values())
     sources_mock.get_by_key.side_effect = lambda uid, key: sources.get(key)
     sources_mock.get.side_effect = lambda cal: sources.get(cal.key)
+
+    def _get_tasks(uid, start, end, search, calendar_key=None):
+        if calendar_key is not None:
+            source = sources.get(calendar_key)
+            if source is None:
+                raise RequestException(error=err.ERROR_CALENDAR_NOT_FOUND)
+            return source.get_tasks(start, end, search)
+        return [t for s in sources.values() for t in s.get_tasks(start, end, search)]
+
+    sources_mock.get_tasks.side_effect = _get_tasks
     module._sources = sources_mock
     module._db = MagicMock()
     return module
@@ -120,6 +130,30 @@ def test_create_task_raises_on_unknown_calendar():
     with pytest.raises(RequestException) as exc_info:
         module.create_task("nonexistent", _make_task())
     assert exc_info.value.error == err.ERROR_CALENDAR_NOT_FOUND
+
+
+def test_create_task_generates_uid_when_absent():
+    source = _make_source()
+    module = _build_module({"cal-key": source})
+    task = _make_task(uid="")
+    module.create_task("cal-key", task)
+    assert task.uid != ""
+
+
+def test_create_task_preserves_uid_when_present():
+    source = _make_source()
+    module = _build_module({"cal-key": source})
+    task = _make_task(uid="existing-uid@example.com")
+    module.create_task("cal-key", task)
+    assert task.uid == "existing-uid@example.com"
+
+
+def test_create_task_sets_calendar_key():
+    source = _make_source("cal-key")
+    module = _build_module({"cal-key": source})
+    task = _make_task()
+    result = module.create_task("cal-key", task)
+    assert result.calendar_key == source.calendar.key
 
 
 # ========== get_task ==========
@@ -229,12 +263,29 @@ def test_get_tasks_returns_tasks():
     task2 = _make_task(key="t2", uid="t2@example.com")
     source = _make_source(tasks=[task1, task2])
     module = _build_module({"cal-key": source})
-    results = module.get_tasks("cal-key", None, None, None)
+    results = module.get_tasks(None, None, None, "cal-key")
     assert len(results) == 2
 
 
 def test_get_tasks_unknown_calendar_raises():
     module = _build_module({})
     with pytest.raises(RequestException) as exc_info:
-        module.get_tasks("nonexistent", None, None, None)
+        module.get_tasks(None, None, None, "nonexistent")
     assert exc_info.value.error == err.ERROR_CALENDAR_NOT_FOUND
+
+
+def test_get_tasks_no_key_merges_all_calendars():
+    task1 = _make_task(key="t1", uid="t1@example.com")
+    task2 = _make_task(key="t2", uid="t2@example.com")
+    source_a = _make_source("cal-a", tasks=[task1])
+    source_b = _make_source("cal-b", tasks=[task2])
+    module = _build_module({"cal-a": source_a, "cal-b": source_b})
+    results = module.get_tasks(None, None, None)
+    assert len(results) == 2
+    keys = {t.key for t in results}
+    assert keys == {"t1", "t2"}
+
+
+def test_get_tasks_no_key_empty_when_no_calendars():
+    module = _build_module({})
+    assert module.get_tasks(None, None, None) == []

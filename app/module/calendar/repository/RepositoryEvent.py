@@ -72,13 +72,6 @@ class RepositoryEvent:
             parts.append(event.location)
         return " ".join(parts)
 
-    @staticmethod
-    def _date_end_recurrence(event: CalEvent) -> datetime | None:
-        """Return the last possible occurrence datetime for a recurring event, or None."""
-        if event.recurrence_rule is None:
-            return None
-        return event.recurrence_rule.until
-
     def find_by_calendar(
         self,
         calendar_key: str,
@@ -149,7 +142,7 @@ class RepositoryEvent:
             return None
         return self._row_to_event(rows[0])
 
-    def insert(self, event: CalEvent) -> CalEvent:
+    def insert(self, event: CalEvent, date_end_recurrence: datetime | None = None) -> CalEvent:
         """Persist a new event and return it with id and key populated."""
         now = datetime.now(timezone.utc)
         event.key = generate_uuid()
@@ -168,9 +161,8 @@ class RepositoryEvent:
             event.date_end,
             event.show_as.value,
             rrule_dict,
-            self._date_end_recurrence(event),
+            date_end_recurrence,
             event.recurrence_id,
-            None,
             False,
             event.sequence,
             self._build_search_vector(event),
@@ -200,7 +192,7 @@ class RepositoryEvent:
 
         return fetched
 
-    def update(self, event: CalEvent) -> None:
+    def update(self, event: CalEvent, date_end_recurrence: datetime | None = None) -> None:
         """Update an existing event. event.id must be set."""
         if event.id is None:
             raise BugException("RepositoryEvent.update called with event.id=None")
@@ -231,7 +223,7 @@ class RepositoryEvent:
             event.date_end,
             event.show_as.value,
             rrule_dict,
-            self._date_end_recurrence(event),
+            date_end_recurrence,
             event.recurrence_id,
             event.sequence,
             self._build_search_vector(event),
@@ -249,6 +241,77 @@ class RepositoryEvent:
         if updated == 0:
             logger_calendar.error("Event id=%s not found on update", event.id)
             raise RequestException(error=err.ERROR_CALENDAR_EVENT_NOT_FOUND)
+
+    def find_master_by_uid(self, calendar_key: str, uid: str) -> CalEvent | None:
+        """Return the master event (recurrence_id IS NULL) for the given UID, or None."""
+        condition = AndCondition(
+            AndCondition(
+                EqualCondition(tbl.COL_EVT_CALENDAR_KEY.name, calendar_key),
+                EqualCondition(tbl.COL_EVT_UID.name, uid),
+            ),
+            AndCondition(
+                IsNullCondition(tbl.COL_EVT_RECURRENCE_ID.name),
+                EqualCondition(tbl.COL_EVT_IS_DELETED.name, False),
+            ),
+        )
+        rows = list(self._db.select_from_table(
+            table_name=tbl.TABLE_EVENT.name,
+            column_tuple=_ALL_COLS,
+            condition=condition,
+            limit=1,
+        ))
+        if not rows:
+            return None
+        return self._row_to_event(rows[0])
+
+    def delete_by_key(self, calendar_key: str, key: str) -> None:
+        """Soft-delete a single event row by its opaque key (does not affect other rows sharing the same uid)."""
+        now = datetime.now(timezone.utc)
+        self._db.update_in_table(
+            table_name=tbl.TABLE_EVENT.name,
+            column_tuple=(tbl.COL_EVT_IS_DELETED.name, tbl.COL_EVT_UPDATED_AT.name),
+            values_list=[True, now],
+            condition=AndCondition(
+                EqualCondition(tbl.COL_EVT_KEY.name, key),
+                EqualCondition(tbl.COL_EVT_CALENDAR_KEY.name, calendar_key),
+            ),
+        )
+
+    def find_detached_occurrences(self, calendar_key: str, uid: str) -> list[CalEvent]:
+        """Return all non-deleted detached occurrences (recurrence_id IS NOT NULL) for a master UID."""
+        condition = AndCondition(
+            AndCondition(
+                EqualCondition(tbl.COL_EVT_CALENDAR_KEY.name, calendar_key),
+                EqualCondition(tbl.COL_EVT_UID.name, uid),
+            ),
+            AndCondition(
+                IsNotNullCondition(tbl.COL_EVT_RECURRENCE_ID.name),
+                EqualCondition(tbl.COL_EVT_IS_DELETED.name, False),
+            ),
+        )
+        rows = self._db.select_from_table(
+            table_name=tbl.TABLE_EVENT.name,
+            column_tuple=_ALL_COLS,
+            condition=condition,
+            sort_by=tbl.COL_EVT_RECURRENCE_ID.name,
+        )
+        return [self._row_to_event(row) for row in rows]
+
+    def delete_occurrence(self, calendar_key: str, uid: str, recurrence_id: datetime) -> None:
+        """Soft-delete a specific detached occurrence identified by UID and recurrence_id."""
+        now = datetime.now(timezone.utc)
+        self._db.update_in_table(
+            table_name=tbl.TABLE_EVENT.name,
+            column_tuple=(tbl.COL_EVT_IS_DELETED.name, tbl.COL_EVT_UPDATED_AT.name),
+            values_list=[True, now],
+            condition=AndCondition(
+                AndCondition(
+                    EqualCondition(tbl.COL_EVT_CALENDAR_KEY.name, calendar_key),
+                    EqualCondition(tbl.COL_EVT_UID.name, uid),
+                ),
+                EqualCondition(tbl.COL_EVT_RECURRENCE_ID.name, recurrence_id),
+            ),
+        )
 
     def delete(self, calendar_key: str, uid: str) -> None:
         """Soft-delete an event by uid within a calendar."""

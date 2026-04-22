@@ -76,28 +76,3 @@ def test_all_freq_values():
         assert rule.to_dict()["frequency"] == freq.value
 
 
-def test_roundtrip_via_json_serializer():
-    """Verify that to_dict() round-trips through the JSON serializer/deserializer."""
-    from app.module.calendar.model.CalEvent import CalEvent
-    from app.module.calendar.serializer.CalendarEventDeserializerJson import CalendarEventDeserializerJson
-    from app.module.calendar.serializer.CalendarEventSerializerJson import CalendarEventSerializerJson
-
-    rule = CalRecurrenceRule(
-        frequency=RecurrenceFrequency.WEEKLY,
-        interval=2,
-        by_day=["MO", "FR"],
-        count=10,
-    )
-    event = CalEvent(
-        uid="r@e.com", title="T",
-        date_start=datetime(2026, 1, 1, tzinfo=_UTC),
-        date_end=datetime(2026, 1, 1, 1, tzinfo=_UTC),
-        recurrence_rule=rule,
-    )
-    blob = CalendarEventSerializerJson().to_dict(event)
-    restored = CalendarEventDeserializerJson().from_dict(blob)
-    assert restored.recurrence_rule is not None
-    assert restored.recurrence_rule.frequency == RecurrenceFrequency.WEEKLY
-    assert restored.recurrence_rule.interval == 2
-    assert restored.recurrence_rule.count == 10
-    assert "MO" in restored.recurrence_rule.by_day

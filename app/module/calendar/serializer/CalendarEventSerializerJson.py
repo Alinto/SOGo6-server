@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 from app.module.calendar.model.CalAttachment import CalAttachment
@@ -65,8 +65,9 @@ class CalendarEventSerializerJson(CalendarEventSerializer):
             "recurrence_rule": self._recurrence_rule_to_dict(event.recurrence_rule) if event.recurrence_rule else None,
             "recurrence_exceptions": [self._fmt_dt(d) for d in event.recurrence_exceptions],
             "recurrence_id": self._fmt_dt(event.recurrence_id) if event.recurrence_id else None,
-            "parent_uid": event.parent_uid,
             "recurrence_range": event.recurrence_range,
+            "parent_uid": event.parent_uid,
+            "dates_with_tz": self._dates_with_tz(event),
         }
 
     # ------------------------------------------------------------------
@@ -153,12 +154,30 @@ class CalendarEventSerializerJson(CalendarEventSerializer):
             "week_start": rule.week_start,
         }
 
+    def _dates_with_tz(self, event: CalEvent) -> dict[str, str | None]:
+        """Build the dates_with_tz dict for the event and calendar timezones."""
+        event_tz = event.timezone or None
+        cal_tz = event.calendar_timezone or None
+        return {
+            "date_start_tz_event": self._apply_tz(event.date_start, event_tz) if event_tz else None,
+            "date_end_tz_event": self._apply_tz(event.date_end, event_tz) if event_tz else None,
+            "date_start_tz_calendar": self._apply_tz(event.date_start, cal_tz) if cal_tz else None,
+            "date_end_tz_calendar": self._apply_tz(event.date_end, cal_tz) if cal_tz else None,
+        }
+
     # ------------------------------------------------------------------
     # Datetime formatting
     # ------------------------------------------------------------------
 
     @staticmethod
     def _fmt_dt(dt: datetime) -> str:
-        """Format a datetime as ISO 8601 UTC with millisecond precision ending in Z."""
+        """Format a datetime as ISO 8601 UTC with millisecond precision ending in Z.
+
+        Naive datetimes are assumed UTC. Non-UTC datetimes are converted to UTC first.
+        """
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        elif dt.tzinfo != timezone.utc:
+            dt = dt.astimezone(timezone.utc)
         ms = dt.microsecond // 1000
         return dt.strftime("%Y-%m-%dT%H:%M:%S.") + f"{ms:03d}Z"
