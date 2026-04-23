@@ -14,7 +14,7 @@ from app.module.calendar.model.enums.ShowAs import ShowAs
 from app.module.calendar.repository.RepositoryEvent import RepositoryEvent, _ALL_COLS, _INSERT_COLS
 from app.module.calendar.serializer.CalendarEventSerializerJson import CalendarEventSerializerJson
 from app.utils.db.Condition import (AndCondition, EqualCondition, GreaterOrEqualCondition,
-                                     IsNotNullCondition, IsNullCondition, LessOrEqualCondition,
+                                     IsNullCondition, LessOrEqualCondition,
                                      OrCondition)
 
 _UTC = timezone.utc
@@ -57,7 +57,6 @@ def _make_event(**kwargs):
 def _build_row(event: CalEvent, event_id: int = 1) -> tuple:
     """Build a DB row tuple in ALL_EVT_COL order."""
     blob = _serializer.to_dict(event)
-    rrule_dict = event.recurrence_rule.to_dict() if event.recurrence_rule else None
     values = {
         "id": event_id,
         "key": event.key or "test-key",
@@ -67,7 +66,7 @@ def _build_row(event: CalEvent, event_id: int = 1) -> tuple:
         "date_start": event.date_start,
         "date_end": event.date_end,
         "show_as": event.show_as.value,
-        "rrule": rrule_dict,
+        "is_recurring": event.recurrence_rule is not None,
         "date_end_recurrence": None,
         "recurrence_id": event.recurrence_id,
         "is_deleted": False,
@@ -176,7 +175,7 @@ def test_insert_sets_is_deleted_false():
     assert vals[col_idx] is False
 
 
-def test_insert_rrule_stored():
+def test_insert_recurring_flag_set():
     db = FakeDB()
     event = _make_event(
         calendar_key="cal-key-1",
@@ -189,10 +188,19 @@ def test_insert_rrule_stored():
     repo = RepositoryEvent(db)
     repo.insert(event)
     vals = db.inserted_rows[0]["vals"][0]
-    col_idx = list(_INSERT_COLS).index("rrule")
-    rrule_dict = vals[col_idx]
-    assert rrule_dict["frequency"] == "daily"
-    assert rrule_dict["count"] == 5
+    col_idx = list(_INSERT_COLS).index("is_recurring")
+    assert vals[col_idx] is True
+
+
+def test_insert_non_recurring_flag_false():
+    db = FakeDB()
+    event = _make_event(calendar_key="cal-key-1")
+    db.select_result = [_build_row(event)]
+    repo = RepositoryEvent(db)
+    repo.insert(event)
+    vals = db.inserted_rows[0]["vals"][0]
+    col_idx = list(_INSERT_COLS).index("is_recurring")
+    assert vals[col_idx] is False
 
 
 # ========== delete and delete_all ==========
