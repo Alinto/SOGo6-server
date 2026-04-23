@@ -87,14 +87,14 @@ class RepositoryEvent:
         When search is provided, a LIKE/ILIKE filter is applied against the search_vector column.
         """
         non_recurring = AndCondition(
-            IsNullCondition(tbl.COL_EVT_RRULE.name),
+            EqualCondition(tbl.COL_EVT_IS_RECURRING.name, False),
             AndCondition(
                 LessOrEqualCondition(tbl.COL_EVT_DATE_START.name, end),
                 GreaterOrEqualCondition(tbl.COL_EVT_DATE_END.name, start),
             ),
         )
         recurring = AndCondition(
-            IsNotNullCondition(tbl.COL_EVT_RRULE.name),
+            EqualCondition(tbl.COL_EVT_IS_RECURRING.name, True),
             AndCondition(
                 LessOrEqualCondition(tbl.COL_EVT_DATE_START.name, end),
                 OrCondition(
@@ -151,7 +151,6 @@ class RepositoryEvent:
         event.created_at = now
         event.updated_at = now
 
-        rrule_dict = event.recurrence_rule.to_dict() if event.recurrence_rule else None
         blob = _serializer.to_dict(event)
 
         values = [[
@@ -162,7 +161,7 @@ class RepositoryEvent:
             event.date_start,
             event.date_end,
             event.show_as.value,
-            rrule_dict,
+            event.recurrence_rule is not None,
             date_end_recurrence,
             event.recurrence_id,
             False,
@@ -201,7 +200,6 @@ class RepositoryEvent:
 
         now = datetime.now(timezone.utc)
         event.updated_at = now
-        rrule_dict = event.recurrence_rule.to_dict() if event.recurrence_rule else None
         blob = _serializer.to_dict(event)
 
         update_cols = (
@@ -210,7 +208,7 @@ class RepositoryEvent:
             tbl.COL_EVT_DATE_START.name,
             tbl.COL_EVT_DATE_END.name,
             tbl.COL_EVT_SHOW_AS.name,
-            tbl.COL_EVT_RRULE.name,
+            tbl.COL_EVT_IS_RECURRING.name,
             tbl.COL_EVT_DATE_END_RECUR.name,
             tbl.COL_EVT_RECURRENCE_ID.name,
             tbl.COL_EVT_SEQUENCE.name,
@@ -224,7 +222,7 @@ class RepositoryEvent:
             event.date_start,
             event.date_end,
             event.show_as.value,
-            rrule_dict,
+            event.recurrence_rule is not None,
             date_end_recurrence,
             event.recurrence_id,
             event.sequence,

@@ -188,7 +188,7 @@ component is serialized in cal_event JSON (title, description, timezone, attende
 
 Key queries:
   SELECT ... FROM sogo_events WHERE calendar_id = ? AND is_deleted = FALSE AND date_start <= ? AND date_end >= ?
-  SELECT ... FROM sogo_events WHERE calendar_id = ? AND rrule IS NOT NULL AND (date_end_recurrence IS NULL OR date_end_recurrence >= ?)
+  SELECT ... FROM sogo_events WHERE calendar_id = ? AND is_recurring = TRUE AND (date_end_recurrence IS NULL OR date_end_recurrence >= ?)
   SELECT ... FROM sogo_events WHERE calendar_id = ? AND show_as = 'busy' AND is_deleted = FALSE  (FreeBusy)
 """
 # key: opaque token exposed in the API instead of id (see sogo_hash.py HASH_SIZE_EVENT)
@@ -198,8 +198,8 @@ Key queries:
 # date_start: DTSTART in UTC — lower bound for date range queries
 # date_end: DTEND in UTC for VEVENT/VJOURNAL, DUE in UTC for VTODO; all-day events store DTEND-1s (DTEND is exclusive in RFC 5545, -1s makes SQL range queries inclusive)
 # show_as: RFC 5545 TRANSP — 'busy' (OPAQUE) or 'free' (TRANSPARENT) or 'out-of-office' / 'tentative' (Microsoft extensions); used in FreeBusy queries
-# rrule: RFC 5545 RRULE stored verbatim (e.g. FREQ=WEEKLY;BYDAY=MO;UNTIL=20261231T000000Z); NULL means non-recurring; queried as IS NOT NULL to identify recurring events for range expansion
-# date_end_recurrence: UTC datetime of the last occurrence's end; NULL for infinite recurrences; combined with rrule IS NOT NULL for efficient date range queries
+# is_recurring: TRUE when the event has an RRULE; discriminator for the dual SQL range strategy — date_end_recurrence alone cannot serve this role because unbounded recurring series have date_end_recurrence = NULL, same as non-recurring events
+# date_end_recurrence: UTC datetime of the last occurrence's end; NULL for infinite recurrences; used with is_recurring = TRUE for efficient date range queries
 # recurrence_id: UTC datetime of the original occurrence this row replaces (RFC 5545 RECURRENCE-ID); NULL on master events; used for CalDAV per-occurrence addressing and THISANDFUTURE operations
 # is_deleted: soft delete flag — never DELETE FROM sogo_events; deleted events return HTTP 404 in CalDAV sync reports (RFC 4791)
 # sequence: RFC 5545 SEQUENCE — incremented by the organizer on each modification; attendees use it to detect whether a received iMIP message supersedes their current copy
@@ -213,7 +213,7 @@ COL_EVT_COMPONENT_TYPE    = Column(name="component_type",       data_type="str",
 COL_EVT_DATE_START        = Column(name="date_start",           data_type="datetime")
 COL_EVT_DATE_END          = Column(name="date_end",             data_type="datetime")
 COL_EVT_SHOW_AS           = Column(name="show_as",              data_type="str",                                    extra_args={"max_len": 12})
-COL_EVT_RRULE             = Column(name="rrule",                data_type="dict",     is_nullable=True)
+COL_EVT_IS_RECURRING      = Column(name="is_recurring",         data_type="bool")
 COL_EVT_DATE_END_RECUR    = Column(name="date_end_recurrence",  data_type="datetime", is_nullable=True)
 COL_EVT_RECURRENCE_ID     = Column(name="recurrence_id",        data_type="datetime", is_nullable=True)
 COL_EVT_IS_DELETED        = Column(name="is_deleted",           data_type="bool")
@@ -231,7 +231,7 @@ ALL_EVT_COL = [COL_ID,
                COL_EVT_DATE_START,
                COL_EVT_DATE_END,
                COL_EVT_SHOW_AS,
-               COL_EVT_RRULE,
+               COL_EVT_IS_RECURRING,
                COL_EVT_DATE_END_RECUR,
                COL_EVT_RECURRENCE_ID,
                COL_EVT_IS_DELETED,
