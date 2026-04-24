@@ -38,7 +38,9 @@ class UserGeneralSettings(SogoSchema):
                                         validate=validate.OneOf(('mail', 'calendar', 'contact', 'last'))) #Tell what module to show after login
     SOGO_U_REFRESH_MAIL_VIEW = fields.Integer(load_default=0, dump_default=0, validate=validate.OneOf((0, 1, 2, 5, 10, 20, 30, 60))) #0 means the mail view must be refreshed manually, other value are the poolin interval in minutes
     SOGO_U_BROWSER_NOTIF = fields.Boolean(load_default=False, dump_default=False) #Enable notificaiton on browser
-    SOGO_U_EXT_AVATAR_ENABLED  = fields.Boolean(load_default=False, dump_default=False) #Download external avatar (gravatar, libravatar)
+    SOGO_U_EXT_AVATAR_ENABLED  = fields.Boolean(load_default=False, dump_default=False) #Download external avatar (gravatar, libravatar) to display on mail list
+    SOGO_U_PROFILE_PICTURE  = fields.String(load_default="default", dump_default="default",
+                                        validate=validate.OneOf(('default', 'gravatar', 'libravatar', 'usersource'))) #Source of the profile picture: default sogo avatar, gravatar, libravatar, usersource (set by admin)
 
 
 class UserSecuritySettings(SogoSchema):
