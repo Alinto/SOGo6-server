@@ -25,6 +25,7 @@ from app.module.calendar.model.enums.RelationType import RelationType
 from app.module.calendar.model.enums.ReminderMethod import ReminderMethod
 from app.module.calendar.model.enums.ShowAs import ShowAs
 from app.module.calendar.serializer.CalendarEventDeserializer import CalendarEventDeserializer
+from app.utils.calendar.DateTimeUtils import to_utc
 from app.utils.errors import ERROR_CALENDAR_ICS_PARSE_FAILED
 from app.utils.exceptions import RequestException
 from app.utils.logger.logger import logger_calendar
@@ -136,7 +137,7 @@ class _RecurrenceFields(NamedTuple):
     recurrence_id: datetime | None
 
 
-class CalendarEventDeserializerIcal(CalendarEventDeserializer):
+class CalendarEventDeserializerIcal(CalendarEventDeserializer[str]):
     """
     Deserializes iCalendar format (RFC 5545) into calendar events.
     Uses the icalendar library for parsing.
@@ -146,7 +147,7 @@ class CalendarEventDeserializerIcal(CalendarEventDeserializer):
     # Public interface
     # ------------------------------------------------------------------
 
-    def deserialize(self, text: str) -> CalEvent:
+    def deserialize(self, text: str) -> CalEvent:  # pylint: disable=arguments-renamed
         """Parse an iCalendar text and return the first VEVENT or VTODO found."""
         vevents = self.iter_vevents(text)
         if vevents:
@@ -213,16 +214,6 @@ class CalendarEventDeserializerIcal(CalendarEventDeserializer):
             return value[7:]
         return value
 
-    @staticmethod
-    def _dt_to_utc(dt: Any) -> datetime:
-        """Convert a datetime.date or datetime.datetime to a UTC-aware datetime."""
-        if isinstance(dt, datetime):
-            if dt.tzinfo is not None:
-                return dt.astimezone(timezone.utc)
-            return dt.replace(tzinfo=timezone.utc)
-        # datetime.date (all-day): use midnight UTC
-        return datetime(dt.year, dt.month, dt.day, tzinfo=timezone.utc)
-
     def _parse_dt_prop(self, component: Any, name: str) -> tuple[datetime | None, bool, str | None]:
         """
         Parse a date/time property.
@@ -235,7 +226,7 @@ class CalendarEventDeserializerIcal(CalendarEventDeserializer):
         dt = prop.dt
         tzid: str | None = prop.params.get("TZID")
         all_day = isinstance(dt, date) and not isinstance(dt, datetime)
-        return self._dt_to_utc(dt), all_day, tzid
+        return to_utc(dt), all_day, tzid
 
     # ------------------------------------------------------------------
     # Field extractors
@@ -380,14 +371,14 @@ class CalendarEventDeserializerIcal(CalendarEventDeserializer):
             for rdate_prop in self._get_multi(vevent, "rdate"):
                 for dt_entry in getattr(rdate_prop, "dts", [rdate_prop]):
                     dt_val = getattr(dt_entry, "dt", dt_entry)
-                    additional.append(self._dt_to_utc(dt_val))
+                    additional.append(to_utc(dt_val))
             recurrence_rule.additional_dates = additional
 
         exceptions: list[datetime] = []
         for exdate_prop in self._get_multi(vevent, "exdate"):
             for dt_entry in getattr(exdate_prop, "dts", [exdate_prop]):
                 dt_val = getattr(dt_entry, "dt", dt_entry)
-                exceptions.append(self._dt_to_utc(dt_val))
+                exceptions.append(to_utc(dt_val))
 
         recurrence_id: datetime | None = None
         recid_dt, _, _ = self._parse_dt_prop(vevent, "recurrence-id")
@@ -500,7 +491,7 @@ class CalendarEventDeserializerIcal(CalendarEventDeserializer):
         until: datetime | None = None
         if until_list:
             until_raw = until_list[0]
-            until = self._dt_to_utc(until_raw) if isinstance(until_raw, (datetime, date)) else None
+            until = to_utc(until_raw) if isinstance(until_raw, (datetime, date)) else None
 
         interval_list = prop.get("INTERVAL", [])
         interval = int(str(interval_list[0])) if interval_list else 1
@@ -604,7 +595,7 @@ class CalendarEventDeserializerIcal(CalendarEventDeserializer):
             component_type=ComponentType.EVENT,
         )
 
-    def _build_cal_todo(self, vtodo: Any, alarms: list[CalReminder]) -> CalEvent:
+    def _build_cal_todo(self, vtodo: Any, alarms: list[CalReminder]) -> CalEvent:  # pylint: disable=too-many-locals
         """Assemble a CalEvent from a parsed VTODO component and pre-built alarms."""
         text = self._extract_text_fields(vtodo)
         date_start, date_end, all_day, timezone_str = self._extract_dates_todo(vtodo)

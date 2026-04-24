@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from app.module.calendar.serializer.CalendarEventDeserializerIcal import CalendarEventDeserializerIcal
 
 
-class CalendarEventsDeserializerIcal(CalendarEventsDeserializer):
+class CalendarEventsDeserializerIcal(CalendarEventsDeserializer[str]):
     """
     Deserializes a full VCALENDAR (ICS text) into a list of CalEvent objects.
 
@@ -21,7 +21,7 @@ class CalendarEventsDeserializerIcal(CalendarEventsDeserializer):
     def __init__(self, event_deserializer: CalendarEventDeserializerIcal) -> None:
         self._event_deserializer: CalendarEventDeserializerIcal = event_deserializer
 
-    def deserialize(self, text: str) -> list[CalEvent]:
+    def deserialize(self, text: str) -> list[CalEvent]:  # pylint: disable=arguments-renamed
         """Parse ICS text and return all VEVENT and VTODO components as CalEvent objects.
 
         Raises RequestException if the ICS structure is unparseable.

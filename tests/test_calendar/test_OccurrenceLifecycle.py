@@ -10,8 +10,8 @@ a specific instance of a recurring series. They flow through existing endpoints:
 from datetime import datetime, timezone
 
 from app.module.calendar.model.CalEvent import CalEvent
-from app.module.calendar.serializer.CalendarEventDeserializerJson import CalendarEventDeserializerJson
-from app.module.calendar.serializer.CalendarEventSerializerJson import CalendarEventSerializerJson
+from app.module.calendar.serializer.CalendarEventDeserializerDict import CalendarEventDeserializerDict
+from app.module.calendar.serializer.CalendarEventSerializerDict import CalendarEventSerializerDict
 
 _UTC = timezone.utc
 
@@ -25,7 +25,7 @@ def test_serializer_includes_parent_uid():
         date_end=datetime(2026, 1, 1, 1, tzinfo=_UTC),
         parent_uid="master@example.com",
     )
-    assert CalendarEventSerializerJson().to_dict(event)["parent_uid"] == "master@example.com"
+    assert CalendarEventSerializerDict().serialize(event)["parent_uid"] == "master@example.com"
 
 
 def test_serializer_parent_uid_null_when_absent():
@@ -34,7 +34,7 @@ def test_serializer_parent_uid_null_when_absent():
         date_start=datetime(2026, 1, 1, tzinfo=_UTC),
         date_end=datetime(2026, 1, 1, 1, tzinfo=_UTC),
     )
-    assert CalendarEventSerializerJson().to_dict(event)["parent_uid"] is None
+    assert CalendarEventSerializerDict().serialize(event)["parent_uid"] is None
 
 
 def test_deserializer_parses_parent_uid():
@@ -44,7 +44,7 @@ def test_deserializer_parses_parent_uid():
         "date_end": "2026-01-01T01:00:00.000Z",
         "parent_uid": "master@example.com",
     }
-    assert CalendarEventDeserializerJson().from_dict(data).parent_uid == "master@example.com"
+    assert CalendarEventDeserializerDict().deserialize(data).parent_uid == "master@example.com"
 
 
 def test_deserializer_parent_uid_absent_is_none():
@@ -53,7 +53,7 @@ def test_deserializer_parent_uid_absent_is_none():
         "date_start": "2026-01-01T00:00:00.000Z",
         "date_end": "2026-01-01T01:00:00.000Z",
     }
-    assert CalendarEventDeserializerJson().from_dict(data).parent_uid is None
+    assert CalendarEventDeserializerDict().deserialize(data).parent_uid is None
 
 
 # ========== Serializer round-trip ==========
@@ -65,8 +65,8 @@ def test_occurrence_roundtrip_preserves_parent_uid():
         date_start=rid, date_end=rid.replace(hour=11),
         recurrence_id=rid, parent_uid="master@example.com",
     )
-    blob = CalendarEventSerializerJson().to_dict(occ)
-    restored = CalendarEventDeserializerJson().from_dict(blob)
+    blob = CalendarEventSerializerDict().serialize(occ)
+    restored = CalendarEventDeserializerDict().deserialize(blob)
     assert restored.parent_uid == "master@example.com"
     assert restored.recurrence_id == rid
     assert restored.recurrence_rule is None

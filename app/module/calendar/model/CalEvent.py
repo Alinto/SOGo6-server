@@ -31,9 +31,9 @@ class CalEvent:  # pylint: disable=too-many-instance-attributes,invalid-name
     # RFC 5545 §3.8.2.2 (DTEND) or DUE (VTODO / TASK)
     date_end: datetime
 
-    # Internal — database primary key
-    id: str | None = None
-    # Opaque public identifier exposed in the API
+    # Internal — database primary key, never exposed in the API
+    db_id: int | None = None
+    # Opaque public identifier exposed in the API (JSON field "key")
     key: str | None = None
     # UUID key of the parent calendar — stored in DB and exposed in the API
     calendar_key: str | None = None

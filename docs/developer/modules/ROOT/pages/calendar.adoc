@@ -89,10 +89,14 @@ The `find_by_calendar` method applies two different SQL conditions depending on 
 
 `app/module/calendar/serializer/`
 
+All serializers extend `Serializer[TIn, TOut]` and implement a single `serialize()` method.
+All deserializers extend `Deserializer[TIn, TOut]` and implement a single `deserialize()` method.
+The format suffix in the class name indicates the input/output type: `Dict` (Python dict), `List` (list of dicts), `Ical` (RFC 5545 string).
+
 Two formats are supported:
 
-* *ICS (RFC 5545)* — `CalendarEventsDeserializerIcal` parses a VCALENDAR into a list of `CalEvent`. `CalendarEventSerializerIcal` produces VCALENDAR text. The `icalendar` library is used here and *only* here.
-* *JSON (REST API)* — `CalendarEventSerializerJson` / `CalendarEventDeserializerJson` convert between `CalEvent` and flat dicts. `CalendarEventsSerializerJson.to_response()` wraps the list with a `total_count` field.
+* *ICS (RFC 5545)* — `CalendarEventsDeserializerIcal` parses a VCALENDAR string into a list of `CalEvent`. `CalendarEventSerializerIcal` produces VCALENDAR text. The `icalendar` library is used here and *only* here.
+* *Dict (REST API)* — `CalendarEventSerializerDict` / `CalendarEventDeserializerDict` convert between `CalEvent` and plain dicts. `CalendarEventsSerializerDict` handles lists. `CalendarSerializerDict` handles `CalCalendar` objects.
 
 == Module — ModuleCalendar
 
@@ -106,3 +110,23 @@ On event delete, it dispatches to `delete_detached_occurrence` when `recurrence_
 Every mutation calls `_bump_ctag` to increment the calendar's `ctag`.
 
 `get_events` and `get_tasks` enforce a maximum date range of 31 days unless a search query is present.
+
+`get_freebusy(target_uids, start, end, prefs)` computes merged free/busy periods for one or more users visible from the server.
+`target_uids` is a list of user UIDs; the interface layer loops over them and returns a `dict[str, list[CalFreeBusyPeriod]]` keyed by UID.
+It delegates to `FreeBusyEngine` after fetching events from all the target user's calendars via `CalendarSources.get_events`.
+The interface layer loads `SOGO_U_TIMEZONE` (`UserGeneralSettings`) and `SOGO_U_BUSY_OFF_HOURS` / `SOGO_U_WORKDAY_START_TIME` / `SOGO_U_WORKDAY_END_TIME` (`UserCalendarGeneralSettings`) for each target user and stores them in `FreeBusyPrefs`.
+
+[IMPORTANT]
+====
+The working-hours timezone is always the *target user's SOGO_U_TIMEZONE*, never the requester's timezone and never UTC (unless explicitly configured that way by the target user).
+A user with `SOGO_U_TIMEZONE=America/New_York` and working hours 09:00–17:00 will appear unavailable before 14:00 UTC in winter — even if the requester is in `Europe/Paris`.
+====
+
+`FreeBusyEngine` (`app/module/calendar/freebusy/FreeBusyEngine.py`) is a stateless engine that takes a list of `CalEvent` and a `FreeBusyPrefs` dataclass and returns a sorted, merged list of `CalFreeBusyPeriod`.
+`show_as` values are mapped: `busy` → `BUSY`, `out_of_office` → `UNAVAILABLE`, `tentative` → `TENTATIVE`. Events with `show_as=free` or `status=cancelled` are excluded.
+When `busy_off_hours` is true, `UNAVAILABLE` periods are generated for time outside `[workday_start, workday_end]` and for non-working days (Saturday and Sunday).
+The `title` of a period is set only when `event.visibility == PUBLIC`; it is `None` for private and confidential events.
+
+`FreeBusyPrefs` (`FreeBusyEngine.py`) is a dataclass holding `busy_off_hours`, `workday_start`, `workday_end`, and `timezone` (IANA name from `SOGO_U_TIMEZONE`).
+
+

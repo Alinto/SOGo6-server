@@ -93,7 +93,7 @@ _RELTYPE_OUT: dict[RelationType, str] = {
 }
 
 
-class CalendarEventSerializerIcal(CalendarEventSerializer):
+class CalendarEventSerializerIcal(CalendarEventSerializer[str]):
     """
     Serializes calendar events to iCalendar format (RFC 5545).
     Uses the icalendar library for encoding, folding, and escaping.
@@ -103,7 +103,7 @@ class CalendarEventSerializerIcal(CalendarEventSerializer):
     # Public interface
     # ------------------------------------------------------------------
 
-    def serialize(self, event: CalEvent) -> str:
+    def serialize(self, event: CalEvent) -> str:  # pylint: disable=arguments-renamed
         """
         Serialize a CalEvent to a VCALENDAR string compliant with RFC 5545.
         The output uses CRLF line endings and 75-octet line folding.

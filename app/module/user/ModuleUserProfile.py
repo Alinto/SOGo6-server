@@ -169,6 +169,9 @@ class ModuleUserProfile:
         logger_user_profile.info("Successfully created user profile for uid: %s", user.uid)
 
         try:
+            # TODO: ModuleCalendar is instantiated directly here to avoid threading it through
+            # the call chain. Ideally it should be injected to
+            # eliminate the cross-module coupling and the resulting circular import risk.
             ModuleCalendar(user, self.process_settings).create_personal_calendar(user.uid)
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logger_user_profile.error("Failed to create default calendar for uid %s: %s", user.uid, exc)

@@ -1,22 +1,19 @@
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import Generic, TYPE_CHECKING, TypeVar
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from app.module.calendar.serializer.Serializer import Serializer
 
 if TYPE_CHECKING:
     from app.module.calendar.model.CalEvent import CalEvent
 
+T = TypeVar("T")
 
-class CalendarEventSerializer(ABC):
-    """
-    Abstract base class for calendar event serializers.
-    """
 
-    @abstractmethod
-    def serialize(self, event: CalEvent) -> str:
-        """Serialize a CalEvent to a string representation."""
+class CalendarEventSerializer(Serializer["CalEvent", T], Generic[T]):
+    """Abstract base class for calendar event serializers."""
 
     @staticmethod
     def _apply_tz(dt: datetime, tz_name: str) -> str | None:

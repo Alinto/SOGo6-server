@@ -1,15 +1,12 @@
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from typing import Generic, TypeVar
 
 from app.module.calendar.model.CalEvent import CalEvent
+from app.module.calendar.serializer.Deserializer import Deserializer
+
+T = TypeVar("T")
 
 
-class CalendarEventDeserializer(ABC):
-    """
-    Abstract base class for calendar event deserializers.
-    """
-
-    @abstractmethod
-    def deserialize(self, text: str) -> CalEvent:
-        """Deserialize a string representation into a CalEvent."""
+class CalendarEventDeserializer(Deserializer[T, CalEvent], Generic[T]):
+    """Abstract base class for calendar event deserializers."""

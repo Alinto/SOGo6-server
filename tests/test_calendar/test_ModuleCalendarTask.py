@@ -55,7 +55,7 @@ class FakeTaskSource(CalendarSource):
         return self._items.get(event_key)
 
     def insert_event(self, event):
-        event.id = "gen-id"
+        event.db_id = 1
         event.key = event.key or "new-task-key"
         self._items[event.key] = event
         self.inserted.append(event)

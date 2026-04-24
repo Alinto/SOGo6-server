@@ -15,7 +15,7 @@ class CalendarTaskQueryArgsSchema(CalendarEventQueryArgsSchema):
 class CalendarTaskSchema(Schema):
     """Representation of a single VTODO in API responses."""
 
-    id = fields.String(allow_none=True)
+    key = fields.String(allow_none=True)
     calendar_key = fields.String(allow_none=True)
     uid = fields.String()
     title = fields.String()

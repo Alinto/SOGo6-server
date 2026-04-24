@@ -1,8 +1,7 @@
 """
-Unit tests for CalendarEventDeserializerJson.
-Verifies that JSON payloads matching the SOGo6 REST API schema are correctly parsed into CalEvent objects.
+Unit tests for CalendarEventDeserializerDict.
+Verifies that dict payloads matching the SOGo6 REST API schema are correctly parsed into CalEvent objects.
 """
-import json
 from datetime import datetime, timezone
 
 import pytest
@@ -12,14 +11,14 @@ from app.module.calendar.model.enums.AttendeeStatus import AttendeeStatus
 from app.module.calendar.model.enums.EventStatus import EventStatus
 from app.module.calendar.model.enums.ShowAs import ShowAs
 from app.module.calendar.model.enums.ComponentType import ComponentType
-from app.module.calendar.serializer.CalendarEventDeserializerJson import CalendarEventDeserializerJson
+from app.module.calendar.serializer.CalendarEventDeserializerDict import CalendarEventDeserializerDict
 from app.module.calendar.model.CalRecurrenceRule import CalRecurrenceRule
 from app.module.calendar.model.enums.RecurrenceFrequency import RecurrenceFrequency
-from app.module.calendar.serializer.CalendarEventSerializerJson import CalendarEventSerializerJson
+from app.module.calendar.serializer.CalendarEventSerializerDict import CalendarEventSerializerDict
 from app.module.calendar.model.CalEvent import CalEvent
 
 FULL_EVENT = {
-    "id": "evt_001",
+    "key": "evt_001",
     "calendar_key": "7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b",
     "uid": "evt_001@sogo.example.com",
     "title": "Team Standup",
@@ -73,12 +72,12 @@ MINIMAL_EVENT = {
 
 @pytest.fixture
 def deserializer():
-    return CalendarEventDeserializerJson()
+    return CalendarEventDeserializerDict()
 
 
 def test_full_event_scalar_fields(deserializer):
-    event = deserializer.from_dict(FULL_EVENT)
-    assert event.id == "evt_001"
+    event = deserializer.deserialize(FULL_EVENT)
+    assert event.key == "evt_001"
     assert event.calendar_key == "7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b"
     assert event.uid == "evt_001@sogo.example.com"
     assert event.title == "Team Standup"
@@ -90,7 +89,7 @@ def test_full_event_scalar_fields(deserializer):
 
 
 def test_dates_are_utc_aware(deserializer):
-    event = deserializer.from_dict(FULL_EVENT)
+    event = deserializer.deserialize(FULL_EVENT)
     assert event.date_start == datetime(2026, 3, 19, 9, 30, tzinfo=timezone.utc)
     assert event.date_end == datetime(2026, 3, 19, 10, 0, tzinfo=timezone.utc)
     # created_at/updated_at are server-managed and not read from user input
@@ -98,42 +97,42 @@ def test_dates_are_utc_aware(deserializer):
 
 
 def test_enums_parsed(deserializer):
-    event = deserializer.from_dict(FULL_EVENT)
+    event = deserializer.deserialize(FULL_EVENT)
     assert event.status == EventStatus.CONFIRMED
     assert event.show_as == ShowAs.BUSY
 
 
 def test_organizer(deserializer):
-    event = deserializer.from_dict(FULL_EVENT)
+    event = deserializer.deserialize(FULL_EVENT)
     assert event.organizer.email == "manager@example.com"
     assert event.organizer.role == AttendeeRole.CHAIR
     assert event.organizer.status == AttendeeStatus.ACCEPTED
 
 
 def test_attendees(deserializer):
-    event = deserializer.from_dict(FULL_EVENT)
+    event = deserializer.deserialize(FULL_EVENT)
     assert len(event.attendees) == 2
     assert event.attendees[0].role == AttendeeRole.REQUIRED
     assert event.attendees[1].role == AttendeeRole.OPTIONAL
 
 
 def test_reminders(deserializer):
-    event = deserializer.from_dict(FULL_EVENT)
+    event = deserializer.deserialize(FULL_EVENT)
     assert len(event.reminders) == 2
     assert event.reminders[0].minutes_before == 15
     assert event.reminders[1].minutes_before == 60
 
 
 def test_conference_data_and_attachments(deserializer):
-    event = deserializer.from_dict(FULL_EVENT)
+    event = deserializer.deserialize(FULL_EVENT)
     assert event.conference_data.type == "zoom"
     assert len(event.conference_data.entry_points) == 1
     assert event.attachments[0].filename == "Q3.pdf"
 
 
 def test_minimal_event_optional_fields_absent(deserializer):
-    event = deserializer.from_dict(MINIMAL_EVENT)
-    assert event.id is None
+    event = deserializer.deserialize(MINIMAL_EVENT)
+    assert event.key is None
     assert event.organizer is None
     assert event.attendees == []
     assert event.reminders == []
@@ -143,7 +142,7 @@ def test_minimal_event_optional_fields_absent(deserializer):
 
 def test_unknown_enum_falls_back_to_default(deserializer):
     data = {**MINIMAL_EVENT, "status": "unknown-value"}
-    assert deserializer.from_dict(data).status == EventStatus.CONFIRMED
+    assert deserializer.deserialize(data).status == EventStatus.CONFIRMED
 
 
 
@@ -152,23 +151,23 @@ def test_unknown_enum_falls_back_to_default(deserializer):
 # ==========================================================================
 
 def test_component_type_defaults_to_event(deserializer):
-    event = deserializer.from_dict(MINIMAL_EVENT)
+    event = deserializer.deserialize(MINIMAL_EVENT)
     assert event.component_type == ComponentType.EVENT
 
 
 def test_component_type_task(deserializer):
     data = {**MINIMAL_EVENT, "component_type": "task"}
-    assert deserializer.from_dict(data).component_type == ComponentType.TASK
+    assert deserializer.deserialize(data).component_type == ComponentType.TASK
 
 
 def test_percent_complete_parsed(deserializer):
     data = {**MINIMAL_EVENT, "component_type": "task", "percent_complete": 80}
-    assert deserializer.from_dict(data).percent_complete == 80
+    assert deserializer.deserialize(data).percent_complete == 80
 
 
 def test_completed_at_parsed(deserializer):
     data = {**MINIMAL_EVENT, "completed_at": "2026-01-15T12:00:00.000Z"}
-    event = deserializer.from_dict(data)
+    event = deserializer.deserialize(data)
     assert event.completed_at == datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
 
 
@@ -178,28 +177,28 @@ def test_completed_at_parsed(deserializer):
 
 def test_url_parsed(deserializer):
     data = {**MINIMAL_EVENT, "url": "https://example.com/event"}
-    assert deserializer.from_dict(data).url == "https://example.com/event"
+    assert deserializer.deserialize(data).url == "https://example.com/event"
 
 
 def test_categories_parsed(deserializer):
     data = {**MINIMAL_EVENT, "categories": ["work", "meeting"]}
-    assert deserializer.from_dict(data).categories == ["work", "meeting"]
+    assert deserializer.deserialize(data).categories == ["work", "meeting"]
 
 
 def test_extra_properties_parsed(deserializer):
     data = {**MINIMAL_EVENT, "extra_properties": {"X-CUSTOM": "value"}}
-    assert deserializer.from_dict(data).extra_properties == {"X-CUSTOM": "value"}
+    assert deserializer.deserialize(data).extra_properties == {"X-CUSTOM": "value"}
 
 
 def test_related_to_parsed(deserializer):
     data = {**MINIMAL_EVENT, "related_to": [{"uid": "parent@example.com", "relation_type": "parent"}]}
-    relations = deserializer.from_dict(data).related_to
+    relations = deserializer.deserialize(data).related_to
     assert len(relations) == 1
     assert relations[0].uid == "parent@example.com"
 
 
 def test_recurrence_rule_absent_is_none(deserializer):
-    assert deserializer.from_dict(MINIMAL_EVENT).recurrence_rule is None
+    assert deserializer.deserialize(MINIMAL_EVENT).recurrence_rule is None
 
 
 def test_recurrence_rule_parsed(deserializer):
@@ -209,7 +208,7 @@ def test_recurrence_rule_parsed(deserializer):
         "by_day": ["MO", "FR"],
         "count": 5,
     }}
-    rule = deserializer.from_dict(data).recurrence_rule
+    rule = deserializer.deserialize(data).recurrence_rule
     assert rule is not None
     assert rule.frequency.value == "weekly"
     assert rule.interval == 2
@@ -219,14 +218,14 @@ def test_recurrence_rule_parsed(deserializer):
 
 def test_recurrence_exceptions_parsed(deserializer):
     data = {**MINIMAL_EVENT, "recurrence_exceptions": ["2026-03-07T09:00:00.000Z"]}
-    exceptions = deserializer.from_dict(data).recurrence_exceptions
+    exceptions = deserializer.deserialize(data).recurrence_exceptions
     assert len(exceptions) == 1
     assert exceptions[0] == datetime(2026, 3, 7, 9, 0, 0, tzinfo=timezone.utc)
 
 
 def test_recurrence_id_parsed(deserializer):
     data = {**MINIMAL_EVENT, "recurrence_id": "2026-03-07T09:00:00.000Z"}
-    assert deserializer.from_dict(data).recurrence_id == datetime(2026, 3, 7, 9, 0, 0, tzinfo=timezone.utc)
+    assert deserializer.deserialize(data).recurrence_id == datetime(2026, 3, 7, 9, 0, 0, tzinfo=timezone.utc)
 
 
 def test_recurrence_roundtrip():
@@ -245,8 +244,8 @@ def test_recurrence_roundtrip():
         recurrence_exceptions=[datetime(2026, 3, 9, 9, 0, 0, tzinfo=timezone.utc)],
     )
 
-    blob = CalendarEventSerializerJson().to_dict(event)
-    restored = CalendarEventDeserializerJson().from_dict(blob)
+    blob = CalendarEventSerializerDict().serialize(event)
+    restored = CalendarEventDeserializerDict().deserialize(blob)
 
     assert restored.recurrence_rule.frequency.value == "weekly"
     assert restored.recurrence_rule.by_day == ["MO"]

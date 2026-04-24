@@ -1,8 +1,7 @@
 """
-Unit tests for CalendarEventSerializerJson.
-Verifies that CalEvent objects are correctly serialized to the SOGo6 REST API JSON schema.
+Unit tests for CalendarEventSerializerDict.
+Verifies that CalEvent objects are correctly serialized to the SOGo6 REST API schema.
 """
-import json
 from datetime import datetime, timezone
 
 import pytest
@@ -26,14 +25,14 @@ from app.module.calendar.model.enums.ShowAs import ShowAs
 from app.module.calendar.model.enums.ComponentType import ComponentType
 from app.module.calendar.model.CalRecurrenceRule import CalRecurrenceRule
 from app.module.calendar.model.enums.RecurrenceFrequency import RecurrenceFrequency
-from app.module.calendar.serializer.CalendarEventSerializerJson import CalendarEventSerializerJson
+from app.module.calendar.serializer.CalendarEventSerializerDict import CalendarEventSerializerDict
 
 _UTC = timezone.utc
 
 
 @pytest.fixture
 def serializer():
-    return CalendarEventSerializerJson()
+    return CalendarEventSerializerDict()
 
 
 @pytest.fixture
@@ -47,7 +46,7 @@ def minimal_event():
 
 
 def test_dates_are_iso_utc_with_milliseconds(serializer, minimal_event):
-    d = serializer.to_dict(minimal_event)
+    d = serializer.serialize(minimal_event)
     assert d["date_start"] == "2026-03-19T09:30:00.000Z"
     assert d["date_end"] == "2026-03-19T10:00:00.000Z"
 
@@ -58,7 +57,7 @@ def test_microseconds_truncated_to_milliseconds(serializer):
         date_start=datetime(2026, 1, 1, 12, 0, 0, 500123, tzinfo=_UTC),
         date_end=datetime(2026, 1, 1, 13, tzinfo=_UTC),
     )
-    assert serializer.to_dict(event)["date_start"] == "2026-01-01T12:00:00.500Z"
+    assert serializer.serialize(event)["date_start"] == "2026-01-01T12:00:00.500Z"
 
 
 def test_enums_serialized_as_lowercase_strings(serializer):
@@ -70,14 +69,14 @@ def test_enums_serialized_as_lowercase_strings(serializer):
         visibility=EventVisibility.PRIVATE,
         show_as=ShowAs.OUT_OF_OFFICE,
     )
-    d = serializer.to_dict(event)
+    d = serializer.serialize(event)
     assert d["status"] == "cancelled"
     assert d["visibility"] == "private"
     assert d["show_as"] == "out-of-office"
 
 
 def test_optional_fields_null_or_empty_when_absent(serializer, minimal_event):
-    d = serializer.to_dict(minimal_event)
+    d = serializer.serialize(minimal_event)
     assert d["description"] is None
     assert d["url"] is None
     assert d["color"] is None
@@ -103,7 +102,7 @@ def test_organizer_all_fields(serializer):
             sent_by="proxy@example.com", dir_ref="ldap://example.com/cn=Sarah",
         ),
     )
-    org = serializer.to_dict(event)["organizer"]
+    org = serializer.serialize(event)["organizer"]
     assert org["email"] == "manager@example.com"
     assert org["role"] == "chair"
     assert org["status"] == "accepted"
@@ -124,7 +123,7 @@ def test_attendee_all_fields(serializer):
             sent_by="proxy@example.com", dir_ref="ldap://example.com/cn=Room",
         )],
     )
-    att = serializer.to_dict(event)["attendees"][0]
+    att = serializer.serialize(event)["attendees"][0]
     assert att["role"] == "non-participant"
     assert att["cutype"] == "room"
     assert att["delegated_from"] == "alice@example.com"
@@ -140,7 +139,7 @@ def test_related_to(serializer):
         date_end=datetime(2026, 1, 1, 1, tzinfo=_UTC),
         related_to=[CalEventRelation(uid="parent@example.com", relation_type=RelationType.PARENT)],
     )
-    rels = serializer.to_dict(event)["related_to"]
+    rels = serializer.serialize(event)["related_to"]
     assert rels[0] == {"uid": "parent@example.com", "relation_type": "parent"}
 
 
@@ -151,7 +150,7 @@ def test_extra_properties(serializer):
         date_end=datetime(2026, 1, 1, 1, tzinfo=_UTC),
         extra_properties={"X-CUSTOM-FIELD": "value"},
     )
-    assert serializer.to_dict(event)["extra_properties"] == {"X-CUSTOM-FIELD": "value"}
+    assert serializer.serialize(event)["extra_properties"] == {"X-CUSTOM-FIELD": "value"}
 
 
 def test_reminders(serializer):
@@ -164,7 +163,7 @@ def test_reminders(serializer):
             CalReminder(method=ReminderMethod.EMAIL, minutes_before=60),
         ],
     )
-    rems = serializer.to_dict(event)["reminders"]
+    rems = serializer.serialize(event)["reminders"]
     assert rems[0] == {"method": "popup", "minutes_before": 15}
     assert rems[1] == {"method": "email", "minutes_before": 60}
 
@@ -180,7 +179,7 @@ def test_component_type_task(serializer):
         date_end=datetime(2026, 1, 31, tzinfo=_UTC),
         component_type=ComponentType.TASK,
     )
-    assert serializer.to_dict(event)["component_type"] == "task"
+    assert serializer.serialize(event)["component_type"] == "task"
 
 
 def test_percent_complete_value(serializer):
@@ -191,7 +190,7 @@ def test_percent_complete_value(serializer):
         component_type=ComponentType.TASK,
         percent_complete=60,
     )
-    assert serializer.to_dict(event)["percent_complete"] == 60
+    assert serializer.serialize(event)["percent_complete"] == 60
 
 
 def test_completed_at_serialized(serializer):
@@ -202,7 +201,7 @@ def test_completed_at_serialized(serializer):
         component_type=ComponentType.TASK,
         completed_at=datetime(2026, 1, 15, 12, 0, 0, tzinfo=_UTC),
     )
-    assert serializer.to_dict(event)["completed_at"] == "2026-01-15T12:00:00.000Z"
+    assert serializer.serialize(event)["completed_at"] == "2026-01-15T12:00:00.000Z"
 
 
 # ========== Recurrence fields ==========
@@ -219,7 +218,7 @@ def test_recurrence_rule_serialized():
             count=5,
         ),
     )
-    rule = CalendarEventSerializerJson().to_dict(event)["recurrence_rule"]
+    rule = CalendarEventSerializerDict().serialize(event)["recurrence_rule"]
     assert rule["frequency"] == "weekly"
     assert rule["interval"] == 2
     assert rule["by_day"] == ["MO", "FR"]
@@ -237,7 +236,7 @@ def test_recurrence_exceptions_serialized():
             datetime(2026, 3, 14, 9, 0, 0, tzinfo=_UTC),
         ],
     )
-    exceptions = CalendarEventSerializerJson().to_dict(event)["recurrence_exceptions"]
+    exceptions = CalendarEventSerializerDict().serialize(event)["recurrence_exceptions"]
     assert exceptions == ["2026-03-07T09:00:00.000Z", "2026-03-14T09:00:00.000Z"]
 
 
@@ -248,7 +247,7 @@ def test_recurrence_id_serialized():
         date_end=datetime(2026, 3, 7, 10, 0, 0, tzinfo=_UTC),
         recurrence_id=datetime(2026, 3, 7, 9, 0, 0, tzinfo=_UTC),
     )
-    assert CalendarEventSerializerJson().to_dict(event)["recurrence_id"] == "2026-03-07T09:00:00.000Z"
+    assert CalendarEventSerializerDict().serialize(event)["recurrence_id"] == "2026-03-07T09:00:00.000Z"
 
 
 # ========== dates_with_tz ==========
@@ -260,7 +259,7 @@ def test_dates_with_tz_event_timezone(serializer):
         date_end=datetime(2026, 6, 10, 10, 0, tzinfo=_UTC),
         timezone="Europe/Paris",
     )
-    d = serializer.to_dict(event)["dates_with_tz"]
+    d = serializer.serialize(event)["dates_with_tz"]
     # Europe/Paris in summer = UTC+2
     assert d["date_start_tz_event"] == "2026-06-10T11:00:00+02:00"
     assert d["date_end_tz_event"] == "2026-06-10T12:00:00+02:00"
@@ -276,7 +275,7 @@ def test_dates_with_tz_calendar_timezone(serializer):
         timezone="UTC",
         calendar_timezone="America/New_York",
     )
-    d = serializer.to_dict(event)["dates_with_tz"]
+    d = serializer.serialize(event)["dates_with_tz"]
     # America/New_York in winter = UTC-5
     assert d["date_start_tz_calendar"] == "2026-01-15T03:00:00-05:00"
     assert d["date_end_tz_calendar"] == "2026-01-15T04:00:00-05:00"
@@ -290,7 +289,7 @@ def test_dates_with_tz_both_timezones(serializer):
         timezone="Europe/Paris",
         calendar_timezone="America/New_York",
     )
-    d = serializer.to_dict(event)["dates_with_tz"]
+    d = serializer.serialize(event)["dates_with_tz"]
     assert d["date_start_tz_event"] == "2026-06-10T11:00:00+02:00"
     assert d["date_start_tz_calendar"] == "2026-06-10T05:00:00-04:00"
 
@@ -302,7 +301,7 @@ def test_dates_with_tz_unknown_timezone_returns_none(serializer):
         date_end=datetime(2026, 1, 1, 1, tzinfo=_UTC),
         timezone="Not/ATimezone",
     )
-    d = serializer.to_dict(event)["dates_with_tz"]
+    d = serializer.serialize(event)["dates_with_tz"]
     assert d["date_start_tz_event"] is None
     assert d["date_end_tz_event"] is None
 
@@ -314,7 +313,7 @@ def test_dates_with_tz_no_timezone_all_none(serializer):
         date_end=datetime(2026, 1, 1, 1, tzinfo=_UTC),
         timezone="",
     )
-    d = serializer.to_dict(event)["dates_with_tz"]
+    d = serializer.serialize(event)["dates_with_tz"]
     assert all(v is None for v in d.values())
 
 
@@ -329,7 +328,7 @@ def test_conference_data_and_attachment(serializer):
         ),
         attachments=[CalAttachment(filename="report.pdf", mime_type="application/pdf", url="https://s.example.com/r.pdf", size=1024)],
     )
-    d = serializer.to_dict(event)
+    d = serializer.serialize(event)
     assert d["conference_data"]["type"] == "zoom"
     assert d["conference_data"]["entry_points"][0]["label"] == "Zoom"
     assert d["attachments"][0]["filename"] == "report.pdf"
