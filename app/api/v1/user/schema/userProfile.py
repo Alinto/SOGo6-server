@@ -70,6 +70,7 @@ class UserProfileGetRetSchema(ApiBaseResponse):
             "USER_GENERAL": {
                 "SOGO_U_BROWSER_NOTIF": False,
                 "SOGO_U_EXT_AVATAR_ENABLED": False,
+                "SOGO_U_PROFILE_PICTURE": "default",
                 "SOGO_U_FIRST_MODULE": "mail",
                 "SOGO_U_LANGUAGE": "French",
                 "SOGO_U_REFRESH_MAIL_VIEW": 0,
