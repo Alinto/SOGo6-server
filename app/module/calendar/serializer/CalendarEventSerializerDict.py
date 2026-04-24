@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.module.calendar.model.CalAttachment import CalAttachment
 from app.module.calendar.model.CalAttendee import CalAttendee
@@ -17,62 +17,54 @@ if TYPE_CHECKING:
     from app.module.calendar.model.CalEvent import CalEvent
 
 
-class CalendarEventSerializerJson(CalendarEventSerializer):
+class CalendarEventSerializerDict(CalendarEventSerializer[dict]):
     """
-    Serializes calendar events to JSON format matching the SOGo6 REST API schema.
+    Converts CalEvent objects to plain dicts matching the SOGo6 REST API schema.
     Datetimes are formatted as ISO 8601 UTC with millisecond precision (e.g. 2026-03-19T09:30:00.000Z).
     Enum values are serialized as their lowercase string representation.
     None values and empty lists are included as null / [] for predictable API responses.
     """
 
-    def serialize(self, event: CalEvent) -> str:
-        """Serialize a CalEvent to a JSON string."""
-        return json.dumps(self.to_dict(event), ensure_ascii=False)
-
-    def to_dict(self, event: CalEvent) -> dict[str, Any]:
+    def serialize(self, data: CalEvent) -> dict[str, Any]:
         """Convert a CalEvent to a plain dict matching the REST API schema."""
         return {
-            "id": event.key,
-            "calendar_key": event.calendar_key,
-            "uid": event.uid,
-            "title": event.title,
-            "description": event.description,
-            "location": event.location,
-            "date_start": self._fmt_dt(event.date_start),
-            "date_end": self._fmt_dt(event.date_end),
-            "all_day": event.all_day,
-            "timezone": event.timezone,
-            "status": event.status.value,
-            "visibility": event.visibility.value,
-            "show_as": event.show_as.value,
-            "color": event.color,
-            "sequence": event.sequence,
-            "priority": event.priority,
-            "organizer": self._organizer_to_dict(event.organizer) if event.organizer else None,
-            "attendees": [self._attendee_to_dict(a) for a in event.attendees],
-            "reminders": [self._reminder_to_dict(r) for r in event.reminders],
-            "conference_data": self._conference_to_dict(event.conference_data) if event.conference_data else None,
-            "url": event.url,
-            "categories": event.categories,
-            "related_to": [self._relation_to_dict(r) for r in event.related_to],
-            "extra_properties": event.extra_properties,
-            "attachments": [self._attachment_to_dict(a) for a in event.attachments],
-            "created_at": self._fmt_dt(event.created_at) if event.created_at else None,
-            "updated_at": self._fmt_dt(event.updated_at) if event.updated_at else None,
-            "component_type": event.component_type.value,
-            "percent_complete": event.percent_complete,
-            "completed_at": self._fmt_dt(event.completed_at) if event.completed_at else None,
-            "recurrence_rule": self._recurrence_rule_to_dict(event.recurrence_rule) if event.recurrence_rule else None,
-            "recurrence_exceptions": [self._fmt_dt(d) for d in event.recurrence_exceptions],
-            "recurrence_id": self._fmt_dt(event.recurrence_id) if event.recurrence_id else None,
-            "recurrence_range": event.recurrence_range,
-            "parent_uid": event.parent_uid,
-            "dates_with_tz": self._dates_with_tz(event),
+            "key": data.key,
+            "calendar_key": data.calendar_key,
+            "uid": data.uid,
+            "title": data.title,
+            "description": data.description,
+            "location": data.location,
+            "date_start": self._fmt_dt(data.date_start),
+            "date_end": self._fmt_dt(data.date_end),
+            "all_day": data.all_day,
+            "timezone": data.timezone,
+            "status": data.status.value,
+            "visibility": data.visibility.value,
+            "show_as": data.show_as.value,
+            "color": data.color,
+            "sequence": data.sequence,
+            "priority": data.priority,
+            "organizer": self._organizer_to_dict(data.organizer) if data.organizer else None,
+            "attendees": [self._attendee_to_dict(a) for a in data.attendees],
+            "reminders": [self._reminder_to_dict(r) for r in data.reminders],
+            "conference_data": self._conference_to_dict(data.conference_data) if data.conference_data else None,
+            "url": data.url,
+            "categories": data.categories,
+            "related_to": [self._relation_to_dict(r) for r in data.related_to],
+            "extra_properties": data.extra_properties,
+            "attachments": [self._attachment_to_dict(a) for a in data.attachments],
+            "created_at": self._fmt_dt(data.created_at) if data.created_at else None,
+            "updated_at": self._fmt_dt(data.updated_at) if data.updated_at else None,
+            "component_type": data.component_type.value,
+            "percent_complete": data.percent_complete,
+            "completed_at": self._fmt_dt(data.completed_at) if data.completed_at else None,
+            "recurrence_rule": self._recurrence_rule_to_dict(data.recurrence_rule) if data.recurrence_rule else None,
+            "recurrence_exceptions": [self._fmt_dt(d) for d in data.recurrence_exceptions],
+            "recurrence_id": self._fmt_dt(data.recurrence_id) if data.recurrence_id else None,
+            "recurrence_range": data.recurrence_range,
+            "parent_uid": data.parent_uid,
+            "dates_with_tz": self._dates_with_tz(data),
         }
-
-    # ------------------------------------------------------------------
-    # Sub-object converters
-    # ------------------------------------------------------------------
 
     @staticmethod
     def _organizer_to_dict(org: CalOrganizer) -> dict[str, Any]:
@@ -140,7 +132,7 @@ class CalendarEventSerializerJson(CalendarEventSerializer):
         return {
             "frequency": rule.frequency.value,
             "interval": rule.interval,
-            "until": CalendarEventSerializerJson._fmt_dt(rule.until) if rule.until else None,
+            "until": CalendarEventSerializerDict._fmt_dt(rule.until) if rule.until else None,
             "count": rule.count,
             "by_day": rule.by_day,
             "by_month_day": rule.by_month_day,
@@ -154,7 +146,7 @@ class CalendarEventSerializerJson(CalendarEventSerializer):
             "week_start": rule.week_start,
         }
 
-    def _dates_with_tz(self, event: CalEvent) -> dict[str, str | None]:
+    def _dates_with_tz(self, event: CalEvent) -> dict[str, str | None]:  # type: ignore[override]
         """Build the dates_with_tz dict for the event and calendar timezones."""
         event_tz = event.timezone or None
         cal_tz = event.calendar_timezone or None
@@ -164,10 +156,6 @@ class CalendarEventSerializerJson(CalendarEventSerializer):
             "date_start_tz_calendar": self._apply_tz(event.date_start, cal_tz) if cal_tz else None,
             "date_end_tz_calendar": self._apply_tz(event.date_end, cal_tz) if cal_tz else None,
         }
-
-    # ------------------------------------------------------------------
-    # Datetime formatting
-    # ------------------------------------------------------------------
 
     @staticmethod
     def _fmt_dt(dt: datetime) -> str:
@@ -181,3 +169,11 @@ class CalendarEventSerializerJson(CalendarEventSerializer):
             dt = dt.astimezone(timezone.utc)
         ms = dt.microsecond // 1000
         return dt.strftime("%Y-%m-%dT%H:%M:%S.") + f"{ms:03d}Z"
+
+    @staticmethod
+    def _apply_tz(dt: datetime, tz_name: str) -> str | None:
+        """Convert dt to the given IANA timezone and return an ISO 8601 string with UTC offset."""
+        try:
+            return dt.astimezone(ZoneInfo(tz_name)).isoformat()
+        except (ZoneInfoNotFoundError, KeyError):
+            return None

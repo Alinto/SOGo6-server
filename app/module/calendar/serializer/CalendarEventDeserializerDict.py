@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
 from typing import Any
 
@@ -24,34 +23,24 @@ from app.module.calendar.model.enums.RelationType import RelationType
 from app.module.calendar.model.enums.ReminderMethod import ReminderMethod
 from app.module.calendar.model.enums.ShowAs import ShowAs
 from app.module.calendar.serializer.CalendarEventDeserializer import CalendarEventDeserializer
-from app.utils import errors as err
-from app.utils.exceptions import RequestException
 from app.utils.logger.logger import logger_calendar
 
 
-class CalendarEventDeserializerJson(CalendarEventDeserializer):
+class CalendarEventDeserializerDict(CalendarEventDeserializer[dict]):
     """
-    Deserializes JSON (SOGo6 REST API schema) into CalEvent objects.
+    Deserializes plain dicts (SOGo6 REST API schema) into CalEvent objects.
     Datetimes must be ISO 8601 UTC strings (e.g. 2026-03-19T09:30:00.000Z).
     Enum values are expected as lowercase strings matching the enum .value.
     Missing optional fields default to None or empty lists.
     """
 
-    def deserialize(self, text: str) -> CalEvent:
-        """Deserialize a JSON string into a CalEvent."""
-        try:
-            data: dict[str, Any] = json.loads(text)
-        except json.JSONDecodeError as exc:
-            raise RequestException(error=err.ERROR_CALENDAR_JSON_PARSE_FAILED) from exc
-        return self.from_dict(data)
-
-    def from_dict(self, data: dict[str, Any]) -> CalEvent:
+    def deserialize(self, data: dict[str, Any]) -> CalEvent:
         """Convert a plain dict (REST API schema) into a CalEvent."""
         organizer_raw = data.get("organizer")
         conference_raw = data.get("conference_data")
 
         return CalEvent(
-            id=data.get("id"),
+            key=data.get("key"),
             calendar_key=data.get("calendar_key"),
             uid=data.get("uid", ""),
             title=data.get("title", ""),
@@ -85,10 +74,6 @@ class CalendarEventDeserializerJson(CalendarEventDeserializer):
             recurrence_range=data.get("recurrence_range"),
             parent_uid=data.get("parent_uid"),
         )
-
-    # ------------------------------------------------------------------
-    # Sub-object parsers
-    # ------------------------------------------------------------------
 
     def _parse_organizer(self, data: dict[str, Any]) -> CalOrganizer:
         return CalOrganizer(
@@ -200,14 +185,10 @@ class CalendarEventDeserializerJson(CalendarEventDeserializer):
             week_start=data.get("week_start", "MO"),
         )
 
-    # ------------------------------------------------------------------
-    # Value parsers
-    # ------------------------------------------------------------------
-
     @staticmethod
     def _parse_dt(value: str) -> datetime:
         """Parse an ISO 8601 UTC string into a timezone-aware UTC datetime."""
-        return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
+        return datetime.fromisoformat(value).astimezone(timezone.utc)
 
     def _parse_dt_opt(self, value: str | None) -> datetime | None:
         """Parse an optional ISO 8601 UTC string; return None if absent."""

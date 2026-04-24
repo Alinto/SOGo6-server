@@ -5,7 +5,9 @@ from unittest.mock import MagicMock
 
 from app.interface.calendar.InterfaceApiCalendarCalendar import InterfaceApiCalendarCalendar
 from app.module.calendar.model.CalEvent import CalEvent
-from app.module.calendar.serializer.CalendarEventDeserializerJson import CalendarEventDeserializerJson
+from app.module.calendar.serializer.CalendarEventDeserializerDict import CalendarEventDeserializerDict
+from app.module.calendar.serializer.CalendarEventSerializerDict import CalendarEventSerializerDict
+from app.module.calendar.serializer.CalendarEventsSerializerDict import CalendarEventsSerializerDict
 from app.module.calendar.model.enums.ComponentType import ComponentType
 from app.utils import errors as err
 from app.utils.exceptions import RequestException
@@ -31,13 +33,13 @@ def _make_task(**kwargs):
 
 
 def _build_interface(module=None):
-    from app.module.calendar.serializer.CalendarEventSerializerJson import CalendarEventSerializerJson
     inter = object.__new__(InterfaceApiCalendarCalendar)
     inter.user = MagicMock()
     inter.user.uid = "user@example.com"
     inter.module = module if module is not None else MagicMock()
-    inter._event_serializer = CalendarEventSerializerJson()  # pylint: disable=protected-access
-    inter._event_deserializer = CalendarEventDeserializerJson()  # pylint: disable=protected-access
+    inter._event_serializer = CalendarEventSerializerDict()  # pylint: disable=protected-access
+    inter._events_serializer = CalendarEventsSerializerDict()  # pylint: disable=protected-access
+    inter._event_deserializer = CalendarEventDeserializerDict()  # pylint: disable=protected-access
     return inter
 
 
@@ -69,12 +71,16 @@ def test_get_tasks_unexpected_error_returns_unknown():
     assert response["error_code"] == err.ERROR_UNKOWN.c
 
 
-def test_get_tasks_passes_none_start_end_when_no_args():
+def test_get_tasks_passes_default_dates_when_no_args():
     module = MagicMock()
     module.get_tasks.return_value = []
     inter = _build_interface(module)
     inter.get_tasks("cal-key", {})
-    module.get_tasks.assert_called_once_with("cal-key", None, None, None)
+    module.get_tasks.assert_called_once()
+    call_args = module.get_tasks.call_args
+    assert call_args[0][3] == "cal-key"
+    assert call_args[0][0] is not None
+    assert call_args[0][1] is not None
 
 
 # ========== create_task ==========
@@ -107,7 +113,6 @@ def test_create_task_due_mapped_to_date_end():
     module.create_task.return_value = task
     inter = _build_interface(module)
     inter.create_task("cal-key", {"title": "T", "due": due_iso})
-    # The module receives a CalEvent whose date_end is set from 'due'
     call_args = module.create_task.call_args
     created_event = call_args[0][1]
     assert created_event.date_end is not None

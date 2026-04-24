@@ -9,7 +9,7 @@ if TYPE_CHECKING:
     from app.module.calendar.serializer.CalendarEventSerializerIcal import CalendarEventSerializerIcal
 
 
-class CalendarEventsSerializerIcal(CalendarEventsSerializer):
+class CalendarEventsSerializerIcal(CalendarEventsSerializer[str]):
     """
     Serializes a list of CalEvent objects into a RFC 5545-compliant ICS string.
 
@@ -20,6 +20,6 @@ class CalendarEventsSerializerIcal(CalendarEventsSerializer):
     def __init__(self, event_serializer: CalendarEventSerializerIcal) -> None:
         self._event_serializer: CalendarEventSerializerIcal = event_serializer
 
-    def serialize(self, events: list[CalEvent]) -> str:
+    def serialize(self, events: list[CalEvent]) -> str:  # pylint: disable=arguments-renamed
         """Serialize a list of CalEvent objects to a VCALENDAR ICS string."""
         return self._event_serializer.build_vcalendar(events)

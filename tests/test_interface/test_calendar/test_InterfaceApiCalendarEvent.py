@@ -29,16 +29,16 @@ def _make_event(**kwargs):
 
 
 def _build_interface(module=None):
-    from app.module.calendar.serializer.CalendarEventDeserializerJson import CalendarEventDeserializerJson
-    from app.module.calendar.serializer.CalendarEventSerializerJson import CalendarEventSerializerJson
-    from app.module.calendar.serializer.CalendarEventsSerializerJson import CalendarEventsSerializerJson
+    from app.module.calendar.serializer.CalendarEventDeserializerDict import CalendarEventDeserializerDict
+    from app.module.calendar.serializer.CalendarEventSerializerDict import CalendarEventSerializerDict
+    from app.module.calendar.serializer.CalendarEventsSerializerDict import CalendarEventsSerializerDict
     inter = object.__new__(InterfaceApiCalendarCalendar)
     inter.user = MagicMock()
     inter.user.uid = "user@example.com"
     inter.module = module if module is not None else MagicMock()
-    inter._event_serializer = CalendarEventSerializerJson()
-    inter._event_deserializer = CalendarEventDeserializerJson()
-    inter._events_serializer = CalendarEventsSerializerJson()
+    inter._event_serializer = CalendarEventSerializerDict()
+    inter._event_deserializer = CalendarEventDeserializerDict()
+    inter._events_serializer = CalendarEventsSerializerDict()
     return inter
 
 
@@ -170,8 +170,8 @@ def test_get_events_defaults_to_today_when_no_filters():
     assert response["error_code"] == "S000000"
     assert response["data"]["total_count"] == 1
     call_args = module.get_events.call_args
-    start_arg = call_args[0][1]
-    end_arg = call_args[0][2]
+    start_arg = call_args[0][0]
+    end_arg = call_args[0][1]
     assert start_arg is not None
     assert end_arg is not None
 
@@ -185,8 +185,8 @@ def test_get_events_passes_explicit_dates():
     response, _ = inter.get_events("cal-key", query)
     assert response["error_code"] == "S000000"
     call_args = module.get_events.call_args
-    assert call_args[0][1] == _dt(2026, 1, 1)
-    assert call_args[0][2] == _dt(2026, 12, 31)
+    assert call_args[0][0] == _dt(2026, 1, 1)
+    assert call_args[0][1] == _dt(2026, 12, 31)
 
 
 def test_get_events_error_returns_error():

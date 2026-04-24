@@ -51,7 +51,7 @@ class FakeCalendarSource(CalendarSource):
         return self._events.get(event_key)
 
     def insert_event(self, event):
-        event.id = "generated-id"
+        event.db_id = "generated-id"
         event.key = event.key or "new-key"
         self._events[event.key] = event
         self.inserted.append(event)
@@ -307,3 +307,28 @@ def test_get_events_no_key_unknown_calendar_not_raised():
     module = _build_module({})
     results = module.get_events(None, None, None)
     assert results == []
+
+
+# ========== clean ==========
+
+def test_clean_by_calendar_key():
+    module = _build_module({})
+    module._db.delete_row_in_table.return_value = 3
+    count = module.clean(calendar_key="cal-key")
+    assert count == 3
+    module._db.delete_row_in_table.assert_called_once()
+
+
+def test_clean_by_user_uid_aggregates_across_calendars():
+    source1 = _make_source("cal-1")
+    source2 = _make_source("cal-2")
+    module = _build_module({"cal-1": source1, "cal-2": source2})
+    module._db.delete_row_in_table.return_value = 2
+    count = module.clean(user_uid="user@example.com")
+    assert count == 4
+    assert module._db.delete_row_in_table.call_count == 2
+
+
+def test_clean_no_args_returns_zero():
+    module = _build_module({})
+    assert module.clean() == 0

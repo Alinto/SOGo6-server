@@ -12,13 +12,13 @@ from app.module.calendar.model.enums.EventVisibility import EventVisibility
 from app.module.calendar.model.enums.RecurrenceFrequency import RecurrenceFrequency
 from app.module.calendar.model.enums.ShowAs import ShowAs
 from app.module.calendar.repository.RepositoryEvent import RepositoryEvent, _ALL_COLS, _INSERT_COLS
-from app.module.calendar.serializer.CalendarEventSerializerJson import CalendarEventSerializerJson
+from app.module.calendar.serializer.CalendarEventSerializerDict import CalendarEventSerializerDict
 from app.utils.db.Condition import (AndCondition, EqualCondition, GreaterOrEqualCondition,
                                      IsNullCondition, LessOrEqualCondition,
                                      OrCondition)
 
 _UTC = timezone.utc
-_serializer = CalendarEventSerializerJson()
+_serializer = CalendarEventSerializerDict()
 
 
 class FakeDB:
@@ -41,6 +41,11 @@ class FakeDB:
     def select_from_table(self, table_name, column_tuple, condition, limit=0, sort_by=None, offset=0, order=None):
         return iter(self.select_result)
 
+    def delete_row_in_table(self, table_name, condition, expected_row=0):
+        self.deleted_rows = getattr(self, "deleted_rows", [])
+        self.deleted_rows.append({"table": table_name, "cond": condition})
+        return getattr(self, "delete_return", 0)
+
 
 def _make_event(**kwargs):
     defaults = dict(
@@ -56,7 +61,7 @@ def _make_event(**kwargs):
 
 def _build_row(event: CalEvent, event_id: int = 1) -> tuple:
     """Build a DB row tuple in ALL_EVT_COL order."""
-    blob = _serializer.to_dict(event)
+    blob = _serializer.serialize(event)
     values = {
         "id": event_id,
         "key": event.key or "test-key",
@@ -91,7 +96,7 @@ def test_row_to_event_sets_relational_fields():
     event.key = "abc"
     row = _build_row(event, event_id=99)
     result = RepositoryEvent._row_to_event(row)  # pylint: disable=protected-access
-    assert result.id == "99"
+    assert result.db_id == 99
     assert result.key == "abc"
     assert result.calendar_key == "cal-uuid-7"
     assert result.uid == "evt@example.com"
@@ -126,19 +131,17 @@ def test_row_to_event_preserves_blob_title():
     assert result.title == "My special event"
 
 
-# ========== _build_search_vector ==========
+# ========== search_vector ==========
 
 def test_search_vector_title_only():
     event = _make_event(title="Meeting")
-    vec = RepositoryEvent._build_search_vector(event)  # pylint: disable=protected-access
-    assert "Meeting" in vec
+    assert "Meeting" in RepositoryEvent._build_search_vector(event)
 
 
 def test_search_vector_includes_description_and_location():
     event = _make_event(title="Conf", description="Topic XYZ", location="Room A")
-    vec = RepositoryEvent._build_search_vector(event)  # pylint: disable=protected-access
-    assert "Topic XYZ" in vec
-    assert "Room A" in vec
+    assert "Topic XYZ" in RepositoryEvent._build_search_vector(event)
+    assert "Room A" in RepositoryEvent._build_search_vector(event)
 
 
 # ========== insert ==========
@@ -271,7 +274,7 @@ def test_find_by_key_returns_event():
 def test_update_persists_changed_fields():
     db = FakeDB()
     event = _make_event(calendar_key="cal-key-1", title="Updated title")
-    event.id = "42"
+    event.db_id = 42
     event.key = "some-key"
     repo = RepositoryEvent(db)
     repo.update(event)
@@ -285,7 +288,7 @@ def test_update_persists_changed_fields():
 def test_update_requires_event_id():
     db = FakeDB()
     event = _make_event()
-    event.id = None
+    event.db_id = None
     repo = RepositoryEvent(db)
     with pytest.raises(Exception):
         repo.update(event)
@@ -294,7 +297,7 @@ def test_update_requires_event_id():
 def test_update_sets_updated_at():
     db = FakeDB()
     event = _make_event(calendar_key="cal-key-1")
-    event.id = "10"
+    event.db_id = 10
     repo = RepositoryEvent(db)
     repo.update(event)
     update = db.updated_rows[0]
@@ -369,3 +372,14 @@ def test_delete_occurrence_sends_update():
     update = db.updated_rows[0]
     is_deleted_idx = list(update["cols"]).index("is_deleted")
     assert update["vals"][is_deleted_idx] is True
+
+
+# ========== purge_deleted ==========
+
+def test_purge_deleted_calls_delete():
+    db = FakeDB()
+    db.delete_return = 5
+    count = RepositoryEvent(db).purge_deleted("cal-key")
+    assert count == 5
+    assert len(db.deleted_rows) == 1
+    assert db.deleted_rows[0]["table"] == "sogo_calendar_events"

@@ -1,17 +1,17 @@
 """
-Unit tests for CalendarEventsSerializerJson.
+Unit tests for CalendarEventsSerializerDict.
 """
 from datetime import datetime, timezone
 
 import pytest
 
 from app.module.calendar.model.CalEvent import CalEvent
-from app.module.calendar.serializer.CalendarEventsSerializerJson import CalendarEventsSerializerJson
+from app.module.calendar.serializer.CalendarEventsSerializerDict import CalendarEventsSerializerDict
 
 
 @pytest.fixture
 def serializer():
-    return CalendarEventsSerializerJson()
+    return CalendarEventsSerializerDict()
 
 
 @pytest.fixture
@@ -31,11 +31,10 @@ def two_events():
 
 
 def test_empty_list(serializer):
-    assert serializer.serialize([]) == "[]"
+    assert serializer.serialize([]) == []
 
 
-def test_to_response_structure(serializer, two_events):
-    result = serializer.to_response(two_events)
-    assert result["total_count"] == 2
-    assert len(result["events"]) == 2
-    assert result["events"][0]["uid"] == "evt1@example.com"
+def test_serialize_structure(serializer, two_events):
+    event_list = serializer.serialize(two_events)
+    assert len(event_list) == 2
+    assert event_list[0]["uid"] == "evt1@example.com"

@@ -29,6 +29,7 @@ from .schemas.task import (
     CalendarTaskPatchSchema,
     CalendarTaskResponseSchema,
 )
+from .schemas.freebusy import FreeBusyRequestSchema, FreeBusyResponseSchema
 
 if TYPE_CHECKING:
     from app.auth.User import User
@@ -196,3 +197,15 @@ class ApiTaskDetail(MethodView):
         """Delete a task."""
         logger_api.debug("DELETE /tasks/%s user=%s", task_key, g.user.uid)
         return g.inter.delete_task(task_key)
+
+
+@blp.route("/freebusy")
+class ApiFreeBusy(MethodView):
+    """API to query free/busy information for a user."""
+
+    @blp.arguments(FreeBusyRequestSchema)
+    @blp.response(200, FreeBusyResponseSchema)
+    def post(self, body: dict) -> ResponseReturnValue:
+        """Return free/busy periods for the target users as JSON."""
+        logger_api.debug("POST /freebusy user=%s targets=%s", g.user.uid, body.get("target_uids"))
+        return g.inter.get_freebusy(body)

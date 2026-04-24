@@ -5,9 +5,11 @@ from typing import TYPE_CHECKING
 
 # pylint: disable=fixme
 
-from app.module.calendar.CalendarConst import MAX_EVENT_FETCH_DAYS, MAX_TASK_FETCH_DAYS
+from app.module.calendar.CalendarConst import MAX_EVENT_FETCH_DAYS, MAX_FREEBUSY_DAYS, MAX_TASK_FETCH_DAYS
+from app.module.calendar.freebusy.FreeBusyEngine import FreeBusyEngine, FreeBusyPrefs
 from app.module.calendar.model.CalCalendar import CalCalendar
 from app.module.calendar.model.enums.ComponentType import ComponentType
+from app.module.calendar.repository.RepositoryEvent import RepositoryEvent
 from app.module.calendar.source.CalendarSources import CalendarSources
 from app.utils import errors as err
 from app.utils.exceptions import RequestException
@@ -21,6 +23,7 @@ if TYPE_CHECKING:
     from app.manager.db.ClientSQL import ClientSQL
 
     from app.module.calendar.model.CalEvent import CalEvent
+    from app.module.calendar.model.CalFreeBusyPeriod import CalFreeBusyPeriod
     from app.module.calendar.source.CalendarSource import CalendarSource
     from app.module.calendar.source.CalendarSourceDb import CalendarSourceDb
 
@@ -288,4 +291,53 @@ class ModuleCalendar:
             raise
         except Exception as exc:
             logger_calendar.error("Unexpected error fetching tasks (calendar=%s): %s", key, exc)
+            raise RequestException(error=err.ERROR_UNKOWN) from exc
+
+    # ------------------------------------------------------------------
+    # Maintenance
+    # ------------------------------------------------------------------
+    # TODO: Implement in admin API
+    def clean(self, user_uid: str | None = None, calendar_key: str | None = None) -> int:
+        """Physically remove soft-deleted event rows for a calendar or all calendars of a user.
+
+        Returns the total number of rows purged. At least one of user_uid or calendar_key must
+        be provided. When user_uid is given, all calendars currently owned by that user are cleaned.
+        """
+        repo = RepositoryEvent(self._db)
+        if calendar_key is not None:
+            return repo.purge_deleted(calendar_key)
+        if user_uid is not None:
+            keys = [s.calendar.key for s in self._sources.get_all(user_uid)]
+            return sum(repo.purge_deleted(k) for k in keys)
+        return 0
+
+    # ------------------------------------------------------------------
+    # FreeBusy
+    # ------------------------------------------------------------------
+    def get_freebusy(
+        self,
+        target_uid: str,
+        start: datetime,
+        end: datetime,
+        prefs: FreeBusyPrefs,
+    ) -> list[CalFreeBusyPeriod]:
+        """Return merged free/busy periods for target_uid in [start, end].
+
+        prefs must be provided by the caller (loaded from user settings).
+
+        IMPORTANT — timezone: the off-hours computation (when prefs.busy_off_hours is True)
+        uses prefs.timezone, which must be the target user's IANA timezone (SOGO_U_TIMEZONE).
+        This means that "working hours" (e.g. 09:00–17:00) are interpreted in that timezone,
+        not in UTC or in the requester's timezone. The caller (interface layer) is responsible
+        for loading SOGO_U_TIMEZONE and setting it on FreeBusyPrefs before calling this method.
+        """
+        if (end - start) > timedelta(days=MAX_FREEBUSY_DAYS):
+            raise RequestException(error=err.ERROR_CALENDAR_FREEBUSY_DATE_RANGE_TOO_LARGE)
+        try:
+            events: list[CalEvent] = self._sources.get_events(target_uid, start, end)
+            return FreeBusyEngine().compute(events, start, end, prefs)
+        except RequestException:
+            raise
+        except Exception as exc:
+            logger_calendar.error("Unexpected error computing freebusy for uid=%s: %s", target_uid, exc)
             raise RequestException(error=err.ERROR_UNKOWN) from exc

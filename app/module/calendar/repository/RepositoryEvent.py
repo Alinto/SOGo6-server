@@ -1,12 +1,12 @@
-from __future__ import annotations
+from __future__ import annotations  # pylint: disable=duplicate-code
 
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from app.config.db import tables as tbl
 from app.module.calendar.model.enums.ComponentType import ComponentType
-from app.module.calendar.serializer.CalendarEventDeserializerJson import CalendarEventDeserializerJson
-from app.module.calendar.serializer.CalendarEventSerializerJson import CalendarEventSerializerJson
+from app.module.calendar.serializer.CalendarEventDeserializerDict import CalendarEventDeserializerDict
+from app.module.calendar.serializer.CalendarEventSerializerDict import CalendarEventSerializerDict
 from app.utils import errors as err
 from app.utils.db.Condition import (AndCondition, EqualCondition, GreaterOrEqualCondition,
                                      IsNotNullCondition, IsNullCondition, LessOrEqualCondition, LikeCondition,
@@ -23,17 +23,8 @@ if TYPE_CHECKING:
 _ALL_COLS: tuple[str, ...] = tuple(col.name for col in tbl.ALL_EVT_COL)
 _INSERT_COLS: tuple[str, ...] = tuple(col.name for col in tbl.ALL_EVT_COL if col.name != tbl.COL_ID.name)
 
-_serializer = CalendarEventSerializerJson()
-_deserializer = CalendarEventDeserializerJson()
-
-
-def _ensure_utc(dt: datetime | None) -> datetime | None:
-    """Return dt with UTC tzinfo. Naive datetimes are assumed to be UTC. None passes through."""
-    if dt is None:
-        return None
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt
+_serializer = CalendarEventSerializerDict()
+_deserializer = CalendarEventDeserializerDict()
 
 
 class RepositoryEvent:
@@ -43,34 +34,43 @@ class RepositoryEvent:
         self._db = db
 
     @staticmethod
-    def _row_to_event(row: tuple) -> CalEvent:
-        """Map a DB row (ordered per ALL_EVT_COL) to a CalEvent."""
-        d = dict(zip(_ALL_COLS, row))
-        blob = d[tbl.COL_EVT_CAL_EVENT.name]
-        event = _deserializer.from_dict(blob)
-
-        event.id = str(d[tbl.COL_ID.name])
-        event.key = d[tbl.COL_EVT_KEY.name]
-        event.calendar_key = d[tbl.COL_EVT_CALENDAR_KEY.name]
-        event.uid = d[tbl.COL_EVT_UID.name]
-        event.component_type = ComponentType(d[tbl.COL_EVT_COMPONENT_TYPE.name])
-        event.date_start = _ensure_utc(d[tbl.COL_EVT_DATE_START.name])
-        event.date_end = _ensure_utc(d[tbl.COL_EVT_DATE_END.name])
-        event.sequence = d[tbl.COL_EVT_SEQUENCE.name]
-        event.recurrence_id = _ensure_utc(d[tbl.COL_EVT_RECURRENCE_ID.name])
-        event.created_at = _ensure_utc(d[tbl.COL_EVT_CREATED_AT.name])
-        event.updated_at = _ensure_utc(d[tbl.COL_EVT_UPDATED_AT.name])
-        return event
-
-    @staticmethod
     def _build_search_vector(event: CalEvent) -> str:
-        """Build a plain-text search vector from title, description and location."""
+        """Build a plain-text search index from title, description and location."""
         parts = [event.title or ""]
         if event.description:
             parts.append(event.description)
         if event.location:
             parts.append(event.location)
         return " ".join(parts)
+
+    @staticmethod
+    def _ensure_utc(dt: datetime | None) -> datetime | None:
+        """Return dt with UTC tzinfo. Naive datetimes are assumed to be UTC. None passes through."""
+        if dt is None:
+            return None
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=timezone.utc)
+        return dt
+
+    @staticmethod
+    def _row_to_event(row: tuple) -> CalEvent:
+        """Map a DB row (ordered per ALL_EVT_COL) to a CalEvent."""
+        d = dict(zip(_ALL_COLS, row))
+        blob = d[tbl.COL_EVT_CAL_EVENT.name]
+        event = _deserializer.deserialize(blob)
+
+        event.db_id = d[tbl.COL_ID.name]
+        event.key = d[tbl.COL_EVT_KEY.name]
+        event.calendar_key = d[tbl.COL_EVT_CALENDAR_KEY.name]
+        event.uid = d[tbl.COL_EVT_UID.name]
+        event.component_type = ComponentType(d[tbl.COL_EVT_COMPONENT_TYPE.name])
+        event.date_start = RepositoryEvent._ensure_utc(d[tbl.COL_EVT_DATE_START.name])
+        event.date_end = RepositoryEvent._ensure_utc(d[tbl.COL_EVT_DATE_END.name])
+        event.sequence = d[tbl.COL_EVT_SEQUENCE.name]
+        event.recurrence_id = RepositoryEvent._ensure_utc(d[tbl.COL_EVT_RECURRENCE_ID.name])
+        event.created_at = RepositoryEvent._ensure_utc(d[tbl.COL_EVT_CREATED_AT.name])
+        event.updated_at = RepositoryEvent._ensure_utc(d[tbl.COL_EVT_UPDATED_AT.name])
+        return event
 
     def find_by_calendar(
         self,
@@ -134,12 +134,14 @@ class RepositoryEvent:
             ),
             EqualCondition(tbl.COL_EVT_IS_DELETED.name, False),
         )
+        # pylint: disable=duplicate-code
         rows = list(self._db.select_from_table(
             table_name=tbl.TABLE_EVENT.name,
             column_tuple=_ALL_COLS,
             condition=condition,
             limit=1,
         ))
+        # pylint: enable=duplicate-code
         if not rows:
             return None
         return self._row_to_event(rows[0])
@@ -151,7 +153,7 @@ class RepositoryEvent:
         event.created_at = now
         event.updated_at = now
 
-        blob = _serializer.to_dict(event)
+        blob = _serializer.serialize(event)
 
         values = [[
             event.key,
@@ -166,7 +168,7 @@ class RepositoryEvent:
             event.recurrence_id,
             False,
             event.sequence,
-            self._build_search_vector(event),
+            RepositoryEvent._build_search_vector(event),
             blob,
             event.created_at,
             event.updated_at,
@@ -194,13 +196,13 @@ class RepositoryEvent:
         return fetched
 
     def update(self, event: CalEvent, date_end_recurrence: datetime | None = None) -> None:
-        """Update an existing event. event.id must be set."""
-        if event.id is None:
-            raise BugException("RepositoryEvent.update called with event.id=None")
+        """Update an existing event. event.db_id must be set."""
+        if event.db_id is None:
+            raise BugException("RepositoryEvent.update called with event.db_id=None")
 
         now = datetime.now(timezone.utc)
         event.updated_at = now
-        blob = _serializer.to_dict(event)
+        blob = _serializer.serialize(event)
 
         update_cols = (
             tbl.COL_EVT_UID.name,
@@ -226,7 +228,7 @@ class RepositoryEvent:
             date_end_recurrence,
             event.recurrence_id,
             event.sequence,
-            self._build_search_vector(event),
+            RepositoryEvent._build_search_vector(event),
             blob,
             event.updated_at,
         ]
@@ -235,11 +237,11 @@ class RepositoryEvent:
             table_name=tbl.TABLE_EVENT.name,
             column_tuple=update_cols,
             values_list=values,
-            condition=EqualCondition(tbl.COL_ID.name, int(event.id)),
+            condition=EqualCondition(tbl.COL_ID.name, event.db_id),
         )
 
         if updated == 0:
-            logger_calendar.error("Event id=%s not found on update", event.id)
+            logger_calendar.error("Event db_id=%s not found on update", event.db_id)
             raise RequestException(error=err.ERROR_CALENDAR_EVENT_NOT_FOUND)
 
     def find_master_by_uid(self, calendar_key: str, uid: str) -> CalEvent | None:
@@ -334,4 +336,18 @@ class RepositoryEvent:
             column_tuple=(tbl.COL_EVT_IS_DELETED.name, tbl.COL_EVT_UPDATED_AT.name),
             values_list=[True, now],
             condition=EqualCondition(tbl.COL_EVT_CALENDAR_KEY.name, calendar_key),
+        )
+
+    def purge_deleted(self, calendar_key: str) -> int:
+        """Physically remove all soft-deleted event rows for a calendar.
+
+        Returns the number of rows deleted. Call this after delete_calendar() to reclaim
+        DB space once the soft-deleted rows are no longer needed for CalDAV sync reports.
+        """
+        return self._db.delete_row_in_table(
+            table_name=tbl.TABLE_EVENT.name,
+            condition=AndCondition(
+                EqualCondition(tbl.COL_EVT_CALENDAR_KEY.name, calendar_key),
+                EqualCondition(tbl.COL_EVT_IS_DELETED.name, True),
+            ),
         )

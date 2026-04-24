@@ -72,7 +72,7 @@ class CalendarEventSchema(Schema):
     Mirrors the CalEvent domain object fields exposed via the REST API.
     """
 
-    id = fields.String(allow_none=True)
+    key = fields.String(allow_none=True)
     calendar_key = fields.String(allow_none=True)
     uid = fields.String()
     title = fields.String()
@@ -206,8 +206,8 @@ class CalendarEventListResponseSchema(ApiBaseResponse):
             "data": {
                 "events": [
                     {
-                        "id": "550e8400-e29b-41d4-a716-446655440000",
-                        "calendar_id": "7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b",
+                        "key": "550e8400-e29b-41d4-a716-446655440000",
+                        "calendar_key": "7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b",
                         "uid": "evt_001@sogo.example.com",
                         "title": "Team Standup",
                         "description": "Daily team sync meeting",

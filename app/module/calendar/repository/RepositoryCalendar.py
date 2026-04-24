@@ -1,4 +1,4 @@
-from __future__ import annotations
+from __future__ import annotations  # pylint: disable=duplicate-code
 
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
@@ -94,12 +94,14 @@ class RepositoryCalendar:
             EqualCondition(tbl.COL_CAL_USER_UID.name, user_uid),
             EqualCondition(tbl.COL_CAL_KEY.name, key),
         )
+        # pylint: disable=duplicate-code
         rows = list(self._db.select_from_table(
             table_name=tbl.TABLE_CALENDAR.name,
             column_tuple=_ALL_COLS,
             condition=condition,
             limit=1,
         ))
+        # pylint: enable=duplicate-code
 
         if not rows:
             return None

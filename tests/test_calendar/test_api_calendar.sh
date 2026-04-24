@@ -58,13 +58,28 @@ TEST COVERAGE:
       data from all calendars and contain no leaked component type
   14  Error paths (unknown event key, unknown calendar key, override on
       non-recurring event)
-  15  Conditional DELETE (only when -d is passed)
+  15  FreeBusy:
+        a. Setup — LOGIN_2 (America/New_York) and LOGIN_3 (Asia/Tokyo) each create
+           a calendar and an event; LOGIN_1 creates 2 events on 2026-06-15
+        b. Multi-user JSON: LOGIN_3 queries LOGIN_1 + LOGIN_2 in one call
+        c. Cross-user JSON query: LOGIN_3 → LOGIN_1 (2 busy periods)
+        d. Common slot: LOGIN_3 → LOGIN_2, confirms LOGIN_2 busy at same 14:00 UTC
+           slot as LOGIN_1 (scheduling conflict)
+        e. No overlap: LOGIN_1 → LOGIN_3 during 14:00 window → 0 periods (free)
+        f. Cross-tz: LOGIN_1 → LOGIN_3 at 22:00 UTC → BUSY (Asia/Tokyo event)
+        g. Self-query: LOGIN_2 queries own free/busy
+        h. Error — range > 90 days → S000614
+  16  Conditional DELETE (only when -d is passed, steps 52–54)
 EOF
     exit 0
 }
 
+LOGIN_1="sogo-tests1@example.org"
+LOGIN_2="sogo-tests2@example.org"
+LOGIN_3="sogo-tests3@example.org"
+
 DEFAULT_BASE_URL="http://localhost:5000/api/user/v1"
-DEFAULT_LOGIN="sogo-tests1@example.org"
+DEFAULT_LOGIN="${LOGIN_1}"
 DEFAULT_PASSWORD="sogo"
 
 DO_DELETE=false
@@ -163,6 +178,7 @@ echo -e "  Mode     : $(${INTERACTIVE} && echo 'interactive (-i)' || echo 'batch
 # ── 1. LOGIN ──────────────────────────────────────────────────────────────────
 
 step "1. Authentication"
+info "Logs in as LOGIN_1 and extracts the JWT token used by all subsequent requests."
 
 CODE=$(req -X POST "$BASE/auth/login" \
     -H "Content-Type: application/json" \
@@ -199,6 +215,7 @@ CAL_KEY=$(extract '.data.key')
 info "Calendar key: $CAL_KEY"
 
 step "3. Calendar — list"
+info "Verifies GET /calendars returns at least the newly created calendar (total_count >= 1)."
 
 CODE=$(req "$BASE/calendars" -H "$H_AUTH")
 check_code  "GET /calendars" "$CODE" "200"
@@ -208,12 +225,14 @@ info "Total calendars: $TOTAL"
 [ "$TOTAL" -ge 1 ] 2>/dev/null && ok "total_count >= 1" || fail "total_count=$TOTAL"
 
 step "4. Calendar — get by key"
+info "Fetches the calendar by its key and verifies the name is returned correctly."
 
 CODE=$(req "$BASE/calendars/$CAL_KEY" -H "$H_AUTH")
 check_code  "GET /calendars/$CAL_KEY" "$CODE" "200"
 check_field ".data.name" "Test Calendar"
 
 step "5. Calendar — patch"
+info "Renames the calendar and changes its color. Verifies both fields are updated in the response."
 
 CODE=$(req -X PATCH "$BASE/calendars/$CAL_KEY" \
     -H "$H_JSON" -H "$H_AUTH" \
@@ -245,16 +264,18 @@ check_code  "POST /events simple" "$CODE" "201"
 check_error "POST /events simple error_code"
 check_field ".data.title"    "Team Meeting"
 check_field ".data.location" "Room A"
-EVT_KEY=$(extract '.data.id')
+EVT_KEY=$(extract '.data.key')
 info "Event key: $EVT_KEY"
 
 step "7. Event — get by key"
+info "Fetches the event directly by its key. Verifies the title round-trips correctly."
 
 CODE=$(req "$BASE/events/$EVT_KEY" -H "$H_AUTH")
 check_code  "GET /events/$EVT_KEY" "$CODE" "200"
 check_field ".data.title" "Team Meeting"
 
 step "8. Event — patch title and location"
+info "Partially updates an existing event. Only title and location are sent; other fields must be untouched."
 
 CODE=$(req -X PATCH "$BASE/events/$EVT_KEY" \
     -H "$H_JSON" -H "$H_AUTH" \
@@ -264,6 +285,7 @@ check_field ".data.title"    "Team Meeting (updated)"
 check_field ".data.location" "Room B"
 
 step "9. Event — patch categories"
+info "Replaces the categories array on an existing event. Verifies the new array length is 3."
 
 CODE=$(req -X PATCH "$BASE/events/$EVT_KEY" \
     -H "$H_JSON" -H "$H_AUTH" \
@@ -287,7 +309,7 @@ CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
     }')
 check_code  "POST /events all-day" "$CODE" "201"
 check_field ".data.all_day" "true"
-ALLDAY_KEY=$(extract '.data.id')
+ALLDAY_KEY=$(extract '.data.key')
 
 step "11. Event — create with attendees and reminders"
 info "Event with organizer, two attendees (required/optional) and two reminders (popup/email)."
@@ -315,7 +337,7 @@ check_code  "POST /events with attendees" "$CODE" "201"
 check_error "POST /events with attendees error_code"
 check_count "attendees" ".data.attendees" "2"
 check_count "reminders" ".data.reminders" "2"
-COMPLEX_KEY=$(extract '.data.id')
+COMPLEX_KEY=$(extract '.data.key')
 
 # ── 5. RECURRING EVENTS ───────────────────────────────────────────────────────
 
@@ -334,7 +356,7 @@ CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
 check_code  "POST /events daily" "$CODE" "201"
 check_error "POST /events daily error_code"
 check_field ".data.recurrence_rule.frequency" "daily"
-DAILY_KEY=$(extract '.data.id')
+DAILY_KEY=$(extract '.data.key')
 DAILY_UID=$(extract '.data.uid')
 info "Daily event key: $DAILY_KEY  uid: $DAILY_UID"
 
@@ -357,7 +379,7 @@ CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
     }')
 check_code  "POST /events weekly MO/WE/FR" "$CODE" "201"
 check_count "by_day" ".data.recurrence_rule.by_day" "3"
-WEEKLY_KEY=$(extract '.data.id')
+WEEKLY_KEY=$(extract '.data.key')
 
 step "14. Event — recurring monthly BYMONTHDAY=1"
 info "RRULE:FREQ=MONTHLY;BYMONTHDAY=1;COUNT=6"
@@ -378,7 +400,7 @@ CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
     }')
 check_code  "POST /events monthly" "$CODE" "201"
 check_field ".data.recurrence_rule.frequency" "monthly"
-MONTHLY_KEY=$(extract '.data.id')
+MONTHLY_KEY=$(extract '.data.key')
 
 # ── 6. RRULE EXPANSION ────────────────────────────────────────────────────────
 
@@ -458,7 +480,7 @@ RECID=$(extract '.data.recurrence_id' | sed 's/\.000Z$/Z/')
     && ok ".data.recurrence_id = '2026-06-03T09:00:00Z'" \
     || fail ".data.recurrence_id — expected '2026-06-03T09:00:00Z', got '$RECID'"
 check_not_empty ".data.parent_uid"
-OCCURRENCE_KEY=$(extract '.data.id')
+OCCURRENCE_KEY=$(extract '.data.key')
 OCCURRENCE_PARENT_UID=$(extract '.data.parent_uid')
 info "Occurrence key: $OCCURRENCE_KEY"
 info "parent_uid: $OCCURRENCE_PARENT_UID"
@@ -553,6 +575,7 @@ info "Events in June: $TOTAL"
 [ "$TOTAL" -ge 1 ] 2>/dev/null && ok "total_count >= 1" || fail "total_count=$TOTAL"
 
 step "24. Events — full-text search"
+info "Searches events by title keyword 'Standup'. The daily recurring event must appear; at least 1 result expected."
 
 CODE=$(req "$BASE/calendars/$CAL_KEY/events?search=Standup" -H "$H_AUTH")
 check_code  "GET /events?search=Standup" "$CODE" "200"
@@ -586,10 +609,11 @@ check_code  "POST /tasks create" "$CODE" "201"
 check_error "POST /tasks create error_code"
 check_field ".data.title"          "Write release notes"
 check_field ".data.component_type" "task"
-TASK_KEY=$(extract '.data.id')
+TASK_KEY=$(extract '.data.key')
 info "Task key: $TASK_KEY"
 
 step "27. Task — get by key"
+info "Fetches the task by its key. Verifies component_type=task and title round-trip."
 
 CODE=$(req "$BASE/tasks/$TASK_KEY" -H "$H_AUTH")
 check_code  "GET /tasks/$TASK_KEY" "$CODE" "200"
@@ -598,6 +622,7 @@ check_field ".data.title"          "Write release notes"
 check_field ".data.component_type" "task"
 
 step "28. Task — patch title and percent_complete"
+info "Marks the task as 100% complete and renames it. Verifies both fields in the response."
 
 CODE=$(req -X PATCH "$BASE/tasks/$TASK_KEY" \
     -H "$H_JSON" -H "$H_AUTH" \
@@ -607,6 +632,7 @@ check_field ".data.title"            "Write release notes (done)"
 check_field ".data.percent_complete" "100"
 
 step "29. Task — create a second task for list/isolation checks"
+info "Creates a second task so the list endpoint and isolation tests have at least 2 tasks to assert against."
 
 CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/tasks" \
     -H "$H_JSON" -H "$H_AUTH" \
@@ -616,7 +642,7 @@ CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/tasks" \
         "percent_complete": 50
     }')
 check_code  "POST /tasks second task" "$CODE" "201"
-TASK_KEY2=$(extract '.data.id')
+TASK_KEY2=$(extract '.data.key')
 info "Second task key: $TASK_KEY2"
 
 step "30. Task — list (GET /calendars/{key}/tasks)"
@@ -698,6 +724,7 @@ EVENT_LEAK=$(body | jq -r '[.data.tasks[] | select(.component_type == "event")] 
 # ── 13. ERROR PATHS ───────────────────────────────────────────────────────────
 
 step "35. Error paths — unknown keys"
+info "GET on a non-existent event key must return 404 + S000605. GET on a non-existent calendar key must return 404 + S000602."
 
 CODE=$(req "$BASE/events/nonexistent-key-xyz" -H "$H_AUTH")
 check_code "GET /events/nonexistent" "$CODE" "404"
@@ -726,11 +753,394 @@ CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
     && ok "non-recurring override rejected (HTTP $CODE)" \
     || fail "non-recurring override incorrectly accepted (HTTP 201)"
 
-# ── 11. CONDITIONAL DELETES ───────────────────────────────────────────────────
+# ── 15. FREEBUSY ──────────────────────────────────────────────────────────────
+#
+# Timeline for 2026-06-15 (UTC):
+#   LOGIN_1 (Europe/Paris)    : BUSY 09:00–10:00, BUSY 14:00–15:00
+#   LOGIN_2 (America/New_York): BUSY 14:00–15:00           ← common slot with LOGIN_1
+#   LOGIN_3 (Asia/Tokyo)      : BUSY 22:00–23:00           ← no overlap with LOGIN_1/LOGIN_2
+#
+# Tests:
+#   - cross-user query (LOGIN_3 → LOGIN_1, LOGIN_3 → LOGIN_2)
+#   - common busy slot confirmed on both sides
+#   - slot where one is free while the other is busy
+#   - self-query
+#   - .ifb endpoint
+#   - range-too-large error
 
-step "37. Delete — events and tasks"
+step "37. FreeBusy setup — authenticate LOGIN_2 and LOGIN_3"
+info "Obtains JWT tokens for LOGIN_2 (America/New_York) and LOGIN_3 (Asia/Tokyo) used in all FreeBusy queries below."
+
+CODE=$(req -X POST "$BASE/auth/login" \
+    -H "Content-Type: application/json" \
+    -d "{\"username\":\"$LOGIN_2\",\"password\":\"$DEFAULT_PASSWORD\"}")
+check_code "POST /auth/login (LOGIN_2)" "$CODE" "200"
+TOKEN_2=$(extract '.data.jwt_token')
+[ -n "$TOKEN_2" ] && ok "LOGIN_2 token obtained" || { fail "Could not extract LOGIN_2 token"; exit 1; }
+H_AUTH_2="Authorization: Bearer $TOKEN_2"
+
+CODE=$(req -X POST "$BASE/auth/login" \
+    -H "Content-Type: application/json" \
+    -d "{\"username\":\"$LOGIN_3\",\"password\":\"$DEFAULT_PASSWORD\"}")
+check_code "POST /auth/login (LOGIN_3)" "$CODE" "200"
+TOKEN_3=$(extract '.data.jwt_token')
+[ -n "$TOKEN_3" ] && ok "LOGIN_3 token obtained" || { fail "Could not extract LOGIN_3 token"; exit 1; }
+H_AUTH_3="Authorization: Bearer $TOKEN_3"
+
+step "38. FreeBusy setup — LOGIN_1 adds 2 events on 2026-06-15 (Europe/Paris)"
+info "09:00–10:00 UTC and 14:00–15:00 UTC. The 14:00 slot will be the common slot with LOGIN_2."
+
+CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d '{
+        "title": "FB Morning (L1)",
+        "date_start": "2026-06-15T09:00:00Z",
+        "date_end":   "2026-06-15T10:00:00Z",
+        "timezone": "Europe/Paris",
+        "show_as": "busy"
+    }')
+check_code "POST /events FB Morning L1" "$CODE" "201"
+FB_L1_MORNING=$(extract '.data.key')
+
+CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d '{
+        "title": "FB Afternoon (L1)",
+        "date_start": "2026-06-15T14:00:00Z",
+        "date_end":   "2026-06-15T15:00:00Z",
+        "timezone": "Europe/Paris",
+        "show_as": "busy"
+    }')
+check_code "POST /events FB Afternoon L1" "$CODE" "201"
+FB_L1_AFTERNOON=$(extract '.data.key')
+
+step "39. FreeBusy setup — LOGIN_2 creates calendar (America/New_York) + event at 14:00 UTC"
+info "14:00 UTC = 10:00 New_York. Common slot with LOGIN_1."
+
+CODE=$(req -X POST "$BASE/calendars" \
+    -H "$H_JSON" -H "$H_AUTH_2" \
+    -d '{
+        "name": "FB Test Calendar (L2)",
+        "timezone": "America/New_York"
+    }')
+check_code "POST /calendars (LOGIN_2)" "$CODE" "201"
+CAL_KEY_2=$(extract '.data.key')
+info "LOGIN_2 calendar key: $CAL_KEY_2"
+
+CODE=$(req -X POST "$BASE/calendars/$CAL_KEY_2/events" \
+    -H "$H_JSON" -H "$H_AUTH_2" \
+    -d '{
+        "title": "FB Standup (L2)",
+        "date_start": "2026-06-15T14:00:00Z",
+        "date_end":   "2026-06-15T15:00:00Z",
+        "timezone": "America/New_York",
+        "show_as": "busy"
+    }')
+check_code "POST /events FB Standup L2" "$CODE" "201"
+FB_L2_EVT=$(extract '.data.key')
+
+step "40. FreeBusy setup — LOGIN_3 creates calendar (Asia/Tokyo) + event at 22:00 UTC"
+info "22:00 UTC = 07:00+9 Tokyo. No overlap with LOGIN_1 or LOGIN_2."
+
+CODE=$(req -X POST "$BASE/calendars" \
+    -H "$H_JSON" -H "$H_AUTH_3" \
+    -d '{
+        "name": "FB Test Calendar (L3)",
+        "timezone": "Asia/Tokyo"
+    }')
+check_code "POST /calendars (LOGIN_3)" "$CODE" "201"
+CAL_KEY_3=$(extract '.data.key')
+info "LOGIN_3 calendar key: $CAL_KEY_3"
+
+CODE=$(req -X POST "$BASE/calendars/$CAL_KEY_3/events" \
+    -H "$H_JSON" -H "$H_AUTH_3" \
+    -d '{
+        "title": "FB Evening (L3)",
+        "date_start": "2026-06-15T22:00:00Z",
+        "date_end":   "2026-06-15T23:00:00Z",
+        "timezone": "Asia/Tokyo",
+        "show_as": "busy"
+    }')
+check_code "POST /events FB Evening L3" "$CODE" "201"
+FB_L3_EVT=$(extract '.data.key')
+
+step "41. FreeBusy — multi-user JSON: LOGIN_3 queries LOGIN_1 + LOGIN_2 in one call"
+info "Both attendees must appear in response. LOGIN_1 has 2 events, LOGIN_2 has 1."
+
+CODE=$(req -X POST "$BASE/freebusy" \
+    -H "$H_JSON" -H "$H_AUTH_3" \
+    -d "{
+        \"target_uids\": [\"$LOGIN_1\", \"$LOGIN_2\"],
+        \"start\": \"2026-06-15T00:00:00Z\",
+        \"end\":   \"2026-06-15T23:59:59Z\"
+    }")
+check_code  "POST /freebusy multi-user (JSON)" "$CODE" "200"
+check_error "POST /freebusy multi-user error_code"
+FB_MULTI_L1=$(body | jq -r --arg uid "$LOGIN_1" '.data.attendees[$uid].periods | length')
+FB_MULTI_L2=$(body | jq -r --arg uid "$LOGIN_2" '.data.attendees[$uid].periods | length')
+[ "$FB_MULTI_L1" -ge 2 ] 2>/dev/null \
+    && ok "multi-user: LOGIN_1 has >= 2 periods" \
+    || fail "multi-user: LOGIN_1 has $FB_MULTI_L1 period(s) (expected >= 2)"
+[ "$FB_MULTI_L2" -ge 1 ] 2>/dev/null \
+    && ok "multi-user: LOGIN_2 has >= 1 period" \
+    || fail "multi-user: LOGIN_2 has $FB_MULTI_L2 period(s) (expected >= 1)"
+
+step "42. FreeBusy — cross-user JSON: LOGIN_3 queries LOGIN_1 on 2026-06-15"
+info "LOGIN_1 has 2 events (09:00 and 14:00). Both must appear as BUSY."
+
+CODE=$(req -X POST "$BASE/freebusy" \
+    -H "$H_JSON" -H "$H_AUTH_3" \
+    -d "{
+        \"target_uids\": [\"$LOGIN_1\"],
+        \"start\": \"2026-06-15T00:00:00Z\",
+        \"end\":   \"2026-06-15T23:59:59Z\"
+    }")
+check_code  "POST /freebusy L3→L1 (JSON)" "$CODE" "200"
+check_error "POST /freebusy L3→L1 error_code"
+FB_L1_COUNT=$(body | jq -r --arg uid "$LOGIN_1" '.data.attendees[$uid].periods | length')
+info "LOGIN_1 busy periods on 2026-06-15: $FB_L1_COUNT"
+[ "$FB_L1_COUNT" -ge 2 ] 2>/dev/null \
+    && ok "LOGIN_1 has >= 2 busy periods (morning + afternoon)" \
+    || fail "LOGIN_1 busy periods = $FB_L1_COUNT (expected >= 2)"
+FB_L1_TYPES=$(body | jq -r --arg uid "$LOGIN_1" '[.data.attendees[$uid].periods[].type] | unique | .[]')
+[ "$FB_L1_TYPES" = "busy" ] \
+    && ok "all LOGIN_1 periods are type=busy" \
+    || fail "unexpected period types for LOGIN_1: $FB_L1_TYPES"
+
+step "43. FreeBusy — common slot: LOGIN_3 queries LOGIN_2 on 2026-06-15"
+info "LOGIN_2 has the 14:00 event — same UTC slot as LOGIN_1's afternoon event."
+
+CODE=$(req -X POST "$BASE/freebusy" \
+    -H "$H_JSON" -H "$H_AUTH_3" \
+    -d "{
+        \"target_uids\": [\"$LOGIN_2\"],
+        \"start\": \"2026-06-15T00:00:00Z\",
+        \"end\":   \"2026-06-15T23:59:59Z\"
+    }")
+check_code  "POST /freebusy L3→L2 (JSON)" "$CODE" "200"
+check_error "POST /freebusy L3→L2 error_code"
+FB_L2_COUNT=$(body | jq -r --arg uid "$LOGIN_2" '.data.attendees[$uid].periods | length')
+info "LOGIN_2 busy periods on 2026-06-15: $FB_L2_COUNT"
+[ "$FB_L2_COUNT" -ge 1 ] 2>/dev/null \
+    && ok "LOGIN_2 has >= 1 busy period" \
+    || fail "LOGIN_2 busy periods = $FB_L2_COUNT (expected >= 1)"
+FB_L2_SLOT=$(body | jq -r --arg uid "$LOGIN_2" '[.data.attendees[$uid].periods[] | select(.start == "20260615T140000Z")] | length')
+[ "$FB_L2_SLOT" -ge 1 ] 2>/dev/null \
+    && ok "LOGIN_2 is busy at 14:00 UTC (common slot with LOGIN_1 confirmed)" \
+    || fail "LOGIN_2 is not busy at 14:00 UTC (expected common slot with LOGIN_1)"
+
+step "44. FreeBusy — no overlap: LOGIN_1 queries LOGIN_3 on 14:00–15:00 UTC"
+info "LOGIN_3 has no event at 14:00 UTC — must return 0 busy periods in that window."
+
+CODE=$(req -X POST "$BASE/freebusy" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d "{
+        \"target_uids\": [\"$LOGIN_3\"],
+        \"start\": \"2026-06-15T14:00:00Z\",
+        \"end\":   \"2026-06-15T15:00:00Z\"
+    }")
+check_code  "POST /freebusy L1→L3 14:00 window" "$CODE" "200"
+check_error "POST /freebusy L1→L3 14:00 error_code"
+FB_L3_AT14=$(body | jq -r --arg uid "$LOGIN_3" '.data.attendees[$uid].periods | length')
+[ "$FB_L3_AT14" -eq 0 ] 2>/dev/null \
+    && ok "LOGIN_3 is free at 14:00 UTC — no overlap with LOGIN_1/LOGIN_2" \
+    || fail "LOGIN_3 has $FB_L3_AT14 period(s) at 14:00 UTC (expected 0)"
+
+step "45. FreeBusy — cross-tz: LOGIN_1 queries LOGIN_3 on 22:00–23:00 UTC"
+info "LOGIN_3 has event at 22:00 UTC (Asia/Tokyo 07:00+9). Must appear BUSY."
+
+CODE=$(req -X POST "$BASE/freebusy" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d "{
+        \"target_uids\": [\"$LOGIN_3\"],
+        \"start\": \"2026-06-15T22:00:00Z\",
+        \"end\":   \"2026-06-15T23:59:59Z\"
+    }")
+check_code  "POST /freebusy L1→L3 22:00 window" "$CODE" "200"
+check_error "POST /freebusy L1→L3 22:00 error_code"
+FB_L3_AT22=$(body | jq -r --arg uid "$LOGIN_3" '.data.attendees[$uid].periods | length')
+[ "$FB_L3_AT22" -ge 1 ] 2>/dev/null \
+    && ok "LOGIN_3 is busy at 22:00 UTC (cross-tz confirmed)" \
+    || fail "LOGIN_3 has $FB_L3_AT22 period(s) at 22:00 UTC (expected >= 1)"
+
+step "46. FreeBusy — self-query: LOGIN_2 queries own free/busy"
+info "A user querying their own UID must see their own events. Verifies the server-side ownership check does not block self-access."
+
+CODE=$(req -X POST "$BASE/freebusy" \
+    -H "$H_JSON" -H "$H_AUTH_2" \
+    -d "{
+        \"target_uids\": [\"$LOGIN_2\"],
+        \"start\": \"2026-06-15T00:00:00Z\",
+        \"end\":   \"2026-06-15T23:59:59Z\"
+    }")
+check_code  "POST /freebusy self (LOGIN_2)" "$CODE" "200"
+check_error "POST /freebusy self error_code"
+FB_SELF=$(body | jq -r --arg uid "$LOGIN_2" '.data.attendees[$uid].periods | length')
+[ "$FB_SELF" -ge 1 ] 2>/dev/null \
+    && ok "self freebusy returned >= 1 period" \
+    || fail "self freebusy returned $FB_SELF periods (expected >= 1)"
+
+step "47. FreeBusy — error: date range > 90 days → S000614"
+info "Queries spanning more than 90 days must be rejected with HTTP 400 + S000614 to prevent expensive server-side scans."
+
+CODE=$(req -X POST "$BASE/freebusy" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d "{
+        \"target_uids\": [\"$LOGIN_1\"],
+        \"start\": \"2026-01-01T00:00:00Z\",
+        \"end\":   \"2026-12-31T23:59:59Z\"
+    }")
+check_code "POST /freebusy range too large" "$CODE" "400"
+ERR=$(extract '.error_code')
+[ "$ERR" = "S000614" ] \
+    && ok "range too large → S000614" \
+    || fail "range too large → $ERR (expected S000614)"
+
+step "48. FreeBusy — show_as tentative → type tentative"
+info "LOGIN_1 creates a TENTATIVE event on 2026-06-16 10:00–11:00 UTC."
+
+CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d '{
+        "title": "FB Tentative (L1)",
+        "date_start": "2026-06-16T10:00:00Z",
+        "date_end":   "2026-06-16T11:00:00Z",
+        "show_as": "tentative"
+    }')
+check_code "POST /events FB Tentative L1" "$CODE" "201"
+FB_L1_TENTATIVE=$(extract '.data.key')
+
+CODE=$(req -X POST "$BASE/freebusy" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d "{
+        \"target_uids\": [\"$LOGIN_1\"],
+        \"start\": \"2026-06-16T10:00:00Z\",
+        \"end\":   \"2026-06-16T11:00:00Z\"
+    }")
+check_code  "POST /freebusy tentative window" "$CODE" "200"
+FB_TENT_TYPE=$(body | jq -r --arg uid "$LOGIN_1" '.data.attendees[$uid].periods[0].type')
+[ "$FB_TENT_TYPE" = "tentative" ] \
+    && ok "tentative event → type=tentative in freebusy" \
+    || fail "tentative event → type=$FB_TENT_TYPE (expected tentative)"
+
+step "49. FreeBusy — show_as free → excluded"
+info "LOGIN_1 creates a FREE event on 2026-06-16 12:00–13:00 UTC. Must not appear in freebusy."
+
+CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d '{
+        "title": "FB Free (L1)",
+        "date_start": "2026-06-16T12:00:00Z",
+        "date_end":   "2026-06-16T13:00:00Z",
+        "show_as": "free"
+    }')
+check_code "POST /events FB Free L1" "$CODE" "201"
+FB_L1_FREE=$(extract '.data.key')
+
+CODE=$(req -X POST "$BASE/freebusy" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d "{
+        \"target_uids\": [\"$LOGIN_1\"],
+        \"start\": \"2026-06-16T12:00:00Z\",
+        \"end\":   \"2026-06-16T13:00:00Z\"
+    }")
+check_code  "POST /freebusy free window" "$CODE" "200"
+FB_FREE_COUNT=$(body | jq -r --arg uid "$LOGIN_1" '.data.attendees[$uid].periods | length')
+[ "$FB_FREE_COUNT" -eq 0 ] 2>/dev/null \
+    && ok "show_as=free event excluded from freebusy" \
+    || fail "show_as=free returned $FB_FREE_COUNT period(s) (expected 0)"
+
+step "50. FreeBusy — status cancelled → excluded"
+info "LOGIN_1 creates a CANCELLED event on 2026-06-16 14:00–15:00 UTC. Must not appear."
+
+CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d '{
+        "title": "FB Cancelled (L1)",
+        "date_start": "2026-06-16T14:00:00Z",
+        "date_end":   "2026-06-16T15:00:00Z",
+        "show_as": "busy",
+        "status": "cancelled"
+    }')
+check_code "POST /events FB Cancelled L1" "$CODE" "201"
+FB_L1_CANCELLED=$(extract '.data.key')
+
+CODE=$(req -X POST "$BASE/freebusy" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d "{
+        \"target_uids\": [\"$LOGIN_1\"],
+        \"start\": \"2026-06-16T14:00:00Z\",
+        \"end\":   \"2026-06-16T15:00:00Z\"
+    }")
+check_code  "POST /freebusy cancelled window" "$CODE" "200"
+FB_CANC_COUNT=$(body | jq -r --arg uid "$LOGIN_1" '.data.attendees[$uid].periods | length')
+[ "$FB_CANC_COUNT" -eq 0 ] 2>/dev/null \
+    && ok "status=cancelled event excluded from freebusy" \
+    || fail "status=cancelled returned $FB_CANC_COUNT period(s) (expected 0)"
+
+step "51. FreeBusy — title: public event exposes title, private event hides it"
+info "PUBLIC event → title in response. PRIVATE event → no title key."
+
+CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d '{
+        "title": "Public Title Test",
+        "date_start": "2026-06-16T08:00:00Z",
+        "date_end":   "2026-06-16T09:00:00Z",
+        "show_as": "busy",
+        "visibility": "public"
+    }')
+check_code "POST /events FB Public Title L1" "$CODE" "201"
+FB_L1_PUBLIC_TITLE=$(extract '.data.key')
+
+CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d '{
+        "title": "Private Title Test",
+        "date_start": "2026-06-16T09:00:00Z",
+        "date_end":   "2026-06-16T10:00:00Z",
+        "show_as": "busy",
+        "visibility": "private"
+    }')
+check_code "POST /events FB Private Title L1" "$CODE" "201"
+FB_L1_PRIVATE_TITLE=$(extract '.data.key')
+
+CODE=$(req -X POST "$BASE/freebusy" \
+    -H "$H_JSON" -H "$H_AUTH_3" \
+    -d "{
+        \"target_uids\": [\"$LOGIN_1\"],
+        \"start\": \"2026-06-16T08:00:00Z\",
+        \"end\":   \"2026-06-16T09:00:00Z\"
+    }")
+check_code  "POST /freebusy public title window" "$CODE" "200"
+FB_PUB_TITLE=$(body | jq -r --arg uid "$LOGIN_1" '.data.attendees[$uid].periods[0].title // empty')
+[ "$FB_PUB_TITLE" = "Public Title Test" ] \
+    && ok "PUBLIC event title exposed in freebusy" \
+    || fail "PUBLIC event title = '$FB_PUB_TITLE' (expected 'Public Title Test')"
+
+CODE=$(req -X POST "$BASE/freebusy" \
+    -H "$H_JSON" -H "$H_AUTH_3" \
+    -d "{
+        \"target_uids\": [\"$LOGIN_1\"],
+        \"start\": \"2026-06-16T09:00:00Z\",
+        \"end\":   \"2026-06-16T10:00:00Z\"
+    }")
+check_code  "POST /freebusy private title window" "$CODE" "200"
+FB_PRIV_HAS_TITLE=$(body | jq -r --arg uid "$LOGIN_1" '.data.attendees[$uid].periods[0] | has("title")')
+[ "$FB_PRIV_HAS_TITLE" = "false" ] \
+    && ok "PRIVATE event title hidden in freebusy" \
+    || fail "PRIVATE event title key present in freebusy (expected absent)"
+
+# ── 16. CONDITIONAL DELETES ───────────────────────────────────────────────────
+
+step "52. Delete — LOGIN_1 freebusy events, tasks, and main test events"
+info "Deletes all events and tasks created by LOGIN_1 during this run. Skipped without -d."
 
 if $DO_DELETE; then
+    for key in "$FB_L1_MORNING" "$FB_L1_AFTERNOON" "$FB_L1_TENTATIVE" "$FB_L1_FREE" "$FB_L1_CANCELLED" "$FB_L1_PUBLIC_TITLE" "$FB_L1_PRIVATE_TITLE"; do
+        CODE=$(req -X DELETE "$BASE/events/$key" -H "$H_AUTH")
+        check_code "DELETE /events/$key (L1 freebusy)" "$CODE" "200"
+    done
     for key in "$EVT_KEY" "$ALLDAY_KEY" "$COMPLEX_KEY"; do
         CODE=$(req -X DELETE "$BASE/events/$key" -H "$H_AUTH")
         check_code  "DELETE /events/$key" "$CODE" "200"
@@ -750,14 +1160,37 @@ if $DO_DELETE; then
         [ "$GONE" = "404" ] && ok "$key gone after delete (404)" || fail "$key still accessible (HTTP $GONE)"
     done
 else
-    skip "DELETE events and tasks"
+    skip "DELETE LOGIN_1 events and tasks"
     info "Keys: EVT=$EVT_KEY  ALLDAY=$ALLDAY_KEY  COMPLEX=$COMPLEX_KEY"
     info "Keys: DAILY=$DAILY_KEY  WEEKLY=$WEEKLY_KEY  MONTHLY=$MONTHLY_KEY"
     info "Occurrence: $OCCURRENCE_KEY"
     info "Tasks: TASK=$TASK_KEY  TASK2=$TASK_KEY2"
+    info "FreeBusy events L1: morning=$FB_L1_MORNING afternoon=$FB_L1_AFTERNOON"
+    info "FreeBusy events L1: tentative=$FB_L1_TENTATIVE free=$FB_L1_FREE cancelled=$FB_L1_CANCELLED"
+    info "FreeBusy events L1: public_title=$FB_L1_PUBLIC_TITLE private_title=$FB_L1_PRIVATE_TITLE"
 fi
 
-step "38. Calendar — delete"
+step "53. Delete — LOGIN_2 and LOGIN_3 freebusy events and calendars"
+info "Removes the freebusy test events and calendars created by LOGIN_2 and LOGIN_3. Skipped without -d."
+
+if $DO_DELETE; then
+    CODE=$(req -X DELETE "$BASE/events/$FB_L2_EVT" -H "$H_AUTH_2")
+    check_code "DELETE /events/$FB_L2_EVT (L2 freebusy)" "$CODE" "200"
+    CODE=$(req -X DELETE "$BASE/calendars/$CAL_KEY_2" -H "$H_AUTH_2")
+    check_code "DELETE /calendars/$CAL_KEY_2 (LOGIN_2)" "$CODE" "200"
+
+    CODE=$(req -X DELETE "$BASE/events/$FB_L3_EVT" -H "$H_AUTH_3")
+    check_code "DELETE /events/$FB_L3_EVT (L3 freebusy)" "$CODE" "200"
+    CODE=$(req -X DELETE "$BASE/calendars/$CAL_KEY_3" -H "$H_AUTH_3")
+    check_code "DELETE /calendars/$CAL_KEY_3 (LOGIN_3)" "$CODE" "200"
+else
+    skip "DELETE LOGIN_2/LOGIN_3 freebusy events and calendars"
+    info "L2: event=$FB_L2_EVT  calendar=$CAL_KEY_2"
+    info "L3: event=$FB_L3_EVT  calendar=$CAL_KEY_3"
+fi
+
+step "54. Calendar — delete (LOGIN_1 main calendar)"
+info "Deletes the test calendar created in step 2. Verifies it returns 404 afterwards. Skipped without -d."
 
 if $DO_DELETE; then
     CODE=$(req -X DELETE "$BASE/calendars/$CAL_KEY" -H "$H_AUTH")
