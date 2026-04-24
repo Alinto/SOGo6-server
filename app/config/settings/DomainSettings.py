@@ -363,7 +363,7 @@ class UserModuleSettings(SogoSchema):
                        "SOGO_D_FOLDER_DISABLE_SHARING", "SOGO_D_FOLDER_DISABLE_SHARING_ANY_AUTH",
                        "SOGO_D_AUTOCOMPLETION_MIN_LEN", "SOGO_D_IDENTITIES_ENABLED",
                        "SOGO_D_IDENTITIES_CUSTOM_FROM_ENABLED", "SOGO_D_IDENTITIES_CUSTOM_NAME_ENABLED",
-                       "SOGO_D_IDENTITIES_CUSTOM_REPLY_TO_ENABLED", "SOGO_D_ALLOW_EXT_MAIL_ACCOUNT",}
+                       "SOGO_D_IDENTITIES_CUSTOM_REPLY_TO_ENABLED", "SOGO_D_ALLOW_EXT_MAIL_ACCOUNT", "SOGO_D_ALLOW_EXT_AVATAR"}
 
     SOGO_D_MODULE_ACCESS = fields.List(fields.String(), validate=validate.ContainsOnly(('mail', 'calendar', 'contact')),
                                     load_default=['mail', 'calendar', 'contact'],
