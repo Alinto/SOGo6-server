@@ -73,10 +73,14 @@ class FakeTaskSource(CalendarSource):
         self._calendar = calendar
 
 
+def _fake_user(uid="user@example.com"):
+    user = MagicMock()
+    user.uid = uid
+    return user
+
+
 def _build_module(sources: dict):
     module = object.__new__(ModuleCalendar)
-    module.user = MagicMock()
-    module.user.uid = "user@example.com"
     sources_mock = MagicMock()
     sources_mock.get_all.return_value = list(sources.values())
     sources_mock.get_by_key.side_effect = lambda uid, key: sources.get(key)
@@ -107,14 +111,14 @@ def test_create_task_sets_component_type():
     source = _make_source()
     module = _build_module({"cal-key": source})
     task = _make_task()
-    result = module.create_task("cal-key", task)
+    result = module.create_task(_fake_user(), "cal-key", task)
     assert result.component_type == ComponentType.TASK
 
 
 def test_create_task_bumps_ctag():
     source = _make_source()
     module = _build_module({"cal-key": source})
-    module.create_task("cal-key", _make_task())
+    module.create_task(_fake_user(), "cal-key", _make_task())
     assert source.calendar.ctag == 1
 
 
@@ -122,14 +126,14 @@ def test_create_task_raises_on_read_only():
     source = _make_source(writable=False)
     module = _build_module({"cal-key": source})
     with pytest.raises(RequestException) as exc_info:
-        module.create_task("cal-key", _make_task())
+        module.create_task(_fake_user(), "cal-key", _make_task())
     assert exc_info.value.error == err.ERROR_CALENDAR_NOT_SUPPORTED
 
 
 def test_create_task_raises_on_unknown_calendar():
     module = _build_module({})
     with pytest.raises(RequestException) as exc_info:
-        module.create_task("nonexistent", _make_task())
+        module.create_task(_fake_user(), "nonexistent", _make_task())
     assert exc_info.value.error == err.ERROR_CALENDAR_NOT_FOUND
 
 
@@ -137,7 +141,7 @@ def test_create_task_generates_uid_when_absent():
     source = _make_source()
     module = _build_module({"cal-key": source})
     task = _make_task(uid="")
-    module.create_task("cal-key", task)
+    module.create_task(_fake_user(), "cal-key", task)
     assert task.uid != ""
 
 
@@ -145,7 +149,7 @@ def test_create_task_preserves_uid_when_present():
     source = _make_source()
     module = _build_module({"cal-key": source})
     task = _make_task(uid="existing-uid@example.com")
-    module.create_task("cal-key", task)
+    module.create_task(_fake_user(), "cal-key", task)
     assert task.uid == "existing-uid@example.com"
 
 
@@ -153,7 +157,7 @@ def test_create_task_sets_calendar_key():
     source = _make_source("cal-key")
     module = _build_module({"cal-key": source})
     task = _make_task()
-    result = module.create_task("cal-key", task)
+    result = module.create_task(_fake_user(), "cal-key", task)
     assert result.calendar_key == source.calendar.key
 
 
@@ -163,7 +167,7 @@ def test_get_task_found():
     task = _make_task(key="task-key")
     source = _make_source(tasks=[task])
     module = _build_module({"cal-key": source})
-    result = module.get_task("task-key")
+    result = module.get_task(_fake_user(), "task-key")
     assert result.uid == "task@example.com"
 
 
@@ -171,7 +175,7 @@ def test_get_task_not_found_raises():
     source = _make_source()
     module = _build_module({"cal-key": source})
     with pytest.raises(RequestException) as exc_info:
-        module.get_task("missing-key")
+        module.get_task(_fake_user(), "missing-key")
     assert exc_info.value.error == err.ERROR_CALENDAR_EVENT_NOT_FOUND
 
 
@@ -187,7 +191,7 @@ def test_get_task_returns_task_not_found_for_event_key():
     source._items["evt-key"] = event  # pylint: disable=protected-access
     module = _build_module({"cal-key": source})
     with pytest.raises(RequestException) as exc_info:
-        module.get_task("evt-key")
+        module.get_task(_fake_user(), "evt-key")
     assert exc_info.value.error == err.ERROR_CALENDAR_TASK_NOT_FOUND
 
 
@@ -197,7 +201,7 @@ def test_update_task_applies_patch():
     task = _make_task(key="task-key", title="Old")
     source = _make_source(tasks=[task])
     module = _build_module({"cal-key": source})
-    result = module.update_task("task-key", {"title": "New"})
+    result = module.update_task(_fake_user(), "task-key", {"title": "New"})
     assert result.title == "New"
 
 
@@ -205,7 +209,7 @@ def test_update_task_bumps_ctag():
     task = _make_task(key="task-key")
     source = _make_source(tasks=[task])
     module = _build_module({"cal-key": source})
-    module.update_task("task-key", {"title": "X"})
+    module.update_task(_fake_user(), "task-key", {"title": "X"})
     assert source.calendar.ctag == 1
 
 
@@ -220,7 +224,7 @@ def test_update_task_rejects_event_key():
     source._items["evt-key"] = event  # pylint: disable=protected-access
     module = _build_module({"cal-key": source})
     with pytest.raises(RequestException) as exc_info:
-        module.update_task("evt-key", {"title": "X"})
+        module.update_task(_fake_user(), "evt-key", {"title": "X"})
     assert exc_info.value.error == err.ERROR_CALENDAR_TASK_NOT_FOUND
 
 
@@ -230,7 +234,7 @@ def test_delete_task_calls_source_delete():
     task = _make_task(key="task-key", uid="del-task@example.com")
     source = _make_source(tasks=[task])
     module = _build_module({"cal-key": source})
-    module.delete_task("task-key")
+    module.delete_task(_fake_user(), "task-key")
     assert "del-task@example.com" in source.deleted_uids
 
 
@@ -238,7 +242,7 @@ def test_delete_task_bumps_ctag():
     task = _make_task(key="task-key")
     source = _make_source(tasks=[task])
     module = _build_module({"cal-key": source})
-    module.delete_task("task-key")
+    module.delete_task(_fake_user(), "task-key")
     assert source.calendar.ctag == 1
 
 
@@ -253,7 +257,7 @@ def test_delete_task_rejects_event_key():
     source._items["evt-key"] = event  # pylint: disable=protected-access
     module = _build_module({"cal-key": source})
     with pytest.raises(RequestException) as exc_info:
-        module.delete_task("evt-key")
+        module.delete_task(_fake_user(), "evt-key")
     assert exc_info.value.error == err.ERROR_CALENDAR_TASK_NOT_FOUND
 
 
@@ -264,14 +268,14 @@ def test_get_tasks_returns_tasks():
     task2 = _make_task(key="t2", uid="t2@example.com")
     source = _make_source(tasks=[task1, task2])
     module = _build_module({"cal-key": source})
-    results = module.get_tasks(None, None, None, "cal-key")
+    results = module.get_tasks(_fake_user(), None, None, None, "cal-key")
     assert len(results) == 2
 
 
 def test_get_tasks_unknown_calendar_raises():
     module = _build_module({})
     with pytest.raises(RequestException) as exc_info:
-        module.get_tasks(None, None, None, "nonexistent")
+        module.get_tasks(_fake_user(), None, None, None, "nonexistent")
     assert exc_info.value.error == err.ERROR_CALENDAR_NOT_FOUND
 
 
@@ -281,7 +285,7 @@ def test_get_tasks_no_key_merges_all_calendars():
     source_a = _make_source("cal-a", tasks=[task1])
     source_b = _make_source("cal-b", tasks=[task2])
     module = _build_module({"cal-a": source_a, "cal-b": source_b})
-    results = module.get_tasks(None, None, None)
+    results = module.get_tasks(_fake_user(), None, None, None)
     assert len(results) == 2
     keys = {t.key for t in results}
     assert keys == {"t1", "t2"}
@@ -289,7 +293,7 @@ def test_get_tasks_no_key_merges_all_calendars():
 
 def test_get_tasks_no_key_empty_when_no_calendars():
     module = _build_module({})
-    assert module.get_tasks(None, None, None) == []
+    assert module.get_tasks(_fake_user(), None, None, None) == []
 
 
 def test_get_tasks_date_range_too_large_raises():
@@ -299,7 +303,7 @@ def test_get_tasks_date_range_too_large_raises():
     end = datetime(2027, 3, 1, tzinfo=_UTC)
     assert (end - start).days > MAX_TASK_FETCH_DAYS
     with pytest.raises(RequestException) as exc_info:
-        module.get_tasks(start, end, None, "cal-key")
+        module.get_tasks(_fake_user(), start, end, None, "cal-key")
     assert exc_info.value.error == err.ERROR_CALENDAR_DATE_RANGE_TOO_LARGE
 
 
@@ -309,5 +313,5 @@ def test_get_tasks_search_bypasses_date_range_limit():
     start = datetime(2026, 1, 1, tzinfo=_UTC)
     end = datetime(2028, 1, 1, tzinfo=_UTC)
     assert (end - start).days > MAX_TASK_FETCH_DAYS
-    results = module.get_tasks(start, end, "meeting", "cal-key")
+    results = module.get_tasks(_fake_user(), start, end, "meeting", "cal-key")
     assert results is not None
