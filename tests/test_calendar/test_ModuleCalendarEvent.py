@@ -72,11 +72,15 @@ class FakeCalendarSource(CalendarSource):
         self._calendar = calendar
 
 
+def _fake_user(uid="user@example.com"):
+    user = MagicMock()
+    user.uid = uid
+    return user
+
+
 def _build_module(sources: dict):
     """Return a ModuleCalendar with injected sources and mocked infrastructure."""
     module = object.__new__(ModuleCalendar)
-    module.user = MagicMock()
-    module.user.uid = "user@example.com"
     sources_mock = MagicMock()
     sources_mock.get_all.return_value = list(sources.values())
     sources_mock.get_by_key.side_effect = lambda uid, key: sources.get(key)
@@ -107,7 +111,7 @@ def test_get_event_found():
     event = _make_event(key="evt-key")
     source = _make_source(events=[event])
     module = _build_module({"cal-key": source})
-    result = module.get_event("evt-key")
+    result = module.get_event(_fake_user(), "evt-key")
     assert result.uid == "evt@example.com"
 
 
@@ -115,7 +119,7 @@ def test_get_event_not_found_raises():
     source = _make_source()
     module = _build_module({"cal-key": source})
     with pytest.raises(RequestException) as exc_info:
-        module.get_event("missing-key")
+        module.get_event(_fake_user(), "missing-key")
     assert exc_info.value.error == err.ERROR_CALENDAR_EVENT_NOT_FOUND
 
 
@@ -124,7 +128,7 @@ def test_get_event_searches_all_sources():
     source1 = _make_source("cal-1")
     source2 = _make_source("cal-2", events=[event])
     module = _build_module({"cal-1": source1, "cal-2": source2})
-    result = module.get_event("evt-key")
+    result = module.get_event(_fake_user(), "evt-key")
     assert result.uid == "evt@example.com"
 
 
@@ -134,7 +138,7 @@ def test_create_event_sets_calendar_key():
     source = _make_source("cal-key")
     module = _build_module({"cal-key": source})
     event = _make_event()
-    result = module.create_event("cal-key", event)
+    result = module.create_event(_fake_user(), "cal-key", event)
     assert result.calendar_key == source.calendar.key
 
 
@@ -142,7 +146,7 @@ def test_create_event_generates_uid_when_absent():
     source = _make_source("cal-key")
     module = _build_module({"cal-key": source})
     event = _make_event(uid="")
-    module.create_event("cal-key", event)
+    module.create_event(_fake_user(), "cal-key", event)
     assert event.uid != ""
 
 
@@ -150,7 +154,7 @@ def test_create_event_preserves_uid_when_present():
     source = _make_source("cal-key")
     module = _build_module({"cal-key": source})
     event = _make_event(uid="existing-uid@example.com")
-    module.create_event("cal-key", event)
+    module.create_event(_fake_user(), "cal-key", event)
     assert event.uid == "existing-uid@example.com"
 
 
@@ -158,7 +162,7 @@ def test_create_event_bumps_ctag():
     source = _make_source("cal-key")
     module = _build_module({"cal-key": source})
     event = _make_event()
-    module.create_event("cal-key", event)
+    module.create_event(_fake_user(), "cal-key", event)
     assert source.calendar.ctag == 1
     assert source.calendar_updated is True
 
@@ -167,14 +171,14 @@ def test_create_event_raises_on_read_only_source():
     source = _make_source("cal-key", writable=False)
     module = _build_module({"cal-key": source})
     with pytest.raises(RequestException) as exc_info:
-        module.create_event("cal-key", _make_event())
+        module.create_event(_fake_user(), "cal-key", _make_event())
     assert exc_info.value.error == err.ERROR_CALENDAR_NOT_SUPPORTED
 
 
 def test_create_event_raises_on_unknown_calendar():
     module = _build_module({})
     with pytest.raises(RequestException) as exc_info:
-        module.create_event("nonexistent", _make_event())
+        module.create_event(_fake_user(), "nonexistent", _make_event())
     assert exc_info.value.error == err.ERROR_CALENDAR_NOT_FOUND
 
 
@@ -184,7 +188,7 @@ def test_update_event_applies_patch():
     event = _make_event(key="evt-key", title="Old title")
     source = _make_source(events=[event])
     module = _build_module({"cal-key": source})
-    result = module.update_event("evt-key", {"title": "New title"})
+    result = module.update_event(_fake_user(), "evt-key", {"title": "New title"})
     assert result.title == "New title"
 
 
@@ -192,7 +196,7 @@ def test_update_event_ignores_unknown_fields():
     event = _make_event(key="evt-key")
     source = _make_source(events=[event])
     module = _build_module({"cal-key": source})
-    result = module.update_event("evt-key", {"nonexistent_field": "value"})
+    result = module.update_event(_fake_user(), "evt-key", {"nonexistent_field": "value"})
     assert result.uid == "evt@example.com"
 
 
@@ -200,7 +204,7 @@ def test_update_event_bumps_ctag():
     event = _make_event(key="evt-key")
     source = _make_source(events=[event])
     module = _build_module({"cal-key": source})
-    module.update_event("evt-key", {"title": "Updated"})
+    module.update_event(_fake_user(), "evt-key", {"title": "Updated"})
     assert source.calendar.ctag == 1
 
 
@@ -208,7 +212,7 @@ def test_update_event_not_found_raises():
     source = _make_source()
     module = _build_module({"cal-key": source})
     with pytest.raises(RequestException) as exc_info:
-        module.update_event("missing-key", {"title": "X"})
+        module.update_event(_fake_user(), "missing-key", {"title": "X"})
     assert exc_info.value.error == err.ERROR_CALENDAR_EVENT_NOT_FOUND
 
 
@@ -217,7 +221,7 @@ def test_update_event_read_only_raises():
     source = _make_source(writable=False, events=[event])
     module = _build_module({"cal-key": source})
     with pytest.raises(RequestException) as exc_info:
-        module.update_event("evt-key", {"title": "X"})
+        module.update_event(_fake_user(), "evt-key", {"title": "X"})
     assert exc_info.value.error == err.ERROR_CALENDAR_NOT_SUPPORTED
 
 
@@ -227,7 +231,7 @@ def test_delete_event_calls_source_delete():
     event = _make_event(key="evt-key", uid="to-delete@example.com")
     source = _make_source(events=[event])
     module = _build_module({"cal-key": source})
-    module.delete_event("evt-key")
+    module.delete_event(_fake_user(), "evt-key")
     assert "to-delete@example.com" in source.deleted_uids
 
 
@@ -235,7 +239,7 @@ def test_delete_event_bumps_ctag():
     event = _make_event(key="evt-key")
     source = _make_source(events=[event])
     module = _build_module({"cal-key": source})
-    module.delete_event("evt-key")
+    module.delete_event(_fake_user(), "evt-key")
     assert source.calendar.ctag == 1
 
 
@@ -243,7 +247,7 @@ def test_delete_event_not_found_raises():
     source = _make_source()
     module = _build_module({"cal-key": source})
     with pytest.raises(RequestException) as exc_info:
-        module.delete_event("missing-key")
+        module.delete_event(_fake_user(), "missing-key")
     assert exc_info.value.error == err.ERROR_CALENDAR_EVENT_NOT_FOUND
 
 
@@ -252,7 +256,7 @@ def test_delete_event_read_only_raises():
     source = _make_source(writable=False, events=[event])
     module = _build_module({"cal-key": source})
     with pytest.raises(RequestException) as exc_info:
-        module.delete_event("evt-key")
+        module.delete_event(_fake_user(), "evt-key")
     assert exc_info.value.error == err.ERROR_CALENDAR_NOT_SUPPORTED
 
 
@@ -265,7 +269,7 @@ def test_delete_event_occurrence_routes_to_delete_detached():
     occurrence = _make_event(key="occ-key", uid="master@example.com", recurrence_id=rid)
     source = _make_source(events=[occurrence])
     module = _build_module({"cal-key": source})
-    module.delete_event("occ-key")
+    module.delete_event(_fake_user(), "occ-key")
     assert "occ-key" in source.deleted_occurrence_keys
     assert "master@example.com" not in source.deleted_uids
 
@@ -277,7 +281,7 @@ def test_get_events_date_range_too_large_raises():
     end = datetime(2026, 2, 15, tzinfo=_UTC)
     assert (end - start).days > MAX_EVENT_FETCH_DAYS
     with pytest.raises(RequestException) as exc_info:
-        module.get_events(start, end, None, "cal-key")
+        module.get_events(_fake_user(), start, end, None, "cal-key")
     assert exc_info.value.error == err.ERROR_CALENDAR_DATE_RANGE_TOO_LARGE
 
 
@@ -287,7 +291,7 @@ def test_get_events_search_bypasses_date_range_limit():
     start = datetime(2026, 1, 1, tzinfo=_UTC)
     end = datetime(2027, 1, 1, tzinfo=_UTC)
     assert (end - start).days > MAX_EVENT_FETCH_DAYS
-    results = module.get_events(start, end, "meeting", "cal-key")
+    results = module.get_events(_fake_user(), start, end, "meeting", "cal-key")
     assert results is not None
 
 
@@ -297,7 +301,7 @@ def test_get_events_no_key_merges_all_calendars():
     source_a = _make_source("cal-a", events=[evt1])
     source_b = _make_source("cal-b", events=[evt2])
     module = _build_module({"cal-a": source_a, "cal-b": source_b})
-    results = module.get_events(None, None, None)
+    results = module.get_events(_fake_user(), None, None, None)
     assert len(results) == 2
     keys = {e.key for e in results}
     assert keys == {"e1", "e2"}
@@ -305,7 +309,7 @@ def test_get_events_no_key_merges_all_calendars():
 
 def test_get_events_no_key_unknown_calendar_not_raised():
     module = _build_module({})
-    results = module.get_events(None, None, None)
+    results = module.get_events(_fake_user(), None, None, None)
     assert results == []
 
 

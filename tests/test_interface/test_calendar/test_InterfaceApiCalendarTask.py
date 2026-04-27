@@ -78,9 +78,9 @@ def test_get_tasks_passes_default_dates_when_no_args():
     inter.get_tasks("cal-key", {})
     module.get_tasks.assert_called_once()
     call_args = module.get_tasks.call_args
-    assert call_args[0][3] == "cal-key"
-    assert call_args[0][0] is not None
+    assert call_args[0][4] == "cal-key"
     assert call_args[0][1] is not None
+    assert call_args[0][2] is not None
 
 
 # ========== create_task ==========
@@ -114,7 +114,7 @@ def test_create_task_due_mapped_to_date_end():
     inter = _build_interface(module)
     inter.create_task("cal-key", {"title": "T", "due": due_iso})
     call_args = module.create_task.call_args
-    created_event = call_args[0][1]
+    created_event = call_args[0][2]
     assert created_event.date_end is not None
 
 
@@ -182,7 +182,7 @@ def test_patch_task_due_mapped_to_date_end():
     inter = _build_interface(module)
     inter.patch_task("task-key", {"due": "2026-07-01T00:00:00+00:00"})
     call_args = module.update_task.call_args
-    updates = call_args[0][1]
+    updates = call_args[0][2]
     assert "date_end" in updates
     assert "due" not in updates
 
@@ -211,7 +211,7 @@ def test_delete_task_success():
     response, _ = inter.delete_task("task-key")
     assert response["error_code"] == "S000000"
     assert response["data"] is None
-    module.delete_task.assert_called_once_with("task-key")
+    module.delete_task.assert_called_once_with(inter.user, "task-key")
 
 
 def test_delete_task_not_found_returns_error():

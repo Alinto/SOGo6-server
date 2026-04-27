@@ -31,8 +31,7 @@ if TYPE_CHECKING:
 class ModuleCalendar:
     """Module for calendar and event operations."""
 
-    def __init__(self, user: User, process_settings: ProcessSetting) -> None:
-        self.user: User = user
+    def __init__(self, process_settings: ProcessSetting) -> None:
         sogo_db_type = f"Client{process_settings.SOGO_P_DB_TYPE}"
         self._db: ClientSQL = import_and_instantiate_manager(
             module_path="app.manager.db",
@@ -62,36 +61,36 @@ class ModuleCalendar:
     # ------------------------------------------------------------------
     # Calendars
     # ------------------------------------------------------------------
-    def get_all_calendars(self) -> list[CalCalendar]:
-        """Return all calendars owned by the current user."""
-        return [s.calendar for s in self._sources.get_all(self.user.uid)]
+    def get_all_calendars(self, user: User) -> list[CalCalendar]:
+        """Return all calendars owned by the given user."""
+        return [s.calendar for s in self._sources.get_all(user.uid)]
 
-    def get_calendar(self, key: str) -> CalendarSource:
+    def get_calendar(self, user: User, key: str) -> CalendarSource:
         """Return the source for a calendar, or raise NOT_FOUND."""
-        source:CalendarSource = self._sources.get_by_key(self.user.uid, key)
+        source:CalendarSource = self._sources.get_by_key(user.uid, key)
         if source is None:
             raise RequestException(error=err.ERROR_CALENDAR_NOT_FOUND)
         return source
 
-    def create_calendar(self, cal: CalCalendar) -> CalCalendar:
+    def create_calendar(self, user: User, cal: CalCalendar) -> CalCalendar:
         """Persist a new calendar. Generates key and ctag."""
-        cal.user_uid = self.user.uid
+        cal.user_uid = user.uid
         cal.key = generate_uuid()
         cal.ctag = 0
         source:CalendarSource = self._sources.get(cal)
         return source.save_calendar(cal)
 
-    def update_calendar(self, key: str, updates: dict) -> CalCalendar:
+    def update_calendar(self, user: User, key: str, updates: dict) -> CalCalendar:
         """Apply updates to an existing calendar and persist it."""
-        source:CalendarSource = self.get_calendar(key)
+        source:CalendarSource = self.get_calendar(user, key)
         cal = source.calendar
         cal.apply_update(updates)
         source.update_calendar(cal)
         return cal
 
-    def delete_calendar(self, key: str) -> None:
+    def delete_calendar(self, user: User, key: str) -> None:
         """Delete a calendar and all its events."""
-        source:CalendarSource = self.get_calendar(key)
+        source:CalendarSource = self.get_calendar(user, key)
         source.delete_calendar()
 
     def _bump_ctag(self, source: CalendarSource) -> None:
@@ -108,17 +107,17 @@ class ModuleCalendar:
     # ------------------------------------------------------------------
     # Events
     # ------------------------------------------------------------------
-    def _find_source_for_event(self, event_key: str) -> tuple[CalendarSource, CalEvent]:
+    def _find_source_for_event(self, user: User, event_key: str) -> tuple[CalendarSource, CalEvent]:
         """Find the source and event for a given event key across user's calendars."""
-        for source in self._sources.get_all(self.user.uid):
+        for source in self._sources.get_all(user.uid):
             event = source.get_event(event_key)
             if event is not None:
                 return source, event
         raise RequestException(error=err.ERROR_CALENDAR_EVENT_NOT_FOUND)
 
-    def create_event(self, calendar_key: str, event: CalEvent) -> CalEvent:
+    def create_event(self, user: User, calendar_key: str, event: CalEvent) -> CalEvent:
         """Persist a new event in the calendar and return it."""
-        source:CalendarSource = self.get_calendar(calendar_key)
+        source:CalendarSource = self.get_calendar(user, calendar_key)
         if not source.is_writable():
             raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
         event.calendar_key = source.calendar.key
@@ -135,14 +134,14 @@ class ModuleCalendar:
             logger_calendar.error("Unexpected error creating event in calendar %s: %s", calendar_key, exc)
             raise RequestException(error=err.ERROR_CALENDAR_EVENT_INSERT_FAILED) from exc
 
-    def get_event(self, event_key: str) -> CalEvent:
+    def get_event(self, user: User, event_key: str) -> CalEvent:
         """Return a single event by key across the user's calendars, or raise NOT_FOUND."""
-        _, event = self._find_source_for_event(event_key)
+        _, event = self._find_source_for_event(user, event_key)
         return event
 
-    def update_event(self, event_key: str, updates: dict) -> CalEvent:
+    def update_event(self, user: User, event_key: str, updates: dict) -> CalEvent:
         """Apply partial updates to an event and persist it."""
-        source, event = self._find_source_for_event(event_key)
+        source, event = self._find_source_for_event(user, event_key)
         if not source.is_writable():
             raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
         event.apply_update(updates)
@@ -157,14 +156,14 @@ class ModuleCalendar:
             logger_calendar.error("Unexpected error updating event %s: %s", event_key, exc)
             raise RequestException(error=err.ERROR_CALENDAR_EVENT_UPDATE_FAILED) from exc
 
-    def delete_event(self, event_key: str) -> None:
+    def delete_event(self, user: User, event_key: str) -> None:
         """Soft-delete an event by key.
 
         If the event is a detached occurrence (recurrence_id is set), only that row is deleted
         and its recurrence_id is added to the master's EXDATE so the slot stays cancelled.
         Otherwise the master and all its detached occurrences are deleted.
         """
-        source, event = self._find_source_for_event(event_key)
+        source, event = self._find_source_for_event(user, event_key)
         if not source.is_writable():
             raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
         try:
@@ -182,6 +181,7 @@ class ModuleCalendar:
 
     def get_events(
         self,
+        user: User,
         start: datetime | None,
         end: datetime | None,
         search: str | None,
@@ -196,7 +196,7 @@ class ModuleCalendar:
             if (end - start) > timedelta(days=MAX_EVENT_FETCH_DAYS):
                 raise RequestException(error=err.ERROR_CALENDAR_DATE_RANGE_TOO_LARGE)
         try:
-            events: list[CalEvent] = self._sources.get_events(self.user.uid, start, end, search, key)
+            events: list[CalEvent] = self._sources.get_events(user.uid, start, end, search, key)
             logger_calendar.debug("returned %d events (calendar=%s)", len(events), key or "all")
             return events
         except RequestException:
@@ -208,10 +208,10 @@ class ModuleCalendar:
     # ------------------------------------------------------------------
     # Tasks
     # ------------------------------------------------------------------
-    def create_task(self, calendar_key: str, task: CalEvent) -> CalEvent:
+    def create_task(self, user: User, calendar_key: str, task: CalEvent) -> CalEvent:
         """Persist a new VTODO in the calendar and return it."""
         task.component_type = ComponentType.TASK
-        source: CalendarSource = self.get_calendar(calendar_key)
+        source: CalendarSource = self.get_calendar(user, calendar_key)
         if not source.is_writable():
             raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
         task.calendar_key = source.calendar.key
@@ -227,16 +227,16 @@ class ModuleCalendar:
             logger_calendar.error("Unexpected error creating task in calendar %s: %s", calendar_key, exc)
             raise RequestException(error=err.ERROR_CALENDAR_EVENT_INSERT_FAILED) from exc
 
-    def get_task(self, task_key: str) -> CalEvent:
+    def get_task(self, user: User, task_key: str) -> CalEvent:
         """Return a single VTODO by key, or raise TASK_NOT_FOUND."""
-        _, task = self._find_source_for_event(task_key)
+        _, task = self._find_source_for_event(user, task_key)
         if task.component_type != ComponentType.TASK:
             raise RequestException(error=err.ERROR_CALENDAR_TASK_NOT_FOUND)
         return task
 
-    def update_task(self, task_key: str, updates: dict) -> CalEvent:
+    def update_task(self, user: User, task_key: str, updates: dict) -> CalEvent:
         """Apply partial updates to a VTODO and persist it."""
-        source, task = self._find_source_for_event(task_key)
+        source, task = self._find_source_for_event(user, task_key)
         if task.component_type != ComponentType.TASK:
             raise RequestException(error=err.ERROR_CALENDAR_TASK_NOT_FOUND)
         if not source.is_writable():
@@ -252,9 +252,9 @@ class ModuleCalendar:
             logger_calendar.error("Unexpected error updating task %s: %s", task_key, exc)
             raise RequestException(error=err.ERROR_CALENDAR_EVENT_UPDATE_FAILED) from exc
 
-    def delete_task(self, task_key: str) -> None:
+    def delete_task(self, user: User, task_key: str) -> None:
         """Soft-delete a VTODO by key."""
-        source, task = self._find_source_for_event(task_key)
+        source, task = self._find_source_for_event(user, task_key)
         if task.component_type != ComponentType.TASK:
             raise RequestException(error=err.ERROR_CALENDAR_TASK_NOT_FOUND)
         if not source.is_writable():
@@ -270,6 +270,7 @@ class ModuleCalendar:
 
     def get_tasks(
         self,
+        user: User,
         start: datetime | None,
         end: datetime | None,
         search: str | None,
@@ -284,7 +285,7 @@ class ModuleCalendar:
             if (end - start) > timedelta(days=MAX_TASK_FETCH_DAYS):
                 raise RequestException(error=err.ERROR_CALENDAR_DATE_RANGE_TOO_LARGE)
         try:
-            tasks: list[CalEvent] = self._sources.get_tasks(self.user.uid, start, end, search, key)
+            tasks: list[CalEvent] = self._sources.get_tasks(user.uid, start, end, search, key)
             logger_calendar.debug("returned %d tasks (calendar=%s)", len(tasks), key or "all")
             return tasks
         except RequestException:

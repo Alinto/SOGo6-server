@@ -140,7 +140,7 @@ def test_delete_event_success():
     response, _ = inter.delete_event("evt-key")
     assert response["error_code"] == "S000000"
     assert response["data"] is None
-    module.delete_event.assert_called_once_with("evt-key")
+    module.delete_event.assert_called_once_with(inter.user, "evt-key")
 
 
 def test_delete_event_not_found_returns_error():
@@ -170,8 +170,8 @@ def test_get_events_defaults_to_today_when_no_filters():
     assert response["error_code"] == "S000000"
     assert response["data"]["total_count"] == 1
     call_args = module.get_events.call_args
-    start_arg = call_args[0][0]
-    end_arg = call_args[0][1]
+    start_arg = call_args[0][1]
+    end_arg = call_args[0][2]
     assert start_arg is not None
     assert end_arg is not None
 
@@ -185,8 +185,8 @@ def test_get_events_passes_explicit_dates():
     response, _ = inter.get_events("cal-key", query)
     assert response["error_code"] == "S000000"
     call_args = module.get_events.call_args
-    assert call_args[0][0] == _dt(2026, 1, 1)
-    assert call_args[0][1] == _dt(2026, 12, 31)
+    assert call_args[0][1] == _dt(2026, 1, 1)
+    assert call_args[0][2] == _dt(2026, 12, 31)
 
 
 def test_get_events_error_returns_error():
