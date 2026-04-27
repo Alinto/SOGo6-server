@@ -83,13 +83,21 @@ def test_create_event_request_exception_returns_error():
     assert response["error_code"] == err.ERROR_CALENDAR_NOT_FOUND.c
 
 
-def test_create_event_unexpected_exception_returns_unknown_error():
+def test_create_event_parse_error_returns_json_parse_failed():
+    module = MagicMock()
+    inter = _build_interface(module)
+    body = {"title": "T", "date_start": "not-a-date", "date_end": "2026-03-01T10:00:00.000Z"}
+    response, _ = inter.create_event("cal-key", body)
+    assert response["error_code"] == err.ERROR_CALENDAR_JSON_PARSE_FAILED.c
+
+
+def test_create_event_unexpected_exception_propagates():
     module = MagicMock()
     module.create_event.side_effect = RuntimeError("unexpected")
     inter = _build_interface(module)
     body = {"title": "T", "date_start": "2026-03-01T09:00:00.000Z", "date_end": "2026-03-01T10:00:00.000Z"}
-    response, _ = inter.create_event("cal-key", body)
-    assert response["error_code"] == err.ERROR_UNKOWN.c
+    with pytest.raises(RuntimeError):
+        inter.create_event("cal-key", body)
 
 
 # ========== get_event ==========
@@ -151,12 +159,12 @@ def test_delete_event_not_found_returns_error():
     assert response["error_code"] == err.ERROR_CALENDAR_EVENT_NOT_FOUND.c
 
 
-def test_delete_event_unexpected_error_returns_unknown():
+def test_delete_event_unexpected_error_propagates():
     module = MagicMock()
     module.delete_event.side_effect = RuntimeError("boom")
     inter = _build_interface(module)
-    response, _ = inter.delete_event("evt-key")
-    assert response["error_code"] == err.ERROR_UNKOWN.c
+    with pytest.raises(RuntimeError):
+        inter.delete_event("evt-key")
 
 
 # ========== get_events ==========

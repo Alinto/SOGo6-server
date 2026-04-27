@@ -3,6 +3,8 @@
 from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
+import pytest
+
 from app.interface.calendar.InterfaceApiCalendarCalendar import InterfaceApiCalendarCalendar
 from app.module.calendar.model.CalEvent import CalEvent
 from app.module.calendar.serializer.CalendarEventDeserializerDict import CalendarEventDeserializerDict
@@ -63,12 +65,12 @@ def test_get_tasks_calendar_not_found():
     assert response["error_code"] == err.ERROR_CALENDAR_NOT_FOUND.c
 
 
-def test_get_tasks_unexpected_error_returns_unknown():
+def test_get_tasks_unexpected_error_propagates():
     module = MagicMock()
     module.get_tasks.side_effect = RuntimeError("boom")
     inter = _build_interface(module)
-    response, _ = inter.get_tasks("cal-key", {})
-    assert response["error_code"] == err.ERROR_UNKOWN.c
+    with pytest.raises(RuntimeError):
+        inter.get_tasks("cal-key", {})
 
 
 def test_get_tasks_passes_default_dates_when_no_args():
@@ -126,12 +128,19 @@ def test_create_task_request_exception_returns_error():
     assert response["error_code"] == err.ERROR_CALENDAR_NOT_SUPPORTED.c
 
 
-def test_create_task_unexpected_error_returns_unknown():
+def test_create_task_parse_error_returns_json_parse_failed():
+    module = MagicMock()
+    inter = _build_interface(module)
+    response, _ = inter.create_task("cal-key", {"title": "T", "date_start": "not-a-date"})
+    assert response["error_code"] == err.ERROR_CALENDAR_JSON_PARSE_FAILED.c
+
+
+def test_create_task_unexpected_error_propagates():
     module = MagicMock()
     module.create_task.side_effect = RuntimeError("unexpected")
     inter = _build_interface(module)
-    response, _ = inter.create_task("cal-key", {"title": "T"})
-    assert response["error_code"] == err.ERROR_UNKOWN.c
+    with pytest.raises(RuntimeError):
+        inter.create_task("cal-key", {"title": "T"})
 
 
 # ========== get_task ==========
@@ -195,12 +204,19 @@ def test_patch_task_not_found_returns_error():
     assert response["error_code"] == err.ERROR_CALENDAR_TASK_NOT_FOUND.c
 
 
-def test_patch_task_unexpected_error_returns_unknown():
+def test_patch_task_parse_error_returns_json_parse_failed():
+    module = MagicMock()
+    inter = _build_interface(module)
+    response, _ = inter.patch_task("task-key", {"recurrence_exceptions": ["not-a-date"]})
+    assert response["error_code"] == err.ERROR_CALENDAR_JSON_PARSE_FAILED.c
+
+
+def test_patch_task_unexpected_error_propagates():
     module = MagicMock()
     module.update_task.side_effect = RuntimeError("db gone")
     inter = _build_interface(module)
-    response, _ = inter.patch_task("task-key", {"title": "X"})
-    assert response["error_code"] == err.ERROR_UNKOWN.c
+    with pytest.raises(RuntimeError):
+        inter.patch_task("task-key", {"title": "X"})
 
 
 # ========== delete_task ==========
@@ -222,10 +238,9 @@ def test_delete_task_not_found_returns_error():
     assert response["error_code"] == err.ERROR_CALENDAR_TASK_NOT_FOUND.c
 
 
-def test_delete_task_unexpected_error_returns_unknown():
-    """Unexpected exception from module returns ERROR_UNKOWN."""
+def test_delete_task_unexpected_error_propagates():
     module = MagicMock()
     module.delete_task.side_effect = RuntimeError("boom")
     inter = _build_interface(module)
-    response, _ = inter.delete_task("task-key")
-    assert response["error_code"] == err.ERROR_UNKOWN.c
+    with pytest.raises(RuntimeError):
+        inter.delete_task("task-key")

@@ -15,7 +15,6 @@ from app.utils.exceptions import BugException, RequestException, AggravatedExcep
 from app.utils.logger.logger import logger_user_profile
 from app.utils.maths.sogo_hash import get_unique_token, HASH_SIZE_USER, HASH_SIZE_ACCOUNT
 from app.utils.maths.crypto_utils import encrypt_password
-from app.module.calendar.ModuleCalendar import ModuleCalendar
 from app.utils.module.importManager import import_and_instantiate_manager
 
 if TYPE_CHECKING:
@@ -167,14 +166,6 @@ class ModuleUserProfile:
             raise BugException(err.ERROR_USER_PROFILE_INSERT_MISMATCH.m, err.ERROR_USER_PROFILE_INSERT_MISMATCH)
 
         logger_user_profile.info("Successfully created user profile for uid: %s", user.uid)
-
-        try:
-            # TODO: ModuleCalendar is instantiated directly here to avoid threading it through
-            # the call chain. Ideally it should be injected to
-            # eliminate the cross-module coupling and the resulting circular import risk.
-            ModuleCalendar(user, self.process_settings).create_personal_calendar(user.uid)
-        except Exception as exc:  # pylint: disable=broad-exception-caught
-            logger_user_profile.error("Failed to create default calendar for uid %s: %s", user.uid, exc)
 
     def _get_user_column(self, uid: str, field_name: str) -> Any:
         """
