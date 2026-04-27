@@ -18,7 +18,7 @@ from app.module.calendar.serializer.CalendarsSerializerList import CalendarsSeri
 from app.module.calendar.serializer.FreeBusySerializerDict import FreeBusySerializerDict
 from app.module.user.ModuleUserProfile import ModuleUserProfile
 from app.utils.api.ApiBaseResponse import create_api_base_response
-from app.utils.errors import ERROR_UNKOWN
+from app.utils.errors import ERROR_CALENDAR_JSON_PARSE_FAILED
 from app.utils.exceptions import RequestException
 from app.utils.logger.logger import logger_api
 
@@ -66,9 +66,6 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         except RequestException as ex:
             logger_api.error("get_all_calendars failed for user %s: %s", self.user.uid, ex)
             return create_api_base_response(None, ex.error)
-        except Exception as exc:  # pylint: disable=broad-exception-caught
-            logger_api.error("Unexpected error in get_all_calendars for user %s: %s", self.user.uid, exc)
-            return create_api_base_response(None, ERROR_UNKOWN)
 
     def get_calendar(self, key: str) -> tuple[dict[str, Any], int]:
         """Get a single calendar by its key."""
@@ -78,9 +75,6 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         except RequestException as ex:
             logger_api.error("get_calendar failed for user %s key %s: %s", self.user.uid, key, ex)
             return create_api_base_response(None, ex.error)
-        except Exception as exc:  # pylint: disable=broad-exception-caught
-            logger_api.error("Unexpected error in get_calendar for user %s key %s: %s", self.user.uid, key, exc)
-            return create_api_base_response(None, ERROR_UNKOWN)
 
     def create_calendar(self, body: dict[str, Any]) -> tuple[dict[str, Any], int]:
         """Create a new calendar."""
@@ -97,9 +91,6 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         except RequestException as ex:
             logger_api.error("create_calendar failed for user %s: %s", self.user.uid, ex)
             return create_api_base_response(None, ex.error)
-        except Exception as exc:  # pylint: disable=broad-exception-caught
-            logger_api.error("Unexpected error in create_calendar for user %s: %s", self.user.uid, exc)
-            return create_api_base_response(None, ERROR_UNKOWN)
 
     def update_calendar(self, key: str, body: dict[str, Any]) -> tuple[dict[str, Any], int]:
         """Update an existing calendar."""
@@ -109,9 +100,6 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         except RequestException as ex:
             logger_api.error("update_calendar failed for user %s key %s: %s", self.user.uid, key, ex)
             return create_api_base_response(None, ex.error)
-        except Exception as exc:  # pylint: disable=broad-exception-caught
-            logger_api.error("Unexpected error in update_calendar for user %s key %s: %s", self.user.uid, key, exc)
-            return create_api_base_response(None, ERROR_UNKOWN)
 
     def delete_calendar(self, key: str) -> tuple[dict[str, Any], int]:
         """Delete a calendar."""
@@ -121,9 +109,6 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         except RequestException as ex:
             logger_api.error("delete_calendar failed for user %s key %s: %s", self.user.uid, key, ex)
             return create_api_base_response(None, ex.error)
-        except Exception as exc:  # pylint: disable=broad-exception-caught
-            logger_api.error("Unexpected error in delete_calendar for user %s key %s: %s", self.user.uid, key, exc)
-            return create_api_base_response(None, ERROR_UNKOWN)
 
     def create_event(self, calendar_key: str, body: dict[str, Any]) -> tuple[dict[str, Any], int]:
         """Create a new event in the given calendar."""
@@ -134,9 +119,9 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         except RequestException as ex:
             logger_api.error("create_event failed for user %s calendar %s: %s", self.user.uid, calendar_key, ex)
             return create_api_base_response(None, ex.error)
-        except Exception as exc:  # pylint: disable=broad-exception-caught
-            logger_api.error("Unexpected error in create_event for user %s calendar %s: %s", self.user.uid, calendar_key, exc)
-            return create_api_base_response(None, ERROR_UNKOWN)
+        except (ValueError, KeyError) as exc:
+            logger_api.error("Failed to parse event body for user %s calendar %s: %s", self.user.uid, calendar_key, exc)
+            return create_api_base_response(None, ERROR_CALENDAR_JSON_PARSE_FAILED)
 
     def get_event(self, event_key: str) -> tuple[dict[str, Any], int]:
         """Get a single event by key."""
@@ -146,9 +131,6 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         except RequestException as ex:
             logger_api.error("get_event failed for user %s event %s: %s", self.user.uid, event_key, ex)
             return create_api_base_response(None, ex.error)
-        except Exception as exc:  # pylint: disable=broad-exception-caught
-            logger_api.error("Unexpected error in get_event for user %s event %s: %s", self.user.uid, event_key, exc)
-            return create_api_base_response(None, ERROR_UNKOWN)
 
     def patch_event(self, event_key: str, body: dict[str, Any]) -> tuple[dict[str, Any], int]:
         """Apply partial updates to an event."""
@@ -159,9 +141,9 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         except RequestException as ex:
             logger_api.error("patch_event failed for user %s event %s: %s", self.user.uid, event_key, ex)
             return create_api_base_response(None, ex.error)
-        except Exception as exc:  # pylint: disable=broad-exception-caught
-            logger_api.error("Unexpected error in patch_event for user %s event %s: %s", self.user.uid, event_key, exc)
-            return create_api_base_response(None, ERROR_UNKOWN)
+        except (ValueError, KeyError) as exc:
+            logger_api.error("Failed to parse patch body for user %s event %s: %s", self.user.uid, event_key, exc)
+            return create_api_base_response(None, ERROR_CALENDAR_JSON_PARSE_FAILED)
 
     def delete_event(self, event_key: str) -> tuple[dict[str, Any], int]:
         """Delete an event."""
@@ -171,14 +153,18 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         except RequestException as ex:
             logger_api.error("delete_event failed for user %s event %s: %s", self.user.uid, event_key, ex)
             return create_api_base_response(None, ex.error)
-        except Exception as exc:  # pylint: disable=broad-exception-caught
-            logger_api.error("Unexpected error in delete_event for user %s event %s: %s", self.user.uid, event_key, exc)
-            return create_api_base_response(None, ERROR_UNKOWN)
 
     def get_events(self, key: str | None, query_args: dict[str, Any]) -> tuple[dict[str, Any], int]:
         """List events in a calendar, applying optional date range and search filters.
 
         When no dates are provided and there is no search query, defaults to the current calendar day (UTC).
+
+        :param key: Calendar key, or None to query all user calendars.
+        :type key: str | None
+        :param query_args: Parsed query arguments: ``start_date_time``, ``end_date_time``, ``search`` (all optional).
+        :type query_args: dict
+        :return: API envelope with ``events`` list and ``total_count``, plus HTTP status code.
+        :rtype: tuple[dict, int]
         """
         try:
             start: datetime | None = query_args.get("start_date_time")
@@ -194,14 +180,18 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         except RequestException as ex:
             logger_api.error("get_events failed for user %s, calendar %s: %s", self.user.uid, key, ex)
             return create_api_base_response(None, ex.error)
-        except Exception as exc:  # pylint: disable=broad-exception-caught
-            logger_api.error("Unexpected error in get_events for user %s, calendar %s: %s", self.user.uid, key, exc)
-            return create_api_base_response(None, ERROR_UNKOWN)
 
     def get_tasks(self, key: str | None, query_args: dict[str, Any]) -> tuple[dict[str, Any], int]:
         """List VTODO tasks in a calendar with optional date range and search filters.
 
         When no date bounds are provided, defaults to 3 months ago → 9 months ahead.
+
+        :param key: Calendar key, or None to query all user calendars.
+        :type key: str | None
+        :param query_args: Parsed query arguments: ``start_date_time``, ``end_date_time``, ``search`` (all optional).
+        :type query_args: dict
+        :return: API envelope with ``tasks`` list and ``total_count``, plus HTTP status code.
+        :rtype: tuple[dict, int]
         """
         try:
             now = datetime.now(timezone.utc)
@@ -214,9 +204,6 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         except RequestException as ex:
             logger_api.error("get_tasks failed for user %s, calendar %s: %s", self.user.uid, key, ex)
             return create_api_base_response(None, ex.error)
-        except Exception as exc:  # pylint: disable=broad-exception-caught
-            logger_api.error("Unexpected error in get_tasks for user %s, calendar %s: %s", self.user.uid, key, exc)
-            return create_api_base_response(None, ERROR_UNKOWN)
 
     def create_task(self, calendar_key: str, body: dict[str, Any]) -> tuple[dict[str, Any], int]:
         """Create a new VTODO in the given calendar."""
@@ -228,9 +215,9 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         except RequestException as ex:
             logger_api.error("create_task failed for user %s calendar %s: %s", self.user.uid, calendar_key, ex)
             return create_api_base_response(None, ex.error)
-        except Exception as exc:  # pylint: disable=broad-exception-caught
-            logger_api.error("Unexpected error in create_task for user %s calendar %s: %s", self.user.uid, calendar_key, exc)
-            return create_api_base_response(None, ERROR_UNKOWN)
+        except (ValueError, KeyError) as exc:
+            logger_api.error("Failed to parse task body for user %s calendar %s: %s", self.user.uid, calendar_key, exc)
+            return create_api_base_response(None, ERROR_CALENDAR_JSON_PARSE_FAILED)
 
     def get_task(self, task_key: str) -> tuple[dict[str, Any], int]:
         """Get a single VTODO by key."""
@@ -240,9 +227,6 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         except RequestException as ex:
             logger_api.error("get_task failed for user %s task %s: %s", self.user.uid, task_key, ex)
             return create_api_base_response(None, ex.error)
-        except Exception as exc:  # pylint: disable=broad-exception-caught
-            logger_api.error("Unexpected error in get_task for user %s task %s: %s", self.user.uid, task_key, exc)
-            return create_api_base_response(None, ERROR_UNKOWN)
 
     def patch_task(self, task_key: str, body: dict[str, Any]) -> tuple[dict[str, Any], int]:
         """Apply partial updates to a VTODO."""
@@ -256,9 +240,9 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         except RequestException as ex:
             logger_api.error("patch_task failed for user %s task %s: %s", self.user.uid, task_key, ex)
             return create_api_base_response(None, ex.error)
-        except Exception as exc:  # pylint: disable=broad-exception-caught
-            logger_api.error("Unexpected error in patch_task for user %s task %s: %s", self.user.uid, task_key, exc)
-            return create_api_base_response(None, ERROR_UNKOWN)
+        except (ValueError, KeyError) as exc:
+            logger_api.error("Failed to parse patch body for user %s task %s: %s", self.user.uid, task_key, exc)
+            return create_api_base_response(None, ERROR_CALENDAR_JSON_PARSE_FAILED)
 
     def delete_task(self, task_key: str) -> tuple[dict[str, Any], int]:
         """Delete a VTODO."""
@@ -268,9 +252,6 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         except RequestException as ex:
             logger_api.error("delete_task failed for user %s task %s: %s", self.user.uid, task_key, ex)
             return create_api_base_response(None, ex.error)
-        except Exception as exc:  # pylint: disable=broad-exception-caught
-            logger_api.error("Unexpected error in delete_task for user %s task %s: %s", self.user.uid, task_key, exc)
-            return create_api_base_response(None, ERROR_UNKOWN)
 
     def _load_freebusy_prefs(self, target_uid: str) -> FreeBusyPrefs:
         """Load FreeBusy preferences for target_uid from user settings."""
@@ -294,7 +275,13 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         return periods_by_uid
 
     def get_freebusy(self, body: dict[str, Any]) -> tuple[dict[str, Any], int]:
-        """Compute free/busy periods for a list of target users and return them as JSON."""
+        """Compute free/busy periods for a list of target users and return them as JSON.
+
+        :param body: Validated request body with ``target_uids`` (list of user UIDs), ``start`` and ``end`` datetimes.
+        :type body: dict
+        :return: API envelope with free/busy periods keyed by UID, plus HTTP status code.
+        :rtype: tuple[dict, int]
+        """
         try:
             target_uids: list[str] = body["target_uids"]
             start: datetime = body["start"]
@@ -305,9 +292,6 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         except RequestException as ex:
             logger_api.error("get_freebusy failed for user %s: %s", self.user.uid, ex)
             return create_api_base_response(None, ex.error)
-        except Exception as exc:  # pylint: disable=broad-exception-caught
-            logger_api.error("Unexpected error in get_freebusy for user %s: %s", self.user.uid, exc)
-            return create_api_base_response(None, ERROR_UNKOWN)
 
     @staticmethod
     def _normalize_task_body(body: dict[str, Any]) -> dict[str, Any]:
