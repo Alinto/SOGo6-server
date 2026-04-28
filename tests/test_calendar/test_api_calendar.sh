@@ -69,7 +69,13 @@ TEST COVERAGE:
         f. Cross-tz: LOGIN_1 → LOGIN_3 at 22:00 UTC → BUSY (Asia/Tokyo event)
         g. Self-query: LOGIN_2 queries own free/busy
         h. Error — range > 90 days → S000614
-  16  Conditional DELETE (only when -d is passed, steps 52–54)
+  16  Invitation flow (cross-account):
+        a. LOGIN_1 creates an event with LOGIN_2 as attendee
+        b. LOGIN_2 immediately sees the event in their own /events list (propagated copy)
+        c. LOGIN_2 accepts the invitation via POST /events/{key}/attendance
+        d. LOGIN_1 sees ACCEPTED status on their organizer copy
+        e. LOGIN_2 declines a second invitation — LOGIN_1 sees DECLINED
+  17  Conditional DELETE (only when -d is passed, steps 52–55)
 EOF
     exit 0
 }
@@ -1131,7 +1137,77 @@ FB_PRIV_HAS_TITLE=$(body | jq -r --arg uid "$LOGIN_1" '.data.attendees[$uid].per
     && ok "PRIVATE event title hidden in freebusy" \
     || fail "PRIVATE event title key present in freebusy (expected absent)"
 
-# ── 16. CONDITIONAL DELETES ───────────────────────────────────────────────────
+# ── 16. INVITATION FLOW ───────────────────────────────────────────────────────
+
+step "47. Invitation — LOGIN_1 creates event with LOGIN_2 as attendee"
+info "Creates an event where LOGIN_2 is invited. The server must immediately propagate a copy to LOGIN_2's default calendar."
+
+CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d "{
+        \"title\": \"Invite Meeting\",
+        \"date_start\": \"2026-07-01T14:00:00Z\",
+        \"date_end\":   \"2026-07-01T15:00:00Z\",
+        \"timezone\": \"Europe/Paris\",
+        \"attendees\": [
+            {\"email\": \"$LOGIN_2\", \"name\": \"User Two\", \"status\": \"needs-action\"},
+            {\"email\": \"$LOGIN_1\", \"name\": \"User One\", \"status\": \"accepted\"}
+        ]
+    }")
+check_code  "POST /events invite" "$CODE" "201"
+check_error "POST /events invite error_code"
+check_field ".data.title" "Invite Meeting"
+INVITE_KEY_L1=$(extract '.data.key')
+INVITE_UID=$(extract '.data.uid')
+info "Organizer event key (LOGIN_1): $INVITE_KEY_L1  uid: $INVITE_UID"
+
+step "48. Invitation — LOGIN_2 sees the propagated copy in their /events"
+info "Without any iMIP mail exchange, LOGIN_2's default calendar should already hold a copy of the event."
+
+CODE=$(req "$BASE/events?start_date_time=2026-07-01T00:00:00Z&end_date_time=2026-07-01T23:59:59Z" -H "$H_AUTH_2")
+check_code  "GET /events (LOGIN_2) for invite date" "$CODE" "200"
+INVITE_COUNT_L2=$(body | jq --arg uid "$INVITE_UID" '[.data.events[] | select(.uid == $uid)] | length')
+[ "$INVITE_COUNT_L2" -ge 1 ] \
+    && ok "LOGIN_2 sees the propagated copy (count=$INVITE_COUNT_L2)" \
+    || fail "LOGIN_2 does NOT see the event (count=$INVITE_COUNT_L2)"
+
+INVITE_KEY_L2=$(body | jq -r --arg uid "$INVITE_UID" '[.data.events[] | select(.uid == $uid)][0].key // empty')
+info "Attendee event key (LOGIN_2): $INVITE_KEY_L2"
+
+step "49. Invitation — verify attendee status is needs-action on LOGIN_2's copy"
+info "Before any response, LOGIN_2's own attendee record should be needs-action."
+
+CODE=$(req "$BASE/events/$INVITE_KEY_L2" -H "$H_AUTH_2")
+check_code "GET /events/$INVITE_KEY_L2 (LOGIN_2)" "$CODE" "200"
+L2_STATUS=$(body | jq -r --arg email "$LOGIN_2" '.data.attendees[] | select(.email == $email) | .status // empty')
+[ "$L2_STATUS" = "needs-action" ] \
+    && ok "LOGIN_2 attendee status = needs-action" \
+    || fail "LOGIN_2 attendee status = '$L2_STATUS' (expected needs-action)"
+
+step "50. Invitation — LOGIN_2 accepts"
+info "POST /events/{key}/attendance with status=accepted. LOGIN_1's organizer copy must reflect ACCEPTED."
+
+CODE=$(req -X POST "$BASE/events/$INVITE_KEY_L2/attendance" \
+    -H "$H_JSON" -H "$H_AUTH_2" \
+    -d '{"status": "accepted"}')
+check_code  "POST /events/$INVITE_KEY_L2/attendance accepted" "$CODE" "200"
+check_error "POST attendance accepted error_code"
+L2_NEW_STATUS=$(body | jq -r --arg email "$LOGIN_2" '.data.attendees[] | select(.email == $email) | .status // empty')
+[ "$L2_NEW_STATUS" = "accepted" ] \
+    && ok "response shows LOGIN_2 status = accepted" \
+    || fail "response status = '$L2_NEW_STATUS' (expected accepted)"
+
+step "51. Invitation — LOGIN_1 sees ACCEPTED on the organizer copy"
+info "After LOGIN_2 accepts, propagate_partstat_to_copies must have updated the organizer's copy."
+
+CODE=$(req "$BASE/events/$INVITE_KEY_L1" -H "$H_AUTH")
+check_code "GET /events/$INVITE_KEY_L1 (LOGIN_1)" "$CODE" "200"
+L2_STATUS_ON_L1=$(body | jq -r --arg email "$LOGIN_2" '.data.attendees[] | select(.email == $email) | .status // empty')
+[ "$L2_STATUS_ON_L1" = "accepted" ] \
+    && ok "LOGIN_1 organizer copy shows LOGIN_2 = accepted" \
+    || fail "LOGIN_1 organizer copy shows LOGIN_2 = '$L2_STATUS_ON_L1' (expected accepted)"
+
+# ── 17. CONDITIONAL DELETES ───────────────────────────────────────────────────
 
 step "52. Delete — LOGIN_1 freebusy events, tasks, and main test events"
 info "Deletes all events and tasks created by LOGIN_1 during this run. Skipped without -d."
@@ -1159,6 +1235,11 @@ if $DO_DELETE; then
         GONE=$(req "$BASE/tasks/$key" -H "$H_AUTH")
         [ "$GONE" = "404" ] && ok "$key gone after delete (404)" || fail "$key still accessible (HTTP $GONE)"
     done
+    # Delete attendee copy before organizer copy — organizer delete cascades via delete_all_by_uid
+    CODE=$(req -X DELETE "$BASE/events/$INVITE_KEY_L2" -H "$H_AUTH_2")
+    check_code "DELETE /events/$INVITE_KEY_L2 (invite attendee copy)" "$CODE" "200"
+    CODE=$(req -X DELETE "$BASE/events/$INVITE_KEY_L1" -H "$H_AUTH")
+    check_code "DELETE /events/$INVITE_KEY_L1 (invite organizer copy)" "$CODE" "200"
 else
     skip "DELETE LOGIN_1 events and tasks"
     info "Keys: EVT=$EVT_KEY  ALLDAY=$ALLDAY_KEY  COMPLEX=$COMPLEX_KEY"
@@ -1168,6 +1249,7 @@ else
     info "FreeBusy events L1: morning=$FB_L1_MORNING afternoon=$FB_L1_AFTERNOON"
     info "FreeBusy events L1: tentative=$FB_L1_TENTATIVE free=$FB_L1_FREE cancelled=$FB_L1_CANCELLED"
     info "FreeBusy events L1: public_title=$FB_L1_PUBLIC_TITLE private_title=$FB_L1_PRIVATE_TITLE"
+    info "Invitation: organizer=$INVITE_KEY_L1  attendee_copy=$INVITE_KEY_L2"
 fi
 
 step "53. Delete — LOGIN_2 and LOGIN_3 freebusy events and calendars"
@@ -1185,7 +1267,7 @@ if $DO_DELETE; then
     check_code "DELETE /calendars/$CAL_KEY_3 (LOGIN_3)" "$CODE" "200"
 else
     skip "DELETE LOGIN_2/LOGIN_3 freebusy events and calendars"
-    info "L2: event=$FB_L2_EVT  calendar=$CAL_KEY_2"
+    info "L2: freebusy=$FB_L2_EVT  calendar=$CAL_KEY_2"
     info "L3: event=$FB_L3_EVT  calendar=$CAL_KEY_3"
 fi
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import Any, ClassVar
 
 from app.module.calendar.model.CalAttachment import CalAttachment
 from app.module.calendar.model.CalAttendee import CalAttendee
@@ -106,10 +106,12 @@ class CalEvent:  # pylint: disable=too-many-instance-attributes,invalid-name
     # RFC 5545 §3.8.7.3 (LAST-MODIFIED)
     updated_at: datetime | None = None
 
-    MUTABLE_FIELDS: frozenset[str] = frozenset({
+    # ClassVar is required here: without it, @dataclass would treat MUTABLE_FIELDS as an
+    # instance field, exposing it in CalEvent.asdict() output.
+    MUTABLE_FIELDS: ClassVar[frozenset[str]] = frozenset({
         "title", "description", "location", "url", "date_start", "date_end",
         "all_day", "timezone", "status", "visibility", "show_as", "color",
-        "sequence", "organizer", "attendees", "reminders", "conference_data",
+        "sequence", "priority", "organizer", "attendees", "reminders", "conference_data",
         "attachments", "categories", "related_to", "extra_properties",
         "recurrence_rule", "recurrence_exceptions", "percent_complete", "completed_at",
     })

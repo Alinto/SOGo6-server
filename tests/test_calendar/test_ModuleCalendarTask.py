@@ -6,6 +6,7 @@ import pytest
 
 from app.module.calendar.CalendarConst import MAX_TASK_FETCH_DAYS
 from app.module.calendar.ModuleCalendar import ModuleCalendar
+from app.module.calendar.imip.ImipProcessor import ImipProcessor
 from app.module.calendar.model.CalCalendar import CalCalendar
 from app.module.calendar.model.CalEvent import CalEvent
 from app.module.calendar.model.enums.ComponentType import ComponentType
@@ -59,14 +60,17 @@ class FakeTaskSource(CalendarSource):
         event.key = event.key or "new-task-key"
         self._items[event.key] = event
         self.inserted.append(event)
+        self._calendar.ctag = (self._calendar.ctag or 0) + 1
         return event
 
-    def update_event(self, event):
+    def update_event(self, event, propagate=False):
         self._items[event.key] = event
         self.updated.append(event)
+        self._calendar.ctag = (self._calendar.ctag or 0) + 1
 
     def delete_event(self, uid):
         self.deleted_uids.append(uid)
+        self._calendar.ctag = (self._calendar.ctag or 0) + 1
 
     def update_calendar(self, calendar):
         self.calendar_updated = True
@@ -85,6 +89,8 @@ def _build_module(sources: dict):
     sources_mock.get_all.return_value = list(sources.values())
     sources_mock.get_by_key.side_effect = lambda uid, key: sources.get(key)
     sources_mock.get.side_effect = lambda cal: sources.get(cal.key)
+    sources_mock.get_default.return_value = None
+    sources_mock.find_by_uid.return_value = None
 
     def _get_tasks(uid, start, end, search, calendar_key=None):
         if calendar_key is not None:
@@ -96,6 +102,7 @@ def _build_module(sources: dict):
 
     sources_mock.get_tasks.side_effect = _get_tasks
     module._sources = sources_mock
+    module._imip = ImipProcessor(sources_mock)
     module._db = MagicMock()
     return module
 

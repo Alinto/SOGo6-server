@@ -181,6 +181,34 @@ def test_off_hours_after_work_is_unavailable():
     assert any(p.date_end.hour >= 17 for p in unavailable)
 
 
+# ========== All-day events ==========
+
+def test_allday_event_is_busy_when_query_overlaps():
+    """An all-day event stored with exclusive date_end (next day) must appear as busy
+    for any query that falls within the event day."""
+    event = _make_event(
+        _dt(2026, 4, 28, 0),
+        _dt(2026, 4, 29, 0),  # exclusive end — correct RFC 5545 storage
+        show_as=ShowAs.BUSY,
+    )
+    event.all_day = True
+    result = _ENGINE.compute([event], _dt(2026, 4, 28, 13, 58), _dt(2026, 4, 29, 13, 58), _PREFS_NO_OOH)
+    assert len(result) == 1
+    assert result[0].fb_type == FreeBusyType.BUSY
+
+
+def test_allday_zero_duration_not_busy():
+    """An all-day event stored with date_end == date_start (zero duration, malformed)
+    must NOT appear as busy — this confirms the server-side normalization is necessary."""
+    event = _make_event(
+        _dt(2026, 4, 28, 0),
+        _dt(2026, 4, 28, 0),  # zero duration — wrong, but tests the engine behaviour
+    )
+    event.all_day = True
+    result = _ENGINE.compute([event], _dt(2026, 4, 28, 13, 58), _dt(2026, 4, 29, 13, 58), _PREFS_NO_OOH)
+    assert result == []
+
+
 # ========== _parse_time ==========
 
 def test_parse_time():

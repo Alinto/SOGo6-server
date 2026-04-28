@@ -1,4 +1,4 @@
-from __future__ import annotations  # pylint: disable=duplicate-code
+from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
@@ -10,7 +10,7 @@ from app.module.calendar.serializer.CalendarEventSerializerDict import CalendarE
 from app.utils import errors as err
 from app.utils.db.Condition import (AndCondition, EqualCondition, GreaterOrEqualCondition,
                                      IsNotNullCondition, IsNullCondition, LessOrEqualCondition, LikeCondition,
-                                     OrCondition)
+                                     NotEqualCondition, OrCondition)
 from app.utils.exceptions import BugException, RequestException
 from app.utils.logger.logger import logger_calendar
 from app.utils.maths.sogo_hash import generate_uuid
@@ -256,28 +256,37 @@ class RepositoryEvent:
                 EqualCondition(tbl.COL_EVT_IS_DELETED.name, False),
             ),
         )
+        # pylint: disable=duplicate-code
         rows = list(self._db.select_from_table(
             table_name=tbl.TABLE_EVENT.name,
             column_tuple=_ALL_COLS,
             condition=condition,
             limit=1,
         ))
+        # pylint: enable=duplicate-code
         if not rows:
             return None
         return self._row_to_event(rows[0])
 
-    def delete_by_key(self, calendar_key: str, key: str) -> None:
-        """Soft-delete a single event row by its opaque key (does not affect other rows sharing the same uid)."""
-        now = datetime.now(timezone.utc)
-        self._db.update_in_table(
-            table_name=tbl.TABLE_EVENT.name,
-            column_tuple=(tbl.COL_EVT_IS_DELETED.name, tbl.COL_EVT_UPDATED_AT.name),
-            values_list=[True, now],
-            condition=AndCondition(
-                EqualCondition(tbl.COL_EVT_KEY.name, key),
-                EqualCondition(tbl.COL_EVT_CALENDAR_KEY.name, calendar_key),
-            ),
+    def delete_by_key(self, calendar_key: str, key: str, hard_delete: bool = False) -> None:
+        """Soft-delete (or hard-delete) a single event row by its opaque key.
+
+        Does not affect other rows sharing the same uid.
+        """
+        condition = AndCondition(
+            EqualCondition(tbl.COL_EVT_KEY.name, key),
+            EqualCondition(tbl.COL_EVT_CALENDAR_KEY.name, calendar_key),
         )
+        if hard_delete:
+            self._db.delete_row_in_table(table_name=tbl.TABLE_EVENT.name, condition=condition)
+        else:
+            now: datetime = datetime.now(timezone.utc)
+            self._db.update_in_table(
+                table_name=tbl.TABLE_EVENT.name,
+                column_tuple=(tbl.COL_EVT_IS_DELETED.name, tbl.COL_EVT_UPDATED_AT.name),
+                values_list=[True, now],
+                condition=condition,
+            )
 
     def find_detached_occurrences(self, calendar_key: str, uid: str) -> list[CalEvent]:
         """Return all non-deleted detached occurrences (recurrence_id IS NOT NULL) for a master UID."""
@@ -315,27 +324,88 @@ class RepositoryEvent:
             ),
         )
 
-    def delete(self, calendar_key: str, uid: str) -> None:
-        """Soft-delete an event by uid within a calendar."""
-        now = datetime.now(timezone.utc)
-        self._db.update_in_table(
-            table_name=tbl.TABLE_EVENT.name,
-            column_tuple=(tbl.COL_EVT_IS_DELETED.name, tbl.COL_EVT_UPDATED_AT.name),
-            values_list=[True, now],
-            condition=AndCondition(
-                EqualCondition(tbl.COL_EVT_CALENDAR_KEY.name, calendar_key),
-                EqualCondition(tbl.COL_EVT_UID.name, uid),
-            ),
-        )
+    def delete(self, calendar_key: str, uid: str, hard_delete: bool = False) -> None:
+        """Soft-delete (or hard-delete) an event by uid within a calendar.
 
-    def delete_all(self, calendar_key: str) -> None:
-        """Soft-delete all events belonging to a calendar."""
-        now = datetime.now(timezone.utc)
+        When hard_delete=True the row is permanently removed from the table.
+        """
+        condition = AndCondition(
+            EqualCondition(tbl.COL_EVT_CALENDAR_KEY.name, calendar_key),
+            EqualCondition(tbl.COL_EVT_UID.name, uid),
+        )
+        if hard_delete:
+            self._db.delete_row_in_table(table_name=tbl.TABLE_EVENT.name, condition=condition)
+        else:
+            now: datetime = datetime.now(timezone.utc)
+            self._db.update_in_table(
+                table_name=tbl.TABLE_EVENT.name,
+                column_tuple=(tbl.COL_EVT_IS_DELETED.name, tbl.COL_EVT_UPDATED_AT.name),
+                values_list=[True, now],
+                condition=condition,
+            )
+
+    def delete_all(self, calendar_key: str, hard_delete: bool = False) -> None:
+        """Soft-delete (or hard-delete) all events belonging to a calendar."""
+        condition = EqualCondition(tbl.COL_EVT_CALENDAR_KEY.name, calendar_key)
+        if hard_delete:
+            self._db.delete_row_in_table(table_name=tbl.TABLE_EVENT.name, condition=condition)
+        else:
+            now: datetime = datetime.now(timezone.utc)
+            self._db.update_in_table(
+                table_name=tbl.TABLE_EVENT.name,
+                column_tuple=(tbl.COL_EVT_IS_DELETED.name, tbl.COL_EVT_UPDATED_AT.name),
+                values_list=[True, now],
+                condition=condition,
+            )
+
+    def find_all_by_uid(self, uid: str, exclude_organizer_calendar_key: str | None = None) -> list[CalEvent]:
+        """Return all non-deleted master event rows (recurrence_id IS NULL) with the given UID across all calendars.
+
+        The uid here is the RFC 5545 UID (semantic identifier) shared across all copies — distinct from the
+        opaque per-row key used in API paths. The same event has one uid but one key per calendar copy.
+        When exclude_organizer_calendar_key is provided, the organizer's own calendar is excluded so that
+        only attendee copies are returned.
+        """
+        condition = AndCondition(
+            AndCondition(
+                EqualCondition(tbl.COL_EVT_UID.name, uid),
+                IsNullCondition(tbl.COL_EVT_RECURRENCE_ID.name),
+            ),
+            EqualCondition(tbl.COL_EVT_IS_DELETED.name, False),
+        )
+        if exclude_organizer_calendar_key is not None:
+            condition = AndCondition(
+                condition,
+                NotEqualCondition(tbl.COL_EVT_CALENDAR_KEY.name, exclude_organizer_calendar_key),
+            )
+        rows = self._db.select_from_table(
+            table_name=tbl.TABLE_EVENT.name,
+            column_tuple=_ALL_COLS,
+            condition=condition,
+        )
+        return [self._row_to_event(row) for row in rows]
+
+    def delete_all_by_uid(self, uid: str, exclude_organizer_calendar_key: str | None = None) -> None:
+        """Soft-delete all non-deleted rows with the given UID across all calendars.
+
+        When exclude_organizer_calendar_key is provided, the organizer's calendar rows are preserved.
+        Used when an organizer cancels an event to propagate the deletion to all attendee copies.
+        """
+        now: datetime = datetime.now(timezone.utc)
+        condition = AndCondition(
+            EqualCondition(tbl.COL_EVT_UID.name, uid),
+            EqualCondition(tbl.COL_EVT_IS_DELETED.name, False),
+        )
+        if exclude_organizer_calendar_key is not None:
+            condition = AndCondition(
+                condition,
+                NotEqualCondition(tbl.COL_EVT_CALENDAR_KEY.name, exclude_organizer_calendar_key),
+            )
         self._db.update_in_table(
             table_name=tbl.TABLE_EVENT.name,
             column_tuple=(tbl.COL_EVT_IS_DELETED.name, tbl.COL_EVT_UPDATED_AT.name),
             values_list=[True, now],
-            condition=EqualCondition(tbl.COL_EVT_CALENDAR_KEY.name, calendar_key),
+            condition=condition,
         )
 
     def purge_deleted(self, calendar_key: str) -> int:

@@ -6,8 +6,11 @@ import pytest
 
 from app.module.calendar.CalendarConst import MAX_EVENT_FETCH_DAYS
 from app.module.calendar.ModuleCalendar import ModuleCalendar
+from app.module.calendar.imip.ImipProcessor import ImipProcessor
+from app.module.calendar.model.CalAttendee import CalAttendee
 from app.module.calendar.model.CalCalendar import CalCalendar
 from app.module.calendar.model.CalEvent import CalEvent
+from app.module.calendar.model.CalOrganizer import CalOrganizer
 from app.module.calendar.source.CalendarSource import CalendarSource
 from app.utils import errors as err
 from app.utils.exceptions import RequestException
@@ -55,17 +58,25 @@ class FakeCalendarSource(CalendarSource):
         event.key = event.key or "new-key"
         self._events[event.key] = event
         self.inserted.append(event)
+        self._calendar.ctag = (self._calendar.ctag or 0) + 1
         return event
 
-    def update_event(self, event):
+    def update_event(self, event, propagate=False):
         self._events[event.key] = event
         self.updated.append(event)
+        self._calendar.ctag = (self._calendar.ctag or 0) + 1
 
     def delete_event(self, uid):
         self.deleted_uids.append(uid)
+        self._calendar.ctag = (self._calendar.ctag or 0) + 1
+
+    def delete_event_as_organizer(self, uid):
+        self.deleted_uids.append(f"organizer:{uid}")
+        self._calendar.ctag = (self._calendar.ctag or 0) + 1
 
     def delete_detached_occurrence(self, occurrence):
         self.deleted_occurrence_keys.append(occurrence.key)
+        self._calendar.ctag = (self._calendar.ctag or 0) + 1
 
     def update_calendar(self, calendar):
         self.calendar_updated = True
@@ -85,6 +96,8 @@ def _build_module(sources: dict):
     sources_mock.get_all.return_value = list(sources.values())
     sources_mock.get_by_key.side_effect = lambda uid, key: sources.get(key)
     sources_mock.get.side_effect = lambda cal: sources.get(cal.key)
+    sources_mock.get_default.return_value = None
+    sources_mock.find_by_uid.return_value = None
 
     def _get_events(uid, start, end, search, calendar_key=None):
         if calendar_key is not None:
@@ -96,6 +109,7 @@ def _build_module(sources: dict):
 
     sources_mock.get_events.side_effect = _get_events
     module._sources = sources_mock
+    module._imip = ImipProcessor(sources_mock)
     module._db = MagicMock()
     return module
 
@@ -164,7 +178,6 @@ def test_create_event_bumps_ctag():
     event = _make_event()
     module.create_event(_fake_user(), "cal-key", event)
     assert source.calendar.ctag == 1
-    assert source.calendar_updated is True
 
 
 def test_create_event_raises_on_read_only_source():
@@ -336,3 +349,109 @@ def test_clean_by_user_uid_aggregates_across_calendars():
 def test_clean_no_args_returns_zero():
     module = _build_module({})
     assert module.clean() == 0
+
+
+# ========== delete_event — organizer cascade ==========
+
+def test_delete_event_as_organizer_calls_cascade():
+    """When the deleting user is the organizer, delete_event_as_organizer must be called
+    (cascades to all attendee copies), not the attendee-local delete_event."""
+    organizer = CalOrganizer(email="user@example.com")
+    attendee = CalAttendee(email="other@example.com")
+    event = _make_event(key="evt-key", uid="org-event@example.com", organizer=organizer, attendees=[attendee])
+    source = _make_source(events=[event])
+    module = _build_module({"cal-key": source})
+    module.delete_event(_fake_user("user@example.com"), "evt-key")
+    assert "organizer:org-event@example.com" in source.deleted_uids
+    assert "org-event@example.com" not in source.deleted_uids
+
+
+def test_delete_event_attendee_does_not_cascade():
+    """When the deleting user is NOT the organizer, only their own copy is deleted."""
+    organizer = CalOrganizer(email="organizer@example.com")
+    event = _make_event(key="evt-key", uid="evt@example.com", organizer=organizer)
+    source = _make_source(events=[event])
+    module = _build_module({"cal-key": source})
+    module.delete_event(_fake_user("user@example.com"), "evt-key")
+    assert "evt@example.com" in source.deleted_uids
+    assert "organizer:evt@example.com" not in source.deleted_uids
+
+
+# ========== update_event — sequence ==========
+
+def test_update_event_increments_sequence():
+    """update_event must always increment SEQUENCE (RFC 5545 §3.8.7.4)."""
+    event = _make_event(key="evt-key", sequence=2)
+    source = _make_source(events=[event])
+    module = _build_module({"cal-key": source})
+    result = module.update_event(_fake_user(), "evt-key", {"title": "Updated"})
+    assert result.sequence == 3
+
+
+# ========== create_event — auto organizer ==========
+
+def test_create_event_auto_sets_organizer_when_attendees_present():
+    """When creating an event with attendees but no organizer, the organizer must be set
+    to the creating user (RFC 5545 §3.8.4.3 — ORGANIZER is required when ATTENDEE is present)."""
+    source = _make_source("cal-key")
+    module = _build_module({"cal-key": source})
+    attendee = CalAttendee(email="guest@example.com")
+    event = _make_event(attendees=[attendee])
+    result = module.create_event(_fake_user("user@example.com"), "cal-key", event)
+    assert result.organizer is not None
+    assert result.organizer.email == "user@example.com"
+
+
+def test_create_event_preserves_explicit_organizer():
+    """When an organizer is already set, create_event must not overwrite it."""
+    source = _make_source("cal-key")
+    module = _build_module({"cal-key": source})
+    organizer = CalOrganizer(email="explicit@example.com")
+    attendee = CalAttendee(email="guest@example.com")
+    event = _make_event(organizer=organizer, attendees=[attendee])
+    result = module.create_event(_fake_user("user@example.com"), "cal-key", event)
+    assert result.organizer.email == "explicit@example.com"
+
+
+# ========== all-day normalization (RFC 5545 §3.6.1) ==========
+
+def test_create_allday_normalizes_zero_duration():
+    """create_event must set date_end = date_start + 1 day when all_day=True and date_end <= date_start."""
+    source = _make_source("cal-key")
+    module = _build_module({"cal-key": source})
+    start = _dt(2026, 4, 28)
+    event = _make_event(all_day=True, date_start=start, date_end=start)
+    result = module.create_event(_fake_user(), "cal-key", event)
+    assert result.date_end == _dt(2026, 4, 29)
+
+
+def test_update_allday_normalizes_zero_duration():
+    """update_event must normalize date_end when the patch produces date_end <= date_start."""
+    start = _dt(2026, 4, 28)
+    event = _make_event(key="evt-key", all_day=True, date_start=start, date_end=_dt(2026, 4, 29))
+    source = _make_source(events=[event])
+    module = _build_module({"cal-key": source})
+    result = module.update_event(_fake_user(), "evt-key", {"date_end": start})
+    assert result.date_end == _dt(2026, 4, 29)
+
+
+def test_create_allday_already_correct_not_changed():
+    """create_event must not alter date_end when it is already strictly after date_start."""
+    source = _make_source("cal-key")
+    module = _build_module({"cal-key": source})
+    start = _dt(2026, 4, 28)
+    end = _dt(2026, 4, 30)
+    event = _make_event(all_day=True, date_start=start, date_end=end)
+    result = module.create_event(_fake_user(), "cal-key", event)
+    assert result.date_end == end
+
+
+def test_non_allday_event_date_end_unchanged():
+    """_normalize_all_day must not touch regular (non-all-day) events."""
+    source = _make_source("cal-key")
+    module = _build_module({"cal-key": source})
+    start = _dt(2026, 4, 28, 9)
+    end = _dt(2026, 4, 28, 9)
+    event = _make_event(all_day=False, date_start=start, date_end=end)
+    result = module.create_event(_fake_user(), "cal-key", event)
+    assert result.date_end == end

@@ -81,7 +81,7 @@ class CalendarEventSchema(Schema):
     date_start = fields.String(metadata={"description": "ISO 8601 UTC with millisecond precision."})
     date_end = fields.String(metadata={"description": "ISO 8601 UTC with millisecond precision."})
     all_day = fields.Boolean()
-    timezone = fields.String()
+    timezone = fields.String(allow_none=True)
     status = fields.String()
     visibility = fields.String()
     show_as = fields.String()
@@ -123,7 +123,7 @@ class CalendarEventCreateSchema(Schema):
                              metadata={"description": "ISO 8601 UTC datetime.",
                                        "example": "2026-04-22T10:00:00.000Z"})
     all_day = fields.Boolean(load_default=False)
-    timezone = fields.String(load_default="UTC", metadata={"example": "Europe/Paris"})
+    timezone = fields.String(load_default=None, allow_none=True, metadata={"example": "Europe/Paris"})
     status = fields.String(load_default=None, allow_none=True,
                            metadata={"description": "confirmed | tentative | cancelled",
                                      "example": "confirmed"})
@@ -160,7 +160,7 @@ class CalendarEventPatchSchema(Schema):
     date_start = fields.String(metadata={"description": "ISO 8601 UTC datetime."})
     date_end = fields.String(metadata={"description": "ISO 8601 UTC datetime."})
     all_day = fields.Boolean()
-    timezone = fields.String()
+    timezone = fields.String(allow_none=True)
     status = fields.String(allow_none=True)
     visibility = fields.String(allow_none=True)
     show_as = fields.String(allow_none=True)
@@ -179,6 +179,16 @@ class CalendarEventPatchSchema(Schema):
     recurrence_exceptions = fields.List(fields.String())
     percent_complete = fields.Integer(allow_none=True)
     completed_at = fields.String(allow_none=True)
+
+
+class AttendanceSchema(Schema):
+    """Request body for updating the current user's attendance status for an event."""
+
+    status = fields.String(
+        required=True,
+        validate=validate.OneOf(["accepted", "declined", "tentative", "delegated"]),
+        metadata={"description": "accepted | declined | tentative | delegated"},
+    )
 
 
 class CalendarEventResponseSchema(ApiBaseResponse):

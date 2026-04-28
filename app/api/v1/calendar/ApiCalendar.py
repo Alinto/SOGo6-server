@@ -1,4 +1,4 @@
-from __future__ import annotations
+from __future__ import annotations  # pylint: disable=duplicate-code
 
 from typing import TYPE_CHECKING
 
@@ -16,6 +16,7 @@ from .schemas.calendar import (
     CalendarResponseSchema,
 )
 from .schemas.event import (
+    AttendanceSchema,
     CalendarEventQueryArgsSchema,
     CalendarEventListResponseSchema,
     CalendarEventCreateSchema,
@@ -214,6 +215,19 @@ class ApiTaskDetail(MethodView):
         logger_api.debug("DELETE /tasks/%s user=%s", task_key, g.user.uid)
         interface: InterfaceApiCalendarCalendar = g.inter
         return interface.delete_task(task_key)
+
+
+@blp.route("/events/<string:event_key>/attendance")
+class ApiEventAttendance(MethodView):
+    """API to set the current user's attendance status for an event."""
+
+    @blp.arguments(AttendanceSchema)
+    @blp.response(200, CalendarEventResponseSchema)
+    def post(self, body: dict, event_key: str) -> ResponseReturnValue:
+        """Set attendance status (accepted / declined / tentative / delegated) for the current user."""
+        logger_api.debug("POST /events/%s/attendance user=%s status=%s", event_key, g.user.uid, body.get("status"))
+        interface: InterfaceApiCalendarCalendar = g.inter
+        return interface.set_attendance_status(event_key, body)
 
 
 @blp.route("/freebusy")
