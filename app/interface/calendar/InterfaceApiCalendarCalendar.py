@@ -9,6 +9,7 @@ from app.config.settings.UserSettings import UserCalendarGeneralSettings, UserGe
 from app.module.calendar.ModuleCalendar import ModuleCalendar
 from app.module.calendar.freebusy.FreeBusyEngine import FreeBusyPrefs
 from app.module.calendar.model.CalCalendar import CalCalendar
+from app.module.calendar.model.enums.AttendeeStatus import AttendeeStatus
 from app.module.calendar.model.CalFreeBusyResult import CalFreeBusyResult
 from app.module.calendar.serializer.CalendarEventDeserializerDict import CalendarEventDeserializerDict
 from app.module.calendar.serializer.CalendarEventSerializerDict import CalendarEventSerializerDict
@@ -143,6 +144,24 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
             return create_api_base_response(None, ex.error)
         except (ValueError, KeyError) as exc:
             logger_api.error("Failed to parse patch body for user %s event %s: %s", self.user.uid, event_key, exc)
+            return create_api_base_response(None, ERROR_CALENDAR_JSON_PARSE_FAILED)
+
+    def set_attendance_status(self, event_key: str, body: dict[str, Any]) -> tuple[dict[str, Any], int]:
+        """Set the current user's attendance status for an event.
+
+        :param event_key: Opaque key of the event in the user's calendar.
+        :param body: Validated request body with ``status`` (accepted / declined / tentative / delegated).
+        :return: API envelope with the updated event, plus HTTP status code.
+        """
+        try:
+            attendance: AttendeeStatus = AttendeeStatus(body["status"])
+            updated: CalEvent = self.module.set_attendance_status(self.user, event_key, attendance)
+            return create_api_base_response(self._event_serializer.serialize(updated))
+        except RequestException as ex:
+            logger_api.error("set_attendance_status failed for user %s event %s: %s", self.user.uid, event_key, ex)
+            return create_api_base_response(None, ex.error)
+        except ValueError as exc:
+            logger_api.error("Invalid attendance status value for event %s: %s", event_key, exc)
             return create_api_base_response(None, ERROR_CALENDAR_JSON_PARSE_FAILED)
 
     def delete_event(self, event_key: str) -> tuple[dict[str, Any], int]:

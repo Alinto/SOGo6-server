@@ -1,4 +1,4 @@
-from __future__ import annotations  # pylint: disable=duplicate-code
+from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
@@ -103,6 +103,22 @@ class RepositoryCalendar:
         ))
         # pylint: enable=duplicate-code
 
+        if not rows:
+            return None
+        return self._row_to_calendar(rows[0])
+
+    def get_default_calendar_for_user(self, user_uid: str) -> CalCalendar | None:
+        """Return the default calendar for user_uid, or None if not found."""
+        condition = AndCondition(
+            EqualCondition(tbl.COL_CAL_USER_UID.name, user_uid),
+            EqualCondition(tbl.COL_CAL_IS_DEFAULT.name, True),
+        )
+        rows = list(self._db.select_from_table(
+            table_name=tbl.TABLE_CALENDAR.name,
+            column_tuple=_ALL_COLS,
+            condition=condition,
+            limit=1,
+        ))
         if not rows:
             return None
         return self._row_to_calendar(rows[0])

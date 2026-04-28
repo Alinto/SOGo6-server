@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+# pylint: disable=raise-missing-from
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
-# pylint: disable=fixme
-
 from app.module.calendar.CalendarConst import MAX_EVENT_FETCH_DAYS, MAX_FREEBUSY_DAYS, MAX_TASK_FETCH_DAYS
 from app.module.calendar.freebusy.FreeBusyEngine import FreeBusyEngine, FreeBusyPrefs
+from app.module.calendar.imip.ImipBuilder import ImipBuilder
+from app.module.calendar.imip.ImipProcessor import ImipProcessor
 from app.module.calendar.model.CalCalendar import CalCalendar
+from app.module.calendar.model.CalOrganizer import CalOrganizer
+from app.module.calendar.model.enums.AttendeeStatus import AttendeeStatus
 from app.module.calendar.model.enums.ComponentType import ComponentType
 from app.module.calendar.repository.RepositoryEvent import RepositoryEvent
 from app.module.calendar.source.CalendarSources import CalendarSources
@@ -22,17 +25,17 @@ if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
     from app.manager.db.ClientSQL import ClientSQL
 
+    from app.module.calendar.imip.ImipMessage import ImipMessage
     from app.module.calendar.model.CalEvent import CalEvent
     from app.module.calendar.model.CalFreeBusyPeriod import CalFreeBusyPeriod
     from app.module.calendar.source.CalendarSource import CalendarSource
-    from app.module.calendar.source.CalendarSourceDb import CalendarSourceDb
 
 
-class ModuleCalendar:
+class ModuleCalendar:  # pylint: disable=too-many-public-methods
     """Module for calendar and event operations."""
 
     def __init__(self, process_settings: ProcessSetting) -> None:
-        sogo_db_type = f"Client{process_settings.SOGO_P_DB_TYPE}"
+        sogo_db_type: str = f"Client{process_settings.SOGO_P_DB_TYPE}"
         self._db: ClientSQL = import_and_instantiate_manager(
             module_path="app.manager.db",
             module_and_class_name=sogo_db_type,
@@ -40,6 +43,7 @@ class ModuleCalendar:
         )
         self._db.connect()
         self._sources: CalendarSources = CalendarSources(self._db)
+        self._imip: ImipProcessor = ImipProcessor(self._sources)
 
     def __del__(self) -> None:
         self._db.close()
@@ -52,10 +56,10 @@ class ModuleCalendar:
         for source in self._sources.get_all(user_uid):
             if source.calendar.is_default:
                 return source.calendar
-        cal = CalCalendar(user_uid=user_uid, name=name, is_default=True)
+        cal: CalCalendar = CalCalendar(user_uid=user_uid, name=name, is_default=True)
         cal.key = generate_uuid()
         cal.ctag = 0
-        source = self._sources.get(cal)
+        source: CalendarSource = self._sources.get(cal)
         return source.save_calendar(cal)
 
     # ------------------------------------------------------------------
@@ -67,7 +71,7 @@ class ModuleCalendar:
 
     def get_calendar(self, user: User, key: str) -> CalendarSource:
         """Return the source for a calendar, or raise NOT_FOUND."""
-        source:CalendarSource = self._sources.get_by_key(user.uid, key)
+        source: CalendarSource | None = self._sources.get_by_key(user.uid, key)
         if source is None:
             raise RequestException(error=err.ERROR_CALENDAR_NOT_FOUND)
         return source
@@ -77,62 +81,86 @@ class ModuleCalendar:
         cal.user_uid = user.uid
         cal.key = generate_uuid()
         cal.ctag = 0
-        source:CalendarSource = self._sources.get(cal)
+        source: CalendarSource = self._sources.get(cal)
         return source.save_calendar(cal)
 
     def update_calendar(self, user: User, key: str, updates: dict) -> CalCalendar:
         """Apply updates to an existing calendar and persist it."""
-        source:CalendarSource = self.get_calendar(user, key)
-        cal = source.calendar
+        source: CalendarSource = self.get_calendar(user, key)
+        cal: CalCalendar = source.calendar
         cal.apply_update(updates)
         source.update_calendar(cal)
         return cal
 
     def delete_calendar(self, user: User, key: str) -> None:
         """Delete a calendar and all its events."""
-        source:CalendarSource = self.get_calendar(user, key)
+        source: CalendarSource = self.get_calendar(user, key)
         source.delete_calendar()
 
-    def _bump_ctag(self, source: CalendarSource) -> None:
-        """Increment the calendar's ctag to signal that its event collection has changed.
+    # ------------------------------------------------------------------
+    # Events — internal helpers
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _normalize_all_day(event: CalEvent) -> None:
+        """Ensure all-day events have a valid exclusive DTEND (RFC 5545 §3.6.1).
 
-        CalDAV clients use the CS:getctag extension (RFC 4791 / draft-daboo-caldav-extensions)
-        to detect changes without fetching every event: they cache the ctag and re-query only
-        when the value differs from the server's current value.
+        For all-day events, DTEND must be strictly greater than DTSTART.
+        If date_end <= date_start, advance date_end to date_start + 1 day.
         """
-        cal = source.calendar
-        cal.ctag = (cal.ctag or 0) + 1
-        source.update_calendar(cal)
+        if event.all_day and event.date_end <= event.date_start:
+            event.date_end = event.date_start + timedelta(days=1)
 
-    # ------------------------------------------------------------------
-    # Events
-    # ------------------------------------------------------------------
     def _find_source_for_event(self, user: User, event_key: str) -> tuple[CalendarSource, CalEvent]:
-        """Find the source and event for a given event key across user's calendars."""
+        """Find the source and event by event_key (opaque UUID stored in the key column of sogo_events, not the uid)."""
         for source in self._sources.get_all(user.uid):
-            event = source.get_event(event_key)
+            event: CalEvent | None = source.get_event(event_key)
             if event is not None:
                 return source, event
         raise RequestException(error=err.ERROR_CALENDAR_EVENT_NOT_FOUND)
 
+    def _find_source_for_event_by_uid(self, user: User, uid: str) -> tuple[CalendarSource, CalEvent]:
+        """Find the source and master event by RFC 5545 UID (semantic identifier) across user's calendars."""
+        result: tuple[CalendarSource, CalEvent] | None = self._sources.find_by_uid(user.uid, uid)
+        if result is None:
+            raise RequestException(error=err.ERROR_CALENDAR_EVENT_NOT_FOUND)
+
+        return result
+
+    def _find_default_source(self, user: User) -> CalendarSource:
+        """Return the user's default writable calendar source, or raise NOT_FOUND."""
+        source: CalendarSource | None = self._sources.get_default(user.uid)
+        if source is None:
+            raise RequestException(error=err.ERROR_CALENDAR_NOT_FOUND)
+
+        return source
+
+    # ------------------------------------------------------------------
+    # Events — CRUD
+    # ------------------------------------------------------------------
     def create_event(self, user: User, calendar_key: str, event: CalEvent) -> CalEvent:
-        """Persist a new event in the calendar and return it."""
-        source:CalendarSource = self.get_calendar(user, calendar_key)
+        """Persist a new event in the calendar and propagate it to local attendees."""
+        source: CalendarSource = self.get_calendar(user, calendar_key)
         if not source.is_writable():
             raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
         event.calendar_key = source.calendar.key
         if not event.uid:
             event.uid = generate_uuid()
+        if event.attendees and not event.organizer:
+            event.organizer = CalOrganizer(email=user.uid)
+        self._normalize_all_day(event)
         try:
-            created = source.insert_event(event)
-            self._bump_ctag(source)
-            # TODO: send iMIP email (METHOD:REQUEST) to attendees
+            created: CalEvent = source.insert_event(event)
+            self._sources.propagate_new_event_to_local_attendees(created)
+            imip_msg: ImipMessage | None = ImipBuilder.build_request(created)
+            if imip_msg:
+                logger_calendar.info("iMIP REQUEST built for event %s to %s", created.uid, imip_msg.to_emails)
+                # TODO: dispatch imip_msg via agent transport (Celery + SMTP) once the agent is in place
             return created
         except RequestException:
             raise
         except Exception as exc:
             logger_calendar.error("Unexpected error creating event in calendar %s: %s", calendar_key, exc)
-            raise RequestException(error=err.ERROR_CALENDAR_EVENT_INSERT_FAILED) from exc
+            raise RequestException(error=err.ERROR_CALENDAR_EVENT_INSERT_FAILED)
 
     def get_event(self, user: User, event_key: str) -> CalEvent:
         """Return a single event by key across the user's calendars, or raise NOT_FOUND."""
@@ -145,16 +173,21 @@ class ModuleCalendar:
         if not source.is_writable():
             raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
         event.apply_update(updates)
+        self._normalize_all_day(event)
+        event.sequence += 1
+        is_organizer: bool = bool(event.organizer and event.organizer.email == user.uid)
         try:
-            source.update_event(event)
-            self._bump_ctag(source)
-            # TODO: send iMIP email (METHOD:REQUEST) to attendees if organizer field is set
+            source.update_event(event, propagate=is_organizer)
+            imip_msg: ImipMessage | None = ImipBuilder.build_request(event)
+            if imip_msg:
+                logger_calendar.info("iMIP REQUEST built for updated event %s to %s", event.uid, imip_msg.to_emails)
+                # TODO: dispatch imip_msg via agent transport (Celery + SMTP) once the agent is in place
             return event
         except RequestException:
             raise
         except Exception as exc:
             logger_calendar.error("Unexpected error updating event %s: %s", event_key, exc)
-            raise RequestException(error=err.ERROR_CALENDAR_EVENT_UPDATE_FAILED) from exc
+            raise RequestException(error=err.ERROR_CALENDAR_EVENT_UPDATE_FAILED)
 
     def delete_event(self, user: User, event_key: str) -> None:
         """Soft-delete an event by key.
@@ -169,15 +202,19 @@ class ModuleCalendar:
         try:
             if event.recurrence_id is not None:
                 source.delete_detached_occurrence(event)
+            elif event.organizer and event.organizer.email == user.uid:
+                source.delete_event_as_organizer(event.uid)
             else:
                 source.delete_event(event.uid)
-            self._bump_ctag(source)
-            # TODO: send iMIP email (METHOD:CANCEL) to attendees if organizer field is set
+            imip_msg: ImipMessage | None = ImipBuilder.build_cancel(event)
+            if imip_msg:
+                logger_calendar.info("iMIP CANCEL built for event %s to %s", event.uid, imip_msg.to_emails)
+                # TODO: dispatch imip_msg via agent transport (Celery + SMTP) once the agent is in place
         except RequestException:
             raise
         except Exception as exc:
             logger_calendar.error("Unexpected error deleting event %s: %s", event_key, exc)
-            raise RequestException(error=err.ERROR_UNKOWN) from exc
+            raise RequestException(error=err.ERROR_UNKOWN)
 
     def get_events(
         self,
@@ -203,7 +240,60 @@ class ModuleCalendar:
             raise
         except Exception as exc:
             logger_calendar.error("Unexpected error fetching events (calendar=%s): %s", key, exc)
-            raise RequestException(error=err.ERROR_UNKOWN) from exc
+            raise RequestException(error=err.ERROR_UNKOWN)
+
+    # ------------------------------------------------------------------
+    # Attendance
+    # ------------------------------------------------------------------
+    def set_attendance_status(self, user: User, event_key: str, status: AttendeeStatus) -> CalEvent:
+        """Update the current user's attendance status (PARTSTAT) for an event.
+
+        Called when the user accepts, declines, or tentatively accepts an invitation via the REST API.
+        Does not increment SEQUENCE — PARTSTAT is not a content change (RFC 5545 §3.8.7.4).
+        Propagates the status to all other local copies of the event (organizer + other attendees).
+
+        :param user: The attendee updating their status.
+        :param event_key: Opaque key of the attendee's own copy of the event.
+        :param status: The new attendance status.
+        :return: The updated event.
+        """
+        source, event = self._find_source_for_event(user, event_key)
+        if not source.is_writable():
+            raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
+        for attendee in event.attendees:
+            if attendee.email == user.uid:
+                attendee.status = status
+                break
+        try:
+            # propagate=False: PARTSTAT update is attendee-local per RFC 5546 §3.2.3 — must not overwrite other attendees' copies
+            source.update_event(event)
+            # Push PARTSTAT change to organizer's copy and any other local attendee copies
+            source.propagate_partstat_to_copies(event, user.uid, status)
+            imip_msg: ImipMessage | None = ImipBuilder.build_reply(event, user)
+            if imip_msg:
+                logger_calendar.info("iMIP REPLY built for event %s to %s", event.uid, imip_msg.to_emails)
+                # TODO: dispatch imip_msg via agent transport (Celery + SMTP) once the agent is in place
+            return event
+        except RequestException:
+            raise
+        except Exception as exc:
+            logger_calendar.error("Unexpected error updating attendance for event %s: %s", event_key, exc)
+            raise RequestException(error=err.ERROR_CALENDAR_ATTENDANCE_UPDATE_FAILED)
+
+    # ------------------------------------------------------------------
+    # iMIP — thin wrappers delegating to ImipProcessor
+    # ------------------------------------------------------------------
+    def process_imip_reply(self, user: User, ical_bytes: bytes, from_email: str) -> CalEvent:
+        """Process an incoming iMIP REPLY. Delegates to ImipProcessor."""
+        return self._imip.process_reply(user, ical_bytes, from_email)
+
+    def process_imip_request(self, user: User, ical_bytes: bytes, from_email: str) -> CalEvent:
+        """Process an incoming iMIP REQUEST. Delegates to ImipProcessor."""
+        return self._imip.process_request(user, ical_bytes, from_email)
+
+    def process_imip_cancel(self, user: User, ical_bytes: bytes, from_email: str) -> None:
+        """Process an incoming iMIP CANCEL. Delegates to ImipProcessor."""
+        self._imip.process_cancel(user, ical_bytes, from_email)
 
     # ------------------------------------------------------------------
     # Tasks
@@ -218,14 +308,13 @@ class ModuleCalendar:
         if not task.uid:
             task.uid = generate_uuid()
         try:
-            created = source.insert_event(task)
-            self._bump_ctag(source)
+            created: CalEvent = source.insert_event(task)
             return created
         except RequestException:
             raise
         except Exception as exc:
             logger_calendar.error("Unexpected error creating task in calendar %s: %s", calendar_key, exc)
-            raise RequestException(error=err.ERROR_CALENDAR_EVENT_INSERT_FAILED) from exc
+            raise RequestException(error=err.ERROR_CALENDAR_EVENT_INSERT_FAILED)
 
     def get_task(self, user: User, task_key: str) -> CalEvent:
         """Return a single VTODO by key, or raise TASK_NOT_FOUND."""
@@ -244,13 +333,12 @@ class ModuleCalendar:
         task.apply_update(updates)
         try:
             source.update_event(task)
-            self._bump_ctag(source)
             return task
         except RequestException:
             raise
         except Exception as exc:
             logger_calendar.error("Unexpected error updating task %s: %s", task_key, exc)
-            raise RequestException(error=err.ERROR_CALENDAR_EVENT_UPDATE_FAILED) from exc
+            raise RequestException(error=err.ERROR_CALENDAR_EVENT_UPDATE_FAILED)
 
     def delete_task(self, user: User, task_key: str) -> None:
         """Soft-delete a VTODO by key."""
@@ -261,12 +349,11 @@ class ModuleCalendar:
             raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
         try:
             source.delete_event(task.uid)
-            self._bump_ctag(source)
         except RequestException:
             raise
         except Exception as exc:
             logger_calendar.error("Unexpected error deleting task %s: %s", task_key, exc)
-            raise RequestException(error=err.ERROR_UNKOWN) from exc
+            raise RequestException(error=err.ERROR_UNKOWN)
 
     def get_tasks(
         self,
@@ -292,7 +379,7 @@ class ModuleCalendar:
             raise
         except Exception as exc:
             logger_calendar.error("Unexpected error fetching tasks (calendar=%s): %s", key, exc)
-            raise RequestException(error=err.ERROR_UNKOWN) from exc
+            raise RequestException(error=err.ERROR_UNKOWN)
 
     # ------------------------------------------------------------------
     # Maintenance
@@ -304,11 +391,11 @@ class ModuleCalendar:
         Returns the total number of rows purged. At least one of user_uid or calendar_key must
         be provided. When user_uid is given, all calendars currently owned by that user are cleaned.
         """
-        repo = RepositoryEvent(self._db)
+        repo: RepositoryEvent = RepositoryEvent(self._db)
         if calendar_key is not None:
             return repo.purge_deleted(calendar_key)
         if user_uid is not None:
-            keys = [s.calendar.key for s in self._sources.get_all(user_uid)]
+            keys: list[str] = [s.calendar.key for s in self._sources.get_all(user_uid)]
             return sum(repo.purge_deleted(k) for k in keys)
         return 0
 
@@ -341,4 +428,4 @@ class ModuleCalendar:
             raise
         except Exception as exc:
             logger_calendar.error("Unexpected error computing freebusy for uid=%s: %s", target_uid, exc)
-            raise RequestException(error=err.ERROR_UNKOWN) from exc
+            raise RequestException(error=err.ERROR_UNKOWN)

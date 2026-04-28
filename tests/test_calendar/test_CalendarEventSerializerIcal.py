@@ -23,6 +23,7 @@ from app.module.calendar.model.enums.ReminderMethod import ReminderMethod
 from app.module.calendar.model.enums.ShowAs import ShowAs
 from app.module.calendar.model.enums.ComponentType import ComponentType
 from app.module.calendar.serializer.CalendarEventSerializerIcal import CalendarEventSerializerIcal
+from app.module.calendar.serializer.CalendarEventsSerializerIcal import CalendarEventsSerializerIcal
 
 
 def _unfolded_lines(ical_text: str) -> list[str]:
@@ -545,3 +546,37 @@ def test_attach_binary(serializer):
     lines = _unfolded_lines(output)
     # icalendar trie les params alphabetiquement — on verifie chaque param independamment
     assert any("ATTACH" in ln and "ENCODING=BASE64" in ln and "VALUE=BINARY" in ln and "FMTTYPE=text/plain" in ln for ln in lines)
+
+
+# ==========================================================================
+# CalendarEventsSerializerIcal — VCALENDAR envelope
+# ==========================================================================
+
+def test_vcalendar_envelope():
+    """build_vcalendar wraps events in a valid VCALENDAR block with required properties."""
+    s = CalendarEventsSerializerIcal(CalendarEventSerializerIcal())
+    event = CalEvent(
+        uid="e@e.com", title="T",
+        date_start=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        date_end=datetime(2026, 1, 1, 1, tzinfo=timezone.utc),
+    )
+    result = s.serialize([event])
+    lines = result.splitlines()
+    assert lines[0] == "BEGIN:VCALENDAR"
+    assert lines[-1] == "END:VCALENDAR"
+    assert "VERSION:2.0" in result
+    assert "PRODID:" in result
+    assert "BEGIN:VEVENT" in result
+
+
+def test_vcalendar_multiple_events_and_empty():
+    """build_vcalendar emits one VEVENT per event; empty list produces no VEVENT."""
+    s = CalendarEventsSerializerIcal(CalendarEventSerializerIcal())
+    events = [
+        CalEvent(uid=f"e{i}@e.com", title=f"E{i}",
+                 date_start=datetime(2026, 1, i + 1, tzinfo=timezone.utc),
+                 date_end=datetime(2026, 1, i + 1, 1, tzinfo=timezone.utc))
+        for i in range(3)
+    ]
+    assert s.serialize(events).count("BEGIN:VEVENT") == 3
+    assert "BEGIN:VEVENT" not in s.serialize([])

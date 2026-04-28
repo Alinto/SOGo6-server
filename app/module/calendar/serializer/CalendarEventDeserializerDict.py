@@ -49,7 +49,7 @@ class CalendarEventDeserializerDict(CalendarEventDeserializer[dict]):
             date_start=self._parse_dt(data["date_start"]),
             date_end=self._parse_dt(data["date_end"]),
             all_day=data.get("all_day", False),
-            timezone=data.get("timezone", "UTC"),
+            timezone=data.get("timezone") or None,
             status=self._parse_enum(EventStatus, data.get("status"), EventStatus.CONFIRMED),
             visibility=self._parse_enum(EventVisibility, data.get("visibility"), EventVisibility.PUBLIC),
             show_as=self._parse_enum(ShowAs, data.get("show_as"), ShowAs.BUSY),
@@ -163,6 +163,18 @@ class CalendarEventDeserializerDict(CalendarEventDeserializer[dict]):
             result["related_to"] = [self._parse_relation(r) for r in result["related_to"]]
         if "recurrence_exceptions" in result:
             result["recurrence_exceptions"] = [self._parse_dt(d) for d in result["recurrence_exceptions"]]
+        if "date_start" in result:
+            result["date_start"] = self._parse_dt(result["date_start"])
+        if "date_end" in result:
+            result["date_end"] = self._parse_dt(result["date_end"])
+        if "completed_at" in result:
+            result["completed_at"] = self._parse_dt_opt(result["completed_at"])
+        if "status" in result:
+            result["status"] = self._parse_enum(EventStatus, result["status"], EventStatus.CONFIRMED)
+        if "visibility" in result:
+            result["visibility"] = self._parse_enum(EventVisibility, result["visibility"], EventVisibility.PUBLIC)
+        if "show_as" in result:
+            result["show_as"] = self._parse_enum(ShowAs, result["show_as"], ShowAs.BUSY)
         return result
 
     def _parse_recurrence_rule(self, data: dict[str, Any] | None) -> CalRecurrenceRule | None:

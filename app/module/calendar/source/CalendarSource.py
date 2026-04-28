@@ -12,6 +12,7 @@ from app.utils.exceptions import RequestException
 if TYPE_CHECKING:
     from app.module.calendar.model.CalCalendar import CalCalendar
     from app.module.calendar.model.CalEvent import CalEvent
+    from app.module.calendar.model.enums.AttendeeStatus import AttendeeStatus
 
 _DEFAULT_START: datetime = datetime(1970, 1, 1, tzinfo=timezone.utc)
 _DEFAULT_END_SEARCH: datetime = datetime(9999, 12, 31, tzinfo=timezone.utc)
@@ -217,16 +218,28 @@ class CalendarSource(ABC):
         """Return a single event by key, or None if not found or not supported by this source."""
         return None
 
+    def get_master_event_by_uid(self, uid: str) -> CalEvent | None:
+        """Return the master event (recurrence_id IS NULL) matching the given UID, or None if not found."""
+        return None
+
     def insert_event(self, event: CalEvent) -> CalEvent:
         """Persist a new event. Raises NOT_SUPPORTED on read-only sources."""
         raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
 
-    def update_event(self, event: CalEvent) -> None:
+    def update_event(self, event: CalEvent, propagate: bool = False) -> None:
         """Update an existing event. Raises NOT_SUPPORTED on read-only sources."""
         raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
 
     def delete_event(self, uid: str) -> None:
         """Soft-delete an event by uid. Raises NOT_SUPPORTED on read-only sources."""
+        raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
+
+    def delete_event_as_organizer(self, uid: str) -> None:
+        """Soft-delete all copies of an event across all attendee calendars.
+
+        Called when an organizer cancels an event to propagate the deletion to every
+        local attendee copy. Raises NOT_SUPPORTED on read-only sources.
+        """
         raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
 
     def delete_detached_occurrence(self, occurrence: CalEvent) -> None:
@@ -236,3 +249,10 @@ class CalendarSource(ABC):
         Raises NOT_SUPPORTED on read-only sources.
         """
         raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
+
+    def propagate_partstat_to_copies(self, event: CalEvent, attendee_email: str, status: AttendeeStatus) -> None:
+        """Propagate an attendee's PARTSTAT change to all other local copies of the event.
+
+        No-op on read-only sources. DB-backed sources mirror the status update to every
+        other copy sharing the same UID (organizer + other local attendees).
+        """

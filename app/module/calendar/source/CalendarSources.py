@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import os
 from datetime import datetime
 
@@ -56,6 +57,23 @@ class CalendarSources:
     def get_all(self, user_uid: str) -> list[CalendarSource]:
         """Return a source for every calendar owned by user_uid."""
         return [self.get(cal) for cal in self._repo_calendar.find_all(user_uid)]
+
+    def get_default(self, user_uid: str) -> CalendarSource | None:
+        """Return the default writable calendar source for user_uid, or None if the user has no local calendar."""
+        cal: CalCalendar | None = self._repo_calendar.get_default_calendar_for_user(user_uid)
+        return self.get(cal) if cal is not None else None
+
+    def find_by_uid(self, user_uid: str, uid: str) -> tuple[CalendarSource, CalEvent] | None:
+        """Find a master event by RFC 5545 UID across all calendars of user_uid.
+
+        Returns (source, event) for the first calendar containing a master row with that UID,
+        or None if no such event exists.
+        """
+        for source in self.get_all(user_uid):
+            event: CalEvent | None = source.get_master_event_by_uid(uid)
+            if event is not None:
+                return source, event
+        return None
 
     def get_by_key(self, user_uid: str, key: str) -> CalendarSource | None:
         """Return the source for a specific calendar, or None if not found."""
@@ -116,3 +134,41 @@ class CalendarSources:
             tasks.extend(source.get_tasks(start, end, search))
         tasks.sort(key=lambda e: e.date_start)
         return tasks
+
+    def propagate_new_event_to_local_attendees(self, event: CalEvent) -> None:
+        """Insert a copy of a newly created event into each local attendee's calendar.
+
+        Called once at creation time — this is NOT for updates (use CalendarSourceDb.update_event
+        with propagate=True for that). The goal is to make the invitation visible in the attendee's
+        calendar immediately, without waiting for an iMIP email exchange.
+
+        For each attendee listed on the event:
+        - Skip the organizer (they already have the master copy).
+        - Resolve the attendee's default writable calendar; fall back to their first writable calendar
+          if no default is set. Skip entirely if no writable calendar is found (external user).
+        - Insert a stripped copy: key is reset (DB assigns a new one), reminders are cleared
+          (each attendee manages their own), calendar_key points to the attendee's calendar.
+
+        External attendees (no local account → no calendars) are silently skipped; the iMIP
+        agent handles them via email.
+        """
+        if not event.organizer or not event.attendees:
+            return
+        for attendee in event.attendees:
+            # Organizer already holds the master row — do not create a duplicate
+            if attendee.email == event.organizer.email:
+                continue
+            attendee_source: CalendarSource | None = self.get_default(attendee.email)
+            if attendee_source is None:
+                # No default calendar set — fall back to first writable calendar
+                writable: list[CalendarSource] = [s for s in self.get_all(attendee.email) if s.is_writable()]
+                attendee_source = writable[0] if writable else None
+            if attendee_source is None:
+                # No local calendar at all — external attendee, iMIP handles it
+                continue
+            try:
+                copy: CalEvent = dataclasses.replace(event, key=None, calendar_key=attendee_source.calendar.key, reminders=[])
+                attendee_source.insert_event(copy)
+                logger_calendar.info("Propagated event uid=%s to local attendee %s", event.uid, attendee.email)
+            except Exception as exc:  # pylint: disable=broad-except
+                logger_calendar.warning("Could not propagate event uid=%s to attendee %s: %s", event.uid, attendee.email, exc)

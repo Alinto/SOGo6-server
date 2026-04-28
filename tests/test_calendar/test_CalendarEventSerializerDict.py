@@ -25,6 +25,7 @@ from app.module.calendar.model.enums.ShowAs import ShowAs
 from app.module.calendar.model.enums.ComponentType import ComponentType
 from app.module.calendar.model.CalRecurrenceRule import CalRecurrenceRule
 from app.module.calendar.model.enums.RecurrenceFrequency import RecurrenceFrequency
+from app.module.calendar.serializer.CalendarEventDeserializerDict import CalendarEventDeserializerDict
 from app.module.calendar.serializer.CalendarEventSerializerDict import CalendarEventSerializerDict
 
 _UTC = timezone.utc
@@ -332,3 +333,39 @@ def test_conference_data_and_attachment(serializer):
     assert d["conference_data"]["type"] == "zoom"
     assert d["conference_data"]["entry_points"][0]["label"] == "Zoom"
     assert d["attachments"][0]["filename"] == "report.pdf"
+
+
+# ========== Detached occurrences (parent_uid / recurrence_id) ==========
+
+def test_serializer_includes_parent_uid(serializer):
+    event = CalEvent(
+        uid="u@e.com", title="T",
+        date_start=datetime(2026, 1, 1, tzinfo=_UTC),
+        date_end=datetime(2026, 1, 1, 1, tzinfo=_UTC),
+        parent_uid="master@example.com",
+    )
+    assert serializer.serialize(event)["parent_uid"] == "master@example.com"
+
+
+def test_deserializer_parses_parent_uid():
+    data = {
+        "uid": "u@e.com", "title": "T",
+        "date_start": "2026-01-01T00:00:00.000Z",
+        "date_end": "2026-01-01T01:00:00.000Z",
+        "parent_uid": "master@example.com",
+    }
+    assert CalendarEventDeserializerDict().deserialize(data).parent_uid == "master@example.com"
+
+
+def test_occurrence_roundtrip_preserves_parent_uid(serializer):
+    rid = datetime(2026, 3, 9, 9, 0, tzinfo=_UTC)
+    occ = CalEvent(
+        uid="master@example.com", title="Modified",
+        date_start=rid, date_end=rid.replace(hour=11),
+        recurrence_id=rid, parent_uid="master@example.com",
+    )
+    blob = serializer.serialize(occ)
+    restored = CalendarEventDeserializerDict().deserialize(blob)
+    assert restored.parent_uid == "master@example.com"
+    assert restored.recurrence_id == rid
+    assert restored.recurrence_rule is None

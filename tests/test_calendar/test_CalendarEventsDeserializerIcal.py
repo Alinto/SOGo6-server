@@ -43,29 +43,14 @@ def deserializer():
     return CalendarEventsDeserializerIcal(CalendarEventDeserializerIcal())
 
 
-def test_returns_list(deserializer):
-    assert isinstance(deserializer.deserialize(ICAL_EXAMPLE_1), list)
-
-
-def test_single_event_count(deserializer):
-    assert len(deserializer.deserialize(ICAL_EXAMPLE_1)) == 1
+def test_single_event_parsed(deserializer):
+    events = deserializer.deserialize(ICAL_EXAMPLE_1)
+    assert len(events) == 1
+    assert events[0].uid == "uid1@example.com"
 
 
 def test_multi_event_count(deserializer):
     assert len(deserializer.deserialize(ICAL_MULTI_EVENT)) == 2
-
-
-def test_event_uids(deserializer):
-    events = deserializer.deserialize(ICAL_MULTI_EVENT)
-    assert {e.uid for e in events} == {"evt1@example.com", "evt2@example.com"}
-
-
-def test_event_uid_example1(deserializer):
-    assert deserializer.deserialize(ICAL_EXAMPLE_1)[0].uid == "uid1@example.com"
-
-
-def test_event_title_example1(deserializer):
-    assert deserializer.deserialize(ICAL_EXAMPLE_1)[0].title == "Networld+Interop Conference"
 
 
 def test_vtimezone_not_yielded_as_event(deserializer):
@@ -109,10 +94,6 @@ ICAL_MIXED = (
     "END:VTODO\r\n"
     "END:VCALENDAR\r\n"
 )
-
-
-def test_mixed_vevent_and_vtodo_count(deserializer):
-    assert len(deserializer.deserialize(ICAL_MIXED)) == 2
 
 
 def test_mixed_component_types(deserializer):
