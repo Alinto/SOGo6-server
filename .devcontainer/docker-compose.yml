@@ -35,6 +35,7 @@ services:
       # SOGO_P_DB_TYPE: MySQL
     volumes:
       - ..:/workspace
+      - ./conf/sogo/process.conf:/etc/sogo/process.conf:ro
     depends_on:
       - redis
 

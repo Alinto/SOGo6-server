@@ -1,12 +1,23 @@
 from typing import Any
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.utils.exceptions import BugException
+
+# Path to the process configuration file (key=value format).
+# Environment variables always take precedence over values defined in this file.
+PROCESS_CONF_PATH = "/etc/sogo/process.conf"
+
 
 class FlaskConfig(BaseSettings):
     """
     Contains settings for Flask application
     """
+
+    model_config = SettingsConfigDict(
+        env_file=PROCESS_CONF_PATH,
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
     #Flask
     ######
