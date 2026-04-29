@@ -94,6 +94,9 @@ class ProcessSetting(FlaskConfig):
 
     SOGO_LOG_PATH: str = "/var/log/sogo/sogo.log"
 
+    SOGO_INIT_SYSTEM_SETTINGS_PATH: str = ""
+    SOGO_INIT_DOMAIN_SETTINGS_PATH: str = ""
+
     def __getitem__(self, i:str) -> Any:
         if hasattr(self, i):
             return getattr(self, i)
