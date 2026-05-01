@@ -11,6 +11,7 @@ from app.module.calendar.model.CalAttendee import CalAttendee
 from app.module.calendar.model.CalCalendar import CalCalendar
 from app.module.calendar.model.CalEvent import CalEvent
 from app.module.calendar.model.CalOrganizer import CalOrganizer
+from app.module.calendar.rrule.RecurrenceScopeProcessor import EventAction
 from app.module.calendar.source.CalendarSource import CalendarSource
 from app.utils import errors as err
 from app.utils.exceptions import RequestException
@@ -61,17 +62,17 @@ class FakeCalendarSource(CalendarSource):
         self._calendar.ctag = (self._calendar.ctag or 0) + 1
         return event
 
-    def update_event(self, event, propagate=False):
+    def realign_detached_occurrences(self, uid, old_start, new_start):
+        self.realigned = {"uid": uid, "old_start": old_start, "new_start": new_start}
+        return []
+
+    def update_event(self, event):
         self._events[event.key] = event
         self.updated.append(event)
         self._calendar.ctag = (self._calendar.ctag or 0) + 1
 
     def delete_event(self, uid):
         self.deleted_uids.append(uid)
-        self._calendar.ctag = (self._calendar.ctag or 0) + 1
-
-    def delete_event_as_organizer(self, uid):
-        self.deleted_uids.append(f"organizer:{uid}")
         self._calendar.ctag = (self._calendar.ctag or 0) + 1
 
     def delete_detached_occurrence(self, occurrence):
@@ -152,7 +153,7 @@ def test_create_event_sets_calendar_key():
     source = _make_source("cal-key")
     module = _build_module({"cal-key": source})
     event = _make_event()
-    result = module.create_event(_fake_user(), "cal-key", event)
+    result = module.create_event(_fake_user(), "cal-key", event, CalOrganizer(email="user@example.com"))
     assert result.calendar_key == source.calendar.key
 
 
@@ -160,7 +161,7 @@ def test_create_event_generates_uid_when_absent():
     source = _make_source("cal-key")
     module = _build_module({"cal-key": source})
     event = _make_event(uid="")
-    module.create_event(_fake_user(), "cal-key", event)
+    module.create_event(_fake_user(), "cal-key", event, CalOrganizer(email="user@example.com"))
     assert event.uid != ""
 
 
@@ -168,7 +169,7 @@ def test_create_event_preserves_uid_when_present():
     source = _make_source("cal-key")
     module = _build_module({"cal-key": source})
     event = _make_event(uid="existing-uid@example.com")
-    module.create_event(_fake_user(), "cal-key", event)
+    module.create_event(_fake_user(), "cal-key", event, CalOrganizer(email="user@example.com"))
     assert event.uid == "existing-uid@example.com"
 
 
@@ -176,7 +177,7 @@ def test_create_event_bumps_ctag():
     source = _make_source("cal-key")
     module = _build_module({"cal-key": source})
     event = _make_event()
-    module.create_event(_fake_user(), "cal-key", event)
+    module.create_event(_fake_user(), "cal-key", event, CalOrganizer(email="user@example.com"))
     assert source.calendar.ctag == 1
 
 
@@ -184,24 +185,30 @@ def test_create_event_raises_on_read_only_source():
     source = _make_source("cal-key", writable=False)
     module = _build_module({"cal-key": source})
     with pytest.raises(RequestException) as exc_info:
-        module.create_event(_fake_user(), "cal-key", _make_event())
+        module.create_event(_fake_user(), "cal-key", _make_event(), CalOrganizer(email="user@example.com"))
     assert exc_info.value.error == err.ERROR_CALENDAR_NOT_SUPPORTED
 
 
 def test_create_event_raises_on_unknown_calendar():
     module = _build_module({})
     with pytest.raises(RequestException) as exc_info:
-        module.create_event(_fake_user(), "nonexistent", _make_event())
+        module.create_event(_fake_user(), "nonexistent", _make_event(), CalOrganizer(email="user@example.com"))
     assert exc_info.value.error == err.ERROR_CALENDAR_NOT_FOUND
 
 
 # ========== update_event ==========
 
+def _merge(event, **kwargs):
+    """Simulate deserialize_with_update: copy event and apply kwargs."""
+    import dataclasses as _dc
+    return _dc.replace(event, **kwargs)
+
+
 def test_update_event_applies_patch():
     event = _make_event(key="evt-key", title="Old title")
     source = _make_source(events=[event])
     module = _build_module({"cal-key": source})
-    result = module.update_event(_fake_user(), "evt-key", {"title": "New title"})
+    result = module.update_event(_fake_user(), "evt-key", _merge(event, title="New title"), CalOrganizer(email="user@example.com"))
     assert result.title == "New title"
 
 
@@ -209,7 +216,7 @@ def test_update_event_ignores_unknown_fields():
     event = _make_event(key="evt-key")
     source = _make_source(events=[event])
     module = _build_module({"cal-key": source})
-    result = module.update_event(_fake_user(), "evt-key", {"nonexistent_field": "value"})
+    result = module.update_event(_fake_user(), "evt-key", _merge(event), CalOrganizer(email="user@example.com"))
     assert result.uid == "evt@example.com"
 
 
@@ -217,7 +224,7 @@ def test_update_event_bumps_ctag():
     event = _make_event(key="evt-key")
     source = _make_source(events=[event])
     module = _build_module({"cal-key": source})
-    module.update_event(_fake_user(), "evt-key", {"title": "Updated"})
+    module.update_event(_fake_user(), "evt-key", _merge(event, title="Updated"), CalOrganizer(email="user@example.com"))
     assert source.calendar.ctag == 1
 
 
@@ -225,7 +232,7 @@ def test_update_event_not_found_raises():
     source = _make_source()
     module = _build_module({"cal-key": source})
     with pytest.raises(RequestException) as exc_info:
-        module.update_event(_fake_user(), "missing-key", {"title": "X"})
+        module.update_event(_fake_user(), "missing-key", _make_event(), CalOrganizer(email="user@example.com"))
     assert exc_info.value.error == err.ERROR_CALENDAR_EVENT_NOT_FOUND
 
 
@@ -234,8 +241,60 @@ def test_update_event_read_only_raises():
     source = _make_source(writable=False, events=[event])
     module = _build_module({"cal-key": source})
     with pytest.raises(RequestException) as exc_info:
-        module.update_event(_fake_user(), "evt-key", {"title": "X"})
+        module.update_event(_fake_user(), "evt-key", _merge(event), CalOrganizer(email="user@example.com"))
     assert exc_info.value.error == err.ERROR_CALENDAR_NOT_SUPPORTED
+
+
+def test_update_event_attendee_cannot_modify():
+    """An attendee (not the organizer) must not be able to modify event content."""
+    organizer = CalOrganizer(email="organizer@example.com")
+    event = _make_event(key="evt-key", organizer=organizer)
+    source = _make_source(events=[event])
+    module = _build_module({"cal-key": source})
+    with pytest.raises(RequestException) as exc_info:
+        module.update_event(_fake_user("attendee@example.com"), "evt-key", _merge(event, title="Hacked"), CalOrganizer(email="attendee@example.com"))
+    assert exc_info.value.error == err.ERROR_CALENDAR_NOT_ORGANIZER
+
+
+# ========== update_event — detached occurrence shift ==========
+
+def test_update_event_realigns_detached_when_start_changes():
+    """When 'All events' moves date_start, detached occurrences must be realigned."""
+    event = _make_event(key="evt-key", date_start=_dt(2026, 4, 27, 10), date_end=_dt(2026, 4, 27, 11))
+    source = _make_source(events=[event])
+    module = _build_module({"cal-key": source})
+    update = _merge(event, date_start=_dt(2026, 4, 27, 12), date_end=_dt(2026, 4, 27, 13))
+    module.update_event(_fake_user(), "evt-key", update, CalOrganizer(email="user@example.com"))
+    assert hasattr(source, "realigned")
+    assert source.realigned["uid"] == "evt@example.com"
+    assert source.realigned["old_start"] == _dt(2026, 4, 27, 10)
+    assert source.realigned["new_start"] == _dt(2026, 4, 27, 12)
+
+
+def test_update_event_no_realign_when_start_unchanged():
+    """When date_start stays the same, no realign should occur."""
+    event = _make_event(key="evt-key", date_start=_dt(2026, 4, 27, 10), date_end=_dt(2026, 4, 27, 11))
+    source = _make_source(events=[event])
+    module = _build_module({"cal-key": source})
+    update = _merge(event, title="Updated")
+    module.update_event(_fake_user(), "evt-key", update, CalOrganizer(email="user@example.com"))
+    assert not hasattr(source, "realigned")
+
+
+def test_update_detached_occurrence_propagates_to_attendee_copies():
+    """Editing a detached occurrence must propagate to attendee copies (not to their masters)."""
+    organizer = CalOrganizer(email="user@example.com")
+    detached = _make_event(
+        key="occ-key", uid="series@example.com",
+        recurrence_id=_dt(2026, 4, 30, 10),
+        recurrence_rule=None,
+        organizer=organizer,
+    )
+    source = _make_source(events=[detached])
+    module = _build_module({"cal-key": source})
+    update = _merge(detached, title="Modified Occurrence")
+    module.update_event(_fake_user("user@example.com"), "occ-key", update, CalOrganizer(email="user@example.com"))
+    assert source.updated[-1].title == "Modified Occurrence"
 
 
 # ========== delete_event ==========
@@ -273,7 +332,7 @@ def test_delete_event_read_only_raises():
     assert exc_info.value.error == err.ERROR_CALENDAR_NOT_SUPPORTED
 
 
-# ========== get_events ==========
+# ========== delete_event — recurrence handling ==========
 
 def test_delete_event_occurrence_routes_to_delete_detached():
     """delete_event on a detached occurrence (recurrence_id set) must call
@@ -291,7 +350,7 @@ def test_get_events_date_range_too_large_raises():
     source = _make_source("cal-key")
     module = _build_module({"cal-key": source})
     start = datetime(2026, 1, 1, tzinfo=_UTC)
-    end = datetime(2026, 2, 15, tzinfo=_UTC)
+    end = datetime(2026, 3, 1, tzinfo=_UTC)
     assert (end - start).days > MAX_EVENT_FETCH_DAYS
     with pytest.raises(RequestException) as exc_info:
         module.get_events(_fake_user(), start, end, None, "cal-key")
@@ -351,23 +410,21 @@ def test_clean_no_args_returns_zero():
     assert module.clean() == 0
 
 
-# ========== delete_event — organizer cascade ==========
+# ========== delete_event — organizer vs attendee ==========
 
-def test_delete_event_as_organizer_calls_cascade():
-    """When the deleting user is the organizer, delete_event_as_organizer must be called
-    (cascades to all attendee copies), not the attendee-local delete_event."""
+def test_delete_event_organizer_deletes_own_copy():
+    """When the organizer deletes, their own copy is deleted via delete_event(uid)."""
     organizer = CalOrganizer(email="user@example.com")
     attendee = CalAttendee(email="other@example.com")
     event = _make_event(key="evt-key", uid="org-event@example.com", organizer=organizer, attendees=[attendee])
     source = _make_source(events=[event])
     module = _build_module({"cal-key": source})
     module.delete_event(_fake_user("user@example.com"), "evt-key")
-    assert "organizer:org-event@example.com" in source.deleted_uids
-    assert "org-event@example.com" not in source.deleted_uids
+    assert "org-event@example.com" in source.deleted_uids
 
 
-def test_delete_event_attendee_does_not_cascade():
-    """When the deleting user is NOT the organizer, only their own copy is deleted."""
+def test_delete_event_attendee_deletes_own_copy():
+    """When an attendee deletes, only their own copy is deleted."""
     organizer = CalOrganizer(email="organizer@example.com")
     event = _make_event(key="evt-key", uid="evt@example.com", organizer=organizer)
     source = _make_source(events=[event])
@@ -384,7 +441,7 @@ def test_update_event_increments_sequence():
     event = _make_event(key="evt-key", sequence=2)
     source = _make_source(events=[event])
     module = _build_module({"cal-key": source})
-    result = module.update_event(_fake_user(), "evt-key", {"title": "Updated"})
+    result = module.update_event(_fake_user(), "evt-key", _merge(event, title="Updated"), CalOrganizer(email="user@example.com"))
     assert result.sequence == 3
 
 
@@ -397,7 +454,7 @@ def test_create_event_auto_sets_organizer_when_attendees_present():
     module = _build_module({"cal-key": source})
     attendee = CalAttendee(email="guest@example.com")
     event = _make_event(attendees=[attendee])
-    result = module.create_event(_fake_user("user@example.com"), "cal-key", event)
+    result = module.create_event(_fake_user("user@example.com"), "cal-key", event, CalOrganizer(email="user@example.com"))
     assert result.organizer is not None
     assert result.organizer.email == "user@example.com"
 
@@ -409,7 +466,7 @@ def test_create_event_preserves_explicit_organizer():
     organizer = CalOrganizer(email="explicit@example.com")
     attendee = CalAttendee(email="guest@example.com")
     event = _make_event(organizer=organizer, attendees=[attendee])
-    result = module.create_event(_fake_user("user@example.com"), "cal-key", event)
+    result = module.create_event(_fake_user("user@example.com"), "cal-key", event, CalOrganizer(email="user@example.com"))
     assert result.organizer.email == "explicit@example.com"
 
 
@@ -421,7 +478,7 @@ def test_create_allday_normalizes_zero_duration():
     module = _build_module({"cal-key": source})
     start = _dt(2026, 4, 28)
     event = _make_event(all_day=True, date_start=start, date_end=start)
-    result = module.create_event(_fake_user(), "cal-key", event)
+    result = module.create_event(_fake_user(), "cal-key", event, CalOrganizer(email="user@example.com"))
     assert result.date_end == _dt(2026, 4, 29)
 
 
@@ -431,7 +488,7 @@ def test_update_allday_normalizes_zero_duration():
     event = _make_event(key="evt-key", all_day=True, date_start=start, date_end=_dt(2026, 4, 29))
     source = _make_source(events=[event])
     module = _build_module({"cal-key": source})
-    result = module.update_event(_fake_user(), "evt-key", {"date_end": start})
+    result = module.update_event(_fake_user(), "evt-key", _merge(event, all_day=True, date_start=start, date_end=start), CalOrganizer(email="user@example.com"))
     assert result.date_end == _dt(2026, 4, 29)
 
 
@@ -442,7 +499,7 @@ def test_create_allday_already_correct_not_changed():
     start = _dt(2026, 4, 28)
     end = _dt(2026, 4, 30)
     event = _make_event(all_day=True, date_start=start, date_end=end)
-    result = module.create_event(_fake_user(), "cal-key", event)
+    result = module.create_event(_fake_user(), "cal-key", event, CalOrganizer(email="user@example.com"))
     assert result.date_end == end
 
 
@@ -453,5 +510,5 @@ def test_non_allday_event_date_end_unchanged():
     start = _dt(2026, 4, 28, 9)
     end = _dt(2026, 4, 28, 9)
     event = _make_event(all_day=False, date_start=start, date_end=end)
-    result = module.create_event(_fake_user(), "cal-key", event)
+    result = module.create_event(_fake_user(), "cal-key", event, CalOrganizer(email="user@example.com"))
     assert result.date_end == end

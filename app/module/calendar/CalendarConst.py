@@ -1,7 +1,5 @@
-from __future__ import annotations
-
 # Maximum number of days allowed for events fetch request.
-MAX_EVENT_FETCH_DAYS: int = 31
+MAX_EVENT_FETCH_DAYS: int = 45
 
 # Maximum number of days allowed for tasks fetch request.
 MAX_TASK_FETCH_DAYS: int = 365

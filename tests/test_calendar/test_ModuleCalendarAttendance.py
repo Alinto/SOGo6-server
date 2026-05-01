@@ -10,7 +10,9 @@ from app.module.calendar.model.CalAttendee import CalAttendee
 from app.module.calendar.model.CalCalendar import CalCalendar
 from app.module.calendar.model.CalEvent import CalEvent
 from app.module.calendar.model.CalOrganizer import CalOrganizer
+from app.module.calendar.model.CalRecurrenceRule import CalRecurrenceRule
 from app.module.calendar.model.enums.AttendeeStatus import AttendeeStatus
+from app.module.calendar.model.enums.RecurrenceFrequency import RecurrenceFrequency
 from app.module.calendar.source.CalendarSource import CalendarSource
 from app.utils import errors as err
 from app.utils.exceptions import RequestException
@@ -64,7 +66,7 @@ class FakeAttendanceSource(CalendarSource):
     def get_event(self, event_key):
         return self._events.get(event_key)
 
-    def update_event(self, event, propagate=False):
+    def update_event(self, event):
         self._events[event.key] = event
         self.updated.append(event)
         self._calendar.ctag = (self._calendar.ctag or 0) + 1
@@ -181,6 +183,37 @@ def test_attendance_event_not_found_raises():
     with pytest.raises(RequestException) as exc_info:
         module.set_attendance_status(_fake_user(), "nonexistent", AttendeeStatus.ACCEPTED)
     assert exc_info.value.error == err.ERROR_CALENDAR_EVENT_NOT_FOUND
+
+
+def test_attendance_single_occurrence():
+    """Declining a single occurrence creates a detached override and leaves master unchanged."""
+    master = _make_event(
+        key="evt-key", organizer=_organizer(),
+        attendees=[_attendee("attendee@example.com")],
+        recurrence_rule=CalRecurrenceRule(frequency=RecurrenceFrequency.WEEKLY, count=4),
+    )
+    source = _make_source(events=[master])
+
+    # Simulate get_or_create_occurrence: create a detached copy for the target date
+    target_dt = _dt(2026, 6, 8, 9)
+    occurrence = _make_event(
+        key="evt-key-occ-20260608", uid=master.uid,
+        organizer=_organizer(),
+        attendees=[_attendee("attendee@example.com")],
+        date_start=target_dt, date_end=_dt(2026, 6, 8, 10),
+        recurrence_id=target_dt,
+    )
+    source.get_or_create_occurrence = lambda m, rid: occurrence
+
+    module = _build_module({"cal-key": source})
+    result = module.set_attendance_status(
+        _fake_user("attendee@example.com"), "evt-key", AttendeeStatus.DECLINED, recurrence_id=target_dt,
+    )
+
+    assert result.recurrence_id == target_dt
+    assert result.attendees[0].status == AttendeeStatus.DECLINED
+    # Master attendee status unchanged
+    assert master.attendees[0].status == AttendeeStatus.NEEDS_ACTION
 
 
 def test_attendance_read_only_raises():

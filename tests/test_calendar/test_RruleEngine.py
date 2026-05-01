@@ -199,6 +199,25 @@ def test_exdate(engine):
     assert _dt(2026, 1, 7) in starts
 
 
+def test_override_takes_priority_over_exdate(engine):
+    """An override for a slot must appear even if that slot is also in EXDATE (RFC 5545 §3.8.4.4)."""
+    exc_date = _dt(2026, 1, 6)
+    master = _master(
+        _dt(2026, 1, 5), _dt(2026, 1, 5, 10),
+        rule=_rule(RecurrenceFrequency.DAILY),
+        exceptions=[exc_date],
+    )
+    override = CalEvent(
+        uid="series@test", title="Overridden",
+        date_start=_dt(2026, 1, 6, 14), date_end=_dt(2026, 1, 6, 15),
+        recurrence_id=_dt(2026, 1, 6),
+    )
+    result = engine.expand(master, _dt(2026, 1, 5), _dt(2026, 1, 7), overrides=[override])
+    jan6 = [e for e in result if e.date_start.day == 6]
+    assert len(jan6) == 1
+    assert jan6[0].title == "Overridden"
+
+
 # RECURRENCE-ID override
 
 def test_recurrence_id_override(engine):
@@ -244,7 +263,20 @@ def test_occurrence_copy_fields(engine):
     result = engine.expand(master, _dt(2026, 1, 1), _dt(2026, 1, 31))
     for occ in result:
         assert occ.recurrence_id == occ.date_start
-        assert occ.recurrence_rule is None
+        assert occ.recurrence_rule is not None
+
+
+def test_occurrence_preserves_recurrence_rule(engine):
+    """Each generated occurrence must carry the master's recurrence_rule so clients can display it."""
+    rule = _rule(RecurrenceFrequency.WEEKLY, count=3)
+    rule.by_day = ["MO", "WE"]
+    master = _master(_dt(2026, 1, 5), _dt(2026, 1, 5, 10), rule=rule)
+    result = engine.expand(master, _dt(2026, 1, 1), _dt(2026, 1, 31))
+    for occ in result:
+        assert occ.recurrence_rule is not None
+        assert occ.recurrence_rule.frequency == RecurrenceFrequency.WEEKLY
+        assert occ.recurrence_rule.by_day == ["MO", "WE"]
+        assert occ.recurrence_rule.count == 3
 
 
 def test_occurrence_inherits_master_fields(engine):

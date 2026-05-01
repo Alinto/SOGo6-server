@@ -205,6 +205,11 @@ class CalendarEventSerializerIcal(CalendarEventSerializer[str]):
             rel_val = vText(rel.uid)
             rel_val.params["RELTYPE"] = _RELTYPE_OUT.get(rel.relation_type, "PARENT")
             vevent.add("related-to", rel_val, encode=False)
+        if event.uid_parent_split:
+            # SOGo extension: records the UID of the series this event was split from.
+            split_rel = vText(event.uid_parent_split)
+            split_rel.params["RELTYPE"] = "X-SOGO-SPLIT-FROM"
+            vevent.add("related-to", split_rel, encode=False)
         if event.color:
             vevent.add("color", event.color)
 

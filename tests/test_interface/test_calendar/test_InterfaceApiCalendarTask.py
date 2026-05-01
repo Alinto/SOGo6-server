@@ -175,9 +175,11 @@ def test_get_task_serializes_date_end():
 # ========== patch_task ==========
 
 def test_patch_task_applies_updates():
-    task = _make_task(title="Updated")
+    existing = _make_task(title="Old")
+    updated = _make_task(title="Updated")
     module = MagicMock()
-    module.update_task.return_value = task
+    module.get_task.return_value = existing
+    module.update_task.return_value = updated
     inter = _build_interface(module)
     response, _ = inter.patch_task("task-key", {"title": "Updated"})
     assert response["error_code"] == "S000000"
@@ -185,34 +187,38 @@ def test_patch_task_applies_updates():
 
 
 def test_patch_task_due_mapped_to_date_end():
-    task = _make_task()
+    existing = _make_task()
     module = MagicMock()
-    module.update_task.return_value = task
+    module.get_task.return_value = existing
+    module.update_task.return_value = existing
     inter = _build_interface(module)
     inter.patch_task("task-key", {"due": "2026-07-01T00:00:00+00:00"})
     call_args = module.update_task.call_args
-    updates = call_args[0][2]
-    assert "date_end" in updates
-    assert "due" not in updates
+    task_update = call_args[0][2]
+    assert task_update.date_end == datetime(2026, 7, 1, 0, 0, tzinfo=timezone.utc)
 
 
 def test_patch_task_not_found_returns_error():
     module = MagicMock()
-    module.update_task.side_effect = RequestException(error=err.ERROR_CALENDAR_TASK_NOT_FOUND)
+    module.get_task.side_effect = RequestException(error=err.ERROR_CALENDAR_TASK_NOT_FOUND)
     inter = _build_interface(module)
     response, _ = inter.patch_task("missing-key", {"title": "X"})
     assert response["error_code"] == err.ERROR_CALENDAR_TASK_NOT_FOUND.c
 
 
 def test_patch_task_parse_error_returns_json_parse_failed():
+    existing = _make_task()
     module = MagicMock()
+    module.get_task.return_value = existing
     inter = _build_interface(module)
     response, _ = inter.patch_task("task-key", {"recurrence_exceptions": ["not-a-date"]})
     assert response["error_code"] == err.ERROR_CALENDAR_JSON_PARSE_FAILED.c
 
 
 def test_patch_task_unexpected_error_propagates():
+    existing = _make_task()
     module = MagicMock()
+    module.get_task.return_value = existing
     module.update_task.side_effect = RuntimeError("db gone")
     inter = _build_interface(module)
     with pytest.raises(RuntimeError):

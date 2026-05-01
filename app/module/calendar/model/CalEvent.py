@@ -23,13 +23,13 @@ class CalEvent:  # pylint: disable=too-many-instance-attributes,invalid-name
     Format-agnostic representation of a calendar event/task/journal.
     """
     # RFC 5545 §3.8.4.7
-    uid: str
+    uid: str | None = None
     # RFC 5545 §3.8.1.12 (SUMMARY)
-    title: str
+    title: str | None = None
     # RFC 5545 §3.8.2.4 (DTSTART)
-    date_start: datetime
+    date_start: datetime | None = None
     # RFC 5545 §3.8.2.2 (DTEND) or DUE (VTODO / TASK)
-    date_end: datetime
+    date_end: datetime | None = None
 
     # Internal — database primary key, never exposed in the API
     db_id: int | None = None
@@ -40,9 +40,9 @@ class CalEvent:  # pylint: disable=too-many-instance-attributes,invalid-name
     # IANA timezone of the parent calendar — transient, not persisted, set by CalendarSource
     calendar_timezone: str | None = None
     # Domain type of the component — drives serialization dispatch
-    component_type: ComponentType = ComponentType.EVENT
+    component_type: ComponentType = ComponentType.UNDEFINED
     # RFC 5545 §3.3.4 — DATE value type vs DATE-TIME
-    all_day: bool = False
+    all_day: bool | None = None
     # RFC 5545 §3.2.19 (TZID parameter)
     timezone: str = "UTC"
 
@@ -53,11 +53,11 @@ class CalEvent:  # pylint: disable=too-many-instance-attributes,invalid-name
     # RFC 5545 §3.8.8.3 (URL)
     url: str | None = None
     # RFC 5545 §3.8.1.11 (STATUS — CONFIRMED, TENTATIVE, CANCELLED)
-    status: EventStatus = field(default=EventStatus.CONFIRMED)
+    status: EventStatus = field(default=EventStatus.UNDEFINED)
     # RFC 5545 §3.8.1.3 (CLASS — PUBLIC, PRIVATE, CONFIDENTIAL)
-    visibility: EventVisibility = field(default=EventVisibility.PUBLIC)
+    visibility: EventVisibility = field(default=EventVisibility.UNDEFINED)
     # RFC 5545 §3.8.2.7 (TRANSP — OPAQUE/TRANSPARENT maps to BUSY/FREE)
-    show_as: ShowAs = field(default=ShowAs.BUSY)
+    show_as: ShowAs = field(default=ShowAs.UNDEFINED)
     # RFC 7986 §5.9 (COLOR)
     color: str | None = None
     # RFC 5545 §3.8.7.4 (SEQUENCE)
@@ -92,6 +92,11 @@ class CalEvent:  # pylint: disable=too-many-instance-attributes,invalid-name
     recurrence_range: str | None = None
     # UID of the master recurring event — set on detached occurrences (RECURRENCE-ID rows)
     parent_uid: str | None = None
+    # UID of the original series this event was split from (THISANDFUTURE operation).
+    # Set on the new master created during a split so the history is traceable.
+    # Never used for business logic — informational only, serialized to iCal as
+    # RELATED-TO;RELTYPE=X-SOGO-SPLIT-FROM per the SOGo 6 extension.
+    uid_parent_split: str | None = None
 
     # RFC 5545 §3.8.1.8 (PERCENT-COMPLETE) — VTODO only
     percent_complete: int | None = None
@@ -106,8 +111,8 @@ class CalEvent:  # pylint: disable=too-many-instance-attributes,invalid-name
     # RFC 5545 §3.8.7.3 (LAST-MODIFIED)
     updated_at: datetime | None = None
 
-    # ClassVar is required here: without it, @dataclass would treat MUTABLE_FIELDS as an
-    # instance field, exposing it in CalEvent.asdict() output.
+    # Fields that can be modified by a partial update. Used by apply_update and
+    # RecurrenceScopeProcessor to determine which fields to merge.
     MUTABLE_FIELDS: ClassVar[frozenset[str]] = frozenset({
         "title", "description", "location", "url", "date_start", "date_end",
         "all_day", "timezone", "status", "visibility", "show_as", "color",
@@ -115,6 +120,39 @@ class CalEvent:  # pylint: disable=too-many-instance-attributes,invalid-name
         "attachments", "categories", "related_to", "extra_properties",
         "recurrence_rule", "recurrence_exceptions", "percent_complete", "completed_at",
     })
+
+    # Fields computed at serialization time — never persisted in the DB blob.
+    UNPERSISTED_FIELDS: ClassVar[frozenset[str]] = frozenset({"dates_with_tz"})
+
+    # Fields propagated from the organizer's copy to attendee copies on event update.
+    # Excludes reminders and conference_data — each attendee manages their own.
+    PROPAGATABLE_FIELDS: ClassVar[frozenset[str]] = frozenset({
+        "title", "description", "location", "url", "date_start", "date_end",
+        "all_day", "timezone", "status", "visibility", "show_as", "color",
+        "sequence", "organizer", "attendees", "attachments", "categories",
+        "related_to", "extra_properties", "recurrence_rule", "recurrence_exceptions", "priority",
+    })
+
+    def apply_defaults(self) -> None:
+        """Fill in business defaults for fields left at their UNDEFINED/None sentinel.
+
+        Called before persisting to ensure all relational columns have valid values.
+        """
+        if self.component_type == ComponentType.UNDEFINED:
+            self.component_type = ComponentType.EVENT
+        if self.status == EventStatus.UNDEFINED:
+            self.status = EventStatus.CONFIRMED
+        if self.visibility == EventVisibility.UNDEFINED:
+            self.visibility = EventVisibility.PUBLIC
+        if self.show_as == ShowAs.UNDEFINED:
+            self.show_as = ShowAs.BUSY
+        if self.all_day is None:
+            self.all_day = False
+
+    @property
+    def is_detached(self) -> bool:
+        """True when this is a detached occurrence (has recurrence_id but no recurrence_rule)."""
+        return self.recurrence_id is not None and self.recurrence_rule is None
 
     def apply_update(self, updates: dict[str, Any]) -> None:
         """Apply a partial update dict to this event, ignoring unknown or immutable fields."""

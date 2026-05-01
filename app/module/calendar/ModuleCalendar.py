@@ -13,6 +13,8 @@ from app.module.calendar.model.CalOrganizer import CalOrganizer
 from app.module.calendar.model.enums.AttendeeStatus import AttendeeStatus
 from app.module.calendar.model.enums.ComponentType import ComponentType
 from app.module.calendar.repository.RepositoryEvent import RepositoryEvent
+from app.module.calendar.model.CalEvent import CalEvent
+from app.module.calendar.rrule.RecurrenceScopeProcessor import EventAction, RecurrenceScopeProcessor, ScopeResult
 from app.module.calendar.source.CalendarSources import CalendarSources
 from app.utils import errors as err
 from app.utils.exceptions import RequestException
@@ -26,7 +28,6 @@ if TYPE_CHECKING:
     from app.manager.db.ClientSQL import ClientSQL
 
     from app.module.calendar.imip.ImipMessage import ImipMessage
-    from app.module.calendar.model.CalEvent import CalEvent
     from app.module.calendar.model.CalFreeBusyPeriod import CalFreeBusyPeriod
     from app.module.calendar.source.CalendarSource import CalendarSource
 
@@ -107,7 +108,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         For all-day events, DTEND must be strictly greater than DTSTART.
         If date_end <= date_start, advance date_end to date_start + 1 day.
         """
-        if event.all_day and event.date_end <= event.date_start:
+        if event.all_day and event.date_end is not None and event.date_start is not None and event.date_end <= event.date_start:
             event.date_end = event.date_start + timedelta(days=1)
 
     def _find_source_for_event(self, user: User, event_key: str) -> tuple[CalendarSource, CalEvent]:
@@ -137,20 +138,24 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
     # ------------------------------------------------------------------
     # Events — CRUD
     # ------------------------------------------------------------------
-    def create_event(self, user: User, calendar_key: str, event: CalEvent) -> CalEvent:
+    def create_event(self, user: User, calendar_key: str, event: CalEvent, organizer: CalOrganizer) -> CalEvent:
         """Persist a new event in the calendar and propagate it to local attendees."""
+        event.apply_defaults()
         source: CalendarSource = self.get_calendar(user, calendar_key)
         if not source.is_writable():
             raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
         event.calendar_key = source.calendar.key
         if not event.uid:
             event.uid = generate_uuid()
-        if event.attendees and not event.organizer:
-            event.organizer = CalOrganizer(email=user.uid)
+        if not event.organizer:
+            event.organizer = organizer
         self._normalize_all_day(event)
         try:
             created: CalEvent = source.insert_event(event)
-            self._sources.propagate_new_event_to_local_attendees(created)
+            # Propagate changes to attendees
+            self._sources.propagate(scope_result=ScopeResult(
+                result=created, touched=[(created, EventAction.INSERT)],
+            ))
             imip_msg: ImipMessage | None = ImipBuilder.build_request(created)
             if imip_msg:
                 logger_calendar.info("iMIP REQUEST built for event %s to %s", created.uid, imip_msg.to_emails)
@@ -167,22 +172,28 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         _, event = self._find_source_for_event(user, event_key)
         return event
 
-    def update_event(self, user: User, event_key: str, updates: dict) -> CalEvent:
-        """Apply partial updates to an event and persist it."""
+    def update_event(self, user: User, event_key: str, event_update: CalEvent, organizer: CalOrganizer) -> CalEvent:
+        """Update an event, handling recurrence scope and attendee propagation."""
         source, event = self._find_source_for_event(user, event_key)
         if not source.is_writable():
             raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
-        event.apply_update(updates)
-        self._normalize_all_day(event)
-        event.sequence += 1
-        is_organizer: bool = bool(event.organizer and event.organizer.email == user.uid)
+        # Only the organizer can modify event content (RFC 5545 §3.8.4.3)
+        if event.organizer and event.organizer.email != user.uid:
+            raise RequestException(error=err.ERROR_CALENDAR_NOT_ORGANIZER)
+
         try:
-            source.update_event(event, propagate=is_organizer)
-            imip_msg: ImipMessage | None = ImipBuilder.build_request(event)
+            scope_result: ScopeResult = RecurrenceScopeProcessor.process(source=source, original=event, event_update=event_update)
+
+            if not scope_result.result.organizer:
+                scope_result.result.organizer = organizer
+
+            # Propagate changes to attendeees
+            self._sources.propagate(scope_result=scope_result, original=event)
+
+            imip_msg: ImipMessage | None = ImipBuilder.build_request(scope_result.result)
             if imip_msg:
-                logger_calendar.info("iMIP REQUEST built for updated event %s to %s", event.uid, imip_msg.to_emails)
-                # TODO: dispatch imip_msg via agent transport (Celery + SMTP) once the agent is in place
-            return event
+                logger_calendar.info("iMIP REQUEST built for updated event %s to %s", scope_result.result.uid, imip_msg.to_emails)
+            return scope_result.result
         except RequestException:
             raise
         except Exception as exc:
@@ -190,11 +201,12 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
             raise RequestException(error=err.ERROR_CALENDAR_EVENT_UPDATE_FAILED)
 
     def delete_event(self, user: User, event_key: str) -> None:
-        """Soft-delete an event by key.
+        """Soft-delete an event by key and propagate the deletion to attendees.
 
-        If the event is a detached occurrence (recurrence_id is set), only that row is deleted
-        and its recurrence_id is added to the master's EXDATE so the slot stays cancelled.
-        Otherwise the master and all its detached occurrences are deleted.
+        If the event is a detached occurrence, only that row is deleted and its
+        recurrence_id is added to the master's EXDATE.
+        If the user is the organizer, the deletion is propagated to all attendees.
+        If the user is an attendee, only their own copy is deleted.
         """
         source, event = self._find_source_for_event(user, event_key)
         if not source.is_writable():
@@ -202,10 +214,14 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         try:
             if event.recurrence_id is not None:
                 source.delete_detached_occurrence(event)
-            elif event.organizer and event.organizer.email == user.uid:
-                source.delete_event_as_organizer(event.uid)
             else:
                 source.delete_event(event.uid)
+            # Propagate deletion to attendees if the user is the organizer
+            is_organizer: bool = bool(event.organizer and event.organizer.email == user.uid)
+            if is_organizer:
+                self._sources.propagate(scope_result=ScopeResult(
+                    result=event, touched=[(event, EventAction.DELETE)],
+                ))
             imip_msg: ImipMessage | None = ImipBuilder.build_cancel(event)
             if imip_msg:
                 logger_calendar.info("iMIP CANCEL built for event %s to %s", event.uid, imip_msg.to_emails)
@@ -245,29 +261,36 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
     # ------------------------------------------------------------------
     # Attendance
     # ------------------------------------------------------------------
-    def set_attendance_status(self, user: User, event_key: str, status: AttendeeStatus) -> CalEvent:
+    def set_attendance_status(
+        self, user: User, event_key: str, status: AttendeeStatus, recurrence_id: datetime | None = None,
+    ) -> CalEvent:
         """Update the current user's attendance status (PARTSTAT) for an event.
 
-        Called when the user accepts, declines, or tentatively accepts an invitation via the REST API.
+        When recurrence_id is provided, the status applies to a single occurrence only.
+        A detached occurrence is created if it does not already exist.
         Does not increment SEQUENCE — PARTSTAT is not a content change (RFC 5545 §3.8.7.4).
         Propagates the status to all other local copies of the event (organizer + other attendees).
 
         :param user: The attendee updating their status.
         :param event_key: Opaque key of the attendee's own copy of the event.
         :param status: The new attendance status.
-        :return: The updated event.
+        :param recurrence_id: When set, target a single occurrence instead of the whole event.
+        :return: The updated event or occurrence.
         """
         source, event = self._find_source_for_event(user, event_key)
         if not source.is_writable():
             raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
+
+        # Single occurrence: create or find a detached occurrence for this date
+        if recurrence_id is not None:
+            event = source.get_or_create_occurrence(event, recurrence_id)
+
         for attendee in event.attendees:
             if attendee.email == user.uid:
                 attendee.status = status
                 break
         try:
-            # propagate=False: PARTSTAT update is attendee-local per RFC 5546 §3.2.3 — must not overwrite other attendees' copies
             source.update_event(event)
-            # Push PARTSTAT change to organizer's copy and any other local attendee copies
             source.propagate_partstat_to_copies(event, user.uid, status)
             imip_msg: ImipMessage | None = ImipBuilder.build_reply(event, user)
             if imip_msg:
@@ -279,6 +302,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         except Exception as exc:
             logger_calendar.error("Unexpected error updating attendance for event %s: %s", event_key, exc)
             raise RequestException(error=err.ERROR_CALENDAR_ATTENDANCE_UPDATE_FAILED)
+
 
     # ------------------------------------------------------------------
     # iMIP — thin wrappers delegating to ImipProcessor
@@ -300,6 +324,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
     # ------------------------------------------------------------------
     def create_task(self, user: User, calendar_key: str, task: CalEvent) -> CalEvent:
         """Persist a new VTODO in the calendar and return it."""
+        task.apply_defaults()
         task.component_type = ComponentType.TASK
         source: CalendarSource = self.get_calendar(user, calendar_key)
         if not source.is_writable():
@@ -323,17 +348,16 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
             raise RequestException(error=err.ERROR_CALENDAR_TASK_NOT_FOUND)
         return task
 
-    def update_task(self, user: User, task_key: str, updates: dict) -> CalEvent:
-        """Apply partial updates to a VTODO and persist it."""
+    def update_task(self, user: User, task_key: str, task_update: CalEvent) -> CalEvent:
+        """Persist an already-merged VTODO update."""
         source, task = self._find_source_for_event(user, task_key)
         if task.component_type != ComponentType.TASK:
             raise RequestException(error=err.ERROR_CALENDAR_TASK_NOT_FOUND)
         if not source.is_writable():
             raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
-        task.apply_update(updates)
         try:
-            source.update_event(task)
-            return task
+            source.update_event(task_update)
+            return task_update
         except RequestException:
             raise
         except Exception as exc:

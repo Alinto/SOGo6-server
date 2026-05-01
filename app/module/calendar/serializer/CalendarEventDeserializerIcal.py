@@ -127,6 +127,7 @@ class _ParticipantFields(NamedTuple):
     categories: list[str]
     related_to: list[CalEventRelation]
     extra_properties: dict[str, str]
+    uid_parent_split: str | None
 
 
 class _RecurrenceFields(NamedTuple):
@@ -398,12 +399,17 @@ class CalendarEventDeserializerIcal(CalendarEventDeserializer[str]):
             organizer = self._parse_organizer(org_prop)
 
         related_to: list[CalEventRelation] = []
+        uid_parent_split: str | None = None
         for rel_prop in self._get_multi(vevent, "related-to"):
             reltype = rel_prop.params.get("RELTYPE", "PARENT").upper()
-            related_to.append(CalEventRelation(
-                uid=str(rel_prop),
-                relation_type=_RELTYPE_MAP.get(reltype, RelationType.PARENT),
-            ))
+            if reltype == "X-SOGO-SPLIT-FROM":
+                # SOGo extension: this event was split from the series identified by this UID.
+                uid_parent_split = str(rel_prop)
+            else:
+                related_to.append(CalEventRelation(
+                    uid=str(rel_prop),
+                    relation_type=_RELTYPE_MAP.get(reltype, RelationType.PARENT),
+                ))
 
         extra_properties: dict[str, str] = {}
         for prop_name, prop_val in vevent.property_items():
@@ -417,6 +423,7 @@ class CalendarEventDeserializerIcal(CalendarEventDeserializer[str]):
             categories=self._extract_categories(vevent),
             related_to=related_to,
             extra_properties=extra_properties,
+            uid_parent_split=uid_parent_split,
         )
 
     # ------------------------------------------------------------------
@@ -590,6 +597,7 @@ class CalendarEventDeserializerIcal(CalendarEventDeserializer[str]):
             recurrence_exceptions=recur.exceptions,
             recurrence_id=recur.recurrence_id,
             extra_properties=parts.extra_properties,
+            uid_parent_split=parts.uid_parent_split,
             created_at=created_at,
             updated_at=updated_at,
             component_type=ComponentType.EVENT,
@@ -633,6 +641,7 @@ class CalendarEventDeserializerIcal(CalendarEventDeserializer[str]):
             recurrence_exceptions=recur.exceptions,
             recurrence_id=recur.recurrence_id,
             extra_properties=parts.extra_properties,
+            uid_parent_split=parts.uid_parent_split,
             created_at=created_at,
             updated_at=updated_at,
             component_type=ComponentType.TASK,

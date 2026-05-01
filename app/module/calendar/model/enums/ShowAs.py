@@ -7,6 +7,7 @@ class ShowAs(Enum):
     """
     How the event time is shown in free/busy queries (RFC 5545 TRANSP).
     """
+    UNDEFINED = "undefined"
     BUSY = "busy"
     FREE = "free"
     OUT_OF_OFFICE = "out-of-office"

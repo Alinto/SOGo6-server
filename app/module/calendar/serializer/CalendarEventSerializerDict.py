@@ -62,7 +62,6 @@ class CalendarEventSerializerDict(CalendarEventSerializer[dict]):
             "recurrence_exceptions": [self._fmt_dt(d) for d in data.recurrence_exceptions],
             "recurrence_id": self._fmt_dt(data.recurrence_id) if data.recurrence_id else None,
             "recurrence_range": data.recurrence_range,
-            "parent_uid": data.parent_uid,
             "dates_with_tz": self._dates_with_tz(data),
         }
 

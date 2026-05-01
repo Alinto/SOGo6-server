@@ -105,7 +105,6 @@ class CalendarEventSchema(Schema):
     recurrence_exceptions = fields.List(fields.String())
     recurrence_id = fields.String(allow_none=True)
     recurrence_range = fields.String(allow_none=True)
-    parent_uid = fields.String(allow_none=True)
     dates_with_tz = fields.Dict(allow_none=True)
 
 
@@ -177,6 +176,8 @@ class CalendarEventPatchSchema(Schema):
     extra_properties = fields.Dict()
     recurrence_rule = fields.Dict(allow_none=True)
     recurrence_exceptions = fields.List(fields.String())
+    recurrence_id = fields.String(allow_none=True)
+    recurrence_range = fields.String(allow_none=True)
     percent_complete = fields.Integer(allow_none=True)
     completed_at = fields.String(allow_none=True)
 
@@ -188,6 +189,10 @@ class AttendanceSchema(Schema):
         required=True,
         validate=validate.OneOf(["accepted", "declined", "tentative", "delegated"]),
         metadata={"description": "accepted | declined | tentative | delegated"},
+    )
+    recurrence_id = DateTimeUtcField(
+        load_default=None, allow_none=True,
+        metadata={"description": "ISO 8601 UTC datetime. When set, the status applies to this single occurrence only."},
     )
 
 

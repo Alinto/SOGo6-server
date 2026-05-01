@@ -54,7 +54,7 @@ def three_events():
 
 def test_filter_date_start(source, three_events):
     # start = Jan 2 noon: e1 ended Jan 1 -> excluded
-    result = source.filter_date_start(three_events, _dt(2026, 1, 2, 12))
+    result = source._filter_date_start(three_events, _dt(2026, 1, 2, 12))
     uids = [e.uid for e in result]
     assert "e1" not in uids
     assert "e2" in uids
@@ -65,7 +65,7 @@ def test_filter_date_start(source, three_events):
 
 def test_filter_date_end(source, three_events):
     # end = Jan 1 noon: e2 and e3 start later -> excluded
-    result = source.filter_date_end(three_events, _dt(2026, 1, 1, 12))
+    result = source._filter_date_end(three_events, _dt(2026, 1, 1, 12))
     uids = [e.uid for e in result]
     assert "e1" in uids
     assert "e2" not in uids
@@ -110,7 +110,7 @@ def test_search_accent_in_query(source):
 # ========== filter pipeline ==========
 
 def test_filter_combines_date_range_and_search(source, three_events):
-    result = source.filter(three_events, _dt(2026, 1, 1), _dt(2026, 1, 2, 23), "review")
+    result = source._filter(three_events, _dt(2026, 1, 1), _dt(2026, 1, 2, 23), "review")
     assert len(result) == 1
     assert result[0].uid == "e2"
 
