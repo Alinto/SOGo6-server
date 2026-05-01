@@ -9,6 +9,7 @@ from app.config.settings.UserSettings import UserCalendarGeneralSettings, UserGe
 from app.module.calendar.ModuleCalendar import ModuleCalendar
 from app.module.calendar.freebusy.FreeBusyEngine import FreeBusyPrefs
 from app.module.calendar.model.CalCalendar import CalCalendar
+from app.module.calendar.model.CalOrganizer import CalOrganizer
 from app.module.calendar.model.enums.AttendeeStatus import AttendeeStatus
 from app.module.calendar.model.CalFreeBusyResult import CalFreeBusyResult
 from app.module.calendar.serializer.CalendarEventDeserializerDict import CalendarEventDeserializerDict
@@ -27,6 +28,7 @@ if TYPE_CHECKING:
     from app.auth.User import User
     from app.config.settings.ProcessSetting import ProcessSetting
     from app.module.calendar.model.CalEvent import CalEvent
+    from app.module.calendar.source.CalendarSource import CalendarSource
 
 _FAR_FUTURE = "9999-12-31T23:59:59Z"
 
@@ -62,7 +64,7 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
     def get_all_calendars(self) -> tuple[dict[str, Any], int]:
         """List all calendars for the current user."""
         try:
-            calendars = self.module.get_all_calendars(self.user)
+            calendars: list[CalCalendar] = self.module.get_all_calendars(self.user)
             return create_api_base_response({"calendars": self._calendars_serializer.serialize(calendars), "total_count": len(calendars)})
         except RequestException as ex:
             logger_api.error("get_all_calendars failed for user %s: %s", self.user.uid, ex)
@@ -71,7 +73,7 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
     def get_calendar(self, key: str) -> tuple[dict[str, Any], int]:
         """Get a single calendar by its key."""
         try:
-            source = self.module.get_calendar(self.user, key)
+            source: CalendarSource = self.module.get_calendar(self.user, key)
             return create_api_base_response(self._calendar_serializer.serialize(source.calendar))
         except RequestException as ex:
             logger_api.error("get_calendar failed for user %s key %s: %s", self.user.uid, key, ex)
@@ -80,14 +82,14 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
     def create_calendar(self, body: dict[str, Any]) -> tuple[dict[str, Any], int]:
         """Create a new calendar."""
         try:
-            cal = CalCalendar(
+            cal: CalCalendar = CalCalendar(
                 user_uid=self.user.uid,
                 name=body["name"],
                 color=body.get("color"),
                 description=body.get("description"),
                 timezone=body.get("timezone", "UTC"),
             )
-            created = self.module.create_calendar(self.user, cal)
+            created: CalCalendar = self.module.create_calendar(self.user, cal)
             return create_api_base_response(self._calendar_serializer.serialize(created), code=201)
         except RequestException as ex:
             logger_api.error("create_calendar failed for user %s: %s", self.user.uid, ex)
@@ -96,7 +98,7 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
     def update_calendar(self, key: str, body: dict[str, Any]) -> tuple[dict[str, Any], int]:
         """Update an existing calendar."""
         try:
-            updated = self.module.update_calendar(self.user, key, body)
+            updated: CalCalendar = self.module.update_calendar(self.user, key, body)
             return create_api_base_response(self._calendar_serializer.serialize(updated))
         except RequestException as ex:
             logger_api.error("update_calendar failed for user %s key %s: %s", self.user.uid, key, ex)
@@ -115,7 +117,8 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         """Create a new event in the given calendar."""
         try:
             event: CalEvent = self._event_deserializer.deserialize(body)
-            created = self.module.create_event(self.user, calendar_key, event)
+            organizer: CalOrganizer = CalOrganizer(email=self.user.mail)
+            created: CalEvent = self.module.create_event(self.user, calendar_key, event, organizer)
             return create_api_base_response(self._event_serializer.serialize(created), code=201)
         except RequestException as ex:
             logger_api.error("create_event failed for user %s calendar %s: %s", self.user.uid, calendar_key, ex)
@@ -127,7 +130,7 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
     def get_event(self, event_key: str) -> tuple[dict[str, Any], int]:
         """Get a single event by key."""
         try:
-            event = self.module.get_event(self.user, event_key)
+            event: CalEvent = self.module.get_event(self.user, event_key)
             return create_api_base_response(self._event_serializer.serialize(event))
         except RequestException as ex:
             logger_api.error("get_event failed for user %s event %s: %s", self.user.uid, event_key, ex)
@@ -136,8 +139,10 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
     def patch_event(self, event_key: str, body: dict[str, Any]) -> tuple[dict[str, Any], int]:
         """Apply partial updates to an event."""
         try:
-            parsed = self._event_deserializer.parse_patch_fields(body)
-            updated = self.module.update_event(self.user, event_key, parsed)
+            existing: CalEvent = self.module.get_event(self.user, event_key)
+            event_update: CalEvent = self._event_deserializer.deserialize_with_update(existing, body)
+            organizer: CalOrganizer = CalOrganizer(email=self.user.mail)
+            updated: CalEvent = self.module.update_event(self.user, event_key, event_update, organizer)
             return create_api_base_response(self._event_serializer.serialize(updated))
         except RequestException as ex:
             logger_api.error("patch_event failed for user %s event %s: %s", self.user.uid, event_key, ex)
@@ -155,7 +160,8 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         """
         try:
             attendance: AttendeeStatus = AttendeeStatus(body["status"])
-            updated: CalEvent = self.module.set_attendance_status(self.user, event_key, attendance)
+            recurrence_id: datetime | None = body.get("recurrence_id")
+            updated: CalEvent = self.module.set_attendance_status(self.user, event_key, attendance, recurrence_id)
             return create_api_base_response(self._event_serializer.serialize(updated))
         except RequestException as ex:
             logger_api.error("set_attendance_status failed for user %s event %s: %s", self.user.uid, event_key, ex)
@@ -194,7 +200,7 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
                 start = datetime(today.year, today.month, today.day, 0, 0, 0, tzinfo=timezone.utc)
                 end = datetime(today.year, today.month, today.day, 23, 59, 59, tzinfo=timezone.utc)
             events: list[CalEvent] = self.module.get_events(self.user, start, end, search, key)
-            event_list = self._events_serializer.serialize(events)
+            event_list: list[dict[str, Any]] = self._events_serializer.serialize(events)
             return create_api_base_response({"events": event_list, "total_count": len(event_list)})
         except RequestException as ex:
             logger_api.error("get_events failed for user %s, calendar %s: %s", self.user.uid, key, ex)
@@ -218,7 +224,7 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
             end: datetime = query_args.get("end_date_time") or self._add_months(now, 9)
             search: str | None = query_args.get("search")
             tasks: list[CalEvent] = self.module.get_tasks(self.user, start, end, search, key)
-            task_list = self._events_serializer.serialize(tasks)
+            task_list: list[dict[str, Any]] = self._events_serializer.serialize(tasks)
             return create_api_base_response({"tasks": task_list, "total_count": len(task_list)})
         except RequestException as ex:
             logger_api.error("get_tasks failed for user %s, calendar %s: %s", self.user.uid, key, ex)
@@ -227,9 +233,9 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
     def create_task(self, calendar_key: str, body: dict[str, Any]) -> tuple[dict[str, Any], int]:
         """Create a new VTODO in the given calendar."""
         try:
-            task_body = self._normalize_task_body(body)
+            task_body: dict[str, Any] = self._normalize_task_body(body)
             task: CalEvent = self._event_deserializer.deserialize(task_body)
-            created = self.module.create_task(self.user, calendar_key, task)
+            created: CalEvent = self.module.create_task(self.user, calendar_key, task)
             return create_api_base_response(self._event_serializer.serialize(created), code=201)
         except RequestException as ex:
             logger_api.error("create_task failed for user %s calendar %s: %s", self.user.uid, calendar_key, ex)
@@ -241,7 +247,7 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
     def get_task(self, task_key: str) -> tuple[dict[str, Any], int]:
         """Get a single VTODO by key."""
         try:
-            task = self.module.get_task(self.user, task_key)
+            task: CalEvent = self.module.get_task(self.user, task_key)
             return create_api_base_response(self._event_serializer.serialize(task))
         except RequestException as ex:
             logger_api.error("get_task failed for user %s task %s: %s", self.user.uid, task_key, ex)
@@ -253,8 +259,9 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
             if "due" in body:
                 body = dict(body)
                 body["date_end"] = body.pop("due")
-            parsed = self._event_deserializer.parse_patch_fields(body)
-            updated = self.module.update_task(self.user, task_key, parsed)
+            existing: CalEvent = self.module.get_task(self.user, task_key)
+            task_update: CalEvent = self._event_deserializer.deserialize_with_update(existing, body)
+            updated: CalEvent = self.module.update_task(self.user, task_key, task_update)
             return create_api_base_response(self._event_serializer.serialize(updated))
         except RequestException as ex:
             logger_api.error("patch_task failed for user %s task %s: %s", self.user.uid, task_key, ex)
@@ -315,8 +322,8 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
     @staticmethod
     def _normalize_task_body(body: dict[str, Any]) -> dict[str, Any]:
         """Map task API fields to CalEvent fields and fill required defaults."""
-        now_iso = datetime.now(timezone.utc).isoformat()
-        task_body = dict(body)
+        now_iso: str = datetime.now(timezone.utc).isoformat()
+        task_body: dict[str, Any] = dict(body)
         task_body["date_start"] = task_body.get("date_start") or now_iso
         task_body["date_end"] = task_body.pop("due", None) or _FAR_FUTURE
         task_body["component_type"] = "task"

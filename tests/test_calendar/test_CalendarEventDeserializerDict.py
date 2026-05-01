@@ -254,44 +254,49 @@ def test_recurrence_roundtrip():
 
 
 # ==========================================================================
-# parse_patch_fields
+# deserialize — partial dict (update scenario)
 # ==========================================================================
 
-def test_parse_patch_recurrence_exceptions_as_datetimes(deserializer):
-    """recurrence_exceptions strings must be parsed to datetime objects, not passed as raw strings."""
-    result = deserializer.parse_patch_fields({"recurrence_exceptions": ["2026-06-03T07:00:00Z"]})
-    exceptions = result["recurrence_exceptions"]
-    assert len(exceptions) == 1
-    assert isinstance(exceptions[0], datetime)
-    assert exceptions[0] == datetime(2026, 6, 3, 7, 0, 0, tzinfo=timezone.utc)
+def test_partial_recurrence_exceptions_as_datetimes(deserializer):
+    """recurrence_exceptions strings must be parsed to datetime objects."""
+    event = deserializer.deserialize({"recurrence_exceptions": ["2026-06-03T07:00:00Z"]})
+    assert len(event.recurrence_exceptions) == 1
+    assert isinstance(event.recurrence_exceptions[0], datetime)
+    assert event.recurrence_exceptions[0] == datetime(2026, 6, 3, 7, 0, 0, tzinfo=timezone.utc)
 
 
-def test_parse_patch_recurrence_rule_parsed(deserializer):
-    result = deserializer.parse_patch_fields({
+def test_partial_recurrence_rule_parsed(deserializer):
+    event = deserializer.deserialize({
         "recurrence_rule": {"frequency": "weekly", "interval": 2, "count": 4}
     })
-    rule = result["recurrence_rule"]
-    assert rule is not None
-    assert rule.frequency.value == "weekly"
-    assert rule.interval == 2
-    assert rule.count == 4
+    assert event.recurrence_rule is not None
+    assert event.recurrence_rule.frequency.value == "weekly"
+    assert event.recurrence_rule.interval == 2
+    assert event.recurrence_rule.count == 4
 
 
-def test_parse_patch_recurrence_rule_none_preserved(deserializer):
-    result = deserializer.parse_patch_fields({"recurrence_rule": None})
-    assert result["recurrence_rule"] is None
+def test_partial_recurrence_rule_none_preserved(deserializer):
+    event = deserializer.deserialize({"recurrence_rule": None})
+    assert event.recurrence_rule is None
 
 
-def test_parse_patch_scalar_fields_pass_through(deserializer):
-    result = deserializer.parse_patch_fields({"title": "New title", "sequence": 3})
-    assert result["title"] == "New title"
-    assert result["sequence"] == 3
+def test_partial_scalar_fields(deserializer):
+    event = deserializer.deserialize({"title": "New title", "sequence": 3})
+    assert event.title == "New title"
+    assert event.sequence == 3
 
 
-def test_parse_patch_attendees_parsed(deserializer):
-    result = deserializer.parse_patch_fields({
+def test_partial_attendees_parsed(deserializer):
+    event = deserializer.deserialize({
         "attendees": [{"email": "bob@example.org", "name": "Bob", "role": "required",
                        "status": "needs-action", "rsvp": True, "cutype": "individual"}]
     })
-    assert len(result["attendees"]) == 1
-    assert result["attendees"][0].role == AttendeeRole.REQUIRED
+    assert len(event.attendees) == 1
+    assert event.attendees[0].role == AttendeeRole.REQUIRED
+
+
+def test_partial_date_fields_none_when_missing(deserializer):
+    """When date_start/date_end are not in the dict, they are None."""
+    event = deserializer.deserialize({"title": "X"})
+    assert event.date_start is None
+    assert event.date_end is None

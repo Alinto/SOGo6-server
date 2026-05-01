@@ -86,7 +86,6 @@ class ImipProcessor:
                 break
 
         try:
-            # propagate=False: PARTSTAT update is attendee-local per RFC 5546 §3.2.3 — must not overwrite other attendees' copies
             source.update_event(event)
             return event
         except RequestException:
@@ -180,8 +179,8 @@ class ImipProcessor:
         try:
             if message.event.recurrence_id is not None:
                 # Partial cancel: mark the slot as an exception on the master RRULE
-                if message.event.recurrence_id not in master.recurrence_exceptions:
-                    master.recurrence_exceptions = list(master.recurrence_exceptions) + [message.event.recurrence_id]
+                if message.event.recurrence_id not in (master.recurrence_exceptions or []):
+                    master.recurrence_exceptions = list(master.recurrence_exceptions or []) + [message.event.recurrence_id]
                     source.update_event(master)
             else:
                 source.delete_event(master.uid)

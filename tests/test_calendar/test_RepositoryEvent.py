@@ -54,6 +54,11 @@ def _make_event(**kwargs):
         date_start=datetime(2026, 3, 1, 9, 0, tzinfo=_UTC),
         date_end=datetime(2026, 3, 1, 10, 0, tzinfo=_UTC),
         calendar_key="cal-uuid-42",
+        component_type=ComponentType.EVENT,
+        status=EventStatus.CONFIRMED,
+        visibility=EventVisibility.PUBLIC,
+        show_as=ShowAs.BUSY,
+        all_day=False,
     )
     defaults.update(kwargs)
     return CalEvent(**defaults)

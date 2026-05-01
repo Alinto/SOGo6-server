@@ -75,14 +75,15 @@ class RruleEngine:
             if occ_end < start:
                 continue
 
-            if self._is_excluded(occ_start, master.recurrence_exceptions):
-                continue
-
             occ_key: datetime = self._normalize_dt(occ_start)
             if occ_key in override_map:
+                # RFC 5545 §3.8.4.4: a RECURRENCE-ID override replaces the slot,
+                # even if the slot is also listed in EXDATE.
                 override_event: CalEvent = override_map[occ_key]
                 if override_event.date_end >= start and override_event.date_start <= end:
                     result.append(override_event)
+            elif self._is_excluded(occ_start, master.recurrence_exceptions):
+                continue
             else:
                 result.append(self._make_occurrence(master, occ_start, occ_end))
 
@@ -568,7 +569,6 @@ class RruleEngine:
             date_start=start,
             date_end=end,
             recurrence_id=start,
-            recurrence_rule=None,
             recurrence_exceptions=[],
         )
 

@@ -47,7 +47,7 @@ TEST COVERAGE:
    7  RRULE expansion — GET with date range returns expanded occurrences
    8  Full-text search
    9  Detached occurrence lifecycle:
-        a. POST occurrence with recurrence_id → separate DB row, parent_uid set
+        a. POST occurrence with recurrence_id → separate DB row
         b. GET /events returns the override in expansion (not the original slot)
         c. DELETE occurrence → slot cancelled via EXDATE, master survives
         d. GET /events no longer returns the cancelled slot
@@ -75,7 +75,19 @@ TEST COVERAGE:
         c. LOGIN_2 accepts the invitation via POST /events/{key}/attendance
         d. LOGIN_1 sees ACCEPTED status on their organizer copy
         e. LOGIN_2 declines a second invitation — LOGIN_1 sees DECLINED
-  17  Conditional DELETE (only when -d is passed, steps 52–55)
+  18  Recurrence scope (THISANDFUTURE + single occurrence):
+        a. Edit single occurrence — PATCH with recurrence_id → detached override
+        b. THISANDFUTURE split with updates — PATCH with recurrence_id + THISANDFUTURE
+           → original truncated, new master created with correct title
+        c. Verify original series truncated: absent from split point, new series present
+        d. THISANDFUTURE truncate-only (no updates) → series truncated, no new master
+        e. THISANDFUTURE on COUNT-based series → new series has UNTIL, not COUNT
+        f. Edit occurrence then GET verifies modified title in expansion
+        g. Split series then GET verifies new series expands
+        h. THISANDFUTURE on non-recurring event → rejected
+        i. DELETE master recurring event → all occurrences removed
+        j. EXDATE on slot without detached override → slot vanishes from expansion
+  19  Conditional DELETE (only when -d is passed, steps 62–64)
 EOF
     exit 0
 }
@@ -424,6 +436,16 @@ info "Events in June 1-5: $TOTAL"
 FOUND=$(body | jq -r '[.data.events[] | select(.title == "Daily Standup")] | length')
 [ "$FOUND" -ge 5 ] 2>/dev/null && ok "Daily Standup appears $FOUND times" || fail "Daily Standup appears $FOUND times (expected >= 5)"
 
+# Verify that expanded occurrences carry the master's recurrence_rule
+FIRST_OCC_FREQ=$(body | jq -r '[.data.events[] | select(.title == "Daily Standup")][0].recurrence_rule.frequency // empty')
+[ "$FIRST_OCC_FREQ" = "daily" ] \
+    && ok "expanded occurrence carries recurrence_rule.frequency=daily" \
+    || fail "expanded occurrence recurrence_rule.frequency='$FIRST_OCC_FREQ' (expected 'daily')"
+FIRST_OCC_RECID=$(body | jq -r '[.data.events[] | select(.title == "Daily Standup")][0].recurrence_id // empty')
+[ -n "$FIRST_OCC_RECID" ] \
+    && ok "expanded occurrence has recurrence_id set ($FIRST_OCC_RECID)" \
+    || fail "expanded occurrence has no recurrence_id"
+
 step "16. RRULE expansion — weekly event over two months"
 info "The weekly MO/WE/FR event runs from 2026-06-01 to 2026-07-31. June has ~13 occurrences.
   We verify >= 10 for the June window."
@@ -485,14 +507,8 @@ RECID=$(extract '.data.recurrence_id' | sed 's/\.000Z$/Z/')
 [ "$RECID" = "2026-06-03T09:00:00Z" ] \
     && ok ".data.recurrence_id = '2026-06-03T09:00:00Z'" \
     || fail ".data.recurrence_id — expected '2026-06-03T09:00:00Z', got '$RECID'"
-check_not_empty ".data.parent_uid"
 OCCURRENCE_KEY=$(extract '.data.key')
-OCCURRENCE_PARENT_UID=$(extract '.data.parent_uid')
 info "Occurrence key: $OCCURRENCE_KEY"
-info "parent_uid: $OCCURRENCE_PARENT_UID"
-[ "$OCCURRENCE_PARENT_UID" = "$DAILY_UID" ] \
-    && ok "parent_uid matches master uid" \
-    || fail "parent_uid '$OCCURRENCE_PARENT_UID' does not match master uid '$DAILY_UID'"
 
 step "20. Detached occurrence — GET expansion shows override, not original slot"
 info "When expanding over June 3, the response must include the overridden occurrence
@@ -1207,9 +1223,499 @@ L2_STATUS_ON_L1=$(body | jq -r --arg email "$LOGIN_2" '.data.attendees[] | selec
     && ok "LOGIN_1 organizer copy shows LOGIN_2 = accepted" \
     || fail "LOGIN_1 organizer copy shows LOGIN_2 = '$L2_STATUS_ON_L1' (expected accepted)"
 
+# ── 17b. SINGLE-OCCURRENCE ATTENDANCE ────────────────────────────────────────
+
+step "51b. Invitation — LOGIN_1 creates recurring event with LOGIN_2 as attendee"
+info "Creates a recurring event where LOGIN_2 is invited. Then LOGIN_2 declines a single occurrence."
+
+CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d "{
+        \"title\": \"Weekly Sync\",
+        \"date_start\": \"2026-07-06T14:00:00Z\",
+        \"date_end\":   \"2026-07-06T15:00:00Z\",
+        \"timezone\": \"Europe/Paris\",
+        \"recurrence_rule\": {\"frequency\": \"weekly\", \"count\": 4, \"interval\": 1},
+        \"attendees\": [
+            {\"email\": \"$LOGIN_2\", \"name\": \"User Two\", \"status\": \"needs-action\"},
+            {\"email\": \"$LOGIN_1\", \"name\": \"User One\", \"status\": \"accepted\"}
+        ]
+    }")
+check_code  "POST /events recurring invite" "$CODE" "201"
+check_error "POST /events recurring invite error_code"
+REC_INVITE_KEY_L1=$(extract '.data.key')
+REC_INVITE_UID=$(extract '.data.uid')
+info "Recurring invite organizer key (LOGIN_1): $REC_INVITE_KEY_L1  uid: $REC_INVITE_UID"
+
+# Fetch LOGIN_2's copy
+CODE=$(req "$BASE/events?start_date_time=2026-07-06T00:00:00Z&end_date_time=2026-07-06T23:59:59Z" -H "$H_AUTH_2")
+check_code "GET /events (LOGIN_2) for recurring invite" "$CODE" "200"
+REC_INVITE_KEY_L2=$(body | jq -r --arg uid "$REC_INVITE_UID" '[.data.events[] | select(.uid == $uid)][0].key // empty')
+info "Recurring invite attendee key (LOGIN_2): $REC_INVITE_KEY_L2"
+
+step "51c. Invitation — LOGIN_2 declines single occurrence of recurring event"
+info "POST /events/{key}/attendance with status=declined and recurrence_id targeting 2026-07-13."
+
+CODE=$(req -X POST "$BASE/events/$REC_INVITE_KEY_L2/attendance" \
+    -H "$H_JSON" -H "$H_AUTH_2" \
+    -d '{"status": "declined", "recurrence_id": "2026-07-13T14:00:00Z"}')
+check_code  "POST /events/$REC_INVITE_KEY_L2/attendance declined single occ" "$CODE" "200"
+check_error "POST attendance declined single occ error_code"
+OCC_RECID=$(body | jq -r '.data.recurrence_id // empty' | sed 's/\.000Z$/Z/')
+[ "$OCC_RECID" = "2026-07-13T14:00:00Z" ] \
+    && ok "response has recurrence_id = 2026-07-13T14:00:00Z" \
+    || fail "response recurrence_id = '$OCC_RECID' (expected 2026-07-13T14:00:00Z)"
+OCC_ATT_KEY=$(body | jq -r '.data.key // empty')
+OCC_L2_STATUS=$(body | jq -r --arg email "$LOGIN_2" '.data.attendees[] | select(.email == $email) | .status // empty')
+[ "$OCC_L2_STATUS" = "declined" ] \
+    && ok "occurrence attendee status = declined" \
+    || fail "occurrence attendee status = '$OCC_L2_STATUS' (expected declined)"
+info "Occurrence key: $OCC_ATT_KEY"
+
+# ── 18. RECURRENCE SCOPE (THISANDFUTURE + SINGLE OCCURRENCE) ─────────────────
+
+step "52. Recurrence scope — edit single occurrence (PATCH with recurrence_id, no range)"
+info "PATCH the weekly Cardio Session event with recurrence_id=2026-06-08T07:00:00Z (a Monday).
+  Expected: a detached occurrence row is created; recurrence_id is set on the response."
+
+# Capture WEEKLY_UID for later assertion
+CODE=$(req "$BASE/events/$WEEKLY_KEY" -H "$H_AUTH")
+check_code "GET /events/$WEEKLY_KEY to capture uid" "$CODE" "200"
+WEEKLY_UID=$(extract '.data.uid')
+info "Weekly event uid: $WEEKLY_UID"
+
+CODE=$(req -X PATCH "$BASE/events/$WEEKLY_KEY" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d '{
+        "title": "Cardio Session (modified)",
+        "recurrence_id": "2026-06-08T07:00:00Z"
+    }')
+check_code  "PATCH /events edit single occurrence" "$CODE" "200"
+check_error "PATCH /events edit single occurrence error_code"
+RECID=$(extract '.data.recurrence_id' | sed 's/\.000Z$/Z/')
+[ "$RECID" = "2026-06-08T07:00:00Z" ] \
+    && ok "recurrence_id set to 2026-06-08T07:00:00Z" \
+    || fail "recurrence_id '$RECID' != '2026-06-08T07:00:00Z'"
+OCCURRENCE_EDIT_KEY=$(extract '.data.key')
+info "Detached occurrence key: $OCCURRENCE_EDIT_KEY"
+
+step "53. Recurrence scope — THISANDFUTURE split with updates (PATCH + recurrence_range)"
+info "PATCH weekly Cardio Session with recurrence_id=2026-06-15T07:00:00Z and
+  recurrence_range=THISANDFUTURE. Expected:
+  - Original series is truncated at 2026-06-14T23:59:59Z
+  - A new master event is created from 2026-06-15 with the given title
+  - Response has no recurrence_id (it is a new master, not a detached occurrence)"
+
+CODE=$(req -X PATCH "$BASE/events/$WEEKLY_KEY" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d '{
+        "title": "Cardio Session — New Series",
+        "recurrence_id": "2026-06-15T07:00:00Z",
+        "recurrence_range": "THISANDFUTURE"
+    }')
+check_code  "PATCH /events THISANDFUTURE split" "$CODE" "200"
+check_error "PATCH /events THISANDFUTURE split error_code"
+SPLIT_KEY=$(extract '.data.key')
+SPLIT_UID=$(extract '.data.uid')
+SPLIT_RECID=$(extract '.data.recurrence_id // empty')
+[ -z "$SPLIT_RECID" ] \
+    && ok "new master has no recurrence_id (it is a master, not a detached occurrence)" \
+    || fail "new master should have no recurrence_id, got '$SPLIT_RECID'"
+SPLIT_TITLE=$(extract '.data.title')
+[ "$SPLIT_TITLE" = "Cardio Session — New Series" ] \
+    && ok "new master title = 'Cardio Session — New Series'" \
+    || fail "new master title '$SPLIT_TITLE' != expected"
+info "Split master key: $SPLIT_KEY  uid: $SPLIT_UID"
+
+step "54. Recurrence scope — verify original series is truncated after split"
+info "GET the original weekly event and verify its recurrence_rule.until is set to a date
+  before 2026-06-15 (the split point). The series should no longer expand past that point."
+
+CODE=$(req "$BASE/events/$WEEKLY_KEY" -H "$H_AUTH")
+check_code "GET /events/$WEEKLY_KEY (truncated original)" "$CODE" "200"
+UNTIL=$(extract '.data.recurrence_rule.until // empty')
+[ -n "$UNTIL" ] \
+    && ok "original series has until set after split ($UNTIL)" \
+    || fail "original series until is empty — series not truncated"
+
+CODE=$(req "$BASE/calendars/$CAL_KEY/events?start_date_time=2026-06-15T00:00:00Z&end_date_time=2026-06-15T23:59:59Z" \
+    -H "$H_AUTH")
+check_code "GET /events on split point date" "$CODE" "200"
+CARDIO_ORIGINAL=$(body | jq --arg uid "$WEEKLY_UID" '[.data.events[] | select(.uid == $uid)] | length')
+[ "$CARDIO_ORIGINAL" -eq 0 ] 2>/dev/null \
+    && ok "original series absent from 2026-06-15 onwards (truncated)" \
+    || fail "original series still appears on 2026-06-15 (count=$CARDIO_ORIGINAL)"
+CARDIO_SPLIT=$(body | jq --arg uid "$SPLIT_UID" '[.data.events[] | select(.uid == $uid)] | length')
+[ "$CARDIO_SPLIT" -ge 1 ] 2>/dev/null \
+    && ok "new split series appears on 2026-06-15 (count=$CARDIO_SPLIT)" \
+    || fail "new split series absent from 2026-06-15 (count=$CARDIO_SPLIT)"
+
+step "55. Recurrence scope — THISANDFUTURE truncate only (no updates = delete this and following)"
+info "PATCH a recurring event with recurrence_id + recurrence_range=THISANDFUTURE but no
+  content updates (empty updates dict). Expected: the series is truncated at that point
+  but no new master is created. Response returns the (now-truncated) original master."
+
+CODE=$(req -X PATCH "$BASE/events/$SPLIT_KEY" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d '{
+        "recurrence_id": "2026-06-22T07:00:00Z",
+        "recurrence_range": "THISANDFUTURE"
+    }')
+check_code  "PATCH /events THISANDFUTURE truncate-only" "$CODE" "200"
+check_error "PATCH /events THISANDFUTURE truncate-only error_code"
+TRUNC_UNTIL=$(extract '.data.recurrence_rule.until // empty')
+[ -n "$TRUNC_UNTIL" ] \
+    && ok "truncated series has until set ($TRUNC_UNTIL)" \
+    || fail "series until is empty after truncate-only"
+TRUNC_UID=$(extract '.data.uid')
+[ "$TRUNC_UID" = "$SPLIT_UID" ] \
+    && ok "response is still the same master (no new event created)" \
+    || fail "unexpected uid change: got '$TRUNC_UID', expected '$SPLIT_UID'"
+
+step "56. Recurrence scope — THISANDFUTURE on COUNT-based series converts to UNTIL"
+info "PATCH the monthly COUNT=6 event with THISANDFUTURE at 2026-09-01 (4th occurrence).
+  Expected: new series has UNTIL instead of COUNT, and COUNT is null."
+
+CODE=$(req "$BASE/events/$MONTHLY_KEY" -H "$H_AUTH")
+check_code "GET /events/$MONTHLY_KEY to capture uid" "$CODE" "200"
+MONTHLY_UID=$(extract '.data.uid')
+
+CODE=$(req -X PATCH "$BASE/events/$MONTHLY_KEY" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d '{
+        "title": "Monthly Review — New Series",
+        "recurrence_id": "2026-09-01T10:00:00Z",
+        "recurrence_range": "THISANDFUTURE"
+    }')
+check_code "PATCH /events THISANDFUTURE on COUNT series" "$CODE" "200"
+check_error "PATCH /events THISANDFUTURE on COUNT series error_code"
+SPLIT_MONTHLY_KEY=$(extract '.data.key')
+SPLIT_MONTHLY_COUNT=$(extract '.data.recurrence_rule.count // empty')
+SPLIT_MONTHLY_UNTIL=$(extract '.data.recurrence_rule.until // empty')
+[ -z "$SPLIT_MONTHLY_COUNT" ] \
+    && ok "new series has no COUNT (converted to UNTIL)" \
+    || fail "new series still has COUNT=$SPLIT_MONTHLY_COUNT"
+[ -n "$SPLIT_MONTHLY_UNTIL" ] \
+    && ok "new series has UNTIL set ($SPLIT_MONTHLY_UNTIL)" \
+    || fail "new series UNTIL is empty — COUNT was not converted"
+info "Split monthly key: $SPLIT_MONTHLY_KEY  until: $SPLIT_MONTHLY_UNTIL"
+
+step "57. Recurrence scope — edit occurrence then verify via GET expansion"
+info "After step 52 created a detached occurrence for the weekly event on 2026-06-08,
+  GET over that date range must show the modified title, not the original."
+
+CODE=$(req "$BASE/calendars/$CAL_KEY/events?start_date_time=2026-06-08T00:00:00Z&end_date_time=2026-06-08T23:59:59Z" \
+    -H "$H_AUTH")
+check_code "GET /events June 8 (with occurrence edit)" "$CODE" "200"
+OVERRIDE_TITLE=$(body | jq -r '[.data.events[] | select(.title == "Cardio Session (modified)")] | length')
+[ "$OVERRIDE_TITLE" -ge 1 ] 2>/dev/null \
+    && ok "modified occurrence appears in expansion (count=$OVERRIDE_TITLE)" \
+    || fail "modified occurrence not found in expansion (count=$OVERRIDE_TITLE)"
+ORIGINAL_SLOT=$(body | jq -r '[.data.events[] | select(.title == "Cardio Session" and .recurrence_id == null)] | length')
+[ "$ORIGINAL_SLOT" -eq 0 ] 2>/dev/null \
+    && ok "original slot replaced by override" \
+    || fail "original slot still present alongside override (count=$ORIGINAL_SLOT)"
+
+step "58. Recurrence scope — split series then verify new series expands"
+info "After step 53 created a new series 'Cardio Session — New Series' starting 2026-06-15,
+  GET over 2026-06-15 to 2026-06-22 must show occurrences from the new series."
+
+CODE=$(req "$BASE/calendars/$CAL_KEY/events?start_date_time=2026-06-15T00:00:00Z&end_date_time=2026-06-22T23:59:59Z" \
+    -H "$H_AUTH")
+check_code "GET /events June 15-22 (split series expansion)" "$CODE" "200"
+SPLIT_OCCURRENCES=$(body | jq --arg uid "$SPLIT_UID" '[.data.events[] | select(.uid == $uid)] | length')
+[ "$SPLIT_OCCURRENCES" -ge 1 ] 2>/dev/null \
+    && ok "new split series expands correctly ($SPLIT_OCCURRENCES occurrences)" \
+    || fail "new split series has 0 occurrences in June 15-22"
+
+step "59. Error — THISANDFUTURE on non-recurring event"
+info "PATCH a non-recurring event with recurrence_id + THISANDFUTURE must fail."
+
+CODE=$(req -X PATCH "$BASE/events/$EVT_KEY" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d '{
+        "title": "Should fail",
+        "recurrence_id": "2026-06-10T09:00:00Z",
+        "recurrence_range": "THISANDFUTURE"
+    }')
+[ "$CODE" != "200" ] \
+    && ok "THISANDFUTURE on non-recurring event rejected (HTTP $CODE)" \
+    || fail "THISANDFUTURE on non-recurring event should not succeed (HTTP $CODE)"
+
+step "60. DELETE master recurring event removes all occurrences"
+info "Create a temporary daily recurring event, then DELETE the master.
+  A subsequent GET must return 0 occurrences for that uid."
+
+CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d '{
+        "title": "Temp Recurring",
+        "date_start": "2026-06-20T08:00:00Z",
+        "date_end":   "2026-06-20T09:00:00Z",
+        "recurrence_rule": {"frequency": "daily", "count": 3, "interval": 1}
+    }')
+check_code "POST /events temp recurring" "$CODE" "201"
+TEMP_REC_KEY=$(extract '.data.key')
+TEMP_REC_UID=$(extract '.data.uid')
+
+CODE=$(req -X DELETE "$BASE/events/$TEMP_REC_KEY" -H "$H_AUTH")
+check_code "DELETE /events/$TEMP_REC_KEY (master)" "$CODE" "200"
+
+CODE=$(req "$BASE/calendars/$CAL_KEY/events?start_date_time=2026-06-20T00:00:00Z&end_date_time=2026-06-22T23:59:59Z" \
+    -H "$H_AUTH")
+check_code "GET /events after master delete" "$CODE" "200"
+REMAINING=$(body | jq --arg uid "$TEMP_REC_UID" '[.data.events[] | select(.uid == $uid)] | length')
+[ "$REMAINING" -eq 0 ] 2>/dev/null \
+    && ok "no occurrences remain after master delete" \
+    || fail "occurrences still present after master delete (count=$REMAINING)"
+
+step "61. EXDATE on slot without detached override"
+info "PATCH the daily event to add 2026-06-04T09:00:00Z to recurrence_exceptions.
+  That slot has no detached override — it is a pure RRULE-generated slot.
+  After the EXDATE, that slot must vanish from expansion."
+
+CODE=$(req -X PATCH "$BASE/events/$DAILY_KEY" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d '{"recurrence_exceptions": ["2026-06-03T09:00:00Z", "2026-06-04T09:00:00Z"]}')
+check_code "PATCH /events add EXDATE for June 4" "$CODE" "200"
+EXDATES=$(extract '.data.recurrence_exceptions | length')
+[ "$EXDATES" -ge 2 ] 2>/dev/null \
+    && ok "recurrence_exceptions has $EXDATES entries (includes June 3 + June 4)" \
+    || fail "recurrence_exceptions count $EXDATES < 2"
+
+CODE=$(req "$BASE/calendars/$CAL_KEY/events?start_date_time=2026-06-04T00:00:00Z&end_date_time=2026-06-04T23:59:59Z" \
+    -H "$H_AUTH")
+check_code "GET /events June 4 after EXDATE" "$CODE" "200"
+STANDUP_COUNT=$(body | jq --arg uid "$DAILY_UID" '[.data.events[] | select(.uid == $uid)] | length')
+[ "$STANDUP_COUNT" -eq 0 ] 2>/dev/null \
+    && ok "Daily Standup absent from June 4 after EXDATE" \
+    || fail "Daily Standup still present on June 4 (count=$STANDUP_COUNT)"
+
+step "62. All-events update shifts detached occurrences"
+info "Create a daily recurring event, override one occurrence (change color),
+  then PATCH the master with new date_start (+2h). The detached occurrence
+  must shift its recurrence_id and dates by the same delta."
+
+CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d '{
+        "title": "Shift Test",
+        "date_start": "2026-06-20T10:00:00Z",
+        "date_end":   "2026-06-20T11:00:00Z",
+        "recurrence_rule": {"frequency": "daily", "count": 3, "interval": 1}
+    }')
+check_code "POST /events shift test" "$CODE" "201"
+SHIFT_KEY=$(extract '.data.key')
+SHIFT_UID=$(extract '.data.uid')
+
+# Create detached occurrence for June 21 with different color
+CODE=$(req -X PATCH "$BASE/events/$SHIFT_KEY" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d '{"color": "#ff0000", "recurrence_id": "2026-06-21T10:00:00Z"}')
+check_code "PATCH /events create detached for shift test" "$CODE" "200"
+SHIFT_OCC_KEY=$(extract '.data.key')
+
+# Move master +2h with "all events"
+CODE=$(req -X PATCH "$BASE/events/$SHIFT_KEY" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d '{"date_start": "2026-06-20T12:00:00Z", "date_end": "2026-06-20T13:00:00Z"}')
+check_code "PATCH /events shift master +2h" "$CODE" "200"
+
+# Verify the detached occurrence shifted by +2h
+CODE=$(req "$BASE/events/$SHIFT_OCC_KEY" -H "$H_AUTH")
+check_code "GET shifted detached occurrence" "$CODE" "200"
+OCC_RECID=$(extract '.data.recurrence_id' | sed 's/\.000Z$/Z/')
+OCC_START=$(extract '.data.date_start' | sed 's/\.000Z$/Z/')
+[ "$OCC_RECID" = "2026-06-21T12:00:00Z" ] \
+    && ok "detached occurrence recurrence_id shifted to 12:00" \
+    || fail "recurrence_id '$OCC_RECID' (expected 2026-06-21T12:00:00Z)"
+[ "$OCC_START" = "2026-06-21T12:00:00Z" ] \
+    && ok "detached occurrence date_start shifted to 12:00" \
+    || fail "date_start '$OCC_START' (expected 2026-06-21T12:00:00Z)"
+OCC_COLOR=$(extract '.data.color')
+[ "$OCC_COLOR" = "#ff0000" ] \
+    && ok "detached occurrence color preserved (#ff0000)" \
+    || fail "color '$OCC_COLOR' (expected #ff0000)"
+
+step "63. Detached occurrence edit does not break attendee master"
+info "LOGIN_1 creates a weekly recurring event with LOGIN_2 as attendee.
+  LOGIN_1 edits one occurrence (color change → detached occurrence).
+  LOGIN_1 moves the detached occurrence. LOGIN_2's master must survive."
+
+# Create recurring event with attendee
+CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d "{
+        \"title\": \"Propagation Test\",
+        \"date_start\": \"2026-06-25T10:00:00Z\",
+        \"date_end\":   \"2026-06-25T11:00:00Z\",
+        \"timezone\": \"Europe/Paris\",
+        \"recurrence_rule\": {\"frequency\": \"weekly\", \"interval\": 1, \"count\": 4},
+        \"attendees\": [{\"email\": \"$LOGIN_2\", \"name\": \"User Two\", \"status\": \"needs-action\"}]
+    }")
+check_code "POST /events propagation test" "$CODE" "201"
+PROP_KEY=$(extract '.data.key')
+PROP_UID=$(extract '.data.uid')
+info "Propagation test key: $PROP_KEY  uid: $PROP_UID"
+
+# Edit single occurrence (change color) → creates detached occurrence
+CODE=$(req -X PATCH "$BASE/events/$PROP_KEY" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d '{"color": "#ff0000", "recurrence_id": "2026-07-02T10:00:00Z"}')
+check_code "PATCH /events create detached for propagation test" "$CODE" "200"
+PROP_OCC_KEY=$(extract '.data.key')
+
+# Move the detached occurrence by +1h
+CODE=$(req -X PATCH "$BASE/events/$PROP_OCC_KEY" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d '{"date_start": "2026-07-02T11:00:00Z", "date_end": "2026-07-02T12:00:00Z"}')
+check_code "PATCH /events move detached occurrence" "$CODE" "200"
+
+# Verify LOGIN_2 still sees the full recurring series (not just the detached occurrence)
+CODE=$(req "$BASE/events?start_date_time=2026-06-25T00:00:00Z&end_date_time=2026-07-16T23:59:59Z" -H "$H_AUTH_2")
+check_code "GET /events (LOGIN_2) after detached move" "$CODE" "200"
+L2_SERIES=$(body | jq --arg uid "$PROP_UID" '[.data.events[] | select(.uid == $uid)] | length')
+[ "$L2_SERIES" -ge 3 ] 2>/dev/null \
+    && ok "LOGIN_2 still sees full series ($L2_SERIES occurrences)" \
+    || fail "LOGIN_2 only sees $L2_SERIES occurrence(s) (expected >= 3)"
+
+# Verify LOGIN_2's master has recurrence_rule intact
+L2_MASTER_RRULE=$(body | jq -r --arg uid "$PROP_UID" '[.data.events[] | select(.uid == $uid and .recurrence_rule != null)][0].recurrence_rule.frequency // empty')
+[ "$L2_MASTER_RRULE" = "weekly" ] \
+    && ok "LOGIN_2 master recurrence_rule intact (weekly)" \
+    || fail "LOGIN_2 master recurrence_rule='$L2_MASTER_RRULE' (expected weekly)"
+
 # ── 17. CONDITIONAL DELETES ───────────────────────────────────────────────────
 
-step "52. Delete — LOGIN_1 freebusy events, tasks, and main test events"
+step "64. Error — attendee cannot modify event content"
+info "LOGIN_2 tries to PATCH the invitation event created by LOGIN_1 in step 47.
+  Only the organizer can modify content — attendee must get 403 / S000618."
+
+# Use the propagated copy key from step 48 (LOGIN_2's copy of the invite)
+if [ -n "$INVITE_KEY_L2" ]; then
+    CODE=$(req -X PATCH "$BASE/events/$INVITE_KEY_L2" \
+        -H "$H_JSON" -H "$H_AUTH_2" \
+        -d '{"title": "Hacked by attendee"}')
+    [ "$CODE" = "403" ] \
+        && ok "attendee PATCH rejected (HTTP 403)" \
+        || fail "attendee PATCH should be rejected, got HTTP $CODE"
+    ERR_CODE=$(body | jq -r '.error_code // empty')
+    [ "$ERR_CODE" = "S000618" ] \
+        && ok "error code = S000618 (not organizer)" \
+        || fail "error code = '$ERR_CODE' (expected S000618)"
+else
+    skip "attendee modify test (no INVITE_KEY_L2 from step 48)"
+fi
+
+step "65. End-to-end recurring event lifecycle with attendee"
+info "Full lifecycle: create recurring event with attendee, detach one occurrence,
+  move all events, verify attendee sync at every step, then delete everything."
+
+# 1. Create recurring event MO/TH, 30 occurrences, with LOGIN_2 as attendee
+CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d "{
+        \"title\": \"Foo\",
+        \"date_start\": \"2026-07-06T12:00:00Z\",
+        \"date_end\":   \"2026-07-06T13:00:00Z\",
+        \"timezone\": \"Europe/Paris\",
+        \"recurrence_rule\": {\"frequency\": \"weekly\", \"interval\": 1, \"by_day\": [\"MO\", \"TH\"], \"count\": 30},
+        \"attendees\": [{\"email\": \"$LOGIN_2\", \"name\": \"User Two\", \"status\": \"needs-action\"}]
+    }")
+check_code "E2E: create recurring event" "$CODE" "201"
+E2E_KEY=$(extract '.data.key')
+E2E_UID=$(extract '.data.uid')
+info "E2E key: $E2E_KEY  uid: $E2E_UID"
+
+# 2. Verify LOGIN_2 sees the events
+CODE=$(req "$BASE/events?start_date_time=2026-07-06T00:00:00Z&end_date_time=2026-07-20T23:59:59Z" -H "$H_AUTH_2")
+check_code "E2E: LOGIN_2 sees events" "$CODE" "200"
+L2_E2E_COUNT=$(body | jq --arg uid "$E2E_UID" '[.data.events[] | select(.uid == $uid)] | length')
+[ "$L2_E2E_COUNT" -ge 4 ] 2>/dev/null \
+    && ok "LOGIN_2 sees $L2_E2E_COUNT occurrences in first 2 weeks" \
+    || fail "LOGIN_2 sees $L2_E2E_COUNT occurrences (expected >= 4)"
+
+# 3. Edit second occurrence: change color, title, shift +1h → creates detached occurrence
+# Second occurrence is Thursday July 9 at 12:00
+CODE=$(req -X PATCH "$BASE/events/$E2E_KEY" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d '{"title": "Foo Modified", "color": "#ff0000", "date_start": "2026-07-09T13:00:00Z", "date_end": "2026-07-09T14:00:00Z", "recurrence_id": "2026-07-09T12:00:00Z"}')
+check_code "E2E: create detached occurrence" "$CODE" "200"
+E2E_OCC_KEY=$(extract '.data.key')
+E2E_OCC_TITLE=$(extract '.data.title')
+E2E_OCC_COLOR=$(extract '.data.color')
+E2E_OCC_START=$(extract '.data.date_start' | sed 's/\.000Z$/Z/')
+[ "$E2E_OCC_TITLE" = "Foo Modified" ] \
+    && ok "detached occurrence title = 'Foo Modified'" \
+    || fail "detached occurrence title = '$E2E_OCC_TITLE'"
+[ "$E2E_OCC_COLOR" = "#ff0000" ] \
+    && ok "detached occurrence color = '#ff0000'" \
+    || fail "detached occurrence color = '$E2E_OCC_COLOR'"
+[ "$E2E_OCC_START" = "2026-07-09T13:00:00Z" ] \
+    && ok "detached occurrence shifted to 13:00" \
+    || fail "detached occurrence start = '$E2E_OCC_START' (expected 13:00)"
+
+# 4. Verify LOGIN_2 has the detached occurrence with modifications
+CODE=$(req "$BASE/events?start_date_time=2026-07-09T00:00:00Z&end_date_time=2026-07-09T23:59:59Z" -H "$H_AUTH_2")
+check_code "E2E: LOGIN_2 sees detached occurrence" "$CODE" "200"
+L2_OCC_TITLE=$(body | jq -r --arg uid "$E2E_UID" '[.data.events[] | select(.uid == $uid and .title == "Foo Modified")][0].title // empty')
+[ "$L2_OCC_TITLE" = "Foo Modified" ] \
+    && ok "LOGIN_2 sees detached occurrence 'Foo Modified'" \
+    || fail "LOGIN_2 does not see 'Foo Modified' (got '$L2_OCC_TITLE')"
+
+# 5. Move all events: shift master +1h (12:00 → 13:00)
+CODE=$(req -X PATCH "$BASE/events/$E2E_KEY" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d '{"date_start": "2026-07-06T13:00:00Z", "date_end": "2026-07-06T14:00:00Z"}')
+check_code "E2E: move all events +1h" "$CODE" "200"
+
+# 6. Verify organizer: all regular occurrences at 13:00, detached at 14:00 (13:00 + 1h offset)
+CODE=$(req "$BASE/events?start_date_time=2026-07-06T00:00:00Z&end_date_time=2026-07-13T23:59:59Z" -H "$H_AUTH")
+check_code "E2E: organizer events after shift" "$CODE" "200"
+ORG_MONDAY=$(body | jq -r --arg uid "$E2E_UID" '[.data.events[] | select(.uid == $uid and .title == "Foo")][0].date_start // empty' | sed 's/\.000Z$/Z/')
+ORG_OCC=$(body | jq -r --arg uid "$E2E_UID" '[.data.events[] | select(.uid == $uid and .title == "Foo Modified")][0].date_start // empty' | sed 's/\.000Z$/Z/')
+[ "$ORG_MONDAY" = "2026-07-06T13:00:00Z" ] \
+    && ok "organizer: regular occurrence shifted to 13:00" \
+    || fail "organizer: regular occurrence at '$ORG_MONDAY' (expected 13:00)"
+[ "$ORG_OCC" = "2026-07-09T14:00:00Z" ] \
+    && ok "organizer: detached occurrence shifted to 14:00 (preserved +1h offset)" \
+    || fail "organizer: detached occurrence at '$ORG_OCC' (expected 14:00)"
+
+# 7. Verify LOGIN_2: same shift applied
+CODE=$(req "$BASE/events?start_date_time=2026-07-06T00:00:00Z&end_date_time=2026-07-13T23:59:59Z" -H "$H_AUTH_2")
+check_code "E2E: LOGIN_2 events after shift" "$CODE" "200"
+L2_MONDAY=$(body | jq -r --arg uid "$E2E_UID" '[.data.events[] | select(.uid == $uid and .title == "Foo")][0].date_start // empty' | sed 's/\.000Z$/Z/')
+L2_OCC=$(body | jq -r --arg uid "$E2E_UID" '[.data.events[] | select(.uid == $uid and .title == "Foo Modified")][0].date_start // empty' | sed 's/\.000Z$/Z/')
+[ "$L2_MONDAY" = "2026-07-06T13:00:00Z" ] \
+    && ok "LOGIN_2: regular occurrence shifted to 13:00" \
+    || fail "LOGIN_2: regular occurrence at '$L2_MONDAY' (expected 13:00)"
+[ "$L2_OCC" = "2026-07-09T14:00:00Z" ] \
+    && ok "LOGIN_2: detached occurrence shifted to 14:00" \
+    || fail "LOGIN_2: detached occurrence at '$L2_OCC' (expected 14:00)"
+
+# 8. Delete the entire series (organizer delete cascades)
+CODE=$(req -X DELETE "$BASE/events/$E2E_KEY" -H "$H_AUTH")
+check_code "E2E: delete series (organizer)" "$CODE" "200"
+
+# 9. Verify organizer: no events left
+CODE=$(req "$BASE/events?start_date_time=2026-07-06T00:00:00Z&end_date_time=2026-07-20T23:59:59Z" -H "$H_AUTH")
+check_code "E2E: organizer events after delete" "$CODE" "200"
+ORG_REMAINING=$(body | jq --arg uid "$E2E_UID" '[.data.events[] | select(.uid == $uid)] | length')
+[ "$ORG_REMAINING" -eq 0 ] 2>/dev/null \
+    && ok "organizer: no events remain after delete" \
+    || fail "organizer: $ORG_REMAINING events still present"
+
+# 10. Verify LOGIN_2: no events left
+CODE=$(req "$BASE/events?start_date_time=2026-07-06T00:00:00Z&end_date_time=2026-07-20T23:59:59Z" -H "$H_AUTH_2")
+check_code "E2E: LOGIN_2 events after delete" "$CODE" "200"
+L2_REMAINING=$(body | jq --arg uid "$E2E_UID" '[.data.events[] | select(.uid == $uid)] | length')
+[ "$L2_REMAINING" -eq 0 ] 2>/dev/null \
+    && ok "LOGIN_2: no events remain after delete" \
+    || fail "LOGIN_2: $L2_REMAINING events still present"
+
+# ── 17. CONDITIONAL DELETES ───────────────────────────────────────────────────
+
+step "66. Delete — LOGIN_1 freebusy events, tasks, and main test events"
 info "Deletes all events and tasks created by LOGIN_1 during this run. Skipped without -d."
 
 if $DO_DELETE; then
@@ -1228,6 +1734,16 @@ if $DO_DELETE; then
         CODE=$(req -X DELETE "$BASE/events/$key" -H "$H_AUTH")
         check_code "DELETE /events/$key" "$CODE" "200"
     done
+    # Recurrence scope test artifacts: detached occurrence and split series.
+    # May already be gone (cascade-deleted with their master), so 404 is acceptable.
+    for key in "$OCCURRENCE_EDIT_KEY" "$SPLIT_KEY" "$SPLIT_MONTHLY_KEY" "$SHIFT_KEY" "$SHIFT_OCC_KEY" "$PROP_KEY" "$PROP_OCC_KEY"; do
+        if [ -n "$key" ]; then
+            CODE=$(req -X DELETE "$BASE/events/$key" -H "$H_AUTH")
+            [ "$CODE" = "200" ] || [ "$CODE" = "404" ] \
+                && ok "DELETE /events/$key (scope artifact) — HTTP $CODE" \
+                || fail "DELETE /events/$key (scope artifact) — expected 200 or 404, got $CODE"
+        fi
+    done
     for key in "$TASK_KEY" "$TASK_KEY2"; do
         CODE=$(req -X DELETE "$BASE/tasks/$key" -H "$H_AUTH")
         check_code  "DELETE /tasks/$key" "$CODE" "200"
@@ -1240,19 +1756,34 @@ if $DO_DELETE; then
     check_code "DELETE /events/$INVITE_KEY_L2 (invite attendee copy)" "$CODE" "200"
     CODE=$(req -X DELETE "$BASE/events/$INVITE_KEY_L1" -H "$H_AUTH")
     check_code "DELETE /events/$INVITE_KEY_L1 (invite organizer copy)" "$CODE" "200"
+    # Recurring invite — occurrence first, then attendee copy, then organizer copy
+    for key in "$OCC_ATT_KEY"; do
+        if [ -n "$key" ]; then
+            CODE=$(req -X DELETE "$BASE/events/$key" -H "$H_AUTH_2")
+            [ "$CODE" = "200" ] || [ "$CODE" = "404" ] \
+                && ok "DELETE /events/$key (recurring invite occ) — HTTP $CODE" \
+                || fail "DELETE /events/$key (recurring invite occ) — expected 200 or 404, got $CODE"
+        fi
+    done
+    CODE=$(req -X DELETE "$BASE/events/$REC_INVITE_KEY_L2" -H "$H_AUTH_2")
+    check_code "DELETE /events/$REC_INVITE_KEY_L2 (recurring invite attendee copy)" "$CODE" "200"
+    CODE=$(req -X DELETE "$BASE/events/$REC_INVITE_KEY_L1" -H "$H_AUTH")
+    check_code "DELETE /events/$REC_INVITE_KEY_L1 (recurring invite organizer copy)" "$CODE" "200"
 else
     skip "DELETE LOGIN_1 events and tasks"
     info "Keys: EVT=$EVT_KEY  ALLDAY=$ALLDAY_KEY  COMPLEX=$COMPLEX_KEY"
     info "Keys: DAILY=$DAILY_KEY  WEEKLY=$WEEKLY_KEY  MONTHLY=$MONTHLY_KEY"
     info "Occurrence: $OCCURRENCE_KEY"
+    info "Recurrence scope artifacts: occurrence_edit=$OCCURRENCE_EDIT_KEY  split=$SPLIT_KEY"
     info "Tasks: TASK=$TASK_KEY  TASK2=$TASK_KEY2"
     info "FreeBusy events L1: morning=$FB_L1_MORNING afternoon=$FB_L1_AFTERNOON"
     info "FreeBusy events L1: tentative=$FB_L1_TENTATIVE free=$FB_L1_FREE cancelled=$FB_L1_CANCELLED"
     info "FreeBusy events L1: public_title=$FB_L1_PUBLIC_TITLE private_title=$FB_L1_PRIVATE_TITLE"
     info "Invitation: organizer=$INVITE_KEY_L1  attendee_copy=$INVITE_KEY_L2"
+    info "Recurring invite: organizer=$REC_INVITE_KEY_L1  attendee_copy=$REC_INVITE_KEY_L2  occ=$OCC_ATT_KEY"
 fi
 
-step "53. Delete — LOGIN_2 and LOGIN_3 freebusy events and calendars"
+step "67. Delete — LOGIN_2 and LOGIN_3 freebusy events and calendars"
 info "Removes the freebusy test events and calendars created by LOGIN_2 and LOGIN_3. Skipped without -d."
 
 if $DO_DELETE; then
@@ -1271,7 +1802,7 @@ else
     info "L3: event=$FB_L3_EVT  calendar=$CAL_KEY_3"
 fi
 
-step "54. Calendar — delete (LOGIN_1 main calendar)"
+step "68. Calendar — delete (LOGIN_1 main calendar)"
 info "Deletes the test calendar created in step 2. Verifies it returns 404 afterwards. Skipped without -d."
 
 if $DO_DELETE; then

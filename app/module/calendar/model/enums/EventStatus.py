@@ -10,6 +10,7 @@ class EventStatus(Enum):
     VEVENT values: CONFIRMED, TENTATIVE, CANCELLED.
     VTODO values: NEEDS_ACTION, IN_PROCESS, COMPLETED, CANCELLED.
     """
+    UNDEFINED = "undefined"
     CONFIRMED = "confirmed"
     TENTATIVE = "tentative"
     CANCELLED = "cancelled"

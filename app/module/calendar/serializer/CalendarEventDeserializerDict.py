@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 from datetime import datetime, timezone
 from typing import Any
 
@@ -26,30 +27,37 @@ from app.module.calendar.serializer.CalendarEventDeserializer import CalendarEve
 from app.utils.logger.logger import logger_calendar
 
 
+_SKIP = object()
+
+
 class CalendarEventDeserializerDict(CalendarEventDeserializer[dict]):
-    """
-    Deserializes plain dicts (SOGo6 REST API schema) into CalEvent objects.
-    Datetimes must be ISO 8601 UTC strings (e.g. 2026-03-19T09:30:00.000Z).
-    Enum values are expected as lowercase strings matching the enum .value.
-    Missing optional fields default to None or empty lists.
+    """Deserializes plain dicts into CalEvent objects.
+
+    Handles both full dicts (event creation) and partial dicts (event update).
+    Fields absent from the dict are left as None on the resulting CalEvent.
     """
 
     def deserialize(self, data: dict[str, Any]) -> CalEvent:
-        """Convert a plain dict (REST API schema) into a CalEvent."""
-        organizer_raw = data.get("organizer")
-        conference_raw = data.get("conference_data")
+        """Convert a dict into a CalEvent.
+
+        Fields present in the dict are parsed and set. Fields absent from the dict
+        keep the CalEvent dataclass default. uid, title, date_start, date_end default
+        to None when absent (partial update scenario).
+        """
+        organizer_raw: dict | None = data.get("organizer")
+        conference_raw: dict | None = data.get("conference_data")
 
         return CalEvent(
             key=data.get("key"),
             calendar_key=data.get("calendar_key"),
-            uid=data.get("uid", ""),
-            title=data.get("title", ""),
+            uid=data.get("uid"),
+            title=data.get("title"),
             description=data.get("description"),
             location=data.get("location"),
-            date_start=self._parse_dt(data["date_start"]),
-            date_end=self._parse_dt(data["date_end"]),
+            date_start=self._parse_dt(data["date_start"]) if "date_start" in data else None,
+            date_end=self._parse_dt(data["date_end"]) if "date_end" in data else None,
             all_day=data.get("all_day", False),
-            timezone=data.get("timezone") or None,
+            timezone=data.get("timezone") or "UTC",
             status=self._parse_enum(EventStatus, data.get("status"), EventStatus.CONFIRMED),
             visibility=self._parse_enum(EventVisibility, data.get("visibility"), EventVisibility.PUBLIC),
             show_as=self._parse_enum(ShowAs, data.get("show_as"), ShowAs.BUSY),
@@ -73,7 +81,61 @@ class CalendarEventDeserializerDict(CalendarEventDeserializer[dict]):
             recurrence_id=self._parse_dt_opt(data.get("recurrence_id")),
             recurrence_range=data.get("recurrence_range"),
             parent_uid=data.get("parent_uid"),
+            uid_parent_split=data.get("uid_parent_split"),
         )
+
+    def deserialize_with_update(self, origin: CalEvent, update: dict | CalEvent) -> CalEvent:
+        """Apply an update to an existing CalEvent and return the result.
+
+        When update is a dict, parse each key and apply it to a copy of origin.
+        Only keys present in the dict are modified — other fields keep origin's values.
+        When update is a CalEvent, return it directly (full replacement).
+        """
+        if isinstance(update, CalEvent):
+            return update
+
+        merged: CalEvent = dataclasses.replace(origin)
+        for key, raw_value in update.items():
+            parsed = self._parse_field(key, raw_value)
+            if parsed is not _SKIP:
+                setattr(merged, key, parsed)
+        return merged
+
+    def _parse_field(self, key: str, value: Any) -> Any:  # pylint: disable=too-many-return-statements,too-many-branches
+        """Parse a single field value from a dict. Returns _SKIP for unknown fields."""
+        if key == "recurrence_rule":
+            return self._parse_recurrence_rule(value)
+        if key == "recurrence_exceptions":
+            return [self._parse_dt(d) for d in value]
+        if key in ("date_start", "date_end"):
+            return self._parse_dt(value)
+        if key in ("completed_at", "recurrence_id"):
+            return self._parse_dt_opt(value)
+        if key == "attendees":
+            return [self._parse_attendee(a) for a in value]
+        if key == "reminders":
+            return [self._parse_reminder(r) for r in value]
+        if key == "organizer":
+            return self._parse_organizer(value) if value else None
+        if key == "conference_data":
+            return self._parse_conference(value) if value else None
+        if key == "attachments":
+            return [self._parse_attachment(a) for a in value]
+        if key == "related_to":
+            return [self._parse_relation(r) for r in value]
+        if key == "status":
+            return self._parse_enum(EventStatus, value, EventStatus.CONFIRMED)
+        if key == "visibility":
+            return self._parse_enum(EventVisibility, value, EventVisibility.PUBLIC)
+        if key == "show_as":
+            return self._parse_enum(ShowAs, value, ShowAs.BUSY)
+        if key == "component_type":
+            return self._parse_enum(ComponentType, value, ComponentType.EVENT)
+        if key == "timezone":
+            return value or None
+        if key in CalEvent.MUTABLE_FIELDS or key == "recurrence_range":
+            return value
+        return _SKIP
 
     def _parse_organizer(self, data: dict[str, Any]) -> CalOrganizer:
         return CalOrganizer(
@@ -140,42 +202,7 @@ class CalendarEventDeserializerDict(CalendarEventDeserializer[dict]):
             relation_type=RelationType(data["relation_type"]) if "relation_type" in data else RelationType.PARENT,
         )
 
-    def parse_patch_fields(self, updates: dict[str, Any]) -> dict[str, Any]:
-        """Convert complex nested fields in a PATCH body to their domain model types.
 
-        Only fields present in updates are processed; all others are passed through unchanged.
-        This allows partial updates without requiring the full CalEvent field set.
-        """
-        result = dict(updates)
-        if "recurrence_rule" in result:
-            result["recurrence_rule"] = self._parse_recurrence_rule(result["recurrence_rule"])
-        if "attendees" in result:
-            result["attendees"] = [self._parse_attendee(a) for a in result["attendees"]]
-        if "reminders" in result:
-            result["reminders"] = [self._parse_reminder(r) for r in result["reminders"]]
-        if "organizer" in result and result["organizer"]:
-            result["organizer"] = self._parse_organizer(result["organizer"])
-        if "conference_data" in result and result["conference_data"]:
-            result["conference_data"] = self._parse_conference(result["conference_data"])
-        if "attachments" in result:
-            result["attachments"] = [self._parse_attachment(a) for a in result["attachments"]]
-        if "related_to" in result:
-            result["related_to"] = [self._parse_relation(r) for r in result["related_to"]]
-        if "recurrence_exceptions" in result:
-            result["recurrence_exceptions"] = [self._parse_dt(d) for d in result["recurrence_exceptions"]]
-        if "date_start" in result:
-            result["date_start"] = self._parse_dt(result["date_start"])
-        if "date_end" in result:
-            result["date_end"] = self._parse_dt(result["date_end"])
-        if "completed_at" in result:
-            result["completed_at"] = self._parse_dt_opt(result["completed_at"])
-        if "status" in result:
-            result["status"] = self._parse_enum(EventStatus, result["status"], EventStatus.CONFIRMED)
-        if "visibility" in result:
-            result["visibility"] = self._parse_enum(EventVisibility, result["visibility"], EventVisibility.PUBLIC)
-        if "show_as" in result:
-            result["show_as"] = self._parse_enum(ShowAs, result["show_as"], ShowAs.BUSY)
-        return result
 
     def _parse_recurrence_rule(self, data: dict[str, Any] | None) -> CalRecurrenceRule | None:
         if data is None:

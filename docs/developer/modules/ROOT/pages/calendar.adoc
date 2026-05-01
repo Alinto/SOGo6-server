@@ -6,127 +6,162 @@ It is built around two domain objects — `CalCalendar` and `CalEvent` — that 
 == Architecture overview
 
 ----
-  Data sources                    Consumers
-  ─────────────                   ─────────
-  Database (sogo_events)          REST API (JSON)
-  Remote ICS URL                  CalDAV server (ICS)
-         │                               │
-         ▼                               ▼
-   CalendarSources (factory)       Serializer (JSON / ICS)
-         │                               │
-   CalendarSource (pipeline)            │
-         │                              │
-         └──────── list[CalEvent] ──────┘
+  Interface (API)        Module              Sources / Engines         Persistence
+  ──────────────         ──────              ─────────────────         ───────────
+  InterfaceApi       ModuleCalendar         CalendarSources            RepositoryEvent
+       │                  │                      │                     RepositoryCalendar
+       │  CalEvent        │                      │
+       └─────────────────►│  CalEvent            │
+                          │─────────────────────►│
+                          │                      ├── CalendarSourceDb ──► SQL (sogo_events)
+                          │                      └── CalendarSourceIcs ─► HTTP (remote .ics)
+                          │
+                          ├── RecurrenceScopeProcessor (split / occurrence / standard)
+                          ├── RruleEngine (RRULE expansion, EXDATE, overrides)
+                          └── FreeBusyEngine (free/busy computation)
 ----
 
-`ModuleCalendar` is the single entry point for all business logic.
-It delegates source resolution to `CalendarSources`, which returns the right `CalendarSource` implementation for each calendar.
+**Responsibilities:**
+
+* *InterfaceApi* — Dict-to-CalEvent conversion (via Deserializer), scope dispatch, response formatting. No business logic.
+* *ModuleCalendar* — Orchestration: event CRUD, attendance, iMIP, attendee propagation. Delegates recurrence scope to the processor.
+* *RecurrenceScopeProcessor* — Pure construction logic for recurrence-scoped modifications (static methods). Returns a `ScopeResult` carrying the resulting CalEvent and the list of touched events with their action (INSERT/UPDATE/DELETE).
+* *CalendarSources* — Factory for CalendarSource instances, multi-calendar merge. Single entry point for all attendee propagation via `propagate()` which replicates touched events and syncs the attendee list.
+* *CalendarSourceDb* — Writable source backed by the database. Handles insert, update, split, detached occurrence EXDATE. No cross-calendar propagation — that belongs to CalendarSources.
+* *CalendarSourceIcs* — Read-only source backed by a remote ICS URL.
+* *RruleEngine* — RRULE expansion into occurrences, EXDATE suppression, override replacement. Overrides take priority over EXDATE.
+* *RepositoryEvent / RepositoryCalendar* — SQL-only persistence. No business logic.
+* *Serializers / Deserializers* — Format conversion (Dict, ICS). `deserialize_with_update()` merges a dict update onto an existing CalEvent.
 
 == Domain model
 
-`CalEvent` (`app/module/calendar/model/CalEvent.py`) is the single canonical representation of a calendar component (VEVENT, VTODO or VJOURNAL).
-It is a plain Python dataclass with no dependency on any serialization format.
-The `component_type` field (`EVENT`, `TASK`, `JOURNAL`) discriminates between component kinds stored in the same table.
+`CalEvent` is the single canonical representation of a calendar component (VEVENT, VTODO or VJOURNAL).
+It is a plain Python dataclass. The `component_type` field discriminates between component kinds stored in the same table.
 
-Fields are either *relational* (stored as dedicated columns for filtering: `date_start`, `date_end`, `component_type`, `show_as`, `rrule`, `is_deleted`, `recurrence_id`) or *blob* (everything else, stored as JSON in `cal_event`).
-`calendar_key` and `calendar_timezone` are set by the source layer at query time and never persisted in the blob.
+Fields are either *relational* (dedicated columns for filtering: `date_start`, `date_end`, `component_type`, `show_as`, `is_deleted`, `recurrence_id`) or *blob* (everything else, stored as JSON in `cal_event`). Unpersisted fields (`dates_with_tz`) are computed at serialization time and excluded from the blob via `CalEvent.UNPERSISTED_FIELDS`.
 
-`CalCalendar` (`app/module/calendar/model/CalCalendar.py`) maps to the `sogo_calendars` table.
-The `source_type` field (`'local'`, `'ics'`, `'caldav'`) drives dispatch in `CalendarSources`.
-`ctag` is incremented on every event mutation and used by CalDAV clients to detect changes without fetching the full event list.
-External sync metadata (URL, credentials, etag) lives in the `sync_config` JSON column, which is `NULL` for local calendars.
+`CalCalendar` maps to the `sogo_calendars` table. `ctag` is incremented on every event mutation (CalDAV change detection).
 
-All datetime values in the module are stored and processed in UTC.
-Naive datetimes are assumed UTC. The original TZID is preserved in `CalEvent.timezone` for display purposes only.
+All datetimes are stored and processed in UTC. The original TZID is preserved in `CalEvent.timezone` for display only.
 
 == Calendar sources
 
-`app/module/calendar/source/`
+`CalendarSource` is an abstract base class with a fixed processing pipeline:
 
-`CalendarSource` is an abstract base class that defines a fixed processing pipeline.
-Subclasses implement `_fetch_events()` (and optionally `_fetch_tasks()`); everything else is handled by the base class.
+. Resolve and normalize date bounds to UTC
+. `_fetch_events()` — subclass-specific query
+. `_expand_recurring()` — RRULE expansion
+. `_filter()` — date range + optional full-text search
+. Sort and stamp `calendar_key` / `calendar_timezone`
 
-`get_events(start, end, search)` runs:
+Two implementations: `CalendarSourceDb` (writable, DB-backed) and `CalendarSourceIcs` (read-only, remote ICS).
 
-. Resolve and normalize bounds to UTC
-. `_fetch_events()` — subclass fetches raw events
-. `_expand_recurring()` — RRULE expansion (see below)
-. `filter()` — date range check + optional full-text search
-. Sort ascending by `date_start`
-. Stamp `calendar_key` and `calendar_timezone` on each event
+`CalendarSources` is the factory and ownership enforcer. All reads are scoped to a `user_uid`.
 
-The Python filter step after expansion is necessary: the DB pre-filters recurring *series* by `date_end_recurrence`, but individual occurrences generated by expansion must still be checked against the exact requested bounds.
+== Recurrence
 
-Two source implementations exist:
+=== RruleEngine
 
-* `CalendarSourceDb` — backed by the local database. Writable (full CRUD). On event insert, `date_end_recurrence` is pre-computed for recurring events to enable SQL-level filtering. Soft-deletes only (`is_deleted = True`) — events are never hard-deleted, which is required for CalDAV sync reports.
-* `CalendarSourceIcs` — read-only, backed by a remote ICS URL fetched on every call. Size is capped at 10 MB; requests time out after 10 s. URLs are validated at construction time to reject private/loopback addresses (SSRF protection).
+`RruleEngine.expand()` expands a recurring master into occurrences within a date window. Each generated occurrence carries the master's `recurrence_rule` so clients can display recurrence info.
 
-`CalendarSources` (`app/module/calendar/source/CalendarSources.py`) is the factory and the ownership enforcer.
-All reads are always scoped to a `user_uid`. It merges events from all user calendars when no `calendar_key` is specified.
+Override priority: when both an EXDATE and a detached override (RECURRENCE-ID) exist for the same slot, the override wins (RFC 5545 §3.8.4.4).
 
-== Recurrence — RruleEngine
+=== Recurrence exceptions and occurrences
 
-`app/module/calendar/rrule/RruleEngine.py`
+A recurring event can be modified at three granularity levels:
 
-`RruleEngine.expand()` expands a recurring master event into a flat list of occurrences within a date window.
-It segregates singles, masters, and detached overrides (events with `recurrence_id`), generates dates from the RRULE, suppresses EXDATE entries, replaces overridden occurrences, and clones the master for each remaining date.
+* *Single occurrence* — A detached row with `recurrence_id` replaces one generated slot. The master's EXDATE list is updated for CalDAV compatibility, but the RRULE expander prefers the override over the EXDATE.
+* *This and following* — The original series is truncated (`COUNT` converted to `UNTIL`). A new independent master is created from the split point with `uid_parent_split` linking back.
+* *All events* — Standard update applied to the master. Detached occurrences are realigned when the master time changes.
 
-`get_max_date(master)` returns the end of the last occurrence (or `None` for unbounded series) and is used to populate `date_end_recurrence` in the database.
+=== RecurrenceScopeProcessor
+
+Static processor. `process()` dispatches to `split_occurrence`, `split_series`, or standard update. Returns a `ScopeResult` carrying the resulting CalEvent and a `touched` list of `(CalEvent, EventAction)` pairs — all events that were modified/created/deleted on the organizer's calendar. The caller passes the `ScopeResult` to `CalendarSources.propagate()` which blindly replicates the touched list to each attendee (INSERT/UPDATE/DELETE) and syncs the attendee list.
+
+=== API examples
+
+All examples assume a weekly recurring event with key `evt-key`.
+
+*Modify all events:*
+[source,json]
+----
+PATCH /events/evt-key
+{"title": "New Title"}
+----
+
+*Modify this event only:*
+[source,json]
+----
+PATCH /events/evt-key
+{"title": "Special", "recurrence_id": "2026-06-08T07:00:00Z"}
+----
+
+*Move a single occurrence (drag & drop):*
+[source,json]
+----
+PATCH /events/evt-key
+{"date_start": "2026-06-09T10:00:00Z", "date_end": "2026-06-09T11:00:00Z", "recurrence_id": "2026-06-08T07:00:00Z"}
+----
+
+*This and following events:*
+[source,json]
+----
+PATCH /events/evt-key
+{"title": "New Series", "recurrence_id": "2026-06-15T07:00:00Z", "recurrence_range": "THISANDFUTURE"}
+----
+
+*Delete this and following (truncate only):*
+[source,json]
+----
+PATCH /events/evt-key
+{"recurrence_id": "2026-06-15T07:00:00Z", "recurrence_range": "THISANDFUTURE"}
+----
+
+*Cancel a single occurrence (EXDATE):*
+[source,json]
+----
+PATCH /events/evt-key
+{"recurrence_exceptions": ["2026-06-08T07:00:00Z"]}
+----
+
+*Delete all events:*
+[source,json]
+----
+DELETE /events/evt-key
+----
+
+*Decline a single occurrence as attendee:*
+[source,json]
+----
+POST /events/evt-key/attendance
+{"status": "declined", "recurrence_id": "2026-06-08T07:00:00Z"}
+----
 
 == Repositories
 
-`app/module/calendar/repository/`
-
-Repositories are the only classes that issue SQL.
-`RepositoryCalendar` handles reads and writes for `sogo_calendars`.
-`RepositoryEvent` handles reads and writes for `sogo_events`.
-
-All queries use structured `Condition` objects translated by `ClientSQL` to parameterized statements — no string interpolation.
-The `find_by_calendar` method applies two different SQL conditions depending on whether an event is recurring or not: non-recurring events are matched on `date_start`/`date_end`; recurring events are matched on `date_start`/`date_end_recurrence` to pre-filter at series level before in-memory expansion.
+Repositories are the only classes that issue SQL. All queries use structured `Condition` objects — no string interpolation. `find_by_calendar` applies different SQL conditions for recurring vs non-recurring events.
 
 == Serialization
 
-`app/module/calendar/serializer/`
-
-All serializers extend `Serializer[TIn, TOut]` and implement a single `serialize()` method.
-All deserializers extend `Deserializer[TIn, TOut]` and implement a single `deserialize()` method.
-The format suffix in the class name indicates the input/output type: `Dict` (Python dict), `List` (list of dicts), `Ical` (RFC 5545 string).
-
-Two formats are supported:
-
-* *ICS (RFC 5545)* — `CalendarEventsDeserializerIcal` parses a VCALENDAR string into a list of `CalEvent`. `CalendarEventSerializerIcal` produces VCALENDAR text. The `icalendar` library is used here and *only* here.
-* *Dict (REST API)* — `CalendarEventSerializerDict` / `CalendarEventDeserializerDict` convert between `CalEvent` and plain dicts. `CalendarEventsSerializerDict` handles lists. `CalendarSerializerDict` handles `CalCalendar` objects.
+All serializers extend `Serializer[TIn, TOut]`, all deserializers extend `Deserializer[TIn, TOut]`. The `icalendar` library is used only in `*Ical.py` files. `deserialize_with_update(origin, update)` merges a dict onto an existing CalEvent for partial updates.
 
 == Module — ModuleCalendar
 
-`app/module/calendar/ModuleCalendar.py`
+`ModuleCalendar` is the single entry point for business logic. It delegates:
 
-`ModuleCalendar` contains all business logic and is instantiated per request.
-It exposes calendar CRUD, event CRUD (VEVENT), and task CRUD (VTODO).
+* Recurrence scope to `RecurrenceScopeProcessor`
+* Persistence to `CalendarSourceDb` via `CalendarSource` methods
+* Attendee propagation to `CalendarSources`
+* Free/busy computation to `FreeBusyEngine`
 
-On event delete, it dispatches to `delete_detached_occurrence` when `recurrence_id` is set (soft-deletes the occurrence row and adds the date to the master EXDATE), otherwise deletes the master and all its detached rows by UID.
+The organizer is always set by the caller (interface) as a `CalOrganizer` object. The module never constructs organizer identity.
 
-Every mutation calls `_bump_ctag` to increment the calendar's `ctag`.
+`get_events` and `get_tasks` enforce a maximum date range (configurable via `CalendarConst`).
 
-`get_events` and `get_tasks` enforce a maximum date range of 31 days unless a search query is present.
+== iMIP
 
-`get_freebusy(target_uids, start, end, prefs)` computes merged free/busy periods for one or more users visible from the server.
-`target_uids` is a list of user UIDs; the interface layer loops over them and returns a `dict[str, list[CalFreeBusyPeriod]]` keyed by UID.
-It delegates to `FreeBusyEngine` after fetching events from all the target user's calendars via `CalendarSources.get_events`.
-The interface layer loads `SOGO_U_TIMEZONE` (`UserGeneralSettings`) and `SOGO_U_BUSY_OFF_HOURS` / `SOGO_U_WORKDAY_START_TIME` / `SOGO_U_WORKDAY_END_TIME` (`UserCalendarGeneralSettings`) for each target user and stores them in `FreeBusyPrefs`.
+`app/module/calendar/imip/`
 
-[IMPORTANT]
-====
-The working-hours timezone is always the *target user's SOGO_U_TIMEZONE*, never the requester's timezone and never UTC (unless explicitly configured that way by the target user).
-A user with `SOGO_U_TIMEZONE=America/New_York` and working hours 09:00–17:00 will appear unavailable before 14:00 UTC in winter — even if the requester is in `Europe/Paris`.
-====
+Three iTIP methods (RFC 5546): REQUEST (invite), REPLY (accept/decline), CANCEL (delete). `ImipProcessor` handles inbound messages. `ImipBuilder` produces outbound `ImipMessage` objects. Actual email dispatch is deferred to the Celery agent.
 
-`FreeBusyEngine` (`app/module/calendar/freebusy/FreeBusyEngine.py`) is a stateless engine that takes a list of `CalEvent` and a `FreeBusyPrefs` dataclass and returns a sorted, merged list of `CalFreeBusyPeriod`.
-`show_as` values are mapped: `busy` → `BUSY`, `out_of_office` → `UNAVAILABLE`, `tentative` → `TENTATIVE`. Events with `show_as=free` or `status=cancelled` are excluded.
-When `busy_off_hours` is true, `UNAVAILABLE` periods are generated for time outside `[workday_start, workday_end]` and for non-working days (Saturday and Sunday).
-The `title` of a period is set only when `event.visibility == PUBLIC`; it is `None` for private and confidential events.
-
-`FreeBusyPrefs` (`FreeBusyEngine.py`) is a dataclass holding `busy_off_hours`, `workday_start`, `workday_end`, and `timezone` (IANA name from `SOGO_U_TIMEZONE`).
-
-
+For local attendees, `CalendarSources.propagate_changes()` mirrors modifications immediately to each attendee's calendar, bypassing the email roundtrip.

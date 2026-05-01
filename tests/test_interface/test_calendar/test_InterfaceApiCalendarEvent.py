@@ -123,9 +123,11 @@ def test_get_event_not_found():
 # ========== patch_event ==========
 
 def test_patch_event_applies_updates():
-    event = _make_event(title="Updated title")
+    existing = _make_event(title="Old title")
+    updated = _make_event(title="Updated title")
     module = MagicMock()
-    module.update_event.return_value = event
+    module.get_event.return_value = existing
+    module.update_event.return_value = updated
     inter = _build_interface(module)
     response, _ = inter.patch_event("evt-key", {"title": "Updated title"})
     assert response["error_code"] == "S000000"
@@ -134,7 +136,7 @@ def test_patch_event_applies_updates():
 
 def test_patch_event_not_found_returns_error():
     module = MagicMock()
-    module.update_event.side_effect = RequestException(error=err.ERROR_CALENDAR_EVENT_NOT_FOUND)
+    module.get_event.side_effect = RequestException(error=err.ERROR_CALENDAR_EVENT_NOT_FOUND)
     inter = _build_interface(module)
     response, _ = inter.patch_event("missing-key", {"title": "X"})
     assert response["error_code"] == err.ERROR_CALENDAR_EVENT_NOT_FOUND.c

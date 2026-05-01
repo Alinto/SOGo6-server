@@ -12,6 +12,7 @@ class ComponentType(Enum):
       TASK    ↔ VTODO
       JOURNAL ↔ VJOURNAL
     """
+    UNDEFINED = "undefined"
     EVENT   = "event"
     TASK    = "task"
     JOURNAL = "journal"

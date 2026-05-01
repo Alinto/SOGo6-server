@@ -63,7 +63,7 @@ class FakeTaskSource(CalendarSource):
         self._calendar.ctag = (self._calendar.ctag or 0) + 1
         return event
 
-    def update_event(self, event, propagate=False):
+    def update_event(self, event):
         self._items[event.key] = event
         self.updated.append(event)
         self._calendar.ctag = (self._calendar.ctag or 0) + 1
@@ -186,7 +186,7 @@ def test_get_task_not_found_raises():
     assert exc_info.value.error == err.ERROR_CALENDAR_EVENT_NOT_FOUND
 
 
-def test_get_task_returns_task_not_found_for_event_key():
+def test_get_task_rejects_event_key():
     """get_task must reject items with component_type != TASK."""
     event = CalEvent(
         uid="evt@example.com", title="Event", key="evt-key",
@@ -208,7 +208,8 @@ def test_update_task_applies_patch():
     task = _make_task(key="task-key", title="Old")
     source = _make_source(tasks=[task])
     module = _build_module({"cal-key": source})
-    result = module.update_task(_fake_user(), "task-key", {"title": "New"})
+    update = _make_task(title="New")
+    result = module.update_task(_fake_user(), "task-key", update)
     assert result.title == "New"
 
 
@@ -216,7 +217,8 @@ def test_update_task_bumps_ctag():
     task = _make_task(key="task-key")
     source = _make_source(tasks=[task])
     module = _build_module({"cal-key": source})
-    module.update_task(_fake_user(), "task-key", {"title": "X"})
+    update = _make_task(title="X")
+    module.update_task(_fake_user(), "task-key", update)
     assert source.calendar.ctag == 1
 
 

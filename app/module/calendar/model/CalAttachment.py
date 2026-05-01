@@ -16,7 +16,7 @@ class CalAttachment:
     # RFC 5545 §3.2.8 FMTTYPE parameter — MIME type of the attachment (e.g. "application/pdf")
     filename: str | None = None
     mime_type: str | None = None
-    # Byte size in octets — not an RFC 5545 property, exposed in the SOGo6 REST API only
+    # Byte size in octets — optional, implementation-specific
     size: int | None = None
     # Inline binary content — RFC 5545 §3.8.1.1 ATTACH;ENCODING=BASE64;VALUE=BINARY
     data: bytes | None = None

@@ -98,7 +98,7 @@ class FakeImipSource(CalendarSource):
         self.inserted.append(event)
         return event
 
-    def update_event(self, event, propagate=False):
+    def update_event(self, event):
         self._by_uid[event.uid] = event
         self.updated.append(event)
         self._calendar.ctag = (self._calendar.ctag or 0) + 1

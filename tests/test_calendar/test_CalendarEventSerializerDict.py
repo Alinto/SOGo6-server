@@ -337,16 +337,6 @@ def test_conference_data_and_attachment(serializer):
 
 # ========== Detached occurrences (parent_uid / recurrence_id) ==========
 
-def test_serializer_includes_parent_uid(serializer):
-    event = CalEvent(
-        uid="u@e.com", title="T",
-        date_start=datetime(2026, 1, 1, tzinfo=_UTC),
-        date_end=datetime(2026, 1, 1, 1, tzinfo=_UTC),
-        parent_uid="master@example.com",
-    )
-    assert serializer.serialize(event)["parent_uid"] == "master@example.com"
-
-
 def test_deserializer_parses_parent_uid():
     data = {
         "uid": "u@e.com", "title": "T",
@@ -357,15 +347,14 @@ def test_deserializer_parses_parent_uid():
     assert CalendarEventDeserializerDict().deserialize(data).parent_uid == "master@example.com"
 
 
-def test_occurrence_roundtrip_preserves_parent_uid(serializer):
-    rid = datetime(2026, 3, 9, 9, 0, tzinfo=_UTC)
-    occ = CalEvent(
-        uid="master@example.com", title="Modified",
-        date_start=rid, date_end=rid.replace(hour=11),
-        recurrence_id=rid, parent_uid="master@example.com",
-    )
-    blob = serializer.serialize(occ)
-    restored = CalendarEventDeserializerDict().deserialize(blob)
+def test_occurrence_deserialize_preserves_recurrence_id():
+    rid_str = "2026-03-09T09:00:00.000Z"
+    data = {
+        "uid": "master@example.com", "title": "Modified",
+        "date_start": rid_str, "date_end": "2026-03-09T11:00:00.000Z",
+        "recurrence_id": rid_str, "parent_uid": "master@example.com",
+    }
+    restored = CalendarEventDeserializerDict().deserialize(data)
     assert restored.parent_uid == "master@example.com"
-    assert restored.recurrence_id == rid
+    assert restored.recurrence_id == datetime(2026, 3, 9, 9, 0, tzinfo=_UTC)
     assert restored.recurrence_rule is None

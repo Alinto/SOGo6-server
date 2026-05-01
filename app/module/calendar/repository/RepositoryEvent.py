@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from app.config.db import tables as tbl
+from app.module.calendar.model.CalEvent import CalEvent
 from app.module.calendar.model.enums.ComponentType import ComponentType
 from app.module.calendar.serializer.CalendarEventDeserializerDict import CalendarEventDeserializerDict
 from app.module.calendar.serializer.CalendarEventSerializerDict import CalendarEventSerializerDict
@@ -17,7 +18,6 @@ from app.utils.maths.sogo_hash import generate_uuid
 
 if TYPE_CHECKING:
     from app.manager.db.ClientSQL import ClientSQL
-    from app.module.calendar.model.CalEvent import CalEvent
 
 
 _ALL_COLS: tuple[str, ...] = tuple(col.name for col in tbl.ALL_EVT_COL)
@@ -154,6 +154,8 @@ class RepositoryEvent:
         event.updated_at = now
 
         blob = _serializer.serialize(event)
+        for field_name in CalEvent.UNPERSISTED_FIELDS:
+            blob.pop(field_name, None)
 
         values = [[
             event.key,
@@ -203,6 +205,8 @@ class RepositoryEvent:
         now = datetime.now(timezone.utc)
         event.updated_at = now
         blob = _serializer.serialize(event)
+        for field_name in CalEvent.UNPERSISTED_FIELDS:
+            blob.pop(field_name, None)
 
         update_cols = (
             tbl.COL_EVT_UID.name,
@@ -253,6 +257,30 @@ class RepositoryEvent:
             ),
             AndCondition(
                 IsNullCondition(tbl.COL_EVT_RECURRENCE_ID.name),
+                EqualCondition(tbl.COL_EVT_IS_DELETED.name, False),
+            ),
+        )
+        # pylint: disable=duplicate-code
+        rows = list(self._db.select_from_table(
+            table_name=tbl.TABLE_EVENT.name,
+            column_tuple=_ALL_COLS,
+            condition=condition,
+            limit=1,
+        ))
+        # pylint: enable=duplicate-code
+        if not rows:
+            return None
+        return self._row_to_event(rows[0])
+
+    def find_by_recurrence_id(self, calendar_key: str, uid: str, recurrence_id: datetime) -> CalEvent | None:
+        """Return the detached occurrence matching uid + recurrence_id, or None."""
+        condition = AndCondition(
+            AndCondition(
+                EqualCondition(tbl.COL_EVT_CALENDAR_KEY.name, calendar_key),
+                EqualCondition(tbl.COL_EVT_UID.name, uid),
+            ),
+            AndCondition(
+                EqualCondition(tbl.COL_EVT_RECURRENCE_ID.name, recurrence_id),
                 EqualCondition(tbl.COL_EVT_IS_DELETED.name, False),
             ),
         )
@@ -358,18 +386,24 @@ class RepositoryEvent:
                 condition=condition,
             )
 
-    def find_all_by_uid(self, uid: str, exclude_organizer_calendar_key: str | None = None) -> list[CalEvent]:
-        """Return all non-deleted master event rows (recurrence_id IS NULL) with the given UID across all calendars.
+    def find_all_by_uid(
+        self, uid: str, exclude_organizer_calendar_key: str | None = None, recurrence_id: datetime | None = None,
+    ) -> list[CalEvent]:
+        """Return all non-deleted event rows with the given UID across all calendars.
 
-        The uid here is the RFC 5545 UID (semantic identifier) shared across all copies — distinct from the
-        opaque per-row key used in API paths. The same event has one uid but one key per calendar copy.
-        When exclude_organizer_calendar_key is provided, the organizer's own calendar is excluded so that
-        only attendee copies are returned.
+        When recurrence_id is None, returns master rows (recurrence_id IS NULL).
+        When recurrence_id is provided, returns detached occurrences matching that date.
+        When exclude_organizer_calendar_key is provided, the organizer's own calendar is excluded.
         """
+        recurrence_cond = (
+            EqualCondition(tbl.COL_EVT_RECURRENCE_ID.name, recurrence_id)
+            if recurrence_id is not None
+            else IsNullCondition(tbl.COL_EVT_RECURRENCE_ID.name)
+        )
         condition = AndCondition(
             AndCondition(
                 EqualCondition(tbl.COL_EVT_UID.name, uid),
-                IsNullCondition(tbl.COL_EVT_RECURRENCE_ID.name),
+                recurrence_cond,
             ),
             EqualCondition(tbl.COL_EVT_IS_DELETED.name, False),
         )

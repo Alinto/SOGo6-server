@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from datetime import datetime
+import dataclasses
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
 from app.module.calendar.model.enums.ComponentType import ComponentType
 from app.module.calendar.repository.RepositoryCalendar import RepositoryCalendar
 from app.module.calendar.repository.RepositoryEvent import RepositoryEvent
+from app.module.calendar.rrule.RecurrenceScopeProcessor import EventAction
 from app.module.calendar.rrule.RruleEngine import RruleEngine
 from app.module.calendar.source.CalendarSource import CalendarSource
 from app.utils import errors as err
@@ -79,6 +81,32 @@ class CalendarSourceDb(CalendarSource):
             event.calendar_timezone = self._calendar.timezone
         return event
 
+    def get_event_by_recurrence_id(self, uid: str, recurrence_id: datetime) -> CalEvent | None:
+        """Return the detached occurrence matching uid + recurrence_id within this calendar, or None."""
+        event: CalEvent | None = self._repo_event.find_by_recurrence_id(self._calendar.key, uid, recurrence_id)
+        if event is not None and self._calendar.timezone:
+            event.calendar_timezone = self._calendar.timezone
+        return event
+
+    def get_or_create_occurrence(self, master: CalEvent, recurrence_id: datetime) -> CalEvent:
+        """Return the detached occurrence for recurrence_id, creating it if needed."""
+        existing: CalEvent | None = self.get_event_by_recurrence_id(master.uid, recurrence_id)
+        if existing is not None:
+            return existing
+        duration: timedelta = master.date_end - master.date_start
+        occurrence: CalEvent = dataclasses.replace(
+            master,
+            key=None,
+            db_id=None,
+            recurrence_id=recurrence_id,
+            recurrence_rule=None,
+            recurrence_range=None,
+            date_start=recurrence_id,
+            date_end=recurrence_id + duration,
+            sequence=0,
+        )
+        return self.insert_event(occurrence)
+
     @staticmethod
     def _date_end_recurrence(event: CalEvent) -> datetime | None:
         """Return the end datetime of the last occurrence, or None for an unbounded series."""
@@ -111,7 +139,12 @@ class CalendarSourceDb(CalendarSource):
         return created
 
     def _insert_detached_occurrence(self, event: CalEvent) -> CalEvent:
-        """Validate and insert a detached occurrence, linking it to its master event."""
+        """Validate and insert a detached occurrence, linking it to its master event.
+
+        Adds the recurrence_id to the master's EXDATE list for RFC 5545 / CalDAV
+        compatibility. The RruleEngine prioritizes overrides over EXDATE, so the
+        detached occurrence will still appear in expansion.
+        """
         master = self._repo_event.find_master_by_uid(self._calendar.key, event.uid)
         if master is None:
             raise RequestException(error=err.ERROR_CALENDAR_EVENT_NOT_FOUND)
@@ -122,47 +155,36 @@ class CalendarSourceDb(CalendarSource):
         created = self._repo_event.insert(event)
         if self._calendar.timezone:
             created.calendar_timezone = self._calendar.timezone
+        if event.recurrence_id is not None and event.recurrence_id not in (master.recurrence_exceptions or []):
+            master.recurrence_exceptions = list(master.recurrence_exceptions or []) + [event.recurrence_id]
+            self._repo_event.update(master, self._date_end_recurrence(master))
         return created
 
-    # Fields propagated from the organizer's copy to attendee copies on event update.
-    # Excludes reminders and conference_data — each attendee manages their own.
-    _PROPAGATABLE_FIELDS: frozenset[str] = frozenset({
-        "title", "description", "location", "url", "date_start", "date_end",
-        "all_day", "timezone", "status", "visibility", "show_as", "color",
-        "sequence", "organizer", "attendees", "attachments", "categories",
-        "related_to", "extra_properties", "recurrence_rule", "recurrence_exceptions", "priority",
-    })
-
-    def update_event(self, event: CalEvent, propagate: bool = False) -> None:
-        """Persist changes to an existing event row and bump the calendar ctag.
-
-        When propagate is True and the event has an organizer, content changes are
-        mirrored to all other local copies of the event (internal attendees in sogo_events).
-        """
+    def update_event(self, event: CalEvent) -> None:
+        """Persist changes to an existing event row and bump the calendar ctag."""
         self._repo_event.update(event, self._date_end_recurrence(event))
-        if propagate and event.organizer:
-            self._propagate_organizer_update(event)
         self._bump_ctag()
 
-    def _propagate_organizer_update(self, event: CalEvent) -> None:
-        """Mirror organizer content changes to all other local copies of the event.
+    def realign_detached_occurrences(self, uid: str, old_start: datetime, new_start: datetime) -> list[tuple[CalEvent, EventAction]]:
+        """Realign all detached occurrences to the new master time.
 
-        Loads each attendee copy sharing the same UID, overwrites the propagatable fields
-        with the organizer's values, and re-saves. Failures per copy are logged and skipped
-        so that a single bad row does not abort the whole propagation.
+        Shifts the recurrence_id (slot marker) by the master delta while preserving
+        any individual time offset the user applied to this occurrence.
+        Content changes (title, color, etc.) are untouched.
+        Returns a list of (CalEvent, EventAction.UPDATE) for each realigned occurrence.
         """
-        other_copies: list[CalEvent] = self._repo_event.find_all_by_uid(
-            event.uid, exclude_organizer_calendar_key=self._calendar.key
-        )
-        for copy in other_copies:
-            for field_name in self._PROPAGATABLE_FIELDS:
-                setattr(copy, field_name, getattr(event, field_name))
+        delta: timedelta = new_start - old_start
+        detached: list[CalEvent] = self._repo_event.find_detached_occurrences(self._calendar.key, uid)
+        touched: list[tuple[CalEvent, EventAction]] = []
+        for occ in detached:
+            if occ.recurrence_id is not None:
+                occ.recurrence_id, occ.date_start, occ.date_end = self._compute_realigned_dates(occ, delta)
             try:
-                self._repo_event.update(copy, self._date_end_recurrence(copy))
+                self._repo_event.update(occ, None)
+                touched.append((occ, EventAction.UPDATE))
             except RequestException:
-                logger_calendar.warning(
-                    "Could not propagate event update to calendar %s (uid=%s)", copy.calendar_key, event.uid
-                )
+                logger_calendar.warning("Could not realign detached occurrence key=%s (uid=%s)", occ.key, uid)
+        return touched
 
     def propagate_partstat_to_copies(self, event: CalEvent, attendee_email: str, status: AttendeeStatus) -> None:
         """Mirror a single attendee's PARTSTAT change to all other local copies of the event.
@@ -185,6 +207,49 @@ class CalendarSourceDb(CalendarSource):
                     "Could not propagate PARTSTAT to calendar %s (uid=%s)", copy.calendar_key, event.uid
                 )
 
+    def split_event(self, uid: str, until: datetime, from_dt: datetime) -> list[tuple[CalEvent, EventAction]]:
+        """Truncate a recurring series within this calendar at `until` and soft-delete future detached occurrences.
+
+        COUNT is replaced by UNTIL because after the split the number of occurrences
+        remaining in the original series changes, making COUNT semantically wrong per
+        RFC 5545 §3.3.10 (COUNT and UNTIL are mutually exclusive).
+
+        Returns a list of (CalEvent, EventAction) for every row modified or deleted:
+        the master (UPDATE) followed by each soft-deleted detached occurrence (DELETE).
+        """
+        master: CalEvent | None = self._repo_event.find_master_by_uid(self._calendar.key, uid)
+        if master is None or master.recurrence_rule is None:
+            return []
+        master.recurrence_rule.until = until
+        master.recurrence_rule.count = None
+        self._repo_event.update(master, RruleEngine().get_max_date(master))
+        touched: list[tuple[CalEvent, EventAction]] = [(master, EventAction.UPDATE)]
+
+        detached: list[CalEvent] = self._repo_event.find_detached_occurrences(self._calendar.key, uid)
+        for occ in detached:
+            if occ.recurrence_id is not None and occ.recurrence_id >= from_dt:
+                self._repo_event.delete_by_key(self._calendar.key, occ.key)
+                touched.append((occ, EventAction.DELETE))
+        if len(touched) > 1:
+            logger_calendar.debug("Soft-deleted %d future detached occurrence(s) for uid=%s", len(touched) - 1, uid)
+        self._bump_ctag()
+        return touched
+
+    def add_exdate(self, uid: str, dt: datetime) -> None:
+        """Add dt to the master's EXDATE within this calendar to suppress a single occurrence.
+
+        Called on the organizer's calendar directly and on each local attendee's calendar
+        when an occurrence is cancelled.
+        RFC 5545 §3.8.5.1: EXDATE lists datetime values excluded from RRULE expansion.
+        """
+        master: CalEvent | None = self._repo_event.find_master_by_uid(self._calendar.key, uid)
+        if master is None:
+            return
+        if dt not in (master.recurrence_exceptions or []):
+            master.recurrence_exceptions = list(master.recurrence_exceptions or []) + [dt]
+            self._repo_event.update(master, self._date_end_recurrence(master))
+        self._bump_ctag()
+
     def delete_event(self, uid: str) -> None:
         """Soft-delete an event by UID within this calendar only and bump ctag.
 
@@ -193,14 +258,6 @@ class CalendarSourceDb(CalendarSource):
         self._repo_event.delete(self._calendar.key, uid)
         self._bump_ctag()
 
-    def delete_event_as_organizer(self, uid: str) -> None:
-        """Soft-delete all copies of an event across all local calendars, then bump ctag.
-
-        Called when an organizer cancels an event: removes both the organizer's row
-        and every attendee copy sharing the same UID in sogo_events.
-        """
-        self._repo_event.delete_all_by_uid(uid)
-        self._bump_ctag()
 
     def delete_detached_occurrence(self, occurrence: CalEvent) -> None:
         """Soft-delete a detached occurrence, add its recurrence_id to the master EXDATE, and bump ctag.
@@ -209,8 +266,8 @@ class CalendarSourceDb(CalendarSource):
         after the detached row is gone.
         """
         master: CalEvent | None = self._repo_event.find_master_by_uid(self._calendar.key, occurrence.uid)
-        if master is not None and occurrence.recurrence_id not in master.recurrence_exceptions:
-            master.recurrence_exceptions = list(master.recurrence_exceptions) + [occurrence.recurrence_id]
+        if master is not None and occurrence.recurrence_id not in (master.recurrence_exceptions or []):
+            master.recurrence_exceptions = list(master.recurrence_exceptions or []) + [occurrence.recurrence_id]
             self._repo_event.update(master, self._date_end_recurrence(master))
         self._repo_event.delete_by_key(self._calendar.key, occurrence.key)
         self._bump_ctag()
