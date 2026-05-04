@@ -12,7 +12,7 @@ from psycopg.types.json import Jsonb
 from app.utils.db.Table import Table, REX_VALID_NAMES
 from app.utils.db.Condition import (Condition, EqualCondition, NotEqualCondition, AndCondition, OrCondition,
                                     TrueCondition, LessOrEqualCondition, GreaterOrEqualCondition,
-                                    IsNullCondition, IsNotNullCondition, LikeCondition, Order)
+                                    IsNullCondition, IsNotNullCondition, LikeCondition, JoinClause, Order)
 from app.utils import errors as err
 from app.utils.exceptions import RequestException, BugException
 from app.utils.logger.logger import logger, logger_sql
@@ -114,15 +114,23 @@ def table_to_query(table: Table) -> Composed:
 
     return sql_query
 
+def _col_ref(name: str) -> Composed:
+    """Build a column reference, supporting qualified names (table.column)."""
+    if "." in name:
+        table, col = name.split(".", 1)
+        return SQL("{}.{}").format(Identifier(table), Identifier(col))
+    return Composed([Identifier(name)])
+
+
 def condition_to_query(condition: Condition, add_where : bool = False) -> Composed:
     """
     Return the WHERE part of the sql_query
     """
 
     if isinstance(condition, EqualCondition):
-        sql_condition = SQL("{param} = {value}").format(param=Identifier(condition.param_name), value=Literal(condition.param_value))
+        sql_condition = SQL("{param} = {value}").format(param=_col_ref(condition.param_name), value=Literal(condition.param_value))
     elif isinstance(condition, NotEqualCondition):
-        sql_condition = SQL("{param} != {value}").format(param=Identifier(condition.param_name), value=Literal(condition.param_value))
+        sql_condition = SQL("{param} != {value}").format(param=_col_ref(condition.param_name), value=Literal(condition.param_value))
     elif isinstance(condition, AndCondition):
         condition1 = condition_to_query(condition.condition1)
         condition2 = condition_to_query(condition.condition2)
@@ -132,15 +140,15 @@ def condition_to_query(condition: Condition, add_where : bool = False) -> Compos
         condition2 = condition_to_query(condition.condition2)
         sql_condition = SQL("({cond1} OR {cond2})").format(cond1=condition1, cond2=condition2)
     elif isinstance(condition, LessOrEqualCondition):
-        sql_condition = SQL("{param} <= {value}").format(param=Identifier(condition.param_name), value=Literal(condition.param_value))
+        sql_condition = SQL("{param} <= {value}").format(param=_col_ref(condition.param_name), value=Literal(condition.param_value))
     elif isinstance(condition, GreaterOrEqualCondition):
-        sql_condition = SQL("{param} >= {value}").format(param=Identifier(condition.param_name), value=Literal(condition.param_value))
+        sql_condition = SQL("{param} >= {value}").format(param=_col_ref(condition.param_name), value=Literal(condition.param_value))
     elif isinstance(condition, IsNullCondition):
-        sql_condition = SQL("{param} IS NULL").format(param=Identifier(condition.param_name))
+        sql_condition = SQL("{param} IS NULL").format(param=_col_ref(condition.param_name))
     elif isinstance(condition, IsNotNullCondition):
-        sql_condition = SQL("{param} IS NOT NULL").format(param=Identifier(condition.param_name))
+        sql_condition = SQL("{param} IS NOT NULL").format(param=_col_ref(condition.param_name))
     elif isinstance(condition, LikeCondition):
-        sql_condition = SQL("{param} ILIKE {value}").format(param=Identifier(condition.param_name), value=Literal(condition.pattern))
+        sql_condition = SQL("{param} ILIKE {value}").format(param=_col_ref(condition.param_name), value=Literal(condition.pattern))
     elif isinstance(condition, TrueCondition):
         sql_condition = Composed([SQL("1 = 1")])
     else:
@@ -236,15 +244,40 @@ class ClientPostgreSQL(ClientSQL):
             finally:
                 self.db_conn.commit()
 
+    def create_indexes(self, table: Table) -> None:
+        """Create all indexes defined on the table. Existing indexes are silently skipped."""
+        if not table.index:
+            return
+        if self.db_conn and self.db_conn.closed:
+            self.connect()
+        for idx in table.index:
+            unique_kw = SQL("UNIQUE ") if idx.unique else SQL("")
+            cols = SQL(", ").join(Identifier(c) for c in idx.columns)
+            sql_query = SQL("CREATE {unique}INDEX IF NOT EXISTS {name} ON {table} ({cols})").format(
+                unique=unique_kw,
+                name=Identifier(idx.name),
+                table=Identifier(table.name),
+                cols=cols,
+            )
+            logger_sql.info("QUERY INDEX: %s", sql_query.as_string())
+            if self.db_conn is not None:
+                try:
+                    self.db_conn.execute(sql_query)
+                except Error as e:
+                    logger_sql.error("Error creating index %s on %s: %s", idx.name, table.name, e)
+                finally:
+                    self.db_conn.commit()
+
     def create_several_table(self, table_list : list[Table]) -> None:
         """
-        Create several tables
+        Create several tables and their indexes
         """
         if self.db_conn and self.db_conn.closed:
             self.connect()
 
         for table in table_list:
             self.create_table(table)
+            self.create_indexes(table)
 
     def insert_in_table(self, table_name: str, column_tuple: tuple[str, ...], values_tuple: list[list[Any]]) -> int:
         """
@@ -410,12 +443,68 @@ class ClientPostgreSQL(ClientSQL):
             finally:
                 self.db_conn.commit()
 
-    def select_from_several_table(self, table_name: str, column_tuple: tuple, condition: Condition) -> Generator[tuple[Any, ...]]:
+    def select_from_several_table(
+        self,
+        table_name: str,
+        joins: list[JoinClause],
+        column_tuple: tuple[str, ...],
+        condition: Condition,
+        sort_by: str | None = None,
+        order: Order = Order.ASC,
+        limit: int = 0,
+    ) -> Generator[tuple[Any, ...]]:
+        """Select values from several tables using INNER JOIN.
+
+        Column names and condition param_names may be qualified (table.column).
+
+        :param table_name: The base table.
+        :param joins: List of JoinClause describing each INNER JOIN.
+        :param column_tuple: Columns to select (qualified names recommended).
+        :param condition: WHERE condition (use qualified param_names for ambiguous columns).
+        :param sort_by: Qualified column name to sort by.
+        :param order: Sort direction.
+        :param limit: Maximum rows (0 = no limit).
         """
-        select values from several tables
-        """
-        logger_sql.error("Method 'select_from_several_table' of clientSQL must be implemented by the children %s", type(self).__name__)
-        raise NotImplementedError
+        if self.db_conn and self.db_conn.closed:
+            self.connect()
+
+        join_sql = Composed([
+            SQL(" INNER JOIN {table} ON {left} = {right}").format(
+                table=Identifier(j.table), left=_col_ref(j.left_col), right=_col_ref(j.right_col),
+            )
+            for j in joins
+        ])
+        order_clause = Composed([SQL("")])
+        if sort_by:
+            order_clause = SQL(" ORDER BY {col} {dir}").format(
+                col=_col_ref(sort_by), dir=SQL("ASC") if order == Order.ASC else SQL("DESC"),
+            )
+        limit_clause = SQL(" LIMIT {n}").format(n=Literal(limit)) if limit > 0 else Composed([SQL("")])
+
+        sql_query = SQL("SELECT {columns} FROM {table}{joins} {where}{order}{limit}").format(
+            columns=SQL(", ").join(_col_ref(c) for c in column_tuple),
+            table=Identifier(table_name),
+            joins=join_sql,
+            where=condition_to_query(condition, add_where=True),
+            order=order_clause,
+            limit=limit_clause,
+        )
+
+        logger_sql.info("QUERY JOIN: %s", sql_query.as_string())
+
+        if self.db_conn is not None:
+            try:
+                result = self.db_conn.execute(sql_query)
+                if result.rowcount == 0:
+                    logger_sql.info("QUERY JOIN RESULT: empty")
+                else:
+                    logger_sql.info("QUERY JOIN RESULT: fetch %s rows", result.rowcount)
+                while record := result.fetchone():
+                    yield record
+            except Error as e:
+                logger_sql.error("Error in select_from_several_table: %s", e)
+            finally:
+                self.db_conn.commit()
 
     def count_row_in_table(self, table_name: str, condition: Condition, column_name: str = "*") -> int:
         """

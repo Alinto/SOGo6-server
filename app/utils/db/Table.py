@@ -56,11 +56,26 @@ class Column:
         self.extra_args      = extra_args
 
 class Index:
+    """Agnostic database index representation.
+
+    Each database manager converts this to their proper CREATE INDEX syntax.
+    Supports single-column and composite indexes, with optional uniqueness.
     """
-    Is a common db class. Each db manager will convert this index properly to their own dbapi
-    """
-    def __init__(self) -> None:
-        pass
+
+    def __init__(self, name: str, columns: tuple[str, ...], unique: bool = False) -> None:
+        """
+        :param name: Index name. Must match REX_VALID_NAMES.
+        :param columns: Column names included in the index, in order.
+        :param unique: Whether the index enforces uniqueness.
+        """
+        if not re.match(REX_VALID_NAMES, name):
+            logger.error("Try to instantiate Index with an invalid name: %s", name)
+        for col in columns:
+            if not re.match(REX_VALID_NAMES, col):
+                logger.error("Try to instantiate Index with an invalid column name: %s", col)
+        self.name = name
+        self.columns = columns
+        self.unique = unique
 
 class Table:
     """

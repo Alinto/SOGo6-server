@@ -11,7 +11,7 @@ from mysql.connector import Error, ProgrammingError  # pylint: disable=no-name-i
 from app.utils.db.Table import Table, REX_VALID_NAMES
 from app.utils.db.Condition import (Condition, EqualCondition, NotEqualCondition, AndCondition, OrCondition,
                                     TrueCondition, LessOrEqualCondition, GreaterOrEqualCondition,
-                                    IsNullCondition, IsNotNullCondition, LikeCondition, Order)
+                                    IsNullCondition, IsNotNullCondition, LikeCondition, JoinClause, Order)
 from app.utils import errors as err
 from app.utils.exceptions import RequestException, BugException
 from app.utils.logger.logger import logger, logger_sql
@@ -112,6 +112,20 @@ def table_to_query(table: Table) -> str:
     return sql_query
 
 
+def _col_ref(name: str) -> str:
+    """Build a backtick-quoted column reference, supporting qualified names (table.column).
+
+    Each component is validated against REX_VALID_NAMES to prevent SQL injection.
+    """
+    parts: list[str] = name.split(".", 1) if "." in name else [name]
+    for part in parts:
+        if not re.match(REX_VALID_NAMES, part):
+            raise BugException(f"Invalid column/table name component: {part}")
+    if len(parts) == 2:
+        return f"`{parts[0]}`.`{parts[1]}`"
+    return f"`{parts[0]}`"
+
+
 def condition_to_query(condition: Condition, add_where: bool = False) -> Tuple[str, List[Any]]:
     """
     Convert Condition objects into a SQL WHERE fragment and a list of parameter values.
@@ -122,10 +136,10 @@ def condition_to_query(condition: Condition, add_where: bool = False) -> Tuple[s
     params: List[Any] = []
 
     if isinstance(condition, EqualCondition):
-        sql_condition = f"`{condition.param_name}` = %s"
+        sql_condition = f"{_col_ref(condition.param_name)} = %s"
         params.append(condition.param_value)
     elif isinstance(condition, NotEqualCondition):
-        sql_condition = f"`{condition.param_name}` != %s"
+        sql_condition = f"{_col_ref(condition.param_name)} != %s"
         params.append(condition.param_value)
     elif isinstance(condition, AndCondition):
         cond1_sql, cond1_params = condition_to_query(condition.condition1)
@@ -148,17 +162,17 @@ def condition_to_query(condition: Condition, add_where: bool = False) -> Tuple[s
         params.extend(cond1_params)
         params.extend(cond2_params)
     elif isinstance(condition, LessOrEqualCondition):
-        sql_condition = f"`{condition.param_name}` <= %s"
+        sql_condition = f"{_col_ref(condition.param_name)} <= %s"
         params.append(condition.param_value)
     elif isinstance(condition, GreaterOrEqualCondition):
-        sql_condition = f"`{condition.param_name}` >= %s"
+        sql_condition = f"{_col_ref(condition.param_name)} >= %s"
         params.append(condition.param_value)
     elif isinstance(condition, IsNullCondition):
-        sql_condition = f"`{condition.param_name}` IS NULL"
+        sql_condition = f"{_col_ref(condition.param_name)} IS NULL"
     elif isinstance(condition, IsNotNullCondition):
-        sql_condition = f"`{condition.param_name}` IS NOT NULL"
+        sql_condition = f"{_col_ref(condition.param_name)} IS NOT NULL"
     elif isinstance(condition, LikeCondition):
-        sql_condition = f"`{condition.param_name}` LIKE %s"
+        sql_condition = f"{_col_ref(condition.param_name)} LIKE %s"
         params.append(condition.pattern)
     elif isinstance(condition, TrueCondition):
         sql_condition = "1 = 1"
@@ -270,15 +284,42 @@ class ClientMySQL(ClientSQL):
             finally:
                 cursor.close()
 
+    def create_indexes(self, table: Table) -> None:
+        """Create all indexes defined on the table. Existing indexes are silently skipped."""
+        if not table.index:
+            return
+        if self.db_conn and not self.db_conn.is_connected():
+            self.connect()
+        for idx in table.index:
+            unique_kw = "UNIQUE " if idx.unique else ""
+            cols = ", ".join(f"`{c}`" for c in idx.columns)
+            sql_query = f"CREATE {unique_kw}INDEX `{idx.name}` ON `{table.name}` ({cols})"
+            logger_sql.info("QUERY INDEX: %s", sql_query)
+            if self.db_conn is not None:
+                cursor = self.db_conn.cursor()
+                try:
+                    cursor.execute(sql_query)
+                    self.db_conn.commit()
+                except ProgrammingError as e:
+                    if "duplicate" in str(e).lower() or "exists" in str(e).lower():
+                        logger_sql.info("Index %s already exists on %s, skipping", idx.name, table.name)
+                    else:
+                        logger_sql.error("Error creating index %s on %s: %s", idx.name, table.name, e)
+                except Error as e:
+                    logger_sql.error("Error creating index %s on %s: %s", idx.name, table.name, e)
+                finally:
+                    cursor.close()
+
     def create_several_table(self, table_list: list[Table]) -> None:
         """
-        Create several tables
+        Create several tables and their indexes
         """
         if self.db_conn and not self.db_conn.is_connected():
             self.connect()
 
         for table in table_list:
             self.create_table(table)
+            self.create_indexes(table)
 
     def insert_in_table(self, table_name: str, column_tuple: tuple[str, ...], values_tuple: list[list[Any]]) -> int:
         """
@@ -451,12 +492,55 @@ class ClientMySQL(ClientSQL):
             finally:
                 cursor.close()
 
-    def select_from_several_table(self, table_name: str, column_tuple: tuple, condition: Condition) -> Generator[tuple[Any, ...], None, None]:
+    def select_from_several_table(  # pylint: disable=too-many-locals
+        self,
+        table_name: str,
+        joins: list[JoinClause],
+        column_tuple: tuple[str, ...],
+        condition: Condition,
+        sort_by: str | None = None,
+        order: Order = Order.ASC,
+        limit: int = 0,
+    ) -> Generator[tuple[Any, ...], None, None]:
+        """Select values from several tables using INNER JOIN.
+
+        Column names and condition param_names may be qualified (table.column).
         """
-        select values from several tables - not implemented for MySQL client
-        """
-        logger_sql.error("Method 'select_from_several_table' of ClientMySQL must be implemented by the children %s", type(self).__name__)
-        raise NotImplementedError
+        if self.db_conn and not self.db_conn.is_connected():
+            self.connect()
+
+        join_parts: list[str] = []
+        for j in joins:
+            if not re.match(REX_VALID_NAMES, j.table):
+                raise BugException(f"Invalid JOIN table name: {j.table}")
+            join_parts.append(f" INNER JOIN `{j.table}` ON {_col_ref(j.left_col)} = {_col_ref(j.right_col)}")
+
+        cond_sql, params = condition_to_query(condition, add_where=True)
+        order_clause = f" ORDER BY {_col_ref(sort_by)} {'ASC' if order == Order.ASC else 'DESC'}" if sort_by else ""
+        limit_clause = f" LIMIT {limit}" if limit > 0 else ""
+
+        sql_query = (f"SELECT {', '.join(_col_ref(c) for c in column_tuple)} "
+                     f"FROM `{table_name}`{''.join(join_parts)} {cond_sql}{order_clause}{limit_clause}")
+
+        logger_sql.info("QUERY JOIN: %s -- params=%s", sql_query, params)
+
+        if self.db_conn is not None:
+            cursor = self.db_conn.cursor()
+            try:
+                cursor.execute(sql_query, tuple(params))
+                if cursor.rowcount == 0:
+                    logger_sql.info("QUERY JOIN RESULT: empty")
+                else:
+                    logger_sql.info("QUERY JOIN RESULT: fetch %s rows", cursor.rowcount)
+                while True:
+                    record = cursor.fetchone()
+                    if record is None:
+                        break
+                    yield record
+            except Error as e:
+                logger_sql.error("Error in select_from_several_table: %s", e)
+            finally:
+                cursor.close()
 
     def count_row_in_table(self, table_name: str, condition: Condition, column_name: str = "*") -> int:
         """
