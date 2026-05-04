@@ -119,3 +119,20 @@ class LikeCondition(Condition):
         super().__init__()
         self.param_name = param_name
         self.pattern = pattern
+
+
+class JoinClause:
+    """Describes an INNER JOIN between two tables.
+
+    Used with select_from_several_table to build multi-table queries.
+    Note : This can be updated later to add left or right join.
+    """
+    def __init__(self, table: str, left_col: str, right_col: str):
+        """
+        :param table: The table to join.
+        :param left_col: Qualified column on the left side (e.g. "reminders.event_key").
+        :param right_col: Qualified column on the right side (e.g. "events.key").
+        """
+        self.table = table
+        self.left_col = left_col
+        self.right_col = right_col
