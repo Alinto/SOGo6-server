@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
 from app.config.db import tables as tbl
+from app.module.calendar.model.CalEventReminder import CalEventReminder
 from app.module.calendar.model.enums.ReminderMethod import ReminderMethod
 from app.utils.calendar.DateTimeUtils import to_utc
 from app.utils.db.Condition import AndCondition, EqualCondition, GreaterOrEqualCondition, JoinClause, LessOrEqualCondition
@@ -68,11 +69,13 @@ class RepositoryReminder:
         end: datetime,
         user_uid: str | None = None,
         method: ReminderMethod | None = None,
-    ) -> list[dict]:
-        """Return non-deleted reminder rows with trigger_at in [start, end].
+    ) -> list[CalEventReminder]:
+        """Return non-deleted reminders with trigger_at in [start, end].
 
         Uses INNER JOIN on sogo_events and sogo_calendars to filter by user
         and exclude soft-deleted events in a single SQL query.
+        Returned CalEventReminder objects have title, location, timezone and
+        calendar_timezone set to None — the caller enriches them from the full CalEvent.
         """
         rem: str = tbl.TABLE_REMINDER.name
         evt: str = tbl.TABLE_EVENT.name
@@ -119,16 +122,19 @@ class RepositoryReminder:
             condition=condition,
             sort_by=q_trigger,
         )
-        return [self._join_row_to_dict(row) for row in rows]
+        return [self._row_to_model(row) for row in rows]
 
     @staticmethod
-    def _join_row_to_dict(row: tuple) -> dict:
-        return {
-            "event_key": row[0],
-            "method": row[1],
-            "minutes_before": row[2],
-            "trigger_at": to_utc(row[3]) if row[3] is not None else None,
-            "date_start": to_utc(row[4]) if row[4] is not None else None,
-            "date_end": to_utc(row[5]) if row[5] is not None else None,
-            "is_recurring": row[6],
-        }
+    def _row_to_model(row: tuple) -> CalEventReminder:
+        return CalEventReminder(
+            event_key=row[0],
+            title=None,
+            location=None,
+            date_start=to_utc(row[4]) if row[4] is not None else None,
+            date_end=to_utc(row[5]) if row[5] is not None else None,
+            timezone=None,
+            calendar_timezone=None,
+            method=ReminderMethod(row[1]),
+            minutes_before=row[2],
+            trigger_at=to_utc(row[3]) if row[3] is not None else None,
+        )

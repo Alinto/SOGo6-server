@@ -5,6 +5,7 @@ import pytest
 
 from app.config.db import tables as tbl
 from app.module.calendar.model.CalEvent import CalEvent
+from app.module.calendar.model.CalEventReminder import CalEventReminder
 from app.module.calendar.model.CalReminder import CalReminder
 from app.module.calendar.model.enums.ReminderMethod import ReminderMethod
 from app.module.calendar.repository.RepositoryReminder import RepositoryReminder
@@ -163,7 +164,7 @@ def test_purge_deleted_by_event_key():
 
 # ========== find_pending ==========
 
-def test_find_pending_returns_dicts():
+def test_find_pending_returns_models():
     db = FakeDB()
     trigger = _dt(2026, 6, 1, 9, 45)
     db.join_result = [
@@ -173,13 +174,15 @@ def test_find_pending_returns_dicts():
     repo = RepositoryReminder(db)
     results = repo.find_pending(_dt(2026, 6, 1, 9, 40), _dt(2026, 6, 1, 9, 50))
     assert len(results) == 1
-    assert results[0]["event_key"] == "evt-key-1"
-    assert results[0]["method"] == "popup"
-    assert results[0]["minutes_before"] == 15
-    assert results[0]["trigger_at"] == trigger
-    assert results[0]["date_start"] == _dt(2026, 6, 1, 10)
-    assert results[0]["date_end"] == _dt(2026, 6, 1, 11)
-    assert results[0]["is_recurring"] is False
+    assert isinstance(results[0], CalEventReminder)
+    assert results[0].event_key == "evt-key-1"
+    assert results[0].method == ReminderMethod.POPUP
+    assert results[0].minutes_before == 15
+    assert results[0].trigger_at == trigger
+    assert results[0].date_start == _dt(2026, 6, 1, 10)
+    assert results[0].date_end == _dt(2026, 6, 1, 11)
+    assert results[0].title is None
+    assert results[0].location is None
 
 
 def test_find_pending_empty():
