@@ -98,3 +98,12 @@ FOLDER_SELECTABLE = "selectable"
 FOLDER_SUSBCRIBED = "subscribed"
 FOLDER_UNSEEN = "unseen_count"
 FOLDER_COUNT = "message_count"
+
+# Mail deletion behavior mapping to (move_to_trash, permanently) flags
+DELETE_MAIL_BEHAVIOR_MAP = {
+    # behavior                   move_to_trash  permanently
+    "MOVE_TO_TRASH_AND_EXPUNGE": (True,         True),
+    "FLAG_DELETED_ONLY":         (False,        False),
+    "EXPUNGE_ONLY":              (False,        True),
+    "MOVE_TO_TRASH_ONLY":        (True,         False),
+}
