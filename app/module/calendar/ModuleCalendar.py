@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 # pylint: disable=raise-missing-from
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
 from app.module.calendar.CalendarConst import MAX_EVENT_FETCH_DAYS, MAX_FREEBUSY_DAYS, MAX_TASK_FETCH_DAYS
@@ -12,7 +12,11 @@ from app.module.calendar.model.CalCalendar import CalCalendar
 from app.module.calendar.model.CalOrganizer import CalOrganizer
 from app.module.calendar.model.enums.AttendeeStatus import AttendeeStatus
 from app.module.calendar.model.enums.ComponentType import ComponentType
+from app.module.calendar.model.CalEventReminder import CalEventReminder
+from app.module.calendar.model.enums.ReminderMethod import ReminderMethod
+from app.module.calendar.reminder.ReminderEngine import ReminderEngine
 from app.module.calendar.repository.RepositoryEvent import RepositoryEvent
+from app.module.calendar.repository.RepositoryReminder import RepositoryReminder
 from app.module.calendar.model.CalEvent import CalEvent
 from app.module.calendar.rrule.RecurrenceScopeProcessor import EventAction, RecurrenceScopeProcessor, ScopeResult
 from app.module.calendar.source.CalendarSources import CalendarSources
@@ -150,6 +154,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         if not event.organizer:
             event.organizer = organizer
         self._normalize_all_day(event)
+        event.validate()
         try:
             created: CalEvent = source.insert_event(event)
             # Propagate changes to attendees
@@ -180,6 +185,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         # Only the organizer can modify event content (RFC 5545 §3.8.4.3)
         if event.organizer and event.organizer.email != user.uid:
             raise RequestException(error=err.ERROR_CALENDAR_NOT_ORGANIZER)
+        event_update.validate()
 
         try:
             scope_result: ScopeResult = RecurrenceScopeProcessor.process(source=source, original=event, event_update=event_update)
@@ -406,22 +412,76 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
             raise RequestException(error=err.ERROR_UNKOWN)
 
     # ------------------------------------------------------------------
+    # Reminders
+    # ------------------------------------------------------------------
+    def get_reminders(
+        self,
+        user: User,
+        method: ReminderMethod | None = None,
+        lookahead_minutes: int = 0,
+    ) -> list[CalEventReminder]:
+        """Return currently active reminders for the user.
+
+        A reminder is active from trigger_at (= date_start - minutes_before)
+        until event.date_end + lookahead_minutes. For recurring events, occurrences
+        are expanded and each is checked independently.
+
+        User filtering is done in SQL via JOIN (reminders → events → calendars).
+
+        :param user: The user whose reminders to fetch.
+        :param method: Optional method filter (popup / email).
+        :param lookahead_minutes: Extra minutes after event end before the reminder expires (default 0).
+        """
+        now: datetime = datetime.now(timezone.utc)
+        repo_reminder: RepositoryReminder = RepositoryReminder(self._db)
+
+        past_bound: datetime = now - timedelta(days=MAX_EVENT_FETCH_DAYS)
+        rows: list[dict] = repo_reminder.find_pending(
+            start=past_bound, end=now, user_uid=user.uid, method=method,
+        )
+
+        # Batch-load full CalEvent objects for all unique event_keys.
+        # The JOIN filters by user and soft-delete, but title/location live
+        # in the JSON blob — we need the full event for display and RRULE expansion.
+        events_by_key: dict[str, CalEvent] = {}
+        for row in rows:
+            event_key: str = row["event_key"]
+            if event_key not in events_by_key:
+                try:
+                    _, event = self._find_source_for_event(user, event_key)
+                    events_by_key[event_key] = event
+                except RequestException:
+                    continue
+
+        return ReminderEngine().compute_active(
+            reminder_rows=rows,
+            events_by_key=events_by_key,
+            now=now,
+            lookahead_minutes=lookahead_minutes,
+        )
+
+    # ------------------------------------------------------------------
     # Maintenance
     # ------------------------------------------------------------------
     # TODO: Implement in admin API
     def clean(self, user_uid: str | None = None, calendar_key: str | None = None) -> int:
-        """Physically remove soft-deleted event rows for a calendar or all calendars of a user.
+        """Physically remove soft-deleted event and reminder rows.
 
         Returns the total number of rows purged. At least one of user_uid or calendar_key must
         be provided. When user_uid is given, all calendars currently owned by that user are cleaned.
+        Orphaned reminder rows (soft-deleted) are purged alongside their events.
         """
-        repo: RepositoryEvent = RepositoryEvent(self._db)
+        repo_event: RepositoryEvent = RepositoryEvent(self._db)
+        repo_reminder: RepositoryReminder = RepositoryReminder(self._db)
+        total: int = 0
         if calendar_key is not None:
-            return repo.purge_deleted(calendar_key)
-        if user_uid is not None:
+            total += repo_event.purge_deleted(calendar_key)
+            total += repo_reminder.purge_deleted()
+        elif user_uid is not None:
             keys: list[str] = [s.calendar.key for s in self._sources.get_all(user_uid)]
-            return sum(repo.purge_deleted(k) for k in keys)
-        return 0
+            total += sum(repo_event.purge_deleted(k) for k in keys)
+            total += repo_reminder.purge_deleted()
+        return total
 
     # ------------------------------------------------------------------
     # FreeBusy

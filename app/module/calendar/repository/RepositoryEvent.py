@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from app.config.db import tables as tbl
+from app.utils.calendar.DateTimeUtils import to_utc
 from app.module.calendar.model.CalEvent import CalEvent
 from app.module.calendar.model.enums.ComponentType import ComponentType
 from app.module.calendar.serializer.CalendarEventDeserializerDict import CalendarEventDeserializerDict
@@ -44,15 +45,6 @@ class RepositoryEvent:
         return " ".join(parts)
 
     @staticmethod
-    def _ensure_utc(dt: datetime | None) -> datetime | None:
-        """Return dt with UTC tzinfo. Naive datetimes are assumed to be UTC. None passes through."""
-        if dt is None:
-            return None
-        if dt.tzinfo is None:
-            return dt.replace(tzinfo=timezone.utc)
-        return dt
-
-    @staticmethod
     def _row_to_event(row: tuple) -> CalEvent:
         """Map a DB row (ordered per ALL_EVT_COL) to a CalEvent."""
         d = dict(zip(_ALL_COLS, row))
@@ -64,12 +56,12 @@ class RepositoryEvent:
         event.calendar_key = d[tbl.COL_EVT_CALENDAR_KEY.name]
         event.uid = d[tbl.COL_EVT_UID.name]
         event.component_type = ComponentType(d[tbl.COL_EVT_COMPONENT_TYPE.name])
-        event.date_start = RepositoryEvent._ensure_utc(d[tbl.COL_EVT_DATE_START.name])
-        event.date_end = RepositoryEvent._ensure_utc(d[tbl.COL_EVT_DATE_END.name])
+        event.date_start = to_utc(d[tbl.COL_EVT_DATE_START.name])
+        event.date_end = to_utc(d[tbl.COL_EVT_DATE_END.name])
         event.sequence = d[tbl.COL_EVT_SEQUENCE.name]
-        event.recurrence_id = RepositoryEvent._ensure_utc(d[tbl.COL_EVT_RECURRENCE_ID.name])
-        event.created_at = RepositoryEvent._ensure_utc(d[tbl.COL_EVT_CREATED_AT.name])
-        event.updated_at = RepositoryEvent._ensure_utc(d[tbl.COL_EVT_UPDATED_AT.name])
+        event.recurrence_id = to_utc(d[tbl.COL_EVT_RECURRENCE_ID.name]) if d[tbl.COL_EVT_RECURRENCE_ID.name] is not None else None
+        event.created_at = to_utc(d[tbl.COL_EVT_CREATED_AT.name]) if d[tbl.COL_EVT_CREATED_AT.name] is not None else None
+        event.updated_at = to_utc(d[tbl.COL_EVT_UPDATED_AT.name]) if d[tbl.COL_EVT_UPDATED_AT.name] is not None else None
         return event
 
     def find_by_calendar(
@@ -371,6 +363,19 @@ class RepositoryEvent:
                 values_list=[True, now],
                 condition=condition,
             )
+
+    def find_keys(self, calendar_key: str) -> list[str]:
+        """Return all non-deleted event keys for a calendar."""
+        condition = AndCondition(
+            EqualCondition(tbl.COL_EVT_CALENDAR_KEY.name, calendar_key),
+            EqualCondition(tbl.COL_EVT_IS_DELETED.name, False),
+        )
+        rows = self._db.select_from_table(
+            table_name=tbl.TABLE_EVENT.name,
+            column_tuple=(tbl.COL_EVT_KEY.name,),
+            condition=condition,
+        )
+        return [row[0] for row in rows]
 
     def delete_all(self, calendar_key: str, hard_delete: bool = False) -> None:
         """Soft-delete (or hard-delete) all events belonging to a calendar."""

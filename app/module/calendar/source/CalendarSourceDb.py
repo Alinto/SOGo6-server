@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from app.module.calendar.model.enums.ComponentType import ComponentType
 from app.module.calendar.repository.RepositoryCalendar import RepositoryCalendar
 from app.module.calendar.repository.RepositoryEvent import RepositoryEvent
+from app.module.calendar.repository.RepositoryReminder import RepositoryReminder
 from app.module.calendar.rrule.RecurrenceScopeProcessor import EventAction
 from app.module.calendar.rrule.RruleEngine import RruleEngine
 from app.module.calendar.source.CalendarSource import CalendarSource
@@ -28,6 +29,7 @@ class CalendarSourceDb(CalendarSource):
         super().__init__(calendar)
         self._repo_calendar = RepositoryCalendar(db)
         self._repo_event = RepositoryEvent(db)
+        self._repo_reminder = RepositoryReminder(db)
 
     def is_writable(self) -> bool:
         return True
@@ -53,7 +55,10 @@ class CalendarSourceDb(CalendarSource):
         self._calendar = calendar
 
     def delete_calendar(self) -> None:
-        """Soft-delete all events in the calendar, then hard-delete the calendar row."""
+        """Soft-delete all events and their reminders, then hard-delete the calendar row."""
+        event_keys: list[str] = self._repo_event.find_keys(self._calendar.key)
+        for key in event_keys:
+            self._repo_reminder.delete(key)
         self._repo_event.delete_all(self._calendar.key)
         self._repo_calendar.delete(self._calendar.id)
 
@@ -135,6 +140,7 @@ class CalendarSourceDb(CalendarSource):
             created = self._repo_event.insert(event, self._date_end_recurrence(event))
         if self._calendar.timezone:
             created.calendar_timezone = self._calendar.timezone
+        self._repo_reminder.upsert(created)
         self._bump_ctag()
         return created
 
@@ -163,6 +169,7 @@ class CalendarSourceDb(CalendarSource):
     def update_event(self, event: CalEvent) -> None:
         """Persist changes to an existing event row and bump the calendar ctag."""
         self._repo_event.update(event, self._date_end_recurrence(event))
+        self._repo_reminder.upsert(event)
         self._bump_ctag()
 
     def realign_detached_occurrences(self, uid: str, old_start: datetime, new_start: datetime) -> list[tuple[CalEvent, EventAction]]:
@@ -223,12 +230,14 @@ class CalendarSourceDb(CalendarSource):
         master.recurrence_rule.until = until
         master.recurrence_rule.count = None
         self._repo_event.update(master, RruleEngine().get_max_date(master))
+        self._repo_reminder.upsert(master)
         touched: list[tuple[CalEvent, EventAction]] = [(master, EventAction.UPDATE)]
 
         detached: list[CalEvent] = self._repo_event.find_detached_occurrences(self._calendar.key, uid)
         for occ in detached:
             if occ.recurrence_id is not None and occ.recurrence_id >= from_dt:
                 self._repo_event.delete_by_key(self._calendar.key, occ.key)
+                self._repo_reminder.delete(occ.key)
                 touched.append((occ, EventAction.DELETE))
         if len(touched) > 1:
             logger_calendar.debug("Soft-deleted %d future detached occurrence(s) for uid=%s", len(touched) - 1, uid)
@@ -254,6 +263,8 @@ class CalendarSourceDb(CalendarSource):
         """Soft-delete an event by UID within this calendar only and bump ctag.
 
         Used when an attendee removes their own copy (local operation only).
+        Reminders are not cleaned up here because soft-deleted events are filtered
+        out by find_pending callers. Hard-delete via purge_deleted handles full cleanup.
         """
         self._repo_event.delete(self._calendar.key, uid)
         self._bump_ctag()
@@ -270,4 +281,5 @@ class CalendarSourceDb(CalendarSource):
             master.recurrence_exceptions = list(master.recurrence_exceptions or []) + [occurrence.recurrence_id]
             self._repo_event.update(master, self._date_end_recurrence(master))
         self._repo_event.delete_by_key(self._calendar.key, occurrence.key)
+        self._repo_reminder.delete(occurrence.key)
         self._bump_ctag()

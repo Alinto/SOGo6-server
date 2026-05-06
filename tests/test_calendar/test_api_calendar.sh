@@ -88,6 +88,13 @@ TEST COVERAGE:
         i. DELETE master recurring event → all occurrences removed
         j. EXDATE on slot without detached override → slot vanishes from expansion
   19  Conditional DELETE (only when -d is passed, steps 62–64)
+  20  Reminders:
+        a. Create event with active reminder (date_start in past, date_end in future)
+        b. GET /reminders returns popup + email reminders with event data
+        c. GET /reminders?method=popup filters by method
+        d. GET /reminders?lookahead=30 extends window
+        e. Future event reminder not active
+        f. Delete event → reminders disappear
 EOF
     exit 0
 }
@@ -1782,6 +1789,117 @@ else
     info "Invitation: organizer=$INVITE_KEY_L1  attendee_copy=$INVITE_KEY_L2"
     info "Recurring invite: organizer=$REC_INVITE_KEY_L1  attendee_copy=$REC_INVITE_KEY_L2  occ=$OCC_ATT_KEY"
 fi
+
+# ── 20. REMINDERS ────────────────────────────────────────────────────────────
+
+step "69. Reminders — create event with reminder in active window"
+info "Creates an event whose date_start is 5 min ago and date_end is 1 hour ahead,"
+info "with a 10-min-before popup reminder. trigger_at = date_start - 10min = 15 min ago → active now."
+
+NOW_ISO=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+START_5M_AGO=$(date -u -v-5M +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u -d "-5 minutes" +"%Y-%m-%dT%H:%M:%SZ")
+END_1H_AHEAD=$(date -u -v+1H +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u -d "+1 hour" +"%Y-%m-%dT%H:%M:%SZ")
+
+CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d "{
+        \"title\": \"Reminder Test Event\",
+        \"date_start\": \"$START_5M_AGO\",
+        \"date_end\":   \"$END_1H_AHEAD\",
+        \"reminders\": [
+            {\"method\": \"popup\", \"minutes_before\": 10},
+            {\"method\": \"email\", \"minutes_before\": 30}
+        ]
+    }")
+check_code  "POST /events (reminder test)" "$CODE" "201"
+check_error "POST /events (reminder test) error_code"
+REM_EVT_KEY=$(extract '.data.key')
+info "reminder event key=$REM_EVT_KEY"
+
+
+step "70. Reminders — GET /reminders returns active reminders"
+info "Both popup (10 min before) and email (30 min before) should be active:"
+info "  popup  trigger_at = start - 10min = 15 min ago → active (now < date_end)"
+info "  email  trigger_at = start - 30min = 35 min ago → active (now < date_end)"
+
+CODE=$(req "$BASE/reminders" -H "$H_AUTH")
+check_code  "GET /reminders" "$CODE" "200"
+check_error "GET /reminders error_code"
+REM_COUNT=$(body | jq -r '.data.total_count')
+[ "$REM_COUNT" -ge 2 ] && ok "reminder count >= 2 (got $REM_COUNT)" || fail "expected >= 2 reminders, got $REM_COUNT"
+
+REM_HAS_POPUP=$(body | jq '[.data.reminders[] | select(.method == "popup")] | length')
+REM_HAS_EMAIL=$(body | jq '[.data.reminders[] | select(.method == "email")] | length')
+[ "$REM_HAS_POPUP" -ge 1 ] && ok "popup reminder present" || fail "no popup reminder found"
+[ "$REM_HAS_EMAIL" -ge 1 ] && ok "email reminder present" || fail "no email reminder found"
+
+REM_HAS_EVENT=$(body | jq '[.data.reminders[] | select(.title == "Reminder Test Event")] | length')
+[ "$REM_HAS_EVENT" -ge 1 ] && ok "reminder carries event data" || fail "reminder missing event data"
+
+REM_HAS_MIN=$(body | jq '[.data.reminders[] | select(.minutes_before == 10)] | length')
+[ "$REM_HAS_MIN" -ge 1 ] && ok "minutes_before=10 present" || fail "minutes_before=10 not found"
+
+
+step "71. Reminders — GET /reminders?method=popup filters by method"
+info "Only popup reminders should be returned."
+
+CODE=$(req "$BASE/reminders?method=popup" -H "$H_AUTH")
+check_code  "GET /reminders?method=popup" "$CODE" "200"
+check_error "GET /reminders?method=popup error_code"
+REM_ONLY_POPUP=$(body | jq '[.data.reminders[] | select(.method != "popup")] | length')
+[ "$REM_ONLY_POPUP" -eq 0 ] && ok "only popup reminders returned" || fail "non-popup reminders present ($REM_ONLY_POPUP)"
+
+
+step "72. Reminders — GET /reminders?lookahead=30 extends window"
+info "Lookahead parameter accepted, response is valid."
+
+CODE=$(req "$BASE/reminders?lookahead=30" -H "$H_AUTH")
+check_code  "GET /reminders?lookahead=30" "$CODE" "200"
+check_error "GET /reminders?lookahead=30 error_code"
+
+
+step "73. Reminders — no active reminders for event in the far future"
+info "Creates an event 1 year ahead with a 15-min reminder. trigger_at is in the future → not active."
+
+FUTURE_START=$(date -u -v+1y +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u -d "+1 year" +"%Y-%m-%dT%H:%M:%SZ")
+FUTURE_END=$(date -u -v+1y -v+1H +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u -d "+1 year +1 hour" +"%Y-%m-%dT%H:%M:%SZ")
+
+CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d "{
+        \"title\": \"Future Event No Reminder\",
+        \"date_start\": \"$FUTURE_START\",
+        \"date_end\":   \"$FUTURE_END\",
+        \"reminders\": [{\"method\": \"popup\", \"minutes_before\": 15}]
+    }")
+check_code "POST /events (future event)" "$CODE" "201"
+REM_FUTURE_KEY=$(extract '.data.key')
+
+CODE=$(req "$BASE/reminders" -H "$H_AUTH")
+check_code "GET /reminders (no future)" "$CODE" "200"
+REM_FUTURE_MATCH=$(body | jq "[.data.reminders[] | select(.title == \"Future Event No Reminder\")] | length")
+[ "$REM_FUTURE_MATCH" -eq 0 ] && ok "future event reminder not active" || fail "future event reminder unexpectedly active"
+
+
+step "74. Reminders — delete reminder event, then GET /reminders excludes it"
+info "Deletes the reminder test event. Its reminders should no longer appear."
+
+if $DO_DELETE; then
+    CODE=$(req -X DELETE "$BASE/events/$REM_EVT_KEY" -H "$H_AUTH")
+    check_code "DELETE /events/$REM_EVT_KEY (reminder test)" "$CODE" "200"
+
+    CODE=$(req "$BASE/reminders" -H "$H_AUTH")
+    check_code "GET /reminders (after delete)" "$CODE" "200"
+    REM_DELETED_MATCH=$(body | jq "[.data.reminders[] | select(.title == \"Reminder Test Event\")] | length")
+    [ "$REM_DELETED_MATCH" -eq 0 ] && ok "deleted event reminders gone" || fail "deleted event reminders still present"
+
+    CODE=$(req -X DELETE "$BASE/events/$REM_FUTURE_KEY" -H "$H_AUTH")
+    check_code "DELETE /events/$REM_FUTURE_KEY (future event)" "$CODE" "200"
+else
+    skip "DELETE reminder test events"
+    info "reminder_event=$REM_EVT_KEY  future_event=$REM_FUTURE_KEY"
+fi
+
 
 step "67. Delete — LOGIN_2 and LOGIN_3 freebusy events and calendars"
 info "Removes the freebusy test events and calendars created by LOGIN_2 and LOGIN_3. Skipped without -d."

@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from app.utils.calendar.DateTimeUtils import apply_tz, fmt_dt
 from app.module.calendar.model.CalAttachment import CalAttachment
 from app.module.calendar.model.CalAttendee import CalAttendee
 from app.module.calendar.model.CalConferenceData import CalConferenceData
@@ -34,8 +33,8 @@ class CalendarEventSerializerDict(CalendarEventSerializer[dict]):
             "title": data.title,
             "description": data.description,
             "location": data.location,
-            "date_start": self._fmt_dt(data.date_start),
-            "date_end": self._fmt_dt(data.date_end),
+            "date_start": fmt_dt(data.date_start),
+            "date_end": fmt_dt(data.date_end),
             "all_day": data.all_day,
             "timezone": data.timezone,
             "status": data.status.value,
@@ -53,14 +52,14 @@ class CalendarEventSerializerDict(CalendarEventSerializer[dict]):
             "related_to": [self._relation_to_dict(r) for r in data.related_to],
             "extra_properties": data.extra_properties,
             "attachments": [self._attachment_to_dict(a) for a in data.attachments],
-            "created_at": self._fmt_dt(data.created_at) if data.created_at else None,
-            "updated_at": self._fmt_dt(data.updated_at) if data.updated_at else None,
+            "created_at": fmt_dt(data.created_at) if data.created_at else None,
+            "updated_at": fmt_dt(data.updated_at) if data.updated_at else None,
             "component_type": data.component_type.value,
             "percent_complete": data.percent_complete,
-            "completed_at": self._fmt_dt(data.completed_at) if data.completed_at else None,
+            "completed_at": fmt_dt(data.completed_at) if data.completed_at else None,
             "recurrence_rule": self._recurrence_rule_to_dict(data.recurrence_rule) if data.recurrence_rule else None,
-            "recurrence_exceptions": [self._fmt_dt(d) for d in data.recurrence_exceptions],
-            "recurrence_id": self._fmt_dt(data.recurrence_id) if data.recurrence_id else None,
+            "recurrence_exceptions": [fmt_dt(d) for d in data.recurrence_exceptions],
+            "recurrence_id": fmt_dt(data.recurrence_id) if data.recurrence_id else None,
             "recurrence_range": data.recurrence_range,
             "dates_with_tz": self._dates_with_tz(data),
         }
@@ -131,7 +130,7 @@ class CalendarEventSerializerDict(CalendarEventSerializer[dict]):
         return {
             "frequency": rule.frequency.value,
             "interval": rule.interval,
-            "until": CalendarEventSerializerDict._fmt_dt(rule.until) if rule.until else None,
+            "until": fmt_dt(rule.until) if rule.until else None,
             "count": rule.count,
             "by_day": rule.by_day,
             "by_month_day": rule.by_month_day,
@@ -147,32 +146,11 @@ class CalendarEventSerializerDict(CalendarEventSerializer[dict]):
 
     def _dates_with_tz(self, event: CalEvent) -> dict[str, str | None]:  # type: ignore[override]
         """Build the dates_with_tz dict for the event and calendar timezones."""
-        event_tz = event.timezone or None
-        cal_tz = event.calendar_timezone or None
+        event_tz = event.timezone
+        cal_tz = event.calendar_timezone
         return {
-            "date_start_tz_event": self._apply_tz(event.date_start, event_tz) if event_tz else None,
-            "date_end_tz_event": self._apply_tz(event.date_end, event_tz) if event_tz else None,
-            "date_start_tz_calendar": self._apply_tz(event.date_start, cal_tz) if cal_tz else None,
-            "date_end_tz_calendar": self._apply_tz(event.date_end, cal_tz) if cal_tz else None,
+            "date_start_tz_event": apply_tz(event.date_start, event_tz) if event_tz else None,
+            "date_end_tz_event": apply_tz(event.date_end, event_tz) if event_tz else None,
+            "date_start_tz_calendar": apply_tz(event.date_start, cal_tz) if cal_tz else None,
+            "date_end_tz_calendar": apply_tz(event.date_end, cal_tz) if cal_tz else None,
         }
-
-    @staticmethod
-    def _fmt_dt(dt: datetime) -> str:
-        """Format a datetime as ISO 8601 UTC with millisecond precision ending in Z.
-
-        Naive datetimes are assumed UTC. Non-UTC datetimes are converted to UTC first.
-        """
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        elif dt.tzinfo != timezone.utc:
-            dt = dt.astimezone(timezone.utc)
-        ms = dt.microsecond // 1000
-        return dt.strftime("%Y-%m-%dT%H:%M:%S.") + f"{ms:03d}Z"
-
-    @staticmethod
-    def _apply_tz(dt: datetime, tz_name: str) -> str | None:
-        """Convert dt to the given IANA timezone and return an ISO 8601 string with UTC offset."""
-        try:
-            return dt.astimezone(ZoneInfo(tz_name)).isoformat()
-        except (ZoneInfoNotFoundError, KeyError):
-            return None

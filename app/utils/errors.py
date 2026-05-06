@@ -168,6 +168,7 @@ ERROR_CALENDAR_FREEBUSY_INVALID_REQUEST      = E("S000615", "Invalid Free/Busy i
 ERROR_CALENDAR_IMIP_INVALID_REQUEST          = E("S000616", "Invalid iMIP Message", HTTPStatus.BAD_REQUEST)
 ERROR_CALENDAR_ATTENDANCE_UPDATE_FAILED      = E("S000617", "Failed To Update Attendance Status", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_CALENDAR_NOT_ORGANIZER                 = E("S000618", "Only The Organizer Can Modify This Event", HTTPStatus.FORBIDDEN)
+ERROR_CALENDAR_EVENT_DURATION_TOO_LONG       = E("S000619", "Event Duration Exceeds Maximum Allowed", HTTPStatus.BAD_REQUEST)
 
 #the bugs
 ERROR_UNKOWN = E("S999999", "Undefined Error", HTTPStatus.INTERNAL_SERVER_ERROR)
