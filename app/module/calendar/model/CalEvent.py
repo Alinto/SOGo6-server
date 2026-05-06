@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, ClassVar
 
 from app.module.calendar.model.CalAttachment import CalAttachment
@@ -15,6 +15,9 @@ from app.module.calendar.model.enums.ComponentType import ComponentType
 from app.module.calendar.model.enums.EventStatus import EventStatus
 from app.module.calendar.model.enums.EventVisibility import EventVisibility
 from app.module.calendar.model.enums.ShowAs import ShowAs
+from app.module.calendar.CalendarConst import MAX_EVENT_DURATION_HOURS
+from app.utils import errors as err
+from app.utils.exceptions import RequestException
 
 
 @dataclass
@@ -148,6 +151,12 @@ class CalEvent:  # pylint: disable=too-many-instance-attributes,invalid-name
             self.show_as = ShowAs.BUSY
         if self.all_day is None:
             self.all_day = False
+
+    def validate(self) -> None:
+        """Run business validations. Raises RequestException on failure."""
+        if not self.all_day and self.date_start is not None and self.date_end is not None:
+            if (self.date_end - self.date_start) > timedelta(hours=MAX_EVENT_DURATION_HOURS):
+                raise RequestException(error=err.ERROR_CALENDAR_EVENT_DURATION_TOO_LONG)
 
     @property
     def is_detached(self) -> bool:

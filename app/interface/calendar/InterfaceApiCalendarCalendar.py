@@ -9,8 +9,11 @@ from app.config.settings.UserSettings import UserCalendarGeneralSettings, UserGe
 from app.module.calendar.ModuleCalendar import ModuleCalendar
 from app.module.calendar.freebusy.FreeBusyEngine import FreeBusyPrefs
 from app.module.calendar.model.CalCalendar import CalCalendar
+from app.module.calendar.model.CalEventReminder import CalEventReminder
 from app.module.calendar.model.CalOrganizer import CalOrganizer
 from app.module.calendar.model.enums.AttendeeStatus import AttendeeStatus
+from app.module.calendar.model.enums.ReminderMethod import ReminderMethod
+from app.module.calendar.serializer.EventReminderSerializerDict import EventReminderSerializerDict
 from app.module.calendar.model.CalFreeBusyResult import CalFreeBusyResult
 from app.module.calendar.serializer.CalendarEventDeserializerDict import CalendarEventDeserializerDict
 from app.module.calendar.serializer.CalendarEventSerializerDict import CalendarEventSerializerDict
@@ -60,6 +63,7 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         self._calendar_serializer: CalendarSerializerDict = CalendarSerializerDict()
         self._calendars_serializer: CalendarsSerializerList = CalendarsSerializerList()
         self._freebusy_serializer: FreeBusySerializerDict = FreeBusySerializerDict()
+        self._reminder_serializer: EventReminderSerializerDict = EventReminderSerializerDict()
 
     def get_all_calendars(self) -> tuple[dict[str, Any], int]:
         """List all calendars for the current user."""
@@ -278,6 +282,30 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         except RequestException as ex:
             logger_api.error("delete_task failed for user %s task %s: %s", self.user.uid, task_key, ex)
             return create_api_base_response(None, ex.error)
+
+    def get_reminders(self, query_args: dict[str, Any]) -> tuple[dict[str, Any], int]:
+        """Return currently active reminders for the current user.
+
+        :param query_args: Parsed query arguments: ``method`` (optional), ``lookahead`` (optional, default 0).
+        :return: API envelope with ``reminders`` list and ``total_count``, plus HTTP status code.
+        """
+        try:
+            method_str: str | None = query_args.get("method")
+            method: ReminderMethod | None = ReminderMethod(method_str) if method_str else None
+            lookahead: int = query_args.get("lookahead", 0)
+            reminders: list[CalEventReminder] = self.module.get_reminders(
+                user=self.user,
+                method=method,
+                lookahead_minutes=lookahead,
+            )
+            reminder_list: list[dict[str, Any]] = [self._reminder_serializer.serialize(r) for r in reminders]
+            return create_api_base_response({"reminders": reminder_list, "total_count": len(reminder_list)})
+        except RequestException as ex:
+            logger_api.error("get_reminders failed for user %s: %s", self.user.uid, ex)
+            return create_api_base_response(None, ex.error)
+        except ValueError as exc:
+            logger_api.error("Invalid reminder query for user %s: %s", self.user.uid, exc)
+            return create_api_base_response(None, ERROR_CALENDAR_JSON_PARSE_FAILED)
 
     def _load_freebusy_prefs(self, target_uid: str) -> FreeBusyPrefs:
         """Load FreeBusy preferences for target_uid from user settings."""

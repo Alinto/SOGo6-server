@@ -25,3 +25,27 @@ def resolve_tz(tz_name: str) -> ZoneInfo:
         return ZoneInfo(tz_name)
     except (ZoneInfoNotFoundError, KeyError):
         return ZoneInfo("UTC")
+
+
+def fmt_dt(dt: datetime) -> str:
+    """Format a datetime as ISO 8601 UTC with millisecond precision ending in Z.
+
+    Naive datetimes are assumed UTC. Non-UTC datetimes are converted to UTC first.
+    """
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    elif dt.tzinfo != timezone.utc:
+        dt = dt.astimezone(timezone.utc)
+    ms = dt.microsecond // 1000
+    return dt.strftime("%Y-%m-%dT%H:%M:%S.") + f"{ms:03d}Z"
+
+
+def apply_tz(dt: datetime, tz_name: str) -> str | None:
+    """Convert dt to the given IANA timezone and return an ISO 8601 string with UTC offset.
+
+    Returns None when tz_name is unknown or the conversion fails.
+    """
+    try:
+        return dt.astimezone(ZoneInfo(tz_name)).isoformat()
+    except (ZoneInfoNotFoundError, KeyError):
+        return None

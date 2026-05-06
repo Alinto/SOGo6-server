@@ -31,6 +31,7 @@ from .schemas.task import (
     CalendarTaskResponseSchema,
 )
 from .schemas.freebusy import FreeBusyRequestSchema, FreeBusyResponseSchema
+from .schemas.reminder import ReminderQueryArgsSchema, ReminderListResponseSchema
 
 if TYPE_CHECKING:
     from app.auth.User import User
@@ -241,3 +242,16 @@ class ApiFreeBusy(MethodView):
         logger_api.debug("POST /freebusy user=%s targets=%s", g.user.uid, body.get("target_uids"))
         interface: InterfaceApiCalendarCalendar = g.inter
         return interface.get_freebusy(body)
+
+
+@blp.route("/reminders")
+class ApiReminderList(MethodView):
+    """API to list pending reminders for the current user."""
+
+    @blp.arguments(ReminderQueryArgsSchema, location="query", arg_name="query_args")
+    @blp.response(200, ReminderListResponseSchema)
+    def get(self, query_args: dict) -> ResponseReturnValue:
+        """Return reminders whose trigger_at falls within the next N minutes."""
+        logger_api.debug("GET /reminders user=%s args=%s", g.user.uid, query_args)
+        interface: InterfaceApiCalendarCalendar = g.inter
+        return interface.get_reminders(query_args)

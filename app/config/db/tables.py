@@ -1,4 +1,4 @@
-from app.utils.db.Table import Column, Table
+from app.utils.db.Table import Column, Index, Table
 
 
 
@@ -176,7 +176,10 @@ ALL_CAL_COL = [COL_ID,
                COL_CAL_CREATED_AT,
                COL_CAL_UPDATED_AT]
 
-TABLE_CALENDAR = Table(name="sogo_calendar_calendars", columns=ALL_CAL_COL, primary_keys=(COL_ID.name, COL_CAL_KEY.name))
+IDX_CAL_USER_UID = Index(name="idx_cal_user_uid", columns=(COL_CAL_USER_UID.name,))
+
+TABLE_CALENDAR = Table(name="sogo_calendar_calendars", columns=ALL_CAL_COL, primary_keys=(COL_ID.name, COL_CAL_KEY.name),
+                       indexes=[IDX_CAL_USER_UID])
 
 #####################
 # Table sogo_events #
@@ -241,11 +244,48 @@ ALL_EVT_COL = [COL_ID,
                COL_EVT_CREATED_AT,
                COL_EVT_UPDATED_AT]
 
-TABLE_EVENT = Table(name="sogo_calendar_events", columns=ALL_EVT_COL, primary_keys=(COL_ID.name, COL_EVT_KEY.name))
+IDX_EVT_CALENDAR_KEY = Index(name="idx_evt_calendar_key", columns=(COL_EVT_CALENDAR_KEY.name,))
+IDX_EVT_DATE_RANGE = Index(name="idx_evt_date_range", columns=(COL_EVT_CALENDAR_KEY.name, COL_EVT_DATE_START.name, COL_EVT_DATE_END.name))
+IDX_EVT_UID = Index(name="idx_evt_uid", columns=(COL_EVT_UID.name,))
+
+TABLE_EVENT = Table(name="sogo_calendar_events", columns=ALL_EVT_COL, primary_keys=(COL_ID.name, COL_EVT_KEY.name),
+                    indexes=[IDX_EVT_CALENDAR_KEY, IDX_EVT_DATE_RANGE, IDX_EVT_UID])
+
+##############################
+# Table sogo_calendar_reminders #
+##############################
+# Materialized reminders for SQL-level filtering.
+# Each row corresponds to one reminder on one event. trigger_at is pre-computed
+# as event.date_start - minutes_before for efficient range queries.
+# calendar_key and user_uid are not stored — obtain via JOIN on sogo_events / sogo_calendars.
+# is_deleted: soft delete flag, purged by the clean maintenance task.
+COL_REM_EVENT_KEY    = Column(name="event_key",      data_type="str",      extra_args={"max_len": 64})
+COL_REM_METHOD       = Column(name="method",         data_type="str",      extra_args={"max_len": 10})
+COL_REM_MINUTES      = Column(name="minutes_before", data_type="int")
+COL_REM_TRIGGER_AT   = Column(name="trigger_at",     data_type="datetime")
+COL_REM_IS_DELETED   = Column(name="is_deleted",     data_type="bool")
+COL_REM_CREATED_AT   = Column(name="created_at",     data_type="datetime")
+COL_REM_UPDATED_AT   = Column(name="updated_at",     data_type="datetime")
+
+ALL_REM_COL = [COL_ID,
+               COL_REM_EVENT_KEY,
+               COL_REM_METHOD,
+               COL_REM_MINUTES,
+               COL_REM_TRIGGER_AT,
+               COL_REM_IS_DELETED,
+               COL_REM_CREATED_AT,
+               COL_REM_UPDATED_AT]
+
+IDX_REM_TRIGGER = Index(name="idx_rem_trigger", columns=(COL_REM_TRIGGER_AT.name, COL_REM_IS_DELETED.name))
+IDX_REM_EVENT_KEY = Index(name="idx_rem_event_key", columns=(COL_REM_EVENT_KEY.name,))
+
+TABLE_REMINDER = Table(name="sogo_calendar_reminders", columns=ALL_REM_COL, primary_keys=(COL_ID.name,),
+                       indexes=[IDX_REM_TRIGGER, IDX_REM_EVENT_KEY])
 
 ALL_TABLES = [TABLE_SETTINGS,
               TABLE_DOMAIN,
               TABLE_RULES,
               TABLE_USER,
               TABLE_CALENDAR,
-              TABLE_EVENT]
+              TABLE_EVENT,
+              TABLE_REMINDER]

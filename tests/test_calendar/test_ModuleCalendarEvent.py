@@ -391,8 +391,9 @@ def test_clean_by_calendar_key():
     module = _build_module({})
     module._db.delete_row_in_table.return_value = 3
     count = module.clean(calendar_key="cal-key")
-    assert count == 3
-    module._db.delete_row_in_table.assert_called_once()
+    # 3 events purged + 3 reminders purged
+    assert count == 6
+    assert module._db.delete_row_in_table.call_count == 2
 
 
 def test_clean_by_user_uid_aggregates_across_calendars():
@@ -401,8 +402,9 @@ def test_clean_by_user_uid_aggregates_across_calendars():
     module = _build_module({"cal-1": source1, "cal-2": source2})
     module._db.delete_row_in_table.return_value = 2
     count = module.clean(user_uid="user@example.com")
-    assert count == 4
-    assert module._db.delete_row_in_table.call_count == 2
+    # 2 events per calendar (2*2=4) + 2 reminders purged = 6
+    assert count == 6
+    assert module._db.delete_row_in_table.call_count == 3
 
 
 def test_clean_no_args_returns_zero():
