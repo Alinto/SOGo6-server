@@ -436,25 +436,32 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         repo_reminder: RepositoryReminder = RepositoryReminder(self._db)
 
         past_bound: datetime = now - timedelta(days=MAX_EVENT_FETCH_DAYS)
-        rows: list[dict] = repo_reminder.find_pending(
+        reminders: list[CalEventReminder] = repo_reminder.find_pending(
             start=past_bound, end=now, user_uid=user.uid, method=method,
         )
 
-        # Batch-load full CalEvent objects for all unique event_keys.
-        # The JOIN filters by user and soft-delete, but title/location live
-        # in the JSON blob — we need the full event for display and RRULE expansion.
+        # Batch-load full CalEvent objects to enrich reminders with title/location/timezone
+        # and to provide RRULE expansion for recurring events.
         events_by_key: dict[str, CalEvent] = {}
-        for row in rows:
-            event_key: str = row["event_key"]
-            if event_key not in events_by_key:
+        for reminder in reminders:
+            if reminder.event_key not in events_by_key:
                 try:
-                    _, event = self._find_source_for_event(user, event_key)
-                    events_by_key[event_key] = event
+                    _, event = self._find_source_for_event(user, reminder.event_key)
+                    events_by_key[reminder.event_key] = event
                 except RequestException:
                     continue
 
+        # Enrich reminders with event context from the blob
+        for reminder in reminders:
+            event: CalEvent | None = events_by_key.get(reminder.event_key)
+            if event is not None:
+                reminder.title = event.title
+                reminder.location = event.location
+                reminder.timezone = event.timezone
+                reminder.calendar_timezone = getattr(event, "calendar_timezone", None)
+
         return ReminderEngine().compute_active(
-            reminder_rows=rows,
+            reminders=reminders,
             events_by_key=events_by_key,
             now=now,
             lookahead_minutes=lookahead_minutes,
