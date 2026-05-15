@@ -14,12 +14,13 @@ It is built around two domain objects — `CalCalendar` and `CalEvent` — that 
        └─────────────────►│  CalEvent            │
                           │─────────────────────►│
                           │                      ├── CalendarSourceDb ──► SQL (sogo_events)
-                          │                      └── CalendarSourceIcs ─► HTTP (remote .ics)
+                          │                      └── CalendarSourceIcsMirror ─► SQL (read-only mirror)
                           │
                           ├── RecurrenceScopeProcessor (split / occurrence / standard)
                           ├── RruleEngine (RRULE expansion, EXDATE, overrides)
                           ├── FreeBusyEngine (free/busy computation)
-                          └── ReminderEngine (active reminder computation)
+                          ├── ReminderEngine (active reminder computation)
+                          └── SyncEngine (ICS mirror synchronization)
 ----
 
 **Responsibilities:**
@@ -29,7 +30,8 @@ It is built around two domain objects — `CalCalendar` and `CalEvent` — that 
 * *RecurrenceScopeProcessor* — Pure construction logic for recurrence-scoped modifications (static methods). Returns a `ScopeResult` carrying the resulting CalEvent and the list of touched events with their action (INSERT/UPDATE/DELETE).
 * *CalendarSources* — Factory for CalendarSource instances, multi-calendar merge. Single entry point for all attendee propagation via `propagate()` which replicates touched events and syncs the attendee list.
 * *CalendarSourceDb* — Writable source backed by the database. Handles insert, update, split, detached occurrence EXDATE. No cross-calendar propagation — that belongs to CalendarSources.
-* *CalendarSourceIcs* — Read-only source backed by a remote ICS URL.
+* *CalendarSourceIcsMirror* — Read-only DB mirror for external ICS subscriptions. Extends CalendarSourceDb with `is_writable() &#8594; False`. Events are populated by SyncEngine, not by direct API writes.
+* *SyncEngine* — Fetches a remote ICS feed via IcsFetcher, diffs by (UID, recurrence_id) against local DB, inserts/updates/deletes accordingly. Updates sync_config status on the calendar.
 * *RruleEngine* — RRULE expansion into occurrences, EXDATE suppression, override replacement. Overrides take priority over EXDATE.
 * *ReminderEngine* — Determines which reminders are currently active based on trigger_at, event end, and optional lookahead. Expands recurring events.
 * *RepositoryEvent / RepositoryCalendar / RepositoryReminder* — SQL-only persistence. No business logic.
@@ -146,6 +148,14 @@ POST /events/evt-key/attendance
 Reminders are materialized in `sogo_calendar_reminders` with a pre-computed `trigger_at` for efficient SQL queries. `CalendarSourceDb` maintains the table automatically on insert, update and delete. `RepositoryReminder.find_pending()` uses a JOIN (reminders &#8594; events &#8594; calendars) to filter by user, trigger window and soft-delete in a single query.
 
 `GET /reminders?method=popup&lookahead=30` returns active reminders with event context (title, location, dates, `dates_with_tz`).
+
+== External calendars
+
+External ICS subscriptions are stored as `CalCalendar` rows with `source_type=ics` and sync metadata in `sync_config` JSON (url, sync_interval_minutes, sync_status, last_sync). Events are mirrored into `sogo_events` by `SyncEngine` and served via `CalendarSourceIcsMirror` (read-only &#8212; API writes are rejected).
+
+`POST /external-calendars/{key}/sync` triggers a synchronous sync. The sync engine fetches the ICS feed via `IcsFetcher` (SSRF-protected), diffs by (UID, recurrence_id), and applies inserts/updates/deletes. Sync status is tracked in `sync_config` and queryable via `GET /external-calendars/{key}/sync`.
+
+// TODO: sync will be dispatched as a Celery task; lock via Redis prevents concurrent syncs on the same calendar.
 
 == Repositories
 

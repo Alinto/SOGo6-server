@@ -7,6 +7,7 @@ from typing import Any
 
 from marshmallow import Schema, ValidationError, fields, validate
 
+from app.module.calendar.CalendarConst import MAX_EVENT_DESCRIPTION_LENGTH, MAX_EVENT_LOCATION_LENGTH, MAX_EVENT_TITLE_LENGTH
 from app.utils.api.ApiBaseResponse import ApiBaseResponse
 
 _SEARCH_MAX_LENGTH = 200
@@ -112,9 +113,9 @@ class CalendarEventCreateSchema(Schema):
     """Request body for creating a new event."""
 
     uid = fields.String(load_default=None, allow_none=True)
-    title = fields.String(required=True, metadata={"example": "Team Standup"})
-    description = fields.String(load_default=None, allow_none=True, metadata={"example": "Daily sync"})
-    location = fields.String(load_default=None, allow_none=True, metadata={"example": "Conference Room A"})
+    title = fields.String(required=True, validate=validate.Length(max=MAX_EVENT_TITLE_LENGTH), metadata={"example": "Team Standup"})
+    description = fields.String(load_default=None, allow_none=True, validate=validate.Length(max=MAX_EVENT_DESCRIPTION_LENGTH), metadata={"example": "Daily sync"})
+    location = fields.String(load_default=None, allow_none=True, validate=validate.Length(max=MAX_EVENT_LOCATION_LENGTH), metadata={"example": "Conference Room A"})
     date_start = fields.String(required=True,
                                metadata={"description": "ISO 8601 UTC datetime.",
                                          "example": "2026-04-22T09:30:00.000Z"})
@@ -153,9 +154,9 @@ class CalendarEventCreateSchema(Schema):
 class CalendarEventPatchSchema(Schema):
     """Request body for partially updating an event. All fields are optional."""
 
-    title = fields.String()
-    description = fields.String(allow_none=True)
-    location = fields.String(allow_none=True)
+    title = fields.String(validate=validate.Length(max=MAX_EVENT_TITLE_LENGTH))
+    description = fields.String(allow_none=True, validate=validate.Length(max=MAX_EVENT_DESCRIPTION_LENGTH))
+    location = fields.String(allow_none=True, validate=validate.Length(max=MAX_EVENT_LOCATION_LENGTH))
     date_start = fields.String(metadata={"description": "ISO 8601 UTC datetime."})
     date_end = fields.String(metadata={"description": "ISO 8601 UTC datetime."})
     all_day = fields.Boolean()

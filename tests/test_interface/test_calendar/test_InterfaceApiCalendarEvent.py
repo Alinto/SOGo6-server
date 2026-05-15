@@ -6,6 +6,9 @@ import pytest
 
 from app.interface.calendar.InterfaceApiCalendarCalendar import InterfaceApiCalendarCalendar
 from app.module.calendar.model.CalEvent import CalEvent
+from app.module.calendar.serializer.CalendarEventDeserializerDict import CalendarEventDeserializerDict
+from app.module.calendar.serializer.CalendarEventSerializerDict import CalendarEventSerializerDict
+from app.module.calendar.serializer.CalendarEventsSerializerDict import CalendarEventsSerializerDict
 from app.utils import errors as err
 from app.utils.exceptions import RequestException
 
@@ -29,9 +32,6 @@ def _make_event(**kwargs):
 
 
 def _build_interface(module=None):
-    from app.module.calendar.serializer.CalendarEventDeserializerDict import CalendarEventDeserializerDict
-    from app.module.calendar.serializer.CalendarEventSerializerDict import CalendarEventSerializerDict
-    from app.module.calendar.serializer.CalendarEventsSerializerDict import CalendarEventsSerializerDict
     inter = object.__new__(InterfaceApiCalendarCalendar)
     inter.user = MagicMock()
     inter.user.uid = "user@example.com"

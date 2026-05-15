@@ -75,7 +75,7 @@ class ClientRedis():
 
 
 
-    def set(self, key: str, value: str|list|dict, ttl: int) -> bool:
+    def set(self, key: str, value: str|list|dict, ttl: int, nx: bool = False) -> bool:
         """
         Set a key/value in the redis server
 
@@ -85,8 +85,10 @@ class ClientRedis():
         :type value: str | list | dict
         :param ttl: time to live of this key/value, in seconds
         :type ttl: int
+        :param nx: when True, only set if the key does not already exist (SET NX). Returns False if the key was already held.
+        :type nx: bool
         :raises BugException: Value given is not a string nor json serializable
-        :return: True if the value has been successfully storeds
+        :return: True if the value has been successfully stored, False if nx=True and key already exists
         :rtype: bool
         """
         if not isinstance(value, str):
@@ -102,10 +104,14 @@ class ClientRedis():
             raise BugException(f"TTL for redis is below 1: {ttl}", err.ERROR_CACHE_TTL_BELOW_0)
 
         try:
-            self.redis.set(name=key, value=value, ex=ttl)
+            result = self.redis.set(name=key, value=value, ex=ttl, nx=nx if nx else None)
         except rexc.ResponseError as e:
             logger_cache.error("Error when setting data in redis: %s", e)
             raise BugException("Error when setting data in redis", err.ERROR_CACHE_RESPONSE_ERROR) from e
+
+        if nx and result is None:
+            logger_cache.info("Key '%s' already exists (nx=True), not set", key)
+            return False
 
         logger_cache.info("Set cached value '%s' for key '%s'", value, key)
         return True
@@ -360,6 +366,7 @@ class ClientRedis():
         logger_cache.info("Delete cached value for keys '%s'", keys)
 
         return ret
+
 
     def revoke_user_sessions_by_uid(self, uids: list[str]) -> int:
         """

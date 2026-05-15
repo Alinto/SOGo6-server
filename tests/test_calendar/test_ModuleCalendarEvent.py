@@ -93,6 +93,8 @@ def _fake_user(uid="user@example.com"):
 def _build_module(sources: dict):
     """Return a ModuleCalendar with injected sources and mocked infrastructure."""
     module = object.__new__(ModuleCalendar)
+    module._db = MagicMock()
+    module._cache = MagicMock()
     sources_mock = MagicMock()
     sources_mock.get_all.return_value = list(sources.values())
     sources_mock.get_by_key.side_effect = lambda uid, key: sources.get(key)

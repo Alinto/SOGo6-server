@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 
 from app.config.db import tables as tbl
 from app.module.calendar.model.CalCalendar import CalCalendar
+from app.module.calendar.model.enums.CalendarSourceType import CalendarSourceType
 from app.utils import errors as err
 from app.utils.db.Condition import AndCondition, EqualCondition, NotEqualCondition
 from app.utils.exceptions import BugException, RequestException
@@ -36,7 +37,7 @@ class RepositoryCalendar:
             key=d["key"],
             user_uid=d["user_uid"],
             is_default=bool(d["is_default"]),
-            source_type=d["source_type"],
+            source_type=CalendarSourceType(d["source_type"]),
             name=d["name"],
             color=d["color"],
             description=d["description"],
@@ -57,7 +58,7 @@ class RepositoryCalendar:
             cal.key,
             cal.user_uid,
             cal.is_default,
-            cal.source_type,
+            cal.source_type.value,
             cal.name,
             cal.color,
             cal.description,

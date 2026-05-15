@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from marshmallow import Schema, fields, validate
 
+from app.module.calendar.CalendarConst import MAX_EVENT_DESCRIPTION_LENGTH, MAX_EVENT_TITLE_LENGTH
 from app.utils.api.ApiBaseResponse import ApiBaseResponse
 from .event import CalendarEventQueryArgsSchema  # reuse date range / search args
 
@@ -45,8 +46,8 @@ class CalendarTaskCreateSchema(Schema):
     """Request body for creating a new VTODO."""
 
     uid = fields.String(load_default=None, allow_none=True)
-    title = fields.String(required=True, metadata={"example": "Prepare the meeting"})
-    description = fields.String(load_default=None, allow_none=True, metadata={"example": "Agenda and slides"})
+    title = fields.String(required=True, validate=validate.Length(max=MAX_EVENT_TITLE_LENGTH), metadata={"example": "Prepare the meeting"})
+    description = fields.String(load_default=None, allow_none=True, validate=validate.Length(max=MAX_EVENT_DESCRIPTION_LENGTH), metadata={"example": "Agenda and slides"})
     date_start = fields.String(load_default=None, allow_none=True,
                                metadata={"description": "ISO 8601 UTC. Defaults to now if absent.",
                                          "example": "2026-04-22T09:00:00.000Z"})
@@ -78,8 +79,8 @@ class CalendarTaskCreateSchema(Schema):
 class CalendarTaskPatchSchema(Schema):
     """Request body for partially updating a VTODO. All fields optional."""
 
-    title = fields.String()
-    description = fields.String(allow_none=True)
+    title = fields.String(validate=validate.Length(max=MAX_EVENT_TITLE_LENGTH))
+    description = fields.String(allow_none=True, validate=validate.Length(max=MAX_EVENT_DESCRIPTION_LENGTH))
     date_start = fields.String(allow_none=True)
     due = fields.String(allow_none=True)
     status = fields.String(allow_none=True)

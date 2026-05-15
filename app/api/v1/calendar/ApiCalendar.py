@@ -32,6 +32,14 @@ from .schemas.task import (
 )
 from .schemas.freebusy import FreeBusyRequestSchema, FreeBusyResponseSchema
 from .schemas.reminder import ReminderQueryArgsSchema, ReminderListResponseSchema
+from .schemas.external_calendar import (
+    ExternalCalendarCreateSchema,
+    ExternalCalendarUpdateSchema,
+    ExternalCalendarListResponseSchema,
+    ExternalCalendarResponseSchema,
+    SyncStatusResponseSchema,
+    SyncTriggerResponseSchema,
+)
 
 if TYPE_CHECKING:
     from app.auth.User import User
@@ -255,3 +263,69 @@ class ApiReminderList(MethodView):
         logger_api.debug("GET /reminders user=%s args=%s", g.user.uid, query_args)
         interface: InterfaceApiCalendarCalendar = g.inter
         return interface.get_reminders(query_args)
+
+
+@blp.route("/external-calendars")
+class ApiExternalCalendarList(MethodView):
+    """API to list and create external ICS calendar subscriptions."""
+
+    @blp.response(200, ExternalCalendarListResponseSchema)
+    def get(self) -> ResponseReturnValue:
+        """List all external calendar subscriptions for the current user."""
+        logger_api.debug("GET /external-calendars user=%s", g.user.uid)
+        interface: InterfaceApiCalendarCalendar = g.inter
+        return interface.get_all_calendars(source_type="ics")
+
+    @blp.arguments(ExternalCalendarCreateSchema)
+    @blp.response(201, ExternalCalendarResponseSchema)
+    def post(self, body: dict) -> ResponseReturnValue:
+        """Create a new external ICS calendar subscription."""
+        logger_api.debug("POST /external-calendars user=%s url=%s", g.user.uid, body.get("url"))
+        interface: InterfaceApiCalendarCalendar = g.inter
+        return interface.create_external_calendar(body)
+
+
+@blp.route("/external-calendars/<string:key>")
+class ApiExternalCalendarDetail(MethodView):
+    """API to retrieve, update and delete an external ICS calendar."""
+
+    @blp.response(200, ExternalCalendarResponseSchema)
+    def get(self, key: str) -> ResponseReturnValue:
+        """Get an external calendar by its key."""
+        logger_api.debug("GET /external-calendars/%s user=%s", key, g.user.uid)
+        interface: InterfaceApiCalendarCalendar = g.inter
+        return interface.get_calendar(key)
+
+    @blp.arguments(ExternalCalendarUpdateSchema)
+    @blp.response(200, ExternalCalendarResponseSchema)
+    def put(self, body: dict, key: str) -> ResponseReturnValue:
+        """Update an external calendar."""
+        logger_api.debug("PUT /external-calendars/%s user=%s", key, g.user.uid)
+        interface: InterfaceApiCalendarCalendar = g.inter
+        return interface.update_calendar(key, body)
+
+    @blp.response(200, ExternalCalendarResponseSchema)
+    def delete(self, key: str) -> ResponseReturnValue:
+        """Delete an external calendar and all its mirrored events."""
+        logger_api.debug("DELETE /external-calendars/%s user=%s", key, g.user.uid)
+        interface: InterfaceApiCalendarCalendar = g.inter
+        return interface.delete_calendar(key)
+
+
+@blp.route("/external-calendars/<string:key>/sync")
+class ApiExternalCalendarSync(MethodView):
+    """API to trigger and monitor sync for an external ICS calendar."""
+
+    @blp.response(200, SyncStatusResponseSchema)
+    def get(self, key: str) -> ResponseReturnValue:
+        """Get the sync status for an external calendar."""
+        logger_api.debug("GET /external-calendars/%s/sync user=%s", key, g.user.uid)
+        interface: InterfaceApiCalendarCalendar = g.inter
+        return interface.get_sync_status(key)
+
+    @blp.response(200, SyncTriggerResponseSchema)
+    def post(self, key: str) -> ResponseReturnValue:
+        """Trigger an immediate sync for an external calendar."""
+        logger_api.debug("POST /external-calendars/%s/sync user=%s", key, g.user.uid)
+        interface: InterfaceApiCalendarCalendar = g.inter
+        return interface.sync_external_calendar(key)

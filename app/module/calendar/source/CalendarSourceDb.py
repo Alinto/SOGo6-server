@@ -72,6 +72,10 @@ class CalendarSourceDb(CalendarSource):
             self._calendar.key, start, end, search, component_type=ComponentType.TASK
         )
 
+    def get_sync_metadata(self) -> list:
+        """Return lightweight CalEventSyncMeta for all non-deleted events (for sync diff)."""
+        return self._repo_event.find_sync_metadata(self._calendar.key)
+
     def get_event(self, event_key: str) -> CalEvent | None:
         """Return a single event by its opaque key, or None if not found."""
         event = self._repo_event.find_by_key(self._calendar.key, event_key)
@@ -269,6 +273,12 @@ class CalendarSourceDb(CalendarSource):
         self._repo_event.delete(self._calendar.key, uid)
         self._bump_ctag()
 
+
+    def delete_by_key(self, key: str) -> None:
+        """Soft-delete a single event row by its opaque key and bump ctag."""
+        self._repo_event.delete_by_key(self._calendar.key, key)
+        self._repo_reminder.delete(key)
+        self._bump_ctag()
 
     def delete_detached_occurrence(self, occurrence: CalEvent) -> None:
         """Soft-delete a detached occurrence, add its recurrence_id to the master EXDATE, and bump ctag.

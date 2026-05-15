@@ -1,32 +1,23 @@
 from __future__ import annotations
 
 import dataclasses
-import os
 from datetime import datetime
-
-# pylint: disable=fixme
 from typing import TYPE_CHECKING
 
 from app.module.calendar.model.CalCalendar import CalCalendar
+from app.module.calendar.model.CalEvent import CalEvent
+from app.module.calendar.model.enums.CalendarSourceType import CalendarSourceType
 from app.module.calendar.repository.RepositoryCalendar import RepositoryCalendar
-from app.module.calendar.serializer.CalendarEventDeserializerIcal import CalendarEventDeserializerIcal
-from app.module.calendar.serializer.CalendarEventsDeserializerIcal import CalendarEventsDeserializerIcal
 from app.module.calendar.rrule.RecurrenceScopeProcessor import EventAction, ScopeResult
 from app.module.calendar.source.CalendarSourceDb import CalendarSourceDb
-from app.module.calendar.source.CalendarSourceIcs import CalendarSourceIcs
+from app.module.calendar.source.CalendarSourceIcsMirror import CalendarSourceIcsMirror
 from app.utils import errors as err
-from app.utils.exceptions import BugException, RequestException
+from app.utils.exceptions import RequestException
 from app.utils.logger.logger import logger_calendar
-
-from app.module.calendar.model.CalEvent import CalEvent
 
 if TYPE_CHECKING:
     from app.manager.db.ClientSQL import ClientSQL
     from app.module.calendar.source.CalendarSource import CalendarSource
-
-_SOURCE_TYPE_LOCAL = "local"
-_SOURCE_TYPE_ICS = "ics"
-_ICS_STUB_KEY = "ics"  # TODO: Remove this stub once ICS calendars are managed via DB
 
 
 class CalendarSources:
@@ -41,17 +32,17 @@ class CalendarSources:
         self._repo_calendar = RepositoryCalendar(db)
 
     def get(self, calendar: CalCalendar) -> CalendarSource:
-        """Return the appropriate CalendarSource for the given calendar."""
-        if calendar.source_type == _SOURCE_TYPE_LOCAL:
+        """Return the appropriate CalendarSource for the given calendar.
+
+        Both local and ICS calendars are backed by the database. ICS calendars
+        are read-only mirrors — their events are populated by the sync engine,
+        not by direct CRUD operations.
+        """
+        if calendar.source_type == CalendarSourceType.LOCAL:
             return CalendarSourceDb(self._db, calendar)
 
-        if calendar.source_type == _SOURCE_TYPE_ICS:
-            url = (calendar.sync_config or {}).get("url")
-            if not url:
-                logger_calendar.error("ICS calendar key=%s has no sync_config.url", calendar.key)
-                raise BugException(f"ICS calendar key={calendar.key} missing sync_config.url")
-            deserializer = CalendarEventsDeserializerIcal(CalendarEventDeserializerIcal())
-            return CalendarSourceIcs(calendar, url, deserializer)
+        if calendar.source_type == CalendarSourceType.ICS:
+            return CalendarSourceIcsMirror(self._db, calendar)
 
         logger_calendar.error("Unknown source_type=%s for calendar key=%s", calendar.source_type, calendar.key)
         raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
@@ -79,13 +70,6 @@ class CalendarSources:
 
     def get_by_key(self, user_uid: str, key: str) -> CalendarSource | None:
         """Return the source for a specific calendar, or None if not found."""
-        # TODO: Remove this stub once ICS calendars are managed via DB
-        if key == _ICS_STUB_KEY:
-            url = os.getenv("ICS_STUB_URL") or "https://calendar.google.com/calendar/ical/8f0aaf825b126f8f3f8ae5799c3c8699bcf04b115bfee085467e19f71ba084ba%40group.calendar.google.com/private-5e54ad70f6be3e5a740648483b0469dd/basic.ics"
-            if not url:
-                return None
-            stub_cal = CalCalendar(user_uid=user_uid, name="ICS Stub", key=_ICS_STUB_KEY, source_type=_SOURCE_TYPE_ICS)
-            return CalendarSourceIcs(stub_cal, url, CalendarEventsDeserializerIcal(CalendarEventDeserializerIcal()))
         cal = self._repo_calendar.find_by_key(user_uid, key)
         return self.get(cal) if cal is not None else None
 
@@ -136,6 +120,10 @@ class CalendarSources:
             tasks.extend(source.get_tasks(start, end, search))
         tasks.sort(key=lambda e: e.date_start)
         return tasks
+
+    def update_sync_config(self, calendar: CalCalendar) -> None:
+        """Persist sync_config changes for an external calendar."""
+        self._repo_calendar.update(calendar)
 
     def propagate(self, scope_result: ScopeResult, original: CalEvent | None = None) -> None:
         """Single entry point for all attendee propagation.
