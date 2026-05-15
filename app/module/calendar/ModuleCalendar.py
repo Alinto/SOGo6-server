@@ -11,12 +11,17 @@ from app.module.calendar.imip.ImipProcessor import ImipProcessor
 from app.module.calendar.model.CalCalendar import CalCalendar
 from app.module.calendar.model.CalOrganizer import CalOrganizer
 from app.module.calendar.model.enums.AttendeeStatus import AttendeeStatus
+from app.module.calendar.model.enums.CalendarSourceType import CalendarSourceType
 from app.module.calendar.model.enums.ComponentType import ComponentType
 from app.module.calendar.model.CalEventReminder import CalEventReminder
+from app.module.calendar.model.CalSyncResult import CalSyncResult
+from app.module.calendar.model.CalSyncStatus import CalSyncStatus
 from app.module.calendar.model.enums.ReminderMethod import ReminderMethod
+from app.module.calendar.model.enums.CalendarSyncStatus import CalendarSyncStatus
 from app.module.calendar.reminder.ReminderEngine import ReminderEngine
 from app.module.calendar.repository.RepositoryEvent import RepositoryEvent
 from app.module.calendar.repository.RepositoryReminder import RepositoryReminder
+from app.module.calendar.sync.SyncEngine import SyncEngine
 from app.module.calendar.model.CalEvent import CalEvent
 from app.module.calendar.rrule.RecurrenceScopeProcessor import EventAction, RecurrenceScopeProcessor, ScopeResult
 from app.module.calendar.source.CalendarSources import CalendarSources
@@ -29,6 +34,7 @@ from app.utils.module.importManager import import_and_instantiate_manager
 if TYPE_CHECKING:
     from app.auth.User import User
     from app.config.settings.ProcessSetting import ProcessSetting
+    from app.manager.cache.ClientRedis import ClientRedis
     from app.manager.db.ClientSQL import ClientSQL
 
     from app.module.calendar.imip.ImipMessage import ImipMessage
@@ -39,7 +45,7 @@ if TYPE_CHECKING:
 class ModuleCalendar:  # pylint: disable=too-many-public-methods
     """Module for calendar and event operations."""
 
-    def __init__(self, process_settings: ProcessSetting) -> None:
+    def __init__(self, process_settings: ProcessSetting, cache: ClientRedis | None = None) -> None:
         sogo_db_type: str = f"Client{process_settings.SOGO_P_DB_TYPE}"
         self._db: ClientSQL = import_and_instantiate_manager(
             module_path="app.manager.db",
@@ -47,11 +53,13 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
             module_args=process_settings.get_db_settings(),
         )
         self._db.connect()
+        self._cache: ClientRedis = cache
         self._sources: CalendarSources = CalendarSources(self._db)
         self._imip: ImipProcessor = ImipProcessor(self._sources)
 
     def __del__(self) -> None:
-        self._db.close()
+        if hasattr(self, "_db"):
+            self._db.close()
 
     def create_personal_calendar(self, user_uid: str, name: str = "Personal Calendar") -> CalCalendar:
         """Create and persist the default personal calendar for a user.
@@ -61,7 +69,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         for source in self._sources.get_all(user_uid):
             if source.calendar.is_default:
                 return source.calendar
-        cal: CalCalendar = CalCalendar(user_uid=user_uid, name=name, is_default=True)
+        cal: CalCalendar = CalCalendar(user_uid=user_uid, name=name, is_default=True, source_type=CalendarSourceType.LOCAL)
         cal.key = generate_uuid()
         cal.ctag = 0
         source: CalendarSource = self._sources.get(cal)
@@ -465,6 +473,30 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
             events_by_key=events_by_key,
             now=now,
             lookahead_minutes=lookahead_minutes,
+        )
+
+    # ------------------------------------------------------------------
+    # External calendar sync
+    # ------------------------------------------------------------------
+    def sync_external_calendar(self, user: User, key: str) -> CalSyncResult:
+        """Run a synchronous sync for an external ICS calendar."""
+        # TODO: dispatch as Celery task instead of synchronous call
+        source: CalendarSource = self.get_calendar(user, key)
+        if source.calendar.source_type != CalendarSourceType.ICS:
+            raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
+        engine: SyncEngine = SyncEngine(sources=self._sources, cache=self._cache)
+        return engine.sync(source.calendar)
+
+    def get_sync_status(self, user: User, key: str) -> CalSyncStatus:
+        """Return the sync status for an external calendar."""
+        source: CalendarSource = self.get_calendar(user, key)
+        if source.calendar.source_type != CalendarSourceType.ICS:
+            raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
+        config: dict = source.calendar.sync_config or {}
+        return CalSyncStatus(
+            sync_status=CalendarSyncStatus(config.get("sync_status", CalendarSyncStatus.UNDEFINED.value)),
+            last_sync=config.get("last_sync"),
+            sync_error=config.get("sync_error"),
         )
 
     # ------------------------------------------------------------------

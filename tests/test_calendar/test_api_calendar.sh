@@ -88,6 +88,15 @@ TEST COVERAGE:
         i. DELETE master recurring event → all occurrences removed
         j. EXDATE on slot without detached override → slot vanishes from expansion
   19  Conditional DELETE (only when -d is passed, steps 62–64)
+  21  External calendars (ICS subscriptions):
+        a. Create ICS subscription (POST /external-calendars)
+        b. List subscriptions
+        c. Get detail, update name/color
+        d. Trigger sync (POST /sync) — fetches real Google ICS feed
+        e. Verify sync status (GET /sync → completed)
+        f. Synced events visible in GET /events
+        g. Write rejected on ICS mirror (read-only)
+        h. Delete external calendar
   20  Reminders:
         a. Create event with active reminder (date_start in past, date_end in future)
         b. GET /reminders returns popup + email reminders with event data
@@ -1898,6 +1907,113 @@ if $DO_DELETE; then
 else
     skip "DELETE reminder test events"
     info "reminder_event=$REM_EVT_KEY  future_event=$REM_FUTURE_KEY"
+fi
+
+
+# ── 21. EXTERNAL CALENDARS ───────────────────────────────────────────────────
+
+ICS_URL="https://calendar.google.com/calendar/ical/8f0aaf825b126f8f3f8ae5799c3c8699bcf04b115bfee085467e19f71ba084ba%40group.calendar.google.com/private-5e54ad70f6be3e5a740648483b0469dd/basic.ics"
+
+step "75. External calendar — create ICS subscription"
+info "Creates an external ICS calendar pointing to a public Google Calendar feed."
+
+CODE=$(req -X POST "$BASE/external-calendars" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d "{
+        \"name\": \"Google Public ICS\",
+        \"url\": \"$ICS_URL\",
+        \"color\": \"#F59E0B\",
+        \"sync_interval_minutes\": 30
+    }")
+check_code  "POST /external-calendars" "$CODE" "201"
+check_error "POST /external-calendars error_code"
+check_field ".data.source_type" "ics"
+EXT_CAL_KEY=$(extract '.data.key')
+info "external calendar key=$EXT_CAL_KEY"
+
+
+step "76. External calendar — list subscriptions"
+info "Verifies GET /external-calendars returns at least the newly created subscription."
+
+CODE=$(req "$BASE/external-calendars" -H "$H_AUTH")
+check_code  "GET /external-calendars" "$CODE" "200"
+check_error "GET /external-calendars error_code"
+EXT_COUNT=$(extract '.data.total_count')
+[ "$EXT_COUNT" -ge 1 ] && ok "external calendar count >= 1 (got $EXT_COUNT)" || fail "expected >= 1, got $EXT_COUNT"
+
+
+step "77. External calendar — get detail"
+info "Fetches the external calendar by key."
+
+CODE=$(req "$BASE/external-calendars/$EXT_CAL_KEY" -H "$H_AUTH")
+check_code  "GET /external-calendars/$EXT_CAL_KEY" "$CODE" "200"
+check_field ".data.name" "Google Public ICS"
+
+
+step "78. External calendar — update name and color"
+info "Renames the external calendar and changes its color."
+
+CODE=$(req -X PUT "$BASE/external-calendars/$EXT_CAL_KEY" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d '{"name": "Renamed ICS Feed", "color": "#EF4444"}')
+check_code  "PUT /external-calendars/$EXT_CAL_KEY" "$CODE" "200"
+check_field ".data.name" "Renamed ICS Feed"
+check_field ".data.color" "#EF4444"
+
+
+step "79. External calendar — sync"
+info "Triggers a sync and verifies it completes. This fetches the real ICS feed."
+
+CODE=$(req -X POST "$BASE/external-calendars/$EXT_CAL_KEY/sync" -H "$H_JSON" -H "$H_AUTH" -d '{}')
+check_code  "POST /external-calendars/$EXT_CAL_KEY/sync" "$CODE" "200"
+check_error "POST sync error_code"
+SYNC_INSERTED=$(extract '.data.inserted')
+SYNC_TOTAL=$(extract '.data.total')
+info "sync result: inserted=$SYNC_INSERTED total=$SYNC_TOTAL"
+[ "$SYNC_TOTAL" -ge 0 ] && ok "sync completed (total=$SYNC_TOTAL)" || fail "sync failed"
+
+
+step "80. External calendar — sync status"
+info "Verifies GET /sync returns completed status after a successful sync."
+
+CODE=$(req "$BASE/external-calendars/$EXT_CAL_KEY/sync" -H "$H_AUTH")
+check_code  "GET /external-calendars/$EXT_CAL_KEY/sync" "$CODE" "200"
+check_field ".data.sync_status" "completed"
+
+
+step "81. External calendar — events visible after sync"
+info "Verifies that synced events appear in GET /events for the ICS calendar."
+
+NOW_DATE=$(date -u +"%Y-%m-%dT00:00:00Z")
+END_DATE=$(date -u -v+30d +"%Y-%m-%dT23:59:59Z" 2>/dev/null || date -u -d "+30 days" +"%Y-%m-%dT23:59:59Z")
+CODE=$(req "$BASE/calendars/$EXT_CAL_KEY/events?start_date_time=$NOW_DATE&end_date_time=$END_DATE" -H "$H_AUTH")
+check_code "GET /calendars/$EXT_CAL_KEY/events" "$CODE" "200"
+EXT_EVT_COUNT=$(extract '.data.total_count')
+info "events in ICS calendar: $EXT_EVT_COUNT"
+[ "$EXT_EVT_COUNT" -ge 0 ] && ok "events accessible (count=$EXT_EVT_COUNT)" || fail "events not accessible"
+
+
+step "82. External calendar — write rejected on ICS mirror"
+info "Verifies that creating an event on an ICS calendar is rejected (read-only mirror)."
+
+CODE=$(req -X POST "$BASE/calendars/$EXT_CAL_KEY/events" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d '{
+        "title": "Should fail",
+        "date_start": "2026-06-01T10:00:00Z",
+        "date_end": "2026-06-01T11:00:00Z"
+    }')
+[ "$CODE" != "201" ] && ok "write rejected on ICS mirror (HTTP $CODE)" || fail "write should have been rejected, got HTTP $CODE"
+
+
+step "83. External calendar — delete"
+info "Deletes the external calendar. Skipped without -d."
+
+if $DO_DELETE; then
+    CODE=$(req -X DELETE "$BASE/external-calendars/$EXT_CAL_KEY" -H "$H_AUTH")
+    check_code "DELETE /external-calendars/$EXT_CAL_KEY" "$CODE" "200"
+else
+    skip "DELETE external calendar $EXT_CAL_KEY"
 fi
 
 

@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
+from app.module.calendar.model.enums.CalendarSourceType import CalendarSourceType
+
 
 @dataclass
 class CalCalendar:  # pylint: disable=too-many-instance-attributes,invalid-name
@@ -39,8 +41,8 @@ class CalCalendar:  # pylint: disable=too-many-instance-attributes,invalid-name
     timezone: str = "UTC"
     # Internal — marks the user's primary personal calendar; uniqueness enforced by service layer
     is_default: bool = False
-    # Internal — discriminates calendar backend: 'local', 'ics', 'caldav'
-    source_type: str = "local"
+    # Internal — discriminates calendar backend: local, ics, caldav
+    source_type: CalendarSourceType = CalendarSourceType.UNDEFINED
     # CalDAV CS:getctag extension (draft-daboo-caldav-extensions) — opaque token incremented
     # by the service layer on every event mutation (insert / update / delete).
     # CalDAV clients compare it against their cached value to detect changes without
@@ -67,7 +69,7 @@ class CalCalendar:  # pylint: disable=too-many-instance-attributes,invalid-name
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
-    MUTABLE_FIELDS: frozenset[str] = frozenset({"name", "color", "description", "timezone", "is_default"})
+    MUTABLE_FIELDS: frozenset[str] = frozenset({"name", "color", "description", "timezone", "is_default", "sync_config"})
 
     def apply_update(self, updates: dict[str, Any]) -> None:
         """Apply a partial update dict to this calendar, ignoring unknown or immutable fields."""

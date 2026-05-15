@@ -39,9 +39,9 @@ def _build_interface(module=None):
     inter.user = MagicMock()
     inter.user.uid = "user@example.com"
     inter.module = module if module is not None else MagicMock()
-    inter._event_serializer = CalendarEventSerializerDict()  # pylint: disable=protected-access
-    inter._events_serializer = CalendarEventsSerializerDict()  # pylint: disable=protected-access
-    inter._event_deserializer = CalendarEventDeserializerDict()  # pylint: disable=protected-access
+    inter._event_serializer = CalendarEventSerializerDict()
+    inter._events_serializer = CalendarEventsSerializerDict()
+    inter._event_deserializer = CalendarEventDeserializerDict()
     return inter
 
 

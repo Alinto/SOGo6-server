@@ -17,6 +17,6 @@ class CalendarSerializerDict(CalendarSerializer[dict]):
             "description": data.description,
             "timezone": data.timezone,
             "is_default": data.is_default,
-            "source_type": data.source_type,
+            "source_type": data.source_type.value,
             "ctag": data.ctag,
         }

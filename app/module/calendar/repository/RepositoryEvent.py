@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 from app.config.db import tables as tbl
 from app.utils.calendar.DateTimeUtils import to_utc
 from app.module.calendar.model.CalEvent import CalEvent
+from app.module.calendar.model.CalEventSyncMeta import CalEventSyncMeta
 from app.module.calendar.model.enums.ComponentType import ComponentType
 from app.module.calendar.serializer.CalendarEventDeserializerDict import CalendarEventDeserializerDict
 from app.module.calendar.serializer.CalendarEventSerializerDict import CalendarEventSerializerDict
@@ -376,6 +377,29 @@ class RepositoryEvent:
             condition=condition,
         )
         return [row[0] for row in rows]
+
+    def find_sync_metadata(self, calendar_key: str) -> list[CalEventSyncMeta]:
+        """Return lightweight metadata for all non-deleted events in a calendar.
+
+        Avoids loading full event blobs for large calendars.
+        """
+        cols = (tbl.COL_ID.name, tbl.COL_EVT_KEY.name, tbl.COL_EVT_UID.name,
+                tbl.COL_EVT_RECURRENCE_ID.name, tbl.COL_EVT_SEQUENCE.name, tbl.COL_EVT_UPDATED_AT.name)
+        condition = AndCondition(
+            EqualCondition(tbl.COL_EVT_CALENDAR_KEY.name, calendar_key),
+            EqualCondition(tbl.COL_EVT_IS_DELETED.name, False),
+        )
+        rows = list(self._db.select_from_table(
+            table_name=tbl.TABLE_EVENT.name,
+            column_tuple=cols,
+            condition=condition,
+        ))
+        return [CalEventSyncMeta(
+            db_id=r[0], key=r[1], uid=r[2],
+            recurrence_id=to_utc(r[3]) if r[3] is not None else None,
+            sequence=r[4],
+            updated_at=to_utc(r[5]) if r[5] is not None else None,
+        ) for r in rows]
 
     def delete_all(self, calendar_key: str, hard_delete: bool = False) -> None:
         """Soft-delete (or hard-delete) all events belonging to a calendar."""

@@ -12,16 +12,21 @@ from app.module.calendar.model.CalCalendar import CalCalendar
 from app.module.calendar.model.CalEventReminder import CalEventReminder
 from app.module.calendar.model.CalOrganizer import CalOrganizer
 from app.module.calendar.model.enums.AttendeeStatus import AttendeeStatus
+from app.module.calendar.model.enums.CalendarSourceType import CalendarSourceType
+from app.module.calendar.model.enums.CalendarSyncStatus import CalendarSyncStatus
 from app.module.calendar.model.enums.ReminderMethod import ReminderMethod
-from app.module.calendar.serializer.EventReminderSerializerDict import EventReminderSerializerDict
 from app.module.calendar.model.CalFreeBusyResult import CalFreeBusyResult
 from app.module.calendar.serializer.CalendarEventDeserializerDict import CalendarEventDeserializerDict
 from app.module.calendar.serializer.CalendarEventSerializerDict import CalendarEventSerializerDict
 from app.module.calendar.serializer.CalendarEventsSerializerDict import CalendarEventsSerializerDict
 from app.module.calendar.serializer.CalendarSerializerDict import CalendarSerializerDict
 from app.module.calendar.serializer.CalendarsSerializerList import CalendarsSerializerList
+from app.module.calendar.serializer.EventReminderSerializerDict import EventReminderSerializerDict
 from app.module.calendar.serializer.FreeBusySerializerDict import FreeBusySerializerDict
+from app.module.calendar.serializer.SyncResultSerializerDict import SyncResultSerializerDict
+from app.module.calendar.serializer.SyncStatusSerializerDict import SyncStatusSerializerDict
 from app.module.user.ModuleUserProfile import ModuleUserProfile
+from app.service import sogo_cache
 from app.utils.api.ApiBaseResponse import create_api_base_response
 from app.utils.errors import ERROR_CALENDAR_JSON_PARSE_FAILED
 from app.utils.exceptions import RequestException
@@ -36,12 +41,8 @@ if TYPE_CHECKING:
 _FAR_FUTURE = "9999-12-31T23:59:59Z"
 
 
-class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attributes
-    """
-    Interface for calendar and event operations.
-
-    Bridges the calendar API layer and ModuleCalendar.
-    """
+class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attributes,too-many-public-methods
+    """Interface for all calendar operations (calendars, events, tasks, freebusy, reminders, external sync)."""
 
     @staticmethod
     def _add_months(dt: datetime, months: int) -> datetime:
@@ -55,7 +56,7 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
     def __init__(self, process_setting: ProcessSetting, user_domain_settings: dict, user: User) -> None:
         self.user: User = user
         self.settings: CalendarContactSettingsObj = CalendarContactSettingsObj(user_domain_settings[CalendarContactSettings.subparent])
-        self.module: ModuleCalendar = ModuleCalendar(process_setting)
+        self.module: ModuleCalendar = ModuleCalendar(process_setting, cache=sogo_cache())
         self._user_module: ModuleUserProfile = ModuleUserProfile(process_setting, user_domain_settings)
         self._events_serializer: CalendarEventsSerializerDict = CalendarEventsSerializerDict()
         self._event_serializer: CalendarEventSerializerDict = CalendarEventSerializerDict()
@@ -64,11 +65,15 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         self._calendars_serializer: CalendarsSerializerList = CalendarsSerializerList()
         self._freebusy_serializer: FreeBusySerializerDict = FreeBusySerializerDict()
         self._reminder_serializer: EventReminderSerializerDict = EventReminderSerializerDict()
+        self._sync_result_serializer: SyncResultSerializerDict = SyncResultSerializerDict()
+        self._sync_status_serializer: SyncStatusSerializerDict = SyncStatusSerializerDict()
 
-    def get_all_calendars(self) -> tuple[dict[str, Any], int]:
-        """List all calendars for the current user."""
+    def get_all_calendars(self, source_type: str | None = None) -> tuple[dict[str, Any], int]:
+        """List calendars for the current user, optionally filtered by source_type."""
         try:
             calendars: list[CalCalendar] = self.module.get_all_calendars(self.user)
+            if source_type is not None:
+                calendars = [c for c in calendars if c.source_type.value == source_type]
             return create_api_base_response({"calendars": self._calendars_serializer.serialize(calendars), "total_count": len(calendars)})
         except RequestException as ex:
             logger_api.error("get_all_calendars failed for user %s: %s", self.user.uid, ex)
@@ -92,6 +97,7 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
                 color=body.get("color"),
                 description=body.get("description"),
                 timezone=body.get("timezone", "UTC"),
+                source_type=CalendarSourceType.LOCAL,
             )
             created: CalCalendar = self.module.create_calendar(self.user, cal)
             return create_api_base_response(self._calendar_serializer.serialize(created), code=201)
@@ -189,11 +195,8 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         When no dates are provided and there is no search query, defaults to the current calendar day (UTC).
 
         :param key: Calendar key, or None to query all user calendars.
-        :type key: str | None
         :param query_args: Parsed query arguments: ``start_date_time``, ``end_date_time``, ``search`` (all optional).
-        :type query_args: dict
         :return: API envelope with ``events`` list and ``total_count``, plus HTTP status code.
-        :rtype: tuple[dict, int]
         """
         try:
             start: datetime | None = query_args.get("start_date_time")
@@ -284,19 +287,13 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
             return create_api_base_response(None, ex.error)
 
     def get_reminders(self, query_args: dict[str, Any]) -> tuple[dict[str, Any], int]:
-        """Return currently active reminders for the current user.
-
-        :param query_args: Parsed query arguments: ``method`` (optional), ``lookahead`` (optional, default 0).
-        :return: API envelope with ``reminders`` list and ``total_count``, plus HTTP status code.
-        """
+        """Return currently active reminders for the current user."""
         try:
             method_str: str | None = query_args.get("method")
             method: ReminderMethod | None = ReminderMethod(method_str) if method_str else None
             lookahead: int = query_args.get("lookahead", 0)
             reminders: list[CalEventReminder] = self.module.get_reminders(
-                user=self.user,
-                method=method,
-                lookahead_minutes=lookahead,
+                user=self.user, method=method, lookahead_minutes=lookahead,
             )
             reminder_list: list[dict[str, Any]] = [self._reminder_serializer.serialize(r) for r in reminders]
             return create_api_base_response({"reminders": reminder_list, "total_count": len(reminder_list)})
@@ -345,6 +342,50 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
             return create_api_base_response(self._freebusy_serializer.serialize(result))
         except RequestException as ex:
             logger_api.error("get_freebusy failed for user %s: %s", self.user.uid, ex)
+            return create_api_base_response(None, ex.error)
+
+    def create_external_calendar(self, body: dict[str, Any]) -> tuple[dict[str, Any], int]:
+        """Create a new external ICS calendar subscription via the common create_calendar flow.
+
+        :param body: Validated request body with ``name``, ``url``, optional ``color`` and ``sync_interval_minutes``.
+        :type body: dict
+        :return: API envelope with the created calendar, plus HTTP status code.
+        :rtype: tuple[dict, int]
+        """
+        try:
+            cal: CalCalendar = CalCalendar(
+                user_uid=self.user.uid,
+                name=body["name"],
+                color=body.get("color"),
+                source_type=CalendarSourceType.ICS,
+                sync_config={
+                    "url": body["url"],
+                    "sync_interval_minutes": body.get("sync_interval_minutes", 60),
+                    "sync_status": CalendarSyncStatus.PENDING.value,
+                },
+            )
+            created: CalCalendar = self.module.create_calendar(self.user, cal)
+            return create_api_base_response(self._calendar_serializer.serialize(created), code=201)
+        except RequestException as ex:
+            logger_api.error("create_external_calendar failed for user %s: %s", self.user.uid, ex)
+            return create_api_base_response(None, ex.error)
+
+    def sync_external_calendar(self, key: str) -> tuple[dict[str, Any], int]:
+        """Trigger a sync for an external ICS calendar."""
+        try:
+            result = self.module.sync_external_calendar(self.user, key)
+            return create_api_base_response(self._sync_result_serializer.serialize(result))
+        except RequestException as ex:
+            logger_api.error("sync_external_calendar failed for user %s key %s: %s", self.user.uid, key, ex)
+            return create_api_base_response(None, ex.error)
+
+    def get_sync_status(self, key: str) -> tuple[dict[str, Any], int]:
+        """Return the sync status for an external calendar."""
+        try:
+            status = self.module.get_sync_status(self.user, key)
+            return create_api_base_response(self._sync_status_serializer.serialize(status))
+        except RequestException as ex:
+            logger_api.error("get_sync_status failed for user %s key %s: %s", self.user.uid, key, ex)
             return create_api_base_response(None, ex.error)
 
     @staticmethod

@@ -7,9 +7,6 @@ import pytest
 from app.interface.calendar.InterfaceApiCalendarCalendar import InterfaceApiCalendarCalendar
 from app.module.calendar.model.CalEventReminder import CalEventReminder
 from app.module.calendar.model.enums.ReminderMethod import ReminderMethod
-from app.module.calendar.serializer.CalendarEventDeserializerDict import CalendarEventDeserializerDict
-from app.module.calendar.serializer.CalendarEventSerializerDict import CalendarEventSerializerDict
-from app.module.calendar.serializer.CalendarEventsSerializerDict import CalendarEventsSerializerDict
 from app.module.calendar.serializer.EventReminderSerializerDict import EventReminderSerializerDict
 from app.utils import errors as err
 from app.utils.exceptions import RequestException
@@ -26,9 +23,6 @@ def _build_interface(module=None):
     inter.user = MagicMock()
     inter.user.uid = "user@example.com"
     inter.module = module if module is not None else MagicMock()
-    inter._event_serializer = CalendarEventSerializerDict()
-    inter._event_deserializer = CalendarEventDeserializerDict()
-    inter._events_serializer = CalendarEventsSerializerDict()
     inter._reminder_serializer = EventReminderSerializerDict()
     return inter
 
