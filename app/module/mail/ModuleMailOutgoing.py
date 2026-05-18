@@ -119,13 +119,15 @@ class ModuleMailOutgoing:
             client.login(conf["username"], conf["password"], conf.get("authname", ""))
         return client
 
-    def send_mail(self, account_id: str, mail_data: dict) -> None:
+    def send_mail(self, account_id: str, mail_data: dict) -> EmailMessage:
         """Send an email using the outgoing mail client associated with the given account.
 
         :param account_id: The account ID to use for sending the email.
         :type account_id: str
         :param mail_data: Dict containing all email fields (validated upstream).
         :type mail_data: dict
+        :return: The built EmailMessage that was sent.
+        :rtype: EmailMessage
         """
         message = EmailMessage()
         message["From"] = mail_data["from_addr"]
@@ -162,3 +164,4 @@ class ModuleMailOutgoing:
             mail_data["subject"],
         )
         client.send_mail(message)
+        return message
