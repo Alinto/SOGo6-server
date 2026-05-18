@@ -13,11 +13,11 @@ from email.mime.text import MIMEText
 from app.manager.outgoing.ClientSmtp import ClientSmtp
 from app.utils import constants as cs
 
-SERVER = "192.168.69.34"
-PORT = 10125
+SERVER = "postfix"
+PORT = 25
 #PORT_SSL = 10125   # TODO ??
-USERNAME = "tkeriven@snapshot.alinto.org"
-PASSWORD = "Banane2!"
+USERNAME = "sogo-tests1@example.org"
+PASSWORD = "sogo"
 # For 'auth' mechanism: proxy authname
 AUTHNAME = ""
 # A fake Bearer token to use for OAuth tests (will fail auth but tests the code path)
@@ -39,7 +39,7 @@ def test_connect(encryption: str, auth_mech: str = "None", port: int = PORT) -> 
 def test_send_mail(client: ClientSmtp, from_addr: str, to_addr: str) -> bool:
     print(f"\n--------------- Testing send_mail() from={from_addr!r} to={to_addr!r} ------------------")
     msg = MIMEText("This is a test email sent by test_client_smtp.py")
-    msg["Subject"] = "ClientSmtp send_mail test"
+    msg["Subject"] = "ClientSmtp send_mail test v2"
     msg["From"] = from_addr
     msg["To"] = to_addr
     try:
@@ -149,7 +149,7 @@ if __name__ == "__main__":
 
     # Test send_mail after plain connection + plain auth
     print("\n=============13===============")
-    c = test_connect(cs.SOCKET_ENC_PLAIN, auth_mech="plain")
+    c = test_connect(cs.SOCKET_ENC_PLAIN)
     if c and test_login(c, USERNAME, PASSWORD):
         test_send_mail(c, from_addr=USERNAME, to_addr=USERNAME)
 
