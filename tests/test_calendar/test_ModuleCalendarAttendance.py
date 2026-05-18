@@ -2,6 +2,8 @@
 from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
+from app.module.calendar.model.CalendarUser import CalendarUser
+
 import pytest
 
 from app.module.calendar.ModuleCalendar import ModuleCalendar
@@ -46,7 +48,8 @@ def _attendee(email="attendee@example.com", status=AttendeeStatus.NEEDS_ACTION):
 def _fake_user(uid="attendee@example.com"):
     user = MagicMock()
     user.uid = uid
-    return user
+    user.mail = uid
+    return CalendarUser(user=user, owner=user)
 
 
 class FakeAttendanceSource(CalendarSource):
@@ -92,6 +95,8 @@ def _build_module(sources: dict):
     module._sources = sources_mock
     module._imip = ImipProcessor(sources_mock)
     module._db = MagicMock()
+    module._cache = MagicMock()
+    module._acl = MagicMock()
     return module
 
 
@@ -216,11 +221,12 @@ def test_attendance_single_occurrence():
     assert master.attendees[0].status == AttendeeStatus.NEEDS_ACTION
 
 
-def test_attendance_read_only_raises():
+def test_attendance_acl_denied_raises():
     event = _make_event(key="evt-key", organizer=_organizer(), attendees=[_attendee()])
-    source = _make_source(events=[event], writable=False)
+    source = _make_source(events=[event])
     module = _build_module({"cal-key": source})
+    module._acl.check_permission.side_effect = RequestException(error=err.ERROR_CALENDAR_ACCESS_DENIED)
 
     with pytest.raises(RequestException) as exc_info:
         module.set_attendance_status(_fake_user(), "evt-key", AttendeeStatus.ACCEPTED)
-    assert exc_info.value.error == err.ERROR_CALENDAR_NOT_SUPPORTED
+    assert exc_info.value.error == err.ERROR_CALENDAR_ACCESS_DENIED

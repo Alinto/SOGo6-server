@@ -21,7 +21,6 @@ if TYPE_CHECKING:
     from app.manager.cache.ClientRedis import ClientRedis
     from app.module.calendar.model.CalCalendar import CalCalendar
     from app.module.calendar.model.CalEvent import CalEvent
-    from app.module.calendar.source.CalendarSourceIcsMirror import CalendarSourceIcsMirror
     from app.module.calendar.source.CalendarSources import CalendarSources
 
 
@@ -85,19 +84,12 @@ class SyncEngine:
             if stored == lock_token:
                 self._cache.delete(lock_key)
 
-    def _apply_diff(self, calendar: CalCalendar, remote_events: list[CalEvent]) -> CalSyncResult:
+    def _apply_diff(self, calendar: CalCalendar, remote_events: list[CalEvent]) -> CalSyncResult:  # pylint: disable=too-many-locals
         """Compare remote events with local DB and apply inserts/updates/deletes.
 
-        Unlocks the ICS mirror source for writes, then locks it back when done.
+        The sync engine writes directly to the source, bypassing the module ACL checks.
         """
         source = self._sources.get(calendar)
-        source.unlock()
-        try:
-            return self._do_diff(source, calendar, remote_events)
-        finally:
-            source.lock()
-
-    def _do_diff(self, source: CalendarSourceIcsMirror, calendar: CalCalendar, remote_events: list[CalEvent]) -> CalSyncResult:  # pylint: disable=too-many-locals
         """Execute the diff logic on an unlocked source."""
         local_metadata: list[CalEventSyncMeta] = source.get_sync_metadata()
         local_by_key: dict[tuple[str, datetime | None], CalEventSyncMeta] = {

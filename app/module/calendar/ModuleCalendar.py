@@ -8,7 +8,11 @@ from app.module.calendar.CalendarConst import MAX_EVENT_FETCH_DAYS, MAX_FREEBUSY
 from app.module.calendar.freebusy.FreeBusyEngine import FreeBusyEngine, FreeBusyPrefs
 from app.module.calendar.imip.ImipBuilder import ImipBuilder
 from app.module.calendar.imip.ImipProcessor import ImipProcessor
+from app.module.calendar.acl.CalendarAclEngine import CalendarAclEngine
 from app.module.calendar.model.CalCalendar import CalCalendar
+from app.module.calendar.model.CalendarPermissions import CalendarPermissions
+from app.module.calendar.model.CalendarUser import CalendarUser
+from app.module.calendar.model.enums.CalendarPermissionAction import CalendarPermissionAction
 from app.module.calendar.model.CalOrganizer import CalOrganizer
 from app.module.calendar.model.enums.AttendeeStatus import AttendeeStatus
 from app.module.calendar.model.enums.CalendarSourceType import CalendarSourceType
@@ -56,6 +60,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         self._cache: ClientRedis = cache
         self._sources: CalendarSources = CalendarSources(self._db)
         self._imip: ImipProcessor = ImipProcessor(self._sources)
+        self._acl: CalendarAclEngine = CalendarAclEngine()
 
     def __del__(self) -> None:
         if hasattr(self, "_db"):
@@ -78,15 +83,38 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
     # ------------------------------------------------------------------
     # Calendars
     # ------------------------------------------------------------------
-    def get_all_calendars(self, user: User) -> list[CalCalendar]:
-        """Return all calendars owned by the given user."""
-        return [s.calendar for s in self._sources.get_all(user.uid)]
+    def get_all_calendars(self, user: User, shared_keys: list[str] | None = None) -> list[CalCalendar]:
+        """Return all calendars accessible by the user.
+
+        Includes owned calendars and optionally shared calendars identified by key.
+        Each calendar is populated with the user's permissions.
+
+        :param user: The authenticated user.
+        :param shared_keys: Additional calendar keys to include (from the ACL module).
+        """
+        calendar_user: CalendarUser = CalendarUser(user=user, owner=user)
+        # Owned calendars
+        sources: list[CalendarSource] = self._sources.get_all(user.uid)
+        # Delegated calendars (shared by other users, keys provided by the ACL module)
+        if shared_keys:
+            for key in shared_keys:
+                source: CalendarSource | None = self._sources.get_by_key(user.uid, key)
+                if source is not None:
+                    sources.append(source)
+        calendars: list[CalCalendar] = []
+        for source in sources:
+            cal: CalCalendar = source.calendar
+            cal.permissions = self._acl.get_permissions(cal, calendar_user)
+            calendars.append(cal)
+        return calendars
 
     def get_calendar(self, user: User, key: str) -> CalendarSource:
-        """Return the source for a calendar, or raise NOT_FOUND."""
+        """Return the source for a calendar, or raise NOT_FOUND. Populates permissions."""
+        calendar_user: CalendarUser = CalendarUser(user=user, owner=user)
         source: CalendarSource | None = self._sources.get_by_key(user.uid, key)
         if source is None:
             raise RequestException(error=err.ERROR_CALENDAR_NOT_FOUND)
+        source.calendar.permissions = self._acl.get_permissions(source.calendar, calendar_user)
         return source
 
     def create_calendar(self, user: User, cal: CalCalendar) -> CalCalendar:
@@ -123,25 +151,25 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         if event.all_day and event.date_end is not None and event.date_start is not None and event.date_end <= event.date_start:
             event.date_end = event.date_start + timedelta(days=1)
 
-    def _find_source_for_event(self, user: User, event_key: str) -> tuple[CalendarSource, CalEvent]:
+    def _find_source_for_event(self, calendar_user: CalendarUser, event_key: str) -> tuple[CalendarSource, CalEvent]:
         """Find the source and event by event_key (opaque UUID stored in the key column of sogo_events, not the uid)."""
-        for source in self._sources.get_all(user.uid):
+        for source in self._sources.get_all(calendar_user.owner.uid):
             event: CalEvent | None = source.get_event(event_key)
             if event is not None:
                 return source, event
         raise RequestException(error=err.ERROR_CALENDAR_EVENT_NOT_FOUND)
 
-    def _find_source_for_event_by_uid(self, user: User, uid: str) -> tuple[CalendarSource, CalEvent]:
+    def _find_source_for_event_by_uid(self, calendar_user: CalendarUser, uid: str) -> tuple[CalendarSource, CalEvent]:
         """Find the source and master event by RFC 5545 UID (semantic identifier) across user's calendars."""
-        result: tuple[CalendarSource, CalEvent] | None = self._sources.find_by_uid(user.uid, uid)
+        result: tuple[CalendarSource, CalEvent] | None = self._sources.find_by_uid(calendar_user.owner.uid, uid)
         if result is None:
             raise RequestException(error=err.ERROR_CALENDAR_EVENT_NOT_FOUND)
 
         return result
 
-    def _find_default_source(self, user: User) -> CalendarSource:
+    def _find_default_source(self, calendar_user: CalendarUser) -> CalendarSource:
         """Return the user's default writable calendar source, or raise NOT_FOUND."""
-        source: CalendarSource | None = self._sources.get_default(user.uid)
+        source: CalendarSource | None = self._sources.get_default(calendar_user.owner.uid)
         if source is None:
             raise RequestException(error=err.ERROR_CALENDAR_NOT_FOUND)
 
@@ -150,12 +178,11 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
     # ------------------------------------------------------------------
     # Events — CRUD
     # ------------------------------------------------------------------
-    def create_event(self, user: User, calendar_key: str, event: CalEvent, organizer: CalOrganizer) -> CalEvent:
+    def create_event(self, calendar_user: CalendarUser, calendar_key: str, event: CalEvent, organizer: CalOrganizer) -> CalEvent:
         """Persist a new event in the calendar and propagate it to local attendees."""
         event.apply_defaults()
-        source: CalendarSource = self.get_calendar(user, calendar_key)
-        if not source.is_writable():
-            raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
+        source: CalendarSource = self.get_calendar(calendar_user.owner, calendar_key)
+        self._acl.check_permission(source.calendar.permissions, CalendarPermissionAction.CREATE)
         event.calendar_key = source.calendar.key
         if not event.uid:
             event.uid = generate_uuid()
@@ -180,18 +207,18 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
             logger_calendar.error("Unexpected error creating event in calendar %s: %s", calendar_key, exc)
             raise RequestException(error=err.ERROR_CALENDAR_EVENT_INSERT_FAILED)
 
-    def get_event(self, user: User, event_key: str) -> CalEvent:
+    def get_event(self, calendar_user: CalendarUser, event_key: str) -> CalEvent:
         """Return a single event by key across the user's calendars, or raise NOT_FOUND."""
-        _, event = self._find_source_for_event(user, event_key)
+        _, event = self._find_source_for_event(calendar_user, event_key)
         return event
 
-    def update_event(self, user: User, event_key: str, event_update: CalEvent, organizer: CalOrganizer) -> CalEvent:
+    def update_event(self, calendar_user: CalendarUser, event_key: str, event_update: CalEvent, organizer: CalOrganizer) -> CalEvent:
         """Update an event, handling recurrence scope and attendee propagation."""
-        source, event = self._find_source_for_event(user, event_key)
-        if not source.is_writable():
-            raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
+        source, event = self._find_source_for_event(calendar_user, event_key)
+        perms: CalendarPermissions = self._acl.get_permissions(source.calendar, calendar_user)
+        self._acl.check_permission(perms, CalendarPermissionAction.MODIFY)
         # Only the organizer can modify event content (RFC 5545 §3.8.4.3)
-        if event.organizer and event.organizer.email != user.uid:
+        if event.organizer and event.organizer.email != calendar_user.owner.uid:
             raise RequestException(error=err.ERROR_CALENDAR_NOT_ORGANIZER)
         event_update.validate()
 
@@ -214,7 +241,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
             logger_calendar.error("Unexpected error updating event %s: %s", event_key, exc)
             raise RequestException(error=err.ERROR_CALENDAR_EVENT_UPDATE_FAILED)
 
-    def delete_event(self, user: User, event_key: str) -> None:
+    def delete_event(self, calendar_user: CalendarUser, event_key: str) -> None:
         """Soft-delete an event by key and propagate the deletion to attendees.
 
         If the event is a detached occurrence, only that row is deleted and its
@@ -222,16 +249,17 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         If the user is the organizer, the deletion is propagated to all attendees.
         If the user is an attendee, only their own copy is deleted.
         """
-        source, event = self._find_source_for_event(user, event_key)
-        if not source.is_writable():
-            raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
+        source, event = self._find_source_for_event(calendar_user, event_key)
+        self._acl.check_permission(
+            self._acl.get_permissions(source.calendar, calendar_user), CalendarPermissionAction.DELETE,
+        )
         try:
             if event.recurrence_id is not None:
                 source.delete_detached_occurrence(event)
             else:
                 source.delete_event(event.uid)
             # Propagate deletion to attendees if the user is the organizer
-            is_organizer: bool = bool(event.organizer and event.organizer.email == user.uid)
+            is_organizer: bool = bool(event.organizer and event.organizer.email == calendar_user.owner.uid)
             if is_organizer:
                 self._sources.propagate(scope_result=ScopeResult(
                     result=event, touched=[(event, EventAction.DELETE)],
@@ -248,7 +276,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
 
     def get_events(
         self,
-        user: User,
+        calendar_user: CalendarUser,
         start: datetime | None,
         end: datetime | None,
         search: str | None,
@@ -263,7 +291,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
             if (end - start) > timedelta(days=MAX_EVENT_FETCH_DAYS):
                 raise RequestException(error=err.ERROR_CALENDAR_DATE_RANGE_TOO_LARGE)
         try:
-            events: list[CalEvent] = self._sources.get_events(user.uid, start, end, search, key)
+            events: list[CalEvent] = self._sources.get_events(calendar_user.owner.uid, start, end, search, key)
             logger_calendar.debug("returned %d events (calendar=%s)", len(events), key or "all")
             return events
         except RequestException:
@@ -276,7 +304,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
     # Attendance
     # ------------------------------------------------------------------
     def set_attendance_status(
-        self, user: User, event_key: str, status: AttendeeStatus, recurrence_id: datetime | None = None,
+        self, calendar_user: CalendarUser, event_key: str, status: AttendeeStatus, recurrence_id: datetime | None = None,
     ) -> CalEvent:
         """Update the current user's attendance status (PARTSTAT) for an event.
 
@@ -291,22 +319,23 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         :param recurrence_id: When set, target a single occurrence instead of the whole event.
         :return: The updated event or occurrence.
         """
-        source, event = self._find_source_for_event(user, event_key)
-        if not source.is_writable():
-            raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
+        source, event = self._find_source_for_event(calendar_user, event_key)
+        self._acl.check_permission(
+            self._acl.get_permissions(source.calendar, calendar_user), CalendarPermissionAction.RESPOND,
+        )
 
         # Single occurrence: create or find a detached occurrence for this date
         if recurrence_id is not None:
             event = source.get_or_create_occurrence(event, recurrence_id)
 
         for attendee in event.attendees:
-            if attendee.email == user.uid:
+            if attendee.email == calendar_user.owner.uid:
                 attendee.status = status
                 break
         try:
             source.update_event(event)
-            source.propagate_partstat_to_copies(event, user.uid, status)
-            imip_msg: ImipMessage | None = ImipBuilder.build_reply(event, user)
+            source.propagate_partstat_to_copies(event, calendar_user.owner.uid, status)
+            imip_msg: ImipMessage | None = ImipBuilder.build_reply(event, calendar_user.user)
             if imip_msg:
                 logger_calendar.info("iMIP REPLY built for event %s to %s", event.uid, imip_msg.to_emails)
                 # TODO: dispatch imip_msg via agent transport (Celery + SMTP) once the agent is in place
@@ -321,28 +350,27 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
     # ------------------------------------------------------------------
     # iMIP — thin wrappers delegating to ImipProcessor
     # ------------------------------------------------------------------
-    def process_imip_reply(self, user: User, ical_bytes: bytes, from_email: str) -> CalEvent:
+    def process_imip_reply(self, calendar_user: CalendarUser, ical_bytes: bytes, from_email: str) -> CalEvent:
         """Process an incoming iMIP REPLY. Delegates to ImipProcessor."""
-        return self._imip.process_reply(user, ical_bytes, from_email)
+        return self._imip.process_reply(calendar_user.user, ical_bytes, from_email)
 
-    def process_imip_request(self, user: User, ical_bytes: bytes, from_email: str) -> CalEvent:
+    def process_imip_request(self, calendar_user: CalendarUser, ical_bytes: bytes, from_email: str) -> CalEvent:
         """Process an incoming iMIP REQUEST. Delegates to ImipProcessor."""
-        return self._imip.process_request(user, ical_bytes, from_email)
+        return self._imip.process_request(calendar_user.user, ical_bytes, from_email)
 
-    def process_imip_cancel(self, user: User, ical_bytes: bytes, from_email: str) -> None:
+    def process_imip_cancel(self, calendar_user: CalendarUser, ical_bytes: bytes, from_email: str) -> None:
         """Process an incoming iMIP CANCEL. Delegates to ImipProcessor."""
-        self._imip.process_cancel(user, ical_bytes, from_email)
+        self._imip.process_cancel(calendar_user.user, ical_bytes, from_email)
 
     # ------------------------------------------------------------------
     # Tasks
     # ------------------------------------------------------------------
-    def create_task(self, user: User, calendar_key: str, task: CalEvent) -> CalEvent:
+    def create_task(self, calendar_user: CalendarUser, calendar_key: str, task: CalEvent) -> CalEvent:
         """Persist a new VTODO in the calendar and return it."""
         task.apply_defaults()
         task.component_type = ComponentType.TASK
-        source: CalendarSource = self.get_calendar(user, calendar_key)
-        if not source.is_writable():
-            raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
+        source: CalendarSource = self.get_calendar(calendar_user.owner, calendar_key)
+        self._acl.check_permission(source.calendar.permissions, CalendarPermissionAction.CREATE)
         task.calendar_key = source.calendar.key
         if not task.uid:
             task.uid = generate_uuid()
@@ -355,20 +383,21 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
             logger_calendar.error("Unexpected error creating task in calendar %s: %s", calendar_key, exc)
             raise RequestException(error=err.ERROR_CALENDAR_EVENT_INSERT_FAILED)
 
-    def get_task(self, user: User, task_key: str) -> CalEvent:
+    def get_task(self, calendar_user: CalendarUser, task_key: str) -> CalEvent:
         """Return a single VTODO by key, or raise TASK_NOT_FOUND."""
-        _, task = self._find_source_for_event(user, task_key)
+        _, task = self._find_source_for_event(calendar_user, task_key)
         if task.component_type != ComponentType.TASK:
             raise RequestException(error=err.ERROR_CALENDAR_TASK_NOT_FOUND)
         return task
 
-    def update_task(self, user: User, task_key: str, task_update: CalEvent) -> CalEvent:
+    def update_task(self, calendar_user: CalendarUser, task_key: str, task_update: CalEvent) -> CalEvent:
         """Persist an already-merged VTODO update."""
-        source, task = self._find_source_for_event(user, task_key)
+        source, task = self._find_source_for_event(calendar_user, task_key)
         if task.component_type != ComponentType.TASK:
             raise RequestException(error=err.ERROR_CALENDAR_TASK_NOT_FOUND)
-        if not source.is_writable():
-            raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
+        self._acl.check_permission(
+            self._acl.get_permissions(source.calendar, calendar_user), CalendarPermissionAction.MODIFY,
+        )
         try:
             source.update_event(task_update)
             return task_update
@@ -378,13 +407,14 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
             logger_calendar.error("Unexpected error updating task %s: %s", task_key, exc)
             raise RequestException(error=err.ERROR_CALENDAR_EVENT_UPDATE_FAILED)
 
-    def delete_task(self, user: User, task_key: str) -> None:
+    def delete_task(self, calendar_user: CalendarUser, task_key: str) -> None:
         """Soft-delete a VTODO by key."""
-        source, task = self._find_source_for_event(user, task_key)
+        source, task = self._find_source_for_event(calendar_user, task_key)
         if task.component_type != ComponentType.TASK:
             raise RequestException(error=err.ERROR_CALENDAR_TASK_NOT_FOUND)
-        if not source.is_writable():
-            raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
+        self._acl.check_permission(
+            self._acl.get_permissions(source.calendar, calendar_user), CalendarPermissionAction.DELETE,
+        )
         try:
             source.delete_event(task.uid)
         except RequestException:
@@ -395,7 +425,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
 
     def get_tasks(
         self,
-        user: User,
+        calendar_user: CalendarUser,
         start: datetime | None,
         end: datetime | None,
         search: str | None,
@@ -410,7 +440,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
             if (end - start) > timedelta(days=MAX_TASK_FETCH_DAYS):
                 raise RequestException(error=err.ERROR_CALENDAR_DATE_RANGE_TOO_LARGE)
         try:
-            tasks: list[CalEvent] = self._sources.get_tasks(user.uid, start, end, search, key)
+            tasks: list[CalEvent] = self._sources.get_tasks(calendar_user.owner.uid, start, end, search, key)
             logger_calendar.debug("returned %d tasks (calendar=%s)", len(tasks), key or "all")
             return tasks
         except RequestException:
@@ -424,7 +454,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
     # ------------------------------------------------------------------
     def get_reminders(
         self,
-        user: User,
+        calendar_user: CalendarUser,
         method: ReminderMethod | None = None,
         lookahead_minutes: int = 0,
     ) -> list[CalEventReminder]:
@@ -445,7 +475,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
 
         past_bound: datetime = now - timedelta(days=MAX_EVENT_FETCH_DAYS)
         reminders: list[CalEventReminder] = repo_reminder.find_pending(
-            start=past_bound, end=now, user_uid=user.uid, method=method,
+            start=past_bound, end=now, user_uid=calendar_user.owner.uid, method=method,
         )
 
         # Batch-load full CalEvent objects to enrich reminders with title/location/timezone
@@ -454,7 +484,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         for reminder in reminders:
             if reminder.event_key not in events_by_key:
                 try:
-                    _, event = self._find_source_for_event(user, reminder.event_key)
+                    _, event = self._find_source_for_event(calendar_user, reminder.event_key)
                     events_by_key[reminder.event_key] = event
                 except RequestException:
                     continue

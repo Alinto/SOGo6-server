@@ -35,6 +35,7 @@ def _attendee(email="bob@example.com", status=AttendeeStatus.NEEDS_ACTION):
 def _fake_user(uid="bob@example.com"):
     user = MagicMock()
     user.uid = uid
+    user.mail = uid
     return user
 
 

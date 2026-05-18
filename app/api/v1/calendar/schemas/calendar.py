@@ -46,6 +46,8 @@ class CalendarSchema(Schema):
     source_type        = fields.String()
     ctag               = fields.Integer()
     share_token = fields.String(allow_none=True)
+    # `dump_only`` because permissions are only available when retrieving calendar but can't be set in that way
+    permissions        = fields.Dict(allow_none=True, dump_only=True) 
     created_at         = fields.DateTime(allow_none=True)
     updated_at         = fields.DateTime(allow_none=True)
 

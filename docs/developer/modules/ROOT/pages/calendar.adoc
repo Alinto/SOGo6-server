@@ -20,7 +20,8 @@ It is built around two domain objects — `CalCalendar` and `CalEvent` — that 
                           ├── RruleEngine (RRULE expansion, EXDATE, overrides)
                           ├── FreeBusyEngine (free/busy computation)
                           ├── ReminderEngine (active reminder computation)
-                          └── SyncEngine (ICS mirror synchronization)
+                          ├── SyncEngine (ICS mirror synchronization)
+                          └── CalendarAclEngine (permission resolution + enforcement)
 ----
 
 **Responsibilities:**
@@ -151,11 +152,36 @@ Reminders are materialized in `sogo_calendar_reminders` with a pre-computed `tri
 
 == External calendars
 
-External ICS subscriptions are stored as `CalCalendar` rows with `source_type=ics` and sync metadata in `sync_config` JSON (url, sync_interval_minutes, sync_status, last_sync). Events are mirrored into `sogo_events` by `SyncEngine` and served via `CalendarSourceIcsMirror` (read-only &#8212; API writes are rejected).
+External ICS subscriptions are stored as `CalCalendar` rows with `source_type=ics` and sync metadata in `sync_config` JSON (url, sync_interval_minutes, sync_status, last_sync). Events are mirrored into `sogo_events` by `SyncEngine` via `CalendarSourceIcsMirror`. Write restrictions on ICS calendars are enforced by `CalendarAclEngine`, not by the source layer.
 
 `POST /external-calendars/{key}/sync` triggers a synchronous sync. The sync engine fetches the ICS feed via `IcsFetcher` (SSRF-protected), diffs by (UID, recurrence_id), and applies inserts/updates/deletes. Sync status is tracked in `sync_config` and queryable via `GET /external-calendars/{key}/sync`.
 
 // TODO: sync will be dispatched as a Celery task; lock via Redis prevents concurrent syncs on the same calendar.
+
+== Access control (ACL)
+
+=== User vs CalendarUser
+
+Module methods use two distinct parameter types:
+
+* `User` — for calendar-level operations (list, create, update, delete calendars, sync). The user operates on their own calendars.
+* `CalendarUser` — for event-level operations (CRUD events, tasks, reminders, attendance). Carries both the acting user (`user`) and the calendar owner (`owner`). For personal calendars, `user == owner`. For shared calendars, they differ.
+
+The interface builds `CalendarUser` by resolving the owner from the calendar's `user_uid` via `ModuleUserProfile`.
+
+=== CalendarAclEngine
+
+Centralizes all permission logic. Three responsibilities:
+
+* `get_permissions(calendar, calendar_user)` &#8594; `CalendarPermissions` — resolves what the user can do on this calendar. Owner gets full access. ICS calendars get read-only (VIEW_ALL, no create/delete). Non-owner permissions are stubbed (denied) until the ACL module is implemented.
+* `check_permission(permissions, action)` — raises `ERROR_CALENDAR_ACCESS_DENIED` if the action is not allowed.
+* `sanitize_events(events, permissions)` — masks event fields based on visibility class (public/confidential/private) and permission level. Events with NONE level are excluded. VIEW_DATETIME level replaces title with "Busy" and hides details.
+
+=== Permission model
+
+`CalendarPermissions` has one `CalendarShareLevel` per visibility class (public, confidential, private) plus `can_create` and `can_delete` flags. Share levels are ordered: `NONE < VIEW_DATETIME < VIEW_ALL < RESPOND < MODIFY`.
+
+Each `CalCalendar` carries a transient `permissions` field populated at read time — the API response includes the user's permissions so the UI knows which actions to enable.
 
 == Repositories
 
@@ -174,6 +200,7 @@ All serializers extend `Serializer[TIn, TOut]`, all deserializers extend `Deseri
 * Attendee propagation to `CalendarSources`
 * Free/busy computation to `FreeBusyEngine`
 * Active reminder computation to `ReminderEngine`
+* Permission resolution and enforcement to `CalendarAclEngine`
 
 The organizer is always set by the caller (interface) as a `CalOrganizer` object. The module never constructs organizer identity.
 

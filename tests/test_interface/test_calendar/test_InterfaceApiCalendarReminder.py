@@ -2,6 +2,8 @@
 from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
+from app.module.calendar.model.CalendarUser import CalendarUser
+
 import pytest
 
 from app.interface.calendar.InterfaceApiCalendarCalendar import InterfaceApiCalendarCalendar
@@ -88,7 +90,7 @@ def test_get_reminders_passes_user():
     inter = _build_interface(module)
     inter.get_reminders({})
     call_kwargs = module.get_reminders.call_args[1]
-    assert call_kwargs["user"] == inter.user
+    assert call_kwargs["calendar_user"] == CalendarUser(user=inter.user, owner=inter.user)
 
 
 def test_get_reminders_no_method_passes_none():
