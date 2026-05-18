@@ -30,9 +30,7 @@ from app.utils.errors import ERROR_CALENDAR_ICS_PARSE_FAILED
 from app.utils.exceptions import RequestException
 from app.utils.logger.logger import logger_calendar
 
-# ---------------------------------------------------------------------------
 # Module-level mapping tables — built once, reused on every call.
-# ---------------------------------------------------------------------------
 
 _FREQ_MAP: dict[str, RecurrenceFrequency] = {
     "SECONDLY": RecurrenceFrequency.SECONDLY,
@@ -144,9 +142,7 @@ class CalendarEventDeserializerIcal(CalendarEventDeserializer[str]):
     Uses the icalendar library for parsing.
     """
 
-    # ------------------------------------------------------------------
     # Public interface
-    # ------------------------------------------------------------------
 
     def deserialize(self, text: str) -> CalEvent:  # pylint: disable=arguments-renamed
         """Parse an iCalendar text and return the first VEVENT or VTODO found."""
@@ -165,7 +161,7 @@ class CalendarEventDeserializerIcal(CalendarEventDeserializer[str]):
         try:
             cal: Calendar = Calendar.from_ical(text)
         except Exception as exc:  # pylint: disable=broad-except
-            logger_calendar.error("Failed to parse VCALENDAR: %s", exc)
+            logger_calendar.exception("Failed to parse VCALENDAR")
             raise RequestException(error=ERROR_CALENDAR_ICS_PARSE_FAILED) from exc
         return [comp for comp in cal.walk() if comp.name == COMP_VEVENT]
 
@@ -174,7 +170,7 @@ class CalendarEventDeserializerIcal(CalendarEventDeserializer[str]):
         try:
             cal: Calendar = Calendar.from_ical(text)
         except Exception as exc:  # pylint: disable=broad-except
-            logger_calendar.error("Failed to parse VCALENDAR: %s", exc)
+            logger_calendar.exception("Failed to parse VCALENDAR")
             raise RequestException(error=ERROR_CALENDAR_ICS_PARSE_FAILED) from exc
         return [comp for comp in cal.walk() if comp.name == COMP_VTODO]
 
@@ -188,13 +184,9 @@ class CalendarEventDeserializerIcal(CalendarEventDeserializer[str]):
         alarms = self._parse_alarms(component)
         return self._build_cal_todo(component, alarms)
 
-    # ------------------------------------------------------------------
     # Component navigation
-    # ------------------------------------------------------------------
 
-    # ------------------------------------------------------------------
     # Property access helpers
-    # ------------------------------------------------------------------
 
     def _get_multi(self, component: Any, name: str) -> list[Any]:
         """Return all values of a possibly-repeated property as a list."""
@@ -229,9 +221,7 @@ class CalendarEventDeserializerIcal(CalendarEventDeserializer[str]):
         all_day = isinstance(dt, date) and not isinstance(dt, datetime)
         return to_utc(dt), all_day, tzid
 
-    # ------------------------------------------------------------------
     # Field extractors
-    # ------------------------------------------------------------------
 
     def _extract_text_fields(self, vevent: Any) -> _TextFields:
         """
@@ -426,9 +416,7 @@ class CalendarEventDeserializerIcal(CalendarEventDeserializer[str]):
             uid_parent_split=uid_parent_split,
         )
 
-    # ------------------------------------------------------------------
     # Component parsers
-    # ------------------------------------------------------------------
 
     def _parse_organizer(self, prop: Any) -> CalOrganizer:
         """Build a CalOrganizer from an ORGANIZER property (RFC 5545 §3.8.4.3)."""
@@ -560,9 +548,7 @@ class CalendarEventDeserializerIcal(CalendarEventDeserializer[str]):
         logger_calendar.debug("Absolute TRIGGER DATE-TIME not supported; storing minutes_before=0")
         return CalReminder(method=method, minutes_before=0)
 
-    # ------------------------------------------------------------------
     # CalEvent assembler
-    # ------------------------------------------------------------------
 
     def _build_cal_event(self, vevent: Any, alarms: list[CalReminder]) -> CalEvent:
         """Assemble a CalEvent from a parsed VEVENT component and pre-built alarms."""

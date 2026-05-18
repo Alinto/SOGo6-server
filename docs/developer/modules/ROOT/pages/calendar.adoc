@@ -45,7 +45,7 @@ It is a plain Python dataclass. The `component_type` field discriminates between
 
 Fields are either *relational* (dedicated columns for filtering: `date_start`, `date_end`, `component_type`, `show_as`, `is_deleted`, `recurrence_id`) or *blob* (everything else, stored as JSON in `cal_event`). Unpersisted fields (`dates_with_tz`) are computed at serialization time and excluded from the blob via `CalEvent.UNPERSISTED_FIELDS`.
 
-`CalCalendar` maps to the `sogo_calendars` table. `ctag` is incremented on every event mutation (CalDAV change detection).
+`CalCalendar` maps to the `sogo_calendar_calendars` table. `ctag` is incremented on every event mutation by `CalendarSourceDb._bump_ctag()` (CalDAV change detection via the `CS:getctag` extension).
 
 All datetimes are stored and processed in UTC. The original TZID is preserved in `CalEvent.timezone` for display only.
 
@@ -59,7 +59,7 @@ All datetimes are stored and processed in UTC. The original TZID is preserved in
 . `_filter()` — date range + optional full-text search
 . Sort and stamp `calendar_key` / `calendar_timezone`
 
-Two implementations: `CalendarSourceDb` (writable, DB-backed) and `CalendarSourceIcs` (read-only, remote ICS).
+Two implementations: `CalendarSourceDb` (writable, DB-backed) and `CalendarSourceIcsMirror` (read-only DB mirror for external ICS subscriptions; extends `CalendarSourceDb` and forces `is_writable()` to `False`).
 
 `CalendarSources` is the factory and ownership enforcer. All reads are scoped to a `user_uid`.
 
@@ -152,9 +152,9 @@ Reminders are materialized in `sogo_calendar_reminders` with a pre-computed `tri
 
 == External calendars
 
-External ICS subscriptions are stored as `CalCalendar` rows with `source_type=ics` and sync metadata in `sync_config` JSON (url, sync_interval_minutes, sync_status, last_sync). Events are mirrored into `sogo_events` by `SyncEngine` via `CalendarSourceIcsMirror`. Write restrictions on ICS calendars are enforced by `CalendarAclEngine`, not by the source layer.
+External ICS subscriptions are stored as `CalCalendar` rows with `source_type=ics` and sync metadata in `sync_config` JSON (url, username, password, etag, last_sync, sync_interval_minutes, sync_status). Events are mirrored into `sogo_calendar_events` by `SyncEngine` via `CalendarSourceIcsMirror`. Write restrictions on ICS calendars are enforced by `CalendarAclEngine`, not by the source layer.
 
-`POST /external-calendars/{key}/sync` triggers a synchronous sync. The sync engine fetches the ICS feed via `IcsFetcher` (SSRF-protected), diffs by (UID, recurrence_id), and applies inserts/updates/deletes. Sync status is tracked in `sync_config` and queryable via `GET /external-calendars/{key}/sync`.
+`POST /external-calendars/{key}/sync` triggers a synchronous sync. The sync engine fetches the ICS feed via `IcsFetcher`, diffs by (UID, recurrence_id), and applies inserts/updates/deletes. `IcsFetcher` protects against SSRF by validating that the resolved hostname is a public IP and pinning the TCP connection to that IP for the lifetime of the request (anti DNS-rebinding); redirects are re-validated against the same rules. Sync status is tracked in `sync_config` and queryable via `GET /external-calendars/{key}/sync`.
 
 // TODO: sync will be dispatched as a Celery task; lock via Redis prevents concurrent syncs on the same calendar.
 
@@ -167,7 +167,7 @@ Module methods use two distinct parameter types:
 * `User` — for calendar-level operations (list, create, update, delete calendars, sync). The user operates on their own calendars.
 * `CalendarUser` — for event-level operations (CRUD events, tasks, reminders, attendance). Carries both the acting user (`user`) and the calendar owner (`owner`). For personal calendars, `user == owner`. For shared calendars, they differ.
 
-The interface builds `CalendarUser` by resolving the owner from the calendar's `user_uid` via `ModuleUserProfile`.
+The interface builds `CalendarUser` from the authenticated user. Until the central ACL module lands, the owner is always the acting user (`user == owner`); shared-calendar dispatch will plug in here.
 
 === CalendarAclEngine
 
@@ -212,4 +212,4 @@ The organizer is always set by the caller (interface) as a `CalOrganizer` object
 
 Three iTIP methods (RFC 5546): REQUEST (invite), REPLY (accept/decline), CANCEL (delete). `ImipProcessor` handles inbound messages. `ImipBuilder` produces outbound `ImipMessage` objects. Actual email dispatch is deferred to the Celery agent.
 
-For local attendees, `CalendarSources.propagate_changes()` mirrors modifications immediately to each attendee's calendar, bypassing the email roundtrip.
+For local attendees, `CalendarSources.propagate()` mirrors the touched events from a `ScopeResult` to each attendee's writable calendar immediately, bypassing the email roundtrip.

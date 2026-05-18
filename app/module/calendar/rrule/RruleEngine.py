@@ -7,6 +7,7 @@ from datetime import date as _date
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
+from app.module.calendar.CalendarConst import MAX_RRULE_EXPANSION_YEARS
 from app.module.calendar.model.enums.RecurrenceFrequency import RecurrenceFrequency
 from app.utils.logger.logger import logger_calendar
 
@@ -14,8 +15,8 @@ if TYPE_CHECKING:
     from app.module.calendar.model.CalEvent import CalEvent
     from app.module.calendar.model.CalRecurrenceRule import CalRecurrenceRule
 
-# Cap to avoid runaway expansion (10 years of daily events)
-_MAX_OCCURRENCES: int = 3650
+# Cap to avoid runaway expansion (daily occurrences over the maximum expansion window)
+_MAX_OCCURRENCES: int = 365 * MAX_RRULE_EXPANSION_YEARS
 
 _WEEKDAY_MAP: dict[str, int] = {
     "MO": 0, "TU": 1, "WE": 2, "TH": 3, "FR": 4, "SA": 5, "SU": 6,
@@ -34,9 +35,7 @@ class RruleEngine:
     RFC 5545 §3.3.10 — Recurrence Rule
     """
 
-    # ------------------------------------------------------------------
     # Public interface
-    # ------------------------------------------------------------------
 
     def expand(
         self,
@@ -112,15 +111,16 @@ class RruleEngine:
             return master.date_end
         if rule.until is None and rule.count is None:
             return None
-        limit: datetime = rule.until if rule.until is not None else datetime(9999, 1, 1, tzinfo=timezone.utc)
+        # When only COUNT is set, cap the search window to a hard bound so an unbounded
+        # _generate_dates call cannot run away — COUNT will normally stop earlier.
+        hard_limit: datetime = master.date_start + timedelta(days=365 * MAX_RRULE_EXPANSION_YEARS)
+        limit: datetime = rule.until if rule.until is not None else hard_limit
         dates: list[datetime] = self._generate_dates(rule, master.date_start, limit)
         if not dates:
             return master.date_end
         return dates[-1] + (master.date_end - master.date_start)
 
-    # ------------------------------------------------------------------
     # Date generation
-    # ------------------------------------------------------------------
 
     def _generate_dates(
         self,
@@ -543,9 +543,7 @@ class RruleEngine:
                     pass
         return matches
 
-    # ------------------------------------------------------------------
     # Helpers
-    # ------------------------------------------------------------------
 
     @staticmethod
     def _normalize_dt(dt: datetime) -> datetime:

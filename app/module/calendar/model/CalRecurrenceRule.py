@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any
 
 from app.module.calendar.model.enums.RecurrenceFrequency import RecurrenceFrequency
+from app.utils.calendar.DateTimeUtils import to_utc
 
 
 @dataclass
@@ -14,7 +15,8 @@ class CalRecurrenceRule:  # pylint: disable=too-many-instance-attributes
     frequency: RecurrenceFrequency
     # RFC 5545 §3.3.10 INTERVAL — multiplier for FREQ (e.g. INTERVAL=2 WEEKLY = every 2 weeks)
     interval: int = 1
-    # RFC 5545 §3.3.10 UNTIL — UTC datetime at which the recurrence ends (inclusive)
+    # RFC 5545 §3.3.10 UNTIL — UTC datetime at which the recurrence ends (inclusive).
+    # Naive datetimes are coerced to UTC in __post_init__; tz-aware values are converted to UTC.
     until: datetime | None = None
     # RFC 5545 §3.3.10 COUNT — maximum number of occurrences; mutually exclusive with UNTIL
     count: int | None = None
@@ -40,6 +42,13 @@ class CalRecurrenceRule:  # pylint: disable=too-many-instance-attributes
     week_start: str = "MO"
     # RFC 5545 §3.8.5.2 RDATE — additional explicit occurrence datetimes outside the rule
     additional_dates: list[datetime] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        # RFC 5545 §3.3.10 — UNTIL must be in UTC when DTSTART is tz-aware. Coerce here so callers
+        # cannot store a naive or non-UTC value that would silently break expansion.
+        if self.until is not None:
+            self.until = to_utc(self.until)
+        self.additional_dates = [to_utc(d) for d in self.additional_dates]
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable dict representation of this rule.

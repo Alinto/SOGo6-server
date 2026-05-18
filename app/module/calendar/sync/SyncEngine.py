@@ -74,8 +74,8 @@ class SyncEngine:
         except RequestException as exc:
             self._update_sync_status(calendar, CalendarSyncStatus.FAILED, error=exc.error.m if exc.error else "Sync failed")
             raise
-        except Exception as exc:
-            logger_calendar.error("Unexpected sync error for calendar %s: %s", calendar.key, exc)
+        except Exception:
+            logger_calendar.exception("Unexpected sync error for calendar %s", calendar.key)
             self._update_sync_status(calendar, CalendarSyncStatus.FAILED, error="Unexpected sync error")
             raise
         finally:
