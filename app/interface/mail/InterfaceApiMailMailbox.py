@@ -6,6 +6,7 @@ from flask import request
 
 from app.config.settings.DomainSettings import UserModuleSettings, UserModuleSettingsObj, MailSettings, MailSettingsObj
 from app.module.mail.ModuleMail import ModuleMail
+from app.module.mail.ModuleMailOutgoing import ModuleMailOutgoing
 from app.module.user.ModuleUserProfile import ModuleUserProfile
 from app.utils.exceptions import RequestException, BugException
 from app.utils.api.ApiBaseResponse import create_api_base_response
@@ -37,6 +38,7 @@ class InterfaceApiMailMailbox:
         self.module_user_profile = ModuleUserProfile(process_setting, user_domain)
         self.mail_settings = MailSettingsObj(user_domain[MailSettings.subparent])
         self.mail_module = ModuleMail(user, self.mail_settings)
+        self.mail_outgoing_module = ModuleMailOutgoing(user, self.mail_settings)
 
     def list_mailboxes(self) -> Tuple[Dict[str, Any], int]:
         """List all configured mailboxes.
@@ -226,3 +228,20 @@ class InterfaceApiMailMailbox:
         :rtype: Tuple[Union[str, Dict[str, Any]], int]
         """
         raise NotImplementedError("Purge mailbox is not implemented yet")
+
+    def send_mail(self, account_id: str, mail_data: dict) -> tuple[dict, int]:
+        """Send an email from the specified account.
+
+        :param account_id: The account identifier ("0" for main account, hash for external)
+        :type account_id: str
+        :param mail_data: Validated mail data from schema
+        :type mail_data: dict
+        :return: A tuple of (API response dict, status code)
+        :rtype: tuple[dict, int]
+        """
+        try:
+            self.mail_outgoing_module.send_mail(account_id, mail_data)
+        except RequestException as ex:
+            logger_api.error("Request exception in send_mail for user %s, account %s: %s", self.user.uid, account_id, str(ex))
+            return create_api_base_response(None, ex.error, error_msg=str(ex))
+        return create_api_base_response(None)

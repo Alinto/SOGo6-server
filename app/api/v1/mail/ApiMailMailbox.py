@@ -15,7 +15,9 @@ from app.api.v1.mail.schemas.mailbox import (
     MailboxListResponseSchema,
     DelegationCreateSchema,
     DelegationListResponseSchema,
-    DelegationResponseSchema
+    DelegationResponseSchema,
+    SendMailSchema,
+    SendMailResponseSchema,
 )
 
 if TYPE_CHECKING:
@@ -150,6 +152,23 @@ class ApiMailBoxesAccountDelegates(MethodView):
         logger_api.debug("Calling ApiMailBoxesAccountDelegates.post for account_id: %s with data: %s", account_id, data)
         interface: InterfaceApiMailMailbox = g.inter
         return interface.create_mailbox_delegate(account_id, data)
+
+
+@blp.route("/<string:account_id>/send")
+class ApiMailBoxesAccountSend(MethodView):
+    """
+    Action: Send Email
+    """
+    @blp.arguments(SendMailSchema, example=SendMailSchema.example(), error_status_code=400)
+    @blp.response(200, SendMailResponseSchema)
+    def post(self, mail_data: dict, account_id: str) -> ResponseReturnValue:
+        """
+        Send an email from the specified mailbox account.
+        account_id="0" uses the main account, otherwise uses the external account with the given hash.
+        """
+        logger_api.debug("Calling ApiMailBoxesAccountSend.post for account_id: %s", account_id)
+        interface: InterfaceApiMailMailbox = g.inter
+        return interface.send_mail(account_id, mail_data)
 
 
 @blp.route("/<int:account_id>/purge")
