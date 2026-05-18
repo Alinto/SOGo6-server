@@ -12,7 +12,9 @@ class ApiBaseResponse(Schema):
     error_msg = fields.String(required=True)
     error_code = fields.String(required=True)
 
-def create_api_base_response(data: Any|None = None, error: E = ERROR_NO_ERROR, code: int = 0) -> tuple[dict, int]:
+#def create_api_base_response(data: Any|None = None, error: E = ERROR_NO_ERROR, code: int = 0) -> tuple[dict, int]:
+
+def create_api_base_response(data: Any|None = None, error: E = ERROR_NO_ERROR, code: int = 0, error_msg: str | None = None) -> tuple[dict, int]:
     #ajouter un argument de code erreur ou si il est présent on met celui là, sinon on met celui de l'exception
     """
     Create the common API response.
@@ -35,5 +37,5 @@ def create_api_base_response(data: Any|None = None, error: E = ERROR_NO_ERROR, c
     return {
         "data": data,
         "error_code": error.c,
-        "error_msg": error.m
+        "error_msg": error_msg if error_msg is not None else error.m
     }, status

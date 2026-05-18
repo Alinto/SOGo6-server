@@ -7,6 +7,7 @@ import re
 from datetime import datetime
 from socket import timeout as sock_timeout, gaierror
 from ssl import SSLError
+from email.message import EmailMessage
 
 from app.utils.exceptions import AggravatedException, RequestException, BugException
 from app.utils.logger.logger import logger_imap
@@ -1753,6 +1754,55 @@ class ClientImap(ClientMailServer):
             "storage_used": storage_used,
             "storage_limit": storage_limit,
         }
+
+    def save_mail_to_folder(self, message: EmailMessage, folder_type: str, flags: str = r'(\Seen)') -> None:
+        """Append an email message to a folder identified by its type (e.g. MAIL_FOLDER_SENT).
+
+        :param message: The email message to append.
+        :type message: EmailMessage
+        :param folder_type: The folder type constant (e.g. cs.MAIL_FOLDER_SENT).
+        :type folder_type: str
+        :param flags: IMAP flags to set on the appended message, defaults to r'(\\Seen)'.
+        :type flags: str
+        :raises RequestException: If the APPEND command fails.
+        """
+        if self.connection is None or not self.authenticated:
+            raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
+
+        folder_path = self.folders_map_type_to_name[folder_type]
+
+        if not folder_path.isascii():
+            raise RequestException(f"Mailbox name is not ascii: {folder_path}", err.ERROR_IMAP_NOT_ASCII)
+
+        fixed_folder = self._fix_folder_path(folder_path)
+        quoted_folder = quote(fixed_folder)
+        raw_bytes = message.as_bytes()
+
+        success, datas = self._exec_imap4_method(
+            self.connection.append,  # type: ignore[arg-type]
+            quoted_folder,
+            flags,
+            None,  # type: ignore[arg-type]
+            raw_bytes,
+        )
+        if not success:
+            raise RequestException(
+                f"Failed to append mail to folder '{folder_path}': {datas}",
+                err.ERROR_MAIL_SAVE_SENT_FAILED,
+            )
+        logger_imap.info("Mail saved in folder '%s'", folder_path)
+
+    def delete_mail_permanently_from_folder_type(self, folder_type: str, mail_uid: str) -> None:
+        """Permanently delete a mail (without moving to Trash) from a folder identified by its type.
+
+        :param folder_type: The folder type constant (e.g. cs.MAIL_FOLDER_DRAFT).
+        :type folder_type: str
+        :param mail_uid: The UID of the mail to delete.
+        :type mail_uid: str
+        :raises RequestException: If the operation fails.
+        """
+        folder_path = self.folders_map_type_to_name[folder_type]
+        self.delete_mails_by_uid(folder_path, mail_uid, move_to_trash=False, permanently=True)
 
     def logout(self) -> None:
         """

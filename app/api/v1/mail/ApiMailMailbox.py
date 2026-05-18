@@ -18,6 +18,9 @@ from app.api.v1.mail.schemas.mailbox import (
     DelegationResponseSchema,
     MailboxPurgeSchema,
     MailboxPurgeResponseSchema,
+    SendMailSchema,
+    SendMailQuerySchema,
+    SendMailResponseSchema,
 )
 
 if TYPE_CHECKING:
@@ -154,7 +157,8 @@ class ApiMailBoxesAccountDelegates(MethodView):
         return interface.create_mailbox_delegate(account_id, data)
 
 
-@blp.route("/<string:account_id>/purge")
+
+@blp.route("/<int:account_id>/purge")
 class ApiMailBoxesAccountPurge(MethodView):
     """
     Resource: Purge Mailbox
@@ -168,3 +172,21 @@ class ApiMailBoxesAccountPurge(MethodView):
         logger_api.debug("Calling ApiMailBoxesAccountPurge.post for account_id: %s with data: %s", account_id, purge_data)
         interface: InterfaceApiMailMailbox = g.inter
         return interface.purge_mailbox(account_id, purge_data)
+
+@blp.route("/<string:account_id>/send")
+class ApiMailBoxesAccountSend(MethodView):
+    """
+    Action: Send Email
+    """
+    @blp.arguments(SendMailQuerySchema, location='query', as_kwargs=False, error_status_code=400)
+    @blp.arguments(SendMailSchema, example=SendMailSchema.example(), error_status_code=400)
+    @blp.response(200, SendMailResponseSchema)
+    def post(self, query_args: dict, mail_data: dict, account_id: str) -> ResponseReturnValue:
+        """
+        Send an email from the specified mailbox account.
+        account_id="0" uses the main account, otherwise uses the external account with the given hash.
+        """
+        logger_api.debug("Calling ApiMailBoxesAccountSend.post for account_id: %s", account_id)
+        interface: InterfaceApiMailMailbox = g.inter
+        draft_uid = query_args.get("uid")
+        return interface.send_mail(account_id, mail_data, draft_uid)
