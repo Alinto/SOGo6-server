@@ -57,7 +57,7 @@ class ImipBuilder:
     def build_reply(event: CalEvent, user: User) -> ImipMessage | None:
         """Build a METHOD:REPLY on behalf of the attending user.
 
-        Locates the attendee whose email matches user.uid, then produces a REPLY
+        Locates the attendee whose email matches user.mail, then produces a REPLY
         VCALENDAR containing only that attendee (RFC 5546 §3.2.3).
         Returns None if the event has no organizer or the user is not listed as an attendee.
 
@@ -71,7 +71,7 @@ class ImipBuilder:
         if not event.organizer:
             return None
         replying_attendee = next(
-            (a for a in event.attendees if a.email == user.uid),
+            (a for a in event.attendees if a.email == user.mail),
             None,
         )
         if replying_attendee is None:
@@ -81,7 +81,7 @@ class ImipBuilder:
         return ImipMessage(
             method=ImipMethod.REPLY,
             event=reply_event,
-            from_email=user.uid,
+            from_email=user.mail,
             to_emails=[event.organizer.email],
             ical_content=ical,
         )

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-# pylint: disable=raise-missing-from
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
@@ -80,9 +79,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         source: CalendarSource = self._sources.get(cal)
         return source.save_calendar(cal)
 
-    # ------------------------------------------------------------------
     # Calendars
-    # ------------------------------------------------------------------
     def get_all_calendars(self, user: User, shared_keys: list[str] | None = None) -> list[CalCalendar]:
         """Return all calendars accessible by the user.
 
@@ -138,9 +135,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         source: CalendarSource = self.get_calendar(user, key)
         source.delete_calendar()
 
-    # ------------------------------------------------------------------
     # Events — internal helpers
-    # ------------------------------------------------------------------
     @staticmethod
     def _normalize_all_day(event: CalEvent) -> None:
         """Ensure all-day events have a valid exclusive DTEND (RFC 5545 §3.6.1).
@@ -175,9 +170,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
 
         return source
 
-    # ------------------------------------------------------------------
     # Events — CRUD
-    # ------------------------------------------------------------------
     def create_event(self, calendar_user: CalendarUser, calendar_key: str, event: CalEvent, organizer: CalOrganizer) -> CalEvent:
         """Persist a new event in the calendar and propagate it to local attendees."""
         event.apply_defaults()
@@ -204,8 +197,8 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         except RequestException:
             raise
         except Exception as exc:
-            logger_calendar.error("Unexpected error creating event in calendar %s: %s", calendar_key, exc)
-            raise RequestException(error=err.ERROR_CALENDAR_EVENT_INSERT_FAILED)
+            logger_calendar.exception("Unexpected error creating event in calendar %s", calendar_key)
+            raise RequestException(error=err.ERROR_CALENDAR_EVENT_INSERT_FAILED) from exc
 
     def get_event(self, calendar_user: CalendarUser, event_key: str) -> CalEvent:
         """Return a single event by key across the user's calendars, or raise NOT_FOUND."""
@@ -218,7 +211,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         perms: CalendarPermissions = self._acl.get_permissions(source.calendar, calendar_user)
         self._acl.check_permission(perms, CalendarPermissionAction.MODIFY)
         # Only the organizer can modify event content (RFC 5545 §3.8.4.3)
-        if event.organizer and event.organizer.email != calendar_user.owner.uid:
+        if event.organizer and event.organizer.email != calendar_user.owner.mail:
             raise RequestException(error=err.ERROR_CALENDAR_NOT_ORGANIZER)
         event_update.validate()
 
@@ -238,8 +231,8 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         except RequestException:
             raise
         except Exception as exc:
-            logger_calendar.error("Unexpected error updating event %s: %s", event_key, exc)
-            raise RequestException(error=err.ERROR_CALENDAR_EVENT_UPDATE_FAILED)
+            logger_calendar.exception("Unexpected error updating event %s", event_key)
+            raise RequestException(error=err.ERROR_CALENDAR_EVENT_UPDATE_FAILED) from exc
 
     def delete_event(self, calendar_user: CalendarUser, event_key: str) -> None:
         """Soft-delete an event by key and propagate the deletion to attendees.
@@ -259,7 +252,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
             else:
                 source.delete_event(event.uid)
             # Propagate deletion to attendees if the user is the organizer
-            is_organizer: bool = bool(event.organizer and event.organizer.email == calendar_user.owner.uid)
+            is_organizer: bool = bool(event.organizer and event.organizer.email == calendar_user.owner.mail)
             if is_organizer:
                 self._sources.propagate(scope_result=ScopeResult(
                     result=event, touched=[(event, EventAction.DELETE)],
@@ -271,8 +264,8 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         except RequestException:
             raise
         except Exception as exc:
-            logger_calendar.error("Unexpected error deleting event %s: %s", event_key, exc)
-            raise RequestException(error=err.ERROR_UNKOWN)
+            logger_calendar.exception("Unexpected error deleting event %s", event_key)
+            raise RequestException(error=err.ERROR_UNKOWN) from exc
 
     def get_events(
         self,
@@ -297,12 +290,10 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         except RequestException:
             raise
         except Exception as exc:
-            logger_calendar.error("Unexpected error fetching events (calendar=%s): %s", key, exc)
-            raise RequestException(error=err.ERROR_UNKOWN)
+            logger_calendar.exception("Unexpected error fetching events (calendar=%s)", key)
+            raise RequestException(error=err.ERROR_UNKOWN) from exc
 
-    # ------------------------------------------------------------------
     # Attendance
-    # ------------------------------------------------------------------
     def set_attendance_status(
         self, calendar_user: CalendarUser, event_key: str, status: AttendeeStatus, recurrence_id: datetime | None = None,
     ) -> CalEvent:
@@ -329,12 +320,12 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
             event = source.get_or_create_occurrence(event, recurrence_id)
 
         for attendee in event.attendees:
-            if attendee.email == calendar_user.owner.uid:
+            if attendee.email == calendar_user.owner.mail:
                 attendee.status = status
                 break
         try:
             source.update_event(event)
-            source.propagate_partstat_to_copies(event, calendar_user.owner.uid, status)
+            source.propagate_partstat_to_copies(event, calendar_user.owner.mail, status)
             imip_msg: ImipMessage | None = ImipBuilder.build_reply(event, calendar_user.user)
             if imip_msg:
                 logger_calendar.info("iMIP REPLY built for event %s to %s", event.uid, imip_msg.to_emails)
@@ -343,13 +334,11 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         except RequestException:
             raise
         except Exception as exc:
-            logger_calendar.error("Unexpected error updating attendance for event %s: %s", event_key, exc)
-            raise RequestException(error=err.ERROR_CALENDAR_ATTENDANCE_UPDATE_FAILED)
+            logger_calendar.exception("Unexpected error updating attendance for event %s", event_key)
+            raise RequestException(error=err.ERROR_CALENDAR_ATTENDANCE_UPDATE_FAILED) from exc
 
 
-    # ------------------------------------------------------------------
     # iMIP — thin wrappers delegating to ImipProcessor
-    # ------------------------------------------------------------------
     def process_imip_reply(self, calendar_user: CalendarUser, ical_bytes: bytes, from_email: str) -> CalEvent:
         """Process an incoming iMIP REPLY. Delegates to ImipProcessor."""
         return self._imip.process_reply(calendar_user.user, ical_bytes, from_email)
@@ -362,9 +351,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         """Process an incoming iMIP CANCEL. Delegates to ImipProcessor."""
         self._imip.process_cancel(calendar_user.user, ical_bytes, from_email)
 
-    # ------------------------------------------------------------------
     # Tasks
-    # ------------------------------------------------------------------
     def create_task(self, calendar_user: CalendarUser, calendar_key: str, task: CalEvent) -> CalEvent:
         """Persist a new VTODO in the calendar and return it."""
         task.apply_defaults()
@@ -380,8 +367,8 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         except RequestException:
             raise
         except Exception as exc:
-            logger_calendar.error("Unexpected error creating task in calendar %s: %s", calendar_key, exc)
-            raise RequestException(error=err.ERROR_CALENDAR_EVENT_INSERT_FAILED)
+            logger_calendar.exception("Unexpected error creating task in calendar %s", calendar_key)
+            raise RequestException(error=err.ERROR_CALENDAR_EVENT_INSERT_FAILED) from exc
 
     def get_task(self, calendar_user: CalendarUser, task_key: str) -> CalEvent:
         """Return a single VTODO by key, or raise TASK_NOT_FOUND."""
@@ -404,8 +391,8 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         except RequestException:
             raise
         except Exception as exc:
-            logger_calendar.error("Unexpected error updating task %s: %s", task_key, exc)
-            raise RequestException(error=err.ERROR_CALENDAR_EVENT_UPDATE_FAILED)
+            logger_calendar.exception("Unexpected error updating task %s", task_key)
+            raise RequestException(error=err.ERROR_CALENDAR_EVENT_UPDATE_FAILED) from exc
 
     def delete_task(self, calendar_user: CalendarUser, task_key: str) -> None:
         """Soft-delete a VTODO by key."""
@@ -420,8 +407,8 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         except RequestException:
             raise
         except Exception as exc:
-            logger_calendar.error("Unexpected error deleting task %s: %s", task_key, exc)
-            raise RequestException(error=err.ERROR_UNKOWN)
+            logger_calendar.exception("Unexpected error deleting task %s", task_key)
+            raise RequestException(error=err.ERROR_UNKOWN) from exc
 
     def get_tasks(
         self,
@@ -446,12 +433,10 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         except RequestException:
             raise
         except Exception as exc:
-            logger_calendar.error("Unexpected error fetching tasks (calendar=%s): %s", key, exc)
-            raise RequestException(error=err.ERROR_UNKOWN)
+            logger_calendar.exception("Unexpected error fetching tasks (calendar=%s)", key)
+            raise RequestException(error=err.ERROR_UNKOWN) from exc
 
-    # ------------------------------------------------------------------
     # Reminders
-    # ------------------------------------------------------------------
     def get_reminders(
         self,
         calendar_user: CalendarUser,
@@ -505,9 +490,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
             lookahead_minutes=lookahead_minutes,
         )
 
-    # ------------------------------------------------------------------
     # External calendar sync
-    # ------------------------------------------------------------------
     def sync_external_calendar(self, user: User, key: str) -> CalSyncResult:
         """Run a synchronous sync for an external ICS calendar."""
         # TODO: dispatch as Celery task instead of synchronous call
@@ -529,9 +512,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
             sync_error=config.get("sync_error"),
         )
 
-    # ------------------------------------------------------------------
     # Maintenance
-    # ------------------------------------------------------------------
     # TODO: Implement in admin API
     def clean(self, user_uid: str | None = None, calendar_key: str | None = None) -> int:
         """Physically remove soft-deleted event and reminder rows.
@@ -552,9 +533,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
             total += repo_reminder.purge_deleted()
         return total
 
-    # ------------------------------------------------------------------
     # FreeBusy
-    # ------------------------------------------------------------------
     def get_freebusy(
         self,
         target_uid: str,
@@ -580,5 +559,5 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         except RequestException:
             raise
         except Exception as exc:
-            logger_calendar.error("Unexpected error computing freebusy for uid=%s: %s", target_uid, exc)
-            raise RequestException(error=err.ERROR_UNKOWN)
+            logger_calendar.exception("Unexpected error computing freebusy for uid=%s", target_uid)
+            raise RequestException(error=err.ERROR_UNKOWN) from exc

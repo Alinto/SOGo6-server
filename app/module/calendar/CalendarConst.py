@@ -29,3 +29,7 @@ MAX_ICS_REDIRECTS: int = 3
 
 # TTL in seconds for the Redis sync lock (safety net for stuck syncs).
 SYNC_LOCK_TTL_SECONDS: int = 300
+
+# Maximum number of years over which an unbounded recurrence is expanded.
+# Hard bound used by RruleEngine.get_max_date when neither UNTIL nor COUNT caps the series.
+MAX_RRULE_EXPANSION_YEARS: int = 10

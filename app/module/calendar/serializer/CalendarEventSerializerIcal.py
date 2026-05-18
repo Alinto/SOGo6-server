@@ -25,9 +25,7 @@ from app.module.calendar.serializer.CalendarEventSerializer import CalendarEvent
 if TYPE_CHECKING:
     from app.module.calendar.model.CalEvent import CalEvent
 
-# ---------------------------------------------------------------------------
 # Module-level reverse mapping tables — enum → RFC 5545 string value.
-# ---------------------------------------------------------------------------
 
 _STATUS_OUT: dict[EventStatus, str] = {
     EventStatus.CONFIRMED: "CONFIRMED",
@@ -99,9 +97,7 @@ class CalendarEventSerializerIcal(CalendarEventSerializer[str]):
     Uses the icalendar library for encoding, folding, and escaping.
     """
 
-    # ------------------------------------------------------------------
     # Public interface
-    # ------------------------------------------------------------------
 
     def serialize(self, event: CalEvent) -> str:  # pylint: disable=arguments-renamed
         """
@@ -147,9 +143,7 @@ class CalendarEventSerializerIcal(CalendarEventSerializer[str]):
         """Build a VTODO component from a CalEvent without the VCALENDAR wrapper."""
         return self._build_vtodo(event)
 
-    # ------------------------------------------------------------------
     # VEVENT builder
-    # ------------------------------------------------------------------
 
     def _build_vevent(self, event: CalEvent) -> Event:
         """Build a complete VEVENT component from a CalEvent."""
@@ -184,9 +178,7 @@ class CalendarEventSerializerIcal(CalendarEventSerializer[str]):
             vtodo.add(prop_name, prop_value)
         return vtodo
 
-    # ------------------------------------------------------------------
     # Property group builders
-    # ------------------------------------------------------------------
 
     def _add_core(self, vevent: Event, event: CalEvent) -> None:
         """Add UID, SUMMARY, DESCRIPTION, LOCATION, URL, SEQUENCE, CATEGORIES, COLOR."""
@@ -305,9 +297,7 @@ class CalendarEventSerializerIcal(CalendarEventSerializer[str]):
             alarm.add("description", "Reminder")
             vevent.add_component(alarm)
 
-    # ------------------------------------------------------------------
     # Component formatters
-    # ------------------------------------------------------------------
 
     @staticmethod
     def _format_organizer(organizer: CalOrganizer) -> vCalAddress:

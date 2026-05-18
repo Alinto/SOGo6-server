@@ -44,8 +44,8 @@ class ImipProcessor:
         except RequestException:
             raise
         except Exception as exc:
-            logger_calendar.error("Failed to parse iMIP bytes: %s", exc)
-            raise RequestException(error=err.ERROR_CALENDAR_ICS_PARSE_FAILED)
+            logger_calendar.exception("Failed to parse iMIP bytes")
+            raise RequestException(error=err.ERROR_CALENDAR_ICS_PARSE_FAILED) from exc
         if message.method != expected_method:
             raise RequestException(error=err.ERROR_CALENDAR_IMIP_INVALID_REQUEST)
         return message
@@ -91,8 +91,8 @@ class ImipProcessor:
         except RequestException:
             raise
         except Exception as exc:
-            logger_calendar.error("Unexpected error processing iMIP reply for event %s: %s", message.event.uid, exc)
-            raise RequestException(error=err.ERROR_CALENDAR_EVENT_UPDATE_FAILED)
+            logger_calendar.exception("Unexpected error processing iMIP reply for event %s", message.event.uid)
+            raise RequestException(error=err.ERROR_CALENDAR_EVENT_UPDATE_FAILED) from exc
 
     def process_request(self, user: User, ical_bytes: bytes, from_email: str) -> CalEvent:
         """Process an incoming iMIP REQUEST, adding or updating the event in the user's calendar.
@@ -129,10 +129,10 @@ class ImipProcessor:
             except RequestException:
                 raise
             except Exception as exc:
-                logger_calendar.error(
-                    "Unexpected error updating iMIP REQUEST event uid=%s: %s", message.event.uid, exc
+                logger_calendar.exception(
+                    "Unexpected error updating iMIP REQUEST event uid=%s", message.event.uid,
                 )
-                raise RequestException(error=err.ERROR_CALENDAR_EVENT_UPDATE_FAILED)
+                raise RequestException(error=err.ERROR_CALENDAR_EVENT_UPDATE_FAILED) from exc
 
         # Event not in user's calendars — insert into the default calendar
         default_source: CalendarSource | None = self._sources.get_default(user.uid)
@@ -145,11 +145,11 @@ class ImipProcessor:
         except RequestException:
             raise
         except Exception as exc:
-            logger_calendar.error(
-                "Unexpected error inserting iMIP REQUEST event uid=%s from=%s: %s",
-                message.event.uid, from_email, exc,
+            logger_calendar.exception(
+                "Unexpected error inserting iMIP REQUEST event uid=%s from=%s",
+                message.event.uid, from_email,
             )
-            raise RequestException(error=err.ERROR_CALENDAR_EVENT_INSERT_FAILED)
+            raise RequestException(error=err.ERROR_CALENDAR_EVENT_INSERT_FAILED) from exc
 
     def process_cancel(self, user: User, ical_bytes: bytes, from_email: str) -> None:
         """Process an incoming iMIP CANCEL, removing the event from the user's calendar.
@@ -187,7 +187,7 @@ class ImipProcessor:
         except RequestException:
             raise
         except Exception as exc:
-            logger_calendar.error(
-                "Unexpected error processing iMIP cancel for event uid=%s: %s", message.event.uid, exc
+            logger_calendar.exception(
+                "Unexpected error processing iMIP cancel for event uid=%s", message.event.uid,
             )
-            raise RequestException(error=err.ERROR_UNKOWN)
+            raise RequestException(error=err.ERROR_UNKOWN) from exc

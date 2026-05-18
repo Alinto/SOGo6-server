@@ -5,6 +5,7 @@ from typing import Any
 
 from app.module.calendar.model.CalFreeBusyPeriod import CalFreeBusyPeriod
 from app.module.calendar.model.enums.FreeBusyType import FreeBusyType
+from app.module.calendar.serializer.Deserializer import Deserializer
 
 _JSON_TYPE_TO_FB: dict[str, FreeBusyType] = {
     FreeBusyType.BUSY.value: FreeBusyType.BUSY,
@@ -13,7 +14,7 @@ _JSON_TYPE_TO_FB: dict[str, FreeBusyType] = {
 }
 
 
-class FreeBusyDeserializerDict:
+class FreeBusyDeserializerDict(Deserializer[dict[str, Any], dict[str, list[CalFreeBusyPeriod]]]):
     """Deserializes a FreeBusy dict (as produced by FreeBusySerializerDict) into periods per attendee."""
 
     @staticmethod
