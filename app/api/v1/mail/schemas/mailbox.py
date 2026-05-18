@@ -218,6 +218,59 @@ class MailOutgoingUpdateSchema(Schema):
             "type": "smtp"
         }
 
+class AttachmentSchema(Schema):
+    """
+    Schema for a mail attachment
+    """
+    filename = fields.String(required=False, load_default="file")
+    data = fields.Raw(required=True, metadata={"description": "Raw binary data of the attachment"})
+
+
+class SendMailQuerySchema(Schema):
+    """
+    Query parameters for POST /mailboxes/<account_id>/send
+    """
+    uid = fields.String(required=False, load_default=None, metadata={"description": "UID of the draft mail to delete after sending"})
+
+
+class SendMailSchema(Schema):
+    """
+    Schema for POST /mailboxes/<account_id>/send - Send an email
+    """
+    from_addr = fields.Email(required=True, data_key="from")
+    to = fields.List(fields.Email(), required=True, validate=validate.Length(min=1))
+    subject = fields.String(required=False, load_default="")
+    body = fields.String(required=False, load_default="")
+    cc = fields.List(fields.Email(), required=False, load_default=[])
+    bcc = fields.List(fields.Email(), required=False, load_default=[])
+    return_receipt = fields.Email(required=False, allow_none=True, load_default=None)
+    attachments = fields.List(fields.Nested(AttachmentSchema), required=False, load_default=[]) #TODO : à revoir
+
+    @classmethod
+    def example(cls) -> dict:
+        return {
+            "from": "sogo-tests1@example.org",
+            "to": ["sogo-tests1@example.org"],
+            "subject": "Hello",
+            "body": "Hello world! commment ça va ?",
+            "cc": [],
+            "bcc": [],
+            "return_receipt": None,
+            "attachments": []
+        }
+
+
+class SendMailResponseSchema(ApiBaseResponse):
+    """
+    Schema for response when sending a mail
+    """
+    data = fields.Dict(required=False, allow_none=True)
+
+    @classmethod
+    def example(cls) -> dict:
+        return {}
+
+
 class QuotaSchema(Schema):
     """
     Schema for mailbox quota information

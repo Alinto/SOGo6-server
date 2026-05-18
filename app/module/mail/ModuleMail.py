@@ -7,6 +7,7 @@ from email.utils import parseaddr, getaddresses
 from io import BytesIO
 from re import search as reg_search
 import zipfile
+from email.message import EmailMessage
 
 from app.config.settings.UserSettings import UserMailViewSettings, UserMailViewSettingsObj, UserMailGeneralSettings
 from app.manager.mail.ClientMailServer import ClientMailServer
@@ -682,6 +683,18 @@ class ModuleMail:
         client = self._open_client_for(account_id)
         client.delete_mails_by_uid(folder_path, mail_uids, move_to_trash=move_to_trash, permanently=permanently)
 
+    def delete_draft_mail(self, account_id: str, draft_uid: str) -> None:
+        """Permanently delete a draft mail without moving it to Trash.
+
+        :param account_id: The account identifier.
+        :type account_id: str
+        :param draft_uid: The UID of the draft mail to delete.
+        :type draft_uid: str
+        :raises RequestException: If deletion fails
+        """
+        client = self._open_client_for(account_id)
+        client.delete_mail_permanently_from_folder_type(cs.MAIL_FOLDER_DRAFT, draft_uid)
+
     def move_mails(self, from_folder: str, mail_uids: list[int], to_folder: str) -> dict[str, Any]:
         """Move multiple mails from one folder to another.
 
@@ -806,6 +819,20 @@ class ModuleMail:
 
         raw_content = client.fetch_mail_raw(folder_name, mail_uid)
         return {"raw": raw_content}
+
+    def save_mail_to_folder(self, account_id: str, message: EmailMessage, folder_type: str) -> None:
+        """Append an already-built email message to a folder identified by its type.
+
+        :param account_id: The account identifier
+        :type account_id: str
+        :param message: The email message to save.
+        :type message: EmailMessage
+        :param folder_type: The folder type constant to save into (e.g. cs.MAIL_FOLDER_SENT).
+        :type folder_type: str
+        :raises RequestException: If the operation fails.
+        """
+        client = self._open_client_for(account_id)
+        client.save_mail_to_folder(message, folder_type)
 
     def perform_mail_action(self, account_id:str, folder_name: str, mail_uid: str, action_data: dict) -> dict[str, Any]:
         """Perform an action on a specific mail.
