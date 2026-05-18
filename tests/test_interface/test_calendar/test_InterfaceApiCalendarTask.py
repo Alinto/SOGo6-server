@@ -3,6 +3,8 @@
 from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
+from app.module.calendar.model.CalendarUser import CalendarUser
+
 import pytest
 
 from app.interface.calendar.InterfaceApiCalendarCalendar import InterfaceApiCalendarCalendar
@@ -233,7 +235,7 @@ def test_delete_task_success():
     response, _ = inter.delete_task("task-key")
     assert response["error_code"] == "S000000"
     assert response["data"] is None
-    module.delete_task.assert_called_once_with(inter.user, "task-key")
+    module.delete_task.assert_called_once_with(CalendarUser(user=inter.user, owner=inter.user), "task-key")
 
 
 def test_delete_task_not_found_returns_error():

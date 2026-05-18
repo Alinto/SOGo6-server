@@ -2,6 +2,8 @@
 from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
+from app.module.calendar.model.CalendarUser import CalendarUser
+
 import pytest
 
 from app.module.calendar.CalendarConst import MAX_EVENT_FETCH_DAYS
@@ -87,7 +89,8 @@ class FakeCalendarSource(CalendarSource):
 def _fake_user(uid="user@example.com"):
     user = MagicMock()
     user.uid = uid
-    return user
+    user.mail = uid
+    return CalendarUser(user=user, owner=user)
 
 
 def _build_module(sources: dict):
@@ -95,6 +98,7 @@ def _build_module(sources: dict):
     module = object.__new__(ModuleCalendar)
     module._db = MagicMock()
     module._cache = MagicMock()
+    module._acl = MagicMock()
     sources_mock = MagicMock()
     sources_mock.get_all.return_value = list(sources.values())
     sources_mock.get_by_key.side_effect = lambda uid, key: sources.get(key)
@@ -183,12 +187,13 @@ def test_create_event_bumps_ctag():
     assert source.calendar.ctag == 1
 
 
-def test_create_event_raises_on_read_only_source():
-    source = _make_source("cal-key", writable=False)
+def test_create_event_raises_on_acl_denied():
+    source = _make_source("cal-key")
     module = _build_module({"cal-key": source})
+    module._acl.check_permission.side_effect = RequestException(error=err.ERROR_CALENDAR_ACCESS_DENIED)
     with pytest.raises(RequestException) as exc_info:
         module.create_event(_fake_user(), "cal-key", _make_event(), CalOrganizer(email="user@example.com"))
-    assert exc_info.value.error == err.ERROR_CALENDAR_NOT_SUPPORTED
+    assert exc_info.value.error == err.ERROR_CALENDAR_ACCESS_DENIED
 
 
 def test_create_event_raises_on_unknown_calendar():
@@ -238,13 +243,14 @@ def test_update_event_not_found_raises():
     assert exc_info.value.error == err.ERROR_CALENDAR_EVENT_NOT_FOUND
 
 
-def test_update_event_read_only_raises():
+def test_update_event_acl_denied():
     event = _make_event(key="evt-key")
-    source = _make_source(writable=False, events=[event])
+    source = _make_source(events=[event])
     module = _build_module({"cal-key": source})
+    module._acl.check_permission.side_effect = RequestException(error=err.ERROR_CALENDAR_ACCESS_DENIED)
     with pytest.raises(RequestException) as exc_info:
         module.update_event(_fake_user(), "evt-key", _merge(event), CalOrganizer(email="user@example.com"))
-    assert exc_info.value.error == err.ERROR_CALENDAR_NOT_SUPPORTED
+    assert exc_info.value.error == err.ERROR_CALENDAR_ACCESS_DENIED
 
 
 def test_update_event_attendee_cannot_modify():
@@ -325,13 +331,14 @@ def test_delete_event_not_found_raises():
     assert exc_info.value.error == err.ERROR_CALENDAR_EVENT_NOT_FOUND
 
 
-def test_delete_event_read_only_raises():
+def test_delete_event_acl_denied():
     event = _make_event(key="evt-key")
-    source = _make_source(writable=False, events=[event])
+    source = _make_source(events=[event])
     module = _build_module({"cal-key": source})
+    module._acl.check_permission.side_effect = RequestException(error=err.ERROR_CALENDAR_ACCESS_DENIED)
     with pytest.raises(RequestException) as exc_info:
         module.delete_event(_fake_user(), "evt-key")
-    assert exc_info.value.error == err.ERROR_CALENDAR_NOT_SUPPORTED
+    assert exc_info.value.error == err.ERROR_CALENDAR_ACCESS_DENIED
 
 
 # ========== delete_event — recurrence handling ==========

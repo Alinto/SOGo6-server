@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from app.module.calendar.model.enums.CalendarSourceType import CalendarSourceType
+
+if TYPE_CHECKING:
+    from app.module.calendar.model.CalendarPermissions import CalendarPermissions
 
 
 @dataclass
@@ -68,6 +71,9 @@ class CalCalendar:  # pylint: disable=too-many-instance-attributes,invalid-name
 
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+    # Transient — populated at read time by CalendarAclEngine, not persisted.
+    permissions: CalendarPermissions | None = None
 
     MUTABLE_FIELDS: frozenset[str] = frozenset({"name", "color", "description", "timezone", "is_default", "sync_config"})
 

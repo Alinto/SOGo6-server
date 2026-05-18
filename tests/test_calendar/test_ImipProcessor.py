@@ -4,6 +4,8 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from unittest.mock import MagicMock
 
+from app.module.calendar.model.CalendarUser import CalendarUser
+
 import pytest
 
 from app.module.calendar.ModuleCalendar import ModuleCalendar
@@ -65,7 +67,8 @@ def _build_imip_bytes(event: CalEvent, method: str) -> bytes:
 def _fake_user(uid="organizer@example.com"):
     user = MagicMock()
     user.uid = uid
-    return user
+    user.mail = uid
+    return CalendarUser(user=user, owner=user)
 
 
 class FakeImipSource(CalendarSource):

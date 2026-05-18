@@ -2,6 +2,8 @@
 from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
+from app.module.calendar.model.CalendarUser import CalendarUser
+
 import pytest
 
 from app.module.calendar.CalendarConst import MAX_TASK_FETCH_DAYS
@@ -80,11 +82,15 @@ class FakeTaskSource(CalendarSource):
 def _fake_user(uid="user@example.com"):
     user = MagicMock()
     user.uid = uid
-    return user
+    user.mail = uid
+    return CalendarUser(user=user, owner=user)
 
 
 def _build_module(sources: dict):
     module = object.__new__(ModuleCalendar)
+    module._db = MagicMock()
+    module._cache = MagicMock()
+    module._acl = MagicMock()
     sources_mock = MagicMock()
     sources_mock.get_all.return_value = list(sources.values())
     sources_mock.get_by_key.side_effect = lambda uid, key: sources.get(key)
@@ -129,12 +135,13 @@ def test_create_task_bumps_ctag():
     assert source.calendar.ctag == 1
 
 
-def test_create_task_raises_on_read_only():
-    source = _make_source(writable=False)
+def test_create_task_raises_on_acl_denied():
+    source = _make_source()
     module = _build_module({"cal-key": source})
+    module._acl.check_permission.side_effect = RequestException(error=err.ERROR_CALENDAR_ACCESS_DENIED)
     with pytest.raises(RequestException) as exc_info:
         module.create_task(_fake_user(), "cal-key", _make_task())
-    assert exc_info.value.error == err.ERROR_CALENDAR_NOT_SUPPORTED
+    assert exc_info.value.error == err.ERROR_CALENDAR_ACCESS_DENIED
 
 
 def test_create_task_raises_on_unknown_calendar():
