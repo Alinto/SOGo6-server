@@ -8,7 +8,7 @@ import base64
 
 from app.manager.outgoing.ClientOutgoing import ClientOutgoing
 from app.utils.exceptions import BugException, RequestException
-from app.utils.logger.logger import logger_mail_server
+from app.utils.logger.logger import logger_mail_outgoing
 from app.utils import errors as err
 from app.utils import constants as cs
 
@@ -41,31 +41,30 @@ class ClientSmtp(ClientOutgoing):
         try:
             if self.encryption == cs.SOCKET_ENC_PLAIN:
                 self.connection = smtplib.SMTP(self.server, self.port)
-                self.connection.ehlo() #TODO: retirer ça?
-
             elif self.encryption == cs.SOCKET_ENC_EXPLICIT_TLS:
                 self.connection = smtplib.SMTP(self.server, self.port)
-                self.connection.ehlo() #TODO: retirer ça?
                 self.connection.starttls()
-                self.connection.ehlo()  # Re-negotiate after STARTTLS to get updated extensions #TODO: retirer ça?
-
-            # elif self.encryption == cs.SOCKET_ENC_IMPLICIT_TLS:
-            #    self.connection = smtplib.SMTP_SSL(self.server, self.port) # TODO check
-
+            elif self.encryption == cs.SOCKET_ENC_IMPLICIT_TLS:
+                self.connection = smtplib.SMTP_SSL(self.server, self.port) # TODO check
             else:
                 raise BugException(f"Unknown encryption given: {self.encryption}")
 
+            if self.connection:
+                self.connection.set_debuglevel(1) #TODO: Link that to a admin debug settings
+                self.connection.ehlo() #TODO: retirer ça?
+                logger_mail_outgoing.info(self.connection.esmtp_features)
+
             self.connected = True
-            logger_mail_server.info("Successfully connected to SMTP server %s:%d", self.server, self.port)
+            logger_mail_outgoing.info("Successfully connected to SMTP server %s:%d", self.server, self.port)
 
         except smtplib.SMTPConnectError as e:
-            logger_mail_server.error("SMTP connect error to %s:%d - %s", self.server, self.port, e)
+            logger_mail_outgoing.error("SMTP connect error to %s:%d - %s", self.server, self.port, e)
             raise RequestException(str(e), err.ERROR_SMTP_CONNECT_ERROR) from e
         except smtplib.SMTPServerDisconnected as e:
-            logger_mail_server.error("SMTP server disconnected %s:%d - %s", self.server, self.port, e)
+            logger_mail_outgoing.error("SMTP server disconnected %s:%d - %s", self.server, self.port, e)
             raise RequestException(str(e), err.ERROR_SMTP_SERVER_DISCONNECTED) from e
         except (gaierror, sock_timeout, TimeoutError, ConnectionRefusedError, SSLError, smtplib.SMTPException) as e:
-            logger_mail_server.error("SMTP connection error to %s:%d - %s", self.server, self.port, e)
+            logger_mail_outgoing.error("SMTP connection error to %s:%d - %s", self.server, self.port, e)
             raise RequestException(str(e), err.ERROR_SMTP_CONNECTION_FAILED) from e
 
     def login(self, username: str, password: str, authname: str = "") -> None:
@@ -83,17 +82,17 @@ class ClientSmtp(ClientOutgoing):
         if self.connection is None:
             raise BugException("Cannot login: not connected to SMTP server", err.ERROR_SMTP_FAILED)
 
-        logger_mail_server.info("Logging in as %s using auth_mech=%s", username, self.auth_mech)
+        logger_mail_outgoing.info("Logging in as %s using auth_mech=%s", username, self.auth_mech)
 
         try:
             if self.auth_mech == "None":
                 # No authentication required
                 pass
 
-            elif self.auth_mech == "plain":
+            elif self.auth_mech == "login":
                 self.connection.login(username, password)
 
-            elif self.auth_mech == "auth":
+            elif self.auth_mech == "plain":
                 authcid = authname if authname else username
                 credentials = base64.b64encode(
                     f"{username}\x00{authcid}\x00{password}".encode()
@@ -114,16 +113,16 @@ class ClientSmtp(ClientOutgoing):
                 raise BugException(f"Unsupported SMTP authentication mechanism: {self.auth_mech}", err.ERROR_SMTP_UNKNWON_AUTH_MECH)
 
             self.authenticated = True
-            logger_mail_server.info("Successfully authenticated to SMTP server as %s", username)
+            logger_mail_outgoing.info("Successfully authenticated to SMTP server as %s", username)
 
         except smtplib.SMTPAuthenticationError as e:
-            logger_mail_server.error("SMTP authentication error for %s: %s", username, e)
+            logger_mail_outgoing.error("SMTP authentication error for %s: %s", username, e)
             raise RequestException(str(e), err.ERROR_SMTP_UNAUTHORIZED) from e
         except smtplib.SMTPResponseException as e:
-            logger_mail_server.error("SMTP response error for %s: %s", username, e)
+            logger_mail_outgoing.error("SMTP response error for %s: %s", username, e)
             raise RequestException(str(e), err.ERROR_SMTP_RESPONSE_ERROR) from e
         except smtplib.SMTPException as e:
-            logger_mail_server.error("SMTP login error for %s: %s", username, e)
+            logger_mail_outgoing.error("SMTP login error for %s: %s", username, e)
             raise RequestException(str(e), err.ERROR_SMTP_FAILED) from e
 
     def send_mail(self, message: Message) -> None:
@@ -137,23 +136,23 @@ class ClientSmtp(ClientOutgoing):
         try:
             self.connection.send_message(message)
         except smtplib.SMTPAuthenticationError as e:
-            logger_mail_server.error("SMTP authentication error while sending mail: %s", e)
+            logger_mail_outgoing.error("SMTP authentication error while sending mail: %s", e)
             raise RequestException(str(e), err.ERROR_SMTP_UNAUTHORIZED) from e
         except smtplib.SMTPServerDisconnected as e:
-            logger_mail_server.error("SMTP server disconnected while sending mail: %s", e)
+            logger_mail_outgoing.error("SMTP server disconnected while sending mail: %s", e)
             raise RequestException(str(e), err.ERROR_SMTP_SERVER_DISCONNECTED) from e
         except smtplib.SMTPRecipientsRefused as e:
-            logger_mail_server.error("SMTP recipients refused while sending mail: %s", e)
+            logger_mail_outgoing.error("SMTP recipients refused while sending mail: %s", e)
             raise RequestException(str(e), err.ERROR_SMTP_RECIPIENTS_REFUSED) from e
         except smtplib.SMTPSenderRefused as e:
-            logger_mail_server.error("SMTP sender refused while sending mail: %s", e)
+            logger_mail_outgoing.error("SMTP sender refused while sending mail: %s", e)
             raise RequestException(str(e), err.ERROR_SMTP_SENDER_REFUSED) from e
         except smtplib.SMTPDataError as e:
-            logger_mail_server.error("SMTP data error while sending mail: %s", e)
+            logger_mail_outgoing.error("SMTP data error while sending mail: %s", e)
             raise RequestException(str(e), err.ERROR_SMTP_DATA_ERROR) from e
         except smtplib.SMTPResponseException as e:
-            logger_mail_server.error("SMTP response error while sending mail: %s", e)
+            logger_mail_outgoing.error("SMTP response error while sending mail: %s", e)
             raise RequestException(str(e), err.ERROR_SMTP_RESPONSE_ERROR) from e
         except smtplib.SMTPException as e:
-            logger_mail_server.error("SMTP error while sending mail: %s", e)
+            logger_mail_outgoing.error("SMTP error while sending mail: %s", e)
             raise RequestException(str(e), err.ERROR_SMTP_FAILED) from e
