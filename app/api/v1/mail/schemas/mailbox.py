@@ -655,3 +655,70 @@ class MailboxPurgeResponseSchema(ApiBaseResponse):
                 "mails_deleted": 42
             }
         }
+
+class SaveDraftSchema(Schema):
+    """
+    Schema for POST /mailboxes/<account_id>/mail/save - Save a mail as a draft.
+    All fields are optional since a draft may be incomplete.
+    """
+    from_addr = fields.Email(required=False, allow_none=True, data_key="from")
+    to = fields.List(fields.Email(), required=False, load_default=[])
+    subject = fields.String(required=False, load_default="")
+    body = fields.String(required=False, load_default="")
+    cc = fields.List(fields.Email(), required=False, load_default=[])
+    bcc = fields.List(fields.Email(), required=False, load_default=[])
+    return_receipt = fields.Email(required=False, allow_none=True, load_default=None)
+
+    @classmethod
+    def example(cls) -> dict:
+        """Example data for saving a draft.
+
+        :return: Example save draft payload
+        :rtype: dict
+        """
+        return {
+            "from": "user@example.com",
+            "to": ["recipient@example.com"],
+            "subject": "Draft subject",
+            "body": "Draft body content",
+            "cc": [],
+            "bcc": []
+        }
+
+
+class SaveDraftQuerySchema(Schema):
+    """
+    Query parameters schema for POST /mailboxes/<account_id>/mail/save.
+    """
+    uid = fields.String(
+        required=False,
+        load_default=None,
+        allow_none=True,
+        metadata={"description": "UID of an existing draft to replace. If omitted or not found, a new draft is created."},
+    )
+
+
+class SaveDraftResponseSchema(ApiBaseResponse):
+    """
+    Schema for response when saving a mail draft.
+    """
+    data = fields.Dict(required=False, allow_none=True)
+
+    @classmethod
+    def example(cls) -> dict:
+        """Example response for saving a draft.
+
+        :return: Example save draft response
+        :rtype: dict
+        """
+        return {
+            "error_code": 0,
+            "error_msg": "",
+            "data": {
+                "uid": "123",
+                "subject": "Draft subject",
+                "from": "user@example.com",
+                "to": ["recipient@example.com"],
+                "body": "Draft body content"
+            }
+        }
