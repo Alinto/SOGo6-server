@@ -1663,3 +1663,82 @@ class TestIsFolderSubscribed:
         client.connection = None
         with pytest.raises(BugException):
             client._is_folder_subscribed("INBOX")
+
+
+class TestBuildSearchCriteria:
+    """Tests for ClientImap.build_search_criteria, in particular the AND/OR operator."""
+
+    def test_default_operator_is_and(self):
+        client = make_client()
+        criteria = client.build_search_criteria(
+            {"subject": "Projet X", "from_": "a@b.com"}, include_deleted=False
+        )
+        assert criteria == '(NOT DELETED FROM "a@b.com" SUBJECT "Projet X")'
+
+    def test_explicit_and_operator_same_as_default(self):
+        client = make_client()
+        criteria = client.build_search_criteria(
+            {"operator": "AND", "subject": "Projet X", "from_": "a@b.com"}, include_deleted=False
+        )
+        assert criteria == '(NOT DELETED FROM "a@b.com" SUBJECT "Projet X")'
+
+    def test_or_operator_combines_two_fields(self):
+        client = make_client()
+        criteria = client.build_search_criteria(
+            {"operator": "OR", "subject": "Projet X", "from_": "a@b.com"}, include_deleted=False
+        )
+        assert criteria == '(NOT DELETED OR FROM "a@b.com" SUBJECT "Projet X")'
+
+    def test_or_operator_combines_more_than_two_fields(self):
+        client = make_client()
+        criteria = client.build_search_criteria(
+            {"operator": "OR", "subject": "Projet X", "from_": "a@b.com", "is_read": False},
+            include_deleted=False,
+        )
+        assert criteria == '(NOT DELETED OR FROM "a@b.com" (OR SUBJECT "Projet X" UNSEEN))'
+
+    def test_or_operator_with_single_field_has_no_or_keyword(self):
+        client = make_client()
+        criteria = client.build_search_criteria(
+            {"operator": "OR", "subject": "Projet X"}, include_deleted=False
+        )
+        assert criteria == '(NOT DELETED SUBJECT "Projet X")'
+
+    def test_not_deleted_is_always_anded_regardless_of_operator(self):
+        client = make_client()
+        criteria = client.build_search_criteria(
+            {"operator": "OR", "subject": "Projet X", "from_": "a@b.com"}, include_deleted=True
+        )
+        assert criteria == '(OR FROM "a@b.com" SUBJECT "Projet X")'
+
+    def test_or_operator_combines_to_with_another_field(self):
+        client = make_client()
+        criteria = client.build_search_criteria(
+            {"operator": "OR", "to": "x@y.com", "subject": "Projet X"},
+            include_deleted=False,
+        )
+        assert criteria == (
+            '(NOT DELETED OR (OR TO "x@y.com" CC "x@y.com") SUBJECT "Projet X")'
+        )
+
+    def test_to_field_matches_to_or_cc_header(self):
+        client = make_client()
+        criteria = client.build_search_criteria(
+            {"to": "x@y.com"}, include_deleted=False
+        )
+        assert criteria == '(NOT DELETED (OR TO "x@y.com" CC "x@y.com"))'
+
+    def test_bcc_field(self):
+        client = make_client()
+        criteria = client.build_search_criteria(
+            {"bcc": "x@y.com"}, include_deleted=False
+        )
+        assert criteria == '(NOT DELETED BCC "x@y.com")'
+
+    def test_no_criteria_returns_all(self):
+        client = make_client()
+        assert client.build_search_criteria({}, include_deleted=True) == "ALL"
+
+    def test_no_user_criteria_still_applies_not_deleted(self):
+        client = make_client()
+        assert client.build_search_criteria({}, include_deleted=False) == "(NOT DELETED)"

@@ -113,6 +113,10 @@ FOLDER_COUNT = "message_count"
 # tmp_draft
 TMP_DRAFT_KEY_SIZE = 32  # Length of the unique hash key for a tmp_draft entry
 
+# Mail "fields" query param values (used by collection_paginate on mail list/search endpoints)
+MAIL_FIELD_CONTENTS = "contents"  # Include/exclude the mail content (body, attachments, ...)
+MAIL_FIELD_DELETED  = "deleted"   # Include/exclude mails flagged as \Deleted
+
 # Mail deletion behavior mapping to (move_to_trash, permanently) flags
 DELETE_MAIL_BEHAVIOR_MAP = {
     # behavior                   move_to_trash  permanently

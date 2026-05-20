@@ -55,6 +55,24 @@ class FakeClientMailServer:
     def get_one_folder(self, folder_path):
         return self.get_one_folder_result
 
+    def get_folder_with_subfolders(self, folder_path, include_subfolders=True):
+        """Return the given folder path, optionally followed by the paths of all its subfolders.
+        
+        For the fake client, this just returns [folder_path] unless specific subfolders
+        are configured in the test via get_folder_with_subfolders_result.
+        
+        :param folder_path: The folder to start from
+        :type folder_path: str
+        :param include_subfolders: If True, also list every subfolder below folder_path
+        :type include_subfolders: bool
+        :return: List of folder paths
+        :rtype: list[str]
+        """
+        if hasattr(self, 'get_folder_with_subfolders_result'):
+            return self.get_folder_with_subfolders_result
+        # Default: just return the folder itself
+        return [folder_path]
+
     def create_folder(self, folder_name, parent_path=None):
         self.create_folder_calls.append((folder_name, parent_path))
         if self.create_folder_result is not None:
@@ -74,7 +92,7 @@ class FakeClientMailServer:
 
     # ---- mail methods ----
 
-    def fetch_all_mails_with_content(self, folder_name, number_of_mails, offset=0):
+    def fetch_all_mails_with_content(self, folder_name, number_of_mails, offset=0, include_deleted=True):
         """Returns an iterator: first item has {'nb_mails': int}, then mail dicts."""
         yield {'nb_mails': 0}
 
@@ -146,7 +164,7 @@ class FakeClientMailServer:
             {'name': 'Sent', 'path': 'Sent'}
         ]
 
-    def fetch_all_mails_without_content(self, mailbox, number_of_mails, offset=0):
+    def fetch_all_mails_without_content(self, mailbox, number_of_mails, offset=0, include_deleted=True):
         """Fetch all mails from a mailbox without content (used by get_folder_mails)."""
         yield {'nb_mails': 0}
 
@@ -157,6 +175,85 @@ class FakeClientMailServer:
     def delete_mail_permanently_from_folder_type(self, folder_type, uid):
         """Delete a mail permanently from a folder type."""
         pass
+
+    def search_mails_with_content(self, folders, criteria):
+        """Search mails with full content across folders. Yields (folder_path, mail_dict)."""
+        return iter(self.search_mails_result if hasattr(self, 'search_mails_result') else [])
+
+    def search_mails_without_content(self, folders, criteria):
+        """Search mails without body content across folders. Yields (folder_path, mail_dict)."""
+        return iter(self.search_mails_result if hasattr(self, 'search_mails_result') else [])
+
+    def build_search_criteria(self, search_params, include_deleted):
+        """Build search criteria from params (simplified for fake client).
+        
+        This is called by ModuleMail to convert generic search params into 
+        protocol-specific criteria. The fake implementation just returns
+        a simple string representation.
+        """
+        from datetime import datetime
+
+        # For the fake client, we just build a simple string
+        # In reality, this would be IMAP-specific syntax
+        criteria_parts = []
+
+        if search_params.get("text"):
+            criteria_parts.append(f"TEXT:{search_params['text']}")
+
+        if search_params.get("from"):
+            criteria_parts.append(f"FROM:{search_params['from']}")
+
+        if search_params.get("to"):
+            criteria_parts.append(f"TO:{search_params['to']}")
+
+        if search_params.get("subject"):
+            criteria_parts.append(f"SUBJECT:{search_params['subject']}")
+
+        if search_params.get("date_range"):
+            dr = search_params["date_range"]
+            if dr.get("start"):
+                # Validate start date format (YYYY-MM-DD)
+                try:
+                    datetime.strptime(dr['start'], '%Y-%m-%d')
+                except ValueError:
+                    raise RequestException(f"Invalid start date format: {dr['start']}, expected YYYY-MM-DD")
+                criteria_parts.append(f"SINCE:{dr['start']}")
+            if dr.get("end"):
+                # Validate end date format (YYYY-MM-DD)
+                try:
+                    datetime.strptime(dr['end'], '%Y-%m-%d')
+                except ValueError:
+                    raise RequestException(f"Invalid end date format: {dr['end']}, expected YYYY-MM-DD")
+                criteria_parts.append(f"BEFORE:{dr['end']}")
+        
+        if not include_deleted:
+            criteria_parts.append("NOT_DELETED")
+        
+        return " ".join(criteria_parts) if criteria_parts else "ALL"
+
+    @staticmethod
+    def parse_fields_param(fields, fields_action):
+        """Parse the generic "fields"/"fields_action" query params into flags.
+        
+        This is a static method from ClientMailServer base class that handles:
+        - "contents": whether to fetch mail content (heavy operation)
+        - "deleted": whether to include deleted mails
+        """
+        from app.utils import constants as cs
+
+        requested = set(fields.split(",")) if fields else set()
+
+        if not requested:
+            return {"with_content": True, "include_deleted": False}
+
+        if fields_action == "include":
+            with_content = cs.MAIL_FIELD_CONTENTS in requested
+            include_deleted = cs.MAIL_FIELD_DELETED in requested
+        else:
+            with_content = cs.MAIL_FIELD_CONTENTS not in requested
+            include_deleted = False
+
+        return {"with_content": with_content, "include_deleted": include_deleted}
 
 
 def _make_email_message(subject='Test', from_='sender@example.com',
@@ -290,7 +387,7 @@ def test_get_folder_mails_success(monkeypatch):
     mail1 = _make_email_message(subject='Test1')
     mail2 = _make_email_message(subject='Test2')
 
-    def fetch_all(folder_name, number_of_mails, offset=0):
+    def fetch_all(folder_name, number_of_mails, offset=0, include_deleted=True):
         yield {'nb_mails': 100}
         yield {'uid': '1', 'mail': mail1, 'flags': {'seen': True, 'flagged': False, 'answered': False, 'forwarded': False, 'deleted': False, 'all': ['\\Seen']}, 'size': 120}
         yield {'uid': '2', 'mail': mail2, 'flags': {'seen': False, 'flagged': False, 'answered': False, 'forwarded': False, 'deleted': False, 'all': []}, 'size': 120}
@@ -309,7 +406,7 @@ def test_get_folder_mails_empty_folder(monkeypatch):
     """Test getting mails from empty folder."""
     module, fake_client = _make_module(monkeypatch)
 
-    def fetch_all(folder_name, number_of_mails, offset=0):
+    def fetch_all(folder_name, number_of_mails, offset=0, include_deleted=True):
         yield {'nb_mails': 0}
 
     fake_client.fetch_all_mails_with_content = fetch_all
@@ -1072,7 +1169,7 @@ def test_get_folder_mails_without_content_include_filter(monkeypatch):
 
     mail1 = _make_email_message(subject='Test1')
 
-    def fetch_all_without_content(mailbox, number_of_mails, offset=0):
+    def fetch_all_without_content(mailbox, number_of_mails, offset=0, include_deleted=True):
         yield {'nb_mails': 50}
         yield {'uid': '1', 'mail': mail1, 'flags': {'seen': True, 'flagged': False, 'answered': False, 'forwarded': False, 'deleted': False, 'all': ['\\Seen']}, 'size': 120}
 
@@ -1099,7 +1196,7 @@ def test_get_folder_mails_without_content_exclude_filter(monkeypatch):
 
     mail1 = _make_email_message(subject='Test1')
 
-    def fetch_all_without_content(mailbox, number_of_mails, offset=0):
+    def fetch_all_without_content(mailbox, number_of_mails, offset=0, include_deleted=True):
         yield {'nb_mails': 25}
         yield {'uid': '1', 'mail': mail1, 'flags': {'seen': False, 'flagged': False, 'answered': False, 'forwarded': False, 'deleted': False, 'all': []}, 'size': 120}
 
@@ -1190,3 +1287,316 @@ def test_share_folder_with_multiple_users(monkeypatch):
     identifiers = [call[1] for call in fake_client.set_acl_calls]
     assert 'user1@example.com' in identifiers
     assert 'user2@example.com' in identifiers
+# ===========================================================================
+# Tests: search_mails
+# ===========================================================================
+
+def _make_search_mail_dict(uid='1', subject='Test', from_='sender@example.com',
+                            to='recipient@example.com', seen=False, folder='INBOX'):
+    """Build a mail dict as returned by search_mails_with_content."""
+    msg = _make_email_message(subject=subject, from_=from_, to=to)
+    return (folder, {
+        'uid': uid,
+        'mail': msg,
+        'flags': {
+            'seen': seen,
+            'flagged': False,
+            'answered': False,
+            'forwarded': False,
+            'deleted': False,
+            'all': ['\\Seen'] if seen else []
+        },
+        'size': 200,
+        'folder': folder,
+    })
+
+
+def test_search_mails_returns_matching_results(monkeypatch):
+    """Test basic search returns parsed mail list and total count."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.search_mails_result = [
+        _make_search_mail_dict(uid='1', subject='Hello'),
+        _make_search_mail_dict(uid='2', subject='World'),
+    ]
+
+    params = {"text": "Hello"}
+    collection = CollectionPaginateArgs(page=1, page_size=10)
+    result, total = module.search_mails(ACCOUNT_ID, params, collection)
+
+    assert total == 2
+    assert len(result) == 2
+    assert result[0]['subject'] == 'Hello'
+    assert result[1]['subject'] == 'World'
+
+
+def test_search_mails_empty_results(monkeypatch):
+    """Test search with no matching mails returns empty list."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.search_mails_result = []
+
+    params = {"text": "nonexistent"}
+    collection = CollectionPaginateArgs(page=1, page_size=10)
+    result, total = module.search_mails(ACCOUNT_ID, params, collection)
+
+    assert total == 0
+    assert result == []
+
+
+def test_search_mails_empty_params_searches_all(monkeypatch):
+    """Test search with no criteria still runs and returns results."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.search_mails_result = [
+        _make_search_mail_dict(uid='10', subject='Any mail'),
+    ]
+
+    params = {}
+    collection = CollectionPaginateArgs(page=1, page_size=10)
+    result, total = module.search_mails(ACCOUNT_ID, params, collection)
+
+    assert total == 1
+    assert result[0]['subject'] == 'Any mail'
+
+
+def test_search_mails_pagination(monkeypatch):
+    """Test search respects pagination (page_size)."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.search_mails_result = [
+        _make_search_mail_dict(uid=str(i), subject=f'Mail {i}')
+        for i in range(5)
+    ]
+
+    collection = CollectionPaginateArgs(page=1, page_size=3)
+    result, total = module.search_mails(ACCOUNT_ID, {}, collection)
+
+    assert total == 5
+    assert len(result) == 3
+
+
+def test_search_mails_pagination_second_page(monkeypatch):
+    """Test search returns correct slice for page 2."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.search_mails_result = [
+        _make_search_mail_dict(uid=str(i), subject=f'Mail {i}')
+        for i in range(5)
+    ]
+
+    collection = CollectionPaginateArgs(page=2, page_size=3)
+    result, total = module.search_mails(ACCOUNT_ID, {}, collection)
+
+    assert total == 5
+    assert len(result) == 2  # only 2 items remain on page 2
+
+
+def test_search_mails_sort_by_subject_asc(monkeypatch):
+    """Test search sorts results by subject ascending."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.search_mails_result = [
+        _make_search_mail_dict(uid='1', subject='Zebra'),
+        _make_search_mail_dict(uid='2', subject='Apple'),
+        _make_search_mail_dict(uid='3', subject='Mango'),
+    ]
+
+    collection = CollectionPaginateArgs(page=1, page_size=10, sort_by='subject', sort_order='asc')
+    result, total = module.search_mails(ACCOUNT_ID, {}, collection)
+
+    assert total == 3
+    assert result[0]['subject'] == 'Apple'
+    assert result[1]['subject'] == 'Mango'
+    assert result[2]['subject'] == 'Zebra'
+
+
+def test_search_mails_sort_by_subject_desc(monkeypatch):
+    """Test search sorts results by subject descending."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.search_mails_result = [
+        _make_search_mail_dict(uid='1', subject='Apple'),
+        _make_search_mail_dict(uid='2', subject='Zebra'),
+    ]
+
+    collection = CollectionPaginateArgs(page=1, page_size=10, sort_by='subject', sort_order='desc')
+    result, _ = module.search_mails(ACCOUNT_ID, {}, collection)
+
+    assert result[0]['subject'] == 'Zebra'
+    assert result[1]['subject'] == 'Apple'
+
+
+def test_search_mails_specific_folders(monkeypatch):
+    """Test search against specific folder list does not call list_folders."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.search_mails_result = [
+        _make_search_mail_dict(uid='1', subject='In Sent', folder='Sent'),
+    ]
+    list_folders_called = []
+    original_list = fake_client.list_folders
+    fake_client.list_folders = lambda: list_folders_called.append(1) or original_list()
+
+    params = {"folders": ["Sent"]}
+    collection = CollectionPaginateArgs(page=1, page_size=10)
+    result, total = module.search_mails(ACCOUNT_ID, params, collection)
+
+    assert len(list_folders_called) == 0  # list_folders must NOT be called
+    assert total == 1
+    assert result[0]['folder'] == 'Sent'
+
+
+def test_search_mails_folders_all_calls_list_folders(monkeypatch):
+    """Test search with folders=['all'] calls list_folders to enumerate all folders."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.search_mails_result = []
+    fake_client.list_folders_result = [
+        {'name': 'INBOX', 'path': 'INBOX', 'selectable': True},
+        {'name': 'Sent',  'path': 'Sent',  'selectable': True},
+    ]
+    list_folders_called = []
+    original_list = fake_client.list_folders
+    def tracking_list():
+        list_folders_called.append(1)
+        return original_list()
+    fake_client.list_folders = tracking_list
+
+    params = {"folders": ["all"]}
+    collection = CollectionPaginateArgs(page=1, page_size=10)
+    module.search_mails(ACCOUNT_ID, params, collection)
+
+    assert len(list_folders_called) == 1
+
+
+def test_search_mails_without_content_when_contents_excluded(monkeypatch):
+    """Test that search_mails_without_content is used when 'contents' is excluded via fields."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.search_mails_result = [
+        _make_search_mail_dict(uid='1', subject='Test'),
+    ]
+    without_content_called = []
+    original = fake_client.search_mails_without_content
+    def tracking_without(folders, criteria):
+        without_content_called.append(1)
+        return original(folders, criteria)
+    fake_client.search_mails_without_content = tracking_without
+
+    # fields_action='include' + 'contents' not in fields => without_content=True
+    collection = CollectionPaginateArgs(page=1, page_size=10, fields='subject,from', fields_action='include')
+    module.search_mails(ACCOUNT_ID, {}, collection)
+
+    assert len(without_content_called) == 1
+
+
+def test_search_mails_with_content_when_contents_included(monkeypatch):
+    """Test that search_mails_with_content is used when 'contents' is explicitly included."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.search_mails_result = [
+        _make_search_mail_dict(uid='1', subject='Test'),
+    ]
+    with_content_called = []
+    original = fake_client.search_mails_with_content
+    def tracking_with(folders, criteria):
+        with_content_called.append(1)
+        return original(folders, criteria)
+    fake_client.search_mails_with_content = tracking_with
+
+    # fields_action='include' + 'contents' in fields => with_content
+    collection = CollectionPaginateArgs(page=1, page_size=10, fields='subject,contents', fields_action='include')
+    module.search_mails(ACCOUNT_ID, {}, collection)
+
+    assert len(with_content_called) == 1
+
+
+def test_search_mails_invalid_start_date_raises(monkeypatch):
+    """Test that an invalid start date in date_range raises RequestException."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.search_mails_result = []
+
+    params = {"date_range": {"start": "not-a-date"}}
+    collection = CollectionPaginateArgs(page=1, page_size=10)
+
+    with pytest.raises(RequestException):
+        module.search_mails(ACCOUNT_ID, params, collection)
+
+
+def test_search_mails_invalid_end_date_raises(monkeypatch):
+    """Test that an invalid end date in date_range raises RequestException."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.search_mails_result = []
+
+    params = {"date_range": {"end": "not-a-date"}}
+    collection = CollectionPaginateArgs(page=1, page_size=10)
+
+    with pytest.raises(RequestException):
+        module.search_mails(ACCOUNT_ID, params, collection)
+
+
+def test_search_mails_valid_date_range(monkeypatch):
+    """Test that a valid date_range does not raise and returns results."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.search_mails_result = [
+        _make_search_mail_dict(uid='1', subject='Recent mail'),
+    ]
+
+    params = {"date_range": {"start": "2024-01-01", "end": "2024-12-31"}}
+    collection = CollectionPaginateArgs(page=1, page_size=10)
+    result, total = module.search_mails(ACCOUNT_ID, params, collection)
+
+    assert total == 1
+    assert result[0]['subject'] == 'Recent mail'
+
+
+def _make_email_message_with_pdf_attachment(subject='Has PDF'):
+    """Build a multipart email message with a real PDF attachment."""
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+    from email.mime.base import MIMEBase
+    from email import encoders
+
+    msg = MIMEMultipart()
+    msg['Subject'] = subject
+    msg['From'] = 'sender@example.com'
+    msg['To'] = 'recipient@example.com'
+    msg['Date'] = 'Mon, 1 Jan 2024 10:00:00 +0000'
+
+    msg.attach(MIMEText('Body content', 'plain'))
+
+    pdf_part = MIMEBase('application', 'pdf')
+    pdf_part.set_payload(b'%PDF-1.4 fake pdf content')
+    encoders.encode_base64(pdf_part)
+    pdf_part.add_header('Content-Disposition', 'attachment', filename='doc.pdf')
+    msg.attach(pdf_part)
+
+    return msg
+
+
+def test_search_mails_attachment_type_filter(monkeypatch):
+    """Test post-filtering by attachment_type extension."""
+    module, fake_client = _make_module(monkeypatch)
+
+    msg_with_pdf = _make_email_message_with_pdf_attachment(subject='Has PDF')
+    msg_no_pdf   = _make_email_message(subject='No PDF')
+
+    flags = {'seen': False, 'flagged': False, 'answered': False,
+             'forwarded': False, 'deleted': False, 'all': []}
+
+    fake_client.search_mails_result = [
+        ('INBOX', {'uid': '1', 'mail': msg_with_pdf, 'flags': flags, 'size': 300, 'folder': 'INBOX'}),
+        ('INBOX', {'uid': '2', 'mail': msg_no_pdf,   'flags': flags, 'size': 100, 'folder': 'INBOX'}),
+    ]
+
+    params = {"attachment_type": ["pdf"]}
+    collection = CollectionPaginateArgs(page=1, page_size=10)
+    result, total = module.search_mails(ACCOUNT_ID, params, collection)
+
+    # Only the mail that has a pdf attachment should survive the post-filter
+    assert total == 1
+    assert result[0]['subject'] == 'Has PDF'
+
+
+def test_search_mails_client_error_propagates(monkeypatch):
+    """Test that a RequestException from the client propagates."""
+    module, fake_client = _make_module(monkeypatch)
+
+    def failing_search(folders, criteria):
+        raise RequestException("IMAP search failed")
+
+    fake_client.search_mails_with_content = failing_search
+
+    collection = CollectionPaginateArgs(page=1, page_size=10)
+    with pytest.raises(RequestException, match="IMAP search failed"):
+        module.search_mails(ACCOUNT_ID, {}, collection)
