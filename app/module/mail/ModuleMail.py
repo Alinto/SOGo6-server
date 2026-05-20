@@ -690,18 +690,15 @@ class ModuleMail:
         offset = collection_param.first_item + 1 #First mail is index 1 not zero
         nb_mails = collection_param.last_item - collection_param.first_item + 1
         logger_mail_server.info("Try to fetch %s mails with offset %s", nb_mails, offset)
-        mail_iter: Iterator|None = None
-        without_content = False
-        if collection_param.fields:
-            requested = collection_param.fields.split(",")
-            if collection_param.fields_action == "include" and "contents" not in requested:
-                without_content = True
-                mail_iter = client.fetch_all_mails_without_content(folder_name, number_of_mails=nb_mails, offset=offset)
-            if collection_param.fields_action == "exclude" and "contents" in requested:
-                without_content = True
-                mail_iter = client.fetch_all_mails_without_content(folder_name, number_of_mails=nb_mails, offset=offset)
-        if mail_iter is None:
-            mail_iter = client.fetch_all_mails_with_content(folder_name, number_of_mails=nb_mails, offset=offset)
+
+        fields_params = client.parse_fields_param(collection_param.fields, collection_param.fields_action)
+        without_content = not fields_params["with_content"]
+        include_deleted = fields_params["include_deleted"]
+
+        if without_content:
+            mail_iter = client.fetch_all_mails_without_content(folder_name, number_of_mails=nb_mails, offset=offset, include_deleted=include_deleted)
+        else:
+            mail_iter = client.fetch_all_mails_with_content(folder_name, number_of_mails=nb_mails, offset=offset, include_deleted=include_deleted)
         total_count = next(mail_iter)["nb_mails"]
         mails = []
 
@@ -737,6 +734,122 @@ class ModuleMail:
 
         delete_behavior: str = mail_general_prefs["SOGO_U_MAIL_DELETE_BEHAVIOR"]
         return DELETE_MAIL_BEHAVIOR_MAP.get(delete_behavior, (True, True))
+
+    @staticmethod
+    def _flatten_selectable_folder_paths(folders: list[dict[str, Any]]) -> list[str]:
+        """Recursively flatten a folder tree (as returned by ClientImap.list_folders) into a flat
+        list of selectable folder paths, including every nested subfolder at any depth.
+
+        :param folders: List of folder dicts, each possibly containing nested "children" folders.
+        :type folders: list[dict[str, Any]]
+        :return: Flat list of selectable folder paths.
+        :rtype: list[str]
+        """
+        paths: list[str] = []
+        for folder in folders:
+            if folder.get(cs.FOLDER_SELECTABLE, True):
+                paths.append(folder[cs.FOLDER_PATH])
+            children = folder.get(cs.FOLDER_CHILDREN) or []
+            if children:
+                paths.extend(ModuleMail._flatten_selectable_folder_paths(children))
+        return paths
+
+    def search_mails(self, account_id: str, search_params: dict, collection_param: CollectionPaginateArgs) -> tuple[list[dict[str, Any]], int]:
+        """Execute an advanced search across one or multiple folders.
+
+        Delegates the building of the protocol-specific search criteria (IMAP SEARCH
+        syntax, JMAP filter, ...) to the mail client, queries each requested folder
+        and returns a paginated list of matching mails together with the total count.
+
+        :param account_id: The account identifier.
+        :type account_id: str
+        :param search_params: Validated search parameters (from MailboxSearchSchema).
+        :type search_params: dict
+        :param collection_param: Pagination, sorting and filtering parameters.
+        :type collection_param: CollectionPaginateArgs
+        :return: A tuple of (list of mail dicts, total count).
+        :rtype: tuple[list[dict[str, Any]], int]
+        :raises RequestException: If mail server operations fail or search_params are invalid.
+        """
+        client = self._open_client_for(account_id)
+
+        # --- Determine content/deleted handling from generic fields param ---
+        fields_params = client.parse_fields_param(collection_param.fields, collection_param.fields_action)
+        without_content = not fields_params["with_content"]
+        include_deleted = fields_params["include_deleted"]
+
+        # --- Build the protocol-specific search criteria (delegated to the client) ---
+        criteria = client.build_search_criteria(search_params, include_deleted)
+
+        # --- Determine folders to search ---
+        folder_list = search_params.get("folders") or []
+        if not folder_list or folder_list == ["all"]:
+            raw_folders = client.list_folders()
+            folders_to_search = self._flatten_selectable_folder_paths(raw_folders)
+        else:
+            include_subfolders = search_params.get("include_subfolders", True)
+            folders_to_search = []
+            seen_folders: set[str] = set()
+            for folder in folder_list:
+                for folder_path in client.get_folder_with_subfolders(folder, include_subfolders):
+                    if folder_path not in seen_folders:
+                        seen_folders.add(folder_path)
+                        folders_to_search.append(folder_path)
+
+        # --- Determine if content should be fetched ---
+        mail_iter = (
+            client.search_mails_without_content(folders_to_search, criteria)
+            if without_content
+            else client.search_mails_with_content(folders_to_search, criteria)
+        )
+
+        # --- Collect all results ---
+        all_mails: list[dict] = []
+        for _folder_path, mail_dict in mail_iter:
+            parsed = self._parse_mail(mail_dict)
+            parsed["folder"] = mail_dict.get("folder", _folder_path)
+            if without_content:
+                parsed.pop("contents", None)
+                parsed.pop("attachments", None)
+                parsed.pop("certificates", None)
+                parsed.pop("mail_type_data", None)
+            all_mails.append(parsed)
+
+        # --- Post-filter by attachment_type (IMAP has no direct extension filter) ---
+        # Applied as an additional AND filter regardless of search_params["operator"],
+        # since it runs after the mail-server search rather than as part of the IMAP criteria.
+        if search_params.get("attachment_type"):
+            ext_filter = {e.lower() for e in search_params["attachment_type"]}
+            all_mails = [
+                m for m in all_mails
+                if any(
+                    att.get("extension", "").lower() in ext_filter
+                    for att in m.get("attachments", [])
+                )
+            ]
+
+        # --- Sort ---
+        sort_by: str = collection_param.sort_by or "date"
+        sort_order: str = collection_param.sort_order or "desc"
+        reverse = sort_order == "desc"
+
+        sort_key_map: dict[str, Any] = {
+            "date":      lambda m: m.get("date", ""),
+            "sender":    lambda m: m.get("from", {}).get("email", ""),
+            "subject":   lambda m: m.get("subject", ""),
+            "size":      lambda m: m.get("size", 0),
+            "relevance": lambda m: m.get("date", ""),  # fallback: by date TODO: what??
+        }
+        key_fn = sort_key_map.get(sort_by, sort_key_map["date"])
+        all_mails.sort(key=key_fn, reverse=reverse)
+
+        # --- Paginate ---
+        total = len(all_mails)
+        offset = collection_param.first_item
+        nb_mails = collection_param.page_size
+        page = all_mails[offset: offset + nb_mails]
+
+        return page, total
 
     def delete_mails(self, account_id:str, folder_path: str, mail_uids: str|list[str]) -> None:
         """Delete multiple mails by UIDs in a single client session.
