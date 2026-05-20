@@ -15,6 +15,7 @@ from app.utils.logger.logger import logger_api
 if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
     from app.auth.User import User
+    from app.utils.api.paginate_sort_filter import CollectionPaginateArgs
 
 
 class InterfaceApiMailMailbox:
@@ -296,3 +297,25 @@ class InterfaceApiMailMailbox:
                 logger_api.warning("Failed to delete draft mail uid %s for user %s, account %s: %s", draft_uid, self.user.uid, account_id, str(ex))
 
         return create_api_base_response(None)
+
+    def search_mailbox(self, account_id: str, search_params: dict, collection_param: "CollectionPaginateArgs") -> tuple[int, dict, int]:
+        """Advanced mail search across one or multiple folders for the given account.
+
+        :param account_id: The account identifier ("0" for main account)
+        :type account_id: str
+        :param search_params: Validated search parameters (from MailboxSearchSchema)
+        :type search_params: dict
+        :param collection_param: Pagination, sorting and filtering parameters.
+        :type collection_param: CollectionPaginateArgs
+        :return: A tuple of (total_count, API response dict, status code)
+        :rtype: tuple[int, dict, int]
+        """
+        if account_id != cs.DEFAULT_IDENTITY_KEY_VALUE and not self.user_module_settings.SOGO_D_ALLOW_EXT_MAIL_ACCOUNT:
+            return 0, *create_api_base_response(error=err.ERROR_EXTERNAL_ACCOUNT_FORBIDDEN)
+
+        try:
+            result, total = self.mail_module.search_mails(account_id, search_params, collection_param)
+        except RequestException as ex:
+            logger_api.error("Request exception in search_mailbox for user %s, account %s: %s", self.user.uid, account_id, str(ex))
+            return 0, *create_api_base_response(None, ex.error)
+        return total, *create_api_base_response(result)

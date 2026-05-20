@@ -762,3 +762,179 @@ def test_send_mail_external_account(monkeypatch):
     result, status_code = interface.send_mail(account_id="abc123", mail_data=mail_data)
 
     assert status_code == 200
+# ========== Tests for search_mailbox ==========
+
+def create_interface_with_search(monkeypatch, fake_module, allow_external=True,
+                                 search_result=None, search_total=0,
+                                 search_raises=None):
+    """Helper to create interface with a FakeModuleMail that supports search_mails."""
+    patch_module_on_interface(monkeypatch, fake_module)
+
+    class FakeUserModuleSettings:
+        def __init__(self, data):
+            self.SOGO_D_ALLOW_EXT_MAIL_ACCOUNT = allow_external
+
+    monkeypatch.setattr(
+        "app.interface.mail.InterfaceApiMailMailbox.UserModuleSettingsObj",
+        FakeUserModuleSettings
+    )
+
+    class FakeMailSettings:
+        def __init__(self, data):
+            pass
+
+    monkeypatch.setattr(
+        "app.interface.mail.InterfaceApiMailMailbox.MailSettingsObj",
+        FakeMailSettings
+    )
+
+    _search_result = search_result if search_result is not None else []
+    _search_total = search_total
+    _search_raises = search_raises
+
+    class FakeModuleMail:
+        def __init__(self, user, mail_settings, process_setting=None):
+            self.search_mails_args = None
+
+        def get_mailbox_quota(self, account_id):
+            return None
+
+        def search_mails(self, account_id, search_params, collection_param):
+            self.search_mails_args = (account_id, search_params, collection_param)
+            if _search_raises is not None:
+                raise _search_raises
+            return _search_result, _search_total
+
+    fake_mail_module_instance = FakeModuleMail.__new__(FakeModuleMail)
+    fake_mail_module_instance.search_mails_args = None
+
+    class FakeModuleMailTracked(FakeModuleMail):
+        """Tracked version that exposes the instance for assertions."""
+        _instance = None
+        def __init__(self, user, mail_settings, process_setting=None):
+            super().__init__(user, mail_settings, process_setting)
+            FakeModuleMailTracked._instance = self
+
+    monkeypatch.setattr(
+        "app.interface.mail.InterfaceApiMailMailbox.ModuleMail",
+        FakeModuleMailTracked
+    )
+
+    # Patch ModuleMailOutgoing to avoid real instantiation
+    class FakeModuleMailOutgoing:
+        def __init__(self, user, mail_settings):
+            pass
+
+    monkeypatch.setattr(
+        "app.interface.mail.InterfaceApiMailMailbox.ModuleMailOutgoing",
+        FakeModuleMailOutgoing
+    )
+
+    process_setting = FakeProcessSetting()
+    user = FakeUser()
+    user_domain = {"USER_MODULE_SETTINGS": {}, "MAIL_SETTINGS": {}}
+
+    interface = InterfaceApiMailMailbox(
+        process_setting=process_setting,
+        user=user,
+        user_domain=user_domain
+    )
+    return interface, FakeModuleMailTracked
+
+
+def _make_collection_param():
+    """Build a minimal CollectionPaginateArgs for search tests."""
+    from app.utils.api.paginate_sort_filter import CollectionPaginateArgs
+    return CollectionPaginateArgs(page=1, page_size=10)
+
+
+def test_search_mailbox_main_account_success(monkeypatch):
+    """Test advanced search on main account returns results."""
+    fake_module = FakeModuleUserProfile()
+    mails = [{"uid": "1", "subject": "Hello"}, {"uid": "2", "subject": "World"}]
+    interface, tracked = create_interface_with_search(
+        monkeypatch, fake_module, search_result=mails, search_total=2
+    )
+
+    search_params = {"text": "Hello"}
+    total, result, status_code = interface.search_mailbox("0", search_params, _make_collection_param())
+
+    assert status_code == 200
+    assert total == 2
+    assert result["data"] == mails
+
+
+def test_search_mailbox_empty_results(monkeypatch):
+    """Test advanced search with no matching mails returns empty list."""
+    fake_module = FakeModuleUserProfile()
+    interface, _ = create_interface_with_search(
+        monkeypatch, fake_module, search_result=[], search_total=0
+    )
+
+    total, result, status_code = interface.search_mailbox("0", {}, _make_collection_param())
+
+    assert status_code == 200
+    assert total == 0
+    assert result["data"] == []
+
+
+def test_search_mailbox_external_account_forbidden(monkeypatch):
+    """Test that searching external account when not allowed returns 403."""
+    fake_module = FakeModuleUserProfile()
+    interface, _ = create_interface_with_search(
+        monkeypatch, fake_module, allow_external=False
+    )
+
+    total, result, status_code = interface.search_mailbox("abc123", {}, _make_collection_param())
+
+    assert status_code == 403
+    assert total == 0
+    assert result["error_code"] == err.ERROR_EXTERNAL_ACCOUNT_FORBIDDEN.c
+
+
+def test_search_mailbox_external_account_allowed(monkeypatch):
+    """Test that searching external account when allowed succeeds."""
+    fake_module = FakeModuleUserProfile()
+    mails = [{"uid": "5", "subject": "External mail"}]
+    interface, _ = create_interface_with_search(
+        monkeypatch, fake_module, allow_external=True,
+        search_result=mails, search_total=1
+    )
+
+    total, result, status_code = interface.search_mailbox("abc123", {}, _make_collection_param())
+
+    assert status_code == 200
+    assert total == 1
+    assert result["data"] == mails
+
+
+def test_search_mailbox_module_error_returns_error_response(monkeypatch):
+    """Test that a RequestException from search_mails is caught and returned as error."""
+    fake_module = FakeModuleUserProfile()
+    interface, _ = create_interface_with_search(
+        monkeypatch, fake_module,
+        search_raises=RequestException("IMAP error", err.ERROR_IMAP_CONNECTION_FAILED)
+    )
+
+    total, result, status_code = interface.search_mailbox("0", {}, _make_collection_param())
+
+    assert total == 0
+    assert status_code >= 400
+    assert "error_code" in result
+
+
+def test_search_mailbox_passes_params_to_module(monkeypatch):
+    """Test that search_params and collection_param are forwarded to module.search_mails."""
+    fake_module = FakeModuleUserProfile()
+    interface, tracked = create_interface_with_search(
+        monkeypatch, fake_module, search_result=[], search_total=0
+    )
+
+    search_params = {"text": "invoice", "folders": ["INBOX"]}
+    collection = _make_collection_param()
+    interface.search_mailbox("0", search_params, collection)
+
+    instance = tracked._instance
+    assert instance is not None
+    assert instance.search_mails_args[1] == search_params
+    assert instance.search_mails_args[2] is collection

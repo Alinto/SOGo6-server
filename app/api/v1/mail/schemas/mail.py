@@ -217,7 +217,7 @@ class MailListResponseSchema(ApiBaseResponse):
         """
         return values available for sorting by
         """
-        return {"contents"}
+        return {"contents", "deleted"}
 
     @classmethod
     def example(cls) -> dict:
