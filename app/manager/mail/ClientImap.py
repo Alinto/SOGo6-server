@@ -7,8 +7,9 @@ import re
 from datetime import datetime
 from socket import timeout as sock_timeout, gaierror
 from ssl import SSLError
+from email.message import EmailMessage
 
-from app.utils.exceptions import AggravatedException, RequestException, BugException
+from app.utils.exceptions import RequestException, BugException
 from app.utils.logger.logger import logger_imap
 from app.manager.mail.ClientMailServer import ClientMailServer
 from app.utils import errors as err
@@ -1752,6 +1753,76 @@ class ClientImap(ClientMailServer):
             "storage_used": storage_used,
             "storage_limit": storage_limit,
         }
+
+    def save_draft(self, message: EmailMessage, uid: str | None = None) -> dict[str, Any]:
+        """
+        The method appends the draft email to the Drafts folder with the Draft flag, then tries to determine the new UID of the saved draft.
+        If a UID was provided for overwrite, it first attempts to delete the existing draft with that UID before saving the new one.
+        """
+        raw_bytes = message.as_bytes()
+        folder_path = self.folders_map_type_to_name[cs.MAIL_FOLDER_DRAFT]
+        logger_imap.debug("Saving draft in '%s' (overwrite uid=%s)", folder_path, uid)
+        if self.connection is None or not self.authenticated:
+            raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
+
+        if not folder_path.isascii():
+            raise RequestException(f"Mailbox name is not ascii: {folder_path}", err.ERROR_IMAP_NOT_ASCII)
+
+        fixed_folder = self._fix_folder_path(folder_path)
+        quoted_folder = quote(fixed_folder)
+
+        # Delete the existing draft if uid is provided
+        if uid is not None:
+            try:
+                self.delete_mails_by_uid(folder_path, uid, move_to_trash=False, permanently=True)
+            except RequestException:
+                # If the uid no longer exists, simply create a new draft
+                logger_imap.info("Draft UID '%s' not found for overwrite, creating new draft", uid)
+
+        # APPEND the raw bytes with \Draft flag
+        self.select_mailbox(quoted_folder)
+        success, datas = self._exec_imap4_method(
+            self.connection.append,  # type: ignore[arg-type]
+            quoted_folder,
+            r'(\Draft)',
+            None,  # type: ignore[arg-type]
+            raw_bytes,
+        )
+        if not success:
+            raise RequestException(
+                f"Failed to append draft to folder '{folder_path}': {datas}",
+                err.ERROR_MAIL_SAVE_DRAFT_FAILED,
+            )
+
+        # Try to extract the new UID from APPENDUID (RFC 4315) response
+        # Response looks like: [APPENDUID <uidvalidity> <uid>]
+        new_uid: str | None = None
+        for item in datas:
+            line = item.decode() if isinstance(item, bytes) else str(item)
+            m = re.search(r'\[APPENDUID\s+\d+\s+(\d+)\]', line, re.IGNORECASE)
+            if m:
+                new_uid = m.group(1)
+                break
+
+        if new_uid is None:
+            # Fallback: search for the last message with \Draft flag in the folder
+            self.select_mailbox(quoted_folder)
+            success_search, search_datas = self._exec_imap4_method(
+                self.connection.uid, 'SEARCH', 'UTF-8', 'DRAFT'  # type: ignore[arg-type]
+            )
+            if success_search and search_datas and search_datas[0]:
+                uid_list = search_datas[0].split()
+                if uid_list:
+                    new_uid = uid_list[-1].decode() if isinstance(uid_list[-1], bytes) else str(uid_list[-1])
+
+        if new_uid is None:
+            raise RequestException(
+                "Draft was appended but its UID could not be determined",
+                err.ERROR_MAIL_SAVE_DRAFT_FAILED,
+            )
+
+        logger_imap.info("Draft saved in '%s' with new UID '%s'", folder_path, new_uid)
+        return self.fetch_mail(folder_path, new_uid)
 
     def logout(self) -> None:
         """

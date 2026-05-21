@@ -18,6 +18,9 @@ from app.api.v1.mail.schemas.mailbox import (
     DelegationResponseSchema,
     SendMailSchema,
     SendMailResponseSchema,
+    SaveDraftSchema,
+    SaveDraftResponseSchema,
+    SaveDraftQuerySchema,
 )
 
 if TYPE_CHECKING:
@@ -53,7 +56,6 @@ class ApiMailBoxes(MethodView):
     """
     API to manage mailboxes.
     """
-
     @blp.response(200, MailboxListResponseSchema)
     def get(self) -> ResponseReturnValue:
         """
@@ -183,3 +185,40 @@ class ApiMailBoxesAccountPurge(MethodView):
         logger_api.debug("Calling ApiMailBoxesAccountPurge.post for account_id: %s", account_id)
         interface: InterfaceApiMailMailbox = g.inter
         return interface.purge_mailbox(account_id)
+
+
+@blp.route("/<string:account_id>/mail/save")
+class ApiMailBoxesAccountSaveDraft(MethodView):
+    """
+    Action: Save a mail as a draft in the account's Drafts folder.
+    """
+
+    @blp.arguments(SaveDraftSchema, example=SaveDraftSchema.example(), error_status_code=400)
+    @blp.arguments(SaveDraftQuerySchema, location="query")
+    @blp.response(200, SaveDraftResponseSchema, example=SaveDraftResponseSchema.example())
+    def post(self, mail_data: dict, query_args: dict, account_id: str) -> ResponseReturnValue:
+        """Save a mail as a draft.
+
+        If the query parameter ``uid`` is provided and a draft with that UID already exists,
+        the existing draft is replaced with the new content. If ``uid`` is absent or the
+        draft is not found, a new draft is created.
+
+        In all cases the response contains the full saved draft including its (new) uid.
+
+        :param mail_data: Validated draft data from the request body.
+        :type mail_data: dict
+        :param query_args: Validated query parameters (uid).
+        :type query_args: dict
+        :param account_id: The account identifier ("0" for main account, hash for external).
+        :type account_id: str
+        :return: API response containing the saved draft.
+        :rtype: ResponseReturnValue
+        """
+        uid: str | None = query_args.get("uid", None)
+        logger_api.debug(
+            "Calling ApiMailBoxesAccountSaveDraft.post for account_id: %s, uid: %s",
+            account_id,
+            uid,
+        )
+        interface: InterfaceApiMailMailbox = g.inter
+        return interface.save_draft(account_id, mail_data, uid)

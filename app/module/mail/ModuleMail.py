@@ -7,6 +7,7 @@ from email.utils import parseaddr, getaddresses
 from io import BytesIO
 from re import search as reg_search
 import zipfile
+from email.message import EmailMessage
 
 from app.config.settings.UserSettings import UserMailViewSettings, UserMailViewSettingsObj, UserMailGeneralSettings
 from app.manager.mail.ClientMailServer import ClientMailServer
@@ -821,6 +822,43 @@ class ModuleMail:
 
         raw_content = client.fetch_mail_raw(folder_name, mail_uid)
         return {"raw": raw_content}
+
+    def save_draft(self, account_id: str, mail_data: dict, uid: str | None = None) -> dict[str, Any]:
+        """Save a mail as a draft in the account's Drafts folder.
+
+        Builds the RFC-2822 message from mail_data, then delegates the IMAP
+        APPEND operation to the client. If uid is provided, the existing draft
+        is replaced; otherwise a new one is created.
+
+        :param account_id: The account identifier
+        :type account_id: str
+        :param mail_data: Dict with draft fields (from_addr, to, subject, body, cc, bcc, return_receipt)
+        :type mail_data: dict
+        :param uid: Optional UID of an existing draft to overwrite
+        :type uid: str | None
+        :return: Dict representing the saved draft including its uid
+        :rtype: dict[str, Any]
+        :raises RequestException: If the operation fails
+        """
+
+        message = EmailMessage()
+        if from_addr := mail_data.get("from_addr"):
+            message["From"] = from_addr
+        if to_list := mail_data.get("to"):
+            message["To"] = ", ".join(to_list)
+        if subject := mail_data.get("subject"):
+            message["Subject"] = subject
+        if cc := mail_data.get("cc"):
+            message["Cc"] = ", ".join(cc)
+        if bcc := mail_data.get("bcc"):
+            message["Bcc"] = ", ".join(bcc)
+        if return_receipt := mail_data.get("return_receipt"):
+            message["Disposition-Notification-To"] = return_receipt
+        message.set_content(mail_data.get("body") or "")
+
+        client = self._open_client_for(account_id)
+        raw_draft = client.save_draft(message, uid)
+        return self._parse_mail(raw_draft)
 
     def perform_mail_action(self, account_id:str, folder_name: str, mail_uid: str, action_data: dict) -> dict[str, Any]:
         """Perform an action on a specific mail.
