@@ -1,0 +1,5 @@
+# See man 5 aliases for format.
+# Use tab for alignment.
+# To regenerate the db file run: newaliases
+dude: sogo-tests1
+dude2: sogo-tests2
