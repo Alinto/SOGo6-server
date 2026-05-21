@@ -33,3 +33,16 @@ SYNC_LOCK_TTL_SECONDS: int = 300
 # Maximum number of years over which an unbounded recurrence is expanded.
 # Hard bound used by RruleEngine.get_max_date when neither UNTIL nor COUNT caps the series.
 MAX_RRULE_EXPANSION_YEARS: int = 10
+
+# When True, importing a .ics file replaces (or injects) the ORGANIZER of every VEVENT/VTODO
+# with the importing user's email so the importer becomes the sole owner of the imported
+# events. Attendee lines are preserved so the historical guest list is kept — iMIP
+# notifications are only triggered if the user later edits the event explicitly, which is an
+# acceptable cost compared to losing the information silently. When False, events are
+# imported as-is — the importer ends up owning copies of events organised by someone else,
+# which is generally only useful for migrations where the original organiser identity must
+# be preserved.
+IMPORT_REWRITES_OWNERSHIP: bool = True
+
+# Maximum size in bytes accepted for an uploaded ICS import payload.
+MAX_IMPORT_ICS_BYTES: int = 10 * 1024 * 1024

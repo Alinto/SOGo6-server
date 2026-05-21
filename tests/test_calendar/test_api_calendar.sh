@@ -2017,6 +2017,151 @@ else
 fi
 
 
+# ── 22. EXPORT / IMPORT ───────────────────────────────────────────────────────
+
+step "84. Export/Import — create dedicated calendar"
+info "Creates a fresh calendar used only by the export/import round-trip."
+
+CODE=$(req -X POST "$BASE/calendars" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d '{"name": "Export Roundtrip", "color": "#10B981", "timezone": "UTC"}')
+check_code "POST /calendars (export roundtrip)" "$CODE" "201"
+EXP_CAL_KEY=$(extract '.data.key')
+check_not_empty '.data.key'
+
+
+step "85. Export/Import — populate with simple, all-day and recurring events"
+info "Creates three distinct events whose UIDs we will later look for in the export."
+
+EXP_UID_SIMPLE="exp-simple-$RANDOM@example.com"
+CODE=$(req -X POST "$BASE/calendars/$EXP_CAL_KEY/events" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d "{
+        \"uid\": \"$EXP_UID_SIMPLE\",
+        \"title\": \"Roundtrip Simple\",
+        \"date_start\": \"2026-07-01T09:00:00Z\",
+        \"date_end\":   \"2026-07-01T10:00:00Z\"
+    }")
+check_code "POST simple event" "$CODE" "201"
+EXP_KEY_SIMPLE=$(extract '.data.key')
+
+EXP_UID_ALLDAY="exp-allday-$RANDOM@example.com"
+CODE=$(req -X POST "$BASE/calendars/$EXP_CAL_KEY/events" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d "{
+        \"uid\": \"$EXP_UID_ALLDAY\",
+        \"title\": \"Roundtrip Allday\",
+        \"date_start\": \"2026-07-02T00:00:00Z\",
+        \"date_end\":   \"2026-07-03T00:00:00Z\",
+        \"all_day\": true
+    }")
+check_code "POST all-day event" "$CODE" "201"
+EXP_KEY_ALLDAY=$(extract '.data.key')
+
+EXP_UID_RRULE="exp-rrule-$RANDOM@example.com"
+CODE=$(req -X POST "$BASE/calendars/$EXP_CAL_KEY/events" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d "{
+        \"uid\": \"$EXP_UID_RRULE\",
+        \"title\": \"Roundtrip Weekly\",
+        \"date_start\": \"2026-07-06T08:00:00Z\",
+        \"date_end\":   \"2026-07-06T09:00:00Z\",
+        \"recurrence_rule\": {\"frequency\": \"weekly\", \"count\": 4}
+    }")
+check_code "POST recurring event" "$CODE" "201"
+EXP_KEY_RRULE=$(extract '.data.key')
+
+
+step "86. Export/Import — download .ics and verify content"
+info "Calls GET /calendars/.../export and checks the payload contains the three UIDs and the RRULE."
+
+EXP_ICS_FILE=$(mktemp)
+trap 'rm -f "$EXP_ICS_FILE"' EXIT
+CODE=$(curl -s -o "$EXP_ICS_FILE" -w "%{http_code}" "$BASE/calendars/$EXP_CAL_KEY/export" -H "$H_AUTH")
+check_code "GET /calendars/$EXP_CAL_KEY/export" "$CODE" "200"
+
+grep -q "BEGIN:VCALENDAR" "$EXP_ICS_FILE" && ok "ICS has BEGIN:VCALENDAR" || fail "ICS missing BEGIN:VCALENDAR"
+grep -q "END:VCALENDAR"   "$EXP_ICS_FILE" && ok "ICS has END:VCALENDAR"   || fail "ICS missing END:VCALENDAR"
+grep -qF "$EXP_UID_SIMPLE" "$EXP_ICS_FILE" && ok "ICS contains simple UID"  || fail "ICS missing simple UID"
+grep -qF "$EXP_UID_ALLDAY" "$EXP_ICS_FILE" && ok "ICS contains all-day UID" || fail "ICS missing all-day UID"
+grep -qF "$EXP_UID_RRULE"  "$EXP_ICS_FILE" && ok "ICS contains recurring UID" || fail "ICS missing recurring UID"
+grep -q  "RRULE:FREQ=WEEKLY" "$EXP_ICS_FILE" && ok "ICS preserves the RRULE master" || fail "RRULE master not in export (occurrences expanded?)"
+
+# Inline (default): no attachment header. With ?download=true: attachment header present.
+INLINE_HEADERS=$(curl -s -D - -o /dev/null "$BASE/calendars/$EXP_CAL_KEY/export" -H "$H_AUTH")
+echo "$INLINE_HEADERS" | grep -qi "Content-Disposition: attachment" \
+    && fail "inline export should NOT carry attachment header" \
+    || ok "inline export served without attachment header"
+
+DL_HEADERS=$(curl -s -D - -o /dev/null "$BASE/calendars/$EXP_CAL_KEY/export?download=true" -H "$H_AUTH")
+echo "$DL_HEADERS" | grep -qi "Content-Disposition: attachment" \
+    && ok "download=true adds attachment header" \
+    || fail "download=true should add Content-Disposition: attachment"
+
+
+step "87. Export/Import — delete every event of the calendar"
+info "Removes the three events so the calendar is empty before importing back."
+
+CODE=$(req -X DELETE "$BASE/events/$EXP_KEY_SIMPLE" -H "$H_AUTH")
+check_code "DELETE simple event" "$CODE" "200"
+CODE=$(req -X DELETE "$BASE/events/$EXP_KEY_ALLDAY" -H "$H_AUTH")
+check_code "DELETE all-day event" "$CODE" "200"
+CODE=$(req -X DELETE "$BASE/events/$EXP_KEY_RRULE" -H "$H_AUTH")
+check_code "DELETE recurring event" "$CODE" "200"
+
+CODE=$(req "$BASE/calendars/$EXP_CAL_KEY/events?start_date_time=2026-07-01T00:00:00Z&end_date_time=2026-07-31T00:00:00Z" -H "$H_AUTH")
+check_code "GET events (after deletes)" "$CODE" "200"
+EXP_REMAINING=$(body | jq -r '.data.events | length')
+[ "$EXP_REMAINING" = "0" ] && ok "calendar empty after deletes" || fail "calendar still has $EXP_REMAINING event(s) after deletes"
+
+
+step "88. Export/Import — re-import the .ics file"
+info "Posts the previously-exported file as multipart/form-data (per spec)."
+
+CODE=$(req -X POST "$BASE/calendars/$EXP_CAL_KEY/import" \
+    -H "$H_AUTH" \
+    -F "file=@$EXP_ICS_FILE;type=text/calendar")
+check_code "POST /calendars/$EXP_CAL_KEY/import" "$CODE" "200"
+check_error "import error_code"
+IMP_INSERTED=$(extract '.data.inserted')
+IMP_DELETED=$(extract '.data.deleted')
+[ "$IMP_INSERTED" = "3" ] && ok "import inserted 3 events" || fail "import inserted $IMP_INSERTED (expected 3)"
+[ "$IMP_DELETED" = "0" ] && ok "import did not delete anything" || fail "import unexpectedly deleted $IMP_DELETED row(s)"
+
+
+step "89. Export/Import — verify the three events are back"
+info "Re-fetches the calendar events and checks each original UID is present."
+
+CODE=$(req "$BASE/calendars/$EXP_CAL_KEY/events?start_date_time=2026-07-01T00:00:00Z&end_date_time=2026-07-31T00:00:00Z" -H "$H_AUTH")
+check_code "GET events (after import)" "$CODE" "200"
+
+info "Original UIDs: $EXP_UID_SIMPLE | $EXP_UID_ALLDAY | $EXP_UID_RRULE"
+info "Re-fetched UIDs: $(body | jq -r '[.data.events[].uid] | unique | join(" | ")')"
+info "Re-fetched titles: $(body | jq -r '[.data.events[].title] | unique | join(" | ")')"
+
+SIMPLE_BACK=$(body  | jq -r --arg uid "$EXP_UID_SIMPLE" '[.data.events[] | select(.uid == $uid)] | length')
+ALLDAY_BACK=$(body  | jq -r --arg uid "$EXP_UID_ALLDAY" '[.data.events[] | select(.uid == $uid)] | length')
+RRULE_BACK=$(body   | jq -r --arg uid "$EXP_UID_RRULE"  '[.data.events[] | select(.uid == $uid)] | length')
+[ "$SIMPLE_BACK" -ge 1 ] && ok "simple event is back"     || fail "simple event missing after import"
+[ "$ALLDAY_BACK" -ge 1 ] && ok "all-day event is back"    || fail "all-day event missing after import"
+[ "$RRULE_BACK"  -ge 1 ] && ok "recurring event is back"  || fail "recurring event missing after import (expected ≥ 1 occurrence)"
+
+# The re-imported event becomes owned by the importing user (IMPORT_REWRITES_OWNERSHIP=True)
+NEW_ORGANIZER=$(body | jq -r --arg uid "$EXP_UID_SIMPLE" '[.data.events[] | select(.uid == $uid)][0].organizer.email // empty')
+[ "$NEW_ORGANIZER" = "$USER" ] && ok "importer is the new organizer ($USER)" || fail "organizer rewrite — expected $USER, got '$NEW_ORGANIZER'"
+
+
+step "90. Export/Import — cleanup roundtrip calendar"
+info "Deletes the dedicated calendar. Skipped without -d."
+
+if $DO_DELETE; then
+    CODE=$(req -X DELETE "$BASE/calendars/$EXP_CAL_KEY" -H "$H_AUTH")
+    check_code "DELETE /calendars/$EXP_CAL_KEY" "$CODE" "200"
+else
+    skip "DELETE roundtrip calendar $EXP_CAL_KEY"
+fi
+
+
 step "67. Delete — LOGIN_2 and LOGIN_3 freebusy events and calendars"
 info "Removes the freebusy test events and calendars created by LOGIN_2 and LOGIN_3. Skipped without -d."
 

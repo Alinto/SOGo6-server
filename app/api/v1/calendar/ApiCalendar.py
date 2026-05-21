@@ -8,12 +8,17 @@ from flask.typing import ResponseReturnValue
 from flask_smorest import Blueprint
 
 from app.interface.calendar.InterfaceApiCalendarCalendar import InterfaceApiCalendarCalendar
+from app.utils.api.ApiBaseResponse import create_api_base_response
+from app.utils.errors import ERROR_CALENDAR_IMPORT_NO_FILE
 from app.utils.logger.logger import logger_api
 from .schemas.calendar import (
     CalendarCreateSchema,
     CalendarUpdateSchema,
     CalendarListResponseSchema,
     CalendarResponseSchema,
+    CalendarExportQueryArgsSchema,
+    CalendarImportResponseSchema,
+    CalendarImportUploadSchema,
 )
 from .schemas.event import (
     AttendanceSchema,
@@ -44,6 +49,7 @@ from .schemas.external_calendar import (
 if TYPE_CHECKING:
     from app.auth.User import User
     from app.config.settings.ProcessSetting import ProcessSetting
+    from werkzeug.datastructures import FileStorage
 
 blp = Blueprint("Calendar", __name__, url_prefix="")
 
@@ -102,6 +108,51 @@ class ApiCalendarDetail(MethodView):
         logger_api.debug("DELETE /calendars/%s user=%s", key, g.user.uid)
         interface: InterfaceApiCalendarCalendar = g.inter
         return interface.delete_calendar(key)
+
+
+@blp.route("/calendars/<string:key>/export")
+class ApiCalendarExport(MethodView):
+    """API to download a calendar as a VCALENDAR (.ics) payload."""
+
+    @blp.arguments(CalendarExportQueryArgsSchema, location="query", arg_name="query_args")
+    def get(self, query_args: dict, key: str) -> ResponseReturnValue:
+        """Stream the calendar as ``text/calendar``."""
+        logger_api.debug("GET /calendars/%s/export user=%s args=%s", key, g.user.uid, query_args)
+        interface: InterfaceApiCalendarCalendar = g.inter
+        return interface.export_calendar(key, query_args)
+
+
+@blp.route("/calendars/<string:key>/import")
+class ApiCalendarImport(MethodView):
+    """API to import a VCALENDAR (.ics) payload into a calendar.
+
+    Per the spec, the endpoint accepts a ``multipart/form-data`` upload containing a single
+    ``file`` part. The ``accepted_content_types`` class attribute tells the global
+    content-type middleware to skip its default ``application/json`` rule for this route.
+    """
+
+    accepted_content_types: set[str] = {"multipart/form-data"}
+
+    @blp.arguments(CalendarImportUploadSchema, location="files")
+    @blp.response(200, CalendarImportResponseSchema)
+    def post(self, files: dict, key: str) -> ResponseReturnValue:
+        """Import the uploaded .ics file into the calendar.
+
+        The total request size is already capped at the WSGI layer (MAX_CONTENT_LENGTH),
+        and the module enforces the per-import size limit; this view only reads the part and
+        decodes it.
+        """
+        logger_api.debug("POST /calendars/%s/import user=%s", key, g.user.uid)
+        interface: InterfaceApiCalendarCalendar = g.inter
+        upload: FileStorage | None = files.get("file")
+        if upload is None:
+            return create_api_base_response(None, ERROR_CALENDAR_IMPORT_NO_FILE)
+        raw: bytes = upload.stream.read()
+        try:
+            ics_text: str = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            ics_text = raw.decode("latin-1")
+        return interface.import_calendar(key, ics_text)
 
 
 @blp.route("/calendars/<string:key>/events")

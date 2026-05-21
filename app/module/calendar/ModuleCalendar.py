@@ -3,7 +3,11 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
-from app.module.calendar.CalendarConst import MAX_EVENT_FETCH_DAYS, MAX_FREEBUSY_DAYS, MAX_TASK_FETCH_DAYS
+from app.module.calendar.CalendarConst import (
+    IMPORT_REWRITES_OWNERSHIP, MAX_EVENT_FETCH_DAYS, MAX_FREEBUSY_DAYS, MAX_IMPORT_ICS_BYTES, MAX_TASK_FETCH_DAYS,
+)
+from app.module.calendar.serializer.CalendarEventSerializerIcal import CalendarEventSerializerIcal
+from app.module.calendar.serializer.CalendarEventsSerializerIcal import CalendarEventsSerializerIcal
 from app.module.calendar.freebusy.FreeBusyEngine import FreeBusyEngine, FreeBusyPrefs
 from app.module.calendar.imip.ImipBuilder import ImipBuilder
 from app.module.calendar.imip.ImipProcessor import ImipProcessor
@@ -65,15 +69,20 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         if hasattr(self, "_db"):
             self._db.close()
 
-    def create_personal_calendar(self, user_uid: str, name: str = "Personal Calendar") -> CalCalendar:
+    def create_personal_calendar(self, user_uid: str, name: str = "Personal Calendar", tz: str = "UTC") -> CalCalendar:
         """Create and persist the default personal calendar for a user.
 
         If the user already has a default calendar, returns it without creating a new one.
+        The caller (auth onboarding) passes the user's preferred timezone (``tz``) so
+        floating-time events imported later are anchored to the user's locale rather than UTC.
         """
         for source in self._sources.get_all(user_uid):
             if source.calendar.is_default:
                 return source.calendar
-        cal: CalCalendar = CalCalendar(user_uid=user_uid, name=name, is_default=True, source_type=CalendarSourceType.LOCAL)
+        cal: CalCalendar = CalCalendar(
+            user_uid=user_uid, name=name, timezone=tz,
+            is_default=True, source_type=CalendarSourceType.LOCAL,
+        )
         cal.key = generate_uuid()
         cal.ctag = 0
         source: CalendarSource = self._sources.get(cal)
@@ -488,6 +497,70 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
             events_by_key=events_by_key,
             now=now,
             lookahead_minutes=lookahead_minutes,
+        )
+
+    # Import / Export
+    def export_calendar(
+        self, user: User, key: str,
+        date_start: datetime | None = None, date_end: datetime | None = None,
+    ) -> str:
+        """Serialize all events and tasks of a calendar to a VCALENDAR string.
+
+        Recurring masters are exported with their RRULE intact; expansion happens client-side.
+        ``date_start`` and ``date_end`` bound the export window on event ``date_start`` /
+        recurrence end; both are optional and default to no bound on their side (1970 → +∞).
+
+        :param user: The calendar owner triggering the export.
+        :param key: Opaque calendar key.
+        :param date_start: Optional lower bound on event date_start.
+        :param date_end: Optional upper bound on event date_start (recurring masters whose
+            window reaches this date are included).
+        :return: A VCALENDAR string ready to be served as ``text/calendar``.
+        """
+        # TODO: dispatch as Celery task instead of synchronous call once the agent is in place
+        source: CalendarSource = self.get_calendar(user, key)
+        self._acl.check_permission(source.calendar.permissions, CalendarPermissionAction.VIEW)
+        # expand=False keeps recurring masters with their RRULE intact and includes VTODO,
+        # so the exported VCALENDAR mirrors the stored components rather than flat occurrences.
+        events: list[CalEvent] = source.get_events(date_start, date_end, expand=False)
+        events.extend(source.get_tasks(date_start, date_end, expand=False))
+        serializer: CalendarEventsSerializerIcal = CalendarEventsSerializerIcal(CalendarEventSerializerIcal())
+        return serializer.serialize(events)
+
+    def import_calendar(self, user: User, key: str, ics_text: str) -> CalSyncResult:
+        """Import a VCALENDAR payload into a writable calendar (additive merge).
+
+        The importer takes ownership of every imported event when
+        :data:`CalendarConst.IMPORT_REWRITES_OWNERSHIP` is True: the organizer is rewritten
+        to the importer and the SEQUENCE reset, while attendees are preserved. Events with
+        the same UID as an existing local row are updated; events absent from the payload are
+        left untouched (unlike a mirror sync).
+
+        Events whose datetimes carry no explicit timezone (RFC 5545 floating time) are
+        anchored to the destination calendar's timezone — itself defaulted to the user's
+        timezone at creation time.
+
+        :param user: The user importing the file (becomes the new organizer when rewriting).
+        :param key: Opaque key of the destination calendar.
+        :param ics_text: Raw VCALENDAR payload (UTF-8 decoded).
+        :return: Counters of inserted, updated and deleted rows (deleted is always 0).
+        :raises RequestException: ERROR_CALENDAR_NOT_SUPPORTED if the target calendar is not
+            writable (ICS mirror, denied permission); ERROR_CALENDAR_IMPORT_TOO_LARGE if the
+            payload exceeds the size limit.
+        """
+        # TODO: dispatch as Celery task instead of synchronous call once the agent is in place
+        if len(ics_text.encode("utf-8")) > MAX_IMPORT_ICS_BYTES:
+            raise RequestException(error=err.ERROR_CALENDAR_IMPORT_TOO_LARGE)
+        source: CalendarSource = self.get_calendar(user, key)
+        self._acl.check_permission(source.calendar.permissions, CalendarPermissionAction.CREATE)
+        if not source.is_writable():
+            raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
+        engine: SyncEngine = SyncEngine(sources=self._sources, cache=self._cache)
+        return engine.apply_ics(
+            source.calendar, ics_text,
+            delete_missing=False,
+            default_timezone=source.calendar.timezone,
+            rewrite_owner_email=user.mail if IMPORT_REWRITES_OWNERSHIP else None,
         )
 
     # External calendar sync

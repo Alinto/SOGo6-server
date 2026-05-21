@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unicodedata
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
@@ -43,34 +44,20 @@ class CalendarSource(ABC):  # pylint: disable=too-many-public-methods
         start: datetime | None = None,
         end: datetime | None = None,
         search: str | None = None,
+        expand: bool = True,
     ) -> list[CalEvent]:
         """Return events overlapping [start, end], sorted by date_start ASC.
 
-        Pipeline: resolve bounds → fetch raw → expand recurring → filter.
-        start defaults to 1970-01-01 UTC.
-        end defaults to 9999-12-31 when a search query is provided (no date constraint),
-        or to now UTC otherwise.
-        Naive datetimes are treated as UTC.
+        With ``expand=True`` (default): resolve bounds → fetch → expand recurring → filter.
+        With ``expand=False`` (export): recurring masters keep their RRULE and are returned
+        as-is — no expansion, no Python date filter (the SQL fetch already bounds the range)
+        so the recipient calendar can rebuild the series. The upper bound also defaults to
+        ``9999-12-31`` in that mode to capture future occurrences.
+
+        start defaults to 1970-01-01 UTC. end defaults to now UTC for an expanded query
+        without search, or to 9999-12-31 for a search / raw query. Naive datetimes are UTC.
         """
-        resolved_start: datetime = start if start is not None else _DEFAULT_START
-        if end is not None:
-            resolved_end: datetime = end
-        elif search is not None:
-            resolved_end = _DEFAULT_END_SEARCH
-        else:
-            resolved_end = datetime.now(timezone.utc)
-
-        if resolved_start.tzinfo is None:
-            resolved_start = resolved_start.replace(tzinfo=timezone.utc)
-        if resolved_end.tzinfo is None:
-            resolved_end = resolved_end.replace(tzinfo=timezone.utc)
-
-        raw: list[CalEvent] = self._fetch_events(resolved_start, resolved_end, search)
-        expanded: list[CalEvent] = self._expand_recurring(raw, resolved_start, resolved_end)
-        result: list[CalEvent] = self._filter(expanded, resolved_start, resolved_end, search)
-        result.sort(key=lambda e: e.date_start)
-        self._stamp_calendar_tz(result)
-        return result
+        return self._collect(self._fetch_events, start, end, search, expand)
 
     @abstractmethod
     def _fetch_events(self, start: datetime, end: datetime, search: str | None = None) -> list[CalEvent]:
@@ -86,15 +73,28 @@ class CalendarSource(ABC):  # pylint: disable=too-many-public-methods
         start: datetime | None = None,
         end: datetime | None = None,
         search: str | None = None,
+        expand: bool = True,
     ) -> list[CalEvent]:
         """Return tasks (VTODO) overlapping [start, end], sorted by date_start ASC.
 
-        Same resolution and filtering pipeline as get_events, applied to VTODO components.
+        Same resolution and filtering pipeline as :meth:`get_events`, applied to VTODO
+        components. ``expand`` has the same meaning.
         """
+        return self._collect(self._fetch_tasks, start, end, search, expand)
+
+    def _collect(
+        self,
+        fetch: Callable[[datetime, datetime, str | None], list[CalEvent]],
+        start: datetime | None,
+        end: datetime | None,
+        search: str | None,
+        expand: bool,
+    ) -> list[CalEvent]:
+        """Shared pipeline for get_events / get_tasks: resolve bounds, fetch, optionally expand, filter, sort."""
         resolved_start: datetime = start if start is not None else _DEFAULT_START
         if end is not None:
             resolved_end: datetime = end
-        elif search is not None:
+        elif search is not None or not expand:
             resolved_end = _DEFAULT_END_SEARCH
         else:
             resolved_end = datetime.now(timezone.utc)
@@ -104,12 +104,13 @@ class CalendarSource(ABC):  # pylint: disable=too-many-public-methods
         if resolved_end.tzinfo is None:
             resolved_end = resolved_end.replace(tzinfo=timezone.utc)
 
-        raw: list[CalEvent] = self._fetch_tasks(resolved_start, resolved_end, search)
-        expanded: list[CalEvent] = self._expand_recurring(raw, resolved_start, resolved_end)
-        result: list[CalEvent] = self._filter(expanded, resolved_start, resolved_end, search)
-        result.sort(key=lambda e: e.date_start)
-        self._stamp_calendar_tz(result)
-        return result
+        raw: list[CalEvent] = fetch(resolved_start, resolved_end, search)
+        if expand:
+            raw = self._expand_recurring(raw, resolved_start, resolved_end)
+            raw = self._filter(raw, resolved_start, resolved_end, search)
+        raw.sort(key=lambda e: e.date_start or _DEFAULT_START)
+        self._stamp_calendar_tz(raw)
+        return raw
 
     def _fetch_tasks(self, start: datetime, end: datetime, search: str | None = None) -> list[CalEvent]:
         """Return raw VTODO CalEvent objects. Override in DB-backed sources."""

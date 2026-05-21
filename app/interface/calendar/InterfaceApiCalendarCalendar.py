@@ -101,14 +101,19 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
             return create_api_base_response(None, ex.error)
 
     def create_calendar(self, body: dict[str, Any]) -> tuple[dict[str, Any], int]:
-        """Create a new calendar."""
+        """Create a new calendar.
+
+        When the caller does not supply a timezone, the calendar inherits the user's own
+        timezone (``SOGO_U_TIMEZONE``). This makes the calendar timezone a sensible default
+        anchor for floating-time events imported later.
+        """
         try:
             cal: CalCalendar = CalCalendar(
                 user_uid=self.user.uid,
                 name=body["name"],
                 color=body.get("color"),
                 description=body.get("description"),
-                timezone=body.get("timezone", "UTC"),
+                timezone=body.get("timezone") or self._user_timezone(self.user.uid),
                 source_type=CalendarSourceType.LOCAL,
             )
             created: CalCalendar = self.module.create_calendar(self.user, cal)
@@ -316,17 +321,20 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
             logger_api.error("Invalid reminder query for user %s: %s", self.user.uid, exc)
             return create_api_base_response(None, ERROR_CALENDAR_JSON_PARSE_FAILED)
 
+    def _user_timezone(self, uid: str) -> str:
+        """Return the user's IANA timezone (``SOGO_U_TIMEZONE``), defaulting to UTC."""
+        raw_gen: dict = self._user_module.get_partial_user_preferences(uid, UserGeneralSettings.subparent.lower())
+        return raw_gen.get(UserGeneralSettings.subparent, {}).get("SOGO_U_TIMEZONE", "UTC")
+
     def _load_freebusy_prefs(self, target_uid: str) -> FreeBusyPrefs:
         """Load FreeBusy preferences for target_uid from user settings."""
-        raw_cal = self._user_module.get_partial_user_preferences(target_uid, UserCalendarGeneralSettings.subparent.lower())
-        cal_prefs = raw_cal.get(UserCalendarGeneralSettings.subparent, {})
-        raw_gen = self._user_module.get_partial_user_preferences(target_uid, UserGeneralSettings.subparent.lower())
-        user_tz = raw_gen.get(UserGeneralSettings.subparent, {}).get("SOGO_U_TIMEZONE", "UTC")
+        raw_cal: dict = self._user_module.get_partial_user_preferences(target_uid, UserCalendarGeneralSettings.subparent.lower())
+        cal_prefs: dict = raw_cal.get(UserCalendarGeneralSettings.subparent, {})
         return FreeBusyPrefs(
             busy_off_hours=cal_prefs.get("SOGO_U_BUSY_OFF_HOURS", False),
             workday_start=cal_prefs.get("SOGO_U_WORKDAY_START_TIME", "09:00"),
             workday_end=cal_prefs.get("SOGO_U_WORKDAY_END_TIME", "18:00"),
-            timezone=user_tz,
+            timezone=self._user_timezone(target_uid),
         )
 
     def _compute_freebusy(self, target_uids: list[str], start: datetime, end: datetime) -> dict:
@@ -398,6 +406,48 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
             return create_api_base_response(self._sync_status_serializer.serialize(status))
         except RequestException as ex:
             logger_api.error("get_sync_status failed for user %s key %s: %s", self.user.uid, key, ex)
+            return create_api_base_response(None, ex.error)
+
+    def export_calendar(self, key: str, query_args: dict[str, Any]) -> tuple[str, int, dict[str, str]] | tuple[dict[str, Any], int]:
+        """Export the calendar as a VCALENDAR payload.
+
+        :param key: Opaque calendar key.
+        :param query_args: Validated query string. Supports optional ``start_date_time``
+            and ``end_date_time`` bounds, and a ``download`` flag that toggles the
+            Content-Disposition attachment header so browsers trigger a file download
+            instead of inlining the iCalendar.
+        :return: A tuple ``(ics_text, status_code, headers)`` for Flask when successful, or
+            the standard error envelope on failure.
+        """
+        try:
+            date_start: datetime | None = query_args.get("start_date_time")
+            date_end: datetime | None = query_args.get("end_date_time")
+            download: bool = bool(query_args.get("download"))
+            ics_text: str = self.module.export_calendar(self.user, key, date_start=date_start, date_end=date_end)
+            headers: dict[str, str] = {"Content-Type": "text/calendar; charset=utf-8"}
+            if download:
+                filename: str = f"calendar-{key}.ics"
+                headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+            return ics_text, 200, headers
+        except RequestException as ex:
+            logger_api.error("export_calendar failed for user %s key %s: %s", self.user.uid, key, ex)
+            return create_api_base_response(None, ex.error)
+
+    def import_calendar(self, key: str, ics_text: str) -> tuple[dict[str, Any], int]:
+        """Import a VCALENDAR payload into a calendar (additive merge).
+
+        Floating-time events (no explicit timezone) are anchored to the destination
+        calendar's timezone by the module — no user-preference lookup needed here.
+
+        :param key: Opaque calendar key.
+        :param ics_text: Raw VCALENDAR payload (UTF-8 decoded), typically read from an upload.
+        :return: API envelope with insert/update/delete counters.
+        """
+        try:
+            result = self.module.import_calendar(self.user, key, ics_text)
+            return create_api_base_response(self._sync_result_serializer.serialize(result))
+        except RequestException as ex:
+            logger_api.error("import_calendar failed for user %s key %s: %s", self.user.uid, key, ex)
             return create_api_base_response(None, ex.error)
 
     @staticmethod

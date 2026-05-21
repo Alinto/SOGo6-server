@@ -15,4 +15,5 @@ class SyncResultSerializerDict(Serializer[CalSyncResult, dict[str, Any]]):
             "updated": data.updated,
             "deleted": data.deleted,
             "total": data.total,
+            "skipped": data.skipped,
         }

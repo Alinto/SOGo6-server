@@ -545,7 +545,10 @@ class CalendarEventDeserializerIcal(CalendarEventDeserializer[str]):
         if isinstance(trigger_val, timedelta):
             return CalReminder(method=method, minutes_before=int(-trigger_val.total_seconds() / 60))
 
-        logger_calendar.debug("Absolute TRIGGER DATE-TIME not supported; storing minutes_before=0")
+        # Absolute TRIGGER DATE-TIME (RFC 5545 §3.8.6.3 VALUE=DATE-TIME form) is not modelled
+        # in CalReminder, which only stores a relative offset. Falling back to 0 is correct
+        # enough for the no-Agent prototype; the caller logs a single summary when this
+        # happens repeatedly so it stays visible without spamming the per-alarm log.
         return CalReminder(method=method, minutes_before=0)
 
     # CalEvent assembler
