@@ -267,3 +267,70 @@ def test_sync_deletes_all_when_remote_empty(mock_fetcher):
 
     summary = engine.sync(_make_calendar())
     assert summary.deleted == 2
+
+
+# ========== orphan override handling ==========
+
+@patch("app.module.calendar.sync.SyncEngine.IcsFetcher")
+def test_apply_diff_skips_orphan_override(_mock_fetcher):
+    engine, sources, _ = _build_engine()
+    master = _make_event("series@x")  # master in remote
+    orphan = _make_event("orphan@x", recurrence_id=_dt(2026, 6, 5))  # no master anywhere
+    mock_source = MagicMock()
+    mock_source.get_sync_metadata.return_value = []  # no local events
+    sources.get.return_value = mock_source
+
+    result = engine._apply_diff(_make_calendar(), [master, orphan], delete_missing=False)
+    assert result.inserted == 1
+    assert result.skipped == 1
+    assert result.total == 2
+
+
+@patch("app.module.calendar.sync.SyncEngine.IcsFetcher")
+def test_apply_diff_keeps_override_when_master_in_local(_mock_fetcher):
+    engine, sources, _ = _build_engine()
+    override = _make_event("series@x", recurrence_id=_dt(2026, 6, 5))
+    mock_source = MagicMock()
+    # Master already present locally (no recurrence_id)
+    mock_source.get_sync_metadata.return_value = [_make_meta("series@x")]
+    sources.get.return_value = mock_source
+
+    result = engine._apply_diff(_make_calendar(), [override], delete_missing=False)
+    assert result.skipped == 0
+    assert result.inserted == 1
+
+
+# ========== ownership rewrite (on the deserialized models) ==========
+
+def _capture_inserted_events(engine, sources):
+    """Wire a mock source that records every event passed to insert_event."""
+    inserted: list = []
+    mock_source = MagicMock()
+    mock_source.get_sync_metadata.return_value = []
+    mock_source.insert_event.side_effect = lambda evt: inserted.append(evt)
+    sources.get.return_value = mock_source
+    return inserted
+
+
+def test_apply_ics_rewrites_organizer_and_resets_sequence():
+    engine, sources, _ = _build_engine()
+    inserted = _capture_inserted_events(engine, sources)
+    engine._deserializer = MagicMock()
+    engine._deserializer.deserialize.return_value = [_make_event("e1", sequence=7)]
+
+    engine.apply_ics(_make_calendar(), "ics", delete_missing=False, rewrite_owner_email="alice@example.com")
+
+    assert inserted[0].organizer.email == "alice@example.com"
+    assert inserted[0].sequence == 0
+
+
+def test_apply_ics_without_rewrite_keeps_organizer():
+    engine, sources, _ = _build_engine()
+    inserted = _capture_inserted_events(engine, sources)
+    original = _make_event("e1", sequence=7)
+    engine._deserializer = MagicMock()
+    engine._deserializer.deserialize.return_value = [original]
+
+    engine.apply_ics(_make_calendar(), "ics", delete_missing=False)
+
+    assert inserted[0].sequence == 7  # untouched when no rewrite requested

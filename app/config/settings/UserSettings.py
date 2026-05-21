@@ -28,7 +28,7 @@ class UserGeneralSettings(SogoSchema):
     #Language #TODO do we need to validate available language here? Or this is just frontend work?
     SOGO_U_LANGUAGE = fields.String(load_default="English", dump_default="English")
     #Timezone #TODO the timezones depends of the OS system and may be incomplete -> read https://docs.python.org/3/library/zoneinfo.html
-    SOGO_U_TIMEZONE = fields.String(validate=validate.OneOf(TIMEZONES))
+    SOGO_U_TIMEZONE = fields.String(load_default="UTC", dump_default="UTC", validate=validate.OneOf(TIMEZONES))
     #Python format -> https://docs.python.org/3.6/library/datetime.html#strftime-strptime-behavior
     #React format -> https://tc39.es/ecma262/multipage/numbers-and-dates.html#sec-date-time-string-format 
     SOGO_U_TIME_FORMAT = fields.String(load_default="HH:mm", dump_default="HH:mm") #Value must be react-ready format

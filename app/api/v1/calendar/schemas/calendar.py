@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from marshmallow import Schema, fields, validate
 
+from app.api.v1.calendar.schemas.event import DateTimeEndUtcField, DateTimeUtcField
 from app.utils.api.ApiBaseResponse import ApiBaseResponse
 
 _COLOR_REGEX = r"^#[0-9A-Fa-f]{6}$"
@@ -69,3 +70,49 @@ class CalendarResponseSchema(ApiBaseResponse):
     """Response schema for a single calendar."""
 
     data = fields.Nested(CalendarSchema, allow_none=True)
+
+
+class CalendarExportQueryArgsSchema(Schema):
+    """Query string for the export endpoint."""
+
+    start_date_time = DateTimeUtcField(
+        load_default=None, allow_none=True,
+        metadata={"description": "ISO 8601 UTC datetime — only return events ending after this instant."},
+    )
+    end_date_time = DateTimeEndUtcField(
+        load_default=None, allow_none=True,
+        metadata={"description": "ISO 8601 UTC datetime or date — only return events starting before this instant. Date-only values default to 23:59:59 UTC."},
+    )
+    download = fields.Boolean(
+        load_default=False,
+        metadata={"description": "When true, the response carries a Content-Disposition: attachment header to trigger a browser download. Otherwise the iCalendar payload is served inline."},
+    )
+
+
+class CalendarImportResultDataSchema(Schema):
+    """Counters returned after an import."""
+
+    inserted = fields.Integer()
+    updated  = fields.Integer()
+    deleted  = fields.Integer()
+    total    = fields.Integer()
+    skipped  = fields.Integer()
+
+
+class CalendarImportResponseSchema(ApiBaseResponse):
+    """Response schema for an import call."""
+
+    data = fields.Nested(CalendarImportResultDataSchema, allow_none=True)
+
+
+class CalendarImportUploadSchema(Schema):
+    """Multipart file upload schema for the import endpoint.
+
+    Declares the ``file`` part so Swagger renders an upload widget. The actual binary read
+    happens in the view since Marshmallow does not deserialize the FileStorage object.
+    """
+
+    file = fields.Raw(
+        required=True,
+        metadata={"type": "string", "format": "binary", "description": "The .ics file to import."},
+    )

@@ -27,6 +27,20 @@ def resolve_tz(tz_name: str) -> ZoneInfo:
         return ZoneInfo("UTC")
 
 
+def anchor_to_utc(dt: datetime, default_tz_name: str | None) -> datetime:
+    """Convert a datetime to UTC, anchoring naive (floating) values to ``default_tz_name``.
+
+    A tz-aware value is converted to UTC directly. A naive value is interpreted in
+    ``default_tz_name`` when provided (RFC 5545 floating time anchored to a calendar/user
+    zone), otherwise assumed to be UTC (same behaviour as :func:`to_utc`).
+    """
+    if dt.tzinfo is not None:
+        return dt.astimezone(timezone.utc)
+    if default_tz_name:
+        return dt.replace(tzinfo=resolve_tz(default_tz_name)).astimezone(timezone.utc)
+    return dt.replace(tzinfo=timezone.utc)
+
+
 def fmt_dt(dt: datetime) -> str:
     """Format a datetime as ISO 8601 UTC with millisecond precision ending in Z.
 

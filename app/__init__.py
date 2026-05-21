@@ -37,6 +37,10 @@ def create_app(sogo_state: int) -> Flask:
     """
     app = Flask(__name__)
     app.config.from_object(process_config)
+    # Hard cap on HTTP request body size, applied at the WSGI layer (Werkzeug). Protects
+    # the server from oversized uploads before any application code reads the body into
+    # memory. See app.utils.constants.MAX_HTTP_REQUEST_BYTES for the rationale.
+    app.config["MAX_CONTENT_LENGTH"] = cs.MAX_HTTP_REQUEST_BYTES
 
     if not app.config.get("DO_SWAGGER"):
         app.config.pop("BASIC_OPENAPI_URL_PREFIX")
@@ -55,7 +59,20 @@ def create_app(sogo_state: int) -> Flask:
     return app
 
 
-def register_before_request(base_blueprint: Blueprint, kind: str, sogo_state: int) -> None:
+def _accepted_content_types() -> set[str] | None:
+    """Return the per-route Content-Type allowlist, or None when the default JSON rule applies.
+
+    Routes opt out of the default ``application/json``-only rule by declaring
+    ``accepted_content_types: set[str]`` on their MethodView subclass. The middleware then
+    enforces that allowlist instead of the JSON check.
+    """
+    view = current_app.view_functions.get(request.endpoint or "")
+    view_class = getattr(view, "view_class", None)
+    accepted = getattr(view_class, "accepted_content_types", None)
+    return accepted if isinstance(accepted, (set, frozenset)) else None
+
+
+def register_before_request(base_blueprint: Blueprint, kind: str, sogo_state: int) -> None:  # pylint: disable=too-many-statements
     """
     Add the different before request on tha api according to the kind and state
 
@@ -70,24 +87,37 @@ def register_before_request(base_blueprint: Blueprint, kind: str, sogo_state: in
     """
 
     @base_blueprint.before_request
-    def check_json_and_content_type() -> ResponseReturnValue | None:
+    def check_content_type() -> ResponseReturnValue | None:  # pylint: disable=too-many-return-statements
         """
-        Only accept request with json content when data is posting
+        Validate the request Content-Type on writes (POST/PATCH/PUT).
 
-        :return:app
+        Default rule: only ``application/json`` is accepted, and the body must be syntactically
+        valid JSON. A route can opt out by declaring an ``accepted_content_types`` set on its
+        view class (e.g. ``{"text/calendar"}`` for the calendar import endpoint). When set,
+        the default JSON rule is replaced by a strict mimetype allowlist and the body is left
+        untouched — the route is responsible for parsing it.
+
+        :return: An error response when the Content-Type is unsupported or the JSON body is
+            malformed, otherwise None.
         :rtype: ResponseReturnValue | None
         """
-        if request.method in {"POST", "PATCH", "PUT"}:
-            content_length = request.content_length
-            if content_length is not None and content_length == 0:
-                return None
-            if not request.is_json:
+        if request.method not in {"POST", "PATCH", "PUT"}:
+            return None
+        content_length = request.content_length
+        if content_length is not None and content_length == 0:
+            return None
+        accepted: set[str] | None = _accepted_content_types()
+        if accepted is not None:
+            if request.mimetype not in accepted:
                 return create_api_base_response(error=err.ERROR_API_CONTENT_TYPE)
-            data = request.get_data(as_text=True)
-            try:
-                loads(data)
-            except (TypeError, JSONDecodeError):
-                return create_api_base_response(error=err.ERROR_API_NOT_JSON)
+            return None
+        if not request.is_json:
+            return create_api_base_response(error=err.ERROR_API_CONTENT_TYPE)
+        data = request.get_data(as_text=True)
+        try:
+            loads(data)
+        except (TypeError, JSONDecodeError):
+            return create_api_base_response(error=err.ERROR_API_NOT_JSON)
         return None
 
     @base_blueprint.before_request

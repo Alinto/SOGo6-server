@@ -8,10 +8,11 @@ from app.module.calendar.model.CalEventSyncMeta import CalEventSyncMeta
 from app.module.calendar.model.CalSyncResult import CalSyncResult
 from app.module.calendar.model.enums.CalendarSourceType import CalendarSourceType
 from app.module.calendar.model.enums.CalendarSyncStatus import CalendarSyncStatus
+from app.module.calendar.model.CalOrganizer import CalOrganizer
 from app.module.calendar.serializer.CalendarEventDeserializerIcal import CalendarEventDeserializerIcal
 from app.module.calendar.serializer.CalendarEventsDeserializerIcal import CalendarEventsDeserializerIcal
 from app.module.calendar.sync.IcsFetcher import IcsFetcher
-from app.utils.calendar.DateTimeUtils import to_utc
+from app.utils.calendar.DateTimeUtils import anchor_to_utc, to_utc
 from app.utils import errors as err
 from app.utils.exceptions import RequestException
 from app.utils.logger.logger import logger_calendar
@@ -60,11 +61,7 @@ class SyncEngine:
             username: str | None = (calendar.sync_config or {}).get("username")
             password: str | None = (calendar.sync_config or {}).get("password")
             ics_text: str = IcsFetcher.fetch(url, username=username, password=password)
-            remote_events: list[CalEvent] = self._deserializer.deserialize(ics_text)
-            if len(remote_events) > MAX_ICS_EVENTS:
-                logger_calendar.error("ICS feed for calendar %s has too many events (%d)", calendar.key, len(remote_events))
-                raise RequestException(error=err.ERROR_CALENDAR_ICS_PARSE_FAILED)
-            result: CalSyncResult = self._apply_diff(calendar, remote_events)
+            result: CalSyncResult = self.apply_ics(calendar, ics_text, delete_missing=True)
             self._update_sync_status(calendar, CalendarSyncStatus.COMPLETED)
             logger_calendar.info(
                 "Sync completed for calendar %s: %d inserted, %d updated, %d deleted",
@@ -84,25 +81,84 @@ class SyncEngine:
             if stored == lock_token:
                 self._cache.delete(lock_key)
 
-    def _apply_diff(self, calendar: CalCalendar, remote_events: list[CalEvent]) -> CalSyncResult:  # pylint: disable=too-many-locals
-        """Compare remote events with local DB and apply inserts/updates/deletes.
+    def apply_ics(
+        self, calendar: CalCalendar, ics_text: str, *,
+        delete_missing: bool, default_timezone: str | None = None,
+        rewrite_owner_email: str | None = None,
+    ) -> CalSyncResult:
+        """Parse an ICS payload and apply it to the calendar via the upsert/diff pipeline.
+
+        Public entry point shared by the URL-based sync (mirror an external feed) and the
+        file-based import (merge a user-provided .ics into a local calendar).
+
+        :param calendar: The target calendar (writes go through its CalendarSource).
+        :param ics_text: Raw VCALENDAR payload to apply.
+        :param delete_missing: When True, soft-delete local events absent from ``ics_text``
+            (mirror semantics — used by external ICS sync). When False, only insert and
+            update (additive semantics — used by user import, which must not erase the rest
+            of the calendar).
+        :param default_timezone: IANA timezone applied to datetimes that carry no explicit
+            timezone (floating time). When None, naive datetimes are assumed UTC.
+        :param rewrite_owner_email: When set, every parsed event has its ORGANIZER replaced
+            with this email and its SEQUENCE reset to 0 — used by the import flow to make the
+            importing user the sole owner of imported events. Attendees are left untouched.
+        :return: Counters of inserted, updated and deleted rows.
+        :raises RequestException: ERROR_CALENDAR_ICS_PARSE_FAILED if the payload exceeds
+            ``MAX_ICS_EVENTS`` or cannot be deserialized.
+        """
+        remote_events: list[CalEvent] = self._deserializer.deserialize(ics_text)
+        if len(remote_events) > MAX_ICS_EVENTS:
+            logger_calendar.error("ICS payload for calendar %s has too many events (%d)", calendar.key, len(remote_events))
+            raise RequestException(error=err.ERROR_CALENDAR_ICS_PARSE_FAILED)
+        if rewrite_owner_email:
+            # Ownership rewrite on the deserialized models (never on the raw iCal text):
+            # the importing user becomes the organizer and the revision history restarts
+            # (RFC 5546 §2.1.4 — SEQUENCE belongs to the organizer). Attendees are kept.
+            for event in remote_events:
+                event.organizer = CalOrganizer(email=rewrite_owner_email)
+                event.sequence = 0
+        return self._apply_diff(calendar, remote_events, delete_missing=delete_missing, default_timezone=default_timezone)
+
+    def _apply_diff(  # pylint: disable=too-many-locals
+        self, calendar: CalCalendar, remote_events: list[CalEvent], *,
+        delete_missing: bool, default_timezone: str | None = None,
+    ) -> CalSyncResult:
+        """Compare remote events with local DB and apply inserts/updates, plus optional deletes.
 
         The sync engine writes directly to the source, bypassing the module ACL checks.
+        ``delete_missing`` controls whether local rows absent from the payload are removed.
+        ``default_timezone`` anchors floating datetimes (no explicit TZ) when set.
         """
         source = self._sources.get(calendar)
-        """Execute the diff logic on an unlocked source."""
         local_metadata: list[CalEventSyncMeta] = source.get_sync_metadata()
         local_by_key: dict[tuple[str, datetime | None], CalEventSyncMeta] = {
             (m.uid, m.recurrence_id): m for m in local_metadata
         }
 
-        remote_masters, remote_overrides, remote_keys = self._prepare_remote(remote_events, calendar.key)
+        remote_masters, remote_overrides, remote_keys = self._prepare_remote(
+            remote_events, calendar.key, default_timezone=default_timezone,
+        )
+
+        # An override (RECURRENCE-ID) is only meaningful if its parent master is reachable:
+        # either present in the same payload, or already persisted in the calendar. Google
+        # Calendar (and other producers) sometimes export detached occurrences without their
+        # master when the master falls outside the export window — skip those silently.
+        known_master_uids: set[str] = {m.uid for m in remote_masters}
+        known_master_uids.update(meta.uid for meta in local_metadata if meta.recurrence_id is None)
 
         inserted: int = 0
         updated: int = 0
         deleted: int = 0
+        skipped: int = 0
 
         for remote_evt in remote_masters + remote_overrides:
+            if remote_evt.recurrence_id is not None and remote_evt.uid not in known_master_uids:
+                logger_calendar.warning(
+                    "Orphan override skipped for calendar %s: uid=%s recurrence_id=%s (no master)",
+                    calendar.key, remote_evt.uid, remote_evt.recurrence_id,
+                )
+                skipped += 1
+                continue
             key = (remote_evt.uid, remote_evt.recurrence_id)
             if key not in local_by_key:
                 if not remote_evt.key:
@@ -117,18 +173,30 @@ class SyncEngine:
                     source.update_event(remote_evt)
                     updated += 1
 
-        for key, local_meta in local_by_key.items():
-            if key not in remote_keys:
-                source.delete_by_key(local_meta.key)
-                deleted += 1
+        # Mirror semantics (sync): a local event no longer present in the feed is removed.
+        # Additive semantics (import): delete_missing is False, the rest of the calendar is
+        # left intact so an import never erases events that were not in the uploaded file.
+        if delete_missing:
+            for key, local_meta in local_by_key.items():
+                if key not in remote_keys:
+                    source.delete_by_key(local_meta.key)
+                    deleted += 1
 
-        return CalSyncResult(inserted=inserted, updated=updated, deleted=deleted, total=len(remote_keys))
+        return CalSyncResult(
+            inserted=inserted, updated=updated, deleted=deleted,
+            total=len(remote_keys), skipped=skipped,
+        )
 
     @staticmethod
     def _prepare_remote(
-        remote_events: list[CalEvent], calendar_key: str,
+        remote_events: list[CalEvent], calendar_key: str, *,
+        default_timezone: str | None = None,
     ) -> tuple[list[CalEvent], list[CalEvent], set[tuple[str, datetime | None]]]:
-        """Sanitize, normalize UTC dates, and split remote events into masters and overrides."""
+        """Sanitize, normalize UTC dates, and split remote events into masters and overrides.
+
+        Datetimes that arrive without an explicit timezone (RFC 5545 floating time) are
+        anchored to ``default_timezone`` when provided, otherwise treated as UTC.
+        """
         masters: list[CalEvent] = []
         overrides: list[CalEvent] = []
         keys: set[tuple[str, datetime | None]] = set()
@@ -138,11 +206,11 @@ class SyncEngine:
             evt.sanitize()
             evt.calendar_key = calendar_key
             if evt.recurrence_id is not None:
-                evt.recurrence_id = to_utc(evt.recurrence_id)
+                evt.recurrence_id = anchor_to_utc(evt.recurrence_id, default_timezone)
             if evt.date_start is not None:
-                evt.date_start = to_utc(evt.date_start)
+                evt.date_start = anchor_to_utc(evt.date_start, default_timezone)
             if evt.date_end is not None:
-                evt.date_end = to_utc(evt.date_end)
+                evt.date_end = anchor_to_utc(evt.date_end, default_timezone)
             keys.add((evt.uid, evt.recurrence_id))
             if evt.recurrence_id is not None:
                 overrides.append(evt)

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
 from app.module.calendar.model.enums.ComponentType import ComponentType
@@ -123,6 +123,29 @@ class CalendarSourceDb(CalendarSource):
             return None
         return RruleEngine().get_max_date(event)
 
+    def _upsert_reminder_if_relevant(self, event: CalEvent) -> None:
+        """Persist reminders only if the event still has an occurrence in the future.
+
+        Past, non-recurring events (and fully-elapsed series) cannot trigger any reminder,
+        so storing rows for them only inflates the table and slows down the active-reminder
+        JOIN. When the event has shifted from future to past we still delete any leftover
+        rows so the upsert remains idempotent.
+        """
+        if event.date_start is None:
+            self._repo_reminder.delete(event.key)
+            return
+        now: datetime = datetime.now(timezone.utc)
+        if event.recurrence_rule is None:
+            has_future: bool = event.date_end is not None and event.date_end >= now
+        else:
+            max_end: datetime | None = RruleEngine().get_max_date(event)
+            # Unbounded series (max_end is None) always have a future occurrence.
+            has_future = max_end is None or max_end >= now
+        if not has_future:
+            self._repo_reminder.delete(event.key)
+            return
+        self._repo_reminder.upsert(event)
+
     def _bump_ctag(self) -> None:
         """Increment this calendar's ctag to signal that its event collection has changed.
 
@@ -144,7 +167,7 @@ class CalendarSourceDb(CalendarSource):
             created = self._repo_event.insert(event, self._date_end_recurrence(event))
         if self._calendar.timezone:
             created.calendar_timezone = self._calendar.timezone
-        self._repo_reminder.upsert(created)
+        self._upsert_reminder_if_relevant(created)
         self._bump_ctag()
         return created
 
@@ -173,7 +196,7 @@ class CalendarSourceDb(CalendarSource):
     def update_event(self, event: CalEvent) -> None:
         """Persist changes to an existing event row and bump the calendar ctag."""
         self._repo_event.update(event, self._date_end_recurrence(event))
-        self._repo_reminder.upsert(event)
+        self._upsert_reminder_if_relevant(event)
         self._bump_ctag()
 
     def realign_detached_occurrences(self, uid: str, old_start: datetime, new_start: datetime) -> list[tuple[CalEvent, EventAction]]:
@@ -234,7 +257,7 @@ class CalendarSourceDb(CalendarSource):
         master.recurrence_rule.until = until
         master.recurrence_rule.count = None
         self._repo_event.update(master, RruleEngine().get_max_date(master))
-        self._repo_reminder.upsert(master)
+        self._upsert_reminder_if_relevant(master)
         touched: list[tuple[CalEvent, EventAction]] = [(master, EventAction.UPDATE)]
 
         detached: list[CalEvent] = self._repo_event.find_detached_occurrences(self._calendar.key, uid)

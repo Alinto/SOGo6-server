@@ -170,6 +170,8 @@ ERROR_CALENDAR_ATTENDANCE_UPDATE_FAILED      = E("S000617", "Failed To Update At
 ERROR_CALENDAR_NOT_ORGANIZER                 = E("S000618", "Only The Organizer Can Modify This Event", HTTPStatus.FORBIDDEN)
 ERROR_CALENDAR_EVENT_DURATION_TOO_LONG       = E("S000619", "Event Duration Exceeds Maximum Allowed", HTTPStatus.BAD_REQUEST)
 ERROR_CALENDAR_ACCESS_DENIED                 = E("S000620", "Access Denied To This Calendar", HTTPStatus.FORBIDDEN)
+ERROR_CALENDAR_IMPORT_NO_FILE                = E("S000621", "No File Provided In The Import Request", HTTPStatus.BAD_REQUEST)
+ERROR_CALENDAR_IMPORT_TOO_LARGE              = E("S000622", "Import Payload Exceeds Maximum Allowed Size", HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
 
 #the bugs
 ERROR_UNKOWN = E("S999999", "Undefined Error", HTTPStatus.INTERNAL_SERVER_ERROR)

@@ -158,6 +158,28 @@ External ICS subscriptions are stored as `CalCalendar` rows with `source_type=ic
 
 // TODO: sync will be dispatched as a Celery task; lock via Redis prevents concurrent syncs on the same calendar.
 
+== Export and import
+
+=== Export
+
+`GET /calendars/{key}/export` serialises the calendar back into a VCALENDAR string (`text/calendar`). Recurring masters keep their `RRULE` intact — the expansion happens on the recipient side. Query parameters:
+
+* `start_date_time`, `end_date_time` — same semantics as the events list, restrict the export window.
+* `download=true` — adds `Content-Disposition: attachment; filename="calendar-{key}.ics"` so browsers download the response instead of inlining it. Default is inline so the URL stays consumable by any HTTP client or `curl`.
+
+The module fetches both events and tasks without expansion via `CalendarSource.get_events(..., expand=False)` and `get_tasks(..., expand=False)`, then `CalendarEventsSerializerIcal.serialize()` wraps them in a VCALENDAR. `expand=False` keeps recurring masters with their `RRULE` (no flat occurrences) and skips the Python date filter since the SQL fetch already bounds the range.
+
+=== Import
+
+`POST /calendars/{key}/import` accepts a `multipart/form-data` upload with a single `file` part. The view exposes `accepted_content_types = {"multipart/form-data"}` so the global `check_content_type` middleware skips its default JSON rule (the convention is documented in `CLAUDE.md`). The total request size is capped at the WSGI layer (`MAX_CONTENT_LENGTH`); the module enforces the per-import limit (`MAX_IMPORT_ICS_BYTES`), so the view only reads and decodes the part.
+
+The pipeline goes `ApiCalendarImport` &#8594; `InterfaceApiCalendarCalendar.import_calendar` &#8594; `ModuleCalendar.import_calendar` &#8594; `SyncEngine.apply_ics(..., delete_missing=False, rewrite_owner_email=..., default_timezone=...)`. Key behaviours:
+
+* `delete_missing=False`: the import is additive — events absent from the upload are kept (unlike the URL sync which mirrors).
+* `rewrite_owner_email`: when `IMPORT_REWRITES_OWNERSHIP=True` (default, in `CalendarConst`), `apply_ics` works on the *deserialized models* — never on the raw iCal text — setting `event.organizer` to the importer and resetting `event.sequence` to 0 (RFC 5546 §2.1.4: SEQUENCE belongs to the organizer). Attendees are preserved so the historical guest list is kept; iMIP only fires on subsequent explicit edits.
+* `default_timezone`: floating datetimes (no `TZID`, no `Z`) are anchored to the destination **calendar's** timezone (`CalCalendar.timezone`), which itself defaults to the user's `SOGO_U_TIMEZONE` at calendar creation. Anchoring is done by `DateTimeUtils.anchor_to_utc`.
+* Orphan overrides — `RECURRENCE-ID` entries whose master is neither in the payload nor already in the calendar — are skipped with a `WARNING` log and counted in `CalSyncResult.skipped` (RFC 5545 §3.8.4.4 considers them invalid).
+
 == Access control (ACL)
 
 === User vs CalendarUser

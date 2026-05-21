@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING
 
 from app.config.settings.SystemSettings import SystemSettingsObj, SystemSettings
 from app.config.settings.DomainSettings import AuthSettingsObj, AuthSettings, UserSourceSettings, UserSourceSettingsObj
+from app.config.settings.UserSettings import UserGeneralSettings
 from app.module.auth.ModuleAuth import ModuleAuth
 from app.module.auth.ModuleUserSource import ModuleUserSource
 from app.module.calendar.ModuleCalendar import ModuleCalendar
@@ -95,7 +96,9 @@ class InterfaceAuthUser:
         try:
             if not self.module_user_profile.is_user_profile_present(uid):
                 self.module_user_profile.create_user_profile(user)
-                self._module_calendar.create_personal_calendar(uid)
+                raw_gen: dict = self.module_user_profile.get_partial_user_preferences(uid, UserGeneralSettings.subparent.lower())
+                user_tz: str = raw_gen.get(UserGeneralSettings.subparent, {}).get("SOGO_U_TIMEZONE", "UTC")
+                self._module_calendar.create_personal_calendar(uid, tz=user_tz)
         except RequestException as ex:
             logger_api.error("Request exception when onboarding user %s: %s", uid, str(ex))
             return create_api_base_response(None, ex.error)

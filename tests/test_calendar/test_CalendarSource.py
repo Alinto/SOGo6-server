@@ -136,3 +136,42 @@ def test_naive_datetime_treated_as_utc():
     source = FakeCalendarSource([past])
     events = source.get_events(start=datetime(2000, 1, 1), end=datetime(2030, 1, 1))
     assert any(e.uid == "past" for e in events)
+
+
+# ========== expand flag (export pipeline) ==========
+
+def _recurring_master(uid):
+    from app.module.calendar.model.CalRecurrenceRule import CalRecurrenceRule
+    from app.module.calendar.model.enums.RecurrenceFrequency import RecurrenceFrequency
+
+    rule = CalRecurrenceRule(frequency=RecurrenceFrequency.DAILY, count=5)
+    return _event(uid, _dt(2026, 1, 1, 9), _dt(2026, 1, 1, 10), recurrence_rule=rule)
+
+
+def test_expand_true_explodes_recurring_master():
+    master = _recurring_master("daily")
+    source = FakeCalendarSource([master])
+    events = source.get_events(start=_dt(2026, 1, 1), end=_dt(2026, 1, 31), expand=True)
+    # DAILY count=5 → five distinct occurrences, each carrying a recurrence_id.
+    occurrences = [e for e in events if e.uid == "daily"]
+    assert len(occurrences) == 5
+    assert all(e.recurrence_id is not None for e in occurrences)
+
+
+def test_expand_false_keeps_single_master_with_rrule():
+    master = _recurring_master("daily")
+    source = FakeCalendarSource([master])
+    events = source.get_events(start=_dt(2026, 1, 1), end=_dt(2026, 1, 31), expand=False)
+    masters = [e for e in events if e.uid == "daily"]
+    assert len(masters) == 1
+    assert masters[0].recurrence_rule is not None
+    assert masters[0].recurrence_id is None
+
+
+def test_expand_false_default_end_captures_future():
+    # Without an explicit end, expand=False must reach far into the future (export semantics),
+    # unlike expand=True which clamps to now.
+    future = _event("future", _dt(2099, 1, 1, 9), _dt(2099, 1, 1, 10))
+    source = FakeCalendarSource([future])
+    assert any(e.uid == "future" for e in source.get_events(expand=False))
+    assert not any(e.uid == "future" for e in source.get_events(expand=True))
