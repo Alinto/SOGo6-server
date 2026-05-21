@@ -530,7 +530,9 @@ class MailSettings(SogoSchema):
     SOGO_D_SMTP_SERVER = fields.String() #Hostname or ip of the smtp server
     SOGO_D_SMTP_PORT = fields.Integer(load_default=587, dump_default=584, validate=validate.Range(min=1, max=65535))
     SOGO_D_SMTP_ENCRYPTION = fields.String(load_default="None", dump_default="None", validate=validate.OneOf(cs.SOCK_ENC_LIST))
-    SOGO_D_SMTP_AUTH_MECH =  fields.String(load_default="None", dump_default="None", validate=validate.OneOf(('None', 'plain', 'xoauth2')))
+
+    SOGO_D_SMTP_AUTH_MECH =  fields.String(load_default="None", dump_default="None", validate=validate.OneOf(('None', 'login', 'plain', 'xoauth2', 'oauthbearer')))
+
     SOGO_D_SMTP_MASTER_ENABLED = fields.Boolean(load_default=False, dump_default=False) #Use a master account for system message (notif, event) instead of using the user account
     SOGO_D_SMTP_MASTER_FROM = fields.Email() #Custom from used for system message (password recovery for now)
     SOGO_D_SMTP_MASTER_LOGIN = fields.String()

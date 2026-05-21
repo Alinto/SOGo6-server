@@ -97,6 +97,20 @@ services:
       - sogo6-sieve-data:/var/sieve
       - ./conf/dovecot:/etc/dovecot
 
+  postfix: # Postfix
+    build:
+      context: ./conf/postfix/
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "25:25"
+      - "465:465"
+      - "587:587"
+    depends_on:
+      - dovecot
+      - openldap
+    entrypoint: /entrypoint.sh
+
 volumes:
   # sogo6-postgres:
   sogo6-mail-data:
