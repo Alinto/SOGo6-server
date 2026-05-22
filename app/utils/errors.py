@@ -97,6 +97,7 @@ ERROR_IMAP_READONLY          = E("S001305", "Writting Command to a readonly fold
 ERRRIR_MAIL_DELETION         = E("S001313", "Mail Deletion Error", HTTPStatus.BAD_REQUEST)
 ERROR_MAIL_DOWNLOAD_FAILED   = E("S000360", "Mail Download Failed", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_MAIL_ZIP_FAILED        = E("S000361", "Mail Zip Archive Creation Failed", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_INVALID_ENCRYPTED_DATA = E("S000362", "Encrypted Password Is Not Valid Base64 Data", HTTPStatus.INTERNAL_SERVER_ERROR)
 
 #User Profile
 ERROR_USER_PROFILE_DUPLICATE         = E("S000314", "Multiple User Profiles Found For Same UID", HTTPStatus.INTERNAL_SERVER_ERROR)

@@ -66,7 +66,7 @@ class ModuleMail:
                 raise RequestException(err.ERROR_EXTERNAL_ACCOUNT_NOT_FOUND.m, error=err.ERROR_EXTERNAL_ACCOUNT_NOT_FOUND)
             ext_account_config: dict = self.user.profile.external_accounts[account_id]["mail_server"]
             user_mail_conf["username"] = ext_account_config["username"]
-            user_mail_conf["password"] = decrypt_password(ext_account_config["password"])
+            user_mail_conf["password"] = decrypt_password(ext_account_config["password"], account_id=account_id)
             user_mail_conf["type"] = ext_account_config["type"]
             user_mail_conf["args"] = {
                 "server": ext_account_config["server"],

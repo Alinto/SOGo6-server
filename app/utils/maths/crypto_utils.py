@@ -6,6 +6,9 @@ import base64
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import padding
+from app.utils.errors import ERROR_INVALID_ENCRYPTED_DATA
+from app.utils.exceptions import RequestException
+from app.utils.logger.logger import logger
 
 SOGO_AES_ENC_KEY = os.environ.get('SOGO_AES_ENC_KEY', None)
 
@@ -59,12 +62,14 @@ def encrypt_password(password: str) -> str:
     return base64.b64encode(iv + encrypted).decode('utf-8')
 
 
-def decrypt_password(encrypted_password: str) -> str:
+def decrypt_password(encrypted_password: str, account_id: str | None = None) -> str:
     """
     Decrypt a password using AES-256-CBC
 
     :param encrypted_password: Base64 encoded encrypted password with IV prepended
     :type encrypted_password: str
+    :param account_id: Optional identifier of the account being decrypted, used for logging
+    :type account_id: str | None
     :return: Plain text password
     :rtype: str
     """
@@ -72,9 +77,13 @@ def decrypt_password(encrypted_password: str) -> str:
         return ""
 
     try:
-        # Decode from base64
-        encrypted_data = base64.b64decode(encrypted_password)
+        encrypted_data = base64.b64decode(encrypted_password, validate=True)
+    except Exception as e:
+        account_info = f" for account '{account_id}'" if account_id else ""
+        logger.error("Failed to base64 decode encrypted password%s: %s", account_info, e)
+        raise RequestException(error=ERROR_INVALID_ENCRYPTED_DATA) from e
 
+    try:
         # Extract IV (first 16 bytes)
         iv = encrypted_data[:16]
         encrypted = encrypted_data[16:]
