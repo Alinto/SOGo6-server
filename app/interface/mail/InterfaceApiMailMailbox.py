@@ -54,7 +54,13 @@ class InterfaceApiMailMailbox:
             return create_api_base_response(None, ex.error)
 
         for account in list_accounts:
-            quota = self.mail_module.get_mailbox_quota(account["id"])
+            account["invalid"] = False
+            try:
+                quota = self.mail_module.get_mailbox_quota(account["id"])
+            except RequestException as ex:
+                logger_api.error("Request exception in list_mailboxes (get_mailbox_quota) for user %s, account %s: %s", self.user.uid, account["id"], str(ex))
+                account["invalid"] = True
+                continue
             if quota is not None:
                 account["quota"] = quota
 
@@ -100,7 +106,11 @@ class InterfaceApiMailMailbox:
             logger_api.error("Request exception in get_mailbox for user %s, account %s: %s", self.user.uid, account_id, str(ex))
             return create_api_base_response(None, ex.error)
 
-        quota = self.mail_module.get_mailbox_quota(account_id)
+        try:
+            quota = self.mail_module.get_mailbox_quota(account_id)
+        except RequestException as ex:
+            logger_api.error("Request exception in get_mailbox (get_mailbox_quota) for user %s, account %s: %s", self.user.uid, account_id, str(ex))
+            return create_api_base_response(None, ex.error)
         if quota is not None:
             account["quota"] = quota
 

@@ -381,9 +381,10 @@ class ClientImap(ClientMailServer):
                 raise BugException(f"Unsupported imap authentication mechanism: {self.auth_mech}", err.ERROR_IMAP_UNKNWON_AUTH_MECH)
             if not success:
                 #errors are in datas
-                if datas[0].decode().startswith("[AUTHENTICATIONFAILED]"):
+                logger_imap.error("Cannot login to IMAP server: %s, for account %s", datas, username)
+                first_error = datas[0] if isinstance(datas[0], str) else datas[0].decode()
+                if first_error.startswith("[AUTHENTICATIONFAILED]"):
                     raise RequestException(f"Failed to login to IMAP server: {datas} ", err.ERROR_IMAP_UNAUTHORIZED)
-                logger_imap.error("Cannot login to IMAP server: %s", datas)
                 raise RequestException(f"Cannot login to IMAP server: {datas}", err.ERROR_IMAP_FAILED)
             self.authenticated = True
 
