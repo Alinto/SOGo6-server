@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 from app.module.calendar.model.enums.CalendarSourceType import CalendarSourceType
 
 if TYPE_CHECKING:
+    from app.module.calendar.model.CalEvent import CalEvent
     from app.module.calendar.model.CalendarPermissions import CalendarPermissions
 
 
@@ -74,6 +75,10 @@ class CalCalendar:  # pylint: disable=too-many-instance-attributes,invalid-name
 
     # Transient — populated at read time by CalendarAclEngine, not persisted.
     permissions: CalendarPermissions | None = None
+
+    # Transient — the calendar collection's components (RFC 4791), populated when serializing
+    # to or deserializing from a full VCALENDAR. Not persisted: events live in their own table.
+    events: list[CalEvent] = field(default_factory=list)
 
     MUTABLE_FIELDS: frozenset[str] = frozenset({"name", "color", "description", "timezone", "is_default", "sync_config"})
 

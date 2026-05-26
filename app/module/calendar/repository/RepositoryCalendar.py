@@ -108,6 +108,23 @@ class RepositoryCalendar:
             return None
         return self._row_to_calendar(rows[0])
 
+    def find_by_share_token(self, share_token: str) -> CalCalendar | None:
+        """Return the calendar matching the public subscription token, or None.
+
+        Not scoped to a user: the token itself is the capability granting read access to the
+        public .ics feed, so the lookup is intentionally global.
+        """
+        condition = EqualCondition(tbl.COL_CAL_SHARE_TOKEN.name, share_token)
+        rows = list(self._db.select_from_table(
+            table_name=tbl.TABLE_CALENDAR.name,
+            column_tuple=_ALL_COLS,
+            condition=condition,
+            limit=1,
+        ))
+        if not rows:
+            return None
+        return self._row_to_calendar(rows[0])
+
     def get_default_calendar_for_user(self, user_uid: str) -> CalCalendar | None:
         """Return the default calendar for user_uid, or None if not found."""
         condition = AndCondition(

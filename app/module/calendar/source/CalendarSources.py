@@ -73,6 +73,14 @@ class CalendarSources:
         cal = self._repo_calendar.find_by_key(user_uid, key)
         return self.get(cal) if cal is not None else None
 
+    def get_by_share_token(self, share_token: str) -> CalendarSource | None:
+        """Return the source for the calendar exposed by this public subscription token.
+
+        Not scoped to a user — the token is the capability granting access to the feed.
+        """
+        cal = self._repo_calendar.find_by_share_token(share_token)
+        return self.get(cal) if cal is not None else None
+
     def get_events(
         self,
         user_uid: str,

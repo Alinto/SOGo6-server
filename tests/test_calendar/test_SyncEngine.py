@@ -127,7 +127,7 @@ def test_sync_inserts_new_events(mock_fetcher):
     mock_source.get_sync_metadata.return_value = []
     sources.get.return_value = mock_source
     engine._deserializer = MagicMock()
-    engine._deserializer.deserialize.return_value = [_make_event("new-uid")]
+    engine._deserializer.deserialize.return_value.events =[_make_event("new-uid")]
 
     summary = engine.sync(_make_calendar())
     assert summary.inserted == 1
@@ -144,7 +144,7 @@ def test_sync_deletes_removed_events(mock_fetcher):
     mock_source.get_sync_metadata.return_value = [_make_meta("old-uid")]
     sources.get.return_value = mock_source
     engine._deserializer = MagicMock()
-    engine._deserializer.deserialize.return_value = []
+    engine._deserializer.deserialize.return_value.events =[]
 
     summary = engine.sync(_make_calendar())
     assert summary.deleted == 1
@@ -159,7 +159,7 @@ def test_sync_updates_modified_events(mock_fetcher):
     mock_source.get_sync_metadata.return_value = [_make_meta("e1", sequence=1)]
     sources.get.return_value = mock_source
     engine._deserializer = MagicMock()
-    engine._deserializer.deserialize.return_value = [_make_event("e1", title="New", sequence=2)]
+    engine._deserializer.deserialize.return_value.events =[_make_event("e1", title="New", sequence=2)]
 
     summary = engine.sync(_make_calendar())
     assert summary.updated == 1
@@ -176,7 +176,7 @@ def test_sync_updates_status_on_success(mock_fetcher):
     mock_source.get_sync_metadata.return_value = []
     sources.get.return_value = mock_source
     engine._deserializer = MagicMock()
-    engine._deserializer.deserialize.return_value = []
+    engine._deserializer.deserialize.return_value.events =[]
 
     cal = _make_calendar()
     engine.sync(cal)
@@ -216,7 +216,7 @@ def test_sync_releases_lock(mock_fetcher):
     mock_source.get_sync_metadata.return_value = []
     sources.get.return_value = mock_source
     engine._deserializer = MagicMock()
-    engine._deserializer.deserialize.return_value = []
+    engine._deserializer.deserialize.return_value.events =[]
 
     engine.sync(_make_calendar())
     cache.delete.assert_called_once_with("sync_lock:ext-cal-key")
@@ -232,7 +232,7 @@ def test_sync_empty_feed(mock_fetcher):
     mock_source.get_sync_metadata.return_value = []
     sources.get.return_value = mock_source
     engine._deserializer = MagicMock()
-    engine._deserializer.deserialize.return_value = []
+    engine._deserializer.deserialize.return_value.events =[]
 
     summary = engine.sync(_make_calendar())
     assert summary == CalSyncResult(inserted=0, updated=0, deleted=0, total=0)
@@ -248,7 +248,7 @@ def test_sync_skips_events_without_uid(mock_fetcher):
     evt_no_uid = _make_event("")
     evt_no_uid.uid = ""
     engine._deserializer = MagicMock()
-    engine._deserializer.deserialize.return_value = [evt_no_uid]
+    engine._deserializer.deserialize.return_value.events =[evt_no_uid]
 
     summary = engine.sync(_make_calendar())
     assert summary.inserted == 0
@@ -263,7 +263,7 @@ def test_sync_deletes_all_when_remote_empty(mock_fetcher):
     mock_source.get_sync_metadata.return_value = [_make_meta("l1"), _make_meta("l2")]
     sources.get.return_value = mock_source
     engine._deserializer = MagicMock()
-    engine._deserializer.deserialize.return_value = []
+    engine._deserializer.deserialize.return_value.events =[]
 
     summary = engine.sync(_make_calendar())
     assert summary.deleted == 2
@@ -316,7 +316,7 @@ def test_apply_ics_rewrites_organizer_and_resets_sequence():
     engine, sources, _ = _build_engine()
     inserted = _capture_inserted_events(engine, sources)
     engine._deserializer = MagicMock()
-    engine._deserializer.deserialize.return_value = [_make_event("e1", sequence=7)]
+    engine._deserializer.deserialize.return_value.events =[_make_event("e1", sequence=7)]
 
     engine.apply_ics(_make_calendar(), "ics", delete_missing=False, rewrite_owner_email="alice@example.com")
 
@@ -329,7 +329,7 @@ def test_apply_ics_without_rewrite_keeps_organizer():
     inserted = _capture_inserted_events(engine, sources)
     original = _make_event("e1", sequence=7)
     engine._deserializer = MagicMock()
-    engine._deserializer.deserialize.return_value = [original]
+    engine._deserializer.deserialize.return_value.events =[original]
 
     engine.apply_ics(_make_calendar(), "ics", delete_missing=False)
 

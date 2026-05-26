@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 # Maximum number of days allowed for events fetch request.
 MAX_EVENT_FETCH_DAYS: int = 45
 
@@ -46,3 +48,12 @@ IMPORT_REWRITES_OWNERSHIP: bool = True
 
 # Maximum size in bytes accepted for an uploaded ICS import payload.
 MAX_IMPORT_ICS_BYTES: int = 10 * 1024 * 1024
+
+# Length of the public subscription token. The token is a secret capability, not a mere
+# identifier: 64 alphanumeric characters give ~381 bits of entropy, well beyond brute force.
+# Uniqueness is guaranteed by the UNIQUE constraint on the share_token column.
+SHARE_TOKEN_LENGTH: int = 64
+
+# Suggested resync period advertised in a public subscription feed (REFRESH-INTERVAL /
+# X-PUBLISHED-TTL). Twice a day is a sensible default for a personal calendar.
+PUBLIC_SUBSCRIPTION_REFRESH: timedelta = timedelta(hours=12)

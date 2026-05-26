@@ -46,9 +46,10 @@ class CalendarSchema(Schema):
     is_default         = fields.Boolean()
     source_type        = fields.String()
     ctag               = fields.Integer()
-    share_token = fields.String(allow_none=True)
+    # Full public subscription URL, computed server-side from the share token when active.
+    public_url         = fields.String(allow_none=True, dump_only=True)
     # `dump_only`` because permissions are only available when retrieving calendar but can't be set in that way
-    permissions        = fields.Dict(allow_none=True, dump_only=True) 
+    permissions        = fields.Dict(allow_none=True, dump_only=True)
     created_at         = fields.DateTime(allow_none=True)
     updated_at         = fields.DateTime(allow_none=True)
 
@@ -103,6 +104,19 @@ class CalendarImportResponseSchema(ApiBaseResponse):
     """Response schema for an import call."""
 
     data = fields.Nested(CalendarImportResultDataSchema, allow_none=True)
+
+
+class CalendarSubscriptionDataSchema(Schema):
+    """Data returned when a public subscription is enabled."""
+
+    share_token = fields.String()
+    public_url  = fields.String()
+
+
+class CalendarSubscriptionResponseSchema(ApiBaseResponse):
+    """Response schema for enabling a public subscription."""
+
+    data = fields.Nested(CalendarSubscriptionDataSchema, allow_none=True)
 
 
 class CalendarImportUploadSchema(Schema):

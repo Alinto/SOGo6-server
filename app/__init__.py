@@ -72,6 +72,18 @@ def _accepted_content_types() -> set[str] | None:
     return accepted if isinstance(accepted, (set, frozenset)) else None
 
 
+def _is_public_endpoint() -> bool:
+    """Return True when the current route opts into unauthenticated public access.
+
+    A route declares ``public_access: bool = True`` on its MethodView subclass to be reached
+    without a bearer token (e.g. a capability-URL feed). Read by introspection, the same way as
+    ``accepted_content_types`` — this keeps the auth middleware free of per-route knowledge.
+    """
+    view = current_app.view_functions.get(request.endpoint or "")
+    view_class = getattr(view, "view_class", None)
+    return getattr(view_class, "public_access", False) is True
+
+
 def register_before_request(base_blueprint: Blueprint, kind: str, sogo_state: int) -> None:  # pylint: disable=too-many-statements
     """
     Add the different before request on tha api according to the kind and state
@@ -154,7 +166,9 @@ def register_before_request(base_blueprint: Blueprint, kind: str, sogo_state: in
                 "user#Auth.v1_Auth.Auth.ApiAuthUserCallback",
                 "user#System.v1_System.System.ApiSystem",
             }
-            if isinstance(g.user, UserAnonymous) and request.endpoint not in anon_endpoints:
+            if (isinstance(g.user, UserAnonymous)
+                    and request.endpoint not in anon_endpoints
+                    and not _is_public_endpoint()):
                 return create_api_base_response(error=err.ERROR_AUTHENTICATED_ROUTE)
             return None
 
