@@ -482,3 +482,10 @@ def test_priority_parsed(deserializer):
 def test_priority_defaults_to_zero_when_absent(deserializer):
     event = deserializer.deserialize(ICAL_ALLDAY)
     assert event.priority == 0
+
+
+def test_priority_clamped_to_rfc_range(deserializer):
+    ics_above = _ICAL_PRIORITY.replace("PRIORITY:5", "PRIORITY:42")
+    ics_below = _ICAL_PRIORITY.replace("PRIORITY:5", "PRIORITY:-3")
+    assert deserializer.deserialize(ics_above).priority == 9
+    assert deserializer.deserialize(ics_below).priority == 0
