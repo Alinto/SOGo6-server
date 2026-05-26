@@ -207,6 +207,12 @@ class CalendarEventDeserializerIcal(CalendarEventDeserializer[str]):
             return value[7:]
         return value
 
+    @staticmethod
+    def _extract_priority(component: Any) -> int:
+        """Return PRIORITY as an int (RFC 5545 §3.8.1.9), 0 when undefined or absent."""
+        val = component.get("priority")
+        return int(str(val)) if val is not None else 0
+
     def _parse_dt_prop(self, component: Any, name: str) -> tuple[datetime | None, bool, str | None]:
         """
         Parse a date/time property.
@@ -575,6 +581,7 @@ class CalendarEventDeserializerIcal(CalendarEventDeserializer[str]):
             show_as=show_as,
             color=self._extract_color(vevent),
             sequence=text.sequence,
+            priority=self._extract_priority(vevent),
             url=text.url,
             organizer=parts.organizer,
             attendees=parts.attendees,
@@ -619,6 +626,7 @@ class CalendarEventDeserializerIcal(CalendarEventDeserializer[str]):
             show_as=show_as,
             color=self._extract_color(vtodo),
             sequence=text.sequence,
+            priority=self._extract_priority(vtodo),
             url=text.url,
             organizer=parts.organizer,
             attendees=parts.attendees,
