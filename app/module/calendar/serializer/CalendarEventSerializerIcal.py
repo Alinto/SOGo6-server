@@ -180,8 +180,9 @@ class CalendarEventSerializerIcal(CalendarEventSerializer[str]):
             vevent.add("url", event.url)
         vevent.add("sequence", event.sequence)
         # RFC 5545 §3.8.1.9: PRIORITY is 0-9 where 0 means "undefined" — omit when unset.
+        # Clamp on the way out to guarantee a compliant value even if the model drifted.
         if event.priority:
-            vevent.add("priority", event.priority)
+            vevent.add("priority", max(0, min(9, event.priority)))
         if event.categories:
             vevent.add("categories", event.categories)
         for rel in event.related_to:

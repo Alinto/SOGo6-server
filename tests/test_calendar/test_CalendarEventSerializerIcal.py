@@ -573,6 +573,11 @@ def test_priority_omitted_when_undefined(serializer, minimal_event):
     assert "PRIORITY" not in serializer.serialize(minimal_event)
 
 
+def test_priority_clamped_to_rfc_range(serializer, minimal_event):
+    minimal_event.priority = 42
+    assert _has_line(serializer.serialize(minimal_event), "PRIORITY:9")
+
+
 # ==========================================================================
 # VALARM (RFC 5545 §3.6.6)
 # ==========================================================================

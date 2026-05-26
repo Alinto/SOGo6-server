@@ -209,9 +209,15 @@ class CalendarEventDeserializerIcal(CalendarEventDeserializer[str]):
 
     @staticmethod
     def _extract_priority(component: Any) -> int:
-        """Return PRIORITY as an int (RFC 5545 §3.8.1.9), 0 when undefined or absent."""
+        """Return PRIORITY as an int in the RFC 5545 §3.8.1.9 range [0, 9].
+
+        0 means undefined; 1 is highest, 9 lowest. Out-of-range values from third-party
+        producers are clamped instead of propagating non-compliant data into the model.
+        """
         val = component.get("priority")
-        return int(str(val)) if val is not None else 0
+        if val is None:
+            return 0
+        return max(0, min(9, int(str(val))))
 
     def _parse_dt_prop(self, component: Any, name: str) -> tuple[datetime | None, bool, str | None]:
         """
