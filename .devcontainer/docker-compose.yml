@@ -28,6 +28,8 @@ services:
       SOGO_P_DB_PASS: sogo
       SOGO_P_DB_HOST: postgresql
       SOGO_P_DB_TYPE: PostgreSQL
+      SOGO_INIT_SYSTEM_SETTINGS_PATH: /workspace/scripts/init/system_settings.json
+      SOGO_INIT_DOMAIN_SETTINGS_PATH: /workspace/scripts/init/domain_settings.json
       # SOGO_P_DB_USER: sogo
       # SOGO_P_DB_PASS: sogo
       # SOGO_P_DB_HOST: mariadb

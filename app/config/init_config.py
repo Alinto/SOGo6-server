@@ -1,10 +1,15 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
+import json
+import os
+
 from app.module.ModuleInitSogo import ModuleInitSogo
 from app.module.admin.ModuleAdminConfig import ModuleAdminConfig
-from app.utils.exceptions import AggravatedException
+from app.utils.exceptions import AggravatedException, BugException
+from app.utils.logger.logger import logger
 from app.utils import constants as cs
+from marshmallow import ValidationError
 
 from .settings.ProcessSetting import process_config
 
@@ -13,20 +18,81 @@ if TYPE_CHECKING:
     from app.auth.User import User
 
 
+def _load_json_file(path: str) -> dict | None:
+    """
+    Load and return a JSON file content, or None on error.
+    """
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        logger.error(f"Init config file not found: {path}")
+    except json.JSONDecodeError as e:
+        logger.error(f"Init config file is not valid JSON ({path}): {e}")
+    except OSError as e:
+        logger.error(f"Cannot read init config file ({path}): {e}")
+    return None
+
+
 def check_basic_config() -> bool:
     """
-    Check if SOGo is already configured with a system config and default domain settings
+    Check if SOGo is already configured with a system config and default domain settings.
 
-    :return: True if SOGo has a config
+    If the database is empty and SOGO_INIT_*_SETTINGS_PATH are set, attempt to
+    write those settings to the database. Returns True if settings are present
+    (either pre-existing or just written successfully).
+
+    :return: True if SOGo has a valid config
     :rtype: bool
     """
     config_module = ModuleAdminConfig(process_config)
     system_settings = config_module.get_system_settings()
     default_domain_settings = config_module.get_default_domain_settings()
-
     if system_settings and default_domain_settings:
         return True
-    return False
+
+    # Settings are missing – try to auto-initialize from JSON files if paths are set
+    system_path = process_config.SOGO_INIT_SYSTEM_SETTINGS_PATH
+    domain_path = process_config.SOGO_INIT_DOMAIN_SETTINGS_PATH
+
+    if not system_path or not domain_path:
+        logger.info("SOGo is not initialized and no JSON config paths are set. Skipping auto-initialization.")
+        return False
+
+    logger.info("SOGo is not initialized. Attempting auto-initialization from JSON files.")
+
+    system_data = _load_json_file(system_path)
+    domain_data = _load_json_file(domain_path)
+
+    if system_data is None or domain_data is None:
+        logger.error("Auto-initialization aborted: could not load one or both JSON config files.")
+        return False
+
+    if "settings" not in system_data or "settings" not in domain_data:
+        logger.error("Auto-initialization aborted: JSON config files must have a top-level 'settings' key.")
+        return False
+
+    errors: list[str] = []
+
+    try:
+        config_module.update_system_settings(system_data["settings"])
+        logger.info("System settings written from %s", system_path)
+    except (ValidationError, AggravatedException, BugException) as e:
+        errors.append(f"System settings invalid or could not be written: {e}")
+
+    try:
+        config_module.update_domain_default_settings(domain_data["settings"])
+        logger.info("Default domain settings written from %s", domain_path)
+    except (ValidationError, AggravatedException, BugException) as e:
+        errors.append(f"Default domain settings invalid or could not be written: {e}")
+
+    if errors:
+        for err_msg in errors:
+            logger.error("Auto-initialization error: %s", err_msg)
+        return False
+
+    logger.info("SOGo auto-initialization succeeded. Moving to SOGO_OK state.")
+    return True
 
 def init_sogo() -> tuple[int, ClientRedis]:
     """
