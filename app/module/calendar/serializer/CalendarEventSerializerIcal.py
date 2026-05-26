@@ -21,6 +21,7 @@ from app.module.calendar.model.enums.RelationType import RelationType
 from app.module.calendar.model.enums.ReminderMethod import ReminderMethod
 from app.module.calendar.model.enums.ShowAs import ShowAs
 from app.module.calendar.serializer.CalendarEventSerializer import CalendarEventSerializer
+from app.utils.logger.logger import logger_calendar
 
 if TYPE_CHECKING:
     from app.module.calendar.model.CalEvent import CalEvent
@@ -168,7 +169,7 @@ class CalendarEventSerializerIcal(CalendarEventSerializer[str]):
     # Property group builders
 
     def _add_core(self, vevent: Event, event: CalEvent) -> None:
-        """Add UID, SUMMARY, DESCRIPTION, LOCATION, URL, SEQUENCE, CATEGORIES, COLOR."""
+        """Add UID, SUMMARY, DESCRIPTION, LOCATION, URL, SEQUENCE, PRIORITY, CATEGORIES, COLOR."""
         vevent.add("uid", event.uid)
         vevent.add("summary", event.title)
         if event.description:
@@ -178,6 +179,9 @@ class CalendarEventSerializerIcal(CalendarEventSerializer[str]):
         if event.url:
             vevent.add("url", event.url)
         vevent.add("sequence", event.sequence)
+        # RFC 5545 §3.8.1.9: PRIORITY is 0-9 where 0 means "undefined" — omit when unset.
+        if event.priority:
+            vevent.add("priority", event.priority)
         if event.categories:
             vevent.add("categories", event.categories)
         for rel in event.related_to:
@@ -276,12 +280,35 @@ class CalendarEventSerializerIcal(CalendarEventSerializer[str]):
             vevent.add("x-conference-entrypoint", ep_val, encode=False)
 
     def _add_alarms(self, vevent: Event, event: CalEvent) -> None:
-        """Add VALARM sub-components for each reminder."""
+        """Add VALARM sub-components for each reminder.
+
+        Per RFC 5545 §3.6.6, ACTION=EMAIL requires SUMMARY (subject) and at least one
+        ATTENDEE (recipient) in addition to ACTION/TRIGGER/DESCRIPTION. The alarm uses the
+        event's title for SUMMARY/DESCRIPTION and routes ATTENDEEs to the event attendees,
+        falling back to the organizer. An EMAIL alarm with no resolvable recipient is
+        downgraded to DISPLAY (otherwise the message could not be delivered).
+        """
         for reminder in event.reminders:
+            action: str = _ACTION_OUT.get(reminder.method, "DISPLAY")
+            recipients: list[vCalAddress] = []
+            if action == "EMAIL":
+                recipients = [self._format_attendee(a) for a in event.attendees]
+                if not recipients and event.organizer:
+                    recipients = [self._format_organizer(event.organizer)]
+                if not recipients:
+                    logger_calendar.warning(
+                        "VALARM EMAIL on event %s has no recipient — downgrading to DISPLAY", event.uid,
+                    )
+                    action = "DISPLAY"
+
             alarm: Alarm = Alarm()
-            alarm.add("action", _ACTION_OUT.get(reminder.method, "DISPLAY"))
+            alarm.add("action", action)
             alarm.add("trigger", timedelta(minutes=-reminder.minutes_before))
-            alarm.add("description", "Reminder")
+            alarm.add("description", event.title or "Reminder")
+            if action == "EMAIL":
+                alarm.add("summary", event.title or "Reminder")
+                for recipient in recipients:
+                    alarm.add("attendee", recipient, encode=False)
             vevent.add_component(alarm)
 
     # Component formatters

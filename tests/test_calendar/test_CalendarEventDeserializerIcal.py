@@ -452,3 +452,33 @@ def test_vtodo_no_status_defaults_to_needs_action(deserializer):
 def test_vevent_component_type(deserializer):
     event = deserializer.deserialize(ICAL_EXAMPLE_1)
     assert event.component_type == ComponentType.EVENT
+
+
+# ==========================================================================
+# PRIORITY (RFC 5545 §3.8.1.9)
+# ==========================================================================
+
+_ICAL_PRIORITY = (
+    "BEGIN:VCALENDAR\r\n"
+    "VERSION:2.0\r\n"
+    "PRODID:-//Test//EN\r\n"
+    "BEGIN:VEVENT\r\n"
+    "DTSTAMP:20240101T000000Z\r\n"
+    "UID:prio@test.com\r\n"
+    "DTSTART:20240101T090000Z\r\n"
+    "DTEND:20240101T100000Z\r\n"
+    "SUMMARY:Priority Event\r\n"
+    "PRIORITY:5\r\n"
+    "END:VEVENT\r\n"
+    "END:VCALENDAR\r\n"
+)
+
+
+def test_priority_parsed(deserializer):
+    event = deserializer.deserialize(_ICAL_PRIORITY)
+    assert event.priority == 5
+
+
+def test_priority_defaults_to_zero_when_absent(deserializer):
+    event = deserializer.deserialize(ICAL_ALLDAY)
+    assert event.priority == 0

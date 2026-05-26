@@ -486,11 +486,13 @@ def test_valarm_display(serializer):
 
 
 def test_valarm_email(serializer):
+    # ACTION=EMAIL needs at least one ATTENDEE (RFC 5545 §3.6.6).
     event = CalEvent(
         uid="alarm@test.com",
         title="Meeting",
         date_start=datetime(2024, 1, 1, 9, 0, tzinfo=timezone.utc),
         date_end=datetime(2024, 1, 1, 10, 0, tzinfo=timezone.utc),
+        attendees=[CalAttendee(email="bob@example.com")],
         reminders=[CalReminder(method=ReminderMethod.EMAIL, minutes_before=30)],
     )
     output = serializer.serialize(event)
@@ -555,3 +557,58 @@ def test_events_serializer_dispatches_vtodo_and_vevent():
 def test_events_serializer_empty_list():
     s = CalendarEventsSerializerIcal(CalendarEventSerializerIcal())
     assert s.serialize([]) == []
+
+
+# ==========================================================================
+# PRIORITY (RFC 5545 §3.8.1.9)
+# ==========================================================================
+
+def test_priority_emitted_when_set(serializer, minimal_event):
+    minimal_event.priority = 5
+    assert _has_line(serializer.serialize(minimal_event), "PRIORITY:5")
+
+
+def test_priority_omitted_when_undefined(serializer, minimal_event):
+    # priority=0 means undefined per RFC 5545 §3.8.1.9 — must not be emitted.
+    assert "PRIORITY" not in serializer.serialize(minimal_event)
+
+
+# ==========================================================================
+# VALARM (RFC 5545 §3.6.6)
+# ==========================================================================
+
+def _event_with_reminder(method, *, attendees=(), organizer=None, title="Standup"):
+    return CalEvent(
+        uid="alarm-test@e.com", title=title,
+        date_start=datetime(2024, 3, 15, 9, tzinfo=timezone.utc),
+        date_end=datetime(2024, 3, 15, 10, tzinfo=timezone.utc),
+        attendees=list(attendees), organizer=organizer,
+        reminders=[CalReminder(method=method, minutes_before=15)],
+    )
+
+
+def test_valarm_email_includes_summary_and_attendee(serializer):
+    event = _event_with_reminder(ReminderMethod.EMAIL, attendees=[CalAttendee(email="bob@example.com")])
+    lines = _unfolded_lines(serializer.serialize(event))
+    assert "ACTION:EMAIL" in lines
+    assert "SUMMARY:Standup" in lines[lines.index("BEGIN:VALARM"):]
+    assert any(ln.startswith("ATTENDEE") and "bob@example.com" in ln for ln in lines)
+
+
+def test_valarm_email_falls_back_to_organizer(serializer):
+    event = _event_with_reminder(ReminderMethod.EMAIL, organizer=CalOrganizer(email="alice@example.com"))
+    lines = _unfolded_lines(serializer.serialize(event))
+    assert "ACTION:EMAIL" in lines
+    assert any(ln.startswith("ATTENDEE") and "alice@example.com" in ln for ln in lines)
+
+
+def test_valarm_email_downgrades_to_display_without_recipients(serializer):
+    output = serializer.serialize(_event_with_reminder(ReminderMethod.EMAIL))
+    assert _has_line(output, "ACTION:DISPLAY")
+    # SUMMARY appears once at VEVENT level; the (downgraded) VALARM must not add a second one.
+    assert output.count("SUMMARY:") == 1
+
+
+def test_valarm_display_description_uses_event_title(serializer):
+    lines = _unfolded_lines(serializer.serialize(_event_with_reminder(ReminderMethod.POPUP)))
+    assert "DESCRIPTION:Standup" in lines[lines.index("BEGIN:VALARM"):]
