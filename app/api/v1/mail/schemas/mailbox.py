@@ -560,3 +560,45 @@ class DelegationResponseSchema(ApiBaseResponse):
             "error_msg": "",
             "data": "delegate@example.com"
         }
+
+
+class MailboxPurgeSchema(Schema):
+    """
+    Schema for POST /mailboxes/<account_id>/purge - Purge all folders in a mailbox
+    """
+    permanently_delete = fields.Boolean(load_default=False, dump_default=False)
+    date = fields.String(required=True)
+
+    @classmethod
+    def example(cls) -> dict:
+        """Example data for mailbox purge.
+        
+        :return: Example mailbox purge payload
+        :rtype: dict
+        """
+        return {
+            "permanently_delete": True,
+            "date": "2025-12-11"
+        }
+
+
+class MailboxPurgeResponseSchema(ApiBaseResponse):
+    """
+    Schema for POST /mailboxes/<account_id>/purge response
+    """
+    data = fields.Dict(required=False, allow_none=True)
+
+    @classmethod
+    def example(cls) -> dict:
+        """Example response for mailbox purge.
+        
+        :return: Example mailbox purge response
+        :rtype: dict
+        """
+        return {
+            "error_code": 0,
+            "error_msg": "",
+            "data": {
+                "mails_deleted": 42
+            }
+        }
