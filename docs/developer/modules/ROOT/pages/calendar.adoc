@@ -167,18 +167,38 @@ External ICS subscriptions are stored as `CalCalendar` rows with `source_type=ic
 * `start_date_time`, `end_date_time` — same semantics as the events list, restrict the export window.
 * `download=true` — adds `Content-Disposition: attachment; filename="calendar-{key}.ics"` so browsers download the response instead of inlining it. Default is inline so the URL stays consumable by any HTTP client or `curl`.
 
-The module fetches both events and tasks without expansion via `CalendarSource.get_events(..., expand=False)` and `get_tasks(..., expand=False)`, then `CalendarEventsSerializerIcal.serialize()` wraps them in a VCALENDAR. `expand=False` keeps recurring masters with their `RRULE` (no flat occurrences) and skips the Python date filter since the SQL fetch already bounds the range.
+The module fetches both events and tasks without expansion via `CalendarSource.get_events(..., expand=False)` and `get_tasks(..., expand=False)`, attaches them to the `CalCalendar` (its transient `events` field), then `CalendarSerializerIcal.serialize(calendar)` builds the VCALENDAR: it owns the calendar-level header (`PRODID`, `VERSION`, `CALSCALE`, the `X-WR-CALNAME`/`X-WR-CALDESC`/`X-WR-TIMEZONE` descriptors) and delegates the body — one `VEVENT`/`VTODO` per event — to `CalendarEventsSerializerIcal`. `expand=False` keeps recurring masters with their `RRULE` (no flat occurrences) and skips the Python date filter since the SQL fetch already bounds the range.
 
 === Import
 
 `POST /calendars/{key}/import` accepts a `multipart/form-data` upload with a single `file` part. The view exposes `accepted_content_types = {"multipart/form-data"}` so the global `check_content_type` middleware skips its default JSON rule (the convention is documented in `CLAUDE.md`). The total request size is capped at the WSGI layer (`MAX_CONTENT_LENGTH`); the module enforces the per-import limit (`MAX_IMPORT_ICS_BYTES`), so the view only reads and decodes the part.
 
-The pipeline goes `ApiCalendarImport` &#8594; `InterfaceApiCalendarCalendar.import_calendar` &#8594; `ModuleCalendar.import_calendar` &#8594; `SyncEngine.apply_ics(..., delete_missing=False, rewrite_owner_email=..., default_timezone=...)`. Key behaviours:
+The pipeline goes `ApiCalendarImport` &#8594; `InterfaceApiCalendarCalendar.import_calendar` &#8594; `ModuleCalendar.import_calendar` &#8594; `SyncEngine.apply_ics(..., delete_missing=False, rewrite_owner_email=..., default_timezone=...)`. `apply_ics` deserialises the payload through `CalendarDeserializerIcal`, which reads the calendar-level header and delegates the body to `CalendarEventsDeserializerIcal`; only the parsed `events` are applied to the target calendar (the imported VCALENDAR's own name/timezone are not used — the import writes into an existing calendar). Key behaviours:
 
 * `delete_missing=False`: the import is additive — events absent from the upload are kept (unlike the URL sync which mirrors).
 * `rewrite_owner_email`: when `IMPORT_REWRITES_OWNERSHIP=True` (default, in `CalendarConst`), `apply_ics` works on the *deserialized models* — never on the raw iCal text — setting `event.organizer` to the importer and resetting `event.sequence` to 0 (RFC 5546 §2.1.4: SEQUENCE belongs to the organizer). Attendees are preserved so the historical guest list is kept; iMIP only fires on subsequent explicit edits.
 * `default_timezone`: floating datetimes (no `TZID`, no `Z`) are anchored to the destination **calendar's** timezone (`CalCalendar.timezone`), which itself defaults to the user's `SOGO_U_TIMEZONE` at calendar creation. Anchoring is done by `DateTimeUtils.anchor_to_utc`.
 * Orphan overrides — `RECURRENCE-ID` entries whose master is neither in the payload nor already in the calendar — are skipped with a `WARNING` log and counted in `CalSyncResult.skipped` (RFC 5545 §3.8.4.4 considers them invalid).
+
+== Public subscription URL
+
+A calendar owner can expose a read-only public ICS feed (the same model as Google Calendar's "secret address"). Access is a *capability URL*: the secret token embedded in the URL is the credential — there is no separate login.
+
+=== Enabling and disabling
+
+* `POST /calendars/{key}/subscription` — generates a unique random token, stores it in the `share_token` column (a single column reused for this purpose), and returns `{share_token, public_url}`. Re-enabling rotates the token. Requires `MODIFY` on the calendar.
+* `DELETE /calendars/{key}/subscription` — clears the token, immediately invalidating the public URL.
+* `GET /calendars/{key}` and `GET /calendars` include `public_url` (the absolute URL, or `null` when no subscription is active).
+
+The token is produced directly with `get_unique_token(SHARE_TOKEN_LENGTH)` (64 alphanumeric chars, ~381 bits). At that entropy a collision is statistically impossible, so there is no pre-check query: uniqueness is guaranteed by the `UNIQUE` constraint on the `share_token` column. Lookups use `RepositoryCalendar.find_by_share_token`, a *global* query with no user scope — the token alone identifies the calendar.
+
+The `public_url` is built by `InterfaceApiCalendarCalendar._public_url`, which delegates to the transversal helper `app.utils.api.external_url.build_external_url`: it prefixes the route path with `SOGO_P_PUBLIC_BASE_URL` when configured (required behind a reverse proxy), otherwise falls back to Flask's external URL.
+
+=== Public access endpoint
+
+`GET /public/calendars/{token}` declares `public_access = True` on its `MethodView`; the auth middleware reads that attribute by introspection (the same mechanism as `accepted_content_types`) and lets the request through without a bearer token, so `app/__init__.py` carries no per-route calendar knowledge. Anonymous requests fall back to `default_domain_settings`. The endpoint returns the full calendar serialised as `text/calendar; charset=utf-8` (synchronous, the same serialisation path as export) — including a `REFRESH-INTERVAL` / `X-PUBLISHED-TTL` (`PUBLIC_SUBSCRIPTION_REFRESH`, default `PT12H`) that advertises the resync period to subscription clients (Apple, Google, Outlook). An unknown or revoked token is a plain `404` — no data leaks and the token is never logged in full (only `token[:8]` for correlation), since the token is a secret credential.
+
+The pipeline goes `ApiCalendarPublicSubscription` &#8594; `InterfaceApiCalendarCalendar.export_public_calendar` &#8594; `ModuleCalendar.export_by_share_token`.
 
 == Access control (ACL)
 

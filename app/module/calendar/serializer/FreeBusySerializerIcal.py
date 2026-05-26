@@ -3,12 +3,12 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
-from icalendar import Calendar, FreeBusy
+from icalendar import FreeBusy
 
 from app.module.calendar.model.CalFreeBusyResult import CalFreeBusyResult
 from app.module.calendar.model.enums.FreeBusyType import FreeBusyType
 from app.module.calendar.serializer.FreeBusySerializer import FreeBusySerializer
-from app.module.calendar.serializer.IcalConst import CALSCALE, ICAL_VERSION, PRODID
+from app.module.calendar.serializer.IcalSerializerUtils import new_vcalendar
 from app.utils.maths.sogo_hash import generate_uuid
 
 if TYPE_CHECKING:
@@ -33,11 +33,7 @@ class FreeBusySerializerIcal(FreeBusySerializer[str]):
         self._organizer_uid: str = organizer_uid
 
     def serialize(self, data: CalFreeBusyResult) -> str:  # pylint: disable=too-many-locals
-        cal = Calendar()
-        cal.add("version", ICAL_VERSION)
-        cal.add("prodid", PRODID)
-        cal.add("calscale", CALSCALE)
-        cal.add("method", "REPLY")
+        cal = new_vcalendar(method="REPLY")
 
         start_utc = data.start.astimezone(timezone.utc)
         end_utc = data.end.astimezone(timezone.utc)

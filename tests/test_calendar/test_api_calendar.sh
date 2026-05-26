@@ -2162,6 +2162,96 @@ else
 fi
 
 
+step "91. Public subscription — create a calendar with one event"
+info "Sets up a dedicated calendar to activate a public .ics subscription URL on."
+
+CODE=$(req -X POST "$BASE/calendars" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d '{"name": "Public Subscription Cal", "color": "#22aa55"}')
+check_code "POST /calendars (subscription)" "$CODE" "201"
+SUB_CAL_KEY=$(extract '.data.key')
+
+SUB_UID="sub-evt-$RANDOM@example.com"
+CODE=$(req -X POST "$BASE/calendars/$SUB_CAL_KEY/events" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d "{
+        \"uid\": \"$SUB_UID\",
+        \"title\": \"PublicEvent\",
+        \"date_start\": \"2026-07-10T09:00:00Z\",
+        \"date_end\":   \"2026-07-10T10:00:00Z\"
+    }")
+check_code "POST event (subscription)" "$CODE" "201"
+
+
+step "92. Public subscription — enable and capture the public URL"
+info "POST /calendars/.../subscription generates a unique token and returns the public URL."
+
+CODE=$(req -X POST "$BASE/calendars/$SUB_CAL_KEY/subscription" -H "$H_JSON" -H "$H_AUTH" -d '{}')
+check_code "POST /calendars/$SUB_CAL_KEY/subscription" "$CODE" "200"
+check_error "enable subscription error_code"
+SUB_TOKEN=$(extract '.data.share_token')
+SUB_URL=$(extract '.data.public_url')
+[ -n "$SUB_TOKEN" ] && ok "share_token returned (${#SUB_TOKEN} chars)" || fail "share_token missing"
+[ "${#SUB_TOKEN}" -ge 32 ] && ok "share_token is long enough to be unguessable" || fail "share_token too short (${#SUB_TOKEN} chars)"
+[ -n "$SUB_URL" ] && ok "public_url returned: $SUB_URL" || fail "public_url missing"
+
+
+step "93. Public subscription — GET calendar exposes the public URL"
+info "Confirms the active subscription URL is reflected on the calendar resource."
+
+CODE=$(req "$BASE/calendars/$SUB_CAL_KEY" -H "$H_AUTH")
+check_code "GET /calendars/$SUB_CAL_KEY" "$CODE" "200"
+GET_URL=$(extract '.data.public_url')
+[ "$GET_URL" = "$SUB_URL" ] && ok "GET calendar returns the same public_url" || fail "public_url mismatch (got '$GET_URL')"
+
+
+step "94. Public subscription — fetch the public URL anonymously"
+info "Calls the public URL with NO Authorization header. Must return text/calendar with the event."
+
+PUB_BODY=$(mktemp)
+PUB_HEADERS=$(curl -s -D - -o "$PUB_BODY" -w "%{http_code}" "$SUB_URL")
+PUB_CODE="${PUB_HEADERS##*$'\n'}"
+check_code "GET public URL (anonymous)" "$PUB_CODE" "200"
+echo "$PUB_HEADERS" | grep -qi "Content-Type: text/calendar" \
+    && ok "public response is text/calendar" \
+    || fail "public response not text/calendar"
+grep -q  "BEGIN:VCALENDAR" "$PUB_BODY" && ok "public ICS has BEGIN:VCALENDAR" || fail "public ICS missing BEGIN:VCALENDAR"
+grep -qF "$SUB_UID"        "$PUB_BODY" && ok "public ICS contains the event UID" || fail "public ICS missing event UID"
+rm -f "$PUB_BODY"
+
+
+step "95. Public subscription — unknown token returns 404"
+info "A random/expired token must not leak any data."
+
+BAD_URL="${SUB_URL%/*}/deadbeefdeadbeefdeadbeefdeadbeef"
+BAD_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$BAD_URL")
+check_code "GET public URL (unknown token)" "$BAD_CODE" "404"
+
+
+step "96. Public subscription — disable and verify the URL stops working"
+info "DELETE /calendars/.../subscription clears the token; the old URL must 404 afterwards."
+
+CODE=$(req -X DELETE "$BASE/calendars/$SUB_CAL_KEY/subscription" -H "$H_AUTH")
+check_code "DELETE /calendars/$SUB_CAL_KEY/subscription" "$CODE" "200"
+check_error "disable subscription error_code"
+OFF_URL=$(extract '.data.public_url')
+[ -z "$OFF_URL" ] && ok "public_url cleared after disable" || fail "public_url still present after disable: $OFF_URL"
+
+GONE_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$SUB_URL")
+check_code "GET old public URL after disable" "$GONE_CODE" "404"
+
+
+step "97. Public subscription — cleanup calendar"
+info "Deletes the dedicated subscription calendar. Skipped without -d."
+
+if $DO_DELETE; then
+    CODE=$(req -X DELETE "$BASE/calendars/$SUB_CAL_KEY" -H "$H_AUTH")
+    check_code "DELETE /calendars/$SUB_CAL_KEY" "$CODE" "200"
+else
+    skip "DELETE subscription calendar $SUB_CAL_KEY"
+fi
+
+
 step "67. Delete — LOGIN_2 and LOGIN_3 freebusy events and calendars"
 info "Removes the freebusy test events and calendars created by LOGIN_2 and LOGIN_3. Skipped without -d."
 

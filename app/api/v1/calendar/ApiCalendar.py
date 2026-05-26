@@ -19,6 +19,7 @@ from .schemas.calendar import (
     CalendarExportQueryArgsSchema,
     CalendarImportResponseSchema,
     CalendarImportUploadSchema,
+    CalendarSubscriptionResponseSchema,
 )
 from .schemas.event import (
     AttendanceSchema,
@@ -120,6 +121,44 @@ class ApiCalendarExport(MethodView):
         logger_api.debug("GET /calendars/%s/export user=%s args=%s", key, g.user.uid, query_args)
         interface: InterfaceApiCalendarCalendar = g.inter
         return interface.export_calendar(key, query_args)
+
+
+@blp.route("/calendars/<string:key>/subscription")
+class ApiCalendarSubscription(MethodView):
+    """API to enable or disable the public .ics subscription URL of a calendar."""
+
+    @blp.response(200, CalendarSubscriptionResponseSchema)
+    def post(self, key: str) -> ResponseReturnValue:
+        """Activate the public subscription and return its URL + token."""
+        logger_api.debug("POST /calendars/%s/subscription user=%s", key, g.user.uid)
+        interface: InterfaceApiCalendarCalendar = g.inter
+        return interface.enable_subscription(key)
+
+    @blp.response(200, CalendarResponseSchema)
+    def delete(self, key: str) -> ResponseReturnValue:
+        """Revoke the public subscription (clears the token)."""
+        logger_api.debug("DELETE /calendars/%s/subscription user=%s", key, g.user.uid)
+        interface: InterfaceApiCalendarCalendar = g.inter
+        return interface.disable_subscription(key)
+
+
+@blp.route("/public/calendars/<string:token>")
+class ApiCalendarPublicSubscription(MethodView):
+    """Public, unauthenticated read-only access to a calendar's .ics feed.
+
+    The token in the URL is a secret capability. ``public_access`` lets the auth middleware
+    serve this route without a bearer token. Returns the full calendar as ``text/calendar``, or
+    404 if the token does not match an active subscription.
+    """
+
+    public_access: bool = True
+
+    def get(self, token: str) -> ResponseReturnValue:
+        """Serve the calendar matching the token as a text/calendar feed, or 404."""
+        # The token is a secret; never log it in full (capability URL — would leak access).
+        logger_api.debug("GET /public/calendars/%s… (public subscription)", token[:8])
+        interface: InterfaceApiCalendarCalendar = g.inter
+        return interface.export_public_calendar(token)
 
 
 @blp.route("/calendars/<string:key>/import")

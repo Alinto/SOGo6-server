@@ -384,23 +384,6 @@ def test_vtodo_completed_at(serializer):
     assert any(ln.startswith("COMPLETED:") for ln in lines)
 
 
-def test_build_vcalendar_dispatches_vtodo_and_vevent(serializer):
-    event = CalEvent(
-        uid="evt@test.com", title="Event",
-        date_start=datetime(2026, 1, 1, tzinfo=timezone.utc),
-        date_end=datetime(2026, 1, 1, 1, tzinfo=timezone.utc),
-    )
-    task = CalEvent(
-        uid="task@test.com", title="Task",
-        date_start=datetime(2026, 1, 1, tzinfo=timezone.utc),
-        date_end=datetime(2026, 1, 31, tzinfo=timezone.utc),
-        component_type=ComponentType.TASK,
-    )
-    output = serializer.build_vcalendar([event, task])
-    assert "BEGIN:VEVENT" in output
-    assert "BEGIN:VTODO" in output
-
-
 # ==========================================================================
 # ATTENDEE
 # ==========================================================================
@@ -549,34 +532,26 @@ def test_attach_binary(serializer):
 
 
 # ==========================================================================
-# CalendarEventsSerializerIcal — VCALENDAR envelope
+# CalendarEventsSerializerIcal — body components
 # ==========================================================================
 
-def test_vcalendar_envelope():
-    """build_vcalendar wraps events in a valid VCALENDAR block with required properties."""
+def test_events_serializer_dispatches_vtodo_and_vevent():
     s = CalendarEventsSerializerIcal(CalendarEventSerializerIcal())
     event = CalEvent(
-        uid="e@e.com", title="T",
+        uid="e@e.com", title="E",
         date_start=datetime(2026, 1, 1, tzinfo=timezone.utc),
         date_end=datetime(2026, 1, 1, 1, tzinfo=timezone.utc),
     )
-    result = s.serialize([event])
-    lines = result.splitlines()
-    assert lines[0] == "BEGIN:VCALENDAR"
-    assert lines[-1] == "END:VCALENDAR"
-    assert "VERSION:2.0" in result
-    assert "PRODID:" in result
-    assert "BEGIN:VEVENT" in result
+    task = CalEvent(
+        uid="t@t.com", title="T",
+        date_start=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        date_end=datetime(2026, 1, 31, tzinfo=timezone.utc),
+        component_type=ComponentType.TASK,
+    )
+    components = s.serialize([event, task])
+    assert [c.name for c in components] == ["VEVENT", "VTODO"]
 
 
-def test_vcalendar_multiple_events_and_empty():
-    """build_vcalendar emits one VEVENT per event; empty list produces no VEVENT."""
+def test_events_serializer_empty_list():
     s = CalendarEventsSerializerIcal(CalendarEventSerializerIcal())
-    events = [
-        CalEvent(uid=f"e{i}@e.com", title=f"E{i}",
-                 date_start=datetime(2026, 1, i + 1, tzinfo=timezone.utc),
-                 date_end=datetime(2026, 1, i + 1, 1, tzinfo=timezone.utc))
-        for i in range(3)
-    ]
-    assert s.serialize(events).count("BEGIN:VEVENT") == 3
-    assert "BEGIN:VEVENT" not in s.serialize([])
+    assert s.serialize([]) == []

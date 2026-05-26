@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 from icalendar import Alarm, Calendar, Event, Todo, vBinary, vCalAddress, vRecur, vText
 
 from app.module.calendar.model.enums.ComponentType import ComponentType
-from app.module.calendar.serializer.IcalConst import CALSCALE, ICAL_VERSION, PRODID
+from app.module.calendar.serializer.IcalSerializerUtils import new_vcalendar
 from app.module.calendar.model.CalAttachment import CalAttachment
 from app.module.calendar.model.CalAttendee import CalAttendee
 from app.module.calendar.model.CalOrganizer import CalOrganizer
@@ -100,23 +100,14 @@ class CalendarEventSerializerIcal(CalendarEventSerializer[str]):
     # Public interface
 
     def serialize(self, event: CalEvent) -> str:  # pylint: disable=arguments-renamed
-        """
-        Serialize a CalEvent to a VCALENDAR string compliant with RFC 5545.
-        The output uses CRLF line endings and 75-octet line folding.
-        """
-        return self.build_vcalendar([event])
+        """Serialize a single CalEvent as a standalone VCALENDAR document (RFC 5545).
 
-    def build_vcalendar(self, events: list[CalEvent]) -> str:
-        """Wrap a list of CalEvent objects in a VCALENDAR and return the ICS string."""
-        cal: Calendar = Calendar()
-        cal.add("prodid", PRODID)
-        cal.add("version", ICAL_VERSION)
-        cal.add("calscale", CALSCALE)
-        for event in events:
-            if event.component_type == ComponentType.TASK:
-                cal.add_component(self._build_vtodo(event))
-            else:
-                cal.add_component(self._build_vevent(event))
+        The output uses CRLF line endings and 75-octet line folding. Serializing a whole
+        calendar collection (with its calendar-level header) is CalendarSerializerIcal's job.
+        """
+        cal: Calendar = new_vcalendar()
+        component = self.to_vtodo(event) if event.component_type == ComponentType.TASK else self.to_vevent(event)
+        cal.add_component(component)
         return cal.to_ical().decode("utf-8")
 
     def build_imip(self, event: CalEvent, method: str) -> str:
@@ -124,11 +115,7 @@ class CalendarEventSerializerIcal(CalendarEventSerializer[str]):
 
         method should be one of REQUEST, REPLY, CANCEL, ADD, REFRESH, COUNTER, DECLINECOUNTER.
         """
-        cal: Calendar = Calendar()
-        cal.add("prodid", PRODID)
-        cal.add("version", ICAL_VERSION)
-        cal.add("calscale", CALSCALE)
-        cal.add("method", method.upper())
+        cal: Calendar = new_vcalendar(method=method.upper())
         if event.component_type == ComponentType.TASK:
             cal.add_component(self._build_vtodo(event))
         else:

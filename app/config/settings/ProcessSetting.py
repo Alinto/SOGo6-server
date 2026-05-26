@@ -94,6 +94,11 @@ class ProcessSetting(FlaskConfig):
 
     SOGO_LOG_PATH: str = "/var/log/sogo/sogo.log"
 
+    # Public-facing base URL (scheme + host[:port]) used to build absolute capability URLs
+    # served to external clients. Required behind a reverse proxy, where the host seen by Flask
+    # differs from the public one. Empty: fall back to Flask's own external URL.
+    SOGO_P_PUBLIC_BASE_URL: str = ""
+
     def __getitem__(self, i:str) -> Any:
         if hasattr(self, i):
             return getattr(self, i)

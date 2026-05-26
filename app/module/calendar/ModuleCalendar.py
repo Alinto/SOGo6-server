@@ -5,9 +5,11 @@ from typing import TYPE_CHECKING
 
 from app.module.calendar.CalendarConst import (
     IMPORT_REWRITES_OWNERSHIP, MAX_EVENT_FETCH_DAYS, MAX_FREEBUSY_DAYS, MAX_IMPORT_ICS_BYTES, MAX_TASK_FETCH_DAYS,
+    PUBLIC_SUBSCRIPTION_REFRESH, SHARE_TOKEN_LENGTH,
 )
 from app.module.calendar.serializer.CalendarEventSerializerIcal import CalendarEventSerializerIcal
 from app.module.calendar.serializer.CalendarEventsSerializerIcal import CalendarEventsSerializerIcal
+from app.module.calendar.serializer.CalendarSerializerIcal import CalendarSerializerIcal
 from app.module.calendar.freebusy.FreeBusyEngine import FreeBusyEngine, FreeBusyPrefs
 from app.module.calendar.imip.ImipBuilder import ImipBuilder
 from app.module.calendar.imip.ImipProcessor import ImipProcessor
@@ -35,7 +37,7 @@ from app.module.calendar.source.CalendarSources import CalendarSources
 from app.utils import errors as err
 from app.utils.exceptions import RequestException
 from app.utils.logger.logger import logger_calendar
-from app.utils.maths.sogo_hash import generate_uuid
+from app.utils.maths.sogo_hash import generate_uuid, get_unique_token
 from app.utils.module.importManager import import_and_instantiate_manager
 
 if TYPE_CHECKING:
@@ -88,7 +90,9 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         source: CalendarSource = self._sources.get(cal)
         return source.save_calendar(cal)
 
+    #
     # Calendars
+    #
     def get_all_calendars(self, user: User, shared_keys: list[str] | None = None) -> list[CalCalendar]:
         """Return all calendars accessible by the user.
 
@@ -144,7 +148,9 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         source: CalendarSource = self.get_calendar(user, key)
         source.delete_calendar()
 
+    #
     # Events — internal helpers
+    #
     @staticmethod
     def _normalize_all_day(event: CalEvent) -> None:
         """Ensure all-day events have a valid exclusive DTEND (RFC 5545 §3.6.1).
@@ -179,7 +185,9 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
 
         return source
 
+    #
     # Events — CRUD
+    #
     def create_event(self, calendar_user: CalendarUser, calendar_key: str, event: CalEvent, organizer: CalOrganizer) -> CalEvent:
         """Persist a new event in the calendar and propagate it to local attendees."""
         event.apply_defaults()
@@ -302,7 +310,9 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
             logger_calendar.exception("Unexpected error fetching events (calendar=%s)", key)
             raise RequestException(error=err.ERROR_UNKOWN) from exc
 
+    #
     # Attendance
+    #
     def set_attendance_status(
         self, calendar_user: CalendarUser, event_key: str, status: AttendeeStatus, recurrence_id: datetime | None = None,
     ) -> CalEvent:
@@ -347,7 +357,9 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
             raise RequestException(error=err.ERROR_CALENDAR_ATTENDANCE_UPDATE_FAILED) from exc
 
 
+    #
     # iMIP — thin wrappers delegating to ImipProcessor
+    #
     def process_imip_reply(self, calendar_user: CalendarUser, ical_bytes: bytes, from_email: str) -> CalEvent:
         """Process an incoming iMIP REPLY. Delegates to ImipProcessor."""
         return self._imip.process_reply(calendar_user.user, ical_bytes, from_email)
@@ -360,7 +372,9 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         """Process an incoming iMIP CANCEL. Delegates to ImipProcessor."""
         self._imip.process_cancel(calendar_user.user, ical_bytes, from_email)
 
+    #
     # Tasks
+    #
     def create_task(self, calendar_user: CalendarUser, calendar_key: str, task: CalEvent) -> CalEvent:
         """Persist a new VTODO in the calendar and return it."""
         task.apply_defaults()
@@ -445,7 +459,9 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
             logger_calendar.exception("Unexpected error fetching tasks (calendar=%s)", key)
             raise RequestException(error=err.ERROR_UNKOWN) from exc
 
+    #
     # Reminders
+    #
     def get_reminders(
         self,
         calendar_user: CalendarUser,
@@ -499,7 +515,9 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
             lookahead_minutes=lookahead_minutes,
         )
 
+    #
     # Import / Export
+    #
     def export_calendar(
         self, user: User, key: str,
         date_start: datetime | None = None, date_end: datetime | None = None,
@@ -520,12 +538,26 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         # TODO: dispatch as Celery task instead of synchronous call once the agent is in place
         source: CalendarSource = self.get_calendar(user, key)
         self._acl.check_permission(source.calendar.permissions, CalendarPermissionAction.VIEW)
-        # expand=False keeps recurring masters with their RRULE intact and includes VTODO,
-        # so the exported VCALENDAR mirrors the stored components rather than flat occurrences.
+        return self._serialize_calendar_to_ics(source, date_start, date_end)
+
+    @staticmethod
+    def _serialize_calendar_to_ics(
+        source: CalendarSource, date_start: datetime | None = None, date_end: datetime | None = None,
+        refresh_interval: timedelta | None = None,
+    ) -> str:
+        """Serialize a calendar (header + events and tasks) to a VCALENDAR string.
+
+        expand=False keeps recurring masters with their RRULE intact and includes VTODO,
+        so the output mirrors the stored components rather than flat occurrences.
+        ``refresh_interval`` advertises a resync period — set for live subscription feeds only.
+        """
         events: list[CalEvent] = source.get_events(date_start, date_end, expand=False)
         events.extend(source.get_tasks(date_start, date_end, expand=False))
-        serializer: CalendarEventsSerializerIcal = CalendarEventsSerializerIcal(CalendarEventSerializerIcal())
-        return serializer.serialize(events)
+        source.calendar.events = events
+        serializer: CalendarSerializerIcal = CalendarSerializerIcal(
+            CalendarEventsSerializerIcal(CalendarEventSerializerIcal()), refresh_interval=refresh_interval,
+        )
+        return serializer.serialize(source.calendar)
 
     def import_calendar(self, user: User, key: str, ics_text: str) -> CalSyncResult:
         """Import a VCALENDAR payload into a writable calendar (additive merge).
@@ -563,7 +595,44 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
             rewrite_owner_email=user.mail if IMPORT_REWRITES_OWNERSHIP else None,
         )
 
+    #
+    # Public subscription
+    #
+    def enable_subscription(self, user: User, key: str) -> str:
+        """Activate the public .ics subscription for a calendar and return its token.
+
+        Generates a fresh capability token (replacing any existing one) and persists it.
+        """
+        source: CalendarSource = self.get_calendar(user, key)
+        self._acl.check_permission(source.calendar.permissions, CalendarPermissionAction.MODIFY)
+        # 64 alphanumeric chars (~381 bits): uniqueness is enforced by the UNIQUE constraint on
+        # the share_token column, so no pre-check select is needed for a value this large.
+        token: str = get_unique_token(SHARE_TOKEN_LENGTH)
+        source.calendar.share_token = token
+        source.update_calendar(source.calendar)
+        return token
+
+    def disable_subscription(self, user: User, key: str) -> None:
+        """Revoke the public .ics subscription for a calendar (clears the token)."""
+        source: CalendarSource = self.get_calendar(user, key)
+        self._acl.check_permission(source.calendar.permissions, CalendarPermissionAction.MODIFY)
+        source.calendar.share_token = None
+        source.update_calendar(source.calendar)
+
+    def export_by_share_token(self, share_token: str) -> str:
+        """Return the full VCALENDAR for the calendar exposed by a public subscription token.
+
+        No user scope: the token is the capability. Raises NOT_FOUND when the token does not
+        match an active subscription (so we never reveal whether a token ever existed).
+        """
+        source: CalendarSource | None = self._sources.get_by_share_token(share_token)
+        if source is None:
+            raise RequestException(error=err.ERROR_CALENDAR_NOT_FOUND)
+        return self._serialize_calendar_to_ics(source, refresh_interval=PUBLIC_SUBSCRIPTION_REFRESH)
+
+    #
     # External calendar sync
+    #
     def sync_external_calendar(self, user: User, key: str) -> CalSyncResult:
         """Run a synchronous sync for an external ICS calendar."""
         # TODO: dispatch as Celery task instead of synchronous call
@@ -585,7 +654,9 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
             sync_error=config.get("sync_error"),
         )
 
+    #
     # Maintenance
+    #
     # TODO: Implement in admin API
     def clean(self, user_uid: str | None = None, calendar_key: str | None = None) -> int:
         """Physically remove soft-deleted event and reminder rows.
@@ -606,7 +677,9 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
             total += repo_reminder.purge_deleted()
         return total
 
+    #
     # FreeBusy
+    #
     def get_freebusy(
         self,
         target_uid: str,

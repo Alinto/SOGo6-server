@@ -9,6 +9,7 @@ from app.module.calendar.model.CalSyncResult import CalSyncResult
 from app.module.calendar.model.enums.CalendarSourceType import CalendarSourceType
 from app.module.calendar.model.enums.CalendarSyncStatus import CalendarSyncStatus
 from app.module.calendar.model.CalOrganizer import CalOrganizer
+from app.module.calendar.serializer.CalendarDeserializerIcal import CalendarDeserializerIcal
 from app.module.calendar.serializer.CalendarEventDeserializerIcal import CalendarEventDeserializerIcal
 from app.module.calendar.serializer.CalendarEventsDeserializerIcal import CalendarEventsDeserializerIcal
 from app.module.calendar.sync.IcsFetcher import IcsFetcher
@@ -37,7 +38,9 @@ class SyncEngine:
     def __init__(self, sources: CalendarSources, cache: ClientRedis) -> None:
         self._sources = sources
         self._cache = cache
-        self._deserializer = CalendarEventsDeserializerIcal(CalendarEventDeserializerIcal())
+        self._deserializer = CalendarDeserializerIcal(
+            CalendarEventsDeserializerIcal(CalendarEventDeserializerIcal())
+        )
 
     def sync(self, calendar: CalCalendar) -> CalSyncResult:
         """Run a full sync for an ICS calendar.
@@ -106,7 +109,7 @@ class SyncEngine:
         :raises RequestException: ERROR_CALENDAR_ICS_PARSE_FAILED if the payload exceeds
             ``MAX_ICS_EVENTS`` or cannot be deserialized.
         """
-        remote_events: list[CalEvent] = self._deserializer.deserialize(ics_text)
+        remote_events: list[CalEvent] = self._deserializer.deserialize(ics_text).events
         if len(remote_events) > MAX_ICS_EVENTS:
             logger_calendar.error("ICS payload for calendar %s has too many events (%d)", calendar.key, len(remote_events))
             raise RequestException(error=err.ERROR_CALENDAR_ICS_PARSE_FAILED)

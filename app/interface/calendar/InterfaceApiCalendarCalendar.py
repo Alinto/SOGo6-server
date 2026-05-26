@@ -4,6 +4,8 @@ import calendar
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
+from app.utils.api.external_url import build_external_url
+
 from app.config.settings.DomainSettings import CalendarContactSettings, CalendarContactSettingsObj
 from app.config.settings.UserSettings import UserCalendarGeneralSettings, UserGeneralSettings
 from app.module.calendar.ModuleCalendar import ModuleCalendar
@@ -45,6 +47,8 @@ _FAR_FUTURE = "9999-12-31T23:59:59Z"
 class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attributes,too-many-public-methods
     """Interface for all calendar operations (calendars, events, tasks, freebusy, reminders, external sync)."""
 
+    _PUBLIC_SUBSCRIPTION_ENDPOINT: str = "user#Calendar.v1_Calendar.Calendar.ApiCalendarPublicSubscription"
+
     @staticmethod
     def _add_months(dt: datetime, months: int) -> datetime:
         """Return dt shifted by the given number of months, clamping to the last day if needed."""
@@ -56,6 +60,7 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
 
     def __init__(self, process_setting: ProcessSetting, user_domain_settings: dict, user: User) -> None:
         self.user: User = user
+        self._process_setting: ProcessSetting = process_setting
         self.settings: CalendarContactSettingsObj = CalendarContactSettingsObj(user_domain_settings[CalendarContactSettings.subparent])
         self.module: ModuleCalendar = ModuleCalendar(process_setting, cache=sogo_cache())
         self._user_module: ModuleUserProfile = ModuleUserProfile(process_setting, user_domain_settings)
@@ -80,13 +85,31 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         self._user_module.get_user_profile(owner)
         return CalendarUser(user=self.user, owner=owner)
 
+    def _public_url(self, share_token: str | None) -> str | None:
+        """Build the absolute public subscription URL for a calendar, or None when inactive."""
+        if not share_token:
+            return None
+        return build_external_url(
+            self._PUBLIC_SUBSCRIPTION_ENDPOINT,
+            self._process_setting.SOGO_P_PUBLIC_BASE_URL,
+            token=share_token,
+        )
+
+    #
+    # Calendars
+    #
     def get_all_calendars(self, source_type: str | None = None) -> tuple[dict[str, Any], int]:
         """List calendars for the current user, optionally filtered by source_type."""
         try:
             calendars: list[CalCalendar] = self.module.get_all_calendars(self.user)
             if source_type is not None:
                 calendars = [c for c in calendars if c.source_type.value == source_type]
-            return create_api_base_response({"calendars": self._calendars_serializer.serialize(calendars), "total_count": len(calendars)})
+            serialized: list[dict[str, Any]] = self._calendars_serializer.serialize(calendars)
+            # public_url is an API-level value (derived via url_for) injected after serialization;
+            # the order matches since CalendarsSerializerList preserves the input order.
+            for index, cal in enumerate(calendars):
+                serialized[index]["public_url"] = self._public_url(cal.share_token)
+            return create_api_base_response({"calendars": serialized, "total_count": len(calendars)})
         except RequestException as ex:
             logger_api.error("get_all_calendars failed for user %s: %s", self.user.uid, ex)
             return create_api_base_response(None, ex.error)
@@ -95,7 +118,9 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         """Get a single calendar by its key."""
         try:
             source: CalendarSource = self.module.get_calendar(self.user, key)
-            return create_api_base_response(self._calendar_serializer.serialize(source.calendar))
+            cal_dict: dict[str, Any] = self._calendar_serializer.serialize(source.calendar)
+            cal_dict["public_url"] = self._public_url(source.calendar.share_token)
+            return create_api_base_response(cal_dict)
         except RequestException as ex:
             logger_api.error("get_calendar failed for user %s key %s: %s", self.user.uid, key, ex)
             return create_api_base_response(None, ex.error)
@@ -140,6 +165,9 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
             logger_api.error("delete_calendar failed for user %s key %s: %s", self.user.uid, key, ex)
             return create_api_base_response(None, ex.error)
 
+    #
+    # Events
+    #
     def create_event(self, calendar_key: str, body: dict[str, Any]) -> tuple[dict[str, Any], int]:
         """Create a new event in the given calendar."""
         try:
@@ -230,6 +258,9 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
             logger_api.error("get_events failed for user %s, calendar %s: %s", self.user.uid, key, ex)
             return create_api_base_response(None, ex.error)
 
+    #
+    # Tasks
+    #
     def get_tasks(self, key: str | None, query_args: dict[str, Any]) -> tuple[dict[str, Any], int]:
         """List VTODO tasks in a calendar with optional date range and search filters.
 
@@ -303,6 +334,9 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
             logger_api.error("delete_task failed for user %s task %s: %s", self.user.uid, task_key, ex)
             return create_api_base_response(None, ex.error)
 
+    #
+    # Reminders
+    #
     def get_reminders(self, query_args: dict[str, Any]) -> tuple[dict[str, Any], int]:
         """Return currently active reminders for the current user."""
         try:
@@ -321,6 +355,9 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
             logger_api.error("Invalid reminder query for user %s: %s", self.user.uid, exc)
             return create_api_base_response(None, ERROR_CALENDAR_JSON_PARSE_FAILED)
 
+    #
+    # FreeBusy
+    #
     def _user_timezone(self, uid: str) -> str:
         """Return the user's IANA timezone (``SOGO_U_TIMEZONE``), defaulting to UTC."""
         raw_gen: dict = self._user_module.get_partial_user_preferences(uid, UserGeneralSettings.subparent.lower())
@@ -364,6 +401,9 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
             logger_api.error("get_freebusy failed for user %s: %s", self.user.uid, ex)
             return create_api_base_response(None, ex.error)
 
+    #
+    # External calendars
+    #
     def create_external_calendar(self, body: dict[str, Any]) -> tuple[dict[str, Any], int]:
         """Create a new external ICS calendar subscription via the common create_calendar flow.
 
@@ -408,6 +448,9 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
             logger_api.error("get_sync_status failed for user %s key %s: %s", self.user.uid, key, ex)
             return create_api_base_response(None, ex.error)
 
+    #
+    # Import / Export
+    #
     def export_calendar(self, key: str, query_args: dict[str, Any]) -> tuple[str, int, dict[str, str]] | tuple[dict[str, Any], int]:
         """Export the calendar as a VCALENDAR payload.
 
@@ -448,6 +491,44 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
             return create_api_base_response(self._sync_result_serializer.serialize(result))
         except RequestException as ex:
             logger_api.error("import_calendar failed for user %s key %s: %s", self.user.uid, key, ex)
+            return create_api_base_response(None, ex.error)
+
+    #
+    # Public subscription
+    #
+    def enable_subscription(self, key: str) -> tuple[dict[str, Any], int]:
+        """Activate the public .ics subscription and return its token and absolute URL."""
+        try:
+            token: str = self.module.enable_subscription(self.user, key)
+            return create_api_base_response({"share_token": token, "public_url": self._public_url(token)})
+        except RequestException as ex:
+            logger_api.error("enable_subscription failed for user %s key %s: %s", self.user.uid, key, ex)
+            return create_api_base_response(None, ex.error)
+
+    def disable_subscription(self, key: str) -> tuple[dict[str, Any], int]:
+        """Revoke the public .ics subscription and return the updated calendar."""
+        try:
+            self.module.disable_subscription(self.user, key)
+            source: CalendarSource = self.module.get_calendar(self.user, key)
+            cal_dict: dict[str, Any] = self._calendar_serializer.serialize(source.calendar)
+            cal_dict["public_url"] = self._public_url(source.calendar.share_token)
+            return create_api_base_response(cal_dict)
+        except RequestException as ex:
+            logger_api.error("disable_subscription failed for user %s key %s: %s", self.user.uid, key, ex)
+            return create_api_base_response(None, ex.error)
+
+    def export_public_calendar(self, token: str) -> tuple[str, int, dict[str, str]] | tuple[dict[str, Any], int]:
+        """Serve the full calendar as ``text/calendar`` for a public subscription token.
+
+        Unauthenticated path — the token is the capability. Returns the standard error
+        envelope (404) when the token does not match an active subscription.
+        """
+        try:
+            ics_text: str = self.module.export_by_share_token(token)
+            return ics_text, 200, {"Content-Type": "text/calendar; charset=utf-8"}
+        except RequestException as ex:
+            # An unknown token is a normal 404, not an anomaly — no log (and never log the
+            # token itself, it is a secret capability).
             return create_api_base_response(None, ex.error)
 
     @staticmethod
