@@ -97,6 +97,28 @@ class ProcessSetting(FlaskConfig):
     SOGO_INIT_SYSTEM_SETTINGS_PATH: str = ""
     SOGO_INIT_DOMAIN_SETTINGS_PATH: str = ""
 
+    # Agent (Celery) — broker and result backend reuse SOGO_P_REDIS_URL. Only the
+    # process-wide settings are exposed here. Per-task settings (soft / hard timeout,
+    # retry policy) belong to each Task subclass and are set at task definition time.
+    # Defaults are tuned for the dev container; production overrides via env vars.
+
+    # Number of worker processes spawned by `poetry run agent`. ~1 per CPU is a sensible
+    # ceiling for IO-bound tasks; raise it for CPU-bound parsing.
+    SOGO_P_AGENT_WORKER_CONCURRENCY: int = 4
+    # Redis visibility timeout: a reserved message is redelivered if the worker hasn't acked
+    # within this delay. Must exceed the longest task we run, otherwise we get phantom
+    # double executions when Redis re-queues an in-flight task.
+    SOGO_P_AGENT_BROKER_VISIBILITY_TIMEOUT_SECONDS: int = 6 * 3600
+    # Messages prefetched per worker. 1 keeps long tasks isolated; raise it only for very
+    # short tasks where the broker round-trip dominates.
+    SOGO_P_AGENT_WORKER_PREFETCH_MULTIPLIER: int = 1
+    # How long a TaskState lingers in Redis after the task is completed (post-mortem window).
+    SOGO_P_AGENT_TASK_STATE_TTL_SECONDS: int = 3 * 24 * 3600
+    # Filesystem path used by the Beat scheduler for its state file. Must be writable by
+    # the application user. The dev container provisions ``/var/celery`` in its Dockerfile;
+    # in production the path should sit on a persistent volume so state survives restarts.
+    SOGO_P_AGENT_BEAT_SCHEDULE_PATH: str = "/var/celery/sogo-agent-beat-schedule"
+
     def __getitem__(self, i:str) -> Any:
         if hasattr(self, i):
             return getattr(self, i)
