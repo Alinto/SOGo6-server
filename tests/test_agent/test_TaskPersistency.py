@@ -14,7 +14,7 @@ _UTC = timezone.utc
 def _state(task_id="t-1", user="alice", status=TaskStatus.PENDING) -> TaskState:
     return TaskState(
         task_id=task_id, name="noop", status=status,
-        user_uid=user, domain="example.com",
+        user_uid=user,
         date_planned=datetime(2026, 5, 26, 10, 0, 0, tzinfo=_UTC),
     )
 
@@ -113,6 +113,17 @@ def test_list_by_schedule_uses_schedule_index():
     result = persistency.list_by_schedule("imip.scan_inbox", limit=10)
     client.redis.zrevrange.assert_called_once_with("taskstate:index:schedule:imip.scan_inbox", 0, 9)
     assert [s.task_id for s in result] == ["t-recent", "t-old"]
+
+
+def test_save_system_task_skips_user_index():
+    """A task with user_uid=None (system task) must not write to any user index."""
+    persistency, client = _persistency()
+    state = _state(user=None)
+    persistency.save(state)
+    user_index_calls = [c for c in client.zset_add.call_args_list if c.args[0].startswith("taskstate:index:user:")]
+    assert user_index_calls == []
+    # The pending index is still maintained.
+    assert any(c.args[0] == TASK_STATE_INDEX_PENDING for c in client.zset_add.call_args_list)
 
 
 def test_delete_recurring_task_cleans_schedule_index():

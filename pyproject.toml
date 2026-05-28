@@ -58,7 +58,7 @@ poetry-plugin-export = ">=1.8"
 # poetry run start
 start = "app.run:main"
 # poetry run agent
-agent = "app.agent.AgentBootstrap:main"
+agent = "app.agent.run:main"
 
 
 [tool.pytest.ini_options]

@@ -22,8 +22,8 @@ class TaskState:  # pylint: disable=too-many-instance-attributes
     task_id: str
     name: str
     status: TaskStatus
-    user_uid: str
-    domain: str
+    # ``None`` for system tasks (periodic purge, maintenance...) not tied to a user.
+    user_uid: str | None
 
     date_planned: datetime
     date_start: datetime | None = None
@@ -46,7 +46,6 @@ class TaskState:  # pylint: disable=too-many-instance-attributes
             "name": self.name,
             "status": self.status.value,
             "user_uid": self.user_uid,
-            "domain": self.domain,
             "date_planned": self.date_planned.isoformat(),
             "date_start": self.date_start.isoformat() if self.date_start else None,
             "date_end": self.date_end.isoformat() if self.date_end else None,
@@ -68,8 +67,7 @@ class TaskState:  # pylint: disable=too-many-instance-attributes
             task_id=data["task_id"],
             name=data["name"],
             status=TaskStatus(data["status"]),
-            user_uid=data["user_uid"],
-            domain=data["domain"],
+            user_uid=data.get("user_uid"),
             date_planned=planned,
             date_start=parse_iso(data.get("date_start")),
             date_end=parse_iso(data.get("date_end")),

@@ -15,7 +15,7 @@ def _planned() -> datetime:
 def test_round_trip_preserves_all_fields():
     state = TaskState(
         task_id="t-1", name="noop", status=TaskStatus.STARTED,
-        user_uid="alice", domain="example.com",
+        user_uid="alice",
         date_planned=_planned(),
         date_start=datetime(2026, 5, 26, 10, 0, 5, tzinfo=_UTC),
         date_end=datetime(2026, 5, 26, 10, 1, 5, tzinfo=_UTC),
@@ -29,7 +29,7 @@ def test_round_trip_preserves_all_fields():
 def test_round_trip_handles_optional_datetimes():
     state = TaskState(
         task_id="t-2", name="noop", status=TaskStatus.PENDING,
-        user_uid="alice", domain="example.com",
+        user_uid="alice",
         date_planned=_planned(),
     )
     rebuilt = TaskState.from_dict(state.to_dict())

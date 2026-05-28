@@ -11,11 +11,18 @@ exposed as ``SOGO_P_*`` process settings — never hardcoded here. Per-task sett
 from __future__ import annotations
 
 import os
-from typing import Any
+from datetime import datetime, timezone
+from typing import Any, TYPE_CHECKING
 
 from celery import Celery
+from celery.signals import task_failure, task_postrun, task_prerun, task_revoked
 
+from app.agent.tasks.TaskStatus import TaskStatus
 from app.config.settings.ProcessSetting import ProcessSetting, process_config
+
+if TYPE_CHECKING:
+    from app.agent.tasks.Task import Task
+    from app.agent.tasks.TaskPersistency import TaskPersistency
 
 
 class AgentApp:
@@ -63,12 +70,16 @@ class AgentApp:
 
     def create_task(
         self, name: str, payload: dict[str, Any], *,
-        user_uid: str, domain: str, eta: Any | None = None,
+        user_uid: str | None = None, eta: Any | None = None,
     ) -> str:
-        """Schedule a task for execution. Returns the task id."""
+        """Schedule a task for execution. Returns the task id.
+
+        ``user_uid`` is optional: system tasks (periodic purge, cluster maintenance, ...)
+        are not tied to a user and are enqueued without one.
+        """
         result = self._celery.send_task(
             name,
-            kwargs={"payload": payload, "user_uid": user_uid, "domain": domain},
+            kwargs={"payload": payload, "user_uid": user_uid},
             eta=eta,
         )
         return str(result.id)
@@ -80,6 +91,83 @@ class AgentApp:
         which calls this method twice — once with SIGTERM, then with SIGKILL if needed.
         """
         self._celery.control.revoke(task_id, terminate=True, signal=signal)
+
+    def register(self, task: Task) -> None:
+        """Register a :class:`Task` subclass so the worker can execute it.
+
+        Builds the framework-specific wrapper around ``task._run`` and binds it to the
+        task name. Soft and hard time limits come from the Task itself (subclass attributes);
+        the hard limit is ``soft + 10s``, leaving room for cooperative cleanup.
+        """
+        soft_limit: int = task.soft_timeout_seconds
+
+        @self._celery.task(  # pylint: disable=unused-variable
+            name=task.name, bind=True,
+            soft_time_limit=soft_limit, time_limit=soft_limit + 10,
+            max_retries=task.max_retry,
+        )
+        def _wrapper(celery_self: Any, payload: dict[str, Any], user_uid: str | None) -> dict[str, Any]:
+            return task._run(celery_self.request.id, payload, user_uid)  # pylint: disable=protected-access
+
+    def register_lifecycle_hooks(self, persistency: TaskPersistency) -> None:
+        """Connect framework lifecycle events to TaskPersistency.
+
+        Called once at worker bootstrap. Every running task triggers ``prerun`` → ``postrun``,
+        or ``prerun`` → ``failure`` → ``postrun`` on exception, or ``revoked`` on cancel.
+        The handlers keep the in-Redis TaskState in sync so the admin API never lies.
+
+        ``weak=False`` keeps the closures alive past the function scope (without it, the
+        garbage collector would unsubscribe them after this method returns).
+        """
+
+        @task_prerun.connect(weak=False)
+        def _on_prerun(task_id: str | None = None, **_: Any) -> None:
+            state = persistency.get(task_id) if task_id else None
+            if state is None:
+                return
+            state.status = TaskStatus.STARTED
+            state.date_start = datetime.now(timezone.utc)
+            state.attempts += 1
+            persistency.save(state)
+
+        @task_postrun.connect(weak=False)
+        def _on_postrun(
+            task_id: str | None = None, state: str | None = None, retval: Any = None, **_: Any,
+        ) -> None:
+            current = persistency.get(task_id) if task_id else None
+            if current is None:
+                return
+            current.date_end = datetime.now(timezone.utc)
+            if current.date_start:
+                current.duration_seconds = (current.date_end - current.date_start).total_seconds()
+            if state == "SUCCESS":
+                current.status = TaskStatus.SUCCESS
+                if isinstance(retval, dict):
+                    current.result = retval
+            elif state == "FAILURE":
+                current.status = TaskStatus.FAILURE
+            persistency.save(current)
+
+        @task_failure.connect(weak=False)
+        def _on_failure(task_id: str | None = None, exception: BaseException | None = None, **_: Any) -> None:
+            current = persistency.get(task_id) if task_id else None
+            if current is None:
+                return
+            current.status = TaskStatus.FAILURE
+            current.error = str(exception) if exception else None
+            persistency.save(current)
+
+        @task_revoked.connect(weak=False)
+        def _on_revoked(request: Any = None, **_: Any) -> None:
+            task_id = getattr(request, "id", None) if request else None
+            current = persistency.get(task_id) if task_id else None
+            if current is None:
+                return
+            current.status = TaskStatus.CANCELED
+            current.date_end = datetime.now(timezone.utc)
+            if current.date_start:
+                current.duration_seconds = (current.date_end - current.date_start).total_seconds()
+            persistency.save(current)
 
     def start_worker(self) -> None:
         """Run a worker process with the embedded Beat scheduler.
