@@ -161,5 +161,30 @@ ERROR_QUERY_DELETION_CONDITION = E("S000404", "Database Deletion Query Delete Ev
 #Config
 ERROR_CONFIG_WRONG_MAIL_SERVER = E("S000500", "Mail server type is unknown or not supported", HTTPStatus.INTERNAL_SERVER_ERROR)
 
+#Calendar
+ERROR_CALENDAR_ICS_FETCH_FAILED = E("S000600", "Failed To Fetch ICS Calendar Feed", HTTPStatus.BAD_GATEWAY)
+ERROR_CALENDAR_ICS_PARSE_FAILED = E("S000601", "Failed To Parse ICS Calendar Content", HTTPStatus.UNPROCESSABLE_ENTITY)
+ERROR_CALENDAR_NOT_FOUND        = E("S000602", "Calendar Not Found", HTTPStatus.NOT_FOUND)
+ERROR_CALENDAR_DUPLICATE        = E("S000603", "Calendar Already Exists", HTTPStatus.CONFLICT)
+ERROR_CALENDAR_NOT_SUPPORTED    = E("S000604", "Operation Not Supported On This Calendar Source", HTTPStatus.METHOD_NOT_ALLOWED)
+ERROR_CALENDAR_EVENT_NOT_FOUND  = E("S000605", "Calendar Event Not Found", HTTPStatus.NOT_FOUND)
+ERROR_CALENDAR_DATE_RANGE_TOO_LARGE = E("S000606", "Event Fetch Range Exceeds Maximum Allowed Period", HTTPStatus.BAD_REQUEST)
+ERROR_CALENDAR_EVENT_DUPLICATE      = E("S000607", "Calendar Event Already Exists", HTTPStatus.CONFLICT)
+ERROR_CALENDAR_EVENT_INSERT_FAILED  = E("S000608", "Failed To Persist Calendar Event", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_CALENDAR_EVENT_UPDATE_FAILED  = E("S000609", "Failed To Update Calendar Event", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_CALENDAR_TASK_NOT_FOUND       = E("S000610", "Calendar Task Not Found", HTTPStatus.NOT_FOUND)
+ERROR_CALENDAR_JSON_PARSE_FAILED      = E("S000611", "Failed To Parse Calendar JSON Content", HTTPStatus.UNPROCESSABLE_ENTITY)
+ERROR_CALENDAR_EVENT_NOT_RECURRING    = E("S000612", "Event Is Not Recurring", HTTPStatus.BAD_REQUEST)
+ERROR_CALENDAR_OCCURRENCE_NOT_FOUND   = E("S000613", "Occurrence Not Found", HTTPStatus.NOT_FOUND)
+ERROR_CALENDAR_FREEBUSY_DATE_RANGE_TOO_LARGE = E("S000614", "Free/Busy Range Exceeds Maximum Allowed Period", HTTPStatus.BAD_REQUEST)
+ERROR_CALENDAR_FREEBUSY_INVALID_REQUEST      = E("S000615", "Invalid Free/Busy iCalendar Request", HTTPStatus.BAD_REQUEST)
+ERROR_CALENDAR_IMIP_INVALID_REQUEST          = E("S000616", "Invalid iMIP Message", HTTPStatus.BAD_REQUEST)
+ERROR_CALENDAR_ATTENDANCE_UPDATE_FAILED      = E("S000617", "Failed To Update Attendance Status", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_CALENDAR_NOT_ORGANIZER                 = E("S000618", "Only The Organizer Can Modify This Event", HTTPStatus.FORBIDDEN)
+ERROR_CALENDAR_EVENT_DURATION_TOO_LONG       = E("S000619", "Event Duration Exceeds Maximum Allowed", HTTPStatus.BAD_REQUEST)
+ERROR_CALENDAR_ACCESS_DENIED                 = E("S000620", "Access Denied To This Calendar", HTTPStatus.FORBIDDEN)
+ERROR_CALENDAR_IMPORT_NO_FILE                = E("S000621", "No File Provided In The Import Request", HTTPStatus.BAD_REQUEST)
+ERROR_CALENDAR_IMPORT_TOO_LARGE              = E("S000622", "Import Payload Exceeds Maximum Allowed Size", HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
+
 #the bugs
 ERROR_UNKOWN = E("S999999", "Undefined Error", HTTPStatus.INTERNAL_SERVER_ERROR)

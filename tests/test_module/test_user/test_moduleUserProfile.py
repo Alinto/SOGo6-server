@@ -204,7 +204,6 @@ def test_create_user_profile_success(monkeypatch):
     module = ModuleUserProfile(process_settings, domain_settings)
 
     user = FakeUser()
-
     module.create_user_profile(user)
 
     assert len(fake_client.insert_calls) == 1
