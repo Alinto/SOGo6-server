@@ -92,6 +92,22 @@ class FakeModuleUserProfile:
         """Create user profile."""
         self.create_user_profile_args = user
 
+    def get_partial_user_preferences(self, uid, subparent):
+        """Return fake general preferences carrying the user timezone."""
+        return {"USER_GENERAL": {"SOGO_U_TIMEZONE": "Europe/Paris"}}
+
+
+class FakeModuleCalendar:
+    """Fake ModuleCalendar for testing."""
+    def __init__(self, *args, **kwargs):
+        self.create_personal_calendar_args = None
+        self.create_personal_calendar_timezone = None
+
+    def create_personal_calendar(self, user_uid, name="Personal Calendar", tz="UTC"):
+        """Create personal calendar."""
+        self.create_personal_calendar_args = user_uid
+        self.create_personal_calendar_timezone = tz
+
 
 def patch_modules_on_interface(monkeypatch, fake_module_auth, fake_module_user_profile, fake_module_user_source_class):
     """Patch modules in InterfaceAuthUser."""
@@ -106,6 +122,10 @@ def patch_modules_on_interface(monkeypatch, fake_module_auth, fake_module_user_p
     monkeypatch.setattr(
         "app.interface.auth.InterfaceAuthUser.ModuleUserSource",
         fake_module_user_source_class
+    )
+    monkeypatch.setattr(
+        "app.interface.auth.InterfaceAuthUser.ModuleCalendar",
+        FakeModuleCalendar
     )
 
 
@@ -213,7 +233,7 @@ def test_plain_login_failed_authentication(monkeypatch):
 
 
 def test_plain_login_create_user_profile(monkeypatch):
-    """Test plain login creates user profile if not present."""
+    """Test plain login creates user profile and personal calendar on first login."""
     fake_auth = FakeModuleAuth(None, None, None, None)
     fake_user = {"uid": "newuser@example.com", "password": "secret123"}
     fake_auth.get_user_and_domain_user_sources_result = (fake_user, {"source1": {}})
@@ -239,6 +259,9 @@ def test_plain_login_create_user_profile(monkeypatch):
     assert status_code == 200
     assert fake_profile.create_user_profile_args is not None
     assert fake_profile.create_user_profile_args["uid"] == "newuser@example.com"
+    assert interface._module_calendar.create_personal_calendar_args == "newuser@example.com"  # pylint: disable=protected-access
+    # The user's preferred timezone is forwarded to the default calendar.
+    assert interface._module_calendar.create_personal_calendar_timezone == "Europe/Paris"  # pylint: disable=protected-access
 
 
 def test_plain_login_profile_creation_request_exception(monkeypatch):

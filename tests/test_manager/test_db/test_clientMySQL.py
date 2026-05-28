@@ -13,8 +13,8 @@ from app.manager.db.ClientMySQL import (
     condition_to_query,
 )
 from app.utils.exceptions import RequestException, BugException
-from app.utils.db.Condition import EqualCondition, NotEqualCondition, AndCondition, OrCondition, TrueCondition
-from app.utils.db.Table import Table, Column
+from app.utils.db.Condition import EqualCondition, NotEqualCondition, AndCondition, OrCondition, TrueCondition, JoinClause
+from app.utils.db.Table import Table, Column, Index
 
 
 def test_str_to_varchar():
@@ -101,6 +101,17 @@ def test_condition_to_query():
     assert sql7 == "WHERE ((`test` = %s AND `test2` = %s) AND (`test3` != %s OR `test4` != %s))"
     assert params7 == [1, "test2", 3, "test4"]
 
+    # Qualified column names (table.column)
+    a8 = EqualCondition("events.key", "abc")
+    sql8, params8 = condition_to_query(a8)
+    assert sql8 == "`events`.`key` = %s"
+    assert params8 == ["abc"]
+
+    a9 = AndCondition(EqualCondition("reminders.is_deleted", False), EqualCondition("calendars.user_uid", "user@test"))
+    sql9, _ = condition_to_query(a9, add_where=True)
+    assert "`reminders`.`is_deleted`" in sql9
+    assert "`calendars`.`user_uid`" in sql9
+
 
 class FakeMySQLCursor:
     def __init__(self, conn):
@@ -131,6 +142,10 @@ class FakeMySQLCursor:
             else:
                 self._rows = []
                 self.rowcount = 0
+        # create_index
+        elif s.upper().startswith("CREATE") and "INDEX" in s.upper():
+            self._rows = []
+            self.rowcount = 0
         # create_table
         elif s.upper().startswith("CREATE TABLE"):
             if "`duplicate`" in s or '"duplicate"' in s or "CREATE TABLE `duplicate`" in s:
@@ -169,8 +184,10 @@ class FakeMySQLCursor:
                 self.rowcount = 0
         # select
         elif s.upper().startswith("SELECT"):
-            # produce some rows for a table named test_select in the FROM, otherwise empty
-            if "`test_select`" in s or '"test_select"' in s or "FROM `test_select`" in s:
+            if "INNER JOIN" in s and "`test_join`" in s:
+                self._rows = [("evt-1", "popup", 15, "Meeting", "user@test")]
+                self.rowcount = 1
+            elif "`test_select`" in s or '"test_select"' in s or "FROM `test_select`" in s:
                 self._rows = [(1, "Alice", '{"k":"v"}', 30), (2, "Bob", '{"x":[1,2]}', 25)]
                 self.rowcount = len(self._rows)
             elif "COUNT(*)" in s.upper() or "COUNT(`" in s.upper():
@@ -305,6 +322,26 @@ def test_client_create_several_table(mock_db: MockerFixture):
     client.create_several_table([table])  # should not raise
 
 
+def test_client_create_indexes(mock_db: MockerFixture):
+    """
+    Test the create_indexes method of MySQL client
+    """
+    client = ClientMySQL(db_user="", db_pwd="", db_host="", db_port=3307, db_ssl=False, db_enc="")
+    client.connect()
+
+    col1 = Column(name="trigger_at", data_type="datetime")
+    col2 = Column(name="event_key", data_type="str")
+    idx1 = Index(name="idx_trigger", columns=("trigger_at",))
+    idx2 = Index(name="idx_composite", columns=("trigger_at", "event_key"))
+    idx3 = Index(name="idx_unique", columns=("event_key",), unique=True)
+    table = Table(name="test", columns=[col1, col2], indexes=[idx1, idx2, idx3])
+    client.create_indexes(table)
+
+    # No indexes: should do nothing
+    table_no_idx = Table(name="test", columns=[col1, col2])
+    client.create_indexes(table_no_idx)
+
+
 def test_insert_update_select(mock_db: MockerFixture):
     """
     Test inserting, updating, and selecting data.
@@ -362,6 +399,34 @@ def test_insert_update_select(mock_db: MockerFixture):
     # Test select with offset
     results_offset = list(client.select_from_table("test_select", ("id", "name"), cond_all, offset=1))
     assert len(results_offset) == 2
+
+
+def test_client_select_from_several_table(mock_db: MockerFixture):
+    """
+    Test the select_from_several_table method of MySQL client
+    """
+    client = ClientMySQL(db_user="", db_pwd="", db_host="", db_port=3307, db_ssl=False, db_enc="")
+    client.connect()
+
+    joins = [
+        JoinClause(table="test_events", left_col="test_join.event_key", right_col="test_events.key"),
+        JoinClause(table="test_calendars", left_col="test_events.calendar_key", right_col="test_calendars.key"),
+    ]
+    condition = AndCondition(
+        EqualCondition("test_join.is_deleted", False),
+        EqualCondition("test_calendars.user_uid", "user@test"),
+    )
+    results = list(client.select_from_several_table(
+        table_name="test_join",
+        joins=joins,
+        column_tuple=("test_join.event_key", "test_join.method", "test_join.minutes_before", "test_events.title", "test_calendars.user_uid"),
+        condition=condition,
+        sort_by="test_join.event_key",
+    ))
+    assert len(results) == 1
+    assert results[0][0] == "evt-1"
+    assert results[0][3] == "Meeting"
+    assert results[0][4] == "user@test"
 
 
 def test_client_count_row_in_table(mock_db: MockerFixture):

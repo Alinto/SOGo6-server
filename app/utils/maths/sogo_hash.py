@@ -1,6 +1,7 @@
 from math import log, ceil
 from secrets import token_hex, choice
 from string import ascii_letters, digits
+from uuid import uuid4
 
 """
 HASH Mechanism with SOGo 6
@@ -52,11 +53,13 @@ Meaning that with a 9 long token, after 10000 hashes made, the chance to have tw
 
 
 #TODO To put in SYSTEM_SETTINGS
-MAX_USER   = 10000000 #10 millions user top
-MAX_DOMAIN =    10000 #10 thousand domains top
-MAX_RULES  =     1000 #1 rhousand rules top
-MAX_ACCOUNT=  100
-MAX_IDENTITY= 100
+MAX_USER      = 10000000  # 10 million users
+MAX_DOMAIN    =    10000  # 10 thousand domains
+MAX_RULES     =     1000  # 1 thousand rules
+MAX_ACCOUNT   =      100
+MAX_IDENTITY  =      100
+MAX_CALENDAR  = 50000000  # 50 million calendars (~5 per user at MAX_USER scale)
+MAX_EVENT     = 500000000 # 500 million events (~50 per user at MAX_USER scale)
 
 def size_hash_length(max_unique_entities: int) -> int:
     """
@@ -64,11 +67,18 @@ def size_hash_length(max_unique_entities: int) -> int:
     """
     return ceil(log(50 * max_unique_entities**2, 62))
 
-HASH_SIZE_USER   = size_hash_length(MAX_USER)
-HASH_SIZE_DOMAIN = size_hash_length(MAX_DOMAIN)
-HASH_SIZE_RULES  = size_hash_length(MAX_RULES)
-HASH_SIZE_ACCOUNT= size_hash_length(MAX_ACCOUNT)
-HASH_SIZE_IDENTITY= size_hash_length(MAX_IDENTITY)
+HASH_SIZE_USER     = size_hash_length(MAX_USER)
+HASH_SIZE_DOMAIN   = size_hash_length(MAX_DOMAIN)
+HASH_SIZE_RULES    = size_hash_length(MAX_RULES)
+HASH_SIZE_ACCOUNT  = size_hash_length(MAX_ACCOUNT)
+HASH_SIZE_IDENTITY = size_hash_length(MAX_IDENTITY)
+HASH_SIZE_CALENDAR = size_hash_length(MAX_CALENDAR)
+HASH_SIZE_EVENT    = size_hash_length(MAX_EVENT)
+
+def generate_uuid() -> str:
+    """Return a UUID v4 string for use as an opaque resource key."""
+    return str(uuid4())
+
 
 def get_unique_token(size: int) -> str:
     """

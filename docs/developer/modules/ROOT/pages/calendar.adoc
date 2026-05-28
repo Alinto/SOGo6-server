@@ -1,0 +1,257 @@
+= Calendar Module
+
+The calendar module manages calendars and events stored in the database or fetched from external ICS feeds.
+It is built around two domain objects — `CalCalendar` and `CalEvent` — that flow through sources, repositories, RRULE expansion, and serializers without any format leaking across layers.
+
+== Architecture overview
+
+----
+  Interface (API)        Module              Sources / Engines         Persistence
+  ──────────────         ──────              ─────────────────         ───────────
+  InterfaceApi       ModuleCalendar         CalendarSources            RepositoryEvent
+       │                  │                      │                     RepositoryCalendar
+       │  CalEvent        │                      │
+       └─────────────────►│  CalEvent            │
+                          │─────────────────────►│
+                          │                      ├── CalendarSourceDb ──► SQL (sogo_events)
+                          │                      └── CalendarSourceIcsMirror ─► SQL (read-only mirror)
+                          │
+                          ├── RecurrenceScopeProcessor (split / occurrence / standard)
+                          ├── RruleEngine (RRULE expansion, EXDATE, overrides)
+                          ├── FreeBusyEngine (free/busy computation)
+                          ├── ReminderEngine (active reminder computation)
+                          ├── SyncEngine (ICS mirror synchronization)
+                          └── CalendarAclEngine (permission resolution + enforcement)
+----
+
+**Responsibilities:**
+
+* *InterfaceApi* — Dict-to-CalEvent conversion (via Deserializer), scope dispatch, response formatting. No business logic.
+* *ModuleCalendar* — Orchestration: event CRUD, attendance, iMIP, attendee propagation. Delegates recurrence scope to the processor.
+* *RecurrenceScopeProcessor* — Pure construction logic for recurrence-scoped modifications (static methods). Returns a `ScopeResult` carrying the resulting CalEvent and the list of touched events with their action (INSERT/UPDATE/DELETE).
+* *CalendarSources* — Factory for CalendarSource instances, multi-calendar merge. Single entry point for all attendee propagation via `propagate()` which replicates touched events and syncs the attendee list.
+* *CalendarSourceDb* — Writable source backed by the database. Handles insert, update, split, detached occurrence EXDATE. No cross-calendar propagation — that belongs to CalendarSources.
+* *CalendarSourceIcsMirror* — Read-only DB mirror for external ICS subscriptions. Extends CalendarSourceDb with `is_writable() &#8594; False`. Events are populated by SyncEngine, not by direct API writes.
+* *SyncEngine* — Fetches a remote ICS feed via IcsFetcher, diffs by (UID, recurrence_id) against local DB, inserts/updates/deletes accordingly. Updates sync_config status on the calendar.
+* *RruleEngine* — RRULE expansion into occurrences, EXDATE suppression, override replacement. Overrides take priority over EXDATE.
+* *ReminderEngine* — Determines which reminders are currently active based on trigger_at, event end, and optional lookahead. Expands recurring events.
+* *RepositoryEvent / RepositoryCalendar / RepositoryReminder* — SQL-only persistence. No business logic.
+* *Serializers / Deserializers* — Format conversion (Dict, ICS). `deserialize_with_update()` merges a dict update onto an existing CalEvent.
+
+== Domain model
+
+`CalEvent` is the single canonical representation of a calendar component (VEVENT, VTODO or VJOURNAL).
+It is a plain Python dataclass. The `component_type` field discriminates between component kinds stored in the same table.
+
+Fields are either *relational* (dedicated columns for filtering: `date_start`, `date_end`, `component_type`, `show_as`, `is_deleted`, `recurrence_id`) or *blob* (everything else, stored as JSON in `cal_event`). Unpersisted fields (`dates_with_tz`) are computed at serialization time and excluded from the blob via `CalEvent.UNPERSISTED_FIELDS`.
+
+`CalCalendar` maps to the `sogo_calendar_calendars` table. `ctag` is incremented on every event mutation by `CalendarSourceDb._bump_ctag()` (CalDAV change detection via the `CS:getctag` extension).
+
+All datetimes are stored and processed in UTC. The original TZID is preserved in `CalEvent.timezone` for display only.
+
+== Calendar sources
+
+`CalendarSource` is an abstract base class with a fixed processing pipeline:
+
+. Resolve and normalize date bounds to UTC
+. `_fetch_events()` — subclass-specific query
+. `_expand_recurring()` — RRULE expansion
+. `_filter()` — date range + optional full-text search
+. Sort and stamp `calendar_key` / `calendar_timezone`
+
+Two implementations: `CalendarSourceDb` (writable, DB-backed) and `CalendarSourceIcsMirror` (read-only DB mirror for external ICS subscriptions; extends `CalendarSourceDb` and forces `is_writable()` to `False`).
+
+`CalendarSources` is the factory and ownership enforcer. All reads are scoped to a `user_uid`.
+
+== Recurrence
+
+=== RruleEngine
+
+`RruleEngine.expand()` expands a recurring master into occurrences within a date window. Each generated occurrence carries the master's `recurrence_rule` so clients can display recurrence info.
+
+Override priority: when both an EXDATE and a detached override (RECURRENCE-ID) exist for the same slot, the override wins (RFC 5545 §3.8.4.4).
+
+=== Recurrence exceptions and occurrences
+
+A recurring event can be modified at three granularity levels:
+
+* *Single occurrence* — A detached row with `recurrence_id` replaces one generated slot. The master's EXDATE list is updated for CalDAV compatibility, but the RRULE expander prefers the override over the EXDATE.
+* *This and following* — The original series is truncated (`COUNT` converted to `UNTIL`). A new independent master is created from the split point with `uid_parent_split` linking back.
+* *All events* — Standard update applied to the master. Detached occurrences are realigned when the master time changes.
+
+=== RecurrenceScopeProcessor
+
+Static processor. `process()` dispatches to `split_occurrence`, `split_series`, or standard update. Returns a `ScopeResult` carrying the resulting CalEvent and a `touched` list of `(CalEvent, EventAction)` pairs — all events that were modified/created/deleted on the organizer's calendar. The caller passes the `ScopeResult` to `CalendarSources.propagate()` which blindly replicates the touched list to each attendee (INSERT/UPDATE/DELETE) and syncs the attendee list.
+
+=== API examples
+
+All examples assume a weekly recurring event with key `evt-key`.
+
+*Modify all events:*
+[source,json]
+----
+PATCH /events/evt-key
+{"title": "New Title"}
+----
+
+*Modify this event only:*
+[source,json]
+----
+PATCH /events/evt-key
+{"title": "Special", "recurrence_id": "2026-06-08T07:00:00Z"}
+----
+
+*Move a single occurrence (drag & drop):*
+[source,json]
+----
+PATCH /events/evt-key
+{"date_start": "2026-06-09T10:00:00Z", "date_end": "2026-06-09T11:00:00Z", "recurrence_id": "2026-06-08T07:00:00Z"}
+----
+
+*This and following events:*
+[source,json]
+----
+PATCH /events/evt-key
+{"title": "New Series", "recurrence_id": "2026-06-15T07:00:00Z", "recurrence_range": "THISANDFUTURE"}
+----
+
+*Delete this and following (truncate only):*
+[source,json]
+----
+PATCH /events/evt-key
+{"recurrence_id": "2026-06-15T07:00:00Z", "recurrence_range": "THISANDFUTURE"}
+----
+
+*Cancel a single occurrence (EXDATE):*
+[source,json]
+----
+PATCH /events/evt-key
+{"recurrence_exceptions": ["2026-06-08T07:00:00Z"]}
+----
+
+*Delete all events:*
+[source,json]
+----
+DELETE /events/evt-key
+----
+
+*Decline a single occurrence as attendee:*
+[source,json]
+----
+POST /events/evt-key/attendance
+{"status": "declined", "recurrence_id": "2026-06-08T07:00:00Z"}
+----
+
+== Reminders
+
+`ReminderEngine` determines which reminders are currently active. A reminder is active from `trigger_at` (= `date_start - minutes_before`) until `date_end + lookahead`. For recurring events, occurrences are expanded via `RruleEngine` and each is checked independently.
+
+Reminders are materialized in `sogo_calendar_reminders` with a pre-computed `trigger_at` for efficient SQL queries. `CalendarSourceDb` maintains the table automatically on insert, update and delete. `RepositoryReminder.find_pending()` uses a JOIN (reminders &#8594; events &#8594; calendars) to filter by user, trigger window and soft-delete in a single query.
+
+`GET /reminders?method=popup&lookahead=30` returns active reminders with event context (title, location, dates, `dates_with_tz`).
+
+== External calendars
+
+External ICS subscriptions are stored as `CalCalendar` rows with `source_type=ics` and sync metadata in `sync_config` JSON (url, username, password, etag, last_sync, sync_interval_minutes, sync_status). Events are mirrored into `sogo_calendar_events` by `SyncEngine` via `CalendarSourceIcsMirror`. Write restrictions on ICS calendars are enforced by `CalendarAclEngine`, not by the source layer.
+
+`POST /external-calendars/{key}/sync` triggers a synchronous sync. The sync engine fetches the ICS feed via `IcsFetcher`, diffs by (UID, recurrence_id), and applies inserts/updates/deletes. `IcsFetcher` protects against SSRF by validating that the resolved hostname is a public IP and pinning the TCP connection to that IP for the lifetime of the request (anti DNS-rebinding); redirects are re-validated against the same rules. Sync status is tracked in `sync_config` and queryable via `GET /external-calendars/{key}/sync`.
+
+// TODO: sync will be dispatched as a Celery task; lock via Redis prevents concurrent syncs on the same calendar.
+
+== Export and import
+
+=== Export
+
+`GET /calendars/{key}/export` serialises the calendar back into a VCALENDAR string (`text/calendar`). Recurring masters keep their `RRULE` intact — the expansion happens on the recipient side. Query parameters:
+
+* `start_date_time`, `end_date_time` — same semantics as the events list, restrict the export window.
+* `download=true` — adds `Content-Disposition: attachment; filename="calendar-{key}.ics"` so browsers download the response instead of inlining it. Default is inline so the URL stays consumable by any HTTP client or `curl`.
+
+The module fetches both events and tasks without expansion via `CalendarSource.get_events(..., expand=False)` and `get_tasks(..., expand=False)`, attaches them to the `CalCalendar` (its transient `events` field), then `CalendarSerializerIcal.serialize(calendar)` builds the VCALENDAR: it owns the calendar-level header (`PRODID`, `VERSION`, `CALSCALE`, the `X-WR-CALNAME`/`X-WR-CALDESC`/`X-WR-TIMEZONE` descriptors) and delegates the body — one `VEVENT`/`VTODO` per event — to `CalendarEventsSerializerIcal`. `expand=False` keeps recurring masters with their `RRULE` (no flat occurrences) and skips the Python date filter since the SQL fetch already bounds the range.
+
+=== Import
+
+`POST /calendars/{key}/import` accepts a `multipart/form-data` upload with a single `file` part. The view exposes `accepted_content_types = {"multipart/form-data"}` so the global `check_content_type` middleware skips its default JSON rule (the convention is documented in `CLAUDE.md`). The total request size is capped at the WSGI layer (`MAX_CONTENT_LENGTH`); the module enforces the per-import limit (`MAX_IMPORT_ICS_BYTES`), so the view only reads and decodes the part.
+
+The pipeline goes `ApiCalendarImport` &#8594; `InterfaceApiCalendarCalendar.import_calendar` &#8594; `ModuleCalendar.import_calendar` &#8594; `SyncEngine.apply_ics(..., delete_missing=False, rewrite_owner_email=..., default_timezone=...)`. `apply_ics` deserialises the payload through `CalendarDeserializerIcal`, which reads the calendar-level header and delegates the body to `CalendarEventsDeserializerIcal`; only the parsed `events` are applied to the target calendar (the imported VCALENDAR's own name/timezone are not used — the import writes into an existing calendar). Key behaviours:
+
+* `delete_missing=False`: the import is additive — events absent from the upload are kept (unlike the URL sync which mirrors).
+* `rewrite_owner_email`: when `IMPORT_REWRITES_OWNERSHIP=True` (default, in `CalendarConst`), `apply_ics` works on the *deserialized models* — never on the raw iCal text — setting `event.organizer` to the importer and resetting `event.sequence` to 0 (RFC 5546 §2.1.4: SEQUENCE belongs to the organizer). Attendees are preserved so the historical guest list is kept; iMIP only fires on subsequent explicit edits.
+* `default_timezone`: floating datetimes (no `TZID`, no `Z`) are anchored to the destination **calendar's** timezone (`CalCalendar.timezone`), which itself defaults to the user's `SOGO_U_TIMEZONE` at calendar creation. Anchoring is done by `DateTimeUtils.anchor_to_utc`.
+* Orphan overrides — `RECURRENCE-ID` entries whose master is neither in the payload nor already in the calendar — are skipped with a `WARNING` log and counted in `CalSyncResult.skipped` (RFC 5545 §3.8.4.4 considers them invalid).
+
+== Public subscription URL
+
+A calendar owner can expose a read-only public ICS feed (the same model as Google Calendar's "secret address"). Access is a *capability URL*: the secret token embedded in the URL is the credential — there is no separate login.
+
+=== Enabling and disabling
+
+* `POST /calendars/{key}/subscription` — generates a unique random token, stores it in the `share_token` column (a single column reused for this purpose), and returns `{share_token, public_url}`. Re-enabling rotates the token. Requires `MODIFY` on the calendar.
+* `DELETE /calendars/{key}/subscription` — clears the token, immediately invalidating the public URL.
+* `GET /calendars/{key}` and `GET /calendars` include `public_url` (the absolute URL, or `null` when no subscription is active).
+
+The token is produced directly with `get_unique_token(SHARE_TOKEN_LENGTH)` (64 alphanumeric chars, ~381 bits). At that entropy a collision is statistically impossible, so there is no pre-check query: uniqueness is guaranteed by the `UNIQUE` constraint on the `share_token` column. Lookups use `RepositoryCalendar.find_by_share_token`, a *global* query with no user scope — the token alone identifies the calendar.
+
+The `public_url` is built by `InterfaceApiCalendarCalendar._public_url`, which delegates to the transversal helper `app.utils.api.external_url.build_external_url`: it prefixes the route path with `SOGO_P_PUBLIC_BASE_URL` when configured (required behind a reverse proxy), otherwise falls back to Flask's external URL.
+
+=== Public access endpoint
+
+`GET /public/calendars/{token}` declares `public_access = True` on its `MethodView`; the auth middleware reads that attribute by introspection (the same mechanism as `accepted_content_types`) and lets the request through without a bearer token, so `app/__init__.py` carries no per-route calendar knowledge. Anonymous requests fall back to `default_domain_settings`. The endpoint returns the full calendar serialised as `text/calendar; charset=utf-8` (synchronous, the same serialisation path as export) — including a `REFRESH-INTERVAL` / `X-PUBLISHED-TTL` (`PUBLIC_SUBSCRIPTION_REFRESH`, default `PT12H`) that advertises the resync period to subscription clients (Apple, Google, Outlook). An unknown or revoked token is a plain `404` — no data leaks and the token is never logged in full (only `token[:8]` for correlation), since the token is a secret credential.
+
+The pipeline goes `ApiCalendarPublicSubscription` &#8594; `InterfaceApiCalendarCalendar.export_public_calendar` &#8594; `ModuleCalendar.export_by_share_token`.
+
+== Access control (ACL)
+
+=== User vs CalendarUser
+
+Module methods use two distinct parameter types:
+
+* `User` — for calendar-level operations (list, create, update, delete calendars, sync). The user operates on their own calendars.
+* `CalendarUser` — for event-level operations (CRUD events, tasks, reminders, attendance). Carries both the acting user (`user`) and the calendar owner (`owner`). For personal calendars, `user == owner`. For shared calendars, they differ.
+
+The interface builds `CalendarUser` from the authenticated user. Until the central ACL module lands, the owner is always the acting user (`user == owner`); shared-calendar dispatch will plug in here.
+
+=== CalendarAclEngine
+
+Centralizes all permission logic. Three responsibilities:
+
+* `get_permissions(calendar, calendar_user)` &#8594; `CalendarPermissions` — resolves what the user can do on this calendar. Owner gets full access. ICS calendars get read-only (VIEW_ALL, no create/delete). Non-owner permissions are stubbed (denied) until the ACL module is implemented.
+* `check_permission(permissions, action)` — raises `ERROR_CALENDAR_ACCESS_DENIED` if the action is not allowed.
+* `sanitize_events(events, permissions)` — masks event fields based on visibility class (public/confidential/private) and permission level. Events with NONE level are excluded. VIEW_DATETIME level replaces title with "Busy" and hides details.
+
+=== Permission model
+
+`CalendarPermissions` has one `CalendarShareLevel` per visibility class (public, confidential, private) plus `can_create` and `can_delete` flags. Share levels are ordered: `NONE < VIEW_DATETIME < VIEW_ALL < RESPOND < MODIFY`.
+
+Each `CalCalendar` carries a transient `permissions` field populated at read time — the API response includes the user's permissions so the UI knows which actions to enable.
+
+== Repositories
+
+Repositories are the only classes that issue SQL. All queries use structured `Condition` objects — no string interpolation. `find_by_calendar` applies different SQL conditions for recurring vs non-recurring events.
+
+== Serialization
+
+All serializers extend `Serializer[TIn, TOut]`, all deserializers extend `Deserializer[TIn, TOut]`. The `icalendar` library is used only in `*Ical.py` files. `deserialize_with_update(origin, update)` merges a dict onto an existing CalEvent for partial updates.
+
+== Module — ModuleCalendar
+
+`ModuleCalendar` is the single entry point for business logic. It delegates:
+
+* Recurrence scope to `RecurrenceScopeProcessor`
+* Persistence to `CalendarSourceDb` via `CalendarSource` methods
+* Attendee propagation to `CalendarSources`
+* Free/busy computation to `FreeBusyEngine`
+* Active reminder computation to `ReminderEngine`
+* Permission resolution and enforcement to `CalendarAclEngine`
+
+The organizer is always set by the caller (interface) as a `CalOrganizer` object. The module never constructs organizer identity.
+
+`get_events` and `get_tasks` enforce a maximum date range (configurable via `CalendarConst`).
+
+== iMIP
+
+`app/module/calendar/imip/`
+
+Three iTIP methods (RFC 5546): REQUEST (invite), REPLY (accept/decline), CANCEL (delete). `ImipProcessor` handles inbound messages. `ImipBuilder` produces outbound `ImipMessage` objects. Actual email dispatch is deferred to the Celery agent.
+
+For local attendees, `CalendarSources.propagate()` mirrors the touched events from a `ScopeResult` to each attendee's writable calendar immediately, bypassing the email roundtrip.

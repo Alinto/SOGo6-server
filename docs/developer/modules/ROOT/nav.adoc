@@ -6,6 +6,7 @@
 * xref:api_rest.adoc[]
 ** xref:sogo_api_rest.adoc[]
 ** xref:auth_sogo.adoc[]
+* xref:calendar.adoc[]
 * xref:parameters.adoc[]
 ** xref:process_settings.adoc[]
 ** xref:dynamic_settings.adoc[]

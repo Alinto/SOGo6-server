@@ -73,9 +73,11 @@ class FakeRedis:
             raise rexc.ConnectionError("connection error")
         return True
 
-    def set(self, name, value, ex=None):
+    def set(self, name, value, ex=None, nx=None):
         if self.set_should_raise_response_error:
             raise rexc.ResponseError("response error")
+        if nx and name in self._store:
+            return None
         self._store[name] = value
         return True
 
@@ -263,6 +265,24 @@ class TestSet:
         client.redis.set_should_raise_response_error = True
         with pytest.raises(BugException, match="Error when setting data in redis"):
             client.set("key6", "value", ttl=60)
+
+    def test_set_nx_acquires_when_key_absent(self):
+        client = make_client()
+        result = client.set("lock_key", "token1", ttl=60, nx=True)
+        assert result is True
+
+    def test_set_nx_rejects_when_key_exists(self):
+        client = make_client()
+        client.set("lock_key", "token1", ttl=60)
+        result = client.set("lock_key", "token2", ttl=60, nx=True)
+        assert result is False
+
+    def test_set_without_nx_overwrites(self):
+        client = make_client()
+        client.set("key", "value1", ttl=60)
+        result = client.set("key", "value2", ttl=60)
+        assert result is True
+        assert client.redis._store["key"] == "value2"
 
 
 # ===========================================================================
