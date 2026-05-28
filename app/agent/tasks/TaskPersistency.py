@@ -43,9 +43,11 @@ class TaskPersistency:
         key: str = self._key(state.task_id)
         self._client.set(key, state.to_dict(), ttl=self._ttl_seconds)
 
-        # Track the task in the per-user index sorted by planned time.
+        # Track the task in the per-user index sorted by planned time. System tasks
+        # (``user_uid`` is None) are not user-scoped and skip this index entirely.
         score: float = state.date_planned.timestamp()
-        self._client.zset_add(self._index_user_key(state.user_uid), state.task_id, score)
+        if state.user_uid:
+            self._client.zset_add(self._index_user_key(state.user_uid), state.task_id, score)
 
         # Pending index: keep the task while it's alive, drop it the moment it reaches
         # a terminal status so cancellation/purge don't scan dead entries.
@@ -85,7 +87,8 @@ class TaskPersistency:
         self._client.delete(self._key(task_id))
         self._client.zset_remove(TASK_STATE_INDEX_PENDING, task_id)
         if state is not None:
-            self._client.zset_remove(self._index_user_key(state.user_uid), task_id)
+            if state.user_uid:
+                self._client.zset_remove(self._index_user_key(state.user_uid), task_id)
             if state.schedule_name:
                 self._client.zset_remove(self._index_schedule_key(state.schedule_name), task_id)
 
