@@ -1,11 +1,23 @@
 """Unit tests for the BaseTask abstract class and Agent.register."""
+from dataclasses import dataclass
+from typing import Any, ClassVar
+
 from app.agent.Agent import agent
 from app.agent.tasks.BaseTask import BaseTask
+from app.agent.tasks.TaskRequest import TaskRequest
+
+
+@dataclass
+class _ExampleRequest(TaskRequest):
+    name: ClassVar[str] = "test.example"
+    soft_timeout_seconds: ClassVar[int] = 5
+
+    def payload(self) -> dict[str, Any]:
+        return {}
 
 
 class _ExampleTask(BaseTask):
-    name = "test.example"
-    soft_timeout_seconds = 5
+    request_class = _ExampleRequest
 
     def process(self, payload, *, user_uid, task_id):
         return {"echo": payload, "user_uid": user_uid, "task_id": task_id}

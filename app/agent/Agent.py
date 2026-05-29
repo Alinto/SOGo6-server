@@ -91,7 +91,8 @@ class Agent:
     def register(self, task: BaseTask) -> None:
         """Register a Task subclass so the worker can execute it.
 
-        Wraps the instance in a Celery task with:
+        Reads name and execution metadata from ``task.request_class`` (the
+        single source of truth) and wraps the instance in a Celery task with:
 
         - ``soft_time_limit`` / ``time_limit`` derived from ``soft_timeout_seconds``,
         - ``autoretry_for=(Exception,)`` so any exception triggers a retry,
@@ -101,15 +102,16 @@ class Agent:
         Celery preserves the task id across retries, so the ``TaskState`` in Redis
         keeps tracking the same logical task through all its attempts.
 
-        :param task: instance of a ``BaseTask`` subclass with a unique ``name``.
+        :param task: instance of a ``BaseTask`` subclass with a ``request_class``.
         :type task: BaseTask
         """
-        self._registered_tasks[task.name] = task
-        soft_limit: int = task.soft_timeout_seconds
-        max_retries: int = max(0, task.max_try - 1)
+        req = task.request_class
+        self._registered_tasks[req.name] = task
+        soft_limit: int = req.soft_timeout_seconds
+        max_retries: int = max(0, req.max_try - 1)
 
         @self._celery.task(  # pylint: disable=unused-variable
-            name=task.name, bind=True,
+            name=req.name, bind=True,
             soft_time_limit=soft_limit, time_limit=soft_limit + 10,
             autoretry_for=(Exception,),
             max_retries=max_retries,
