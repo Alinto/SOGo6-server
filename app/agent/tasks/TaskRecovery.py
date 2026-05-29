@@ -45,9 +45,10 @@ class TaskRecovery:
             if state.status not in (TaskStatus.STARTED, TaskStatus.PENDING):
                 continue
             registered = self._agent.get_task(state.name)
+            resume: bool = registered.request_class.resume if registered is not None else False
             eligible: bool = (
                 registered is not None
-                and registered.resume
+                and resume
                 and state.attempts < state.max_try
             )
             if eligible:
@@ -64,7 +65,7 @@ class TaskRecovery:
                 state.status = TaskStatus.FAILURE
                 state.error = (
                     "Task interrupted at startup and not eligible for resume "
-                    f"(resume={registered.resume if registered else 'unknown'}, "
+                    f"(resume={resume if registered else 'unknown'}, "
                     f"attempts={state.attempts}/{state.max_try})"
                 )
                 state.date_end = datetime.now(timezone.utc)

@@ -18,7 +18,7 @@ def _state(*, task_id="t-1", name="example", status=TaskStatus.STARTED, attempts
 
 def _task(*, resume=True):
     t = MagicMock()
-    t.resume = resume
+    t.request_class.resume = resume
     return t
 
 

@@ -56,6 +56,6 @@ def test_soft_timeout_propagates_to_the_caller():
 
 def test_attributes_for_resume_policy():
     task = TaskTest()
-    assert task.name == "system.test"
-    assert task.resume is False
-    assert task.max_try == 1
+    assert task.request_class.name == "system.test"
+    assert task.request_class.resume is False
+    assert task.request_class.max_try == 1

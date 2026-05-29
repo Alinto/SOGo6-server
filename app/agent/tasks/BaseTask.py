@@ -1,23 +1,24 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, ClassVar, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.agent.tasks.TaskRequest import TaskRequest
 
 
 class AgentTaskCancelled(InterruptedError):
     """Raised inside a Task to signal cooperative cancellation."""
 
-class BaseTask(ABC):
-    """Base class for every Agent task. Subclasses set the four class attributes and
-    implement :meth:`process`.
 
-    ``resume=True`` requeues an interrupted task at startup as long as ``attempts < max_try``.
-    Set ``False`` for tasks with non-idempotent side effects (sending email, third-party API).
+class BaseTask(ABC):
+    """Base class for every Agent task. Subclasses set ``request_class`` to their
+    companion ``TaskRequest`` and implement :meth:`process`. The Request is the
+    single source of truth for the task name and execution metadata (max_try,
+    soft_timeout_seconds, resume) — the Task reads everything through it.
     """
-    name: str = ""
-    soft_timeout_seconds: int = 300
-    max_try: int = 1
-    resume: bool = True
+
+    request_class: ClassVar[type[TaskRequest]]
 
     @abstractmethod
     def process(

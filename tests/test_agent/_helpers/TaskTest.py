@@ -39,10 +39,7 @@ class TaskTestRequest(TaskRequest):
 class TaskTest(BaseTask):
     """No-op task with payload-driven modes for testing every lifecycle path."""
 
-    name: str = TaskTestRequest.name
-    max_try: int = TaskTestRequest.max_try
-    soft_timeout_seconds: int = TaskTestRequest.soft_timeout_seconds
-    resume: bool = TaskTestRequest.resume
+    request_class = TaskTestRequest
 
     def process(
         self, payload: dict[str, Any], *, user_uid: str | None, task_id: str,
