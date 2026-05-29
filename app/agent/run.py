@@ -1,32 +1,20 @@
-"""Entrypoint for the SOGo Agent process: ``poetry run agent`` boots an Agent worker.
-
-This module knows nothing about the underlying task framework — all configuration and
-command-line construction live in ``AgentApp.start_worker``. It is also in charge of
-wiring the runtime dependencies (cache singleton, TaskPersistency, lifecycle hooks).
-"""
+"""``poetry run agent`` entrypoint."""
 from __future__ import annotations
 
-from app.agent.AgentApp import agent
-from app.agent.tasks.TaskPersistency import TaskPersistency
-from app.config.settings.ProcessSetting import process_config
-from app.manager.cache.ClientRedis import ClientRedis
-from app.service import set_cache, sogo_cache
+from app.agent.Agent import agent
+from app.agent.tasks.TaskRecovery import TaskRecovery
+from app.config.init_config import init_infra
+from app.service import set_cache
 from app.utils.logger.logger import logger
 
 
 def main() -> None:
-    """Start the Agent worker (with embedded Beat). Settings come from ``ProcessSetting``."""
+    """Boot the agent worker."""
     logger.info("Starting SOGo Agent")
-    # Initialise the cache singleton, mirroring what app.run does for the Flask process,
-    # so any code path (tasks, hooks, future modules) can call ``sogo_cache()`` uniformly.
-    set_cache(ClientRedis(
-        url_str=process_config.SOGO_P_REDIS_URL,
-        resp3=process_config.SOGO_P_REDIS_RESP_3,
-    ))
-    persistency: TaskPersistency = TaskPersistency(
-        sogo_cache(), ttl_seconds=process_config.SOGO_P_AGENT_TASK_STATE_TTL_SECONDS,
-    )
+    cache, persistency = init_infra()
+    set_cache(cache)
     agent.register_lifecycle_hooks(persistency)
+    TaskRecovery(agent, persistency, cache).reconcile_orphans()
     agent.start_worker()
 
 

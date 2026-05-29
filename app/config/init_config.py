@@ -4,6 +4,10 @@ from typing import TYPE_CHECKING
 import json
 import os
 
+from app.agent.Agent import agent
+from app.agent.tasks.TaskCanceller import TaskCanceller
+from app.agent.tasks.TaskPersistency import TaskPersistency
+from app.manager.agent.ClientAgent import ClientAgent
 from app.module.ModuleInitSogo import ModuleInitSogo
 from app.module.admin.ModuleAdminConfig import ModuleAdminConfig
 from app.utils.exceptions import AggravatedException, BugException
@@ -94,32 +98,38 @@ def check_basic_config() -> bool:
     logger.info("SOGo auto-initialization succeeded. Moving to SOGO_OK state.")
     return True
 
-def init_sogo() -> tuple[int, ClientRedis]:
+def init_infra() -> tuple[ClientRedis, TaskPersistency]:
+    """
+    Check shared infrastructure (DB, Redis) and build the resources used by both
+    the Flask server and the agent worker. Raises ``AggravatedException`` if any
+    component is unreachable.
+    """
+    init_module = ModuleInitSogo(process_config)
+    init_module.check_sogo_database()
+    cache_client = init_module.check_redis()
+    if init_module.errors:
+        raise AggravatedException(f"Sogo cannot be initiated because: {init_module.errors}")
+    persistency = TaskPersistency(
+        cache_client, ttl_seconds=process_config.SOGO_P_AGENT_TASK_STATE_TTL_SECONDS,
+    )
+    return cache_client, persistency
+
+
+def init_sogo() -> tuple[int, ClientRedis, ClientAgent]:
     """
     Init sogo application
     return True if sogo is ok and already configured, False instead
-    raies errort if the initializaton has problems
+    raise error if the initializaton has problems
     """
-    sogo_state = 0
-
-    init_module = ModuleInitSogo(process_config)
-    init_module.check_sogo_database()
-
-    cache_client = init_module.check_redis()
-
-    #TODO
-    #check agent
-
-    if init_module.errors:
-        raise AggravatedException(f"Sogo cannot be initiated because: {init_module.errors}")
+    cache_client, persistency = init_infra()
+    agent_client = ClientAgent(agent, persistency, TaskCanceller(agent, persistency))
 
     sogo_state = cs.SOGO_NOT_INIT
-
     #No errors, check if SOGo already has a configuration
     if check_basic_config():
         sogo_state = cs.SOGO_OK
 
-    return sogo_state, cache_client
+    return sogo_state, cache_client, agent_client
 
 def init_get_system_and_default_domain_settings() -> tuple[dict, dict]:
     """

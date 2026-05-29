@@ -75,19 +75,12 @@ class ClientRedis():
 
 
 
-    def set(self, key: str, value: str|list|dict, ttl: int) -> bool:
+    def set(self, key: str, value: str|list|dict, ttl: int, nx: bool = False) -> bool:
         """
-        Set a key/value in the redis server
+        Set a key/value in the redis server.
 
-        :param key: key of the value
-        :type key: str
-        :param value: value to store, if not a string, will be serialize as a json before
-        :type value: str | list | dict
-        :param ttl: time to live of this key/value, in seconds
-        :type ttl: int
-        :raises BugException: Value given is not a string nor json serializable
-        :return: True if the value has been successfully storeds
-        :rtype: bool
+        ``nx=True`` makes the write atomic-conditional: only succeeds if the key does
+        not already exist. Returns False when the write was skipped because of nx.
         """
         if not isinstance(value, str):
             try:
@@ -102,7 +95,12 @@ class ClientRedis():
             raise BugException(f"TTL for redis is below 1: {ttl}", err.ERROR_CACHE_TTL_BELOW_0)
 
         try:
-            self.redis.set(name=key, value=value, ex=ttl)
+            if nx:
+                result = self.redis.set(name=key, value=value, ex=ttl, nx=True)
+                if not result:
+                    return False
+            else:
+                self.redis.set(name=key, value=value, ex=ttl)
         except rexc.ResponseError as e:
             logger_cache.error("Error when setting data in redis: %s", e)
             raise BugException("Error when setting data in redis", err.ERROR_CACHE_RESPONSE_ERROR) from e

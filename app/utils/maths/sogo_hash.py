@@ -1,6 +1,7 @@
 from math import log, ceil
 from secrets import token_hex, choice
 from string import ascii_letters, digits
+from uuid import uuid4
 
 """
 HASH Mechanism with SOGo 6
@@ -69,6 +70,11 @@ HASH_SIZE_DOMAIN = size_hash_length(MAX_DOMAIN)
 HASH_SIZE_RULES  = size_hash_length(MAX_RULES)
 HASH_SIZE_ACCOUNT= size_hash_length(MAX_ACCOUNT)
 HASH_SIZE_IDENTITY= size_hash_length(MAX_IDENTITY)
+
+def generate_uuid() -> str:
+    """Return a UUID v4 string for use as an opaque resource key."""
+    return str(uuid4())
+
 
 def get_unique_token(size: int) -> str:
     """
