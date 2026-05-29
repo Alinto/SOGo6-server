@@ -65,6 +65,10 @@ agent = "app.agent.run:main"
 testpaths = [
     "tests"
 ]
+# `poetry run pytest -m "not integration"` if no integration environment
+markers = [
+    "integration: tests that need a real environment (integration tests)",
+]
 
 [tool.pylint.basic]
 module-naming-style="any"

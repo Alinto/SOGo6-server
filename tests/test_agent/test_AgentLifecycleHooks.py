@@ -1,4 +1,4 @@
-"""Unit tests for AgentApp.register_lifecycle_hooks.
+"""Unit tests for Agent.register_lifecycle_hooks.
 
 We trigger the Celery signals manually with the same kwargs Celery would supply at
 runtime and assert that TaskPersistency receives the right state transitions. No real
@@ -13,9 +13,9 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
-from celery.signals import task_failure, task_postrun, task_prerun, task_revoked
+from celery.signals import task_failure, task_postrun, task_prerun, task_retry, task_revoked
 
-from app.agent.AgentApp import agent
+from app.agent.Agent import agent
 from app.agent.tasks.TaskState import TaskState
 from app.agent.tasks.TaskStatus import TaskStatus
 
@@ -27,7 +27,7 @@ agent.register_lifecycle_hooks(_PERSISTENCY)
 
 def _state(status=TaskStatus.PENDING) -> TaskState:
     return TaskState(
-        task_id="t-1", name="noop", status=status,
+        task_id="t-1", name="example", status=status,
         user_uid="alice",
         date_planned=datetime(2026, 5, 27, 10, 0, 0, tzinfo=_UTC),
     )
@@ -59,12 +59,34 @@ def test_postrun_success_records_result_and_duration(persistency):
     assert saved.duration_seconds is not None and saved.duration_seconds >= 0
 
 
-def test_failure_records_error_message(persistency):
-    persistency.get.return_value = _state(status=TaskStatus.STARTED)
+def test_failure_marks_state_as_failure(persistency):
+    """Celery only fires task_failure after retries are exhausted."""
+    state = _state(status=TaskStatus.STARTED)
+    persistency.get.return_value = state
     task_failure.send(sender=None, task_id="t-1", exception=RuntimeError("boom"))
     saved: TaskState = persistency.save.call_args.args[0]
     assert saved.status == TaskStatus.FAILURE
     assert saved.error == "boom"
+
+
+def test_retry_marks_state_as_retry(persistency):
+    state = _state(status=TaskStatus.STARTED)
+    persistency.get.return_value = state
+    task_retry.send(
+        sender=None, request=SimpleNamespace(id="t-1"), reason=RuntimeError("transient"),
+    )
+    saved: TaskState = persistency.save.call_args.args[0]
+    assert saved.status == TaskStatus.RETRY
+    assert saved.error == "transient"
+
+
+def test_postrun_with_retry_state_does_nothing(persistency):
+    """Celery sends postrun with state='RETRY' between attempts; the hook must not
+    overwrite the RETRY status set by task_retry."""
+    state = _state(status=TaskStatus.RETRY)
+    persistency.get.return_value = state
+    task_postrun.send(sender=None, task_id="t-1", state="RETRY", retval=None)
+    persistency.save.assert_not_called()
 
 
 def test_revoked_marks_state_as_canceled(persistency):

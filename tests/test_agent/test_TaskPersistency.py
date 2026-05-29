@@ -13,7 +13,7 @@ _UTC = timezone.utc
 
 def _state(task_id="t-1", user="alice", status=TaskStatus.PENDING) -> TaskState:
     return TaskState(
-        task_id=task_id, name="noop", status=status,
+        task_id=task_id, name="example", status=status,
         user_uid=user,
         date_planned=datetime(2026, 5, 26, 10, 0, 0, tzinfo=_UTC),
     )

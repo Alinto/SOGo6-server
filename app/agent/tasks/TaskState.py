@@ -1,3 +1,4 @@
+"""In-Redis snapshot of an Agent task across its lifecycle."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -10,19 +11,11 @@ from app.utils.calendar.DateTimeUtils import parse_iso
 
 @dataclass
 class TaskState:  # pylint: disable=too-many-instance-attributes
-    """In-Redis representation of a single Agent task across its lifecycle.
-
-    Independent from Celery's own result backend: this record is the source of truth for the
-    admin/user API. Field names follow the project convention ``date_*`` for timestamps,
-    putting the concept first and the specificity (start/end/...) last.
-
-    A task triggered by Celery Beat sets ``schedule_name`` to the name of the periodic
-    schedule it belongs to (e.g. ``"imip.scan_inbox"``). One-shot tasks leave it ``None``.
-    """
+    """Source of truth for the admin/user API. ``schedule_name`` is set for Beat firings."""
     task_id: str
     name: str
     status: TaskStatus
-    # ``None`` for system tasks (periodic purge, maintenance...) not tied to a user.
+    # None for system tasks (purge, maintenance) not tied to a user.
     user_uid: str | None
 
     date_planned: datetime
@@ -31,7 +24,8 @@ class TaskState:  # pylint: disable=too-many-instance-attributes
     duration_seconds: float | None = None
 
     attempts: int = 0
-    max_retry: int = 0
+    max_try: int = 0
+    soft_timeout_seconds: int = 0
 
     payload: dict[str, Any] = field(default_factory=dict)
     result: dict[str, Any] | None = None
@@ -40,7 +34,7 @@ class TaskState:  # pylint: disable=too-many-instance-attributes
     schedule_name: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialise to a JSON-safe dict (datetimes as ISO 8601, enum as value)."""
+        """Serialise to a JSON-safe dict."""
         return {
             "task_id": self.task_id,
             "name": self.name,
@@ -51,7 +45,8 @@ class TaskState:  # pylint: disable=too-many-instance-attributes
             "date_end": self.date_end.isoformat() if self.date_end else None,
             "duration_seconds": self.duration_seconds,
             "attempts": self.attempts,
-            "max_retry": self.max_retry,
+            "max_try": self.max_try,
+            "soft_timeout_seconds": self.soft_timeout_seconds,
             "payload": self.payload,
             "result": self.result,
             "error": self.error,
@@ -60,7 +55,7 @@ class TaskState:  # pylint: disable=too-many-instance-attributes
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "TaskState":
-        """Rehydrate from the dict produced by :meth:`to_dict`."""
+        """Rehydrate from a dict produced by :meth:`to_dict`."""
         planned: datetime | None = parse_iso(data["date_planned"])
         assert planned is not None, "date_planned is required and never None in to_dict()"
         return cls(
@@ -73,7 +68,8 @@ class TaskState:  # pylint: disable=too-many-instance-attributes
             date_end=parse_iso(data.get("date_end")),
             duration_seconds=data.get("duration_seconds"),
             attempts=data.get("attempts", 0),
-            max_retry=data.get("max_retry", 0),
+            max_try=data.get("max_try", 0),
+            soft_timeout_seconds=data.get("soft_timeout_seconds", 0),
             payload=data.get("payload") or {},
             result=data.get("result"),
             error=data.get("error"),
