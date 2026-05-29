@@ -37,7 +37,7 @@ class InterfaceApiMailMailbox:
         self.user_module_settings = UserModuleSettingsObj(user_domain[UserModuleSettings.subparent])
         self.module_user_profile = ModuleUserProfile(process_setting, user_domain)
         self.mail_settings = MailSettingsObj(user_domain[MailSettings.subparent])
-        self.mail_module = ModuleMail(user, self.mail_settings)
+        self.mail_module = ModuleMail(user, self.mail_settings, process_setting)
         self.mail_outgoing_module = ModuleMailOutgoing(user, self.mail_settings)
 
     def list_mailboxes(self) -> Tuple[Dict[str, Any], int]:
@@ -257,23 +257,24 @@ class InterfaceApiMailMailbox:
         raise NotImplementedError("Purge mailbox is not implemented yet")
 
 
-    def save_draft(self, account_id: str, mail_data: dict, uid: str | None = None) -> tuple[dict, int]:
+    def save_draft(self, account_id: str, mail_data: dict, key: str | None = None) -> tuple[dict, int]:
         """Save a mail as a draft in the account's Drafts folder.
 
-        If uid is provided and the draft already exists, it is replaced.
-        If uid is absent or the draft is not found, a new draft is created.
+        If key is provided and the tmp_draft entry exists, the existing draft on the mail
+        server is replaced and the tmp_draft row is updated.
+        If key is absent or not found, a new tmp_draft entry is created.
 
         :param account_id: The account identifier ("0" for main account, hash for external)
         :type account_id: str
         :param mail_data: Dict with draft fields (from_addr, to, subject, body, ...)
         :type mail_data: dict
-        :param uid: Optional UID of an existing draft to overwrite
-        :type uid: str | None
+        :param key: Optional tmp_draft key; if None a new tmp_draft entry is created
+        :type key: str | None
         :return: A tuple of (API response dict, status code)
         :rtype: tuple[dict, int]
         """
         try:
-            result = self.mail_module.save_draft(account_id, mail_data, uid)
+            result = self.mail_module.save_draft(account_id, mail_data, key)
             return create_api_base_response(result)
         except RequestException as ex:
             logger_api.error("Request exception in save_draft for user %s, account %s: %s", self.user.uid, account_id, str(ex))
