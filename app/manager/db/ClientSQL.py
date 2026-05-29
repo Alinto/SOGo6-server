@@ -1,9 +1,10 @@
-from typing import TYPE_CHECKING, Any, Generator
+from typing import Any, Generator
 from abc import abstractmethod, ABCMeta
-from app.utils.logger.logger import logger, logger_sql
 
+from app.utils.logger.logger import logger_sql
 from app.utils.db.Table import Table
-from app.utils.db.Condition import Condition, Order
+from app.utils.db.Condition import Condition, JoinClause, Order
+
 
 class ClientSQL(metaclass=ABCMeta):
     """
@@ -40,6 +41,11 @@ class ClientSQL(metaclass=ABCMeta):
         raise NotImplementedError
 
     @abstractmethod
+    def create_indexes(self, table: Table) -> None:
+        """Create all indexes defined on the table. Skips indexes that already exist."""
+        raise NotImplementedError
+
+    @abstractmethod
     def create_several_table(self, table_list : list[Table]) -> None:
         """
         Create several tables
@@ -73,9 +79,27 @@ class ClientSQL(metaclass=ABCMeta):
         raise NotImplementedError
 
     @abstractmethod
-    def select_from_several_table(self, table_name: str, column_tuple: tuple, condition: Condition) -> Generator[tuple[Any, ...]]:
-        """
-        select values from several tables
+    def select_from_several_table(
+        self,
+        table_name: str,
+        joins: list[JoinClause],
+        column_tuple: tuple[str, ...],
+        condition: Condition,
+        sort_by: str | None = None,
+        order: Order = Order.ASC,
+        limit: int = 0,
+    ) -> Generator[tuple[Any, ...]]:
+        """Select values from several tables using INNER JOIN.
+
+        Column names and condition param_names support qualified names (table.column).
+
+        :param table_name: The base table.
+        :param joins: List of JoinClause describing each INNER JOIN.
+        :param column_tuple: Columns to select (qualified names recommended).
+        :param condition: WHERE condition (use qualified param_names for ambiguous columns).
+        :param sort_by: Qualified column name to sort by.
+        :param order: Sort direction (ASC or DESC), defaults to Order.ASC.
+        :param limit: Maximum rows (0 = no limit).
         """
         logger_sql.error("Method 'select_from_several_table' of clientSQL must be implemented by the children %s", type(self).__name__)
         raise NotImplementedError

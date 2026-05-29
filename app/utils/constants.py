@@ -72,6 +72,14 @@ TTL_1D = 86400
 TTL_1H =  3600
 TTL_5M =   300
 
+# HTTP LIMITS
+# Hard cap on the HTTP request body size, wired into Flask's MAX_CONTENT_LENGTH at startup.
+# Rejects oversized uploads (e.g. calendar .ics imports) at the WSGI layer before any
+# application code reads the body into memory. Per-route limits (e.g. MAX_IMPORT_ICS_BYTES)
+# should always be smaller than this cap; raise this value when a module needs to accept
+# bigger payloads.
+MAX_HTTP_REQUEST_BYTES = 10 * 1024 * 1024 + 64 * 1024  # 10 MB + multipart framing overhead
+
 # SOGo ACL Rights - Field names for rights dictionaries
 USER_CAN_VIEW_FOLDER = "userCanViewFolder"
 USER_CAN_READ_MAILS = "userCanReadMails"

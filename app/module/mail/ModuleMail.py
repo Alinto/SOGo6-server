@@ -66,7 +66,7 @@ class ModuleMail:
                 raise RequestException(err.ERROR_EXTERNAL_ACCOUNT_NOT_FOUND.m, error=err.ERROR_EXTERNAL_ACCOUNT_NOT_FOUND)
             ext_account_config: dict = self.user.profile.external_accounts[account_id]["mail_server"]
             user_mail_conf["username"] = ext_account_config["username"]
-            user_mail_conf["password"] = decrypt_password(ext_account_config["password"])
+            user_mail_conf["password"] = decrypt_password(ext_account_config["password"], account_id=account_id)
             user_mail_conf["type"] = ext_account_config["type"]
             user_mail_conf["args"] = {
                 "server": ext_account_config["server"],
@@ -724,14 +724,6 @@ class ModuleMail:
 
         return self._parse_mail(mail_data)
 
-    def list_mailboxes(self) -> list[dict[str, Any]]:
-        """list all configured mailboxes.
-        
-        :return: A list of mailboxes
-        :rtype: list[dict[str, Any]]
-        """
-        raise NotImplementedError("Message from ModuleMail.py: list_mailboxes is not implemented yet")
-
     def get_mailbox_quota(self, account_id: str) -> dict[str, Any] | None:
         """Get the quota information for a mailbox.
 
@@ -755,30 +747,6 @@ class ModuleMail:
             quota["soft_quota_value"] = self.mail_settings.SOGO_D_SOFT_EMAIL_QUOTA
         return quota
 
-    def create_mailbox(self) -> dict[str, Any]:
-        """Create a new mailbox (add external account).
-        
-        :return: Created mailbox data
-        :rtype: dict[str, Any]
-        """
-        raise NotImplementedError("Message from ModuleMail.py: create_mailbox is not implemented yet")
-
-    def update_mailbox(self) -> dict[str, Any]:
-        """Update mailbox settings.
-        
-        :return: Updated mailbox data
-        :rtype: dict[str, Any]
-        """
-        raise NotImplementedError("Message from ModuleMail.py: update_mailbox is not implemented yet")
-
-    def delete_mailbox(self) -> None:
-        """Delete a mailbox (only external accounts).
-        
-        :return: None
-        :rtype: None
-        """
-        raise NotImplementedError("Message from ModuleMail.py: delete_mailbox is not implemented yet")
-
     def compose_email(self) -> dict[str, Any]:
         """Compose a new email from the specified mailbox.
         
@@ -787,23 +755,6 @@ class ModuleMail:
         """
         raise NotImplementedError("Message from ModuleMail.py: compose_email is not implemented yet")
 
-    def get_mailbox_delegates(self) -> list[dict[str, Any]]:
-        """Get delegates for this mailbox.
-        
-        :return: A list of delegates
-        :rtype: list[dict[str, Any]]
-        """
-        raise NotImplementedError("Message from ModuleMail.py: get_mailbox_delegates is not implemented yet")
-
-    def create_mailbox_delegate(self, data: dict) -> dict[str, Any]:
-        """Create a new delegate for this mailbox.
-        
-        :param data: Delegate data
-        :type data: dict
-        :return: Created delegate data
-        :rtype: dict[str, Any]
-        """
-        raise NotImplementedError("Message from ModuleMail.py: create_mailbox_delegate is not implemented yet")
 
     def export_folder_mails(self, folder_name: str) -> dict[str, Any]:
         """Export all mails in the specified folder.
@@ -1004,7 +955,6 @@ class ModuleMail:
         junk_folder = self.domain_mail_folder_name.get(cs.MAIL_FOLDER_JUNK, "Junk")
         client.copy_mail_to_mailbox(folder_name, mail_uid, junk_folder, create_dest=True)
         client.add_flags_to_mail(folder_name, mail_uid, ['\\Deleted'])
-        #TODO : action de l'admin pour activer une option qui enverra le mail à une adresse définie
         return {"action": "spam", "mail_uid": mail_uid, "moved_to": junk_folder}
 
     def _action_ham(self, client: ClientMailServer, folder_name: str, mail_uid: str) -> dict[str, Any]:

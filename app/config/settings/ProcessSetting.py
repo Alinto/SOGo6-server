@@ -96,6 +96,10 @@ class ProcessSetting(FlaskConfig):
 
     SOGO_INIT_SYSTEM_SETTINGS_PATH: str = ""
     SOGO_INIT_DOMAIN_SETTINGS_PATH: str = ""
+    # Public-facing base URL (scheme + host[:port]) used to build absolute capability URLs
+    # served to external clients. Required behind a reverse proxy, where the host seen by Flask
+    # differs from the public one. Empty: fall back to Flask's own external URL.
+    SOGO_P_PUBLIC_BASE_URL: str = ""
 
     # Agent (Celery) — broker and result backend reuse SOGO_P_REDIS_URL. Only the
     # process-wide settings are exposed here. Per-task settings (soft / hard timeout,

@@ -346,7 +346,7 @@ image::InterceptorAPI.png[Interceptor in http client]
 
 Only a few endpoints (login and param needed before login).
 
-See xref:auth_sogo.adoc[] for more details.
+See xref:3_2_api_auth.adoc[] for more details.
 
 == Pagination, Sorting, Filetring
 
