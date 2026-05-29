@@ -1,0 +1,210 @@
+= SOGo 6 Mail Outgoing
+
+Here is explained how SOGo 6 handles mail sending.
+
+== Draft and mail writing: Preambule
+
+Even if sending a mail could be as easy as a single endpoint, SOGo 6 has mechanisms to support
+mail writing by user. It means that no user will just "send" a mail. A user will open a composer, take their
+time to write the mail, correct it, add attachments that could be heavy...
+
+SOGo 6 has several endpoints to both support mail being written and sent by a human and scritps (or robots).
+
+From the point of view of a script, sending a mail should be straightforward: Uploading the attachments and send the content.
+
+[NOTE]
+====
+The send endpoint is respectfull of our Rest APi rules. Technically, it is possible to make only on endpoint
+to send a mail with attachments. However, an attachment can be heavy, thus SOGo 6 has an endpoint to upload the attachment first,
+ with proper http method for it, before sending.
+====
+
+But, from the point of view of a human, sending a mail takes time: The user writes its mail, modifies it, wants it to be saved,
+will add attachment, will check the attachment, maybe remove it and so on. And they do no want to loose anything in progress.
+That's why SOGo 6 has ways to make this action as smooth as possible.
+
+Just saving the mail in the Draft folder is not enough.
+
+== Draft vs mail in progress
+
+When Draft is mentioned, it represents the actual mail file being stores in the mail server. The "mail in progress" represents
+the mail composer where it is currently written. To make the link between the thwo of them, SOGo6 is using a database table
+to store info until the mail is sent, deleted or is paused by the user.
+
+[NOTE]
+====
+The last state `paused` means that the user had ended their "mail editing" session. They will retreive their mail in the Draft folder from now on.
+====
+
+With SOGo6 there is database table thand manages the "mail in progress" state and making the link between what the user
+is doing and the current draft stored. To be sure that table is cleaned, any user/robot has a limited number of "mail in progress"
+that they can have. The limits is set to avoid scripts that will purposely make "mail in progress" and overloads the database. The limit
+does not limit any real human as they will naturally write and send or delete their emails in progress.
+
+== tmp_draft
+
+This is the table that represent "mail in progress". It contains:
+
+* a key: a unique hash
+* the owner: the user's uid (indexed)
+* the mail server's uid: the uid which is used to find the Draft of the mail on the mail server
+* the lock state: A lock state at True means that a request is currently changing the Draft and others operations cannot be done
+
+A user can have several tmp_draft until the limit is reached. In that case it will have to either send, delete or pause a "mail in progress".
+
+This table is indexed on the key and user because the WHERE condition will be either on the key, to get the tmp_draft or
+on the user to get all the tmp_draft.
+
+
+== Endpoints
+
+Each endpoint has only the `account_id` in the url.
+
+
+* /save: save the mail as Draft
+* /upload: add an attachment
+* /send: send the mail +
+ -
+* /download/<filename>?key=X: download/preview one attachment +
+ -
+* /delete?key=X: Delete the draft and tmp_draft (the mail will be lost)
+* /close?key=X: Delete tmp_draft (the mail will still be in Draft folder) +
+ -
+* /current: List all the current tmp_draft and their data.
+
+=== tmp_draft key
+
+Each endpoint has an optionnal query parameters `key`. This parameter is used to tell if a request is made
+on an already existing "mail in progress". If key is empty, SOGo6 will make a new "mail in progress".
+
+At interface level, the key is checked and return 404 if invalid.
+
+If no key is given, SOGo checks if the user can create another tmp_draft, if not 403.
+
+=== Owner
+
+For each endpoints, authenticated user's uid will be check against dratf_state owner to make sure the user has the rights on it. This check
+happens in the interface before doing any operations
+
+At interface level, the owner is checked and return 401 if invalid.
+
+
+=== /save
+
+If there is no key given in the query, it creates a new tmp_draft
+
+This endpoint save the "mail in progress" in the Draft folder of the mail server.
+
+In the module, before the call to the manager, it checks if the tmp_draft is locked. If yes, returns 409. If no:
+
+* Lock the tmp_draft
+* Call the manager
+* Update tmp_draft
+* Unlock tmp_draft
+
+=== /upload
+
+If there is no key given in the query, it creates a new tmp_draft
+
+This endpoint add an attachment to the "mail in progress" in the Draft folder of the mail server.
+
+In the module, before the call to the manager, it checks if the tmp_draft is locked. If yes:
+
+* Wait a short timeout (2s)
+* Check regurarly (every 100ms) if the file is still lock
+* If unlocked, proceed as below
+* If timeout: 409
+
+If no:
+
+* Lock the tmp_draft
+* Call the manager
+* Update tmp_draft
+* Unlock tmp_draft
+
+
+
+=== /send
+
+
+This endpoint send the mail. If successfull, it also remove it from the **Draft** folder if it exists, remove the tmp_draft and copy it in the **Sent** folder.
+
+In the module, before the call to the manager, it checks if the tmp_draft is locked. If yes, return 409. If no, proceed:
+
+=== /download/<filename>?key=X
+
+The query parameter key is mandatory.
+
+Will dowload the attachment if the key exist and if the filename match one of the attachment.
+
+=== /delete?key=X
+
+key parameter is mandatory.
+
+Will delete the mail in the **Draft** folder and the tmp_draft. If the tmp_draft is lock return 409 as the uid is not sure anymore.
+
+=== /close?key=X
+
+key parameter is mandatory.
+
+Simply delete the tmp_draft
+
+=== /current
+
+Return all the tmp_draft key and the mail data. 
+
+== Flow example
+
+=== Sending a mail without attachment
+
+```
+POST /send
+```
+
+=== Sending a mail with attachment
+
+```
+POST /upload
+```
+
+return the key for tmp_draft
+
+```
+POST /send?key=X
+```
+
+=== A user writes a mail and close it to finish it later
+
+```
+POST /save
+```
+
+return the key, the user add an attachment
+
+```
+POST /upload?key=X
+```
+
+The user resumes to wrtting
+
+```
+POST /save?=key
+```
+
+The user decides to continue later and close the composer.
+
+```
+POST /close?key=X
+```
+
+=== A user writes an email and decide to cancel it
+
+```
+POST /save
+```
+
+return the key, the user add an attachment
+
+```
+POST /delete?key=X
+```

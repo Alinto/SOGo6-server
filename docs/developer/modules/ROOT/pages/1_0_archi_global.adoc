@@ -12,6 +12,8 @@ As such, the code is mainly seperated between 4 categories:
 * *Module*: Use manager to read or write data. Contains the main logic of any operation
 * *Interface*: Link between API and Module; Call the right module, format the answer and code status for the API. Also catch exceptions.
 
+image::SOGo6Struct.png[SOGo 6 full Archi]
+
 == Errors handling
 
 SOGo 6 defines three Exceptions (app/utils/exceptions.py):
