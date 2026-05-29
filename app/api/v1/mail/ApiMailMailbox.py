@@ -119,19 +119,6 @@ class ApiMailBoxesAccount(MethodView):
         return interface.delete_mailbox(account_id)
 
 
-@blp.route("/<int:account_id>/compose")
-class ApiMailBoxesAccountCompose(MethodView):
-    """
-    Resource: Compose Email
-    """
-    def post(self, account_id: int) -> ResponseReturnValue:
-        """
-        Action: compose a new email from the specified mailbox (NOT IMPLEMENTED)
-        """
-        logger_api.debug("Calling ApiMailBoxesAccountCompose.post for account_id: %s", account_id)
-        interface: InterfaceApiMailMailbox = g.inter
-        return interface.compose_email(account_id)
-
 
 @blp.route("/<string:account_id>/delegate")
 class ApiMailBoxesAccountDelegates(MethodView):

@@ -1805,16 +1805,17 @@ class ClientImap(ClientMailServer):
                 new_uid = m.group(1)
                 break
 
-        if new_uid is None:
-            # Fallback: search for the last message with \Draft flag in the folder
-            self.select_mailbox(quoted_folder)
-            success_search, search_datas = self._exec_imap4_method(
-                self.connection.uid, 'SEARCH', 'UTF-8', 'DRAFT'  # type: ignore[arg-type]
-            )
-            if success_search and search_datas and search_datas[0]:
-                uid_list = search_datas[0].split()
-                if uid_list:
-                    new_uid = uid_list[-1].decode() if isinstance(uid_list[-1], bytes) else str(uid_list[-1])
+        # TODO: fallback
+        # if new_uid is None:
+        #     # Fallback: search for the last message with \Draft flag in the folder
+        #     self.select_mailbox(quoted_folder)
+        #     success_search, search_datas = self._exec_imap4_method(
+        #         self.connection.uid, 'SEARCH', 'UTF-8', 'DRAFT'  # type: ignore[arg-type]
+        #     )
+        #     if success_search and search_datas and search_datas[0]:
+        #         uid_list = search_datas[0].split()
+        #         if uid_list:
+        #             new_uid = uid_list[-1].decode() if isinstance(uid_list[-1], bytes) else str(uid_list[-1])
 
         if new_uid is None:
             raise RequestException(
