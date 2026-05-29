@@ -7,8 +7,8 @@ from psycopg.errors import Error, OperationalError, DuplicateTable, UniqueViolat
 
 from app.manager.db.ClientPostgreSQL import ClientPostgreSQL, str_to_varchar, list_to_array, table_to_query, condition_to_query
 from app.utils.exceptions import RequestException, BugException
-from app.utils.db.Condition import EqualCondition, NotEqualCondition, AndCondition, OrCondition, TrueCondition
-from app.utils.db.Table import Table, Column
+from app.utils.db.Condition import EqualCondition, NotEqualCondition, AndCondition, OrCondition, TrueCondition, JoinClause
+from app.utils.db.Table import Table, Column, Index
 
 def test_str_to_varchar():
     """
@@ -81,6 +81,16 @@ def test_condition_to_query():
     b7 = condition_to_query(a7, add_where=True)
     assert b7.as_string() == "WHERE ((\"test\" = 1 AND \"test2\" = 'test2') AND (\"test3\" != 3 OR \"test4\" != 'test4'))"
 
+    # Qualified column names (table.column)
+    a8 = EqualCondition("events.key", "abc")
+    b8 = condition_to_query(a8)
+    assert b8.as_string() == "\"events\".\"key\" = 'abc'"
+
+    a9 = AndCondition(EqualCondition("reminders.is_deleted", False), EqualCondition("calendars.user_uid", "user@test"))
+    b9 = condition_to_query(a9, add_where=True)
+    assert "\"reminders\".\"is_deleted\"" in b9.as_string()
+    assert "\"calendars\".\"user_uid\"" in b9.as_string()
+
 class FakePostgresqlCursor:
     """
     Fake psyocgpg cursor object
@@ -124,6 +134,10 @@ class FakePostgresqlConn:
         elif query_str == "SELECT column_name, data_type FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'test2'":
             raise OperationalError()
         
+        # Create index queries
+        elif query_str.startswith("CREATE") and "INDEX" in query_str:
+            return FakePostgresqlCursor([], rowcount=0)
+
         # Create table queries
         elif query_str == "CREATE TABLE \"test\" (\"test\" varchar NOT NULL)":
             return FakePostgresqlCursor([], rowcount=0)
@@ -150,7 +164,9 @@ class FakePostgresqlConn:
         
         # Select queries
         elif query_str.startswith("SELECT") and "FROM" in query_str and "INFORMATION_SCHEMA" not in query_str:
-            if "test_select" in query_str:
+            if "INNER JOIN" in query_str and "test_join" in query_str:
+                return FakePostgresqlCursor([("evt-1", "popup", 15, "Meeting", "user@test")], rowcount=1)
+            elif "test_select" in query_str:
                 return FakePostgresqlCursor([(1, "Alice", {"k": "v"}, 30), (2, "Bob", {"x": [1, 2]}, 25)], rowcount=2)
             elif "COUNT(*)" in query_str or "COUNT(" in query_str:
                 if "test_count" in query_str:
@@ -246,6 +262,26 @@ def test_client_create_several_table(mock_db: MockerFixture):
     client.create_several_table([table]) 
 
 
+def test_client_create_indexes(mock_db: MockerFixture):
+    """
+    Test the create_indexes method of PostgreSQL client
+    """
+    client = ClientPostgreSQL(db_user="", db_pwd="", db_host="", db_port=25, db_ssl=False, db_enc="")
+    client.connect()
+
+    col1 = Column(name="trigger_at", data_type="datetime")
+    col2 = Column(name="event_key", data_type="str")
+    idx1 = Index(name="idx_trigger", columns=("trigger_at",))
+    idx2 = Index(name="idx_composite", columns=("trigger_at", "event_key"))
+    idx3 = Index(name="idx_unique", columns=("event_key",), unique=True)
+    table = Table(name="test", columns=[col1, col2], indexes=[idx1, idx2, idx3])
+    client.create_indexes(table)
+
+    # No indexes: should do nothing
+    table_no_idx = Table(name="test", columns=[col1, col2])
+    client.create_indexes(table_no_idx)
+
+
 def test_client_insert_in_table(mock_db: MockerFixture):
     """
     Test the insert_in_table method of PostgreSQL client
@@ -325,6 +361,34 @@ def test_client_select_from_table(mock_db: MockerFixture):
     # Test select with offset
     results_offset = list(client.select_from_table("test_select", ("id", "name"), condition, offset=1))
     assert len(results_offset) == 2
+
+
+def test_client_select_from_several_table(mock_db: MockerFixture):
+    """
+    Test the select_from_several_table method of PostgreSQL client
+    """
+    client = ClientPostgreSQL(db_user="", db_pwd="", db_host="", db_port=25, db_ssl=False, db_enc="")
+    client.connect()
+
+    joins = [
+        JoinClause(table="test_events", left_col="test_join.event_key", right_col="test_events.key"),
+        JoinClause(table="test_calendars", left_col="test_events.calendar_key", right_col="test_calendars.key"),
+    ]
+    condition = AndCondition(
+        EqualCondition("test_join.is_deleted", False),
+        EqualCondition("test_calendars.user_uid", "user@test"),
+    )
+    results = list(client.select_from_several_table(
+        table_name="test_join",
+        joins=joins,
+        column_tuple=("test_join.event_key", "test_join.method", "test_join.minutes_before", "test_events.title", "test_calendars.user_uid"),
+        condition=condition,
+        sort_by="test_join.event_key",
+    ))
+    assert len(results) == 1
+    assert results[0][0] == "evt-1"
+    assert results[0][3] == "Meeting"
+    assert results[0][4] == "user@test"
 
 
 def test_client_count_row_in_table(mock_db: MockerFixture):

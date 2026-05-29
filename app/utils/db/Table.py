@@ -7,14 +7,18 @@ from app.utils import errors as err
 
 REX_VALID_NAMES = r"^[A-Za-z_0-9]+$" #We force the fact that tables and columns' name must be alphanumerical with underscore only
 
-SOGO_DB_DATA_TYPE = {"dict", "str", "list", "serial", "json", "int8"}
+SOGO_DB_DATA_TYPE = {"dict", "str", "list", "serial", "json", "int8", "bool", "datetime", "int", "text"}
 SOGO_DB_DATA_TYPE_VALIDATION = {
-    "dict":   {"dict", "json"} ,
-    "str":    {"str"},
-    "list":   {"list"},
-    "serial": {"serial", "int"},
-    "json":   {"dict", "json"},
-    "int8":   {"number", "smallint", "int8"}
+    "dict":     {"dict", "json"},
+    "str":      {"str"},
+    "list":     {"list"},
+    "serial":   {"serial", "int"},
+    "json":     {"dict", "json"},
+    "int8":     {"number", "smallint", "int8"},
+    "bool":     {"bool", "boolean", "int8"},
+    "datetime": {"datetime", "timestamp"},
+    "int":      {"int", "number", "integer", "bigint"},
+    "text":     {"str", "text"},
 }
 
 class Column:
@@ -52,11 +56,26 @@ class Column:
         self.extra_args      = extra_args
 
 class Index:
+    """Agnostic database index representation.
+
+    Each database manager converts this to their proper CREATE INDEX syntax.
+    Supports single-column and composite indexes, with optional uniqueness.
     """
-    Is a common db class. Each db manager will convert this index properly to their own dbapi
-    """
-    def __init__(self) -> None:
-        pass
+
+    def __init__(self, name: str, columns: tuple[str, ...], unique: bool = False) -> None:
+        """
+        :param name: Index name. Must match REX_VALID_NAMES.
+        :param columns: Column names included in the index, in order.
+        :param unique: Whether the index enforces uniqueness.
+        """
+        if not re.match(REX_VALID_NAMES, name):
+            logger.error("Try to instantiate Index with an invalid name: %s", name)
+        for col in columns:
+            if not re.match(REX_VALID_NAMES, col):
+                logger.error("Try to instantiate Index with an invalid column name: %s", col)
+        self.name = name
+        self.columns = columns
+        self.unique = unique
 
 class Table:
     """

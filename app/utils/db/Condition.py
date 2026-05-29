@@ -82,3 +82,57 @@ class OrCondition(Condition):
         super().__init__()
         self.condition1 = condition1
         self.condition2 = condition2
+
+class LessOrEqualCondition(Condition):
+    """Check if a named parameter is less than or equal to a value."""
+    def __init__(self, param_name: str, param_value):
+        super().__init__()
+        self.param_name = param_name
+        self.param_value = param_value
+
+class GreaterOrEqualCondition(Condition):
+    """Check if a named parameter is greater than or equal to a value."""
+    def __init__(self, param_name: str, param_value):
+        super().__init__()
+        self.param_name = param_name
+        self.param_value = param_value
+
+class IsNullCondition(Condition):
+    """Check if a named parameter is NULL."""
+    def __init__(self, param_name: str):
+        super().__init__()
+        self.param_name = param_name
+
+class IsNotNullCondition(Condition):
+    """Check if a named parameter is NOT NULL."""
+    def __init__(self, param_name: str):
+        super().__init__()
+        self.param_name = param_name
+
+class LikeCondition(Condition):
+    """Case-insensitive substring match on a named parameter.
+
+    The pattern must include wildcard characters explicitly (e.g. '%keyword%').
+    PostgreSQL maps this to ILIKE; MySQL LIKE is already case-insensitive with utf8mb4.
+    """
+    def __init__(self, param_name: str, pattern: str):
+        super().__init__()
+        self.param_name = param_name
+        self.pattern = pattern
+
+
+class JoinClause:
+    """Describes an INNER JOIN between two tables.
+
+    Used with select_from_several_table to build multi-table queries.
+    Note : This can be updated later to add left or right join.
+    """
+    def __init__(self, table: str, left_col: str, right_col: str):
+        """
+        :param table: The table to join.
+        :param left_col: Qualified column on the left side (e.g. "reminders.event_key").
+        :param right_col: Qualified column on the right side (e.g. "events.key").
+        """
+        self.table = table
+        self.left_col = left_col
+        self.right_col = right_col

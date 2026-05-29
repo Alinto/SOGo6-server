@@ -167,6 +167,7 @@ class InterfaceApiMailMail:
         """
         try:
             result = self.mail_module.perform_mail_action(account_id, folder_name, mail_uid, action_data)
+            #TODO : Some action may need other modules (like mail_outgong when spam_action)
             return create_api_base_response(result)
         except ValidationError as ex:
             logger_api.error("Validation error in mail_action: %s", ex.messages)

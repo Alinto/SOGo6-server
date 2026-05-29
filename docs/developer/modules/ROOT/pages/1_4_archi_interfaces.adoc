@@ -1,0 +1,106 @@
+= SOGo 6 Interfaces
+:page-toclevels: 3
+
+Interfaces are responsible to call the different Modules needed for the request AND creating the json response and the code status.
+They have the least logic possible, so often they will just call a Module method and nothing else. They may have logic that can be
+trigger without needed the module.
+
+[TIPS]
+====
+E.g. the request update the main account by adding a new identity but the admin doesn't allow that: The interface directly returns a 404
+instead of calling a modukle method.
+====
+
+Interface cannot import files from API, Managers or others Interfaces. They can import from utils.
+
+Interface must catch RequestException that may be raised by Modules and Managers.
+
+Interface must use the create_api_base_response to return data to APIs.
+
+There must be one Interface for one API file
+
+== List of Interfaces
+
+=== [ADMIN] Interface Admin Config
+
+Manage system, domains, rules  and visibility settings
+
+=== [ADMIN] Interface Admin User Session
+
+Manage User Sessions
+
+=== [ADMIN] Interface Admin Action
+
+Differents admin tools
+
+=== [ADMIN] Interface Auth Admin
+
+Authentication for admin users
+
+=== [User] Interface Auth User
+
+Authentication for users
+
+=== [User] Interface System
+
+Returns any parameters needed by UI/client when starting. E.g does the login is in two steps or one.
+
+[WARNING]
+====
+Do not mistakes for Systems settings, manages by Admin Config
+====
+
+=== [USER] Interface User Profile
+
+Returns all parameters that defined the UI/client behavior for a authenticated user
+
+[WARNING]
+====
+Do not mistakes for table User Profiles
+====
+
+=== [USER] Interface User Preferences
+
+Manage user preferences
+
+=== [USER] Interface User Security
+
+Manage user security (change password, recovery, MFA)
+
+=== [USER] Interface Mail Mailboxes
+
+Manage mailboxes of a user (main account, external accounts, identities, certificates), delegations and mail sending
+
+=== [USER] Interface Mail Folder
+
+Manage Mail Server folders for an account
+
+=== [USER] Interface Mail Mail
+
+Manage mails for a folder for an account
+
+=== [USER] Interface User Mail Filtering
+
+Manage mail filtering rules
+
+=== [USER] Interface Calendars
+
+Manage Calendars
+
+=== [USER] Interface Events
+
+=== [USER] Interface Tasks
+
+=== [USER] Interface Journals
+
+=== [USER] Interface Addressbook
+
+=== [USER] Interface Contacts
+
+Manage contacts of a user but also manage request to get info about a user (autocompletion, freebusy...)
+
+=== [USER] Interface Drive
+
+=== [USER] Interface Async
+
+Manage planned task
