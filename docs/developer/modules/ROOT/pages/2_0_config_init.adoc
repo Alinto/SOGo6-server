@@ -1,4 +1,4 @@
-= Configuration and settings
+= Configuration, settings and init
 
 
 SOGo 6 has two major kind of settings.
