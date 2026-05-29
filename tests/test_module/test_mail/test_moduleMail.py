@@ -499,53 +499,11 @@ def test_share_folder_success(monkeypatch):
 
 # ========== Tests for NotImplementedError methods ==========
 
-def test_list_mailboxes_not_implemented(monkeypatch):
-    """Test that list_mailboxes raises NotImplementedError."""
-    module, _ = _make_module(monkeypatch)
-    with pytest.raises(NotImplementedError, match="list_mailboxes is not implemented yet"):
-        module.list_mailboxes()
-
-
-def test_create_mailbox_not_implemented(monkeypatch):
-    """Test that create_mailbox raises NotImplementedError."""
-    module, _ = _make_module(monkeypatch)
-    with pytest.raises(NotImplementedError, match="create_mailbox is not implemented yet"):
-        module.create_mailbox()
-
-
-def test_update_mailbox_not_implemented(monkeypatch):
-    """Test that update_mailbox raises NotImplementedError."""
-    module, _ = _make_module(monkeypatch)
-    with pytest.raises(NotImplementedError, match="update_mailbox is not implemented yet"):
-        module.update_mailbox()
-
-
-def test_delete_mailbox_not_implemented(monkeypatch):
-    """Test that delete_mailbox raises NotImplementedError."""
-    module, _ = _make_module(monkeypatch)
-    with pytest.raises(NotImplementedError, match="delete_mailbox is not implemented yet"):
-        module.delete_mailbox()
-
-
 def test_compose_email_not_implemented(monkeypatch):
     """Test that compose_email raises NotImplementedError."""
     module, _ = _make_module(monkeypatch)
     with pytest.raises(NotImplementedError, match="compose_email is not implemented yet"):
         module.compose_email()
-
-
-def test_get_mailbox_delegates_not_implemented(monkeypatch):
-    """Test that get_mailbox_delegates raises NotImplementedError."""
-    module, _ = _make_module(monkeypatch)
-    with pytest.raises(NotImplementedError, match="get_mailbox_delegates is not implemented yet"):
-        module.get_mailbox_delegates()
-
-
-def test_create_mailbox_delegate_not_implemented(monkeypatch):
-    """Test that create_mailbox_delegate raises NotImplementedError."""
-    module, _ = _make_module(monkeypatch)
-    with pytest.raises(NotImplementedError, match="create_mailbox_delegate is not implemented yet"):
-        module.create_mailbox_delegate({})
 
 
 def test_update_folder_not_implemented(monkeypatch):
