@@ -1,0 +1,311 @@
+= SOGo 6 Managers
+:page-toclevels: 3
+
+Managers are used to talk with external services: databases, ldap server, imap server...
+
+They use a module, from Python Standard Library or external, to communicate with these services. Managers must catch exception from these libraries to let
+SOGo 6 decide what to do.
+
+Managers cannot import files from API, Interface, Modules. They can import from utils.
+
+Managers inherits from a abstract parent class, that defines atomic method necessary.
+
+[TIP]
+====
+A child manager can inherit from several parents if needed. In that case
+It should make sure that methods are either exlcusive to one parent or compatible with both.
+
+E.g. sql manager are both used for SOGo 6's database and SOGo 6's User Source.
+====
+
+image::BackManagerArchi.png[SOGo 6 Manager]
+
+== List of Managers
+
+=== Client Mail server
+
+Abstract Parent: ClientMailServer
+
+Methods that must be implemented within children:
+
+* **connect**: Open connection with the mail server.
+
+* **login**: Authenticate the user to the mail server.
+* **def logout**: logout the user.
+
+* **list_folders**: List all mail folders of the user.
+* **get_one_folder**: Get one mail folder of the user
+* **create_folder**: Create one mail folder for the user
+* **delete_folder**: Delete one mail folder of the user
+* **purge_folder**: Remove/Delete all mails in a folder older than a given date
+* **expunge_folder**: (IMAP notion) Remove all mails in a folder flagges ad deleted
+* **get_acl**: (Access Control List) Get the differents rights given to users for a mail folder
+* **set_acl**: (Access Control List) Set rights to one user for a mail folder
+* **delete_acl**: (Access Control List) Remove all rights for a user for a mail folder
+
+* **fetch_all_mails_with_content**: Fetch all mails in a folder with content, heavy load
+* **fetch_all_mails_without_content**: Fetch all mails in a folder without content (headers, basic info...), light load
+* **fetch_mail**: Fetch one mail in a folder
+* **fetch_mail_raw**: Fetch raw file of a mail (eml)
+
+* **delete_mails_by_uid**: Delete several mails by given their uid
+
+* **add_flags_to_mail**: Add flag to a mail
+* **remove_flags_to_mail**: Remove flag to a mail
+
+* **copy_mail_to_mailbox**: COpy a mail from one folder to another
+
+==== Client IMAP
+
+This manager handles imap protocol communication
+
+It uses library https://docs.python.org/3/library/imaplib.html[imaplib] from Python Standard Library
+
+==== Client Jmap
+
+NOT IMPLEMENTED, just to give an exemple of another manager
+
+=== Client Mail Outgoing
+
+Abstract Parent: TODO
+
+Methods that must be implemented within children:
+
+* **connect**: Open connection with the outgoing mail server.
+
+* **login**: Authenticate the user to the outgoing mail server.
+
+* **send_mail**: Send a mail
+
+==== Client SMTP
+
+This manager handles smtp protocol communication
+
+It uses library https://docs.python.org/3/library/smtplib.html[smtplib] from Python Standard Library
+
+==== Client Sendmail (SOGo 5 Legacy ?)
+
+This manager handles the system command sendmail
+
+It uses library https://docs.python.org/3/library/subprocess.html[subprocess] from Python Standard Library
+
+=== Client Mail Filtering
+
+Abstract PArent: TODO
+
+Methods that must be implemented within children:
+
+* **connect**: Open connection with the filtering mail server
+
+* **login**: Authenticate the user to the filtering mail server.
+
+* **get_filter**: Get the current filtering rules
+* **set_filter**: Set the filtering rules
+* **delete_filter**: delete all filtering rules
+
+==== Client Sieve
+
+The manager handles manage-sieve communication
+
+It uses library https://datatracker.ietf.org/doc/html/rfc5183[sievelib]
+
+=== Client SOGo 6 database
+
+SOGo 6 has a light abstraction that defines database structure. Even if it uses sql-expression like table and columns,
+It could also be converted into no-sql databases (E.g. for mongo: table become collections and columns the root key of the json)
+
+In the following, `table` and `columns` are in SOGo 6 abstraction layer sense, not sql sense.
+
+Abstract Parent: CLientSql (Should we add a abstraction sql/No-sql?)
+
+Methods that must be implemented within children:
+
+* **connect**: connect and authenticate to the database
+
+* **get_table_info**: Get info about a table (For SOGo 6 to check integrity and current state)
+* **create_table**: Create a table
+* **create_several_table**: Create several tables at once
+* **select_from_table**: get given columns values from a table  with a given condition
+* **select_from_several_table**: get given columns values from deveral table with given conditions
+* **count_row_in_table**: get number of row/document from a table given a condition
+
+* **insert_in_table**: Add data in a table that does not exist
+* **update_in_table**: Update data in a table that already exist given a condition
+* **delete_row_in_table**: delete data in a table given a condition
+* **close**: close the connection
+
+Each manager must convert in both way SOGo 6 table/columns notion
+
+==== Client PostgreSQL
+
+This manager handles postgresql communication
+
+It uses library https://www.psycopg.org/psycopg3/docs/[psycopg]
+
+[WARNING]
+====
+Psycopg is actually psycopg 3, not psycopg 2.
+====
+
+==== Client MariaDB
+
+This manager handles mariadb communication
+
+It uses library https://dev.mysql.com/doc/connector-python/en/[mysql-connector-python]
+
+=== Client User Source
+
+User Source is where are defined users of SOGo 6 and more.
+A user source can be used for authentication and/or for global addressbooks.
+
+More than user, resource (room, items) and groups (list of user/resource) can also be defined in User Source.
+
+[TIP]
+====
+User Source can be a ldap server or a database. In case of database, it can be the same as the database needed
+for SOGo 6 for internal storage and operations. But it's important to differentiate the User Source from SOGo 6 database.
+====
+
+Abstract Parent: TODO
+
+Methods that must be implemented within children:
+
+* **connect**: connect to the user source service
+* **login**: authenticate to the user source server
+
+* **check_user_creds**: Check the credentials of a user
+* **update_user_creds**: Update credentials of a user
+
+* **get_user_info**: Get contact info a of user/resource/groups by uid
+
+* **search_user**: search user/resource/groups with search criteria
+* **get_all_users**: get all users from this user source
+
+==== Client LDAP
+
+This manager handles ldap communication
+
+It uses library https://www.python-ldap.org/en/python-ldap-3.4.3/[python-ldap] (Need additional C library to install)
+
+==== Client PostgreSQL
+
+This manager handles postgresql communication
+
+It uses library https://www.psycopg.org/psycopg3/docs/[psycopg]
+
+[WARNING]
+====
+Psycopg is actually psycopg 3, not psycopg 2.
+====
+
+==== Client MariaDB
+
+This manager handles mariadb communication
+
+It uses library https://dev.mysql.com/doc/connector-python/en/[mysql-connector-python]
+
+=== Client Cache
+
+For now there is no abstract layer, only Redis
+
+==== Client Redis
+
+It handles redis communication
+
+It uses https://redis.io/docs/latest/develop/clients/redis-py/[redis-py]
+
+=== Client Agent
+
+The agent is the external service to handle asynchrone task and queueing. Only Celery is planned.
+
+==== Client Celery
+
+Celery is a Distributed Task Queue[https://docs.celeryq.dev/en/main/index.html] in python. It gives a library for both
+the server and the client.
+
+=== Client External Calendar
+
+The user can import calendar from other external services
+
+Methods that must be implemented within children:
+
+* **connect**: Connect to the external services
+* **login**: Auhtenticate to the external services
+
+* **list_all_calendars**: list all the calendars of the user
+* **set_calendar_acl**: manage ACL calendar
+
+* **get_all_events**: get all events for a calendar. All is not neceesary all but in a time period
+* **get_one_event**: get one specific event
+* **search_for_events**: query to search an event according to criteria
+* **create_an_event**: explicit
+* **update_an_event**: explicit
+* **delete_an_event**: explicit
+* **download_an_event**: download a raw event file.
+
+==== Client Webdav
+
+It handles webdav communication and their extension (caldav, cardav)
+
+There is no python client, except not maintained one, however a combinaison of requests and a xml parser library
+will do the works.
+
+=== Client External Addressbook
+
+Abstract Parent: TODO
+
+Methods that must be implemented within children:
+
+* **connect**: Connect to the external services
+* **login**: Auhtenticate to the external services
+
+* **list_all_addressbooks**: list all the calendars of the user
+* **set_addressbook_acl**: manage ACL Addressbook
+
+* **get_all_contacts**: get all events for a calendar. All is not neceesary all but in a time period
+* **get_one_contact**: get one specific event
+* **search_for_contact**: query to search an event according to criteria
+* **create_a_contact**: explicit
+* **update_a_contact**: explicit
+* **delete_a_contact**: explicit
+* **download_a_contact**: download a raw contact file.
+
+
+[NOTE]
+====
+This manager does not implement:
+* Address Book deletion
+====
+
+==== Client Webdav
+
+It handles webdav communication and their extension (caldav, cardav)
+
+There is no python client, except not maintained one, however a combinaison of requests and a xml parser library
+will do the works.
+
+=== Client Drive
+
+Abstract Parent: TODO
+
+Methods that must be implemented within children:
+
+* **connect**: Connect to the external services
+* **login**: Auhtenticate to the external services
+
+* **list_contents**: list all the folders and file from a path
+* **set_content_acl**: manage ACL folder/files
+
+* **create_folder**: get all events for a calendar. All is not neceesary all but in a time period
+* **delete_folder**: get all events for a calendar. All is not neceesary all but in a time period
+* **download_one_file**: get one specific event
+* **upload_one_file**: query to search an event according to criteria
+* **delete_one_file**: explicit
+
+
+==== Client Webdav
+
+It handles webdav communication and their extension (caldav, cardav)
+
+There is no python client, except not maintained one, however a combinaison of requests and a xml parser library
+will do the works.

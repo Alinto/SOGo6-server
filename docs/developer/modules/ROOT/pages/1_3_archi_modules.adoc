@@ -1,0 +1,328 @@
+= SOGo 6 Modules
+:page-toclevels: 3
+
+Modules contains the core logic and algorithms of SOGo 6. They dynamically import and instantiate one or several manager, according to the
+configuration: `process_settings` for database, cache, client; `domain_settings` for uer_source, mail servers...
+
+
+Module cannot import files from API, Interface or others Modules. They can import from utils.
+
+Modules methods must be self-sufficient. As they can be called from different Interfaces. In others words, the most logic
+must be in the Modules so the Interface doen't have anything to do.
+
+
+== List of Modules
+
+=== Init SOGo
+
+First thing to be called before the flask application is created. Check the  essential external services (database, cache and agent).
+Also check the database integrity.
+
+**Managers**:
+
+* **Client Database**
+* **Client Cache**
+* **Client Agent**
+
+**Methods**:
+
+* check cache: connection and ping
+* check database: Check structure, update/migrate if needed, check system and default domain settings
+* check agent
+
+=== [ADMIN] Module Admin Config
+
+Manage dynamic settings in database
+**Managers**:
+
+* **Client Database**
+
+**Methods**:
+
+* get system_settings
+* update system_settings
+* get default domain_settings.
+* update default domain_settings.
+* get all *domain specific* domain_settings
+* get one *domain specific* domain_settings
+* create *domain specific* domain_settings
+* update *domain specific* domain_settings
+* delete *domain specific* domain_settings
+* get all *rule specific* domain_settings
+* get one *rule specific* domain_settings
+* create *rule specific* domain_settings
+* update *rule specific* domain_settings
+* delete *rule specific* domain_settings
+
+
+
+=== [ADMIN] Module User Session
+
+Manage User Session and revoke them.
+
+**Managers**:
+
+* **Client Cache**
+* **Client Database** ?? Is the cache enough, we encounters problems with redis only
+
+**Methods**:
+
+* get all active UserSession (uid, last_activity)
+* revoke (e.g. user must relogin) one user
+* revoke one user
+* revoke all user where last activity is older than a date.
+* revoke all user of a domain
+
+
+=== [ADMIN] Module Admin Action
+
+Some Admin actions that can be done. Replace `sogo-tool` from SOGo 5 and add others actions too.
+
+**Managers**:
+
+* **Client Database**
+* **Client Mail Filtering**: because a admin can change a user filtering rules.
+
+==== Admin User
+
+Admin user can access the admin API
+
+* get all admin user
+* create admin user
+* revoke admin user
+
+==== Admin API token
+
+A token used for scripts to make admin action without login.
+
+* get all admin api token
+* create admin api token
+* revoke admin api token
+
+==== User 
+
+* Checkup user: Check integrity of all contents of the user in database (events and contacts)
+* Reset user: delete all contents of the user and reset its preferences to default (like he login for the first time)
+* Remove user: Definitily remove all contents of the user and itself (like he has never logged in)
+
+* create Calendar/Addressbook folder
+* delete Calendar/Addressbook folder
+* set ACL for Calendar/Addressbook folder
+* purge Calendar folder: delete all events older than a date
+* Update User Preferences
+* Update User Mail Filters
+
+==== Security
+
+* update secret: SOGO_AES_ENC_KEY is used to encrypt sensitive data in the database (external account password, certificates).
+If the admin needs to change the key, it will need.
+* Force password change
+* Force MFA
+* Force Password recovery
+
+=== [USER] Module User
+
+Called at the start of a request to instantiate the User objects. No manager needed as the domain config are already given.
+
+**Methods**:
+
+* get auth method for this domain: basic, openid...
+* get user and User Source settings: get instance of User and the User Source settings
+* generate voucher for this user: the token returns to the UI
+
+=== [USER] Module User Source
+
+Does any operation that needs the User source, including checking the password and get the contact info a user
+
+**Managers**:
+
+* **Cient User Source**
+
+**Methods*:
+
+* check login: Is given a User object with the password
+* get source info: get info that impacts user configuration (like mail server login, view access...)
+* get contact info: get info to fill user contacts info
+* fill user: does both of the above
+
+* seach_user: search any user that macth criterias
+* update user password
+
+
+=== [USER] Module User Profile
+
+The user profile is the table in SOGo 6 database that have info about user used by the Server.
+
+[TIP]
+====
+The user profile does not store what is in User Source
+====
+
+**Managers**:
+
+* **Client Database**
+
+==== OnBoarding
+
+* create user profile: when a new user login for the first time, a new row is created with defauls values
+
+==== Main and external account
+* list all accounts
+* get one account: main or external
+* update main account: update identities, signatures...
+* create external account
+* update external account
+* delete external account
+
+==== User Folders (Calendar/Addressbook):
+* get all folders
+* Create folder
+* Update folder
+* delete folder
+
+
+==== User Preferences
+
+* get user preferences
+* update user preferences
+
+==== User Mail Filters
+
+Mail filtering rules are at two places: SOGo 6 databases and Mail Filtering Server.
+It's useful because user can disable a rule, which will be remove of the Mail Filtering Server but mest be kept in the database for the user to
+enable it again.
+
+* sync_filter_rules: If the database and server rules are not the same, force the sync from server to database
+
+* get all filter rules
+* create filter rule
+* update filter rule
+* delete filter rule
+* deletes several filter rules
+* update filter rule sequence: tell in which order the filter rules must be trigger
+
+* get vacation filter
+* enable vacation filter
+* update vacation filter
+* disable vacation filter: no delete because the user want to keep the info for the next time
+
+* get forward filter
+* enable forward filter
+* update forward filter
+* disable forward filter: no delete because the user want to keep the info for the next time
+
+* get notification filter
+* enable notification filter
+* update notification filter
+* disable notification filter: no delete because the user want to keep the info for the next time
+
+==== User ACL and Delegation
+
+[NOTE]
+====
+* Delegation (Mail): User A five the rights to User B to use User A main identity to send mails
+* ACL (Mail): handle by Module Mail as it's the mail server thah directly manage them.
+* ACL (Calendar, Addressbook): handle by User Profile
+====
+
+* get all delegations given
+* get all delegation received
+* update delegations given
+
+* get ACL for a folder
+* update ACL for a folder
+* delete ACL for a folder
+* get all folders with ACL received: return the folders where others users have give you rights.
+
+=== [USER] Module Mail server
+
+Handle all of Mail Server functionnality
+
+**Managers**:
+
+* **Client Mail Server**
+
+==== Folders
+
+* get all folders
+* get one folder
+* create folder
+* update folder: to define
+* delete folder
+* purge folder: delete all mails older tha a date
+* expunge folder: expung means that mails with flag /deleted are removed
+* get ACL folder
+* update ACL folder
+* export folder
+
+==== Mails
+* get all mails
+* get one mail
+* get one mail raw file: get the .eml
+* delete one mail
+* move one mail
+* copy one mail
+* flag one mail: beware a mail can have a flag "flagged", which means important, but can have others flags too.
+* bulk action on mails: delte, move, copy, download, spam, ham and flag
+
+=== [USER] Module Mail outgoing
+
+To send emails
+
+**Managers**:
+
+* **Client Mail Outgoing**
+
+**Methods**:
+
+* send a mail
+* planned a mail
+* cancel a planned mail
+
+=== [USER] Module Mail Filtering
+
+Mail filtering rules are at two places: SOGo 6 databases and Mail Filtering Server.
+It's useful because user can disable a rule, which will be remove of the Mail Filtering Server but mest be kept in the database for the user to
+enable it again.
+
+**Managers**:
+
+* **Client Mail Filtering**
+
+**Methods**:
+
+* sync_filter_rules: If the database and server rules are not the same, force the sync from database to server
+
+* get all filter rules
+* create filter rule
+* update filter rule
+* delete filter rule
+* deletes several filter rules
+* update filter rule sequence: tell in which order the filter rules must be trigger
+
+* get vacation filter
+* enable vacation filter
+* update vacation filter
+* disable vacation filter: no delete because the user want to keep the info for the next time
+
+* get forward filter
+* enable forward filter
+* update forward filter
+* disable forward filter: no delete because the user want to keep the info for the next time
+
+* get notification filter
+* enable notification filter
+* update notification filter
+* disable notification filter: no delete because the user want to keep the info for the next time
+
+=== [USER] Module Calendar
+
+Events, tasks and journals
+
+=== [USER] Module Contacts
+
+Contacts and list of contacts
+
+=== [USER] Module Drive
+
+External Files Drive
