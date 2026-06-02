@@ -16,6 +16,7 @@ from app.module.calendar.model.enums.EventStatus import EventStatus
 from app.module.calendar.model.enums.EventVisibility import EventVisibility
 from app.module.calendar.model.enums.ShowAs import ShowAs
 from app.module.calendar.CalendarConst import (MAX_EVENT_DESCRIPTION_LENGTH, MAX_EVENT_DURATION_HOURS,
+                                               MAX_EVENT_ALL_DAY_DURATION_HOURS,
                                                MAX_EVENT_LOCATION_LENGTH, MAX_EVENT_TITLE_LENGTH)
 from app.utils import errors as err
 from app.utils.exceptions import RequestException
@@ -157,6 +158,9 @@ class CalEvent:  # pylint: disable=too-many-instance-attributes,invalid-name
         """Run business validations. Raises RequestException on failure."""
         if not self.all_day and self.date_start is not None and self.date_end is not None:
             if (self.date_end - self.date_start) > timedelta(hours=MAX_EVENT_DURATION_HOURS):
+                raise RequestException(error=err.ERROR_CALENDAR_EVENT_DURATION_TOO_LONG)
+        if self.all_day and self.date_start is not None and self.date_end is not None:
+            if (self.date_end - self.date_start) > timedelta(hours=MAX_EVENT_ALL_DAY_DURATION_HOURS):
                 raise RequestException(error=err.ERROR_CALENDAR_EVENT_DURATION_TOO_LONG)
         if self.title and len(self.title) > MAX_EVENT_TITLE_LENGTH:
             raise RequestException(error=err.ERROR_CALENDAR_JSON_PARSE_FAILED)
