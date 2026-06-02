@@ -118,10 +118,6 @@ class ProcessSetting(FlaskConfig):
     SOGO_P_AGENT_WORKER_PREFETCH_MULTIPLIER: int = 1
     # How long a TaskState lingers in Redis after the task is completed (post-mortem window).
     SOGO_P_AGENT_TASK_STATE_TTL_SECONDS: int = 3 * 24 * 3600
-    # Filesystem path used by the Beat scheduler for its state file. Must be writable by
-    # the application user. The dev container provisions ``/var/celery`` in its Dockerfile;
-    # in production the path should sit on a persistent volume so state survives restarts.
-    SOGO_P_AGENT_BEAT_SCHEDULE_PATH: str = "/var/celery/sogo-agent-beat-schedule"
     # Directory for transient files (ICS exports, attachments, agent task outputs, etc.).
     # When the agent runs in multiple instances (workers spread across hosts or containers)
     # and TASK_RESULT_LARGE_STORAGE is FILE, this path must point to a shared volume
