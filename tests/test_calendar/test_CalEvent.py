@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from app.module.calendar.CalendarConst import MAX_EVENT_DURATION_HOURS
+from app.module.calendar.CalendarConst import MAX_EVENT_ALL_DAY_DURATION_HOURS, MAX_EVENT_DURATION_HOURS
 from app.module.calendar.model.CalEvent import CalEvent
 from app.utils.exceptions import RequestException
 
@@ -49,11 +49,42 @@ def test_validate_exceeds_max_duration():
         event.validate()
 
 
-def test_validate_all_day_exempt():
+def test_validate_all_day_within_cap():
     event = _make_event(
         all_day=True,
         date_start=_dt(2026, 6, 1),
         date_end=_dt(2026, 6, 5),
+    )
+    event.validate()
+
+
+def test_validate_all_day_exact_max_duration():
+    event = _make_event(
+        all_day=True,
+        date_start=_dt(2026, 6, 1),
+        date_end=_dt(2026, 6, 1) + timedelta(hours=MAX_EVENT_ALL_DAY_DURATION_HOURS),
+    )
+    event.validate()
+
+
+def test_validate_all_day_exceeds_max_duration():
+    event = _make_event(
+        all_day=True,
+        date_start=_dt(2026, 6, 1),
+        date_end=_dt(2026, 6, 1) + timedelta(hours=MAX_EVENT_ALL_DAY_DURATION_HOURS, minutes=1),
+    )
+    with pytest.raises(RequestException):
+        event.validate()
+
+
+def test_validate_all_day_exceeds_uses_all_day_cap_not_default():
+    # Duration > MAX_EVENT_DURATION_HOURS but < MAX_EVENT_ALL_DAY_DURATION_HOURS:
+    # passes only because the all_day branch applies a higher cap.
+    assert MAX_EVENT_ALL_DAY_DURATION_HOURS > MAX_EVENT_DURATION_HOURS
+    event = _make_event(
+        all_day=True,
+        date_start=_dt(2026, 6, 1),
+        date_end=_dt(2026, 6, 1) + timedelta(hours=MAX_EVENT_DURATION_HOURS + 1),
     )
     event.validate()
 

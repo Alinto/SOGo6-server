@@ -11,6 +11,7 @@ MAX_FREEBUSY_DAYS: int = 30
 
 # Maximum duration in hours for a single event.
 MAX_EVENT_DURATION_HOURS: int = 24
+MAX_EVENT_ALL_DAY_DURATION_HOURS: int = 14 * 24
 
 # Maximum length for event text fields (title, location, description).
 MAX_EVENT_TITLE_LENGTH: int = 500
