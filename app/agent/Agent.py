@@ -1,7 +1,6 @@
 """Celery wrapper. The only file in the project that imports celery directly."""
 from __future__ import annotations
 
-import os
 from datetime import datetime, timezone
 from typing import Any, TYPE_CHECKING
 
@@ -255,28 +254,19 @@ class Agent:
             logger_agent.info("task_revoked: task_id=%s name=%s", task_id, current.name)
 
     def start_worker(self) -> None:
-        """Run a Celery worker with the embedded Beat scheduler.
+        """Run a Celery worker.
 
-        Blocks until the worker receives a shutdown signal. Concurrency and the
-        Beat schedule file path come from ``ProcessSetting``. The schedule's
-        parent directory is created if missing — Beat does not bootstrap it
-        itself. ``--without-mingle/gossip/heartbeat`` skips the Redis pubsub
-        features we do not use, cutting boot time and chatter.
+        Blocks until the worker receives a shutdown signal. Concurrency comes
+        from ``ProcessSetting``. ``--without-mingle/gossip/heartbeat`` skips the
+        Redis pubsub features we do not use, cutting boot time and chatter.
         """
         concurrency: int = self._process_setting.SOGO_P_AGENT_WORKER_CONCURRENCY
-        schedule_path: str = self._process_setting.SOGO_P_AGENT_BEAT_SCHEDULE_PATH
-        # Beat won't create the parent directory itself.
-        #TODO Use redbeat instead if celery sqlite beat ?
-        os.makedirs(os.path.dirname(schedule_path), exist_ok=True)
         argv: list[str] = [
-            "worker", "--beat", "-l", "INFO",
+            "worker", "-l", "INFO",
             "--concurrency", str(concurrency),
-            "--schedule", schedule_path,
             "--without-mingle", "--without-gossip", "--without-heartbeat",
         ]
-        logger_agent.info(
-            "start_worker: concurrency=%d schedule=%s", concurrency, schedule_path,
-        )
+        logger_agent.info("start_worker: concurrency=%d", concurrency)
         self._celery.worker_main(argv)
 
 agent: Agent = Agent(process_config)
