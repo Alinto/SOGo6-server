@@ -10,6 +10,9 @@ from celery.signals import task_failure, task_postrun, task_prerun, task_retry, 
 
 from app.agent.tasks.TaskStatus import TaskStatus
 from app.config.settings.ProcessSetting import ProcessSetting, process_config
+from app.utils.logger.logger import logger_agent
+
+from app.agent.tasks.BaseTask import collected_agent_class_tasks
 
 if TYPE_CHECKING:
     from app.agent.tasks.BaseTask import BaseTask
@@ -21,7 +24,7 @@ class Agent:
 
     def __init__(self, process_setting: ProcessSetting) -> None:
         self._process_setting: ProcessSetting = process_setting
-        self._registered_tasks: dict[str, BaseTask] = {}
+        self._task_handlers: dict[str, BaseTask] = {}
         self._celery: Celery = Celery(
             "sogo_agent",
             broker=process_setting.SOGO_P_REDIS_URL,
@@ -36,7 +39,7 @@ class Agent:
                 "visibility_timeout": process_setting.SOGO_P_AGENT_BROKER_VISIBILITY_TIMEOUT_SECONDS,
             },
             broker_connection_retry_on_startup=True,
-            redis_socket_connect_timeout=5,
+            redis_socket_connect_timeout=30,
             redis_socket_keepalive=True,
             task_serializer="json",
             result_serializer="json",
@@ -72,7 +75,22 @@ class Agent:
             eta=eta,
             task_id=task_id,
         )
+        logger_agent.info(
+            "create_task: name=%s task_id=%s user_uid=%s eta=%s",
+            name, result.id, user_uid, eta,
+        )
         return str(result.id)
+
+    def get_task_handler(self, name: str) -> BaseTask | None:
+        """Return the registered Task handler instance bound to ``name``.
+
+        :param name: registered task name (matches ``TaskRequest.name``).
+        :type name: str
+        :return: the handler instance, or ``None`` when no class has been
+            registered under that name in this process.
+        :rtype: BaseTask | None
+        """
+        return self._task_handlers.get(name)
 
     def cancel(self, task_id: str, *, signal: str = "SIGTERM") -> None:
         """Send a control signal to a running task.
@@ -86,12 +104,13 @@ class Agent:
             ``AgentTaskCancelled`` and clean up; SIGKILL is unconditional.
         :type signal: str
         """
+        logger_agent.info("cancel: task_id=%s signal=%s", task_id, signal)
         self._celery.control.revoke(task_id, terminate=True, signal=signal)
 
-    def register(self, task: BaseTask) -> None:
-        """Register a Task subclass so the worker can execute it.
+    def register_task_handler(self, handler: BaseTask) -> None:
+        """Register a Task handler so the worker can execute it.
 
-        Reads name and execution metadata from ``task.request_class`` (the
+        Reads name and execution metadata from ``handler.request_class`` (the
         single source of truth) and wraps the instance in a Celery task with:
 
         - ``soft_time_limit`` / ``time_limit`` derived from ``soft_timeout_seconds``,
@@ -102,11 +121,11 @@ class Agent:
         Celery preserves the task id across retries, so the ``TaskState`` in Redis
         keeps tracking the same logical task through all its attempts.
 
-        :param task: instance of a ``BaseTask`` subclass with a ``request_class``.
-        :type task: BaseTask
+        :param handler: instance of a ``BaseTask`` subclass with a ``request_class``.
+        :type handler: BaseTask
         """
-        req = task.request_class
-        self._registered_tasks[req.name] = task
+        req = handler.request_class
+        self._task_handlers[req.name] = handler
         soft_limit: int = req.soft_timeout_seconds
         max_retries: int = max(0, req.max_try - 1)
 
@@ -118,11 +137,26 @@ class Agent:
             retry_backoff=True, retry_jitter=True, retry_backoff_max=300,
         )
         def _wrapper(celery_self: Any, payload: dict[str, Any], user_uid: str | None) -> dict[str, Any]:
-            return task._run(celery_self.request.id, payload, user_uid)  # pylint: disable=protected-access
+            return handler._run(celery_self.request.id, payload, user_uid)  # pylint: disable=protected-access
 
-    def get_task(self, name: str) -> BaseTask | None:
-        """Return the registered Task subclass for ``name``, or ``None`` if unknown."""
-        return self._registered_tasks.get(name)
+        logger_agent.debug(
+            "register_task_handler: name=%s soft_timeout=%ds max_try=%d resume=%s",
+            req.name, soft_limit, req.max_try, req.resume,
+        )
+
+    def register_all_task_handlers(self) -> None:
+        """Instantiate and register every class decorated with ``@agent_task``.
+
+        Called once at boot, after each module's ``tasks`` subpackage has been
+        imported so the decorators have populated the collection.
+        """
+        classes = collected_agent_class_tasks()
+        for cls in classes:
+            self.register_task_handler(cls())
+        logger_agent.info(
+            "register_all_task_handlers: %d task(s) registered: %s",
+            len(self._task_handlers), sorted(self._task_handlers.keys()),
+        )
 
     def register_lifecycle_hooks(self, persistency: TaskPersistency) -> None:
         """Wire Celery signals to TaskPersistency.
@@ -147,6 +181,10 @@ class Agent:
             state.date_start = datetime.now(timezone.utc)
             state.attempts += 1
             persistency.save(state)
+            logger_agent.info(
+                "task_prerun: task_id=%s name=%s attempt=%d/%d",
+                task_id, state.name, state.attempts, state.max_try,
+            )
 
         @task_postrun.connect(weak=False)
         def _on_postrun(
@@ -168,6 +206,10 @@ class Agent:
             elif state == "FAILURE":
                 current.status = TaskStatus.FAILURE
             persistency.save(current)
+            logger_agent.info(
+                "task_postrun: task_id=%s name=%s status=%s duration=%.3fs",
+                task_id, current.name, current.status.value, current.duration_seconds or 0.0,
+            )
 
         @task_retry.connect(weak=False)
         def _on_retry(
@@ -180,6 +222,10 @@ class Agent:
             current.status = TaskStatus.RETRY
             current.error = str(reason) if reason else None
             persistency.save(current)
+            logger_agent.warning(
+                "task_retry: task_id=%s name=%s attempt=%d/%d reason=%s",
+                task_id, current.name, current.attempts, current.max_try, current.error,
+            )
 
         @task_failure.connect(weak=False)
         def _on_failure(task_id: str | None = None, exception: BaseException | None = None, **_: Any) -> None:
@@ -190,6 +236,10 @@ class Agent:
             current.status = TaskStatus.FAILURE
             current.error = str(exception) if exception else None
             persistency.save(current)
+            logger_agent.error(
+                "task_failure: task_id=%s name=%s error=%s",
+                task_id, current.name, current.error,
+            )
 
         @task_revoked.connect(weak=False)
         def _on_revoked(request: Any = None, **_: Any) -> None:
@@ -202,6 +252,7 @@ class Agent:
             if current.date_start:
                 current.duration_seconds = (current.date_end - current.date_start).total_seconds()
             persistency.save(current)
+            logger_agent.info("task_revoked: task_id=%s name=%s", task_id, current.name)
 
     def start_worker(self) -> None:
         """Run a Celery worker with the embedded Beat scheduler.
@@ -223,6 +274,9 @@ class Agent:
             "--schedule", schedule_path,
             "--without-mingle", "--without-gossip", "--without-heartbeat",
         ]
+        logger_agent.info(
+            "start_worker: concurrency=%d schedule=%s", concurrency, schedule_path,
+        )
         self._celery.worker_main(argv)
 
 agent: Agent = Agent(process_config)

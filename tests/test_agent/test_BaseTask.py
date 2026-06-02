@@ -33,8 +33,8 @@ def test_process_accepts_none_user_uid_for_system_tasks():
     assert out["user_uid"] is None
 
 
-def test_register_then_get_task():
-    task = _ExampleTask()
-    agent.register(task)
-    assert agent.get_task("test.example") is task
-    assert agent.get_task("unknown") is None
+def test_register_then_get_task_handler():
+    handler = _ExampleTask()
+    agent.register_task_handler(handler)
+    assert agent.get_task_handler("test.example") is handler
+    assert agent.get_task_handler("unknown") is None

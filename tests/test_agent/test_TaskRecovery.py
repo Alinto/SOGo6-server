@@ -33,7 +33,7 @@ def _recovery():
 def test_resume_eligible_task_is_requeued():
     recovery, agent, persistency, _ = _recovery()
     persistency.list_pending.return_value = [_state(attempts=1, max_try=3)]
-    agent.get_task.return_value = _task(resume=True)
+    agent.get_task_handler.return_value = _task(resume=True)
     assert recovery.reconcile_orphans() == (1, 0)
     agent.create_task.assert_called_once()
     saved = persistency.save.call_args.args[0]
@@ -44,7 +44,7 @@ def test_resume_eligible_task_is_requeued():
 def test_resume_false_marks_task_failure():
     recovery, agent, persistency, _ = _recovery()
     persistency.list_pending.return_value = [_state()]
-    agent.get_task.return_value = _task(resume=False)
+    agent.get_task_handler.return_value = _task(resume=False)
     assert recovery.reconcile_orphans() == (0, 1)
     agent.create_task.assert_not_called()
     saved = persistency.save.call_args.args[0]
@@ -54,14 +54,14 @@ def test_resume_false_marks_task_failure():
 def test_attempts_exhausted_marks_failure():
     recovery, agent, persistency, _ = _recovery()
     persistency.list_pending.return_value = [_state(attempts=3, max_try=3)]
-    agent.get_task.return_value = _task(resume=True)
+    agent.get_task_handler.return_value = _task(resume=True)
     assert recovery.reconcile_orphans() == (0, 1)
 
 
 def test_unknown_task_marks_failure():
     recovery, agent, persistency, _ = _recovery()
     persistency.list_pending.return_value = [_state()]
-    agent.get_task.return_value = None
+    agent.get_task_handler.return_value = None
     assert recovery.reconcile_orphans() == (0, 1)
 
 

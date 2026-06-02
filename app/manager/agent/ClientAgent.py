@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from app.agent.tasks.TaskState import TaskState
 from app.agent.tasks.TaskStatus import TaskStatus
+from app.utils.logger.logger import logger_agent
 from app.utils.maths.sogo_hash import generate_uuid
 
 if TYPE_CHECKING:
@@ -57,15 +58,40 @@ class ClientAgent:
         )
         self._persistency.save(state)
         self._agent.create_task(task_name, payload, user_uid=user_uid, eta=eta, task_id=task_id)
+        logger_agent.info(
+            "ClientAgent.enqueue: name=%s task_id=%s user_uid=%s eta=%s",
+            task_name, task_id, user_uid, eta,
+        )
         return task_id
 
     def start(self, request: TaskRequest, *, user_uid: str | None = None) -> str:
-        """Run a task immediately (``enqueue`` with ``eta=now``)."""
+        """Run a task immediately.
+
+        Equivalent to :meth:`enqueue` with ``eta=datetime.now()``.
+
+        :param request: typed Request carrying the task name and payload.
+        :type request: TaskRequest
+        :param user_uid: owner of the task; ``None`` for system tasks.
+        :type user_uid: str | None
+        :return: id of the scheduled task.
+        :rtype: str
+        """
         return self.enqueue(request, user_uid=user_uid, eta=datetime.now(timezone.utc))
 
     def get(self, task_id: str) -> TaskState | None:
-        """Read the TaskState. A STARTED record that has been running far longer than its
-        soft timeout is flipped to FAILURE on the fly so the caller never sees a zombie."""
+        """Return the TaskState for ``task_id``, flipping zombie STARTED records to FAILURE.
+
+        A STARTED state that has been running far beyond its declared soft
+        timeout is rewritten to FAILURE on the fly: the caller never sees a
+        record stuck in STARTED forever, even if the worker died before the
+        lifecycle hooks could fire.
+
+        :param task_id: id of the task to look up.
+        :type task_id: str
+        :return: the TaskState, or ``None`` when the document has expired or
+            never existed.
+        :rtype: TaskState | None
+        """
         state = self._persistency.get(task_id)
         if state is not None and state.status == TaskStatus.STARTED and self._is_zombie(state):
             state.status = TaskStatus.FAILURE
@@ -74,10 +100,15 @@ class ClientAgent:
             if state.date_start:
                 state.duration_seconds = (state.date_end - state.date_start).total_seconds()
             self._persistency.save(state)
+            logger_agent.warning(
+                "ClientAgent.get: zombie task task_id=%s name=%s marked FAILURE",
+                task_id, state.name,
+            )
         return state
 
     def cancel(self, task_id: str) -> None:
         """SIGTERM → grace wait → SIGKILL via TaskCanceller. Idempotent."""
+        logger_agent.info("ClientAgent.cancel: task_id=%s", task_id)
         self._canceller.cancel(task_id)
 
     def list_by_user(self, user_uid: str, *, limit: int = 100) -> list[TaskState]:
