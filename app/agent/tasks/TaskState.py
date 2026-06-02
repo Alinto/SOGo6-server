@@ -11,7 +11,14 @@ from app.utils.calendar.DateTimeUtils import parse_iso
 
 @dataclass
 class TaskState:  # pylint: disable=too-many-instance-attributes
-    """Source of truth for the admin/user API. ``schedule_name`` is set for Beat firings."""
+    """Source of truth for the admin / user API on the lifecycle of an Agent task.
+
+    Persisted in Redis via :class:`TaskPersistency`; populated and updated by the
+    Celery lifecycle hooks installed in :meth:`Agent.register_lifecycle_hooks`.
+    Carries everything Celery's native ``AsyncResult`` cannot: user ownership,
+    payload, attempt counter, the configured ``max_try`` / ``soft_timeout_seconds``
+    snapshot at enqueue time, and the optional Beat schedule that produced it.
+    """
     task_id: str
     name: str
     status: TaskStatus

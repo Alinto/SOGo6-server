@@ -16,8 +16,11 @@ if TYPE_CHECKING:
 class TaskPersistency:
     """TaskState storage backed by Redis with secondary indexes for listing.
 
-    Independent from Celery's result backend so we can carry user_uid, payload, attempts,
-    schedule_name and a configurable TTL — none of which fit in ``AsyncResult``.
+    Independent from Celery's result backend so we can carry ``user_uid``,
+    ``payload``, ``attempts``, ``schedule_name`` and a configurable TTL — none
+    of which fit in Celery's ``AsyncResult``. Three sorted-set indexes are kept
+    in sync with the documents: one per user, one for pending tasks, one per
+    Beat schedule.
     """
 
     def __init__(self, client: ClientRedis, ttl_seconds: int) -> None:
@@ -25,7 +28,13 @@ class TaskPersistency:
         self._ttl_seconds: int = ttl_seconds
 
     def save(self, state: TaskState) -> None:
-        """Write the document and keep the user/pending/schedule indexes in sync."""
+        """Write the document and keep the per-user / pending / schedule indexes in sync.
+
+        :param state: the TaskState to persist. The status drives the pending
+            index: terminal statuses are removed from it, non-terminal ones are
+            added or updated.
+        :type state: TaskState
+        """
         self._client.set(self._key(state.task_id), state.to_dict(), ttl=self._ttl_seconds)
         score: float = state.date_planned.timestamp()
         if state.user_uid:
@@ -38,24 +47,59 @@ class TaskPersistency:
             self._client.zset_add(self._index_schedule_key(state.schedule_name), state.task_id, score)
 
     def get(self, task_id: str) -> TaskState | None:
-        """Return the TaskState, or None if expired/unknown."""
+        """Return the TaskState for ``task_id``, or ``None`` if expired or unknown.
+
+        :param task_id: id of the task to look up.
+        :type task_id: str
+        :return: the deserialised TaskState, or ``None`` when the Redis key
+            is missing.
+        :rtype: TaskState | None
+        """
         data = self._client.get(self._key(task_id), dict)
         return TaskState.from_dict(data) if isinstance(data, dict) else None
 
     def list_by_user(self, user_uid: str, *, limit: int = 100) -> list[TaskState]:
-        """Newest planned first, scoped to a user."""
+        """Return the user's tasks, newest planned first.
+
+        :param user_uid: identifier of the user whose tasks are returned.
+        :type user_uid: str
+        :param limit: maximum number of tasks to return.
+        :type limit: int
+        :return: TaskStates sorted by ``date_planned`` descending.
+        :rtype: list[TaskState]
+        """
         return self._fetch_many(self._zset_revrange(self._index_user_key(user_uid), 0, limit - 1))
 
     def list_pending(self, *, limit: int = 500) -> list[TaskState]:
-        """Non-terminal TaskStates, newest planned first."""
+        """Return non-terminal TaskStates across all users, newest planned first.
+
+        :param limit: maximum number of tasks to return.
+        :type limit: int
+        :return: TaskStates whose status is not in ``{SUCCESS, FAILURE, CANCELED}``.
+        :rtype: list[TaskState]
+        """
         return self._fetch_many(self._zset_revrange(TASK_STATE_INDEX_PENDING, 0, limit - 1))
 
     def list_by_schedule(self, schedule_name: str, *, limit: int = 100) -> list[TaskState]:
-        """Firings of a Beat schedule, newest first."""
+        """Return firings of a Beat schedule, newest first.
+
+        :param schedule_name: identifier of the periodic schedule to inspect.
+        :type schedule_name: str
+        :param limit: maximum number of firings to return.
+        :type limit: int
+        :return: TaskStates produced by this schedule, sorted by ``date_planned``
+            descending.
+        :rtype: list[TaskState]
+        """
         return self._fetch_many(self._zset_revrange(self._index_schedule_key(schedule_name), 0, limit - 1))
 
     def delete(self, task_id: str) -> None:
-        """Drop a TaskState and all of its index entries."""
+        """Drop a TaskState document and every index entry pointing at it.
+
+        :param task_id: id of the task to remove. No-op when the document has
+            already expired.
+        :type task_id: str
+        """
         state: TaskState | None = self.get(task_id)
         self._client.delete(self._key(task_id))
         self._client.zset_remove(TASK_STATE_INDEX_PENDING, task_id)
@@ -66,7 +110,12 @@ class TaskPersistency:
                 self._client.zset_remove(self._index_schedule_key(state.schedule_name), task_id)
 
     def _fetch_many(self, task_ids: list[str]) -> list[TaskState]:
-        # Indexes can lag behind TTL expiry; silently skip missing entries.
+        """Resolve a list of task ids into TaskStates, skipping missing entries.
+
+        Indexes can lag behind TTL expiry: an id may still appear in a sorted
+        set after its document has been evicted. Silently ignoring the gap
+        keeps callers from seeing partial reads as errors.
+        """
         result: list[TaskState] = []
         for task_id in task_ids:
             state = self.get(task_id)
@@ -75,7 +124,12 @@ class TaskPersistency:
         return result
 
     def _zset_revrange(self, key: str, start: int, stop: int) -> list[str]:
-        # ClientRedis doesn't expose zrevrange yet; reach through to the underlying client.
+        """Wrap ``ZREVRANGE`` and decode bytes into strings.
+
+        ``ClientRedis`` doesn't expose ``zrevrange`` yet — reach through to the
+        underlying client. Returned members may be bytes depending on the Redis
+        client configuration; normalise to ``str`` so callers see a uniform type.
+        """
         raw: list = self._client.redis.zrevrange(key, start, stop)  # type: ignore[assignment]
         return [m.decode("utf-8") if isinstance(m, bytes) else str(m) for m in raw]
 

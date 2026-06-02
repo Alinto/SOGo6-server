@@ -122,6 +122,12 @@ class ProcessSetting(FlaskConfig):
     # the application user. The dev container provisions ``/var/celery`` in its Dockerfile;
     # in production the path should sit on a persistent volume so state survives restarts.
     SOGO_P_AGENT_BEAT_SCHEDULE_PATH: str = "/var/celery/sogo-agent-beat-schedule"
+    # Directory for transient files (ICS exports, attachments, agent task outputs, etc.).
+    # When the agent runs in multiple instances (workers spread across hosts or containers)
+    # and TASK_RESULT_LARGE_STORAGE is FILE, this path must point to a shared volume
+    # mounted on every agent instance and on the Flask API process. Otherwise a result
+    # written by one worker is unreachable from the API or from another worker.
+    SOGO_P_TMP_PATH: str = "/tmp"
 
     def __getitem__(self, i:str) -> Any:
         if hasattr(self, i):

@@ -112,6 +112,7 @@ def init_infra() -> tuple[ClientRedis, TaskPersistency]:
     persistency = TaskPersistency(
         cache_client, ttl_seconds=process_config.SOGO_P_AGENT_TASK_STATE_TTL_SECONDS,
     )
+    init_tasks()
     return cache_client, persistency
 
 
@@ -150,3 +151,17 @@ def init_get_user_domain_settings(user: User) -> dict:
     """
     config_module = ModuleAdminConfig(process_config)
     return config_module.get_one_domain_setting(user.domain)["settings"]
+
+
+def init_tasks() -> None:
+    """Import each module's ``tasks`` subpackage so the @agent_task decorators populate
+    the collection, then wire every collected class into the agent.
+
+    The imports live inside this function because the imported tasks pull helpers from
+    this very file (``init_get_user_domain_settings``), so a top-level import would
+    create a circular dependency.
+
+    Add a new line per module that ships tasks.
+    """
+    import app.module.calendar.tasks  # noqa: F401  pylint: disable=import-outside-toplevel,unused-import
+    agent.register_all_task_handlers()
