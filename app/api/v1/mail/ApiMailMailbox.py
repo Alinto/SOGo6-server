@@ -18,15 +18,6 @@ from app.api.v1.mail.schemas.mailbox import (
     DelegationResponseSchema,
     MailboxPurgeSchema,
     MailboxPurgeResponseSchema,
-    SendMailSchema,
-    SendMailQuerySchema,
-    SendMailResponseSchema,
-    SendMailSchema,
-    SendMailQuerySchema,
-    SendMailResponseSchema,
-    SaveDraftSchema,
-    SaveDraftResponseSchema,
-    SaveDraftQuerySchema,
 )
 
 if TYPE_CHECKING:
@@ -149,25 +140,6 @@ class ApiMailBoxesAccountDelegates(MethodView):
         return interface.create_mailbox_delegate(account_id, data)
 
 
-@blp.route("/<string:account_id>/send")
-class ApiMailBoxesAccountSend(MethodView):
-    """
-    Action: Send Email
-    """
-    @blp.arguments(SendMailQuerySchema, location='query', as_kwargs=False, error_status_code=400)
-    @blp.arguments(SendMailSchema, example=SendMailSchema.example(), error_status_code=400)
-    @blp.response(200, SendMailResponseSchema)
-    def post(self, query_args: dict, mail_data: dict, account_id: str) -> ResponseReturnValue:
-        """
-        Send an email from the specified mailbox account.
-        account_id="0" uses the main account, otherwise uses the external account with the given hash.
-        """
-        logger_api.debug("Calling ApiMailBoxesAccountSend.post for account_id: %s", account_id)
-        interface: InterfaceApiMailMailbox = g.inter
-        draft_uid = query_args.get("uid")
-        return interface.send_mail(account_id, mail_data, draft_uid)
-
-
 @blp.route("/<string:account_id>/purge")
 class ApiMailBoxesAccountPurge(MethodView):
     """
@@ -183,39 +155,3 @@ class ApiMailBoxesAccountPurge(MethodView):
         interface: InterfaceApiMailMailbox = g.inter
         return interface.purge_mailbox(account_id, purge_data)
 
-
-@blp.route("/<string:account_id>/mail/save")
-class ApiMailBoxesAccountSaveDraft(MethodView):
-    """
-    Action: Save a mail as a draft in the account's Drafts folder.
-    """
-
-    @blp.arguments(SaveDraftQuerySchema, location="query")
-    @blp.arguments(SaveDraftSchema, example=SaveDraftSchema.example(), error_status_code=400)
-    @blp.response(200, SaveDraftResponseSchema, example=SaveDraftResponseSchema.example())
-    def post(self, query_args: dict, mail_data: dict, account_id: str) -> ResponseReturnValue:
-        """Save a mail as a draft.
-
-        If the query parameter ``uid`` is provided and a draft with that UID already exists,
-        the existing draft is replaced with the new content. If ``uid`` is absent or the
-        draft is not found, a new draft is created.
-
-        In all cases the response contains the full saved draft including its (new) uid.
-
-        :param mail_data: Validated draft data from the request body.
-        :type mail_data: dict
-        :param query_args: Validated query parameters (uid).
-        :type query_args: dict
-        :param account_id: The account identifier ("0" for main account, hash for external).
-        :type account_id: str
-        :return: API response containing the saved draft.
-        :rtype: ResponseReturnValue
-        """
-        uid: str | None = query_args.get("uid", None)
-        logger_api.debug(
-            "Calling ApiMailBoxesAccountSaveDraft.post for account_id: %s, uid: %s",
-            account_id,
-            uid,
-        )
-        interface: InterfaceApiMailMailbox = g.inter
-        return interface.save_draft(account_id, mail_data, uid)

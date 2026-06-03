@@ -101,6 +101,17 @@ ERROR_MAIL_SAVE_DRAFT_FAILED = E("S000365", "Mail Draft Save Failed", HTTPStatus
 ERROR_MAIL_SAVE_SENT_FAILED  = E("S000363", "Saving Sent Mail To Folder Failed", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_MAIL_DELETE_DRAFT_FAILED = E("S000364", "Deleting Draft Mail After Sending Failed", HTTPStatus.INTERNAL_SERVER_ERROR)
 
+# tmp_draft
+ERROR_TMP_DRAFT_NOT_FOUND       = E("S000370", "Tmp Draft Not Found", HTTPStatus.NOT_FOUND)
+ERROR_TMP_DRAFT_LOCKED          = E("S000371", "Tmp Draft Is Locked By Another Operation", HTTPStatus.CONFLICT)
+ERROR_TMP_DRAFT_LIMIT_REACHED   = E("S000372", "Tmp Draft Limit Reached — Send, Delete Or Close An Existing Draft", HTTPStatus.FORBIDDEN)
+ERROR_TMP_DRAFT_OWNER_MISMATCH  = E("S000373", "Tmp Draft Does Not Belong To This User", HTTPStatus.UNAUTHORIZED)
+ERROR_TMP_DRAFT_INSERT_FAILED   = E("S000374", "Failed To Insert Tmp Draft", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_TMP_DRAFT_UPDATE_FAILED   = E("S000375", "Failed To Update Tmp Draft", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_TMP_DRAFT_DELETE_FAILED   = E("S000376", "Failed To Delete Tmp Draft", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_TMP_DRAFT_UPLOAD_NO_FILE  = E("S000377", "No File Provided In The Upload Request", HTTPStatus.BAD_REQUEST)
+ERROR_TMP_DRAFT_ATTACHMENT_FAILED = E("S000378", "Failed To Add Attachment To Draft", HTTPStatus.INTERNAL_SERVER_ERROR)
+
 
 #User Profile
 ERROR_USER_PROFILE_DUPLICATE         = E("S000314", "Multiple User Profiles Found For Same UID", HTTPStatus.INTERNAL_SERVER_ERROR)
