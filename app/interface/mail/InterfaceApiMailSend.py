@@ -37,33 +37,33 @@ class InterfaceApiMailSend:
         self.user_module_settings = UserModuleSettingsObj(user_domain[UserModuleSettings.subparent])
         self.module_user_profile = ModuleUserProfile(process_setting, user_domain)
         self.mail_settings = MailSettingsObj(user_domain[MailSettings.subparent])
-        self.mail_module = ModuleMail(user, self.mail_settings)
+        self.mail_module = ModuleMail(user, self.mail_settings, process_setting)
         self.mail_outgoing_module = ModuleMailOutgoing(user, self.mail_settings)
 
 
-    def save_draft(self, account_id: str, mail_data: dict, uid: str | None = None) -> tuple[dict, int]:
+    def save_draft(self, account_id: str, mail_data: dict, key: str | None = None) -> tuple[dict, int]:
         """Save a mail as a draft in the account's Drafts folder.
 
-        If uid is provided and the draft already exists, it is replaced.
-        If uid is absent or the draft is not found, a new draft is created.
+        Delegates to ModuleMail which manages the tmp_draft table and the IMAP APPEND operation.
+        The response data includes the tmp_draft key so the client can reference it in subsequent calls.
 
         :param account_id: The account identifier ("0" for main account, hash for external)
         :type account_id: str
         :param mail_data: Dict with draft fields (from_addr, to, subject, body, ...)
         :type mail_data: dict
-        :param uid: Optional UID of an existing draft to overwrite
-        :type uid: str | None
+        :param key: Optional tmp_draft key; if None a new tmp_draft entry is created
+        :type key: str | None
         :return: A tuple of (API response dict, status code)
         :rtype: tuple[dict, int]
         """
         try:
-            result = self.mail_module.save_draft(account_id, mail_data, uid)
+            result = self.mail_module.save_draft(account_id, mail_data, key)
             return create_api_base_response(result)
         except RequestException as ex:
             logger_api.error("Request exception in save_draft for user %s, account %s: %s", self.user.uid, account_id, str(ex))
             return create_api_base_response(None, ex.error)
 
-    def send_mail(self, account_id: str, mail_data: dict, draft_uid: str | None = None) -> tuple[dict, int]:
+    def send_mail(self, account_id: str, mail_data: dict, key: str | None = None) -> tuple[dict, int]:
         """Send an email from the specified account.
 
         :param account_id: The account identifier ("0" for main account, hash for external)
@@ -72,9 +72,18 @@ class InterfaceApiMailSend:
         :type mail_data: dict
         :param draft_uid: Optional UID of the draft mail to delete after sending
         :type draft_uid: str | None
+        :param key: Optional tmp_draft key; if provided, it is validated (existence, ownership, lock)
+            and the entry is deleted after a successful send
+        :type key: str | None
         :return: A tuple of (API response dict, status code)
         :rtype: tuple[dict, int]
         """
+        if key is not None:
+            try:
+                self.mail_module.validate_tmp_draft_key(key)
+            except RequestException as ex:
+                logger_api.error("Invalid tmp_draft key %s for user %s: %s", key, self.user.uid, str(ex))
+                return create_api_base_response(None, ex.error)
         try:
             message = self.mail_outgoing_module.send_mail(account_id, mail_data)
         except RequestException as ex:
@@ -86,10 +95,33 @@ class InterfaceApiMailSend:
         except RequestException as ex:
             logger_api.warning("Failed to save sent mail to Sent folder for user %s, account %s: %s", self.user.uid, account_id, str(ex))
 
-        if draft_uid is not None:
+        if key is not None:
             try:
-                self.mail_module.delete_draft_mail(account_id, draft_uid)
+                self.mail_module.delete_tmp_draft(key, account_id)
             except RequestException as ex:
-                logger_api.warning("Failed to delete draft mail uid %s for user %s, account %s: %s", draft_uid, self.user.uid, account_id, str(ex))
+                logger_api.warning("Failed to delete tmp_draft key %s for user %s: %s", key, self.user.uid, str(ex))
 
         return create_api_base_response(None)
+
+    def upload_attachment(self, account_id: str, filename: str, content_type: str, file_data: bytes, key: str | None = None) -> tuple[dict, int]:
+        """Add an attachment to the "mail in progress" draft.
+
+        :param account_id: The account identifier
+        :type account_id: str
+        :param filename: The attachment filename
+        :type filename: str
+        :param content_type: The MIME content type (e.g. "application/pdf")
+        :type content_type: str
+        :param file_data: Raw bytes of the attachment
+        :type file_data: bytes
+        :param key: Optional tmp_draft key; if None a new tmp_draft entry is created
+        :type key: str | None
+        :return: A tuple of (API response dict, status code)
+        :rtype: tuple[dict, int]
+        """
+        try:
+            result = self.mail_module.upload_attachment(account_id, filename, content_type, file_data, key)
+            return create_api_base_response(result)
+        except RequestException as ex:
+            logger_api.error("Request exception in upload_attachment for user %s, account %s: %s", self.user.uid, account_id, str(ex))
+            return create_api_base_response(None, ex.error)

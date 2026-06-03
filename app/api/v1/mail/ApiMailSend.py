@@ -1,22 +1,25 @@
 from typing import TYPE_CHECKING
 
-from flask import g
+from flask import g, request
 from flask.views import MethodView
 from flask.typing import ResponseReturnValue
 from flask_smorest import Blueprint
 
 from app.interface.mail.InterfaceApiMailSend import InterfaceApiMailSend
 from app.utils.logger.logger import logger_api
-from app.api.v1.mail.schemas.mailbox import (
-    SendMailSchema,
-    SendMailQuerySchema,
-    SendMailResponseSchema,
+from app.utils.exceptions import RequestException
+from app.utils import errors as err
+
+from app.api.v1.mail.schemas.send import (
     SendMailSchema,
     SendMailQuerySchema,
     SendMailResponseSchema,
     SaveDraftSchema,
     SaveDraftResponseSchema,
     SaveDraftQuerySchema,
+    UploadAttachmentQuerySchema,
+    UploadAttachmentResponseSchema,
+    UploadAttachmentFileSchema,
 )
 
 if TYPE_CHECKING:
@@ -62,8 +65,8 @@ class ApiMailSendAccountSend(MethodView):
         """
         logger_api.debug("Calling ApiMailSendAccountSend.post for account_id: %s", account_id)
         interface: InterfaceApiMailSend = g.inter
-        draft_uid = query_args.get("uid")
-        return interface.send_mail(account_id, mail_data, draft_uid)
+        key = query_args.get("key")
+        return interface.send_mail(account_id, mail_data, key)
 
 
 
@@ -78,27 +81,51 @@ class ApiMailSendAccountSaveDraft(MethodView):
     @blp.response(200, SaveDraftResponseSchema, example=SaveDraftResponseSchema.example())
     def post(self, query_args: dict, mail_data: dict, account_id: str) -> ResponseReturnValue:
         """Save a mail as a draft.
-
-        If the query parameter ``uid`` is provided and a draft with that UID already exists,
-        the existing draft is replaced with the new content. If ``uid`` is absent or the
-        draft is not found, a new draft is created.
-
-        In all cases the response contains the full saved draft including its (new) uid.
-
-        :param mail_data: Validated draft data from the request body.
-        :type mail_data: dict
-        :param query_args: Validated query parameters (uid).
-        :type query_args: dict
-        :param account_id: The account identifier ("0" for main account, hash for external).
-        :type account_id: str
-        :return: API response containing the saved draft.
-        :rtype: ResponseReturnValue
         """
-        uid: str | None = query_args.get("uid", None)
+        key: str | None = query_args.get("key", None)
         logger_api.debug(
-            "Calling ApiMailSendAccountSaveDraft.post for account_id: %s, uid: %s",
+            "Calling ApiMailSendAccountSaveDraft.post for account_id: %s, key: %s",
             account_id,
-            uid,
+            key,
         )
         interface: InterfaceApiMailSend = g.inter
-        return interface.save_draft(account_id, mail_data, uid)
+        return interface.save_draft(account_id, mail_data, key)
+
+
+@blp.route("/upload")
+class ApiMailSendAccountUploadAttachment(MethodView):
+    """
+    Action: Upload an attachment to a mail in progress (draft).
+    """
+    accepted_content_types = {"multipart/form-data"}
+    @blp.arguments(UploadAttachmentQuerySchema, location="query")
+    @blp.arguments(
+        UploadAttachmentFileSchema,
+        location="files",
+        content_type="multipart/form-data",
+    )
+    @blp.response(200, UploadAttachmentResponseSchema, example=UploadAttachmentResponseSchema.example())
+    def post(self, query_args: dict, file: dict, account_id: str) -> ResponseReturnValue:
+        """Upload an attachment to the mail in progress.
+
+        The file must be sent as multipart/form-data with a field named 'file'.
+        If no key is provided, a new tmp_draft entry is created.
+        If the draft is currently locked, the request will wait up to 2 seconds before returning 409.
+        """
+        key: str | None = query_args.get("key", None)
+        logger_api.debug(
+            "Calling ApiMailSendAccountUploadAttachment.post for account_id: %s, key: %s",
+            account_id,
+            key,
+        )
+
+        file = request.files.get("file")
+        if file is None:
+            raise RequestException(err.ERROR_TMP_DRAFT_UPLOAD_NO_FILE.m, error=err.ERROR_TMP_DRAFT_UPLOAD_NO_FILE)
+
+        filename: str = file.filename or "attachment"
+        content_type: str = file.content_type or "application/octet-stream"
+        file_data: bytes = file.read()
+
+        interface: InterfaceApiMailSend = g.inter
+        return interface.upload_attachment(account_id, filename, content_type, file_data, key)

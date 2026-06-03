@@ -89,7 +89,7 @@ happens in the interface before doing any operations
 At interface level, the owner is checked and return 401 if invalid.
 
 
-=== /save
+=== /save?key=X
 
 If there is no key given in the query, it creates a new tmp_draft
 
@@ -102,7 +102,7 @@ In the module, before the call to the manager, it checks if the tmp_draft is loc
 * Update tmp_draft
 * Unlock tmp_draft
 
-=== /upload
+=== /upload?key=X
 
 If there is no key given in the query, it creates a new tmp_draft
 
@@ -124,7 +124,7 @@ If no:
 
 
 
-=== /send
+=== /send?key=X
 
 
 This endpoint send the mail. If successfull, it also remove it from the **Draft** folder if it exists, remove the tmp_draft and copy it in the **Sent** folder.
