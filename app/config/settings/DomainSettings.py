@@ -484,7 +484,7 @@ class MailSettings(SogoSchema):
     is_needed_by_ui = {"SOGO_D_MAIL_PURGE_ALLOW", "SOGO_D_MAIL_PURGE_MIN_DATE",
                        "SOGO_D_MAIL_FILTERING_ENABLED", "SOGO_D_VACATION_ENABLED",
                        "SOGO_D_VACATION_ALLOW_RESPONSE_ALWAYS", "SOGO_D_FORWARD_ENABLED",
-                       "SOGO_D_NOTIFY_ENABLED", "SOGO_D_MAIL_MAX_RECIPIENT"}
+                       "SOGO_D_NOTIFY_ENABLED", "SOGO_D_MAIL_MAX_RECIPIENT", "SOGO_D_MAIL_DRAFT_AUTOSAVE"}
 
     SOGO_D_MAIL_SERVER_TYPE = fields.String(load_default="imap", dump_default="imap", validate=validate.OneOf(('imap',))) #Could be jmap in the future...
     SOGO_D_IMAP_SERVER = fields.String() #Hostname or ip of the imap server
@@ -499,6 +499,7 @@ class MailSettings(SogoSchema):
     SOGO_D_SOFT_EMAIL_QUOTA = fields.Integer(load_default=10000, dump_default=10000, validate=validate.Range(min=1, max=10000)) #Percentage multiplier of the true quota as an integer between 1 (0.01%) and 10000 (100%)
     SOGO_D_MAIL_PURGE_ALLOW     = fields.Boolean(load_default=True, dump_default=True) #Allow user to purger their folder (delete all before a date)
     SOGO_D_MAIL_PURGE_MIN_DATE  = fields.Integer(load_default=0, dump_default=0) #Minimum age in days that a user can purge their mail (0 means they can purge everything)
+    SOGO_D_MAIL_DRAFT_AUTOSAVE = fields.Integer(load_default=5, dump_default=5, validate=validate.Range(min=5)) #Time in seconds between 2 autosave of a draft.
 
     SOGO_D_MAIL_FILTERING_ENABLED = fields.Boolean(load_default=True, dump_default=True) #Allow users to set autoreply sieve rule
     SOGO_D_MAIL_FILTERING_TYPE = fields.String(load_default="sieve", dump_default="sieve", validate=validate.OneOf(('sieve',))) #For sendmail, look at SOGO_S_SENDMAIL
@@ -567,6 +568,7 @@ class MailSettingsObj(SettingsObj):
     SOGO_D_MAIL_JUNK: str = "Junk"
     SOGO_D_MAIL_PURGE_ALLOW: bool = True
     SOGO_D_MAIL_PURGE_MIN_DATE: int = 0
+    SOGO_D_MAIL_DRAFT_AUTOSAVE: int = 5
     SOGO_D_MAIL_FILTERING_ENABLED: bool = True
     SOGO_D_MAIL_FILTERING_TYPE: str = "sieve"
     SOGO_D_SIEVE_SERVER: str = ""

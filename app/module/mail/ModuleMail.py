@@ -10,6 +10,7 @@ import zipfile
 from email.message import EmailMessage
 
 from app.config.settings.UserSettings import UserMailViewSettings, UserMailViewSettingsObj, UserMailGeneralSettings
+from app.module.mail.model.TmpDraftManager import TmpDraftManager
 from app.manager.mail.ClientMailServer import ClientMailServer
 from app.utils import constants as cs
 from app.utils import errors as err
@@ -23,6 +24,8 @@ from app.utils.constants import DELETE_MAIL_BEHAVIOR_MAP
 if TYPE_CHECKING:
     from app.auth.User import User
     from app.config.settings.DomainSettings import MailSettingsObj
+    from app.config.settings.ProcessSetting import ProcessSetting
+    from app.manager.db.ClientSQL import ClientSQL
     from app.utils.api.paginate_sort_filter import CollectionPaginateArgs
 
 
@@ -36,10 +39,31 @@ class ModuleMail:
     Module to handle mail operations using different mail client implementations.
     """
 
-    def __init__(self, user: User, mail_settings: MailSettingsObj):
+    def __init__(self, user: User, mail_settings: MailSettingsObj, process_setting: ProcessSetting | None = None):
         self.user = user
         self.mail_settings = mail_settings
         self.domain_mail_folder_name: dict = {}
+        self._process_setting: ProcessSetting | None = process_setting
+        self._db: ClientSQL | None = None
+
+    def _get_db(self) -> ClientSQL:
+        """Return the DB client, lazily initialising it on first call.
+
+        :raises BugException: If the module was instantiated without a process_setting.
+        :raises RequestException: If the DB connection fails.
+        """
+        from app.utils.exceptions import BugException
+        if self._process_setting is None:
+            raise BugException("ModuleMail was instantiated without a process_setting but a DB operation was requested")
+        if self._db is None:
+            sogo_db_type = f"Client{self._process_setting.SOGO_P_DB_TYPE}"
+            self._db = import_and_instantiate_manager(
+                module_path="app.manager.db",
+                module_and_class_name=sogo_db_type,
+                module_args=self._process_setting.get_db_settings(),
+            )
+            self._db.connect()
+        return self._db
 
     def _get_user_conf(self, account_id: str) -> dict:
         user_mail_conf: dict = {}
@@ -821,42 +845,188 @@ class ModuleMail:
         return {"raw": raw_content}
 
 
-    def save_draft(self, account_id: str, mail_data: dict, uid: str | None = None) -> dict[str, Any]:
-        """Save a mail as a draft in the account's Drafts folder.
+    def save_draft(self, account_id: str, mail_data: dict, key: str | None = None) -> dict[str, Any]:
+        """Save a mail as a draft in the account's Drafts folder, managing the tmp_draft table.
 
-        Builds the RFC-2822 message from mail_data, then delegates the IMAP
-        APPEND operation to the client. If uid is provided, the existing draft
-        is replaced; otherwise a new one is created.
+        If *key* is provided, the corresponding tmp_draft row is looked up, the owner is verified,
+        the lock state is checked (409 if locked), and the existing IMAP draft is replaced.
+        If *key* is absent, a new tmp_draft entry is created (after checking the per-user limit).
+
+        The tmp_draft row is locked around the IMAP operation and unlocked afterwards.
 
         :param account_id: The account identifier
         :type account_id: str
         :param mail_data: Dict with draft fields (from_addr, to, subject, body, cc, bcc, return_receipt)
         :type mail_data: dict
-        :param uid: Optional UID of an existing draft to overwrite
-        :type uid: str | None
-        :return: Dict representing the saved draft including its uid
+        :param key: Optional tmp_draft key; if None a new tmp_draft is created
+        :type key: str | None
+        :return: Dict with the tmp_draft key and the saved draft data
         :rtype: dict[str, Any]
-        :raises RequestException: If the operation fails
+        :raises RequestException: If any validation or operation fails
         """
+        import email as email_existing
+        import email.policy
 
-        message = EmailMessage()
-        if from_addr := mail_data.get("from_addr"):
-            message["From"] = from_addr
-        if to_list := mail_data.get("to"):
-            message["To"] = ", ".join(to_list)
-        if subject := mail_data.get("subject"):
-            message["Subject"] = subject
-        if cc := mail_data.get("cc"):
-            message["Cc"] = ", ".join(cc)
-        if bcc := mail_data.get("bcc"):
-            message["Bcc"] = ", ".join(bcc)
-        if return_receipt := mail_data.get("return_receipt"):
-            message["Disposition-Notification-To"] = return_receipt
-        message.set_content(mail_data.get("body") or "")
+        tmpdraftmngr = TmpDraftManager(self._get_db(), self.user.uid)
 
-        client = self._open_client_for(account_id)
-        raw_draft = client.save_draft(message, uid)
-        return self._parse_mail(raw_draft)
+        with tmpdraftmngr.locked(key, wait_if_locked=False) as (resolved_key, mail_server_uid):
+            client = self._open_client_for(account_id)
+
+            # --- Fetch existing draft to preserve attachments, or start fresh ---
+            if mail_server_uid is not None:
+                folder_path = client.folders_map_type_to_name[cs.MAIL_FOLDER_DRAFT]
+                raw_eml = client.fetch_mail_raw(folder_path, mail_server_uid)
+                message = email_existing.message_from_string(raw_eml, policy=email.policy.default)
+            else:
+                message = EmailMessage()
+
+            # --- Update headers (replace existing ones) ---
+            for header in ("From", "To", "Subject", "Cc", "Bcc", "Disposition-Notification-To"):
+                if header in message:
+                    del message[header]
+
+            if from_addr := mail_data.get("from_addr"):
+                message["From"] = from_addr
+            if to_list := mail_data.get("to"):
+                message["To"] = ", ".join(to_list)
+            if subject := mail_data.get("subject"):
+                message["Subject"] = subject
+            if cc := mail_data.get("cc"):
+                message["Cc"] = ", ".join(cc)
+            if bcc := mail_data.get("bcc"):
+                message["Bcc"] = ", ".join(bcc)
+            if return_receipt := mail_data.get("return_receipt"):
+                message["Disposition-Notification-To"] = return_receipt
+
+            # --- Update the text body while keeping attachments intact ---
+            body_text = mail_data.get("body") or ""
+            if message.is_multipart():
+                # Replace only the text/plain body part, leave attachments untouched
+                for part in message.walk():
+                    if part.get_content_type() == "text/plain" and part.get_content_disposition() != "attachment":
+                        part.set_content(body_text)
+                        break
+                else:
+                    # No text/plain part found; attach one
+                    message.attach(email_existing.mime.text.MIMEText(body_text, "plain"))
+            else:
+                message.set_content(body_text)
+
+            raw_draft = client.save_draft(message, mail_server_uid)
+            new_mail_server_uid: str = raw_draft.get("uid", "")
+
+            tmpdraftmngr.release(resolved_key, new_mail_server_uid)
+
+        parsed = self._parse_mail(raw_draft)
+        parsed["key"] = resolved_key
+        return parsed
+
+    def upload_attachment(self, account_id: str, filename: str, content_type: str, file_data: bytes, key: str | None = None) -> dict[str, Any]:
+        """Add an attachment to the "mail in progress" draft, managing the tmp_draft table.
+
+        If *key* is provided, the corresponding tmp_draft row is looked up, the owner is verified,
+        the lock state is checked with a short polling wait (up to 2s every 100ms) before giving up (409).
+        If *key* is absent, a new tmp_draft entry is created (after checking the per-user limit).
+
+        The existing IMAP draft is fetched, the attachment is added to it, and the draft is replaced.
+
+        :param account_id: The account identifier
+        :type account_id: str
+        :param filename: The attachment filename
+        :type filename: str
+        :param content_type: The MIME content type of the attachment (e.g. "application/pdf")
+        :type content_type: str
+        :param file_data: Raw bytes of the attachment
+        :type file_data: bytes
+        :param key: Optional tmp_draft key; if None a new tmp_draft is created
+        :type key: str | None
+        :return: Dict with the tmp_draft key
+        :rtype: dict[str, Any]
+        :raises RequestException: If any validation or operation fails
+        """
+        import email as email_existing
+        import email.policy
+
+        tmpdraftmngr = TmpDraftManager(self._get_db(), self.user.uid)
+
+        with tmpdraftmngr.locked(key, wait_if_locked=True) as (resolved_key, mail_server_uid):
+            attachments: list[str] = []
+            try:
+                client = self._open_client_for(account_id)
+
+                # --- Fetch existing draft or start with an empty message ---
+                if mail_server_uid is not None:
+                    folder_path = client.folders_map_type_to_name[cs.MAIL_FOLDER_DRAFT]
+                    raw_eml = client.fetch_mail_raw(folder_path, mail_server_uid)
+                    # Parse directly as EmailMessage (policy=default) so we can call add_attachment() on it
+                    message = email_existing.message_from_string(raw_eml, policy=email.policy.default)
+                    # Collect already-present attachment filenames for the response
+                    for part in message.walk():
+                        if part.get_content_disposition() == "attachment":
+                            part_filename = part.get_filename()
+                            if part_filename:
+                                attachments.append(part_filename)
+                else:
+                    message = EmailMessage()
+
+                # --- Add the new attachment directly to the existing message ---
+                maintype, subtype = content_type.split("/", 1) if "/" in content_type else ("application", "octet-stream")
+                message.add_attachment(file_data, maintype=maintype, subtype=subtype, filename=filename)
+                attachments.append(filename)
+
+                raw_draft = client.save_draft(message, mail_server_uid)
+                new_mail_server_uid: str = raw_draft.get("uid", "")
+            except Exception as ex:
+                if not isinstance(ex, RequestException):
+                    raise RequestException(err.ERROR_TMP_DRAFT_ATTACHMENT_FAILED.m, error=err.ERROR_TMP_DRAFT_ATTACHMENT_FAILED) from ex
+                raise
+
+            tmpdraftmngr.release(resolved_key, new_mail_server_uid)
+
+        return {
+            "key": resolved_key,
+            "attachments": attachments
+        }
+
+    def validate_tmp_draft_key(self, key: str) -> None:
+        """Validate that a tmp_draft key exists and belongs to the current user, and is not locked.
+
+        :param key: The tmp_draft key to validate.
+        :type key: str
+        :raises RequestException: 404 if key not found, 401 if owner mismatch, 409 if locked.
+        """
+        tmpdraftmngr = TmpDraftManager(self._get_db(), self.user.uid)
+        _key, row_owner, _uid, row_locked = tmpdraftmngr.fetch_row(key)
+        tmpdraftmngr.check_owner(row_owner)
+        if row_locked:
+            raise RequestException(err.ERROR_TMP_DRAFT_LOCKED.m, error=err.ERROR_TMP_DRAFT_LOCKED)
+
+    def delete_tmp_draft(self, key: str, account_id: str | None = None) -> None:
+        """Delete a tmp_draft row by key, and remove the associated IMAP draft if present.
+
+        If *account_id* is provided and the tmp_draft row contains a mail_server_uid,
+        the corresponding draft is deleted from the IMAP Drafts folder before the DB row
+        is removed.
+
+        :param key: The tmp_draft key to delete.
+        :type key: str
+        :param account_id: Optional account identifier used to open the IMAP client and
+            delete the draft from the Drafts folder.
+        :type account_id: str | None
+        :raises RequestException: If deletion fails.
+        """
+        tmpdraftmngr = TmpDraftManager(self._get_db(), self.user.uid)
+
+        if account_id is not None:
+            try:
+                _key, _owner, mail_server_uid, _locked = tmpdraftmngr.fetch_row(key)
+                if mail_server_uid:
+                    client = self._open_client_for(account_id)
+                    client.delete_mail_permanently_from_folder_type(cs.MAIL_FOLDER_DRAFT, mail_server_uid)
+            except RequestException:
+                logger_mail_server.warning("Failed to delete IMAP draft for uid %s", mail_server_uid)
+
+        tmpdraftmngr.delete(key)
 
     def save_mail_to_folder(self, account_id: str, message: EmailMessage, folder_type: str) -> None:
         """Append an already-built email message to a folder identified by its type.

@@ -295,10 +295,42 @@ IDX_REM_EVENT_KEY = Index(name="idx_rem_event_key", columns=(COL_REM_EVENT_KEY.n
 TABLE_REMINDER = Table(name=process_config.SOGO_P_TABLES_REMINDER, columns=ALL_REM_COL, primary_keys=(COL_ID.name,),
                        indexes=[IDX_REM_TRIGGER, IDX_REM_EVENT_KEY])
 
+##############################
+# Table tmp_draft      #
+##############################
+"""
+Temporary table tracking draft state for mail operations.
+Prevents concurrent modifications on the same draft.
+
+Key queries:
+  SELECT ... FROM tmp_draft WHERE owner = ?
+  SELECT ... FROM tmp_draft WHERE key = ?
+"""
+# key: opaque unique hash identifying this draft state entry
+# owner: uid of the user owning the draft — FK to sogo_user_profiles.uid — indexed for per-user queries
+# mail_server_uid: uid used to locate the Draft on the mail server
+# lock_state: True means a request is currently modifying the Draft; other operations must wait
+COL_DRAFT_KEY            = Column(name="key",             data_type="str",  is_unique=True, extra_args={"max_len": 64})
+COL_DRAFT_OWNER          = Column(name="owner",           data_type="str",                  extra_args={"max_len": 512})
+COL_DRAFT_MAIL_SERVER_UID = Column(name="mail_server_uid", data_type="str",                 extra_args={"max_len": 512})
+COL_DRAFT_LOCK_STATE     = Column(name="lock_state",      data_type="bool")
+
+ALL_DRAFT_COL = [COL_ID,
+                 COL_DRAFT_KEY,
+                 COL_DRAFT_OWNER,
+                 COL_DRAFT_MAIL_SERVER_UID,
+                 COL_DRAFT_LOCK_STATE]
+
+IDX_DRAFT_OWNER = Index(name="idx_draft_owner", columns=(COL_DRAFT_OWNER.name,))
+
+TABLE_DRAFT_STATE = Table(name="tmp_draft", columns=ALL_DRAFT_COL, primary_keys=(COL_ID.name, COL_DRAFT_KEY.name),
+                          indexes=[IDX_DRAFT_OWNER])
+
 ALL_TABLES = [TABLE_SETTINGS,
               TABLE_DOMAIN,
               TABLE_RULES,
               TABLE_USER,
               TABLE_CALENDAR,
               TABLE_EVENT,
-              TABLE_REMINDER]
+              TABLE_REMINDER,
+              TABLE_DRAFT_STATE]
