@@ -8,6 +8,7 @@ from io import BytesIO
 from re import search as reg_search
 import zipfile
 from email.message import EmailMessage
+import email.policy
 
 from app.config.settings.UserSettings import UserMailViewSettings, UserMailViewSettingsObj, UserMailGeneralSettings
 from app.module.mail.model.TmpDraftManager import TmpDraftManager
@@ -865,7 +866,6 @@ class ModuleMail:
         :raises RequestException: If any validation or operation fails
         """
         import email as email_existing
-        import email.policy
 
         tmpdraftmngr = TmpDraftManager(self._get_db(), self.user.uid)
 
@@ -921,6 +921,39 @@ class ModuleMail:
         parsed["key"] = resolved_key
         return parsed
 
+    @staticmethod
+    def _resolve_attachment_filename(filename: str, existing_filenames: list[str]) -> str:
+        """Return a unique filename by appending ``(n)`` before the extension if needed.
+
+        If *filename* already exists in *existing_filenames*, tries ``name(1).ext``,
+        ``name(2).ext``, etc. until a free name is found.
+
+        :param filename: The desired filename.
+        :type filename: str
+        :param existing_filenames: List of filenames already present in the draft.
+        :type existing_filenames: list[str]
+        :return: A filename that does not collide with any entry in *existing_filenames*.
+        :rtype: str
+        """
+        if filename not in existing_filenames:
+            return filename
+
+        # Split stem and extension (e.g. "pj.pdf" -> "pj", ".pdf")
+        if "." in filename:
+            dot_idx = filename.rfind(".")
+            stem = filename[:dot_idx]
+            ext = filename[dot_idx:]
+        else:
+            stem = filename
+            ext = ""
+
+        counter = 1
+        while True:
+            candidate = f"{stem}({counter}){ext}"
+            if candidate not in existing_filenames:
+                return candidate
+            counter += 1
+
     def upload_attachment(self, account_id: str, filename: str, content_type: str, file_data: bytes, key: str | None = None) -> dict[str, Any]:
         """Add an attachment to the "mail in progress" draft, managing the tmp_draft table.
 
@@ -945,7 +978,6 @@ class ModuleMail:
         :raises RequestException: If any validation or operation fails
         """
         import email as email_existing
-        import email.policy
 
         tmpdraftmngr = TmpDraftManager(self._get_db(), self.user.uid)
 
@@ -969,10 +1001,13 @@ class ModuleMail:
                 else:
                     message = EmailMessage()
 
+                # --- Resolve filename conflicts ---
+                filename = self._resolve_attachment_filename(filename, attachments)
+
                 # --- Add the new attachment directly to the existing message ---
                 maintype, subtype = content_type.split("/", 1) if "/" in content_type else ("application", "octet-stream")
                 message.add_attachment(file_data, maintype=maintype, subtype=subtype, filename=filename)
-                attachments.append(filename)
+                #attachments.append(filename)
 
                 raw_draft = client.save_draft(message, mail_server_uid)
                 new_mail_server_uid: str = raw_draft.get("uid", "")
@@ -985,8 +1020,51 @@ class ModuleMail:
 
         return {
             "key": resolved_key,
-            "attachments": attachments
+            "filename": filename
         }
+
+    def get_attachments_from_tmp_draft(self, account_id: str, key: str) -> list[dict]:
+        """Retrieve attachments stored in the IMAP draft linked to *key*.
+
+        Fetches the raw EML from the Drafts folder for the given tmp_draft key and
+        extracts all attachment parts (content-disposition: attachment).
+
+        :param account_id: The account identifier used to open the IMAP client.
+        :type account_id: str
+        :param key: The tmp_draft key to look up.
+        :type key: str
+        :return: List of attachment dicts with keys ``filename``, ``data``
+            (raw bytes) and ``content_type``.
+        :rtype: list[dict]
+        :raises RequestException: If the tmp_draft row is not found, the owner
+            doesn't match, or the IMAP fetch fails.
+        """
+        import email as email_existing
+
+        tmpdraftmngr = TmpDraftManager(self._get_db(), self.user.uid)
+        _key, row_owner, mail_server_uid, _locked = tmpdraftmngr.fetch_row(key)
+        tmpdraftmngr.check_owner(row_owner)
+
+        if not mail_server_uid:
+            return []
+
+        client = self._open_client_for(account_id)
+        folder_path = client.folders_map_type_to_name[cs.MAIL_FOLDER_DRAFT]
+        raw_eml = client.fetch_mail_raw(folder_path, mail_server_uid)
+        message = email_existing.message_from_string(raw_eml, policy=email.policy.default)
+
+        attachments: list[dict] = []
+        for part in message.walk():
+            if part.get_content_disposition() == "attachment":
+                filename = part.get_filename() or "attachment"
+                data = part.get_payload(decode=True)
+                content_type = part.get_content_type() or "application/octet-stream"
+                attachments.append({
+                    "filename": filename,
+                    "data": data,
+                    "content_type": content_type,
+                })
+        return attachments
 
     def validate_tmp_draft_key(self, key: str) -> None:
         """Validate that a tmp_draft key exists and belongs to the current user, and is not locked.
