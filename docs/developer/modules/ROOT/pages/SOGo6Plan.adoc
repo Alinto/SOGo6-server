@@ -1,0 +1,508 @@
+= Sogo 6 TODO
+:page-toclevels: 3
+
+*Last update: **2026/06/02***
+
+* [*] 100%: Done
+* [*]  80%: Partially done (may need updates or works)
+* [ ]   0%: Not started or in early stage
+
+== Public and Community
+
+=== Github
+
+==== Files
+
+Those files are detected by github with easy link to them. 
+
+'''
+
+* [*] 80% (backend) README.md: first file a user see when going to our repo
+* [*] 80% (frontend) README.md: first file a user see when going to our repo
+
+For now they only explain how to start the project. Needs to add to introduce the repo,
+add link to our website, docs...
+
+'''
+
+* [ ] 0% (backend) CONTRIBUTING.md: file to explain how to contribute to the repo
+* [ ] 0% (frontend) CONTRIBUTING.md: file to explain how to contribute to the repo
+
+Tell the link to our dev deoc, the coding rule, if they needs to open an issue...
+
+'''
+
+* [*] 100% (backend) LICENSE.md: set our repo license
+* [*] 100% (frontend) LICENSE.md: set our repo license
+
+[NOTE]
+====
+Our license is  https://www.gnu.org/licenses/gpl-3.0.fr.html[GPLv3].
+====
+
+'''
+
+* [ ] 0% (backend) SECURITY.md: file to explain what to do if a vulnerability is found
+* [ ] 0% (frontend) SECURITY.md: file to explain what to do if a vulnerability is found
+
+Basically tell our contact to report and our policies on bug bounty.
+
+'''
+
+* [ ] 0% (backend) CHANGELOG.md: file to list the changelog
+* [ ] 0% (frontend) CHANGELOG.md: file to list the changelog
+
+Mandatory, we need to find an automatic way to populate this file between each release.
+Cannot be missed when we're going public.
+
+==== Issues and Pull Request
+
+The community will now report their bugs, issue or feature request directly on github.
+
+* [ ] 0%: set the rules on issues
+* [ ] 0%: set the template on issues creation
+* [ ] 0%: set the rules on Pull Request
+
+=== Website
+
+Currently, https://www.sogo.nu/[SOGo website] does not have any page about SOGo 6.
+
+[NOTE]
+====
+This website used an old version of the framework https://gohugo.io/[hugo] which have limitations on what can be done.
+Plus, nobody knows this framework. The current updates are made by Quentin but it's only text + image.
+====
+
+* [ ] 0%: Decide what to do
+
+* Should the website stay like this and we add new pages/contents for SOGo 6
+* Should the website be new with a link to old SOGo 5 website
+* Others?
+
+'''
+
+What SOGo 6 website should have that SOGo 5 already have
+[NOTE]
+====
+If we keep SOGo 5 website, it's faster
+====
+
+
+* [ ] 0%: Presentation/About
+* [ ] 0%: link to doc for installation, deployment
+* [ ] 100%?: news
+* [ ] 100%?: Community pannel with FAQ, docs...
+* [ ] 100%?: Prenium support and Partner Page
+
+The website must be ready for the first public release
+
+'''
+
+What SOGo 6 should have that SOGo's missing
+
+* [ ] 0% Security panel: that say the same thing as SECURITY.md
+* [ ] 0% Feature panel: Useful for the alpha version to make it clear to peole what is implemented and what is not.
+* [ ] 0% Roadmap panel: To tell what we're going next. USeful for alpha so they know what will comes first.
+
+For the first release, users need the above info but it can be stored in our repos instead.
+
+== Installation, deployment, update
+
+Currently SOGo 6 cannot be installed or deployed automatically. One's need to clone our repo and understand how to
+do it with our README.md
+
+[NOTE]
+====
+For an alpha release it's ok as it's better if only people that know what they're doing test SOGo 6. The issue
+reported will be moremMore thorough
+====
+
+
+=== Installation
+
+* [*] 100%: Clone our repo and do it yourself
+* [*] 100%: Devcontainer to test
+
+'''
+
+* [*] 70%: Dockerfile to build SOGo 6 backend
+* [*] 70%: Dockerfile to build SOGo 6 frontent
+
+There's already dockerfiles but for the devcontainer and they doesn't start the services. We need to make 
+new ones from them for no-dev mode.
+
+'''
+
+* [*] 10%: Provide a public image of SOGo 6 backend
+* [*] 10%: Provide a public image of SOGo 6 frontend
+
+We claim to the community that we will provide public image (on dockerhub?) that they will be able to use
+in their infrastructure.
+Not mandatory needed for an alpha, uses will be able to build their own if the Dockerfile is provided.
+
+'''
+
+* [] 0%: Choose how user can install SOGo 6.
+
+Two obvious choices:
+
+* `apt/yum install`:  -- needs to build packages (server, CI, script, package repos). ++ That's how is's done with SOGo 5
+and it's easy as apt/yum handle actions theyselves like upgrade, remove...
+* `curl -sSL https://install_sogo6.sogo.nu | bash`: A script in our repos that the user will run. -- have to handle upgrade, removal.
+must be top quality. ++ no server or CI needed, people could also contributes on it.
+
+[NOTE]
+====
+With SOGo 5, the package was mandatory as their is a long building phase. For SOGo 6, the build is very quick so a script is enough.
+====
+
+Both can be done or only one. 
+
+=== Deployment
+
+Once SOGo 6 backend is installed, how to run it and configure.
+
+* [*] 100%: use either ENV of file for process params (param needed to tun SOGo 6)
+* [*] 100%: use json file for system and domain params (param stored in database)
+* [*] 50%: Add parameters to either start the web serveur or the agent
+
+'''
+
+SOGo 6 backend uses a technology call Web Server Gateway Interface (WSGI). In brief there is two parts:
+- a web framework -> defined what happend for a http request
+- a web server gateway -> handles incoming request and dispatch them to the web framework
+
+Flask is only the web framework, it cannot be used alone (only for dev purpose). There are several
+gateway but the focus is on Gunicorn, the most used. Admin will be free to replace Gunicorn if they want.
+
+* [ ] 0%: Add a basic gunicorn config to run SOGo
+* [ ] 0%: Expose the gunicorn config file to be modified.
+
+'''
+
+The frontend has almost no parameters.
+
+* [*] 100%: use ENV for params
+* [ ] 0%: Define how to deploy the user UI and the admin UI
+
+==== Update
+
+No reflexion has been made on how to updade sogo:
+
+* In case of image -> update the image
+* In case of RAW install -> re-run ap/yum/script to update
+
+== Robustness
+
+* [ ]   0%: Heavy load (lot of request)
+* [ ]   0%: test with different architetcture (postgresql vs mariadb, dovecot vs cyrus)
+* [ ]   0%: Requirement (ressource needed, python version needed...)
+
+
+== Documentation
+
+We're using https://docs.asciidoctor.org/[asciidoc] for the online and pdf documentation.
+
+=== Antora
+
+Antora is the framework that build the doc into html
+
+* [*] 40%: set up antora UI (there is broken link, button, default template, download, pdf...)
+* [ ] 0%: CI to auto deply doc on our website
+* [ ] 0%: Customize the doc (color, view...)
+
+=== Admin
+
+This doc if for system administrator that will install, deploy and integrates SOGo
+
+* [ ] 0%: doc on how to install, update
+* [ ] 0%: Doc on how to deploy
+* [*] 5%: Doc on settings
+
+[NOTE]
+====
+5% because the params are commented on our python files...
+====
+
+* [ ] 0%: Doc on specific topic (how to define an imap server, how to ass alias, resources...)
+
+=== Dev
+
+Document used by us and any future collaborator or contributor.
+
+* [*] 50%: How to run SOGo in dev mode
+* [*] 50%: Coding rule
+* [*] 50%: Core Concepts and architecture
+
+== Migration SOGo 5 to 6
+
+* [*]  30%: Migrate sogo.conf (SOGo 5) to SOGo 6
+* [ ]   0%: Migrate data
+
+== SOGo 6 Features
+
+[WARNING]
+====
+Two differents features may need the same "code block" meaning their status are linked. E.g: change the password of a user and search contact in
+the Global Address Book both need the LDAP manager.
+
+Making it diffcult to properly evaluates the time needed. On the contrary, if we speak only abour "code block" it's very complex
+to properly explain to which features this code is for.
+====
+
+=== starting
+
+* [*] 100%: check process settings in ENV
+* [*] 100%: check process settings in file
+* [*] 90%: Add param to allow admin to use their own tables name (PR in review)
+* [*] 100%: Check the cache 
+* [*] 100%: Check database connection
+* [*] 100%: Check database structure
+* [ ] 0%: Update database structure when new version, if needed
+* [ ] 0%: Check the agent
+* [*] 100%: Check if SOGo 6 is already configured in database
+* [*] 100%: If not, check if files with config has been provided then populate the database
+* [*] 100%: If not, block API except Admin APi to configure SOGo 6
+
+=== API
+
+* [*] 50%: Set CORS policy
+
+[NOTE]
+====
+IS only done for dev environement 
+====
+
+* [ ] 0%: Add CRSF protection
+* [*] 100%: Check if request is correct content-type for the endpoint
+* [*] 100%: Protect authenticated endpoints
+* [*] 80%: Check is user is still valid
+[NOTE]
+====
+Is missing an admin param to add intervall in user check to avoid server overloading.
+====
+
+=== Precondition
+
+* [*] 100%: endpoint to return parameters needed by the UI before actually starting.
+
+[NOTE]
+====
+The only example for now is if the UI will make the login in two steps (first username, then password) or in one step (username + password)
+====
+
+=== auth
+
+* [*] 100%: get auth method for this domain (plain, opendid...)
+* [*]  50%: plain auth method (username + password)
+* [*]   0%: openndid auth method
+* [*]   0%: saml2 auth method
+* [*]   0%: cas auth method
+* [ ]   0%: MFA TOTP
+* [ ]   0%: logout (end user session) from SOGo
+* [ ]   0%: revoke openid token
+* [ ]   0%: Avoid loop on SSO login/logout
+* [ ]   0%: check if password is strong enough on login (plain)
+* [ ]   0%: Password expired and grace policy on login (plain)
+
+[NOTE]
+====
+SOGo 5 already manages that IF the user source is ldap and configured to do so.
+====
+
+* [ ] 0%: Force user to change its password (on admin action) (plain)
+* [ ] 0%: Force user to set a MFA method (on admin action) (plain)
+
+
+=== Mail
+
+Accounts
+
+* [*] 100%: list accounts (main and external) or get one specific
+* [*] 100%: Get quota, if available on the imap server
+* [*] 60%: Delegate its account (means give another user the right to use our identity to send mail)
+* [*] 100%: Add, modify or remove external accounts, if allowed
+* [*] 100%: Add, modify or remove identities, if allowed
+* [*] 100%: Add, modify or remove signatures. Can have several signatures.
+* [ ] 0%: Add pkcs7 certificate to sign mail and received encrypted mail
+* [ ] 0%: Add openPGP certificate to sign mail and received encrypted mail
+* [*] 100%: Purge (=delete all mail older than X) an entire account
+
+'''
+
+Folders
+
+* [*] 100%: List folders or get one specific
+* [*] 100%: Kind of folder: Inbox, draft, sent, junk, tash, template
+* [*] 100%: Create or remove folder or subfolders (except INBOX)
+* [*]  70%: Modify folder
+* [*] 100%: Expunge (=remove all mails flag as deleted from the folder) a folder
+* [*] 100%: Purge (=delete all mail older than X) a folder
+* [*]  20%: Mark all mails in a folder as read
+* [*]  80%: Share a folder with rights
+* [*]  40%: Search in a folder
+* [*]  40%: sort mails in a folder
+* [ ]   0%: filter mails in a folder
+* [ ]   0%: export a folder
+
+
+'''
+
+Mails reading
+
+* [*] 100%: list mails of get one specific
+* [*] 100%: Mark a mail as read/unread
+* [*] 100%: Mark a mail as important
+* [*] 100%: tag/untag a mail
+* [*] 100%: move a mail to another folder
+* [*] 100%: copy a mail to another folder
+* [*] 100%: download a mail
+* [*]  50%: flag a mail as spam
+* [*]  80%: flag a mail as ham
+* [*] 100%: See the raw message (.eml)
+* [*] 100%: delete a mail
+* [*]  10%: Make the actions above on several mail at once
+* [ ]   0%: Preview an attachment
+* [ ]   0%: Download an attachment
+* [ ]   0%: Check public key validity
+* [ ]   0%: Store public key of sender
+* [ ]   0%: Check the signature (hash) of a mail
+* [ ]   0%: Decrypt encrypted mail
+* [ ]   0%: Decode TNEF attachment (microsoft kinf of attachment)
+
+'''
+
+Mails sending
+
+[NOTE]
+====
+A "mail in progress" means that the client/user is currently writting a mail. This 
+"mail in progress" is not stored in real-time into the Draft folder. Hence a temporary
+state that makes the link between the "mail in progress" and the mail currently stored in the Draft folder.
+====
+
+* [*]  70%: save a "mail in progress" as Draft
+* [*]  70%: add attachment to a "mail in progress"
+* [*]  70%: send a mail directly
+* [*]  70%: send a "mail in progress"
+* [*]  70%: reply/forward
+* [*]  70%: cancel a "mail in progress" (will be deleted from Draft)
+* [*]  70%: close a "mail in progress" (will still be in Draft)
+* [ ]   0%: Get all current "mail in progress"
+* [ ]   0%: send a receipt when reading a mail asking for one
+
+
+=== Calendar
+
+* [*] 100%: Have a personal calendar
+* [*] 100%: Create a calendar
+* [*] 100%: Delete a calendar (except personal)
+* [*] 95%: modify a calendar
+* [ ]   0%: share a calendar with rights
+* [*] 100%: Create a sogo-token for public share (read only)
+* [*] 100%: Delete the sogo-token for public share (read only)
+* [*] 100%: Add a external .ics calendar 
+* [*]  30%: export its calendar
+* [ ]   0%: subscribe to another sogo user calendar
+* [ ]   0%: subscribe to an external calendar (caldav)
+
+'''
+
+Events
+
+* [*] 100%: list all events (across calendars) or a specific one
+* [*] 100%: list all events of a calendar or a specific one
+* [*] 100%: create/modify/remove a event
+
+'''
+
+Tasks
+
+* [*] 100%: list all tasks (across calendars) or a specific one
+* [*] 100%: list all tasks of a calendar or a specific one
+* [*] 100%: create/modify/remove a task
+
+'''
+
+Journal
+
+[NOTE]
+====
+Journal are dated notes. New feature of SOGo 6.
+====
+
+* [ ]   0%: list all journals (across calendars) or a specific one
+* [ ]   0%: list all journals of a calendar or a specific one
+* [ ]   0%: create/modify/remove a task
+
+=== Contacts
+
+AddressBooks
+
+* [ ]   0%: Have a personal AddressBook
+* [ ]   0%: Create an AddressBook
+* [ ]   0%: Delete an AddressBook (except personal)
+* [ ]   0%: modify an AddressBook
+* [ ]   0%: share a AddressBook with rights
+* [ ]   0%: export its AddressBook
+* [ ]   0%: subscribe to another sogo user AddressBook
+* [ ]   0%: subscribe to an external AddressBook (cardav)
+
+'''
+
+Contact
+
+* [ ]   0%: list all contacts (across AddressBooks) or a specific one
+* [ ]   0%: list all contacts of a AddressBook or a specific one
+* [ ]   0%: create/modify/remove a contact
+
+
+=== Sync with others app
+
+* [ ]   0%: Caldav server
+* [ ]   0%: Cardav server
+* [ ]   0%: ActiveSync server
+
+=== Admin
+
+ Auth
+
+* [*] 80%: Basic auth method (username + password)
+* [ ]  0%: API token
+* [ ]  0%: Elevate users to admin
+* [ ]  0%: Make SuperAdmin (=can act on user API to do things (create fokder, set acl...))
+
+'''
+
+Config
+
+* [*] 100%: System settings (settings that affect the whole SOGo)
+* [*] 80%: Domain settings (settings that affect specific user's domain with default value)
+* [ ]   0%: Rule settings (settings that affect several domains)
+* [ ]   0%: Visibility settings (settings that says who can see who in autocompletion)
+
+'''
+
+Tools
+
+* [*] 100%: List all user session activity
+* [*]  80%: revoke a user session (or several)
+* [*]  80%: revoke all user session older than X
+
+* [ ]   0%: Clean deleted events and contacts (they are soft deleted by user)
+* [ ]   0%: Remove user (all info from database, not the user source)
+* [ ]   0%: rename user (in database, not user source) 
+* [ ]   0%: Update secret (for passwords, certificates...)
+
+'''
+
+Jobs (Asynchronous Tasks)
+
+* [ ]   0%: List all jobs
+* [ ]   0%: Revoke one or seveeral Jobs
+
+'''
+
+Debug
+
+* [ ] 10%: Set logger for debug
