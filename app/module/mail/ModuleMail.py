@@ -9,6 +9,8 @@ from re import search as reg_search
 import zipfile
 from email.message import EmailMessage
 import email.policy
+import email as email_existing
+import email.mime.text
 
 from app.config.settings.UserSettings import UserMailViewSettings, UserMailViewSettingsObj, UserMailGeneralSettings
 from app.module.mail.model.TmpDraftManager import TmpDraftManager
@@ -762,6 +764,57 @@ class ModuleMail:
 
         return self._parse_mail(mail_data)
 
+    def open_mail_for_edit(self, account_id: str, folder_name: str, mail_uid: str) -> dict[str, Any]:
+        """Open an existing mail for editing by copying it into a new tmp_draft entry.
+
+        Fetches the raw EML of the mail identified by *mail_uid* in *folder_name*,
+        appends it to the Drafts folder as a new IMAP draft, then creates a new
+        tmp_draft row (respecting the per-user limit).
+
+        :param account_id: The account identifier.
+        :type account_id: str
+        :param folder_name: The name of the source folder containing the mail.
+        :type folder_name: str
+        :param mail_uid: The UID of the mail to open for editing.
+        :type mail_uid: str
+        :return: Parsed mail dict augmented with a ``key`` field (the new tmp_draft key).
+        :rtype: dict[str, Any]
+        :raises RequestException: If fetching the mail, creating the draft, or the DB
+            operation fails.
+        """
+        tmpdraftmngr = TmpDraftManager(self._get_db(), self.user.uid)
+        tmpdraftmngr.check_limit()
+
+        client = self._open_client_for(account_id)
+
+        try:
+            raw_eml = client.fetch_mail_raw(folder_name, mail_uid)
+            message = email_existing.message_from_string(raw_eml, policy=email.policy.default)
+            raw_draft = client.save_draft(message, uid=None)
+        except RequestException:
+            raise
+        except Exception as ex:
+            raise RequestException(err.ERROR_MAIL_EDIT_FAILED.m, error=err.ERROR_MAIL_EDIT_FAILED) from ex
+
+        new_mail_server_uid: str = raw_draft.get("uid", "")
+        new_key = tmpdraftmngr.generate_key()
+        tmpdraftmngr.insert_locked(new_key)
+        tmpdraftmngr.release(new_key, new_mail_server_uid)
+
+        # delete the original mail from its source folder
+        try:
+            client.delete_mails_by_uid(folder_name, mail_uid, move_to_trash=False, permanently=True)
+        except RequestException:
+            # Log the error but do not fail the whole operation, since the draft has been created successfully
+            logger_mail_server.warning(
+                "open_mail_for_edit: could not delete original mail uid=%s from folder '%s' after draft creation",
+                mail_uid, folder_name,
+            )
+
+        parsed = self._parse_mail(raw_draft)
+        parsed["key"] = new_key
+        return parsed
+
     def get_mailbox_quota(self, account_id: str) -> dict[str, Any] | None:
         """Get the quota information for a mailbox.
 
@@ -784,14 +837,6 @@ class ModuleMail:
         if quota is not None:
             quota["soft_quota_value"] = self.mail_settings.SOGO_D_SOFT_EMAIL_QUOTA
         return quota
-
-    def compose_email(self) -> dict[str, Any]:
-        """Compose a new email from the specified mailbox.
-        
-        :return: Email composition data
-        :rtype: dict[str, Any]
-        """
-        raise NotImplementedError("Message from ModuleMail.py: compose_email is not implemented yet")
 
 
     def export_folder_mails(self, folder_name: str) -> dict[str, Any]:
@@ -846,7 +891,7 @@ class ModuleMail:
         return {"raw": raw_content}
 
 
-    def save_draft(self, account_id: str, mail_data: dict, key: str | None = None) -> dict[str, Any]:
+    def save_draft(self, account_id: str, mail_data: dict, key: str | None = None, close: bool = False) -> dict[str, Any]:
         """Save a mail as a draft in the account's Drafts folder, managing the tmp_draft table.
 
         If *key* is provided, the corresponding tmp_draft row is looked up, the owner is verified,
@@ -854,6 +899,7 @@ class ModuleMail:
         If *key* is absent, a new tmp_draft entry is created (after checking the per-user limit).
 
         The tmp_draft row is locked around the IMAP operation and unlocked afterwards.
+        If *close* is True, the tmp_draft row is deleted after saving (the IMAP draft is kept).
 
         :param account_id: The account identifier
         :type account_id: str
@@ -861,11 +907,13 @@ class ModuleMail:
         :type mail_data: dict
         :param key: Optional tmp_draft key; if None a new tmp_draft is created
         :type key: str | None
+        :param close: If True, delete the tmp_draft row after saving (keep the IMAP draft)
+        :type close: bool
         :return: Dict with the tmp_draft key and the saved draft data
         :rtype: dict[str, Any]
         :raises RequestException: If any validation or operation fails
         """
-        import email as email_existing
+        
 
         tmpdraftmngr = TmpDraftManager(self._get_db(), self.user.uid)
 
@@ -908,7 +956,7 @@ class ModuleMail:
                         break
                 else:
                     # No text/plain part found; attach one
-                    message.attach(email_existing.mime.text.MIMEText(body_text, "plain"))
+                    message.attach(email.mime.text.MIMEText(body_text, "plain"))
             else:
                 message.set_content(body_text)
 
@@ -917,8 +965,13 @@ class ModuleMail:
 
             tmpdraftmngr.release(resolved_key, new_mail_server_uid)
 
+        if close:
+            tmpdraftmngr.delete(resolved_key)
+
         parsed = self._parse_mail(raw_draft)
         parsed["key"] = resolved_key
+        #remove uid from parsed?
+        # TODO: parsed.pop("uid", None)
         return parsed
 
     @staticmethod
@@ -1023,6 +1076,74 @@ class ModuleMail:
             "filename": filename
         }
 
+    def delete_attachment(self, account_id: str, key: str, filename: str) -> None:
+        """Remove an attachment from the IMAP draft linked to *key*.
+
+        The existing draft is fetched, the attachment matching *filename* is removed
+        from the MIME tree in-place (preserving multipart/alternative, inline parts, CIDs…),
+        and the draft is replaced. The tmp_draft row is updated with the new mail_server_uid.
+
+        :param account_id: The account identifier.
+        :type account_id: str
+        :param key: The tmp_draft key.
+        :type key: str
+        :param filename: The filename of the attachment to remove.
+        :type filename: str
+        :raises RequestException: If the key is invalid, attachment not found, or IMAP operation fails.
+        """
+        tmpdraftmngr = TmpDraftManager(self._get_db(), self.user.uid)
+
+        with tmpdraftmngr.locked(key, wait_if_locked=False) as (resolved_key, mail_server_uid):
+            try:
+                if mail_server_uid is None:
+                    raise RequestException(err.ERROR_TMP_DRAFT_ATTACHMENT_NOT_FOUND.m, error=err.ERROR_TMP_DRAFT_ATTACHMENT_NOT_FOUND)
+
+                client = self._open_client_for(account_id)
+                folder_path = client.folders_map_type_to_name[cs.MAIL_FOLDER_DRAFT]
+                raw_eml = client.fetch_mail_raw(folder_path, mail_server_uid)
+                message = email_existing.message_from_string(raw_eml, policy=email.policy.default)
+
+                if not self._remove_attachment_from_message(message, filename):
+                    raise RequestException(err.ERROR_TMP_DRAFT_ATTACHMENT_NOT_FOUND.m, error=err.ERROR_TMP_DRAFT_ATTACHMENT_NOT_FOUND)
+
+                raw_draft = client.save_draft(message, mail_server_uid)
+                new_mail_server_uid: str = raw_draft.get("uid", "")
+            except Exception as ex:
+                if not isinstance(ex, RequestException):
+                    raise RequestException(err.ERROR_TMP_DRAFT_DELETE_ATTACHMENT_FAILED.m, error=err.ERROR_TMP_DRAFT_DELETE_ATTACHMENT_FAILED) from ex
+                raise
+
+            tmpdraftmngr.release(resolved_key, new_mail_server_uid)
+
+    @staticmethod
+    def _remove_attachment_from_message(message: Message, filename: str) -> bool:
+        """Recursively remove the first attachment part matching *filename* from the MIME tree.
+
+        Operates in-place on *message*, preserving the entire original MIME structure
+        (multipart/alternative, inline parts, CIDs, nested multipart containers, etc.).
+        Only the target attachment leaf is removed from its parent's payload list.
+
+        :param message: The parsed email message to modify.
+        :type message: email.message.Message
+        :param filename: The attachment filename to remove.
+        :type filename: str
+        :return: True if the attachment was found and removed, False otherwise.
+        :rtype: bool
+        """
+        if not message.is_multipart():
+            return False
+
+        payload: list = message.get_payload()
+        for i, part in enumerate(payload):
+            if part.get_content_disposition() == "attachment" and part.get_filename() == filename:
+                del payload[i]
+                message.set_payload(payload)
+                return True
+            if part.is_multipart() and ModuleMail._remove_attachment_from_message(part, filename):
+                return True
+
+        return False
+
     def get_attachments_from_tmp_draft(self, account_id: str, key: str) -> list[dict]:
         """Retrieve attachments stored in the IMAP draft linked to *key*.
 
@@ -1066,6 +1187,44 @@ class ModuleMail:
                 })
         return attachments
 
+    def download_draft_attachment(self, account_id: str, key: str, filename: str) -> tuple[bytes, str]:
+        """Download a single attachment from the IMAP draft linked to *key*.
+
+        Fetches the raw EML from the Drafts folder for the given tmp_draft key,
+        walks the MIME tree and returns the raw bytes and content-type of the
+        first part whose filename matches *filename*.
+
+        :param account_id: The account identifier used to open the IMAP client.
+        :type account_id: str
+        :param key: The tmp_draft key to look up.
+        :type key: str
+        :param filename: The attachment filename to retrieve.
+        :type filename: str
+        :return: Tuple of (raw bytes, content_type string).
+        :rtype: tuple[bytes, str]
+        :raises RequestException: If the tmp_draft row is not found, the owner
+            doesn't match, the attachment is not found, or the IMAP fetch fails.
+        """
+        tmpdraftmngr = TmpDraftManager(self._get_db(), self.user.uid)
+        _key, row_owner, mail_server_uid, _locked = tmpdraftmngr.fetch_row(key)
+        tmpdraftmngr.check_owner(row_owner)
+
+        if not mail_server_uid:
+            raise RequestException(err.ERROR_TMP_DRAFT_ATTACHMENT_NOT_FOUND.m, error=err.ERROR_TMP_DRAFT_ATTACHMENT_NOT_FOUND)
+
+        client = self._open_client_for(account_id)
+        folder_path = client.folders_map_type_to_name[cs.MAIL_FOLDER_DRAFT]
+        raw_eml = client.fetch_mail_raw(folder_path, mail_server_uid)
+        message = email_existing.message_from_string(raw_eml, policy=email.policy.default)
+
+        for part in message.walk():
+            if part.get_content_disposition() == "attachment" and part.get_filename() == filename:
+                data = part.get_payload(decode=True)
+                content_type = part.get_content_type() or "application/octet-stream"
+                return data, content_type
+
+        raise RequestException(err.ERROR_TMP_DRAFT_ATTACHMENT_NOT_FOUND.m, error=err.ERROR_TMP_DRAFT_ATTACHMENT_NOT_FOUND)
+
     def validate_tmp_draft_key(self, key: str) -> None:
         """Validate that a tmp_draft key exists and belongs to the current user, and is not locked.
 
@@ -1105,6 +1264,57 @@ class ModuleMail:
                 logger_mail_server.warning("Failed to delete IMAP draft for uid %s", mail_server_uid)
 
         tmpdraftmngr.delete(key)
+
+    def delete_draft_and_tmp(self, account_id: str, key: str) -> None:
+        """Delete the IMAP draft and its tmp_draft row.
+
+        If the tmp_draft is locked, raises 409 immediately.
+
+        :param account_id: The account identifier.
+        :type account_id: str
+        :param key: The tmp_draft key.
+        :type key: str
+        :raises RequestException: 404 if not found, 401 if wrong owner, 409 if locked.
+        """
+        tmpdraftmngr = TmpDraftManager(self._get_db(), self.user.uid)
+        _key, row_owner, mail_server_uid, row_locked = tmpdraftmngr.fetch_row(key)
+        tmpdraftmngr.check_owner(row_owner)
+        if row_locked:
+            raise RequestException(err.ERROR_TMP_DRAFT_LOCKED.m, error=err.ERROR_TMP_DRAFT_LOCKED)
+
+        if mail_server_uid:
+            try:
+                client = self._open_client_for(account_id)
+                client.delete_mail_permanently_from_folder_type(cs.MAIL_FOLDER_DRAFT, mail_server_uid)
+            except RequestException:
+                logger_mail_server.warning("Failed to delete IMAP draft for uid %s on delete endpoint", mail_server_uid)
+
+        tmpdraftmngr.delete(key)
+
+    def close_draft(self, key: str) -> None:
+        """Remove the tmp_draft row without deleting the IMAP draft.
+
+        The mail will remain in the Draft folder and the user can resume editing from there.
+
+        :param key: The tmp_draft key.
+        :type key: str
+        :raises RequestException: 404 if not found, 401 if wrong owner, 409 if locked.
+        """
+        tmpdraftmngr = TmpDraftManager(self._get_db(), self.user.uid)
+        _key, row_owner, _uid, row_locked = tmpdraftmngr.fetch_row(key)
+        tmpdraftmngr.check_owner(row_owner)
+        if row_locked:
+            raise RequestException(err.ERROR_TMP_DRAFT_LOCKED.m, error=err.ERROR_TMP_DRAFT_LOCKED)
+        tmpdraftmngr.delete(key)
+
+    def list_current_drafts(self) -> list[dict]:
+        """Return all tmp_draft entries owned by the current user.
+
+        :return: List of dicts with ``key``, ``mail_server_uid``, ``locked``.
+        :rtype: list[dict]
+        """
+        tmpdraftmngr = TmpDraftManager(self._get_db(), self.user.uid)
+        return tmpdraftmngr.list_all()
 
     def save_mail_to_folder(self, account_id: str, message: EmailMessage, folder_type: str) -> None:
         """Append an already-built email message to a folder identified by its type.

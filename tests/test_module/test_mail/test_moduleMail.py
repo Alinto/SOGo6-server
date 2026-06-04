@@ -499,12 +499,6 @@ def test_share_folder_success(monkeypatch):
 
 # ========== Tests for NotImplementedError methods ==========
 
-def test_compose_email_not_implemented(monkeypatch):
-    """Test that compose_email raises NotImplementedError."""
-    module, _ = _make_module(monkeypatch)
-    with pytest.raises(NotImplementedError, match="compose_email is not implemented yet"):
-        module.compose_email()
-
 
 def test_update_folder_not_implemented(monkeypatch):
     """Test that update_folder raises NotImplementedError."""
