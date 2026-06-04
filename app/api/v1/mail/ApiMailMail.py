@@ -16,6 +16,7 @@ from .schemas.mail import (
     MailRawResponseSchema,
     MailActionSchema,
     MailDownloadSchema,
+    MailEditResponseSchema,
 )
 
 if TYPE_CHECKING:
@@ -282,13 +283,43 @@ class ApiMailDetailDownload(MethodView):
         )
 
 
+@blp.route("/<string:mail_uid>/edit")
+class ApiMailDetailEdit(MethodView):
+    """API to open a mail for editing by creating a new tmp_draft entry."""
+
+    @blp.response(200, MailEditResponseSchema, example=MailEditResponseSchema.example())
+    def get(self, account_id: str, folder_name: str, mail_uid: str) -> ResponseReturnValue:
+        """Open an existing mail for editing.
+
+        Fetches the mail identified by *mail_uid* from *folder_name*, copies it into
+        the Drafts folder as a new IMAP draft, and registers it in the tmp_draft table.
+        Returns the full mail content together with the newly created tmp_draft ``key``
+        that must be supplied to subsequent draft endpoints (save, upload attachment, send…).
+
+        :param account_id: The account identifier.
+        :type account_id: str
+        :param folder_name: The folder containing the source mail.
+        :type folder_name: str
+        :param mail_uid: The unique identifier of the mail to edit.
+        :type mail_uid: str
+        :return: Parsed mail data with an additional ``key`` field.
+        :rtype: ResponseReturnValue
+        """
+        logger_api.debug(
+            "Calling ApiMailDetailEdit.get for account_id: %s, folder_name: %s, mail_uid: %s",
+            account_id,
+            folder_name,
+            mail_uid,
+        )
+        interface: InterfaceApiMailMail = g.inter
+        return interface.open_mail_for_edit(account_id, folder_name, mail_uid)
+
+
 @blp.route("/<string:mail_uid>/reply")
 class ApiMailDetailReply(MethodView):
     """API to manage replies to a specific mail.
     """
     def post(self, account_id: str, folder_name: str, mail_uid: str) -> ResponseReturnValue:
-        """Action: Reply to a specific mail in the specified folder. (NOT IMPLEMENTED)
-        """
         logger_api.debug("Calling ApiMailDetailReply.post for account_id: %s, folder_name: %s, mail_uid: %s", account_id, folder_name, mail_uid)
         interface: InterfaceApiMailMail = g.inter
         return interface.reply_mail(account_id, folder_name, mail_uid)

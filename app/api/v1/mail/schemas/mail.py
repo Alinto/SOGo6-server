@@ -312,6 +312,41 @@ class MailRawResponseSchema(ApiBaseResponse):
         }
 
 
+class MailEditResponseSchema(ApiBaseResponse):
+    """
+    Schema for GET /mailboxes/<account_id>/folders/<path:folder_name>/mails/<mail_uid>/edit response.
+
+    Returns the full mail content along with the newly created tmp_draft ``key`` so the
+    caller can subsequently use the draft API to modify and send the mail.
+    """
+    data = fields.Dict(required=False, allow_none=True)
+
+    @classmethod
+    def example(cls) -> dict:
+        """Example response for opening a mail for editing.
+
+        :return: Example mail-edit response
+        :rtype: dict
+        """
+        return {
+            "error_code": 0,
+            "error_msg": "",
+            "data": {
+                "key": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
+                "uid": "42",
+                "subject": "Important Meeting Tomorrow",
+                "from": {"name": "Alice Smith", "email": "alice@example.com"},
+                "to": [{"name": "Bob Jones", "email": "bob@example.com"}],
+                "cc": [],
+                "contents": [
+                    {"content": "Hello,\n\nBest regards,\nAlice", "contentType": "text/plain", "shouldDisplayAttachment": False}
+                ],
+                "has_attachment": False,
+                "attachments": []
+            }
+        }
+
+
 # ===== Deprecated/Legacy Schemas =====
 
 class MailListQuerySchema(Schema):

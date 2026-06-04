@@ -41,11 +41,12 @@ class InterfaceApiMailSend:
         self.mail_outgoing_module = ModuleMailOutgoing(user, self.mail_settings)
 
 
-    def save_draft(self, account_id: str, mail_data: dict, key: str | None = None) -> tuple[dict, int]:
+    def save_draft(self, account_id: str, mail_data: dict, key: str | None = None, close: bool = False) -> tuple[dict, int]:
         """Save a mail as a draft in the account's Drafts folder.
 
         Delegates to ModuleMail which manages the tmp_draft table and the IMAP APPEND operation.
         The response data includes the tmp_draft key so the client can reference it in subsequent calls.
+        If *close* is True, the tmp_draft row is deleted after saving (the IMAP draft is kept).
 
         :param account_id: The account identifier ("0" for main account, hash for external)
         :type account_id: str
@@ -53,11 +54,13 @@ class InterfaceApiMailSend:
         :type mail_data: dict
         :param key: Optional tmp_draft key; if None a new tmp_draft entry is created
         :type key: str | None
+        :param close: If True, delete the tmp_draft row after saving (keep the IMAP draft)
+        :type close: bool
         :return: A tuple of (API response dict, status code)
         :rtype: tuple[dict, int]
         """
         try:
-            result = self.mail_module.save_draft(account_id, mail_data, key)
+            result = self.mail_module.save_draft(account_id, mail_data, key, close=close)
             return create_api_base_response(result)
         except RequestException as ex:
             logger_api.error("Request exception in save_draft for user %s, account %s: %s", self.user.uid, account_id, str(ex))
@@ -113,6 +116,36 @@ class InterfaceApiMailSend:
 
         return create_api_base_response(None)
 
+    def delete_draft(self, account_id: str, key: str) -> tuple[dict, int]:
+        """Delete the IMAP draft and its tmp_draft row.
+
+        :param account_id: The account identifier.
+        :type account_id: str
+        :param key: The tmp_draft key (mandatory).
+        :type key: str
+        :return: A tuple of (API response dict, status code)
+        :rtype: tuple[dict, int]
+        """
+        try:
+            self.mail_module.delete_draft_and_tmp(account_id, key)
+            return create_api_base_response(None)
+        except RequestException as ex:
+            logger_api.error("Request exception in delete_draft for user %s, account %s, key %s: %s", self.user.uid, account_id, key, str(ex))
+            return create_api_base_response(None, ex.error)
+
+    def list_current_drafts(self) -> tuple[dict, int]:
+        """Return all tmp_draft entries owned by the current user.
+
+        :return: A tuple of (API response dict, status code)
+        :rtype: tuple[dict, int]
+        """
+        try:
+            result = self.mail_module.list_current_drafts()
+            return create_api_base_response(result)
+        except RequestException as ex:
+            logger_api.error("Request exception in list_current_drafts for user %s: %s", self.user.uid, str(ex))
+            return create_api_base_response(None, ex.error)
+
     def upload_attachment(self, account_id: str, filename: str, content_type: str, file_data: bytes, key: str | None = None) -> tuple[dict, int]:
         """Add an attachment to the "mail in progress" draft.
 
@@ -134,4 +167,41 @@ class InterfaceApiMailSend:
             return create_api_base_response(result)
         except RequestException as ex:
             logger_api.error("Request exception in upload_attachment for user %s, account %s: %s", self.user.uid, account_id, str(ex))
+            return create_api_base_response(None, ex.error)
+
+    def delete_attachment(self, account_id: str, key: str, filename: str) -> tuple[dict, int]:
+        """Remove an attachment from the IMAP draft linked to *key*.
+
+        :param account_id: The account identifier.
+        :type account_id: str
+        :param key: The tmp_draft key.
+        :type key: str
+        :param filename: The filename of the attachment to remove.
+        :type filename: str
+        :return: A tuple of (API response dict, status code)
+        :rtype: tuple[dict, int]
+        """
+        try:
+            self.mail_module.delete_attachment(account_id, key, filename)
+            return create_api_base_response(None)
+        except RequestException as ex:
+            logger_api.error("Request exception in delete_attachment for user %s, account %s, key %s: %s", self.user.uid, account_id, key, str(ex))
+            return create_api_base_response(None, ex.error)
+
+    def download_draft_attachment(self, account_id: str, key: str, filename: str) -> tuple[bytes, str] | tuple[dict, int]:
+        """Download a single attachment from the IMAP draft linked to *key*.
+
+        :param account_id: The account identifier.
+        :type account_id: str
+        :param key: The tmp_draft key.
+        :type key: str
+        :param filename: The filename of the attachment to download.
+        :type filename: str
+        :return: A tuple of (raw bytes, content_type) on success, or (API error response dict, status code) on failure.
+        :rtype: tuple[bytes, str] | tuple[dict, int]
+        """
+        try:
+            return self.mail_module.download_draft_attachment(account_id, key, filename)
+        except RequestException as ex:
+            logger_api.error("Request exception in download_draft_attachment for user %s, account %s, key %s: %s", self.user.uid, account_id, key, str(ex))
             return create_api_base_response(None, ex.error)

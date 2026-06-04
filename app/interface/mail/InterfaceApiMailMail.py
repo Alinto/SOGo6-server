@@ -32,7 +32,7 @@ class InterfaceApiMailMail:
         self.mail_settings = MailSettingsObj(user_domain_settings[MailSettings.subparent])
         self.user = user
 
-        self.mail_module = ModuleMail(self.user, self.mail_settings)
+        self.mail_module = ModuleMail(self.user, self.mail_settings, self.process_setting)
 
     def get_mail_list(self, account_id: str, folder_name: str, collection_param: CollectionPaginateArgs) -> tuple[int, dict[str, Any], int]:
         """Retrieve a list of mails in a specific folder.
@@ -194,4 +194,23 @@ class InterfaceApiMailMail:
             return self.mail_module.download_mail(account_id, folder_name, mail_uid, download_format)
         except RequestException as ex:
             logger_api.error("Request exception in download_mail: %s", str(ex))
+            return create_api_base_response(None, ex.error)
+
+    def open_mail_for_edit(self, account_id: str, folder_name: str, mail_uid: str) -> tuple[dict[str, Any], int]:
+        """Open an existing mail for editing by copying it into a new tmp_draft entry.
+
+        :param account_id: The ID of the account
+        :type account_id: str
+        :param folder_name: The ID of the folder containing the source mail
+        :type folder_name: str
+        :param mail_uid: The unique identifier of the mail to edit
+        :type mail_uid: str
+        :return: A tuple of (API response dict with mail data and tmp_draft key, status code)
+        :rtype: tuple[dict[str, Any], int]
+        """
+        try:
+            result = self.mail_module.open_mail_for_edit(account_id, folder_name, mail_uid)
+            return create_api_base_response(result)
+        except RequestException as ex:
+            logger_api.error("Request exception in open_mail_for_edit: %s", str(ex))
             return create_api_base_response(None, ex.error)

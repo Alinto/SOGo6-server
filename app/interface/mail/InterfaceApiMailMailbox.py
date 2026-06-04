@@ -173,17 +173,6 @@ class InterfaceApiMailMailbox:
             return create_api_base_response(None, ex.error)
 
 
-    def compose_email(self, account_id: int) ->  tuple[dict, int]:
-        """Compose a new email from the specified mailbox.
-        
-        :param account_id: The account identifier
-        :type account_id: int
-        :return: A tuple of (API response dict, status code)
-        :rtype: Tuple[Dict[str, Any], int]
-        """
-        raise NotImplementedError("Compose email is not implemented yet")
-
-
     def get_mailbox_delegates(self, account_id: str) ->  tuple[dict, int]:
         """Get delegates for this mailbox.
         

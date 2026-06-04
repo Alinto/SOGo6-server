@@ -3,6 +3,11 @@ from app.utils.api.ApiBaseResponse import ApiBaseResponse
 from app.utils import constants as cs
 
 
+class SaveDraftQuerySchema(Schema):
+    """Query parameters for PUT /<key>/save."""
+    close = fields.Boolean(load_default=False, metadata={"description": "If true, delete the tmp_draft entry after saving (the IMAP draft is kept)."})
+
+
 class SaveDraftSchema(Schema):
     """
     Schema for POST /mailboxes/<account_id>/mail/save - Save a mail as a draft.
@@ -135,8 +140,7 @@ class SendMailSchema(Schema):
             "body": "Hello world! commment ça va ?",
             "cc": [],
             "bcc": [],
-            "return_receipt": None,
-            "attachments": []
+            "return_receipt": None
         }
 
 
@@ -149,3 +153,32 @@ class SendMailResponseSchema(ApiBaseResponse):
     @classmethod
     def example(cls) -> dict:
         return {}
+
+
+class KeyQuerySchema(Schema):
+    """
+    Query parameters schema for endpoints that require a mandatory ``key`` parameter.
+    """
+    key = fields.String(required=True, metadata={"description": "tmp_draft key (mandatory)"})
+
+
+class CurrentDraftItemSchema(Schema):
+    """Schema for a single tmp_draft entry returned by /current."""
+    key = fields.String()
+    mail_server_uid = fields.String()
+    locked = fields.Boolean()
+
+
+class CurrentDraftsResponseSchema(ApiBaseResponse):
+    """Schema for GET /current response."""
+    data = fields.List(fields.Nested(CurrentDraftItemSchema), required=False, allow_none=True)
+
+    @classmethod
+    def example(cls) -> dict:
+        return {
+            "error_code": 0,
+            "error_msg": "",
+            "data": [
+                {"key": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4", "mail_server_uid": "42", "locked": False}
+            ]
+        }
