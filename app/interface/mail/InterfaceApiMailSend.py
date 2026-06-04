@@ -84,6 +84,16 @@ class InterfaceApiMailSend:
             except RequestException as ex:
                 logger_api.error("Invalid tmp_draft key %s for user %s: %s", key, self.user.uid, str(ex))
                 return create_api_base_response(None, ex.error)
+
+            # Inject attachments stored in the IMAP draft into mail_data before sending
+            try:
+                draft_attachments = self.mail_module.get_attachments_from_tmp_draft(account_id, key)
+                if draft_attachments:
+                    existing = mail_data.get("attachments") or []
+                    mail_data = dict(mail_data)
+                    mail_data["attachments"] = existing + draft_attachments
+            except RequestException as ex:
+                logger_api.warning("Failed to retrieve attachments from tmp_draft key %s for user %s: %s", key, self.user.uid, str(ex))
         try:
             message = self.mail_outgoing_module.send_mail(account_id, mail_data)
         except RequestException as ex:

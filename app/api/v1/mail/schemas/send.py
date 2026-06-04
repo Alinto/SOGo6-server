@@ -33,26 +33,7 @@ class SaveDraftSchema(Schema):
         }
 
 
-class SaveDraftQuerySchema(Schema):
-    """
-    Query parameters schema for POST /mailboxes/<account_id>/mail/save.
-    """
-    key = fields.String(
-        required=False,
-        load_default=None,
-        allow_none=True
-    )
 
-
-class UploadAttachmentQuerySchema(Schema):
-    """
-    Query parameters schema for POST /mailboxes/<account_id>/mail/upload.
-    """
-    key = fields.String(
-        required=False,
-        load_default=None,
-        allow_none=True
-    )
 
 
 class UploadAttachmentResponseSchema(ApiBaseResponse):

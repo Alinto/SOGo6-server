@@ -12,12 +12,9 @@ from app.utils import errors as err
 
 from app.api.v1.mail.schemas.send import (
     SendMailSchema,
-    SendMailQuerySchema,
     SendMailResponseSchema,
     SaveDraftSchema,
     SaveDraftResponseSchema,
-    SaveDraftQuerySchema,
-    UploadAttachmentQuerySchema,
     UploadAttachmentResponseSchema,
     UploadAttachmentFileSchema,
 )
@@ -53,66 +50,136 @@ def init_mail_config() -> None:
 @blp.route("/send")
 class ApiMailSendAccountSend(MethodView):
     """
-    Action: Send Email
+    Action: Send Email (no tmp_draft key).
     """
-    @blp.arguments(SendMailQuerySchema, location='query', as_kwargs=False, error_status_code=400)
     @blp.arguments(SendMailSchema, example=SendMailSchema.example(), error_status_code=400)
     @blp.response(200, SendMailResponseSchema)
-    def post(self, query_args: dict, mail_data: dict, account_id: str) -> ResponseReturnValue:
+    def post(self, mail_data: dict, account_id: str) -> ResponseReturnValue:
         """
         Send an email from the specified mailbox account.
         account_id="0" uses the main account, otherwise uses the external account with the given hash.
         """
         logger_api.debug("Calling ApiMailSendAccountSend.post for account_id: %s", account_id)
         interface: InterfaceApiMailSend = g.inter
-        key = query_args.get("key")
-        return interface.send_mail(account_id, mail_data, key)
+        return interface.send_mail(account_id, mail_data, key=None)
 
 
-
-@blp.route("/save")
-class ApiMailSendAccountSaveDraft(MethodView):
+@blp.route("/<string:key>/send")
+class ApiMailSendAccountSendWithDraft(MethodView):
     """
-    Action: Save a mail as a draft in the account's Drafts folder.
+    Action: Send Email from an existing tmp_draft (validates and deletes the tmp_draft after sending).
     """
-
-    @blp.arguments(SaveDraftQuerySchema, location="query")
-    @blp.arguments(SaveDraftSchema, example=SaveDraftSchema.example(), error_status_code=400)
-    @blp.response(200, SaveDraftResponseSchema, example=SaveDraftResponseSchema.example())
-    def post(self, query_args: dict, mail_data: dict, account_id: str) -> ResponseReturnValue:
-        """Save a mail as a draft.
+    @blp.arguments(SendMailSchema, example=SendMailSchema.example(), error_status_code=400)
+    @blp.response(200, SendMailResponseSchema)
+    def post(self, mail_data: dict, account_id: str, key: str) -> ResponseReturnValue:
         """
-        key: str | None = query_args.get("key", None)
+        Send an email linked to an existing tmp_draft key.
+        The tmp_draft entry is validated and deleted after a successful send.
+        """
         logger_api.debug(
-            "Calling ApiMailSendAccountSaveDraft.post for account_id: %s, key: %s",
+            "Calling ApiMailSendAccountSendWithDraft.post for account_id: %s, key: %s",
             account_id,
             key,
         )
         interface: InterfaceApiMailSend = g.inter
-        return interface.save_draft(account_id, mail_data, key)
+        return interface.send_mail(account_id, mail_data, key=key)
 
 
-@blp.route("/upload")
-class ApiMailSendAccountUploadAttachment(MethodView):
+
+@blp.route("/save")
+class ApiMailSendAccountCreateDraft(MethodView):
     """
-    Action: Upload an attachment to a mail in progress (draft).
+    Action: Create a new tmp_draft and save as a draft in the account's Drafts folder.
+    """
+
+    @blp.arguments(SaveDraftSchema, example=SaveDraftSchema.example(), error_status_code=400)
+    @blp.response(200, SaveDraftResponseSchema, example=SaveDraftResponseSchema.example())
+    def post(self, mail_data: dict, account_id: str) -> ResponseReturnValue:
+        """Create a new draft (no existing tmp_draft key).
+
+        Returns the draft content and the newly created tmp_draft key.
+        """
+        logger_api.debug("Calling ApiMailSendAccountCreateDraft.post for account_id: %s", account_id)
+        interface: InterfaceApiMailSend = g.inter
+        return interface.save_draft(account_id, mail_data, key=None)
+
+
+@blp.route("/<string:key>/save")
+class ApiMailSendAccountUpdateDraft(MethodView):
+    """
+    Action: Update an existing tmp_draft and save as a draft in the account's Drafts folder.
+    """
+
+    @blp.arguments(SaveDraftSchema, example=SaveDraftSchema.example(), error_status_code=400)
+    @blp.response(200, SaveDraftResponseSchema, example=SaveDraftResponseSchema.example())
+    def put(self, mail_data: dict, account_id: str, key: str) -> ResponseReturnValue:
+        """Update an existing draft identified by *key*.
+
+        Returns the updated draft content and the tmp_draft key.
+        """
+        logger_api.debug(
+            "Calling ApiMailSendAccountUpdateDraft.put for account_id: %s, key: %s",
+            account_id,
+            key,
+        )
+        interface: InterfaceApiMailSend = g.inter
+        return interface.save_draft(account_id, mail_data, key=key)
+
+
+@blp.route("/attachments")
+class ApiMailSendAccountCreateAttachment(MethodView):
+    """
+    Action: Upload an attachment, creating a new tmp_draft entry.
     """
     accepted_content_types = {"multipart/form-data"}
-    @blp.arguments(UploadAttachmentQuerySchema, location="query")
+
     @blp.arguments(
         UploadAttachmentFileSchema,
         location="files",
         content_type="multipart/form-data",
     )
     @blp.response(200, UploadAttachmentResponseSchema, example=UploadAttachmentResponseSchema.example())
-    def post(self, query_args: dict, file: dict, account_id: str) -> ResponseReturnValue:
-        """Upload an attachment to the mail in progress.
+    def post(self, file: dict, account_id: str) -> ResponseReturnValue:
+        """Upload an attachment, creating a new tmp_draft entry.
 
         The file must be sent as multipart/form-data with a field named 'file'.
-        If no key is provided, a new tmp_draft entry is created.
+        """
+        logger_api.debug(
+            "Calling ApiMailSendAccountCreateAttachment.post for account_id: %s",
+            account_id,
+        )
+
+        file = request.files.get("file")
+        if file is None:
+            raise RequestException(err.ERROR_TMP_DRAFT_UPLOAD_NO_FILE.m, error=err.ERROR_TMP_DRAFT_UPLOAD_NO_FILE)
+
+        filename: str = file.filename or "attachment"
+        content_type: str = file.content_type or "application/octet-stream"
+        file_data: bytes = file.read()
+
+        interface: InterfaceApiMailSend = g.inter
+        return interface.upload_attachment(account_id, filename, content_type, file_data, key=None)
+
+
+@blp.route("/<string:key>/attachments")
+class ApiMailSendAccountUploadAttachment(MethodView):
+    """
+    Action: Upload an attachment to an existing tmp_draft entry.
+    """
+    accepted_content_types = {"multipart/form-data"}
+
+    @blp.arguments(
+        UploadAttachmentFileSchema,
+        location="files",
+        content_type="multipart/form-data",
+    )
+    @blp.response(200, UploadAttachmentResponseSchema, example=UploadAttachmentResponseSchema.example())
+    def post(self, file: dict, account_id: str, key: str) -> ResponseReturnValue:
+        """Upload an attachment to the draft identified by *key*.
+
+        The file must be sent as multipart/form-data with a field named 'file'.
         If the draft is currently locked, the request will wait up to 2 seconds before returning 409.
         """
-        key: str | None = query_args.get("key", None)
         logger_api.debug(
             "Calling ApiMailSendAccountUploadAttachment.post for account_id: %s, key: %s",
             account_id,
@@ -128,4 +195,4 @@ class ApiMailSendAccountUploadAttachment(MethodView):
         file_data: bytes = file.read()
 
         interface: InterfaceApiMailSend = g.inter
-        return interface.upload_attachment(account_id, filename, content_type, file_data, key)
+        return interface.upload_attachment(account_id, filename, content_type, file_data, key=key)
