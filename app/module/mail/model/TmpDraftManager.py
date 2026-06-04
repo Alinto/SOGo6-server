@@ -14,7 +14,7 @@ from app.config.db.tables import (
 )
 from app.utils import constants as cs
 from app.utils import errors as err
-from app.utils.db.Condition import EqualCondition
+from app.utils.db.Condition import EqualCondition, AndCondition
 from app.utils.exceptions import RequestException
 
 if TYPE_CHECKING:
@@ -90,6 +90,19 @@ class TmpDraftManager:
         if updated != 1:
             raise RequestException(err.ERROR_TMP_DRAFT_UPDATE_FAILED.m, error=err.ERROR_TMP_DRAFT_UPDATE_FAILED)
 
+    # def lock_existing(self, key: str) -> bool:
+    #     """Set lock=True on an existing row; raise on unexpected update count."""
+    #     updated = self._db.update_in_table(
+    #         TABLE_DRAFT_STATE.name,
+    #         (COL_DRAFT_LOCK_STATE.name,),
+    #         [True],
+    #         AndCondition(
+    #             EqualCondition(COL_DRAFT_KEY.name, key),
+    #             EqualCondition(COL_DRAFT_LOCK_STATE.name, False),
+    #         ),
+    #     )
+    #     return updated == 1
+
     def insert_locked(self, key: str) -> None:
         """Insert a new locked row (mail_server_uid = empty string)."""
         inserted = self._db.insert_in_table(
@@ -119,6 +132,22 @@ class TmpDraftManager:
         )
         if updated != 1:
             raise RequestException(err.ERROR_TMP_DRAFT_UPDATE_FAILED.m, error=err.ERROR_TMP_DRAFT_UPDATE_FAILED)
+
+    def list_all(self) -> list[dict]:
+        """Return all tmp_draft rows owned by the current user.
+
+        :return: List of dicts with keys ``key``, ``mail_server_uid``, ``locked``.
+        :rtype: list[dict]
+        """
+        rows = list(self._db.select_from_table(
+            TABLE_DRAFT_STATE.name,
+            (COL_DRAFT_KEY.name, COL_DRAFT_MAIL_SERVER_UID.name, COL_DRAFT_LOCK_STATE.name),
+            EqualCondition(COL_DRAFT_OWNER.name, self._user_uid),
+        ))
+        return [
+            {"key": row[0], "mail_server_uid": row[1], "locked": row[2]}
+            for row in rows
+        ]
 
     def delete(self, key: str) -> None:
         """Delete the tmp_draft row identified by *key*.

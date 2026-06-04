@@ -137,13 +137,13 @@ The query parameter key is mandatory.
 
 Will dowload the attachment if the key exist and if the filename match one of the attachment.
 
-=== /delete?key=X
+=== /delete/<key>
 
 key parameter is mandatory.
 
 Will delete the mail in the **Draft** folder and the tmp_draft. If the tmp_draft is lock return 409 as the uid is not sure anymore.
 
-=== /close?key=X
+=== /close/<key>
 
 key parameter is mandatory.
 
@@ -194,7 +194,7 @@ POST /save?=key
 The user decides to continue later and close the composer.
 
 ```
-POST /close?key=X
+DELETE /close/<key>
 ```
 
 === A user writes an email and decide to cancel it
@@ -206,5 +206,5 @@ POST /save
 return the key, the user add an attachment
 
 ```
-POST /delete?key=X
+DELETE /delete/<key>
 ```
