@@ -2072,13 +2072,32 @@ check_code "POST recurring event" "$CODE" "201"
 EXP_KEY_RRULE=$(extract '.data.key')
 
 
-step "86. Export/Import — download .ics and verify content"
-info "Calls GET /calendars/.../export and checks the payload contains the three UIDs and the RRULE."
+step "86. Export/Import — run the async export job and verify content"
+info "GET /export enqueues an Agent job; poll GET /jobs/<id> until success, then download the result."
 
 EXP_ICS_FILE=$(mktemp)
 trap 'rm -f "$EXP_ICS_FILE"' EXIT
-CODE=$(curl -s -o "$EXP_ICS_FILE" -w "%{http_code}" "$BASE/calendars/$EXP_CAL_KEY/export" -H "$H_AUTH")
-check_code "GET /calendars/$EXP_CAL_KEY/export" "$CODE" "200"
+
+# 1. Enqueue the export — returns a job_id (202), not the ICS.
+CODE=$(req "$BASE/calendars/$EXP_CAL_KEY/export" -H "$H_AUTH")
+check_code "GET /calendars/$EXP_CAL_KEY/export (enqueue)" "$CODE" "202"
+EXP_JOB_ID=$(extract '.data.job_id')
+[ -n "$EXP_JOB_ID" ] && ok "export returned a job_id" || fail "export returned no job_id"
+
+# 2. Poll the job status until it reaches a terminal state (worker must be running).
+JOB_STATUS=""
+for _ in $(seq 1 60); do
+    CODE=$(req "$BASE/jobs/$EXP_JOB_ID" -H "$H_AUTH")
+    JOB_STATUS=$(extract '.data.status')
+    [ "$JOB_STATUS" = "success" ] && break
+    { [ "$JOB_STATUS" = "failure" ] || [ "$JOB_STATUS" = "canceled" ]; } && break
+    sleep 1
+done
+[ "$JOB_STATUS" = "success" ] && ok "export job completed" || fail "export job did not succeed (status='$JOB_STATUS')"
+
+# 3. Download the produced ICS from the job result.
+CODE=$(curl -s -o "$EXP_ICS_FILE" -w "%{http_code}" "$BASE/jobs/$EXP_JOB_ID/result?download=true" -H "$H_AUTH")
+check_code "GET /jobs/$EXP_JOB_ID/result" "$CODE" "200"
 
 grep -q "BEGIN:VCALENDAR" "$EXP_ICS_FILE" && ok "ICS has BEGIN:VCALENDAR" || fail "ICS missing BEGIN:VCALENDAR"
 grep -q "END:VCALENDAR"   "$EXP_ICS_FILE" && ok "ICS has END:VCALENDAR"   || fail "ICS missing END:VCALENDAR"
@@ -2087,13 +2106,13 @@ grep -qF "$EXP_UID_ALLDAY" "$EXP_ICS_FILE" && ok "ICS contains all-day UID" || f
 grep -qF "$EXP_UID_RRULE"  "$EXP_ICS_FILE" && ok "ICS contains recurring UID" || fail "ICS missing recurring UID"
 grep -q  "RRULE:FREQ=WEEKLY" "$EXP_ICS_FILE" && ok "ICS preserves the RRULE master" || fail "RRULE master not in export (occurrences expanded?)"
 
-# Inline (default): no attachment header. With ?download=true: attachment header present.
-INLINE_HEADERS=$(curl -s -D - -o /dev/null "$BASE/calendars/$EXP_CAL_KEY/export" -H "$H_AUTH")
+# The job result is served inline by default; ?download=true adds the attachment header.
+INLINE_HEADERS=$(curl -s -D - -o /dev/null "$BASE/jobs/$EXP_JOB_ID/result" -H "$H_AUTH")
 echo "$INLINE_HEADERS" | grep -qi "Content-Disposition: attachment" \
-    && fail "inline export should NOT carry attachment header" \
-    || ok "inline export served without attachment header"
+    && fail "inline result should NOT carry attachment header" \
+    || ok "inline result served without attachment header"
 
-DL_HEADERS=$(curl -s -D - -o /dev/null "$BASE/calendars/$EXP_CAL_KEY/export?download=true" -H "$H_AUTH")
+DL_HEADERS=$(curl -s -D - -o /dev/null "$BASE/jobs/$EXP_JOB_ID/result?download=true" -H "$H_AUTH")
 echo "$DL_HEADERS" | grep -qi "Content-Disposition: attachment" \
     && ok "download=true adds attachment header" \
     || fail "download=true should add Content-Disposition: attachment"

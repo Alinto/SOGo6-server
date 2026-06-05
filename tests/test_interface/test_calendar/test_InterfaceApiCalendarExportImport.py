@@ -1,5 +1,4 @@
 """Unit tests for InterfaceApiCalendarCalendar — export_calendar and import_calendar."""
-from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
 import pytest
@@ -9,8 +8,6 @@ from app.module.calendar.model.CalSyncResult import CalSyncResult
 from app.module.calendar.serializer.SyncResultSerializerDict import SyncResultSerializerDict
 from app.utils import errors as err
 from app.utils.exceptions import RequestException
-
-_UTC = timezone.utc
 
 
 def _build_interface(module=None):
@@ -25,45 +22,26 @@ def _build_interface(module=None):
     return inter
 
 
-# ========== export_calendar ==========
+# ========== export_calendar (async only) ==========
 
-def test_export_returns_inline_text_by_default():
+def test_export_enqueues_job_and_returns_job_id():
     module = MagicMock()
-    module.export_calendar.return_value = "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n"
+    module.export_calendar.return_value = "job-123"
     inter = _build_interface(module)
-    body, status, headers = inter.export_calendar("cal-key", {})
-    assert status == 200
-    assert body.startswith("BEGIN:VCALENDAR")
-    assert headers["Content-Type"] == "text/calendar; charset=utf-8"
-    assert "Content-Disposition" not in headers
+    body, status = inter.export_calendar("cal-key", {})
+    assert status == 202
+    assert body["data"]["job_id"] == "job-123"
+    module.export_calendar.assert_called_once()
 
 
-def test_export_with_download_true_adds_attachment_header():
+def test_export_forwards_date_bounds_to_module():
     module = MagicMock()
-    module.export_calendar.return_value = "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n"
+    module.export_calendar.return_value = "job-1"
     inter = _build_interface(module)
-    body, status, headers = inter.export_calendar("cal-key", {"download": True})
-    assert status == 200
-    assert "attachment" in headers["Content-Disposition"]
-    assert "cal-key" in headers["Content-Disposition"]
-
-
-def test_export_forwards_date_range_query_arguments():
-    module = MagicMock()
-    module.export_calendar.return_value = "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n"
-    inter = _build_interface(module)
-    date_start = datetime(2026, 1, 1, tzinfo=_UTC)
-    date_end = datetime(2026, 12, 31, tzinfo=_UTC)
-    inter.export_calendar("cal-key", {"start_date_time": date_start, "end_date_time": date_end})
-    module.export_calendar.assert_called_once_with(inter.user, "cal-key", date_start=date_start, date_end=date_end)
-
-
-def test_export_without_date_range_passes_none():
-    module = MagicMock()
-    module.export_calendar.return_value = "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n"
-    inter = _build_interface(module)
-    inter.export_calendar("cal-key", {})
-    module.export_calendar.assert_called_once_with(inter.user, "cal-key", date_start=None, date_end=None)
+    inter.export_calendar("cal-key", {"start_date_time": "S", "end_date_time": "E"})
+    kwargs = module.export_calendar.call_args.kwargs
+    assert kwargs["date_start"] == "S"
+    assert kwargs["date_end"] == "E"
 
 
 def test_export_translates_request_exception_to_error_envelope():

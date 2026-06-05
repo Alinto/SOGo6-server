@@ -172,7 +172,7 @@ ERROR_CALENDAR_DATE_RANGE_TOO_LARGE = E("S000606", "Event Fetch Range Exceeds Ma
 ERROR_CALENDAR_EVENT_DUPLICATE      = E("S000607", "Calendar Event Already Exists", HTTPStatus.CONFLICT)
 ERROR_CALENDAR_EVENT_INSERT_FAILED  = E("S000608", "Failed To Persist Calendar Event", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_CALENDAR_EVENT_UPDATE_FAILED  = E("S000609", "Failed To Update Calendar Event", HTTPStatus.INTERNAL_SERVER_ERROR)
-ERROR_CALENDAR_TASK_NOT_FOUND       = E("S000610", "Calendar Task Not Found", HTTPStatus.NOT_FOUND)
+ERROR_CALENDAR_TASK_NOT_FOUND       = E("S000610", "Calendar Job Not Found", HTTPStatus.NOT_FOUND)
 ERROR_CALENDAR_JSON_PARSE_FAILED      = E("S000611", "Failed To Parse Calendar JSON Content", HTTPStatus.UNPROCESSABLE_ENTITY)
 ERROR_CALENDAR_EVENT_NOT_RECURRING    = E("S000612", "Event Is Not Recurring", HTTPStatus.BAD_REQUEST)
 ERROR_CALENDAR_OCCURRENCE_NOT_FOUND   = E("S000613", "Occurrence Not Found", HTTPStatus.NOT_FOUND)
@@ -185,6 +185,13 @@ ERROR_CALENDAR_EVENT_DURATION_TOO_LONG       = E("S000619", "Event Duration Exce
 ERROR_CALENDAR_ACCESS_DENIED                 = E("S000620", "Access Denied To This Calendar", HTTPStatus.FORBIDDEN)
 ERROR_CALENDAR_IMPORT_NO_FILE                = E("S000621", "No File Provided In The Import Request", HTTPStatus.BAD_REQUEST)
 ERROR_CALENDAR_IMPORT_TOO_LARGE              = E("S000622", "Import Payload Exceeds Maximum Allowed Size", HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
+
+#AGENT / TASK
+ERROR_JOB_NOT_FOUND        = E("S000700", "Job Not Found", HTTPStatus.NOT_FOUND)
+ERROR_JOB_FORBIDDEN        = E("S000701", "Job Does Not Belong To Current User", HTTPStatus.FORBIDDEN)
+ERROR_JOB_NOT_READY        = E("S000702", "Job Has Not Completed Yet", HTTPStatus.CONFLICT)
+ERROR_JOB_NO_RESULT        = E("S000703", "Job Has No Downloadable Result", HTTPStatus.GONE)
+ERROR_JOB_CONCURRENT_LIMIT = E("S000704", "Concurrent Job Limit Reached", HTTPStatus.CONFLICT)
 
 #the bugs
 ERROR_UNKOWN = E("S999999", "Undefined Error", HTTPStatus.INTERNAL_SERVER_ERROR)

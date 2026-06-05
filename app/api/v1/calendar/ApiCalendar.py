@@ -17,6 +17,7 @@ from .schemas.calendar import (
     CalendarListResponseSchema,
     CalendarResponseSchema,
     CalendarExportQueryArgsSchema,
+    CalendarExportResponseSchema,
     CalendarImportResponseSchema,
     CalendarImportUploadSchema,
     CalendarSubscriptionResponseSchema,
@@ -113,11 +114,18 @@ class ApiCalendarDetail(MethodView):
 
 @blp.route("/calendars/<string:key>/export")
 class ApiCalendarExport(MethodView):
-    """API to download a calendar as a VCALENDAR (.ics) payload."""
+    """Export a calendar to VCALENDAR (.ics) as an Agent job.
+
+    The export always runs in the background: the response carries a ``job_id``
+    (202). Clients poll ``GET /jobs/<job_id>`` until ``status == "success"`` then
+    fetch the file with ``GET /jobs/<job_id>/result`` (add ``?download=true`` to
+    trigger a browser save dialog).
+    """
 
     @blp.arguments(CalendarExportQueryArgsSchema, location="query", arg_name="query_args")
+    @blp.response(202, CalendarExportResponseSchema)
     def get(self, query_args: dict, key: str) -> ResponseReturnValue:
-        """Stream the calendar as ``text/calendar``."""
+        """Enqueue the export and return the ``job_id`` to poll."""
         logger_api.debug("GET /calendars/%s/export user=%s args=%s", key, g.user.uid, query_args)
         interface: InterfaceApiCalendarCalendar = g.inter
         return interface.export_calendar(key, query_args)

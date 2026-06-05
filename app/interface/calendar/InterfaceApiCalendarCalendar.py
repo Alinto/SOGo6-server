@@ -29,7 +29,7 @@ from app.module.calendar.serializer.FreeBusySerializerDict import FreeBusySerial
 from app.module.calendar.serializer.SyncResultSerializerDict import SyncResultSerializerDict
 from app.module.calendar.serializer.SyncStatusSerializerDict import SyncStatusSerializerDict
 from app.module.user.ModuleUserProfile import ModuleUserProfile
-from app.service import sogo_cache
+from app.service import sogo_agent, sogo_cache
 from app.utils.api.ApiBaseResponse import create_api_base_response
 from app.utils.errors import ERROR_CALENDAR_JSON_PARSE_FAILED
 from app.utils.exceptions import RequestException
@@ -62,7 +62,7 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         self.user: User = user
         self._process_setting: ProcessSetting = process_setting
         self.settings: CalendarContactSettingsObj = CalendarContactSettingsObj(user_domain_settings[CalendarContactSettings.subparent])
-        self.module: ModuleCalendar = ModuleCalendar(process_setting, cache=sogo_cache())
+        self.module: ModuleCalendar = ModuleCalendar(process_setting, cache=sogo_cache(), agent=sogo_agent())
         self._user_module: ModuleUserProfile = ModuleUserProfile(process_setting, user_domain_settings)
         self._events_serializer: CalendarEventsSerializerDict = CalendarEventsSerializerDict()
         self._event_serializer: CalendarEventSerializerDict = CalendarEventSerializerDict()
@@ -451,27 +451,26 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
     #
     # Import / Export
     #
-    def export_calendar(self, key: str, query_args: dict[str, Any]) -> tuple[str, int, dict[str, str]] | tuple[dict[str, Any], int]:
-        """Export the calendar as a VCALENDAR payload.
+    def export_calendar(self, key: str, query_args: dict[str, Any]) -> tuple[dict[str, Any], int]:
+        """Enqueue an ICS export as an Agent job and return its ``job_id``.
+
+        The export always runs in the background: the response carries a
+        ``job_id`` (202). The caller polls ``GET /jobs/<job_id>`` until SUCCESS
+        then fetches ``GET /jobs/<job_id>/result``.
 
         :param key: Opaque calendar key.
-        :param query_args: Validated query string. Supports optional ``start_date_time``
-            and ``end_date_time`` bounds, and a ``download`` flag that toggles the
-            Content-Disposition attachment header so browsers trigger a file download
-            instead of inlining the iCalendar.
-        :return: A tuple ``(ics_text, status_code, headers)`` for Flask when successful, or
-            the standard error envelope on failure.
+        :param query_args: Validated query string — ``start_date_time`` /
+            ``end_date_time`` bounds.
+        :return: API envelope with ``{"job_id": "..."}`` and status 202, or the
+            standard error envelope on failure.
         """
         try:
             date_start: datetime | None = query_args.get("start_date_time")
             date_end: datetime | None = query_args.get("end_date_time")
-            download: bool = bool(query_args.get("download"))
-            ics_text: str = self.module.export_calendar(self.user, key, date_start=date_start, date_end=date_end)
-            headers: dict[str, str] = {"Content-Type": "text/calendar; charset=utf-8"}
-            if download:
-                filename: str = f"calendar-{key}.ics"
-                headers["Content-Disposition"] = f'attachment; filename="{filename}"'
-            return ics_text, 200, headers
+            job_id: str = self.module.export_calendar(
+                self.user, key, date_start=date_start, date_end=date_end,
+            )
+            return create_api_base_response({"job_id": job_id}, code=202)
         except RequestException as ex:
             logger_api.error("export_calendar failed for user %s key %s: %s", self.user.uid, key, ex)
             return create_api_base_response(None, ex.error)

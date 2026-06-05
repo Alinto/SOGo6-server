@@ -1,12 +1,14 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
+import importlib
 import json
 import os
 
+import app.module
 from app.agent.Agent import agent
-from app.agent.tasks.TaskCanceller import TaskCanceller
-from app.agent.tasks.TaskPersistency import TaskPersistency
+from app.agent.jobs.JobCanceller import JobCanceller
+from app.agent.jobs.JobPersistency import JobPersistency
 from app.manager.agent.ClientAgent import ClientAgent
 from app.module.ModuleInitSogo import ModuleInitSogo
 from app.module.admin.ModuleAdminConfig import ModuleAdminConfig
@@ -98,7 +100,7 @@ def check_basic_config() -> bool:
     logger.info("SOGo auto-initialization succeeded. Moving to SOGO_OK state.")
     return True
 
-def init_infra() -> tuple[ClientRedis, TaskPersistency]:
+def init_infra() -> tuple[ClientRedis, JobPersistency]:
     """
     Check shared infrastructure (DB, Redis) and build the resources used by both
     the Flask server and the agent worker. Raises ``AggravatedException`` if any
@@ -109,10 +111,10 @@ def init_infra() -> tuple[ClientRedis, TaskPersistency]:
     cache_client = init_module.check_redis()
     if init_module.errors:
         raise AggravatedException(f"Sogo cannot be initiated because: {init_module.errors}")
-    persistency = TaskPersistency(
-        cache_client, ttl_seconds=process_config.SOGO_P_AGENT_TASK_STATE_TTL_SECONDS,
+    persistency = JobPersistency(
+        cache_client, ttl_seconds=process_config.SOGO_P_AGENT_JOB_STATE_TTL_SECONDS,
     )
-    init_tasks()
+    init_jobs()
     return cache_client, persistency
 
 
@@ -123,7 +125,7 @@ def init_sogo() -> tuple[int, ClientRedis, ClientAgent]:
     raise error if the initializaton has problems
     """
     cache_client, persistency = init_infra()
-    agent_client = ClientAgent(agent, persistency, TaskCanceller(agent, persistency))
+    agent_client = ClientAgent(agent, persistency, JobCanceller(agent, persistency), cache_client)
 
     sogo_state = cs.SOGO_NOT_INIT
     #No errors, check if SOGo already has a configuration
@@ -152,16 +154,35 @@ def init_get_user_domain_settings(user: User) -> dict:
     config_module = ModuleAdminConfig(process_config)
     return config_module.get_one_domain_setting(user.domain)["settings"]
 
+def init_jobs() -> None:
+    """Discover and register every Agent job, then wire them into the agent.
 
-def init_tasks() -> None:
-    """Import each module's ``tasks`` subpackage so the @agent_task decorators populate
-    the collection, then wire every collected class into the agent.
-
-    The imports live inside this function because the imported tasks pull helpers from
-    this very file (``init_get_user_domain_settings``), so a top-level import would
-    create a circular dependency.
-
-    Add a new line per module that ships tasks.
+    Imports every ``app/module/<name>/jobs/`` submodule so each ``@agent_job``
+    decorator registers its worker, then calls ``register_all_job_handlers``.
+    Adding a job is purely additive: drop the file in a module's ``jobs/``
+    package — no central list to edit.
     """
-    import app.module.calendar.tasks  # noqa: F401  pylint: disable=import-outside-toplevel,unused-import
-    agent.register_all_task_handlers()
+    _discover_job_modules()
+    agent.register_all_job_handlers()
+
+
+def _discover_job_modules() -> None:
+    """Import every ``app/module/<name>/jobs/*.py`` module.
+
+    Importing a worker triggers its ``@agent_job`` decorator (registration) and
+    pulls its module-side dependencies. This runs once at boot, after the whole
+    app package is loaded, so those imports resolve without a cycle. Importing a
+    request DTO module alongside the worker is harmless.
+
+    The scan walks the filesystem rather than ``pkgutil`` because the business
+    modules under ``app/module`` are namespace packages (no ``__init__.py``),
+    which ``pkgutil.iter_modules`` does not enumerate reliably.
+    """
+    for module_root in app.module.__path__:
+        for module_name in os.listdir(module_root):
+            jobs_dir = os.path.join(module_root, module_name, "jobs")
+            if not os.path.isdir(jobs_dir):
+                continue
+            for file_name in os.listdir(jobs_dir):
+                if file_name.endswith(".py") and not file_name.startswith("_"):
+                    importlib.import_module(f"app.module.{module_name}.jobs.{file_name[:-3]}")

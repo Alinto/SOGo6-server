@@ -7,12 +7,12 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, ClassVar
 
-from app.agent.tasks.BaseTask import BaseTask
-from app.agent.tasks.TaskRequest import TaskRequest
+from app.agent.jobs.Job import Job
+from app.agent.jobs.JobRequest import JobRequest
 
 
 @dataclass
-class TaskTestRequest(TaskRequest):
+class TaskTestRequest(JobRequest):
     """Companion Request for TaskTest. Drives the three payload-driven modes."""
 
     name: ClassVar[str] = "system.test"
@@ -36,13 +36,13 @@ class TaskTestRequest(TaskRequest):
         return out
 
 
-class TaskTest(BaseTask):
+class TaskTest(Job):
     """No-op task with payload-driven modes for testing every lifecycle path."""
 
     request_class = TaskTestRequest
 
     def process(
-        self, payload: dict[str, Any], *, user_uid: str | None, task_id: str,
+        self, payload: dict[str, Any], *, user_uid: str | None, job_id: str,
     ) -> dict[str, Any]:
         seconds: float = float(payload.get("seconds", 0))
         if seconds > 0:
@@ -53,4 +53,4 @@ class TaskTest(BaseTask):
             # Dereferences NULL → segfault. Kills the worker process; only used to
             # exercise the orphan-task path in integration tests.
             ctypes.string_at(0)
-        return {"echo": payload, "user_uid": user_uid, "task_id": task_id}
+        return {"echo": payload, "user_uid": user_uid, "job_id": job_id}
