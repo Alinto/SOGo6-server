@@ -1,28 +1,29 @@
-"""In-Redis snapshot of an Agent task across its lifecycle."""
+"""In-Redis snapshot of an Agent job across its lifecycle."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from app.agent.tasks.TaskStatus import TaskStatus
+from app.agent.AgentConst import JOB_CONCURRENCY_LOCK_PREFIX
+from app.agent.jobs.JobStatus import JobStatus
 from app.utils.calendar.DateTimeUtils import parse_iso
 
 
 @dataclass
-class TaskState:  # pylint: disable=too-many-instance-attributes
-    """Source of truth for the admin / user API on the lifecycle of an Agent task.
+class JobState:  # pylint: disable=too-many-instance-attributes
+    """Source of truth for the admin / user API on the lifecycle of an Agent job.
 
-    Persisted in Redis via :class:`TaskPersistency`; populated and updated by the
+    Persisted in Redis via :class:`JobPersistency`; populated and updated by the
     Celery lifecycle hooks installed in :meth:`Agent.register_lifecycle_hooks`.
     Carries everything Celery's native ``AsyncResult`` cannot: user ownership,
     payload, attempt counter, the configured ``max_try`` / ``soft_timeout_seconds``
     snapshot at enqueue time, and the optional Beat schedule that produced it.
     """
-    task_id: str
+    job_id: str
     name: str
-    status: TaskStatus
-    # None for system tasks (purge, maintenance) not tied to a user.
+    status: JobStatus
+    # None for system jobs (purge, maintenance) not tied to a user.
     user_uid: str | None
 
     date_planned: datetime
@@ -33,6 +34,8 @@ class TaskState:  # pylint: disable=too-many-instance-attributes
     attempts: int = 0
     max_try: int = 0
     soft_timeout_seconds: int = 0
+    # Snapshot of the request's max_concurrent: 0 means no concurrency lock was taken.
+    max_concurrent: int = 0
 
     payload: dict[str, Any] = field(default_factory=dict)
     result: dict[str, Any] | None = None
@@ -43,7 +46,7 @@ class TaskState:  # pylint: disable=too-many-instance-attributes
     def to_dict(self) -> dict[str, Any]:
         """Serialise to a JSON-safe dict."""
         return {
-            "task_id": self.task_id,
+            "job_id": self.job_id,
             "name": self.name,
             "status": self.status.value,
             "user_uid": self.user_uid,
@@ -54,6 +57,7 @@ class TaskState:  # pylint: disable=too-many-instance-attributes
             "attempts": self.attempts,
             "max_try": self.max_try,
             "soft_timeout_seconds": self.soft_timeout_seconds,
+            "max_concurrent": self.max_concurrent,
             "payload": self.payload,
             "result": self.result,
             "error": self.error,
@@ -61,14 +65,14 @@ class TaskState:  # pylint: disable=too-many-instance-attributes
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "TaskState":
+    def from_dict(cls, data: dict[str, Any]) -> "JobState":
         """Rehydrate from a dict produced by :meth:`to_dict`."""
         planned: datetime | None = parse_iso(data["date_planned"])
         assert planned is not None, "date_planned is required and never None in to_dict()"
         return cls(
-            task_id=data["task_id"],
+            job_id=data["job_id"],
             name=data["name"],
-            status=TaskStatus(data["status"]),
+            status=JobStatus(data["status"]),
             user_uid=data.get("user_uid"),
             date_planned=planned,
             date_start=parse_iso(data.get("date_start")),
@@ -77,8 +81,18 @@ class TaskState:  # pylint: disable=too-many-instance-attributes
             attempts=data.get("attempts", 0),
             max_try=data.get("max_try", 0),
             soft_timeout_seconds=data.get("soft_timeout_seconds", 0),
+            max_concurrent=data.get("max_concurrent", 0),
             payload=data.get("payload") or {},
             result=data.get("result"),
             error=data.get("error"),
             schedule_name=data.get("schedule_name"),
         )
+
+    @staticmethod
+    def concurrency_lock_key(name: str, user_uid: str | None) -> str:
+        """Build the lock key that gates concurrent enqueues for a ``(name, user)`` scope.
+
+        ``user_uid`` is the scope when set; otherwise the global slot ``_global``
+        (system jobs). The key derives from the job identity, hence its home here.
+        """
+        return f"{JOB_CONCURRENCY_LOCK_PREFIX}{name}:{user_uid or '_global'}"

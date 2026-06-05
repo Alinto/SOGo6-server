@@ -84,10 +84,18 @@ class CalendarExportQueryArgsSchema(Schema):
         load_default=None, allow_none=True,
         metadata={"description": "ISO 8601 UTC datetime or date — only return events starting before this instant. Date-only values default to 23:59:59 UTC."},
     )
-    download = fields.Boolean(
-        load_default=False,
-        metadata={"description": "When true, the response carries a Content-Disposition: attachment header to trigger a browser download. Otherwise the iCalendar payload is served inline."},
-    )
+
+
+class CalendarExportDataSchema(Schema):
+    """Payload returned when an export is enqueued as an Agent job."""
+
+    job_id = fields.String(required=True, metadata={"description": "Id of the enqueued Agent job. Poll GET /jobs/<job_id> until status is SUCCESS, then fetch GET /jobs/<job_id>/result."})
+
+
+class CalendarExportResponseSchema(ApiBaseResponse):
+    """Response schema for the async export endpoint (returns a job_id, not the ICS)."""
+
+    data = fields.Nested(CalendarExportDataSchema, allow_none=True)
 
 
 class CalendarImportResultDataSchema(Schema):

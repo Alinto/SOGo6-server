@@ -1,11 +1,11 @@
-"""Enum listing the backends supported by ``TaskResultLargeStore``."""
+"""Enum listing the backends supported by ``JobResultLargeStore``."""
 from __future__ import annotations
 
 from enum import StrEnum
 
 
-class TaskResultLargeStorage(StrEnum):
-    """Where tasks store payloads too large for ``TaskState.result``."""
+class JobResultLargeStorage(StrEnum):
+    """Where jobs store payloads too large for ``JobState.result``."""
 
     IN_MEMORY = "in_memory"   # current backend: Redis via sogo_cache(); swappable later.
     FILE = "file"             # local filesystem under SOGO_P_TMP_PATH; needs a shared

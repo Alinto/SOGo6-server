@@ -68,13 +68,13 @@ def _make_source(events=None, writable=True):
     return FakeSource(cal, events=events, writable=writable)
 
 
-# ========== export_calendar ==========
+# ========== serialize_to_ics ==========
 
 def test_export_returns_vcalendar_with_events():
     event = _make_event(uid="event-1", key="evt-1")
     source = _make_source(events=[event])
     module = _build_module(source)
-    result = module.export_calendar(_fake_user(), "cal-key")
+    result = module.serialize_to_ics(_fake_user(), "cal-key")
     assert "BEGIN:VCALENDAR" in result
     assert "END:VCALENDAR" in result
     assert "event-1" in result
@@ -83,7 +83,7 @@ def test_export_returns_vcalendar_with_events():
 def test_export_empty_calendar_still_returns_vcalendar():
     source = _make_source(events=[])
     module = _build_module(source)
-    result = module.export_calendar(_fake_user(), "cal-key")
+    result = module.serialize_to_ics(_fake_user(), "cal-key")
     assert "BEGIN:VCALENDAR" in result
     assert "END:VCALENDAR" in result
 
@@ -92,7 +92,7 @@ def test_export_unknown_calendar_raises():
     module = _build_module(None)
     module._sources.get_by_key.return_value = None
     with pytest.raises(RequestException) as exc:
-        module.export_calendar(_fake_user(), "missing-key")
+        module.serialize_to_ics(_fake_user(), "missing-key")
     assert exc.value.error == err.ERROR_CALENDAR_NOT_FOUND
 
 
@@ -104,7 +104,7 @@ def test_export_preserves_recurrence_rule_unexpanded():
     event = _make_event(uid="recurring", key="rec-1", recurrence_rule=rule)
     source = _make_source(events=[event])
     module = _build_module(source)
-    result = module.export_calendar(_fake_user(), "cal-key")
+    result = module.serialize_to_ics(_fake_user(), "cal-key")
     assert "RRULE:" in result
     assert "FREQ=WEEKLY" in result
 

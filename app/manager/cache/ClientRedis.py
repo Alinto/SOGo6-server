@@ -218,6 +218,20 @@ class ClientRedis():
         """
         return cast(int, self.redis.zcard(zset_key))
 
+    def zset_revrange(self, zset_key: str, start: int, stop: int) -> list[str]:
+        """
+        Return members of a sorted set by descending score, between ranks start and stop.
+
+        Members are normalised to ``str`` (the underlying client may return bytes).
+
+        :param zset_key: name of the sorted set
+        :param start: first rank to return (0-based, inclusive)
+        :param stop: last rank to return (inclusive; -1 for the end)
+        :return: members ordered by descending score
+        """
+        raw = cast(list, self.redis.zrevrange(zset_key, start, stop))
+        return [m.decode("utf-8") if isinstance(m, bytes) else str(m) for m in raw]
+
     def zset_paginate_hashes(
         self,
         first: int = 0,

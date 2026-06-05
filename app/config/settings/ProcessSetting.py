@@ -102,25 +102,25 @@ class ProcessSetting(FlaskConfig):
     SOGO_P_PUBLIC_BASE_URL: str = ""
 
     # Agent (Celery) — broker and result backend reuse SOGO_P_REDIS_URL. Only the
-    # process-wide settings are exposed here. Per-task settings (soft / hard timeout,
-    # retry policy) belong to each Task subclass and are set at task definition time.
+    # process-wide settings are exposed here. Per-job settings (soft / hard timeout,
+    # retry policy) belong to each JobRequest and are set at job definition time.
     # Defaults are tuned for the dev container; production overrides via env vars.
 
     # Number of worker processes spawned by `poetry run agent`. ~1 per CPU is a sensible
-    # ceiling for IO-bound tasks; raise it for CPU-bound parsing.
+    # ceiling for IO-bound jobs; raise it for CPU-bound parsing.
     SOGO_P_AGENT_WORKER_CONCURRENCY: int = 4
     # Redis visibility timeout: a reserved message is redelivered if the worker hasn't acked
-    # within this delay. Must exceed the longest task we run, otherwise we get phantom
-    # double executions when Redis re-queues an in-flight task.
+    # within this delay. Must exceed the longest job we run, otherwise we get phantom
+    # double executions when Redis re-queues an in-flight job.
     SOGO_P_AGENT_BROKER_VISIBILITY_TIMEOUT_SECONDS: int = 6 * 3600
-    # Messages prefetched per worker. 1 keeps long tasks isolated; raise it only for very
-    # short tasks where the broker round-trip dominates.
+    # Messages prefetched per worker. 1 keeps long jobs isolated; raise it only for very
+    # short jobs where the broker round-trip dominates.
     SOGO_P_AGENT_WORKER_PREFETCH_MULTIPLIER: int = 1
-    # How long a TaskState lingers in Redis after the task is completed (post-mortem window).
-    SOGO_P_AGENT_TASK_STATE_TTL_SECONDS: int = 3 * 24 * 3600
-    # Directory for transient files (ICS exports, attachments, agent task outputs, etc.).
+    # How long a JobState stays in cache after the job is completed (post-mortem window).
+    SOGO_P_AGENT_JOB_STATE_TTL_SECONDS: int = 3 * 24 * 3600
+    # Directory for transient files (ICS exports, attachments, agent job outputs, etc.).
     # When the agent runs in multiple instances (workers spread across hosts or containers)
-    # and TASK_RESULT_LARGE_STORAGE is FILE, this path must point to a shared volume
+    # and JOB_RESULT_LARGE_STORAGE is FILE, this path must point to a shared volume
     # mounted on every agent instance and on the Flask API process. Otherwise a result
     # written by one worker is unreachable from the API or from another worker.
     SOGO_P_TMP_PATH: str = "/tmp"

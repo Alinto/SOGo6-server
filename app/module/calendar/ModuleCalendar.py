@@ -33,6 +33,7 @@ from app.module.calendar.repository.RepositoryReminder import RepositoryReminder
 from app.module.calendar.sync.SyncEngine import SyncEngine
 from app.module.calendar.model.CalEvent import CalEvent
 from app.module.calendar.rrule.RecurrenceScopeProcessor import EventAction, RecurrenceScopeProcessor, ScopeResult
+from app.module.calendar.jobs.JobRequestExportIcs import JobRequestExportIcs
 from app.module.calendar.source.CalendarSources import CalendarSources
 from app.utils import errors as err
 from app.utils.exceptions import RequestException
@@ -43,6 +44,7 @@ from app.utils.module.importManager import import_and_instantiate_manager
 if TYPE_CHECKING:
     from app.auth.User import User
     from app.config.settings.ProcessSetting import ProcessSetting
+    from app.manager.agent.ClientAgent import ClientAgent
     from app.manager.cache.ClientRedis import ClientRedis
     from app.manager.db.ClientSQL import ClientSQL
 
@@ -54,7 +56,10 @@ if TYPE_CHECKING:
 class ModuleCalendar:  # pylint: disable=too-many-public-methods
     """Module for calendar and event operations."""
 
-    def __init__(self, process_settings: ProcessSetting, cache: ClientRedis | None = None) -> None:
+    def __init__(
+        self, process_settings: ProcessSetting,
+        cache: ClientRedis | None = None, agent: ClientAgent | None = None,
+    ) -> None:
         sogo_db_type: str = f"Client{process_settings.SOGO_P_DB_TYPE}"
         self._db: ClientSQL = import_and_instantiate_manager(
             module_path="app.manager.db",
@@ -63,6 +68,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         )
         self._db.connect()
         self._cache: ClientRedis = cache
+        self._agent: ClientAgent | None = agent
         self._sources: CalendarSources = CalendarSources(self._db)
         self._imip: ImipProcessor = ImipProcessor(self._sources)
         self._acl: CalendarAclEngine = CalendarAclEngine()
@@ -366,6 +372,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
 
     def process_imip_request(self, calendar_user: CalendarUser, ical_bytes: bytes, from_email: str) -> CalEvent:
         """Process an incoming iMIP REQUEST. Delegates to ImipProcessor."""
+        #TODO : If no calendar provided, use default one
         return self._imip.process_request(calendar_user.user, ical_bytes, from_email)
 
     def process_imip_cancel(self, calendar_user: CalendarUser, ical_bytes: bytes, from_email: str) -> None:
@@ -518,11 +525,14 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
     #
     # Import / Export
     #
-    def export_calendar(
+    def serialize_to_ics(
         self, user: User, key: str,
         date_start: datetime | None = None, date_end: datetime | None = None,
     ) -> str:
         """Serialize all events and tasks of a calendar to a VCALENDAR string.
+
+        Synchronous helper used by the Agent worker that actually produces the
+        export. The API surface goes through :meth:`export_calendar` (async).
 
         Recurring masters are exported with their RRULE intact; expansion happens client-side.
         ``date_start`` and ``date_end`` bound the export window on event ``date_start`` /
@@ -535,10 +545,39 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
             window reaches this date are included).
         :return: A VCALENDAR string ready to be served as ``text/calendar``.
         """
-        # TODO: dispatch as Celery task instead of synchronous call once the agent is in place
         source: CalendarSource = self.get_calendar(user, key)
         self._acl.check_permission(source.calendar.permissions, CalendarPermissionAction.VIEW)
         return self._serialize_calendar_to_ics(source, date_start, date_end)
+
+    def export_calendar(
+        self, user: User, key: str,
+        date_start: datetime | None = None, date_end: datetime | None = None,
+    ) -> str:
+        """Enqueue an ICS export as an Agent job and return the job id.
+
+        ACL and existence checks run synchronously so the caller sees access
+        errors immediately (404 / 403). The serialisation itself runs in the
+        worker. The concurrency gate (one export at a time per user) lives in
+        ``ClientAgent.enqueue`` via ``JobRequest.max_concurrent``.
+
+        :param user: The calendar owner triggering the export.
+        :param key: Opaque calendar key.
+        :param date_start: Optional lower bound on event date_start.
+        :param date_end: Optional upper bound on event date_start.
+        :return: id of the enqueued Agent job.
+        :raises RequestException: ERROR_CALENDAR_NOT_FOUND, ERROR_CALENDAR_ACCESS_DENIED,
+            or ERROR_JOB_CONCURRENT_LIMIT.
+        """
+        if self._agent is None:
+            raise RuntimeError("ModuleCalendar.export_calendar requires a ClientAgent")
+        source: CalendarSource = self.get_calendar(user, key)
+        self._acl.check_permission(source.calendar.permissions, CalendarPermissionAction.VIEW)
+        request: JobRequestExportIcs = JobRequestExportIcs(
+            calendar_key=key,
+            date_start=date_start.isoformat() if date_start else None,
+            date_end=date_end.isoformat() if date_end else None,
+        )
+        return self._agent.enqueue(request, user_uid=user.uid)
 
     @staticmethod
     def _serialize_calendar_to_ics(

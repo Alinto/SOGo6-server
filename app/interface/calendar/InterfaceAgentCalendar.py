@@ -42,7 +42,7 @@ class InterfaceAgentCalendar:
         Storage of the result (memory or file) is the task's responsibility — this
         interface stays free of any persistence concern.
         """
-        return self.module.export_calendar(
+        return self.module.serialize_to_ics(
             self.user, calendar_key, date_start=date_start, date_end=date_end,
         )
 
