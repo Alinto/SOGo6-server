@@ -27,7 +27,9 @@ class JobRequest(ABC):
     max_try: ClassVar[int] = 1
     soft_timeout_seconds: ClassVar[int] = 300
     resume: ClassVar[bool] = True
-    # Number of jobs of this type allowed in flight per scope.
+    # Number of jobs of this type allowed in flight (non-terminal) at the same time
+    # per scope. This caps simultaneity, not total throughput: once a job finishes,
+    # the slot frees up — it is NOT an anti-duplicate guard. 0 disables the gate.
     max_concurrent: ClassVar[int] = 1
 
     @abstractmethod

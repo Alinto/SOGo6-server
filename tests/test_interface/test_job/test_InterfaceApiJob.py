@@ -63,6 +63,24 @@ def test_get_job_returns_forbidden_when_not_owner():
     assert body["error_code"] == err.ERROR_JOB_FORBIDDEN.c
 
 
+def test_get_job_forbids_system_job_even_for_a_user():
+    # A system job (user_uid=None) belongs to no user and must never be exposed,
+    # even though None != "alice" already; the explicit guard is defence in depth.
+    inter = InterfaceApiJob(user=_user("alice"))
+    with patch("app.interface.job.InterfaceApiJob.sogo_agent") as agent:
+        agent.return_value.get.return_value = _state(owner=None)
+        body, _ = inter.get_job("job-1")
+    assert body["error_code"] == err.ERROR_JOB_FORBIDDEN.c
+
+
+def test_get_result_forbids_system_job():
+    inter = InterfaceApiJob(user=_user("alice"))
+    with patch("app.interface.job.InterfaceApiJob.sogo_agent") as agent:
+        agent.return_value.get.return_value = _state(owner=None)
+        body, _ = inter.get_result("job-1")
+    assert body["error_code"] == err.ERROR_JOB_FORBIDDEN.c
+
+
 def test_get_job_applies_handler_public_payload_redaction():
     inter = InterfaceApiJob(user=_user("alice"))
     state = _state(owner="alice")
@@ -88,13 +106,55 @@ def test_get_job_keeps_payload_when_handler_unknown():
     assert body["data"]["payload"] == {"calendar_key": "cal-1"}
 
 
+# ========== cancel_job ==========
+
+def test_cancel_job_calls_canceller_and_returns_refreshed_state():
+    inter = InterfaceApiJob(user=_user("alice"))
+    running = _state(owner="alice", status=JobStatus.STARTED)
+    canceled = _state(owner="alice", status=JobStatus.CANCELED)
+    with patch("app.interface.job.InterfaceApiJob.sogo_agent") as agent:
+        agent.return_value.get.side_effect = [running, canceled]  # before, then after cancel
+        agent.return_value.get_job_handler.return_value = None
+        body, status = inter.cancel_job("job-1")
+    agent.return_value.cancel.assert_called_once_with("job-1")
+    assert status == 200
+    assert body["data"]["status"] == "canceled"
+
+
+def test_cancel_job_returns_not_found_when_unknown():
+    inter = InterfaceApiJob(user=_user("alice"))
+    with patch("app.interface.job.InterfaceApiJob.sogo_agent") as agent:
+        agent.return_value.get.return_value = None
+        body, _ = inter.cancel_job("ghost")
+    agent.return_value.cancel.assert_not_called()
+    assert body["error_code"] == err.ERROR_JOB_NOT_FOUND.c
+
+
+def test_cancel_job_forbidden_when_not_owner():
+    inter = InterfaceApiJob(user=_user("alice"))
+    with patch("app.interface.job.InterfaceApiJob.sogo_agent") as agent:
+        agent.return_value.get.return_value = _state(owner="bob")
+        body, _ = inter.cancel_job("job-1")
+    agent.return_value.cancel.assert_not_called()
+    assert body["error_code"] == err.ERROR_JOB_FORBIDDEN.c
+
+
+def test_cancel_job_forbids_system_job():
+    inter = InterfaceApiJob(user=_user("alice"))
+    with patch("app.interface.job.InterfaceApiJob.sogo_agent") as agent:
+        agent.return_value.get.return_value = _state(owner=None)
+        body, _ = inter.cancel_job("job-1")
+    agent.return_value.cancel.assert_not_called()
+    assert body["error_code"] == err.ERROR_JOB_FORBIDDEN.c
+
+
 # ========== get_result ==========
 
 def test_get_result_streams_blob_with_native_content_type():
     inter = InterfaceApiJob(user=_user("alice"))
     state = _state(result={"large_result": {"key": "x"}, "filename": "cal.ics"})
     with patch("app.interface.job.InterfaceApiJob.sogo_agent") as agent, \
-         patch("app.interface.job.InterfaceApiJob.JobResultLargeStore.load_ref") as load_ref:
+         patch("app.interface.job.InterfaceApiJob.JobResultLargeStorageSelector.load") as load_ref:
         agent.return_value.get.return_value = state
         load_ref.return_value = (b"BEGIN:VCALENDAR\r\n", "text/calendar")
         body, status, headers = inter.get_result("job-1")
@@ -108,7 +168,7 @@ def test_get_result_adds_attachment_header_when_download_true():
     inter = InterfaceApiJob(user=_user("alice"))
     state = _state(result={"large_result": {"key": "x"}, "filename": "cal.ics"})
     with patch("app.interface.job.InterfaceApiJob.sogo_agent") as agent, \
-         patch("app.interface.job.InterfaceApiJob.JobResultLargeStore.load_ref") as load_ref:
+         patch("app.interface.job.InterfaceApiJob.JobResultLargeStorageSelector.load") as load_ref:
         agent.return_value.get.return_value = state
         load_ref.return_value = (b"x", "text/calendar")
         _, _, headers = inter.get_result("job-1", download=True)
@@ -120,7 +180,7 @@ def test_get_result_falls_back_to_job_id_filename_when_missing():
     inter = InterfaceApiJob(user=_user("alice"))
     state = _state(result={"large_result": {"key": "x"}})  # no filename
     with patch("app.interface.job.InterfaceApiJob.sogo_agent") as agent, \
-         patch("app.interface.job.InterfaceApiJob.JobResultLargeStore.load_ref") as load_ref:
+         patch("app.interface.job.InterfaceApiJob.JobResultLargeStorageSelector.load") as load_ref:
         agent.return_value.get.return_value = state
         load_ref.return_value = (b"x", "application/octet-stream")
         _, _, headers = inter.get_result("job-1", download=True)
@@ -185,7 +245,7 @@ def test_get_result_never_500s_when_store_raises(exc):
     inter = InterfaceApiJob(user=_user("alice"))
     state = _state(result={"large_result": {"storage": "file", "path": "/x"}})
     with patch("app.interface.job.InterfaceApiJob.sogo_agent") as agent, \
-         patch("app.interface.job.InterfaceApiJob.JobResultLargeStore.load_ref", side_effect=exc):
+         patch("app.interface.job.InterfaceApiJob.JobResultLargeStorageSelector.load", side_effect=exc):
         agent.return_value.get.return_value = state
         body, _ = inter.get_result("job-1")
     # A store failure (expired / unreachable file / bad ref) is a clean error, not a 500.

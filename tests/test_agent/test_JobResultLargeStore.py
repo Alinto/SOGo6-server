@@ -1,16 +1,16 @@
-"""Unit tests for the JobResultLargeStore backends and the get() selector."""
+"""Unit tests for the JobResultLargeStore backends and the storage selector."""
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from app.agent.jobs.job_result_large_store.JobResultLargeStorage import JobResultLargeStorage
-from app.agent.jobs.job_result_large_store.JobResultLargeStore import JobResultLargeStore
+from app.agent.jobs.job_result_large_store.JobResultLargeStorageSelector import JobResultLargeStorageSelector
 from app.agent.jobs.job_result_large_store.JobResultLargeStoreFile import JobResultLargeStoreFile
 from app.agent.jobs.job_result_large_store.JobResultLargeStoreInMemory import JobResultLargeStoreInMemory
 
 _INMEM_MODULE = "app.agent.jobs.job_result_large_store.JobResultLargeStoreInMemory"
 _FILE_MODULE = "app.agent.jobs.job_result_large_store.JobResultLargeStoreFile"
-_STORE_MODULE = "app.agent.jobs.job_result_large_store.JobResultLargeStore"
+_SELECTOR_MODULE = "app.agent.jobs.job_result_large_store.JobResultLargeStorageSelector"
 
 
 # ========== InMemory backend ==========
@@ -89,41 +89,47 @@ def test_file_load_refuses_traversal(tmp_path, monkeypatch):
         store.load(ref)
 
 
-# ========== JobResultLargeStore.get() selector ==========
+# ========== JobResultLargeStorageSelector.save() — backend from config ==========
 
-def test_get_returns_inmemory_by_default():
-    with patch(f"{_STORE_MODULE}.JOB_RESULT_LARGE_STORAGE", JobResultLargeStorage.IN_MEMORY):
-        assert isinstance(JobResultLargeStore.get(), JobResultLargeStoreInMemory)
-
-
-def test_get_returns_file_when_configured():
-    with patch(f"{_STORE_MODULE}.JOB_RESULT_LARGE_STORAGE", JobResultLargeStorage.FILE):
-        assert isinstance(JobResultLargeStore.get(), JobResultLargeStoreFile)
+def test_save_uses_inmemory_by_default():
+    cache = MagicMock()
+    with patch(f"{_SELECTOR_MODULE}.JOB_RESULT_LARGE_STORAGE", JobResultLargeStorage.IN_MEMORY), \
+         patch(f"{_INMEM_MODULE}.sogo_cache", return_value=cache):
+        ref = JobResultLargeStorageSelector.save(b"x", "text/plain")
+    assert ref["storage"] == "in_memory"
 
 
-# ========== JobResultLargeStore.load_ref() follows the ref, not the config ==========
+def test_save_uses_file_when_configured(tmp_path, monkeypatch):
+    monkeypatch.setattr(f"{_FILE_MODULE}.process_config.SOGO_P_TMP_PATH", str(tmp_path))
+    with patch(f"{_SELECTOR_MODULE}.JOB_RESULT_LARGE_STORAGE", JobResultLargeStorage.FILE):
+        ref = JobResultLargeStorageSelector.save(b"x", "text/plain")
+    assert ref["storage"] == "file"
+    assert ref["path"].startswith(str(tmp_path))
 
-def test_load_ref_file_roundtrip_ignores_global_config(tmp_path, monkeypatch):
-    # Save in FILE, then load_ref while the global default is IN_MEMORY: the ref wins.
+
+# ========== JobResultLargeStorageSelector.load() — backend from the ref ==========
+
+def test_load_file_roundtrip_ignores_global_config(tmp_path, monkeypatch):
+    # Save in FILE, then load while the global default is IN_MEMORY: the ref wins.
     monkeypatch.setattr(f"{_FILE_MODULE}.process_config.SOGO_P_TMP_PATH", str(tmp_path))
     ref = JobResultLargeStoreFile().save(b"hello", "text/plain")
-    with patch(f"{_STORE_MODULE}.JOB_RESULT_LARGE_STORAGE", JobResultLargeStorage.IN_MEMORY):
-        content, ctype = JobResultLargeStore.load_ref(ref)
+    with patch(f"{_SELECTOR_MODULE}.JOB_RESULT_LARGE_STORAGE", JobResultLargeStorage.IN_MEMORY):
+        content, ctype = JobResultLargeStorageSelector.load(ref)
     assert content == b"hello"
     assert ctype == "text/plain"
 
 
-def test_load_ref_inmemory_dispatch():
+def test_load_inmemory_dispatch():
     cache = MagicMock()
     store_box = {"jobresult:k": {"content_b64": "aGk=", "content_type": "text/plain"}}  # "hi"
     cache.get.side_effect = lambda k, _t: store_box.get(k)
     ref = {"storage": "in_memory", "key": "jobresult:k", "content_type": "text/plain"}
     with patch(f"{_INMEM_MODULE}.sogo_cache", return_value=cache):
-        content, ctype = JobResultLargeStore.load_ref(ref)
+        content, ctype = JobResultLargeStorageSelector.load(ref)
     assert content == b"hi"
     assert ctype == "text/plain"
 
 
-def test_load_ref_rejects_unknown_storage():
+def test_load_rejects_unknown_storage():
     with pytest.raises(ValueError):
-        JobResultLargeStore.load_ref({"storage": "s3", "path": "/x"})
+        JobResultLargeStorageSelector.load({"storage": "s3", "path": "/x"})

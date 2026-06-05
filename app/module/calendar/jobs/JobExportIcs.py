@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.agent.jobs.Job import Job, agent_job
-from app.agent.jobs.job_result_large_store.JobResultLargeStore import JobResultLargeStore
+from app.agent.jobs.job_result_large_store.JobResultLargeStorageSelector import JobResultLargeStorageSelector
 from app.config.settings.ProcessSetting import process_config
 from app.interface.calendar.InterfaceAgentCalendar import InterfaceAgentCalendar
 from app.module.calendar.jobs.JobRequestExportIcs import JobRequestExportIcs
@@ -53,7 +53,7 @@ class JobExportIcs(Job):
             date_end=parse_iso(req.date_end),
         )
         encoded: bytes = ics.encode("utf-8")
-        ref: dict[str, Any] = JobResultLargeStore.get().save(encoded, "text/calendar")
+        ref: dict[str, Any] = JobResultLargeStorageSelector.save(encoded, "text/calendar")
         return {
             "large_result": ref,
             "filename": f"{req.calendar_key}.ics",
