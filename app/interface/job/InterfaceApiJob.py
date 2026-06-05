@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from app.agent.jobs.JobStatus import JobStatus
-from app.agent.jobs.job_result_large_store.JobResultLargeStore import JobResultLargeStore
+from app.agent.jobs.job_result_large_store.JobResultLargeStorageSelector import JobResultLargeStorageSelector
 from app.service import sogo_agent
 from app.utils.api.ApiBaseResponse import create_api_base_response
 from app.utils.errors import (
@@ -22,6 +22,7 @@ from app.utils.exceptions import RequestException
 from app.utils.logger.logger import logger_api
 
 if TYPE_CHECKING:
+    from app.agent.jobs.JobState import JobState
     from app.auth.User import User
 
 
@@ -30,6 +31,26 @@ class InterfaceApiJob:
 
     def __init__(self, user: User) -> None:
         self.user: User = user
+
+    def _assert_owner(self, state: "JobState") -> None:
+        """Raise FORBIDDEN unless the job belongs to the current user.
+
+        System jobs (``user_uid is None``) belong to no user and are never
+        exposed through this user-facing interface — the explicit ``is None``
+        check also prevents a caller without a uid from matching them via
+        ``None == None``.
+        """
+        if state.user_uid is None or state.user_uid != self.user.uid:
+            raise RequestException(error=ERROR_JOB_FORBIDDEN)
+
+    @staticmethod
+    def _public_state_dict(state: "JobState") -> dict[str, Any]:
+        """Serialise a JobState for the API, letting the job redact its payload."""
+        data = state.to_dict()
+        handler = sogo_agent().get_job_handler(state.name)
+        if handler is not None:
+            data["payload"] = handler.public_payload(data.get("payload") or {})
+        return data
 
     def get_job(self, job_id: str) -> tuple[dict[str, Any], int]:
         """Return the JobState envelope for a job owned by the current user.
@@ -41,21 +62,44 @@ class InterfaceApiJob:
         :rtype: tuple[dict[str, Any], int]
         """
         try:
+            state = sogo_agent().get(job_id)
+            if state is None:
+                raise RequestException(error=ERROR_JOB_NOT_FOUND)
+            self._assert_owner(state)
+            return create_api_base_response(self._public_state_dict(state))
+        except RequestException as ex:
+            logger_api.error(
+                "get_job failed for user %s job %s: %s",
+                self.user.uid, job_id, ex.error.c,
+            )
+            return create_api_base_response(None, ex.error)
+
+    def cancel_job(self, job_id: str) -> tuple[dict[str, Any], int]:
+        """Cancel a job owned by the current user and return its refreshed state.
+
+        Idempotent: cancelling an already-terminal job is a no-op (the underlying
+        ``ClientAgent.cancel`` does SIGTERM → grace wait → SIGKILL, and skips
+        jobs already finished or unknown). The returned envelope carries the
+        latest JobState — typically CANCELED once the worker has acknowledged.
+
+        :param job_id: id of the job to cancel.
+        :type job_id: str
+        :return: API envelope with the refreshed JobState, or an error envelope
+            (404 unknown, 403 not-owner).
+        :rtype: tuple[dict[str, Any], int]
+        """
+        try:
             agent = sogo_agent()
             state = agent.get(job_id)
             if state is None:
                 raise RequestException(error=ERROR_JOB_NOT_FOUND)
-            if state.user_uid != self.user.uid:
-                raise RequestException(error=ERROR_JOB_FORBIDDEN)
-            data = state.to_dict()
-            # Let the job redact any sensitive field from its payload before exposing it.
-            handler = agent.get_job_handler(state.name)
-            if handler is not None:
-                data["payload"] = handler.public_payload(data.get("payload") or {})
-            return create_api_base_response(data)
+            self._assert_owner(state)
+            agent.cancel(job_id)
+            refreshed = agent.get(job_id) or state
+            return create_api_base_response(self._public_state_dict(refreshed))
         except RequestException as ex:
             logger_api.error(
-                "get_job failed for user %s job %s: %s",
+                "cancel_job failed for user %s job %s: %s",
                 self.user.uid, job_id, ex.error.c,
             )
             return create_api_base_response(None, ex.error)
@@ -86,8 +130,7 @@ class InterfaceApiJob:
             state = sogo_agent().get(job_id)
             if state is None:
                 raise RequestException(error=ERROR_JOB_NOT_FOUND)
-            if state.user_uid != self.user.uid:
-                raise RequestException(error=ERROR_JOB_FORBIDDEN)
+            self._assert_owner(state)
             if state.status != JobStatus.SUCCESS:
                 raise RequestException(error=ERROR_JOB_NOT_READY)
             result: dict[str, Any] = state.result or {}
@@ -95,7 +138,7 @@ class InterfaceApiJob:
             if not ref:
                 raise RequestException(error=ERROR_JOB_NO_RESULT)
             try:
-                payload, content_type = JobResultLargeStore.load_ref(ref)
+                payload, content_type = JobResultLargeStorageSelector.load(ref)
             except (FileNotFoundError, ValueError, OSError) as exc:
                 # The result has expired, been cleaned up, or is unreachable (e.g. a
                 # FILE backend whose directory is not shared with this process).

@@ -43,18 +43,16 @@ def test_process_serialises_and_offloads_result():
     inter = MagicMock()
     inter.export_calendar.return_value = "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n"
     ref = {"storage": "in_memory", "key": "jobresult:abc", "content_type": "text/calendar"}
-    store = MagicMock()
-    store.save.return_value = ref
     with patch(_INTERFACE, return_value=inter), \
-         patch(f"{_JOB_MODULE}.JobResultLargeStore.get", return_value=store):
+         patch(f"{_JOB_MODULE}.JobResultLargeStorageSelector.save", return_value=ref) as save:
         result = job.process(_payload(calendar_key="cal-9"), user_uid="alice", job_id="j-1")
 
     assert result["large_result"] == ref
     assert result["filename"] == "cal-9.ics"
     assert result["size_bytes"] == len("BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n".encode("utf-8"))
     # The ICS bytes are what gets offloaded, tagged as a calendar.
-    store.save.assert_called_once()
-    saved_bytes, saved_type = store.save.call_args.args
+    save.assert_called_once()
+    saved_bytes, saved_type = save.call_args.args
     assert saved_bytes.startswith(b"BEGIN:VCALENDAR")
     assert saved_type == "text/calendar"
 
@@ -63,10 +61,9 @@ def test_process_forwards_date_bounds_to_interface():
     job = JobExportIcs()
     inter = MagicMock()
     inter.export_calendar.return_value = "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n"
-    store = MagicMock()
-    store.save.return_value = {"storage": "in_memory", "key": "k", "content_type": "text/calendar"}
+    ref = {"storage": "in_memory", "key": "k", "content_type": "text/calendar"}
     with patch(_INTERFACE, return_value=inter), \
-         patch(f"{_JOB_MODULE}.JobResultLargeStore.get", return_value=store):
+         patch(f"{_JOB_MODULE}.JobResultLargeStorageSelector.save", return_value=ref):
         job.process(
             _payload(date_start="2026-01-01T00:00:00Z", date_end="2026-12-31T23:59:59Z"),
             user_uid="alice", job_id="j-1",

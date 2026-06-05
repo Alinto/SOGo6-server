@@ -30,6 +30,18 @@ class ApiJobDetail(MethodView):
         return interface.get_job(job_id)
 
 
+@blp.route("/jobs/<string:job_id>/cancel")
+class ApiJobCancel(MethodView):
+    """Cancel a job the current user owns."""
+
+    @blp.response(200, JobResponseSchema)
+    def post(self, job_id: str) -> ResponseReturnValue:
+        """Request cancellation and return the refreshed JobState (idempotent)."""
+        logger_api.debug("POST /jobs/%s/cancel user=%s", job_id, g.user.uid)
+        interface: InterfaceApiJob = g.inter
+        return interface.cancel_job(job_id)
+
+
 @blp.route("/jobs/<string:job_id>/result")
 class ApiJobResult(MethodView):
     """Serve the large result blob produced by a completed Agent job."""
