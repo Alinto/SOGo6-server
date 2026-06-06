@@ -41,6 +41,12 @@ Start flask application
 poetry run start
 ```
 
+Start agent application
+```bash
+poetry run agent
+poetry run agent-beat
+```
+
 Run unittest
 ```bash
 poetry run pytest

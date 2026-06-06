@@ -1,20 +1,21 @@
 """Celery wrapper. The only file in the project that imports celery directly."""
 from __future__ import annotations
 
+import os
 from datetime import datetime, timezone
 from typing import Any, TYPE_CHECKING
 
 from celery import Celery
+from celery.schedules import crontab
 from celery.signals import task_failure, task_postrun, task_prerun, task_retry, task_revoked
 
+from app.agent.jobs.Job import collected_agent_class_jobs
 from app.agent.jobs.JobState import JobState
 from app.agent.jobs.JobStatus import JobStatus
 from app.agent.jobs.job_large_store.JobLargeStoreBuilder import JobLargeStoreBuilder
 from app.config.settings.ProcessSetting import ProcessSetting, process_config
 from app.utils.exceptions import AggravatedException
 from app.utils.logger.logger import logger_agent
-
-from app.agent.jobs.Job import collected_agent_class_jobs
 
 if TYPE_CHECKING:
     from app.agent.jobs.Job import Job
@@ -142,7 +143,8 @@ class Agent:
         single source of truth) and wraps the instance in a Celery task with:
 
         - ``soft_time_limit`` / ``time_limit`` derived from ``soft_timeout_seconds``,
-        - ``autoretry_for=(Exception,)`` so any exception triggers a retry,
+        - ``autoretry_for`` taken from the Request's ``retry_for`` (defaults to any
+          exception; a job can narrow it to fail fast on permanent errors),
         - ``max_retries = max_try - 1`` (the first attempt is not a retry),
         - exponential backoff with jitter, capped at 5 minutes.
 
@@ -160,11 +162,16 @@ class Agent:
         @self._celery.task(  # pylint: disable=unused-variable
             name=req.name, bind=True,
             soft_time_limit=soft_limit, time_limit=soft_limit + 10,
-            autoretry_for=(Exception,),
+            autoretry_for=req.retry_for,
             max_retries=max_retries,
             retry_backoff=True, retry_jitter=True, retry_backoff_max=300,
         )
-        def _wrapper(celery_self: Any, payload: dict[str, Any], user_uid: str | None) -> dict[str, Any]:
+        def _wrapper(  # pylint: disable=unused-argument
+            celery_self: Any, payload: dict[str, Any], user_uid: str | None,
+            schedule_name: str | None = None,
+        ) -> dict[str, Any]:
+            # ``schedule_name`` is set by Beat entries and read by the prerun hook (to
+            # tag the JobState); the worker body itself does not use it.
             return handler._run(celery_self.request.id, payload, user_uid)  # pylint: disable=protected-access
 
         logger_agent.debug(
@@ -213,12 +220,26 @@ class Agent:
                 cache.delete(JobState.concurrency_lock_key(state.name, state.user_uid))
 
         @task_prerun.connect(weak=False)
-        def _on_prerun(task_id: str | None = None, **_: Any) -> None:
+        def _on_prerun(
+            task_id: str | None = None, task: Any = None, kwargs: dict[str, Any] | None = None, **_: Any,
+        ) -> None:
             # Celery passes ``task_id`` - that's the wire-level id of our job.
             job_id: str | None = task_id
-            state: JobState | None = persistency.get(job_id) if job_id else None
-            if state is None:
+            if job_id is None:
                 return
+            state: JobState | None = persistency.get(job_id)
+            if state is None:
+                # Beat-triggered jobs are sent straight to the broker, so no PENDING
+                # state was persisted at enqueue. Create one now (tagged with the
+                # schedule name) so periodic jobs are tracked like the rest.
+                if task is None:
+                    return
+                kw: dict[str, Any] = kwargs or {}
+                state = JobState(
+                    job_id=job_id, name=task.name, status=JobStatus.STARTED,
+                    user_uid=kw.get("user_uid"), date_planned=datetime.now(timezone.utc),
+                    payload=kw.get("payload") or {}, schedule_name=kw.get("schedule_name"),
+                )
             state.status = JobStatus.STARTED
             state.date_start = datetime.now(timezone.utc)
             state.attempts += 1
@@ -316,5 +337,92 @@ class Agent:
         ]
         logger_agent.info("start_worker: concurrency=%d", concurrency)
         self._celery.worker_main(argv)
+
+    def start_beat(self) -> None:
+        """Run the Celery Beat scheduler (blocking).
+
+        Builds the periodic schedule from every registered job whose Request
+        declares a ``cron``, then runs beat with its last-run state file from
+        ``SOGO_P_AGENT_BEAT_SCHEDULE_PATH``. Run a SINGLE beat instance - several
+        would each fire the schedule and enqueue duplicates (the entrypoint guards
+        this with a Redis lock).
+        """
+        schedule_path: str = self._process_setting.SOGO_P_AGENT_BEAT_SCHEDULE_PATH
+        schedule_dir: str = os.path.dirname(schedule_path)
+        try:
+            if schedule_dir:
+                os.makedirs(schedule_dir, exist_ok=True)
+        except OSError as exc:
+            raise AggravatedException(
+                f"Cannot create the beat schedule directory {schedule_dir!r}: {exc}. "
+                "Provision it (writable by the agent user) or point "
+                "SOGO_P_AGENT_BEAT_SCHEDULE_PATH at a writable path."
+            ) from exc
+        self._celery.conf.beat_schedule = self._build_beat_schedule()
+        self._celery.conf.beat_schedule_filename = schedule_path
+        logger_agent.info(
+            "start_beat: schedule_path=%s entries=%d", schedule_path,
+            len(self._celery.conf.beat_schedule),
+        )
+        self._celery.Beat(loglevel="INFO").run()
+
+    def _build_beat_schedule(self) -> dict[str, dict[str, Any]]:
+        """Build the Celery beat schedule from every registered Request declaring a ``cron``.
+
+        Reads the same handler registry the worker executes from (``_job_handlers``),
+        so beat never schedules a job the worker cannot run. Each periodic job becomes
+        one entry keyed by its registered name; Beat enqueues it with an empty owner
+        and a ``schedule_name`` tag (so the ``task_prerun`` hook can persist a JobState
+        for the run). The payload comes from the Request built with no arguments - a
+        periodic job takes no caller input.
+
+        :return: mapping of job name to its beat entry (task, schedule, kwargs).
+        :rtype: dict[str, dict[str, Any]]
+        """
+        schedule: dict[str, dict[str, Any]] = {}
+        for handler in self._job_handlers.values():
+            request_class: type[JobRequest] = handler.request_class
+            cron: str | None = request_class.cron
+            if cron is None:
+                continue
+            job_name: str = request_class.name
+            schedule[job_name] = {
+                "task": job_name,
+                "schedule": self._crontab_from_string(cron),
+                "kwargs": {
+                    "payload": request_class().payload(),
+                    "user_uid": None,
+                    "schedule_name": job_name,
+                },
+            }
+        return schedule
+
+    @staticmethod
+    def _crontab_from_string(expression: str) -> crontab:
+        """Build a Celery crontab from a standard 5-field cron expression.
+
+        Fields, in order: minute, hour, day-of-month, month, day-of-week
+        (e.g. "0 2 * * *" = daily at 02:00). Each field passes through to Celery
+        verbatim, so steps, ranges and lists ("*/6", "1-5", "0,30") work.
+
+        :param expression: a 5-field cron expression.
+        :type expression: str
+        :return: the matching Celery crontab schedule.
+        :rtype: crontab
+        """
+        fields: list[str] = expression.split()
+        if len(fields) != 5:
+            raise AggravatedException(
+                f"Invalid cron expression {expression!r}: expected 5 fields "
+                "(minute hour day-of-month month day-of-week)."
+            )
+        minute, hour, day_of_month, month_of_year, day_of_week = fields
+        try:
+            return crontab(
+                minute=minute, hour=hour, day_of_month=day_of_month,
+                month_of_year=month_of_year, day_of_week=day_of_week,
+            )
+        except (ValueError, KeyError) as exc:
+            raise AggravatedException(f"Invalid cron expression {expression!r}: {exc}") from exc
 
 agent: Agent = Agent(process_config)

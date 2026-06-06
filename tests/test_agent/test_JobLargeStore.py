@@ -1,4 +1,6 @@
 """Unit tests for the JobLargeStore backends and the JobLargeRef reference."""
+import os
+import time
 from unittest.mock import MagicMock
 
 import pytest
@@ -97,3 +99,19 @@ def test_file_load_refuses_traversal(tmp_path, monkeypatch):
     monkeypatch.setattr(f"{_FILE_MODULE}.process_config.SOGO_P_TMP_PATH", str(tmp_path))
     with pytest.raises(ValueError):
         JobLargeStoreFile().load(JobLargeRef("x", str(tmp_path / ".." / "secret")))
+
+
+def test_file_purge_removes_old_blobs_only(tmp_path, monkeypatch):
+    monkeypatch.setattr(f"{_FILE_MODULE}.process_config.SOGO_P_TMP_PATH", str(tmp_path))
+    old = tmp_path / "joblarge-old"
+    recent = tmp_path / "joblarge-recent"
+    other = tmp_path / "unrelated.txt"  # not a joblarge- file: must be left alone
+    for f in (old, recent, other):
+        f.write_bytes(b"x")
+    # Age the "old" one beyond the cutoff.
+    os.utime(old, (time.time() - 100 * 3600, time.time() - 100 * 3600))
+    removed = JobLargeStoreFile().purge(max_age_seconds=48 * 3600)
+    assert removed == 1
+    assert not old.exists()
+    assert recent.exists()
+    assert other.exists()

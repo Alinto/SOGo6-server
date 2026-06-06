@@ -54,3 +54,16 @@ class JobLargeStore(ABC):
         :param ref: reference to the blob to remove.
         :type ref: JobLargeRef
         """
+
+    def purge(self, max_age_seconds: int) -> int:
+        """Delete blobs older than ``max_age_seconds`` and return how many were removed.
+
+        Default no-op (backends with their own expiry, e.g. Redis TTL, override nothing).
+        Filesystem-backed stores override this to sweep stale files.
+
+        :param max_age_seconds: minimum age for a blob to be purged.
+        :type max_age_seconds: int
+        :return: number of blobs removed.
+        :rtype: int
+        """
+        return 0

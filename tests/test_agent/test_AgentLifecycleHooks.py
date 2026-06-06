@@ -114,6 +114,22 @@ def test_signal_for_unknown_job_id_is_silent(persistency):
     persistency.save.assert_not_called()
 
 
+def test_prerun_creates_state_for_beat_job(persistency):
+    # Beat sends straight to the broker, so no PENDING state exists. The hook must
+    # create one (STARTED) tagged with the schedule name so the job is tracked.
+    persistency.get.return_value = None
+    task_prerun.send(
+        sender=None, task_id="beat-1",
+        task=SimpleNamespace(name="admin.cleanup.large_store"),
+        kwargs={"payload": {}, "user_uid": None, "schedule_name": "admin.cleanup.large_store"},
+    )
+    saved: JobState = persistency.save.call_args.args[0]
+    assert saved.job_id == "beat-1"
+    assert saved.name == "admin.cleanup.large_store"
+    assert saved.status == JobStatus.STARTED
+    assert saved.schedule_name == "admin.cleanup.large_store"
+
+
 def test_terminal_hook_releases_lock_when_max_concurrent_set(persistency, cache):
     persistency.get.return_value = _state(status=JobStatus.STARTED, max_concurrent=1)
     task_postrun.send(sender=None, task_id="t-1", state="SUCCESS", retval={})

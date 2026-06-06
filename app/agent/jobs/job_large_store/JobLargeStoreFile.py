@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import os
+import time
 import uuid
 
+from app.agent.AgentConst import JOB_LARGE_FILE_PREFIX
 from app.agent.jobs.job_large_store.JobLargeRef import JobLargeRef
 from app.agent.jobs.job_large_store.JobLargeStore import JobLargeStore
 from app.config.settings.ProcessSetting import process_config
@@ -29,7 +31,7 @@ class JobLargeStoreFile(JobLargeStore):
         """
         tmp_dir: str = process_config.SOGO_P_TMP_PATH
         os.makedirs(tmp_dir, exist_ok=True)
-        path: str = os.path.join(tmp_dir, f"joblarge-{uuid.uuid4().hex}")
+        path: str = os.path.join(tmp_dir, f"{JOB_LARGE_FILE_PREFIX}{uuid.uuid4().hex}")
         with open(path, "wb") as fh:
             fh.write(content)
         return JobLargeRef(content_type=content_type, locator=path)
@@ -58,6 +60,31 @@ class JobLargeStoreFile(JobLargeStore):
             os.remove(self._safe_path(ref.locator))
         except FileNotFoundError:
             pass
+
+    def purge(self, max_age_seconds: int) -> int:
+        """Delete ``joblarge-`` files under ``SOGO_P_TMP_PATH`` older than the cutoff.
+
+        :param max_age_seconds: minimum age (by mtime) for a file to be removed.
+        :type max_age_seconds: int
+        :return: number of files removed.
+        :rtype: int
+        """
+        tmp_dir: str = process_config.SOGO_P_TMP_PATH
+        if not os.path.isdir(tmp_dir):
+            return 0
+        cutoff: float = time.time() - max_age_seconds
+        removed: int = 0
+        for name in os.listdir(tmp_dir):
+            if not name.startswith(JOB_LARGE_FILE_PREFIX):
+                continue
+            path: str = os.path.join(tmp_dir, name)
+            try:
+                if os.path.getmtime(path) < cutoff:
+                    os.remove(path)
+                    removed += 1
+            except FileNotFoundError:
+                continue
+        return removed
 
     @staticmethod
     def _safe_path(locator: str) -> str:

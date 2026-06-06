@@ -121,6 +121,7 @@ class JobRequestExportIcs(JobRequest):
     max_try: ClassVar[int] = 1
     resume: ClassVar[bool] = False
     max_concurrent: ClassVar[int] = 1
+    retry_for: ClassVar[tuple] = (Exception,)     # exceptions that trigger a retry; narrow to fail fast
 
     calendar_key: str = ""
     def payload(self) -> dict: ...                # JSON-safe dict sent through the broker
@@ -173,6 +174,8 @@ Transitions are materialised in Redis by five Celery hooks wired in `Agent.regis
 
 The *terminal* hooks (postrun, failure, revoked) also release the concurrency lock.
 
+*At-least-once delivery, so jobs must be idempotent.* `task_acks_late=True` plus the broker visibility timeout mean a job can run more than once (worker lost mid-run, or redelivery after the timeout). `process()` must therefore be idempotent - re-running it must not double a side effect (no duplicate row, no double send); key the side effect or upsert it rather than blind-append. Retries are governed per-Request by `retry_for` (default: any exception); narrow it (e.g. `(ConnectionError,)`) so permanent errors like validation failures fail fast instead of burning `max_try` attempts with backoff on something that can never succeed.
+
 == Concurrency
 
 `JobRequest.max_concurrent` (default `1`) caps the number of same-named jobs *in flight* (non-terminal) per scope. The scope is implicit:
@@ -210,7 +213,7 @@ Wire vs typing boundary: `JobState.result` and the broker payload stay JSON (Red
 Trade-off of the singleton: `load`/`delete` use the configured backend, so changing `SOGO_P_AGENT_LARGE_STORE` while blobs still exist makes the old ones unreadable - but *gracefully* (`load` raises `FileNotFoundError` / `ValueError`, surfaced as a clean 410, never a 500). Acceptable for a TTL-bounded result store where the backend does not vary.
 
 // TODO streaming: get_result loads the whole blob into memory. The client favours the FILE backend, where serving via send_file(path) would stream by chunks - worth it for large calendars under concurrent downloads. Deferred: payloads are size-bounded today.
-// TODO: the FILE backend has no purge yet - a cleanup job is needed. IN_MEMORY expires via the Redis TTL.
+FILE-backend blobs are purged by the daily `admin.cleanup.large_store` beat job (see the Periodic jobs section); IN_MEMORY expires via the Redis TTL.
 
 == Payload exposure (security)
 
@@ -247,6 +250,16 @@ At worker boot, `JobRecovery.reconcile_orphans()` scans non-terminal `JobState`.
 * Otherwise -> explicit FAILURE and release of the concurrency lock.
 
 The scan is guarded by a Redis lock (`agent:job_recovery:lock`, TTL 60s) so a single worker sweeps at boot.
+
+== Periodic jobs (Celery Beat)
+
+A third entrypoint runs the scheduler: `poetry run agent-beat` (`app/agent/run.py:beat` -> `Agent.start_beat`). It is distinct from the worker(s): beat *schedules* (pushes a task to the broker at its time), workers *execute*.
+
+*One beat, many workers.* Workers scale horizontally. Beat must run as a *single active instance* - two beats would each fire the schedule and enqueue duplicates. The entrypoint guards this with a Redis lock (`agent:beat:lock`, TTL `BEAT_LOCK_TTL_SECONDS`) refreshed by a heartbeat thread while beat runs; if another beat holds it, the process exits. The lock auto-expires if the holder crashes, so a replacement can take over. (No `celery-redbeat`: it is not actively maintained; the schedule is defined in code, so plain beat + our own lock is enough.)
+
+*A job declares its own schedule.* The `cron` lives on the `JobRequest`, next to the other execution metadata (`max_try`, `soft_timeout_seconds`, `resume`, `max_concurrent`): a standard 5-field expression, e.g. `"0 2 * * *"` = daily at 02:00; a Request without one runs only on demand. At startup `Agent.start_beat` scans every registered job and builds one beat entry per Request that declares a `cron` - keyed by the job name, enqueued with the Request's default payload and a `schedule_name` tag. Adding or rescheduling a periodic job is a one-line change on the Request, not an edit to a central schedule. The last-run state file is `SOGO_P_AGENT_BEAT_SCHEDULE_PATH` (default `/var/celery/celerybeat-schedule`; its directory is provisioned writable by the application user in the agent Dockerfile - `start_beat` raises a clear error if it is missing/not writable). Current periodic job: `admin.cleanup.large_store` (`app/module/admin/jobs/`), on the cadence declared by its Request's `cron`, which calls `agent.get_large_store().purge(SOGO_P_AGENT_LARGE_STORE_MAX_AGE_SECONDS)` to delete FILE-backend blobs older than 48h (the in-memory backend expires via Redis TTL; `purge` is a no-op there).
+
+*Tracking beat jobs.* A beat task goes straight to the broker (it does not pass through `ClientAgent.enqueue`, so no PENDING `JobState` is persisted). The `task_prerun` hook therefore *creates* the `JobState` when none exists, tagged with the schedule name (`schedule_name`, carried in the task kwargs) - so periodic runs show up in `GET /jobs/<id>` and `list_by_schedule` like any other job.
 
 == Testing
 
