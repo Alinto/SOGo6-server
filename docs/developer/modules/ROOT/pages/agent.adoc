@@ -28,8 +28,8 @@ Four layers, isolated by injection. Only `Agent.py` imports `celery`; the busine
 
 *Components:*
 
-* *Agent* (`app/agent/Agent.py`) — the only file importing `celery`. Wraps the Celery calls (`send_task`, `revoke`, signal hooks) and exposes a domain API (`create_job`, `cancel`, `register_job_handler`, `register_all_job_handlers`, `register_lifecycle_hooks`, `start_worker`).
-* *ClientAgent* (`app/manager/agent/ClientAgent.py`) — the single facade used by Flask. Composes Agent + persistency + canceller + cache; owns enqueue, the concurrency gate, `JobState` reads, and the large-blob store (`large_store`). The backend kind (a `JobLargeStorage`) is resolved from `SOGO_P_AGENT_LARGE_STORE` at wiring time and *injected* (like the Redis URL into `ClientRedis`); ClientAgent builds the instance, injecting the cache it holds into the in-memory backend.
+* *Agent* (`app/agent/Agent.py`) — the only file importing `celery`. Wraps the Celery calls (`send_task`, `revoke`, signal hooks) and exposes a domain API (`create_job`, `cancel`, `register_job_handler`, `register_all_job_handlers`, `register_lifecycle_hooks`, `start_worker`). It also owns the large-blob store: `register_large_store(cache)` builds it (via `JobLargeStoreBuilder`) at boot, `get_large_store()` returns it (and raises if never registered). Worker jobs reach it via `agent.get_large_store()`.
+* *ClientAgent* (`app/manager/agent/ClientAgent.py`) — the single facade used by Flask. Composes Agent + persistency + canceller + cache; owns enqueue, the concurrency gate and `JobState` reads. Receives the store *injected* at construction and exposes it via `get_large_store()`. The worker does NOT build a ClientAgent (jobs use `agent.get_large_store()` directly) - only Flask does.
 * *JobPersistency* (`app/agent/jobs/JobPersistency.py`) — Redis CRUD on `JobState`, with three secondary indexes (per user / pending / schedule).
 * *JobCanceller* (`app/agent/jobs/JobCanceller.py`) — two-phase cancellation (SIGTERM -> poll -> SIGKILL).
 * *JobRecovery* (`app/agent/jobs/JobRecovery.py`) — at boot, replays non-terminal jobs according to `request.resume`.
@@ -196,11 +196,11 @@ A broker must not carry large binaries (message bloat, Redis memory). Blobs too 
 * `JobLargeStore` (ABC, impls `JobLargeStoreFile` / `JobLargeStoreInMemory`) — a *stateless storage service*: `save(content, content_type) -> JobLargeRef`, `load(ref) -> bytes`, `delete(ref)`.
 * `JobLargeRef` — the typed reference (`content_type` + `locator`). It is what travels around (typed, not a raw dict) and serialises itself to the wire via `to_dict()` / `from_dict()`.
 
-The backend is *process-wide*. Its kind is read once from `SOGO_P_AGENT_LARGE_STORE` (`file` = filesystem, `in_memory` = Redis) at wiring time (`init_sogo` / the worker entrypoint), turned into a `JobLargeStorage` and injected into `ClientAgent` - the same pattern as the Redis URL injected into `ClientRedis` (no manager reads `process_config` itself). `ClientAgent` builds the instance because it holds the cache the in-memory backend needs *injected* (which also keeps that backend free of the `service -> ClientAgent` import cycle), and exposes it as `ClientAgent.large_store`. Callers reach it through the agent they already have: `sogo_agent().large_store` (worker, interface) or `self._agent.large_store` (a module with the agent injected). No per-job or per-ref backend dispatch - the reference only says *where* a blob is, not *how* to reach it.
+The backend is *process-wide*, built once by `JobLargeStoreBuilder.build(process_setting, cache)` (it reads `SOGO_P_AGENT_LARGE_STORE`: `file` = filesystem, `in_memory` = Redis, and injects the cache into the in-memory backend). The `Agent` import-time singleton starts with no store; `init_infra` calls `agent.register_large_store(cache)` once the cache exists. Access: worker jobs use `agent.get_large_store()` (which raises a controlled `AggravatedException` if it was never registered); Flask code uses `ClientAgent.get_large_store()` (the store injected into the ClientAgent at wiring) or `sogo_agent().get_large_store()`. No per-job or per-ref backend dispatch - the reference only says *where* a blob is, not *how* to reach it.
 
 The store is *bidirectional*:
 
-* *Output* (large result: ICS, PDF...) — the worker `sogo_agent().large_store.save(content, content_type) -> JobLargeRef`, and stores `ref.to_dict()` under `large_result` plus light metadata. Fetched via `GET /jobs/<id>/result`.
+* *Output* (large result: ICS, PDF...) — the worker `agent.get_large_store().save(content, content_type) -> JobLargeRef`, and stores `ref.to_dict()` under `large_result` plus light metadata. Fetched via `GET /jobs/<id>/result`.
 * *Input* (large upload: ICS import) — the module `save()` s the upload *before* enqueue (the worker no longer has the HTTP request) and puts `ref.to_dict()` in the request (`source_ref`). The worker rebuilds it with `JobLargeRef.from_dict(...)`, `load()` s it, then `delete()` s it once consumed (an input blob is single-use). If enqueue fails, the module `delete()` s the ref so no blob dangles.
 
 A *small* result (JSON, e.g. import counters) is returned directly from `process()` and stored inline in `JobState.result`, readable via `GET /jobs/<id>`.
@@ -254,4 +254,4 @@ The scan is guarded by a Redis lock (`agent:job_recovery:lock`, TTL 60s) so a si
 * `tests/test_manager/test_agent/test_ClientAgent.py` — the ClientAgent facade plus concurrency tests (lock acquire/release).
 * `tests/test_interface/test_job/test_InterfaceApiJob.py` — the user-facing interface (get_job + get_result + errors).
 
-The pattern: inject `MagicMock()` for `agent`, `persistency`, `canceller`, `cache`. For interface and worker tests, `patch(...)` `sogo_agent` and drive `sogo_agent().large_store.load` / `.save` directly (the store is the `ClientAgent.large_store` singleton).
+The pattern: inject `MagicMock()` for `agent`, `persistency`, `canceller`, `cache`, and the store. For worker job tests, `patch` the job module's `agent` and drive `agent.get_large_store.return_value`. For Flask interface tests, `patch` `sogo_agent` and drive `sogo_agent().get_large_store.return_value`.
