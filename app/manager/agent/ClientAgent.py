@@ -6,10 +6,6 @@ from typing import TYPE_CHECKING
 
 from app.agent.jobs.JobState import JobState
 from app.agent.jobs.JobStatus import JobStatus
-from app.agent.jobs.job_large_store.JobLargeStorage import JobLargeStorage
-from app.agent.jobs.job_large_store.JobLargeStore import JobLargeStore
-from app.agent.jobs.job_large_store.JobLargeStoreFile import JobLargeStoreFile
-from app.agent.jobs.job_large_store.JobLargeStoreInMemory import JobLargeStoreInMemory
 from app.utils import errors as err
 from app.utils.exceptions import RequestException
 from app.utils.logger.logger import logger_agent
@@ -21,6 +17,7 @@ if TYPE_CHECKING:
     from app.agent.jobs.JobCanceller import JobCanceller
     from app.agent.jobs.JobPersistency import JobPersistency
     from app.agent.jobs.JobRequest import JobRequest
+    from app.agent.jobs.job_large_store.JobLargeStore import JobLargeStore
     from app.manager.cache.ClientRedis import ClientRedis
 
 
@@ -29,23 +26,17 @@ class ClientAgent:
 
     def __init__(
         self, agent: Agent, persistency: JobPersistency, canceller: JobCanceller,
-        cache: ClientRedis, large_storage: JobLargeStorage,
+        cache: ClientRedis, large_store: JobLargeStore,
     ) -> None:
         self._agent: Agent = agent
         self._persistency: JobPersistency = persistency
         self._canceller: JobCanceller = canceller
         self._cache: ClientRedis = cache
-        # The backend kind is resolved from config at wiring time and injected, like the
-        # Redis URL into ClientRedis. ClientAgent builds the instance because it holds the
-        # cache the in-memory backend needs injected.
-        self.large_store: JobLargeStore = self._build_large_store(large_storage, cache)
+        self._large_store: JobLargeStore = large_store
 
-    @staticmethod
-    def _build_large_store(storage: JobLargeStorage, cache: ClientRedis) -> JobLargeStore:
-        """Build the large-blob backend for the requested storage kind."""
-        if storage == JobLargeStorage.FILE:
-            return JobLargeStoreFile()
-        return JobLargeStoreInMemory(cache)
+    def get_large_store(self) -> JobLargeStore:
+        """The process-wide large-blob store, injected at wiring."""
+        return self._large_store
 
     def enqueue(
         self, request: JobRequest, *,

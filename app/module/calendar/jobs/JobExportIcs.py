@@ -9,12 +9,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.agent.Agent import agent
 from app.agent.jobs.Job import Job, agent_job
 from app.agent.jobs.job_large_store.JobLargeRef import JobLargeRef
 from app.config.settings.ProcessSetting import process_config
 from app.interface.calendar.InterfaceAgentCalendar import InterfaceAgentCalendar
 from app.module.calendar.jobs.JobRequestExportIcs import JobRequestExportIcs
-from app.service import sogo_agent
 from app.utils.calendar.DateTimeUtils import parse_iso
 
 
@@ -54,7 +54,7 @@ class JobExportIcs(Job):
             date_end=parse_iso(req.date_end),
         )
         encoded: bytes = ics.encode("utf-8")
-        ref: JobLargeRef = sogo_agent().large_store.save(encoded, "text/calendar")
+        ref: JobLargeRef = agent.get_large_store().save(encoded, "text/calendar")
         return {
             "large_result": ref.to_dict(),
             "filename": f"{req.calendar_key}.ics",

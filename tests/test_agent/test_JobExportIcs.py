@@ -9,17 +9,17 @@ from app.module.calendar.jobs.JobRequestExportIcs import JobRequestExportIcs
 from app.agent.jobs.job_large_store.JobLargeRef import JobLargeRef
 
 _JOB_MODULE = "app.module.calendar.jobs.JobExportIcs"
-# InterfaceAgentCalendar and sogo_agent are imported at the top of the job module.
+# InterfaceAgentCalendar and the agent singleton are imported at the top of the job module.
 _INTERFACE = f"{_JOB_MODULE}.InterfaceAgentCalendar"
-_AGENT = f"{_JOB_MODULE}.sogo_agent"
+_AGENT = f"{_JOB_MODULE}.agent"
 
 
 def _save_agent(ref):
-    """A sogo_agent() whose large_store.save returns ``ref``; returns (agent, store)."""
+    """An agent whose get_large_store().save returns ``ref``; returns (agent, store)."""
     store = MagicMock()
     store.save.return_value = ref
     agent = MagicMock()
-    agent.large_store = store
+    agent.get_large_store.return_value = store
     return agent, store
 
 
@@ -56,7 +56,7 @@ def test_process_serialises_and_offloads_result():
     inter.export_calendar.return_value = "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n"
     ref = JobLargeRef(content_type="text/calendar", locator="joblarge:abc")
     agent, store = _save_agent(ref)
-    with patch(_INTERFACE, return_value=inter), patch(_AGENT, return_value=agent):
+    with patch(_INTERFACE, return_value=inter), patch(_AGENT, agent):
         result = job.process(_payload(calendar_key="cal-9"), user_uid="alice", job_id="j-1")
 
     assert result["large_result"] == ref.to_dict()
@@ -74,7 +74,7 @@ def test_process_forwards_date_bounds_to_interface():
     inter = MagicMock()
     inter.export_calendar.return_value = "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n"
     agent, _ = _save_agent(JobLargeRef("text/calendar", "k"))
-    with patch(_INTERFACE, return_value=inter), patch(_AGENT, return_value=agent):
+    with patch(_INTERFACE, return_value=inter), patch(_AGENT, agent):
         job.process(
             _payload(date_start="2026-01-01T00:00:00Z", date_end="2026-12-31T23:59:59Z"),
             user_uid="alice", job_id="j-1",

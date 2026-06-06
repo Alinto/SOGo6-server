@@ -8,7 +8,6 @@ import pytest
 from app.agent.jobs.JobRequest import JobRequest
 from app.agent.jobs.JobState import JobState
 from app.agent.jobs.JobStatus import JobStatus
-from app.agent.jobs.job_large_store.JobLargeStorage import JobLargeStorage
 from app.manager.agent.ClientAgent import ClientAgent
 from app.utils import errors as err
 from app.utils.exceptions import RequestException
@@ -20,7 +19,7 @@ def _build():
     canceller = MagicMock()
     cache = MagicMock()
     cache.set.return_value = True
-    client = ClientAgent(agent, persistency, canceller, cache, JobLargeStorage.FILE)
+    client = ClientAgent(agent, persistency, canceller, cache, MagicMock())
     return client, agent, persistency, canceller, cache
 
 

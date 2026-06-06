@@ -9,9 +9,9 @@ from app.module.calendar.jobs.JobRequestImportIcs import JobRequestImportIcs
 from app.module.calendar.model.CalSyncResult import CalSyncResult
 
 _JOB_MODULE = "app.module.calendar.jobs.JobImportIcs"
-# InterfaceAgentCalendar and sogo_agent are imported at the top of the job module.
+# InterfaceAgentCalendar and the agent singleton are imported at the top of the job module.
 _INTERFACE = f"{_JOB_MODULE}.InterfaceAgentCalendar"
-_AGENT = f"{_JOB_MODULE}.sogo_agent"
+_AGENT = f"{_JOB_MODULE}.agent"
 # Serialised JobLargeRef (what to_dict() produces, what travels on the wire).
 _REF = {"content_type": "text/calendar", "locator": "joblarge:abc"}
 _UNSET = object()
@@ -23,11 +23,11 @@ def _payload(calendar_key="cal-1", source_ref=_UNSET):
 
 
 def _store_agent(content=b"BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n"):
-    """A sogo_agent() whose large_store.load returns bytes; returns (agent, store)."""
+    """An agent whose get_large_store().load returns bytes; returns (agent, store)."""
     store = MagicMock()
     store.load.return_value = content
     agent = MagicMock()
-    agent.large_store = store
+    agent.get_large_store.return_value = store
     return agent, store
 
 
@@ -46,7 +46,7 @@ def test_public_payload_strips_the_source_ref():
 
 def test_process_rejects_missing_user_uid_but_still_drops_the_blob():
     agent, store = _store_agent()
-    with patch(_AGENT, return_value=agent):
+    with patch(_AGENT, agent):
         with pytest.raises(ValueError):
             JobImportIcs().process(_payload(), user_uid=None, job_id="j-1")
     # An input blob is single-use: it must be dropped even on a rejected job.
@@ -62,7 +62,7 @@ def test_process_loads_imports_and_deletes_the_blob():
     inter = MagicMock()
     inter.import_calendar.return_value = CalSyncResult(inserted=3, updated=1, deleted=0, total=4, skipped=2)
     agent, store = _store_agent()
-    with patch(_INTERFACE, return_value=inter), patch(_AGENT, return_value=agent):
+    with patch(_INTERFACE, return_value=inter), patch(_AGENT, agent):
         result = JobImportIcs().process(_payload(calendar_key="cal-9"), user_uid="alice", job_id="j-1")
 
     assert result == {"inserted": 3, "updated": 1, "deleted": 0, "total": 4, "skipped": 2}
@@ -76,7 +76,7 @@ def test_process_deletes_the_blob_even_on_failure():
     inter = MagicMock()
     inter.import_calendar.side_effect = RuntimeError("boom")
     agent, store = _store_agent(b"BEGIN:VCALENDAR")
-    with patch(_INTERFACE, return_value=inter), patch(_AGENT, return_value=agent):
+    with patch(_INTERFACE, return_value=inter), patch(_AGENT, agent):
         with pytest.raises(RuntimeError):
             JobImportIcs().process(_payload(), user_uid="alice", job_id="j-1")
     store.delete.assert_called_once_with(JobLargeRef.from_dict(_REF))

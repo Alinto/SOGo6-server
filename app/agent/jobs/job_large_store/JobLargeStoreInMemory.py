@@ -21,8 +21,8 @@ class JobLargeStoreInMemory(JobLargeStore):
     upper bound is a few MB per blob - beyond that, switch to
     :class:`JobLargeStoreFile` and a shared volume. The locator is the Redis key.
 
-    The cache client is injected (not pulled from ``app.service``) so this module
-    stays free of the ``service -> ClientAgent -> here`` import cycle.
+    The cache is injected at construction so this module stays free of the
+    ``service -> ... -> here`` import path.
     """
 
     def __init__(self, cache: ClientRedis) -> None:
@@ -58,5 +58,9 @@ class JobLargeStoreInMemory(JobLargeStore):
         return base64.b64decode(payload["content_b64"])
 
     def delete(self, ref: JobLargeRef) -> None:
-        """Drop the Redis key at ``ref.locator``. No-op if already gone."""
+        """Drop the Redis key at ``ref.locator``. No-op if already gone.
+
+        :param ref: reference whose locator is the Redis key.
+        :type ref: JobLargeRef
+        """
         self._cache.delete(ref.locator)

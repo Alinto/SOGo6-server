@@ -1,5 +1,5 @@
 """Unit tests for the JobLargeStore backends and the JobLargeRef reference."""
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
