@@ -1,4 +1,4 @@
-"""Unit tests for JobPersistency — ClientRedis is mocked, no live Redis required."""
+"""Unit tests for JobPersistency - ClientRedis is mocked, no live Redis required."""
 from datetime import datetime, timezone
 from unittest.mock import MagicMock
 

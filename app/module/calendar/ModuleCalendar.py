@@ -33,7 +33,9 @@ from app.module.calendar.repository.RepositoryReminder import RepositoryReminder
 from app.module.calendar.sync.SyncEngine import SyncEngine
 from app.module.calendar.model.CalEvent import CalEvent
 from app.module.calendar.rrule.RecurrenceScopeProcessor import EventAction, RecurrenceScopeProcessor, ScopeResult
+from app.agent.jobs.job_large_store.JobLargeRef import JobLargeRef
 from app.module.calendar.jobs.JobRequestExportIcs import JobRequestExportIcs
+from app.module.calendar.jobs.JobRequestImportIcs import JobRequestImportIcs
 from app.module.calendar.source.CalendarSources import CalendarSources
 from app.utils import errors as err
 from app.utils.exceptions import RequestException
@@ -598,8 +600,44 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         )
         return serializer.serialize(source.calendar)
 
-    def import_calendar(self, user: User, key: str, ics_text: str) -> CalSyncResult:
-        """Import a VCALENDAR payload into a writable calendar (additive merge).
+    def import_calendar(self, user: User, key: str, ics_bytes: bytes) -> str:
+        """Enqueue an ICS import as an Agent job and return the job id.
+
+        Size and ACL checks run synchronously so the caller sees errors immediately
+        (404 / 403 / too large). The uploaded bytes are offloaded to the large store
+        and only their reference travels in the job payload; the worker reads them
+        back, applies the import via :meth:`apply_import`, then deletes the blob.
+
+        :param user: The user importing the file.
+        :param key: Opaque key of the destination calendar.
+        :param ics_bytes: Raw uploaded VCALENDAR bytes.
+        :return: id of the enqueued Agent job.
+        :raises RequestException: ERROR_CALENDAR_NOT_FOUND, ERROR_CALENDAR_ACCESS_DENIED,
+            ERROR_CALENDAR_NOT_SUPPORTED, ERROR_CALENDAR_IMPORT_TOO_LARGE, or
+            ERROR_JOB_CONCURRENT_LIMIT.
+        """
+        if self._agent is None:
+            raise RuntimeError("ModuleCalendar.import_calendar requires a ClientAgent")
+        if len(ics_bytes) > MAX_IMPORT_ICS_BYTES:
+            raise RequestException(error=err.ERROR_CALENDAR_IMPORT_TOO_LARGE)
+        source: CalendarSource = self.get_calendar(user, key)
+        self._acl.check_permission(source.calendar.permissions, CalendarPermissionAction.CREATE)
+        if not source.is_writable():
+            raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
+        ref: JobLargeRef = self._agent.large_store.save(ics_bytes, "text/calendar")
+        try:
+            request: JobRequestImportIcs = JobRequestImportIcs(calendar_key=key, source_ref=ref)
+            return self._agent.enqueue(request, user_uid=user.uid)
+        except Exception:
+            # If we couldn't queue the job, the uploaded blob would dangle - drop it.
+            self._agent.large_store.delete(ref)
+            raise
+
+    def apply_import(self, user: User, key: str, ics_text: str) -> CalSyncResult:
+        """Apply a VCALENDAR payload into a writable calendar (additive merge).
+
+        Synchronous helper run by the Agent worker. The API surface goes through
+        :meth:`import_calendar` (async).
 
         The importer takes ownership of every imported event when
         :data:`CalendarConst.IMPORT_REWRITES_OWNERSHIP` is True: the organizer is rewritten
@@ -608,7 +646,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         left untouched (unlike a mirror sync).
 
         Events whose datetimes carry no explicit timezone (RFC 5545 floating time) are
-        anchored to the destination calendar's timezone — itself defaulted to the user's
+        anchored to the destination calendar's timezone - itself defaulted to the user's
         timezone at creation time.
 
         :param user: The user importing the file (becomes the new organizer when rewriting).
@@ -619,7 +657,6 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
             writable (ICS mirror, denied permission); ERROR_CALENDAR_IMPORT_TOO_LARGE if the
             payload exceeds the size limit.
         """
-        # TODO: dispatch as Celery task instead of synchronous call once the agent is in place
         if len(ics_text.encode("utf-8")) > MAX_IMPORT_ICS_BYTES:
             raise RequestException(error=err.ERROR_CALENDAR_IMPORT_TOO_LARGE)
         source: CalendarSource = self.get_calendar(user, key)

@@ -1,4 +1,4 @@
-"""Unit tests for JobRecovery — agent, persistency and cache are mocked."""
+"""Unit tests for JobRecovery - agent, persistency and cache are mocked."""
 from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
@@ -68,7 +68,7 @@ def test_resume_does_not_release_concurrency_lock():
     persistency.list_pending.return_value = [_state(attempts=1, max_try=3)]
     agent.get_job_handler.return_value = _handler(resume=True)
     recovery.reconcile_orphans()
-    # A resumed job is still in flight — its lock must stay held.
+    # A resumed job is still in flight - its lock must stay held.
     cache.delete.assert_not_called()
 
 

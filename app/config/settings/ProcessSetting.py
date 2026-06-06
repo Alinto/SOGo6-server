@@ -118,9 +118,13 @@ class ProcessSetting(FlaskConfig):
     SOGO_P_AGENT_WORKER_PREFETCH_MULTIPLIER: int = 1
     # How long a JobState stays in cache after the job is completed (post-mortem window).
     SOGO_P_AGENT_JOB_STATE_TTL_SECONDS: int = 3 * 24 * 3600
+    # Backend for large job blobs (exports, uploaded imports). "file" = filesystem under
+    # SOGO_P_TMP_PATH (any size, needs a shared volume across instances); "in_memory" = Redis
+    # (works everywhere, a few MB max per blob). Read by the Agent at startup.
+    SOGO_P_AGENT_LARGE_STORE: str = "file"
     # Directory for transient files (ICS exports, attachments, agent job outputs, etc.).
     # When the agent runs in multiple instances (workers spread across hosts or containers)
-    # and JOB_RESULT_LARGE_STORAGE is FILE, this path must point to a shared volume
+    # and SOGO_P_AGENT_LARGE_STORE is "file", this path must point to a shared volume
     # mounted on every agent instance and on the Flask API process. Otherwise a result
     # written by one worker is unreachable from the API or from another worker.
     SOGO_P_TMP_PATH: str = "/tmp"

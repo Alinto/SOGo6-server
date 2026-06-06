@@ -17,6 +17,7 @@ from app.agent.jobs.Job import collected_agent_class_jobs
 if TYPE_CHECKING:
     from app.agent.jobs.Job import Job
     from app.agent.jobs.JobPersistency import JobPersistency
+    from app.agent.jobs.JobRequest import JobRequest
     from app.manager.cache.ClientRedis import ClientRedis
 
 
@@ -59,7 +60,7 @@ class Agent:
         :type name: str
         :param payload: JSON-serialisable arguments handed to ``Job.process``.
         :type payload: dict[str, Any]
-        :param user_uid: owner of the job. ``None`` for system jobs (purge, sweep…).
+        :param user_uid: owner of the job. ``None`` for system jobs (purge, sweep...).
         :type user_uid: str | None
         :param eta: earliest time the worker may pick the job up. ``None`` means now.
         :type eta: datetime | None
@@ -126,7 +127,7 @@ class Agent:
         :param handler: instance of a ``Job`` subclass with a ``request_class``.
         :type handler: Job
         """
-        req = handler.request_class
+        req: type[JobRequest] = handler.request_class
         self._job_handlers[req.name] = handler
         soft_limit: int = req.soft_timeout_seconds
         max_retries: int = max(0, req.max_try - 1)
@@ -152,7 +153,7 @@ class Agent:
         Called once at boot, after each module's ``jobs`` subpackage has been
         imported so the decorators have populated the collection.
         """
-        classes = collected_agent_class_jobs()
+        classes: list[type[Job]] = collected_agent_class_jobs()
         for cls in classes:
             self.register_job_handler(cls())
         logger_agent.info(
@@ -163,14 +164,14 @@ class Agent:
     def register_lifecycle_hooks(self, persistency: JobPersistency, cache: ClientRedis) -> None:  # pylint: disable=too-many-statements
         """Wire Celery signals to JobPersistency and release the concurrency lock.
 
-        Connects five signals — prerun, postrun, retry, failure, revoked — so that
+        Connects five signals - prerun, postrun, retry, failure, revoked - so that
         every state transition of a job lands in Redis. ``weak=False`` keeps the
         closures alive after this method returns; otherwise Python would
         garbage-collect them and Celery would silently drop the connections.
 
         Terminal hooks (postrun SUCCESS/FAILURE, failure, revoked) also delete the
         concurrency lock acquired by ``ClientAgent.enqueue`` so the next job for
-        the same scope can start immediately. RETRY does **not** release — the job
+        the same scope can start immediately. RETRY does **not** release - the job
         is still considered active.
 
         Must be called once per process, before ``start_worker``.
@@ -188,9 +189,9 @@ class Agent:
 
         @task_prerun.connect(weak=False)
         def _on_prerun(task_id: str | None = None, **_: Any) -> None:
-            # Celery passes ``task_id`` — that's the wire-level id of our job.
-            job_id = task_id
-            state = persistency.get(job_id) if job_id else None
+            # Celery passes ``task_id`` - that's the wire-level id of our job.
+            job_id: str | None = task_id
+            state: JobState | None = persistency.get(job_id) if job_id else None
             if state is None:
                 return
             state.status = JobStatus.STARTED
@@ -206,8 +207,8 @@ class Agent:
         def _on_postrun(
             task_id: str | None = None, state: str | None = None, retval: Any = None, **_: Any,
         ) -> None:
-            job_id = task_id
-            current = persistency.get(job_id) if job_id else None
+            job_id: str | None = task_id
+            current: JobState | None = persistency.get(job_id) if job_id else None
             if current is None:
                 return
             # RETRY means another attempt is queued; leave the state to ``_on_retry``.
@@ -233,8 +234,8 @@ class Agent:
         def _on_retry(
             request: Any = None, reason: Any = None, **_: Any,
         ) -> None:
-            job_id = getattr(request, "id", None) if request else None
-            current = persistency.get(job_id) if job_id else None
+            job_id: str | None = getattr(request, "id", None) if request else None
+            current: JobState | None = persistency.get(job_id) if job_id else None
             if current is None:
                 return
             current.status = JobStatus.RETRY
@@ -247,9 +248,9 @@ class Agent:
 
         @task_failure.connect(weak=False)
         def _on_failure(task_id: str | None = None, exception: BaseException | None = None, **_: Any) -> None:
-            job_id = task_id
+            job_id: str | None = task_id
             # Fires only after retries are exhausted; the requeue path lives in ``_on_retry``.
-            current = persistency.get(job_id) if job_id else None
+            current: JobState | None = persistency.get(job_id) if job_id else None
             if current is None:
                 return
             current.status = JobStatus.FAILURE
@@ -263,8 +264,8 @@ class Agent:
 
         @task_revoked.connect(weak=False)
         def _on_revoked(request: Any = None, **_: Any) -> None:
-            job_id = getattr(request, "id", None) if request else None
-            current = persistency.get(job_id) if job_id else None
+            job_id: str | None = getattr(request, "id", None) if request else None
+            current: JobState | None = persistency.get(job_id) if job_id else None
             if current is None:
                 return
             current.status = JobStatus.CANCELED

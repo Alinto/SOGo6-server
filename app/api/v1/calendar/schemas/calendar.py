@@ -98,20 +98,16 @@ class CalendarExportResponseSchema(ApiBaseResponse):
     data = fields.Nested(CalendarExportDataSchema, allow_none=True)
 
 
-class CalendarImportResultDataSchema(Schema):
-    """Counters returned after an import."""
+class CalendarImportDataSchema(Schema):
+    """Payload returned when an import is enqueued as an Agent job."""
 
-    inserted = fields.Integer()
-    updated  = fields.Integer()
-    deleted  = fields.Integer()
-    total    = fields.Integer()
-    skipped  = fields.Integer()
+    job_id = fields.String(required=True, metadata={"description": "Id of the enqueued Agent job. Poll GET /jobs/<job_id> until status is SUCCESS; the import counters are then in the job's result {inserted, updated, deleted, total, skipped}."})
 
 
 class CalendarImportResponseSchema(ApiBaseResponse):
-    """Response schema for an import call."""
+    """Response schema for the async import endpoint (returns a job_id, not the counters)."""
 
-    data = fields.Nested(CalendarImportResultDataSchema, allow_none=True)
+    data = fields.Nested(CalendarImportDataSchema, allow_none=True)
 
 
 class CalendarSubscriptionDataSchema(Schema):

@@ -4,7 +4,7 @@ from typing import Any
 
 from app.utils.calendar.DateTimeUtils import apply_tz, fmt_dt
 from app.module.calendar.model.CalEventReminder import CalEventReminder
-from app.module.calendar.serializer.Serializer import Serializer
+from app.utils.serializer.Serializer import Serializer
 
 
 class EventReminderSerializerDict(Serializer[CalEventReminder, dict[str, Any]]):

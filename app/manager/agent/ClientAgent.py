@@ -6,6 +6,10 @@ from typing import TYPE_CHECKING
 
 from app.agent.jobs.JobState import JobState
 from app.agent.jobs.JobStatus import JobStatus
+from app.agent.jobs.job_large_store.JobLargeStorage import JobLargeStorage
+from app.agent.jobs.job_large_store.JobLargeStore import JobLargeStore
+from app.agent.jobs.job_large_store.JobLargeStoreFile import JobLargeStoreFile
+from app.agent.jobs.job_large_store.JobLargeStoreInMemory import JobLargeStoreInMemory
 from app.utils import errors as err
 from app.utils.exceptions import RequestException
 from app.utils.logger.logger import logger_agent
@@ -21,15 +25,27 @@ if TYPE_CHECKING:
 
 
 class ClientAgent:
-    """Façade composing Agent, JobPersistency and JobCanceller behind a single API."""
+    """Facade composing Agent, JobPersistency and JobCanceller behind a single API."""
 
     def __init__(
-        self, agent: Agent, persistency: JobPersistency, canceller: JobCanceller, cache: ClientRedis,
+        self, agent: Agent, persistency: JobPersistency, canceller: JobCanceller,
+        cache: ClientRedis, large_storage: JobLargeStorage,
     ) -> None:
         self._agent: Agent = agent
         self._persistency: JobPersistency = persistency
         self._canceller: JobCanceller = canceller
         self._cache: ClientRedis = cache
+        # The backend kind is resolved from config at wiring time and injected, like the
+        # Redis URL into ClientRedis. ClientAgent builds the instance because it holds the
+        # cache the in-memory backend needs injected.
+        self.large_store: JobLargeStore = self._build_large_store(large_storage, cache)
+
+    @staticmethod
+    def _build_large_store(storage: JobLargeStorage, cache: ClientRedis) -> JobLargeStore:
+        """Build the large-blob backend for the requested storage kind."""
+        if storage == JobLargeStorage.FILE:
+            return JobLargeStoreFile()
+        return JobLargeStoreInMemory(cache)
 
     def enqueue(
         self, request: JobRequest, *,
@@ -38,7 +54,7 @@ class ClientAgent:
         """Schedule a job and persist its PENDING state before publishing.
 
         The job id is generated locally so the state hits Redis before the
-        message hits the broker — otherwise a fast worker could run
+        message hits the broker - otherwise a fast worker could run
         ``task_prerun`` while the state is still missing.
 
         Enforces ``request.max_concurrent`` by acquiring a Redis SET NX lock
@@ -129,7 +145,7 @@ class ClientAgent:
             never existed.
         :rtype: JobState | None
         """
-        state = self._persistency.get(job_id)
+        state: JobState | None = self._persistency.get(job_id)
         if state is not None and state.status == JobStatus.STARTED and self._is_zombie(state):
             state.status = JobStatus.FAILURE
             state.error = "Job interrupted: worker disappeared without finishing"
@@ -144,7 +160,7 @@ class ClientAgent:
         return state
 
     def cancel(self, job_id: str) -> None:
-        """SIGTERM → grace wait → SIGKILL via JobCanceller. Idempotent."""
+        """SIGTERM -> grace wait -> SIGKILL via JobCanceller. Idempotent."""
         logger_agent.info("ClientAgent.cancel: job_id=%s", job_id)
         self._canceller.cancel(job_id)
 
@@ -161,7 +177,7 @@ class ClientAgent:
         return self._persistency.list_pending(limit=limit)
 
     def list_by_schedule(self, schedule_name: str, *, limit: int = 100) -> list[JobState]:
-        """Firings of a Beat schedule, newest first."""
+        """JobStates tagged with a periodic schedule, newest first."""
         return self._persistency.list_by_schedule(schedule_name, limit=limit)
 
     def _is_zombie(self, state: JobState) -> bool:

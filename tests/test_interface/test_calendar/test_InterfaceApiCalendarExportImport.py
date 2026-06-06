@@ -4,7 +4,6 @@ from unittest.mock import MagicMock
 import pytest
 
 from app.interface.calendar.InterfaceApiCalendarCalendar import InterfaceApiCalendarCalendar
-from app.module.calendar.model.CalSyncResult import CalSyncResult
 from app.module.calendar.serializer.SyncResultSerializerDict import SyncResultSerializerDict
 from app.utils import errors as err
 from app.utils.exceptions import RequestException
@@ -53,32 +52,31 @@ def test_export_translates_request_exception_to_error_envelope():
     assert response["data"] is None
 
 
-# ========== import_calendar ==========
+# ========== import_calendar (async only) ==========
 
-def test_import_returns_sync_result_envelope():
+def test_import_enqueues_job_and_returns_job_id():
     module = MagicMock()
-    module.import_calendar.return_value = CalSyncResult(inserted=2, updated=1, deleted=0, total=3)
+    module.import_calendar.return_value = "job-456"
     inter = _build_interface(module)
-    response, _ = inter.import_calendar("cal-key", "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n")
-    assert response["error_code"] == "S000000"
-    assert response["data"]["inserted"] == 2
-    assert response["data"]["updated"] == 1
+    body, status = inter.import_calendar("cal-key", b"BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n")
+    assert status == 202
+    assert body["data"]["job_id"] == "job-456"
 
 
-def test_import_forwards_ics_text_unchanged():
+def test_import_forwards_raw_bytes_to_module():
     module = MagicMock()
-    module.import_calendar.return_value = CalSyncResult(inserted=0, updated=0, deleted=0, total=0)
+    module.import_calendar.return_value = "job-1"
     inter = _build_interface(module)
-    ics = "BEGIN:VCALENDAR\r\nFOO:bar\r\nEND:VCALENDAR\r\n"
-    inter.import_calendar("cal-key", ics)
-    # Timezone fallback is resolved in the module (from the calendar), not in the interface.
-    module.import_calendar.assert_called_once_with(inter.user, "cal-key", ics)
+    raw = b"BEGIN:VCALENDAR\r\nFOO:bar\r\nEND:VCALENDAR\r\n"
+    inter.import_calendar("cal-key", raw)
+    # The interface hands the raw bytes through; decoding happens worker-side.
+    module.import_calendar.assert_called_once_with(inter.user, "cal-key", raw)
 
 
 def test_import_translates_request_exception_to_error_envelope():
     module = MagicMock()
     module.import_calendar.side_effect = RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
     inter = _build_interface(module)
-    response, _ = inter.import_calendar("cal-key", "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n")
+    response, _ = inter.import_calendar("cal-key", b"BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n")
     assert response["error_code"] == err.ERROR_CALENDAR_NOT_SUPPORTED.c
     assert response["data"] is None

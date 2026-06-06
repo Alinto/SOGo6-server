@@ -2134,16 +2134,32 @@ EXP_REMAINING=$(body | jq -r '.data.events | length')
 [ "$EXP_REMAINING" = "0" ] && ok "calendar empty after deletes" || fail "calendar still has $EXP_REMAINING event(s) after deletes"
 
 
-step "88. Export/Import — re-import the .ics file"
-info "Posts the previously-exported file as multipart/form-data (per spec)."
+step "88. Export/Import — re-import the .ics file (async job)"
+info "POST /import enqueues an Agent job; poll GET /jobs/<id> until success, then read the counters from the result."
 
+# 1. Enqueue the import — multipart upload returns a job_id (202), not the counters.
 CODE=$(req -X POST "$BASE/calendars/$EXP_CAL_KEY/import" \
     -H "$H_AUTH" \
     -F "file=@$EXP_ICS_FILE;type=text/calendar")
-check_code "POST /calendars/$EXP_CAL_KEY/import" "$CODE" "200"
+check_code "POST /calendars/$EXP_CAL_KEY/import (enqueue)" "$CODE" "202"
 check_error "import error_code"
-IMP_INSERTED=$(extract '.data.inserted')
-IMP_DELETED=$(extract '.data.deleted')
+IMP_JOB_ID=$(extract '.data.job_id')
+[ -n "$IMP_JOB_ID" ] && ok "import returned a job_id" || fail "import returned no job_id"
+
+# 2. Poll the job status until it reaches a terminal state (worker must be running).
+JOB_STATUS=""
+for _ in $(seq 1 60); do
+    CODE=$(req "$BASE/jobs/$IMP_JOB_ID" -H "$H_AUTH")
+    JOB_STATUS=$(extract '.data.status')
+    [ "$JOB_STATUS" = "success" ] && break
+    { [ "$JOB_STATUS" = "failure" ] || [ "$JOB_STATUS" = "canceled" ]; } && break
+    sleep 1
+done
+[ "$JOB_STATUS" = "success" ] && ok "import job completed" || fail "import job did not succeed (status='$JOB_STATUS')"
+
+# 3. The import counters live in the job result.
+IMP_INSERTED=$(extract '.data.result.inserted')
+IMP_DELETED=$(extract '.data.result.deleted')
 [ "$IMP_INSERTED" = "3" ] && ok "import inserted 3 events" || fail "import inserted $IMP_INSERTED (expected 3)"
 [ "$IMP_DELETED" = "0" ] && ok "import did not delete anything" || fail "import unexpectedly deleted $IMP_DELETED row(s)"
 

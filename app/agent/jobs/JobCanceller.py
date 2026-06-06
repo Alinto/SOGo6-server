@@ -10,6 +10,7 @@ from app.utils.logger.logger import logger_agent
 if TYPE_CHECKING:
     from app.agent.Agent import Agent
     from app.agent.jobs.JobPersistency import JobPersistency
+    from app.agent.jobs.JobState import JobState
 
 
 class JobCanceller:
@@ -27,7 +28,7 @@ class JobCanceller:
         self._persistency: JobPersistency = persistency
 
     def cancel(self, job_id: str, *, soft_wait_seconds: float = 5.0) -> None:
-        """Cancel a running job, escalating SIGTERM → SIGKILL if needed.
+        """Cancel a running job, escalating SIGTERM -> SIGKILL if needed.
 
         No-op when the job is unknown (already TTL-expired or never published)
         or already in a terminal state. Safe to call multiple times.
@@ -39,7 +40,7 @@ class JobCanceller:
             takes to clean up.
         :type soft_wait_seconds: float
         """
-        state = self._persistency.get(job_id)
+        state: JobState | None = self._persistency.get(job_id)
         if state is None:
             logger_agent.debug("JobCanceller: unknown job_id=%s, no-op", job_id)
             return
@@ -55,7 +56,7 @@ class JobCanceller:
         # to a system job (client_agent.start("admin.kill_if_alive", ...)).
         deadline: float = time.monotonic() + soft_wait_seconds
         while time.monotonic() < deadline:
-            current = self._persistency.get(job_id)
+            current: JobState | None = self._persistency.get(job_id)
             if current is None or JobStatus.is_terminal(current.status):
                 return
             time.sleep(self._POLL_INTERVAL_SECONDS)

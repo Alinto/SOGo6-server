@@ -17,10 +17,10 @@ class JobPersistency:
     """JobState storage backed by Redis with secondary indexes for listing.
 
     Independent from Celery's result backend so we can carry ``user_uid``,
-    ``payload``, ``attempts``, ``schedule_name`` and a configurable TTL — none
+    ``payload``, ``attempts``, ``schedule_name`` and a configurable TTL - none
     of which fit in Celery's ``AsyncResult``. Three sorted-set indexes are kept
     in sync with the documents: one per user, one for pending jobs, one per
-    Beat schedule.
+    periodic schedule.
     """
 
     def __init__(self, client: ClientRedis, ttl_seconds: int) -> None:
@@ -55,7 +55,7 @@ class JobPersistency:
             is missing.
         :rtype: JobState | None
         """
-        data = self._client.get(self._key(job_id), dict)
+        data: str | list | dict | None = self._client.get(self._key(job_id), dict)
         return JobState.from_dict(data) if isinstance(data, dict) else None
 
     def list_by_user(self, user_uid: str, *, limit: int = 100) -> list[JobState]:
@@ -84,7 +84,7 @@ class JobPersistency:
         )
 
     def list_by_schedule(self, schedule_name: str, *, limit: int = 100) -> list[JobState]:
-        """Return firings of a Beat schedule, newest first.
+        """Return JobStates tagged with a periodic schedule name, newest first.
 
         :param schedule_name: identifier of the periodic schedule to inspect.
         :type schedule_name: str
@@ -130,7 +130,7 @@ class JobPersistency:
         result: list[JobState] = []
         stale: list[str] = []
         for job_id in job_ids:
-            state = self.get(job_id)
+            state: JobState | None = self.get(job_id)
             if state is not None:
                 result.append(state)
             else:

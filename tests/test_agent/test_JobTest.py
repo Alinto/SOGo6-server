@@ -45,7 +45,7 @@ def test_cooperative_cancel_is_signalled_via_exception():
 
 def test_soft_timeout_propagates_to_the_caller():
     """Celery raises SoftTimeLimitExceeded inside the worker thread on timeout. The Task
-    code does not catch it — it propagates and lifecycle hooks observe FAILURE. We model
+    code does not catch it - it propagates and lifecycle hooks observe FAILURE. We model
     that path here by injecting the exception through ``time.sleep``."""
     class _Soft(Exception):
         pass

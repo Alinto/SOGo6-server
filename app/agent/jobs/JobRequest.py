@@ -3,8 +3,8 @@
 Each concrete job ships with its own Request: a typed dataclass that declares
 the target job name, the execution metadata (max_try, soft_timeout_seconds,
 resume) and exposes a ``payload`` method building the dict sent to the worker.
-Callers (Flask interfaces, tests) only import the Request — never the
-``Job`` subclass — keeping the implementation private to the worker side.
+Callers (Flask interfaces, tests) only import the Request - never the
+``Job`` subclass - keeping the implementation private to the worker side.
 
 The Request is the **source of truth** for the metadata: the matching ``Job``
 mirrors them so Celery's decorator and the lifecycle hooks see the same values.
@@ -29,7 +29,7 @@ class JobRequest(ABC):
     resume: ClassVar[bool] = True
     # Number of jobs of this type allowed in flight (non-terminal) at the same time
     # per scope. This caps simultaneity, not total throughput: once a job finishes,
-    # the slot frees up — it is NOT an anti-duplicate guard. 0 disables the gate.
+    # the slot frees up - it is NOT an anti-duplicate guard. 0 disables the gate.
     max_concurrent: ClassVar[int] = 1
 
     @abstractmethod

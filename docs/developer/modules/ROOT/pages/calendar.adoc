@@ -160,20 +160,25 @@ External ICS subscriptions are stored as `CalCalendar` rows with `source_type=ic
 
 == Export and import
 
+Both export and import run *asynchronously* as Agent jobs (see xref:agent.adoc[]): the endpoint enqueues a job and returns `202` with a `job_id`, the caller polls `GET /jobs/{job_id}` until SUCCESS, then reads the outcome. This keeps the request non-blocking for large calendars and bounds concurrency (one export and one import in flight per user via `max_concurrent`).
+
 === Export
 
-`GET /calendars/{key}/export` serialises the calendar back into a VCALENDAR string (`text/calendar`). Recurring masters keep their `RRULE` intact — the expansion happens on the recipient side. Query parameters:
+`GET /calendars/{key}/export` enqueues a `JobExportIcs` job and returns `202 {job_id}`. Recurring masters keep their `RRULE` intact — the expansion happens on the recipient side. Query parameters (forwarded to the job):
 
 * `start_date_time`, `end_date_time` — same semantics as the events list, restrict the export window.
-* `download=true` — adds `Content-Disposition: attachment; filename="calendar-{key}.ics"` so browsers download the response instead of inlining it. Default is inline so the URL stays consumable by any HTTP client or `curl`.
 
-The module fetches both events and tasks without expansion via `CalendarSource.get_events(..., expand=False)` and `get_tasks(..., expand=False)`, attaches them to the `CalCalendar` (its transient `events` field), then `CalendarSerializerIcal.serialize(calendar)` builds the VCALENDAR: it owns the calendar-level header (`PRODID`, `VERSION`, `CALSCALE`, the `X-WR-CALNAME`/`X-WR-CALDESC`/`X-WR-TIMEZONE` descriptors) and delegates the body — one `VEVENT`/`VTODO` per event — to `CalendarEventsSerializerIcal`. `expand=False` keeps recurring masters with their `RRULE` (no flat occurrences) and skips the Python date filter since the SQL fetch already bounds the range.
+The serialised ICS is offloaded to a `JobLargeStore`; the job result carries only the storage reference plus `{filename, size_bytes}`. The caller fetches the bytes from `GET /jobs/{job_id}/result` (`text/calendar`); `?download=true` adds `Content-Disposition: attachment` so browsers download instead of inlining.
+
+Worker-side (`JobExportIcs` &#8594; `InterfaceAgentCalendar` &#8594; `ModuleCalendar`), the module fetches both events and tasks without expansion via `CalendarSource.get_events(..., expand=False)` and `get_tasks(..., expand=False)`, attaches them to the `CalCalendar` (its transient `events` field), then `CalendarSerializerIcal.serialize(calendar)` builds the VCALENDAR: it owns the calendar-level header (`PRODID`, `VERSION`, `CALSCALE`, the `X-WR-CALNAME`/`X-WR-CALDESC`/`X-WR-TIMEZONE` descriptors) and delegates the body — one `VEVENT`/`VTODO` per event — to `CalendarEventsSerializerIcal`. `expand=False` keeps recurring masters with their `RRULE` (no flat occurrences) and skips the Python date filter since the SQL fetch already bounds the range.
 
 === Import
 
-`POST /calendars/{key}/import` accepts a `multipart/form-data` upload with a single `file` part. The view exposes `accepted_content_types = {"multipart/form-data"}` so the global `check_content_type` middleware skips its default JSON rule (the convention is documented in `CLAUDE.md`). The total request size is capped at the WSGI layer (`MAX_CONTENT_LENGTH`); the module enforces the per-import limit (`MAX_IMPORT_ICS_BYTES`), so the view only reads and decodes the part.
+`POST /calendars/{key}/import` accepts a `multipart/form-data` upload with a single `file` part. The view exposes `accepted_content_types = {"multipart/form-data"}` so the global `check_content_type` middleware skips its default JSON rule (the convention is documented in `CLAUDE.md`). The total request size is capped at the WSGI layer (`MAX_CONTENT_LENGTH`); the module enforces the per-import limit (`MAX_IMPORT_ICS_BYTES`).
 
-The pipeline goes `ApiCalendarImport` &#8594; `InterfaceApiCalendarCalendar.import_calendar` &#8594; `ModuleCalendar.import_calendar` &#8594; `SyncEngine.apply_ics(..., delete_missing=False, rewrite_owner_email=..., default_timezone=...)`. `apply_ics` deserialises the payload through `CalendarDeserializerIcal`, which reads the calendar-level header and delegates the body to `CalendarEventsDeserializerIcal`; only the parsed `events` are applied to the target calendar (the imported VCALENDAR's own name/timezone are not used — the import writes into an existing calendar). Key behaviours:
+The endpoint enqueues a `JobImportIcs` job and returns `202 {job_id}`. The import counters `{inserted, updated, deleted, total, skipped}` are returned inline in the job result, readable via `GET /jobs/{job_id}`.
+
+The pipeline is `ApiCalendarImport` &#8594; `InterfaceApiCalendarCalendar.import_calendar` &#8594; `ModuleCalendar.import_calendar` (size/ACL check, offloads the uploaded bytes to a `JobLargeStore`, enqueues `JobRequestImportIcs` with the blob reference) &#8594; worker `JobImportIcs` (loads the blob, then deletes it) &#8594; `ModuleCalendar.apply_import` &#8594; `SyncEngine.apply_ics(..., delete_missing=False, rewrite_owner_email=..., default_timezone=...)`. `apply_ics` deserialises the payload through `CalendarDeserializerIcal`, which reads the calendar-level header and delegates the body to `CalendarEventsDeserializerIcal`; only the parsed `events` are applied to the target calendar (the imported VCALENDAR's own name/timezone are not used — the import writes into an existing calendar). Key behaviours:
 
 * `delete_missing=False`: the import is additive — events absent from the upload are kept (unlike the URL sync which mirrors).
 * `rewrite_owner_email`: when `IMPORT_REWRITES_OWNERSHIP=True` (default, in `CalendarConst`), `apply_ics` works on the *deserialized models* — never on the raw iCal text — setting `event.organizer` to the importer and resetting `event.sequence` to 0 (RFC 5546 §2.1.4: SEQUENCE belongs to the organizer). Attendees are preserved so the historical guest list is kept; iMIP only fires on subsequent explicit edits.
@@ -252,6 +257,6 @@ The organizer is always set by the caller (interface) as a `CalOrganizer` object
 
 `app/module/calendar/imip/`
 
-Three iTIP methods (RFC 5546): REQUEST (invite), REPLY (accept/decline), CANCEL (delete). `ImipProcessor` handles inbound messages. `ImipBuilder` produces outbound `ImipMessage` objects. Actual email dispatch is deferred to the Celery agent.
+Three iTIP methods (RFC 5546): REQUEST (invite), REPLY (accept/decline), CANCEL (delete). `ImipProcessor` handles inbound messages. `ImipBuilder` produces outbound `ImipMessage` objects. Actual email dispatch is deferred to the Agent (see xref:agent.adoc[]).
 
 For local attendees, `CalendarSources.propagate()` mirrors the touched events from a `ScopeResult` to each attendee's writable calendar immediately, bypassing the email roundtrip.

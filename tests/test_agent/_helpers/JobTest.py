@@ -50,7 +50,7 @@ class TaskTest(Job):
         if payload.get("raise"):
             raise RuntimeError("TaskTest forced failure (payload.raise=True)")
         if payload.get("crash"):
-            # Dereferences NULL → segfault. Kills the worker process; only used to
+            # Dereferences NULL -> segfault. Kills the worker process; only used to
             # exercise the orphan-task path in integration tests.
             ctypes.string_at(0)
         return {"echo": payload, "user_uid": user_uid, "job_id": job_id}

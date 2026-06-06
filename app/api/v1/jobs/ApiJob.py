@@ -24,7 +24,7 @@ class ApiJobDetail(MethodView):
 
     @blp.response(200, JobResponseSchema)
     def get(self, job_id: str) -> ResponseReturnValue:
-        """Return the full JobState envelope (status, dates, attempts, result, error)."""
+        """Return the owner-facing JobState view (status, payload, result, error)."""
         logger_api.debug("GET /jobs/%s user=%s", job_id, g.user.uid)
         interface: InterfaceApiJob = g.inter
         return interface.get_job(job_id)
