@@ -2164,6 +2164,47 @@ IMP_DELETED=$(extract '.data.result.deleted')
 [ "$IMP_DELETED" = "0" ] && ok "import did not delete anything" || fail "import unexpectedly deleted $IMP_DELETED row(s)"
 
 
+step "88b. Export/Import — a malformed .ics makes the import job fail"
+info "Content is not validated synchronously, so the upload is accepted (202); the worker job must then end in 'failure' (parse error), exercising the Agent failure path end-to-end and leaving the calendar untouched."
+
+BAD_ICS_FILE=$(mktemp)
+printf 'this is definitely not an ics file\n' > "$BAD_ICS_FILE"
+
+# 0. Snapshot the calendar before the failed import (the range query expands RRULE
+# occurrences, so the count is not the number of master events).
+CODE=$(req "$BASE/calendars/$EXP_CAL_KEY/events?start_date_time=2026-07-01T00:00:00Z&end_date_time=2026-07-31T00:00:00Z" -H "$H_AUTH")
+BAD_BEFORE=$(body | jq -r '.data.events | length')
+
+# 1. Enqueue: the malformed payload is accepted (parsing happens worker-side).
+CODE=$(req -X POST "$BASE/calendars/$EXP_CAL_KEY/import" \
+    -H "$H_AUTH" \
+    -F "file=@$BAD_ICS_FILE;type=text/calendar")
+check_code "POST /import (malformed, enqueue)" "$CODE" "202"
+BAD_JOB_ID=$(extract '.data.job_id')
+[ -n "$BAD_JOB_ID" ] && ok "malformed import returned a job_id" || fail "malformed import returned no job_id"
+
+# 2. Poll until terminal: this one must reach 'failure', not 'success'.
+JOB_STATUS=""
+for _ in $(seq 1 60); do
+    CODE=$(req "$BASE/jobs/$BAD_JOB_ID" -H "$H_AUTH")
+    JOB_STATUS=$(extract '.data.status')
+    { [ "$JOB_STATUS" = "failure" ] || [ "$JOB_STATUS" = "success" ] || [ "$JOB_STATUS" = "canceled" ]; } && break
+    sleep 1
+done
+[ "$JOB_STATUS" = "failure" ] && ok "malformed import job failed as expected" || fail "malformed import status='$JOB_STATUS' (expected failure)"
+
+# 3. The failure must surface an error message on the job.
+BAD_JOB_ERROR=$(extract '.data.error')
+[ -n "$BAD_JOB_ERROR" ] && ok "failed job exposes an error message" || fail "failed job has no error message"
+
+# 4. A failed import must not touch the calendar (parse fails before any write).
+CODE=$(req "$BASE/calendars/$EXP_CAL_KEY/events?start_date_time=2026-07-01T00:00:00Z&end_date_time=2026-07-31T00:00:00Z" -H "$H_AUTH")
+BAD_AFTER=$(body | jq -r '.data.events | length')
+[ "$BAD_AFTER" = "$BAD_BEFORE" ] && ok "calendar unchanged after failed import ($BAD_AFTER events)" || fail "calendar changed after failed import ($BAD_BEFORE -> $BAD_AFTER)"
+
+rm -f "$BAD_ICS_FILE"
+
+
 step "89. Export/Import — verify the three events are back"
 info "Re-fetches the calendar events and checks each original UID is present."
 

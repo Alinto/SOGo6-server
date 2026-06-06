@@ -122,6 +122,12 @@ class ProcessSetting(FlaskConfig):
     # SOGO_P_TMP_PATH (any size, needs a shared volume across instances); "in_memory" = Redis
     # (works everywhere, a few MB max per blob). Read by the Agent at startup.
     SOGO_P_AGENT_LARGE_STORE: str = "file"
+    # Age beyond which a FILE-backend large blob is purged by the daily cleanup job.
+    SOGO_P_AGENT_LARGE_STORE_MAX_AGE_SECONDS: int = 24 * 3600
+    # Celery Beat schedule state file (last_run_at per entry). Its directory must be
+    # writable by the agent user - provisioned in the image (see the agent Dockerfile,
+    # which installs /var/celery owned by the application user). Run a single beat instance.
+    SOGO_P_AGENT_BEAT_SCHEDULE_PATH: str = "/var/celery/celerybeat-schedule"
     # Directory for transient files (ICS exports, attachments, agent job outputs, etc.).
     # When the agent runs in multiple instances (workers spread across hosts or containers)
     # and SOGO_P_AGENT_LARGE_STORE is "file", this path must point to a shared volume

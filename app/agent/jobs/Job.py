@@ -53,6 +53,11 @@ class Job(ABC):
     implement :meth:`process`. The Request is the single source of truth for the
     job name and execution metadata (``max_try``, ``soft_timeout_seconds``,
     ``resume``) - the Job reads everything through it.
+
+    Jobs run under at-least-once delivery: a worker crash mid-run or a retry can
+    execute the same job more than once, so :meth:`process` must be idempotent -
+    re-running it must not double any side effect (no duplicate row, no double
+    send). Make the side effect keyed/upsert-based rather than blind-append.
     """
 
     request_class: ClassVar[type[JobRequest]]
