@@ -18,7 +18,7 @@ class JobState:  # pylint: disable=too-many-instance-attributes
     Celery lifecycle hooks installed in :meth:`Agent.register_lifecycle_hooks`.
     Carries everything Celery's native ``AsyncResult`` cannot: user ownership,
     payload, attempt counter, the configured ``max_try`` / ``soft_timeout_seconds``
-    snapshot at enqueue time, and the optional Beat schedule that produced it.
+    snapshot at enqueue time, and the optional periodic schedule that produced it.
     """
     job_id: str
     name: str
@@ -65,7 +65,7 @@ class JobState:  # pylint: disable=too-many-instance-attributes
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "JobState":
+    def from_dict(cls, data: dict[str, Any]) -> JobState:
         """Rehydrate from a dict produced by :meth:`to_dict`."""
         planned: datetime | None = parse_iso(data["date_planned"])
         assert planned is not None, "date_planned is required and never None in to_dict()"

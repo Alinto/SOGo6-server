@@ -43,7 +43,9 @@ def test_get_job_returns_state_dict_for_owner():
     assert status == 200
     assert body["error_code"] == err.ERROR_NO_ERROR.c
     assert body["data"]["status"] == "success"
-    assert body["data"]["user_uid"] == "alice"
+    # Only public fields are exposed - never internal ones (user_uid, job_id, name, dates...).
+    assert set(body["data"].keys()) == {"status", "payload", "result", "error"}
+    assert "user_uid" not in body["data"]
 
 
 def test_get_job_returns_not_found_when_state_missing():
@@ -150,27 +152,29 @@ def test_cancel_job_forbids_system_job():
 
 # ========== get_result ==========
 
+def _ref(content_type="text/calendar", locator="x"):
+    return {"content_type": content_type, "locator": locator}
+
+
 def test_get_result_streams_blob_with_native_content_type():
     inter = InterfaceApiJob(user=_user("alice"))
-    state = _state(result={"large_result": {"key": "x"}, "filename": "cal.ics"})
-    with patch("app.interface.job.InterfaceApiJob.sogo_agent") as agent, \
-         patch("app.interface.job.InterfaceApiJob.JobResultLargeStorageSelector.load") as load_ref:
+    state = _state(result={"large_result": _ref("text/calendar"), "filename": "cal.ics"})
+    with patch("app.interface.job.InterfaceApiJob.sogo_agent") as agent:
         agent.return_value.get.return_value = state
-        load_ref.return_value = (b"BEGIN:VCALENDAR\r\n", "text/calendar")
+        agent.return_value.large_store.load.return_value = b"BEGIN:VCALENDAR\r\n"
         body, status, headers = inter.get_result("job-1")
     assert status == 200
     assert body.startswith(b"BEGIN:VCALENDAR")
-    assert headers["Content-Type"] == "text/calendar"
+    assert headers["Content-Type"] == "text/calendar"   # from the ref, not the blob
     assert "Content-Disposition" not in headers
 
 
 def test_get_result_adds_attachment_header_when_download_true():
     inter = InterfaceApiJob(user=_user("alice"))
-    state = _state(result={"large_result": {"key": "x"}, "filename": "cal.ics"})
-    with patch("app.interface.job.InterfaceApiJob.sogo_agent") as agent, \
-         patch("app.interface.job.InterfaceApiJob.JobResultLargeStorageSelector.load") as load_ref:
+    state = _state(result={"large_result": _ref(), "filename": "cal.ics"})
+    with patch("app.interface.job.InterfaceApiJob.sogo_agent") as agent:
         agent.return_value.get.return_value = state
-        load_ref.return_value = (b"x", "text/calendar")
+        agent.return_value.large_store.load.return_value = b"x"
         _, _, headers = inter.get_result("job-1", download=True)
     assert "attachment" in headers["Content-Disposition"]
     assert "cal.ics" in headers["Content-Disposition"]
@@ -178,11 +182,10 @@ def test_get_result_adds_attachment_header_when_download_true():
 
 def test_get_result_falls_back_to_job_id_filename_when_missing():
     inter = InterfaceApiJob(user=_user("alice"))
-    state = _state(result={"large_result": {"key": "x"}})  # no filename
-    with patch("app.interface.job.InterfaceApiJob.sogo_agent") as agent, \
-         patch("app.interface.job.InterfaceApiJob.JobResultLargeStorageSelector.load") as load_ref:
+    state = _state(result={"large_result": _ref("application/octet-stream")})  # no filename
+    with patch("app.interface.job.InterfaceApiJob.sogo_agent") as agent:
         agent.return_value.get.return_value = state
-        load_ref.return_value = (b"x", "application/octet-stream")
+        agent.return_value.large_store.load.return_value = b"x"
         _, _, headers = inter.get_result("job-1", download=True)
     assert "job-1.bin" in headers["Content-Disposition"]
 
@@ -243,11 +246,22 @@ def test_get_result_returns_no_result_when_state_result_is_none():
 @pytest.mark.parametrize("exc", [FileNotFoundError("gone"), ValueError("bad ref"), OSError("io")])
 def test_get_result_never_500s_when_store_raises(exc):
     inter = InterfaceApiJob(user=_user("alice"))
-    state = _state(result={"large_result": {"storage": "file", "path": "/x"}})
-    with patch("app.interface.job.InterfaceApiJob.sogo_agent") as agent, \
-         patch("app.interface.job.InterfaceApiJob.JobResultLargeStorageSelector.load", side_effect=exc):
+    state = _state(result={"large_result": _ref(locator="/x")})
+    with patch("app.interface.job.InterfaceApiJob.sogo_agent") as agent:
         agent.return_value.get.return_value = state
+        agent.return_value.large_store.load.side_effect = exc
         body, _ = inter.get_result("job-1")
     # A store failure (expired / unreachable file / bad ref) is a clean error, not a 500.
     assert body["error_code"] == err.ERROR_JOB_NO_RESULT.c
     assert body["data"] is None
+
+
+def test_get_result_returns_no_result_on_malformed_ref():
+    # A stored large_result missing a key -> JobLargeRef.from_dict raises KeyError ->
+    # must surface a clean 410, never a 500.
+    inter = InterfaceApiJob(user=_user("alice"))
+    state = _state(result={"large_result": {"locator": "/x"}})  # no content_type
+    with patch("app.interface.job.InterfaceApiJob.sogo_agent") as agent:
+        agent.return_value.get.return_value = state
+        body, _ = inter.get_result("job-1")
+    assert body["error_code"] == err.ERROR_JOB_NO_RESULT.c

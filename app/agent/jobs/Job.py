@@ -52,7 +52,7 @@ class Job(ABC):
     Subclasses set ``request_class`` to their companion ``JobRequest`` and
     implement :meth:`process`. The Request is the single source of truth for the
     job name and execution metadata (``max_try``, ``soft_timeout_seconds``,
-    ``resume``) — the Job reads everything through it.
+    ``resume``) - the Job reads everything through it.
     """
 
     request_class: ClassVar[type[JobRequest]]
@@ -64,9 +64,9 @@ class Job(ABC):
         """Execute the job's business logic and return a JSON-serialisable result.
 
         Subclasses must override this. The returned dict is stored under
-        ``JobState.result`` after Celery's ``task_postrun`` signal fires —
+        ``JobState.result`` after Celery's ``task_postrun`` signal fires -
         keep it small. For sizeable outputs (ICS exports, blobs), persist them
-        via ``JobResultLargeStore`` and return only the reference here.
+        via ``JobLargeStore`` and return only the reference here.
 
         :param payload: dict produced by ``JobRequest.payload`` on the caller side.
             Concrete jobs usually rehydrate the matching Request via
@@ -92,7 +92,7 @@ class Job(ABC):
         those fields removed or masked.
 
         Rule of thumb: never put a secret in a payload without redacting it here.
-        The payload still reaches the worker in full — only the API view is shaped.
+        The payload still reaches the worker in full - only the API view is shaped.
 
         :param payload: the raw payload stored in ``JobState.payload``.
         :type payload: dict[str, Any]
@@ -105,7 +105,7 @@ class Job(ABC):
         """Entry point called by the Celery wrapper installed in ``Agent.register_job_handler``.
 
         Bridges the Celery-side positional signature ``(job_id, payload, user_uid)``
-        to the keyword-friendly :meth:`process`. Private by convention — subclasses
+        to the keyword-friendly :meth:`process`. Private by convention - subclasses
         override :meth:`process`, not this one.
 
         :param job_id: id assigned by Celery, taken from ``self.request.id`` in

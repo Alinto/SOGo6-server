@@ -9,6 +9,7 @@ import app.module
 from app.agent.Agent import agent
 from app.agent.jobs.JobCanceller import JobCanceller
 from app.agent.jobs.JobPersistency import JobPersistency
+from app.agent.jobs.job_large_store.JobLargeStorage import JobLargeStorage
 from app.manager.agent.ClientAgent import ClientAgent
 from app.module.ModuleInitSogo import ModuleInitSogo
 from app.module.admin.ModuleAdminConfig import ModuleAdminConfig
@@ -125,7 +126,10 @@ def init_sogo() -> tuple[int, ClientRedis, ClientAgent]:
     raise error if the initializaton has problems
     """
     cache_client, persistency = init_infra()
-    agent_client = ClientAgent(agent, persistency, JobCanceller(agent, persistency), cache_client)
+    large_storage = JobLargeStorage(process_config.SOGO_P_AGENT_LARGE_STORE)
+    agent_client = ClientAgent(
+        agent, persistency, JobCanceller(agent, persistency), cache_client, large_storage,
+    )
 
     sogo_state = cs.SOGO_NOT_INIT
     #No errors, check if SOGo already has a configuration

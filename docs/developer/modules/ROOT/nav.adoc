@@ -17,6 +17,7 @@
 * xref:4_0_mail.adoc[]
 ** xref:4_1_mail_server.adoc[]
 ** xref:4_2_mail_outgoing.adoc[]
+* xref:agent.adoc[]
 * Considerations
 ** xref:signed_and_encrypted_mails.adoc[]
 ** xref:calendar.adoc[]

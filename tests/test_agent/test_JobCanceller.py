@@ -1,4 +1,4 @@
-"""Unit tests for JobCanceller — agent and persistency are mocked."""
+"""Unit tests for JobCanceller - agent and persistency are mocked."""
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, call
 
@@ -58,7 +58,7 @@ def test_cancel_skips_sigkill_when_task_terminates_during_wait():
     persistency.get.side_effect = [
         _state(status=JobStatus.STARTED),  # initial
         _state(status=JobStatus.STARTED),  # poll 1
-        _state(status=JobStatus.CANCELED), # poll 2 — exit
+        _state(status=JobStatus.CANCELED), # poll 2 - exit
     ]
     canceller.cancel("t-1", soft_wait_seconds=5.0)
     sigkill = [c for c in agent_mock.cancel.call_args_list if c.kwargs.get("signal") == "SIGKILL"]

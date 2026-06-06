@@ -17,6 +17,7 @@ from app.service import sogo_cache
 if TYPE_CHECKING:
     from datetime import datetime
     from app.config.settings.ProcessSetting import ProcessSetting
+    from app.module.calendar.model.CalSyncResult import CalSyncResult
 
 
 class InterfaceAgentCalendar:
@@ -39,17 +40,38 @@ class InterfaceAgentCalendar:
     ) -> str:
         """Return the VCALENDAR string for the given calendar.
 
-        Storage of the result (memory or file) is the task's responsibility — this
+        Storage of the result (memory or file) is the task's responsibility - this
         interface stays free of any persistence concern.
+
+        :param calendar_key: key of the calendar to export.
+        :type calendar_key: str
+        :param date_start: lower bound of the export window; None means unbounded.
+        :type date_start: datetime | None
+        :param date_end: upper bound of the export window; None means unbounded.
+        :type date_end: datetime | None
+        :return: the serialised VCALENDAR text.
+        :rtype: str
         """
         return self.module.serialize_to_ics(
             self.user, calendar_key, date_start=date_start, date_end=date_end,
         )
 
+    def import_calendar(self, calendar_key: str, ics_text: str) -> CalSyncResult:
+        """Apply an ICS payload to the given calendar and return the import counters.
+
+        :param calendar_key: key of the target calendar.
+        :type calendar_key: str
+        :param ics_text: VCALENDAR text to import.
+        :type ics_text: str
+        :return: the import counters.
+        :rtype: CalSyncResult
+        """
+        return self.module.apply_import(self.user, calendar_key, ics_text)
+
     @staticmethod
     def _load_user(process_setting: ProcessSetting, user_uid: str) -> User:
         """Rehydrate a User from its uid. Same shape as the Flask before_request gives."""
-        user = User(uid=user_uid)
+        user: User = User(uid=user_uid)
         user.mail = user_uid
         user_domain_settings: dict = init_get_user_domain_settings(user)
         ModuleUserProfile(process_setting, user_domain_settings).get_user_profile(user)

@@ -1,6 +1,6 @@
 """Worker-side Agent job exporting a calendar as a VCALENDAR result.
 
-The serialised ICS is offloaded to ``JobResultLargeStore`` because it can be
+The serialised ICS is offloaded to ``JobLargeStore`` because it can be
 sizeable (thousands of events). ``JobState.result`` only carries the storage
 reference plus light metadata. The companion request DTO lives in
 ``JobRequestExportIcs`` (separate file to keep the enqueue side cycle-free).
@@ -10,10 +10,11 @@ from __future__ import annotations
 from typing import Any
 
 from app.agent.jobs.Job import Job, agent_job
-from app.agent.jobs.job_result_large_store.JobResultLargeStorageSelector import JobResultLargeStorageSelector
+from app.agent.jobs.job_large_store.JobLargeRef import JobLargeRef
 from app.config.settings.ProcessSetting import process_config
 from app.interface.calendar.InterfaceAgentCalendar import InterfaceAgentCalendar
 from app.module.calendar.jobs.JobRequestExportIcs import JobRequestExportIcs
+from app.service import sogo_agent
 from app.utils.calendar.DateTimeUtils import parse_iso
 
 
@@ -39,7 +40,7 @@ class JobExportIcs(Job):
         :type job_id: str
         :return: ``{"large_result": <ref dict>, "filename": "<key>.ics", "size_bytes": int}``
             where ``large_result`` is the reference dict produced by the configured
-            ``JobResultLargeStore`` backend.
+            ``JobLargeStore`` backend.
         :rtype: dict[str, Any]
         :raises ValueError: ``user_uid`` is ``None``.
         """
@@ -53,9 +54,9 @@ class JobExportIcs(Job):
             date_end=parse_iso(req.date_end),
         )
         encoded: bytes = ics.encode("utf-8")
-        ref: dict[str, Any] = JobResultLargeStorageSelector.save(encoded, "text/calendar")
+        ref: JobLargeRef = sogo_agent().large_store.save(encoded, "text/calendar")
         return {
-            "large_result": ref,
+            "large_result": ref.to_dict(),
             "filename": f"{req.calendar_key}.ics",
             "size_bytes": len(encoded),
         }

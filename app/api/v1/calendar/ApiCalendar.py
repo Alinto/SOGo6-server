@@ -171,35 +171,34 @@ class ApiCalendarPublicSubscription(MethodView):
 
 @blp.route("/calendars/<string:key>/import")
 class ApiCalendarImport(MethodView):
-    """API to import a VCALENDAR (.ics) payload into a calendar.
+    """API to import a VCALENDAR (.ics) payload into a calendar as an Agent job.
 
     Per the spec, the endpoint accepts a ``multipart/form-data`` upload containing a single
     ``file`` part. The ``accepted_content_types`` class attribute tells the global
     content-type middleware to skip its default ``application/json`` rule for this route.
+
+    The import runs in the background: the response carries a ``job_id`` (202). Clients poll
+    ``GET /jobs/<job_id>`` until ``status == "success"``; the counters are then in the job's
+    ``result``.
     """
 
     accepted_content_types: set[str] = {"multipart/form-data"}
 
     @blp.arguments(CalendarImportUploadSchema, location="files")
-    @blp.response(200, CalendarImportResponseSchema)
+    @blp.response(202, CalendarImportResponseSchema)
     def post(self, files: dict, key: str) -> ResponseReturnValue:
-        """Import the uploaded .ics file into the calendar.
+        """Enqueue the import of the uploaded .ics file and return the ``job_id``.
 
         The total request size is already capped at the WSGI layer (MAX_CONTENT_LENGTH),
-        and the module enforces the per-import size limit; this view only reads the part and
-        decodes it.
+        and the module enforces the per-import size limit; this view only reads the raw part
+        and hands the bytes to the interface (decoding happens worker-side).
         """
         logger_api.debug("POST /calendars/%s/import user=%s", key, g.user.uid)
         interface: InterfaceApiCalendarCalendar = g.inter
         upload: FileStorage | None = files.get("file")
         if upload is None:
             return create_api_base_response(None, ERROR_CALENDAR_IMPORT_NO_FILE)
-        raw: bytes = upload.stream.read()
-        try:
-            ics_text: str = raw.decode("utf-8")
-        except UnicodeDecodeError:
-            ics_text = raw.decode("latin-1")
-        return interface.import_calendar(key, ics_text)
+        return interface.import_calendar(key, upload.stream.read())
 
 
 @blp.route("/calendars/<string:key>/events")

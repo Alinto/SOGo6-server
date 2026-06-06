@@ -1,4 +1,4 @@
-"""Resume-or-fail policy applied to orphan jobs at worker startup (and later by Beat)."""
+"""Resume-or-fail policy applied to orphan jobs at worker startup."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -11,6 +11,7 @@ from app.utils.logger.logger import logger_agent
 
 if TYPE_CHECKING:
     from app.agent.Agent import Agent
+    from app.agent.jobs.Job import Job
     from app.agent.jobs.JobPersistency import JobPersistency
     from app.manager.cache.ClientRedis import ClientRedis
 
@@ -59,7 +60,7 @@ class JobRecovery:
         for state in self._persistency.list_pending(limit=10_000):
             if state.status not in (JobStatus.STARTED, JobStatus.PENDING):
                 continue
-            registered = self._agent.get_job_handler(state.name)
+            registered: Job | None = self._agent.get_job_handler(state.name)
             resume: bool = registered.request_class.resume if registered is not None else False
             eligible: bool = (
                 registered is not None
@@ -91,7 +92,7 @@ class JobRecovery:
                 if state.date_start:
                     state.duration_seconds = (state.date_end - state.date_start).total_seconds()
                 self._persistency.save(state)
-                # Lifecycle hooks won't fire for an orphan we mark FAILURE manually —
+                # Lifecycle hooks won't fire for an orphan we mark FAILURE manually -
                 # release the concurrency lock ourselves so the user can re-enqueue.
                 self._cache.delete(JobState.concurrency_lock_key(state.name, state.user_uid))
                 logger_agent.warning(

@@ -475,19 +475,21 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
             logger_api.error("export_calendar failed for user %s key %s: %s", self.user.uid, key, ex)
             return create_api_base_response(None, ex.error)
 
-    def import_calendar(self, key: str, ics_text: str) -> tuple[dict[str, Any], int]:
-        """Import a VCALENDAR payload into a calendar (additive merge).
+    def import_calendar(self, key: str, ics_bytes: bytes) -> tuple[dict[str, Any], int]:
+        """Enqueue an ICS import as an Agent job and return its ``job_id``.
 
-        Floating-time events (no explicit timezone) are anchored to the destination
-        calendar's timezone by the module — no user-preference lookup needed here.
+        The import always runs in the background: the response carries a ``job_id``
+        (202). The caller polls ``GET /jobs/<job_id>`` until SUCCESS; the import
+        counters are then available in the job's ``result``.
 
         :param key: Opaque calendar key.
-        :param ics_text: Raw VCALENDAR payload (UTF-8 decoded), typically read from an upload.
-        :return: API envelope with insert/update/delete counters.
+        :param ics_bytes: Raw uploaded VCALENDAR bytes.
+        :return: API envelope with ``{"job_id": "..."}`` and status 202, or the
+            standard error envelope on failure.
         """
         try:
-            result = self.module.import_calendar(self.user, key, ics_text)
-            return create_api_base_response(self._sync_result_serializer.serialize(result))
+            job_id: str = self.module.import_calendar(self.user, key, ics_bytes)
+            return create_api_base_response({"job_id": job_id}, code=202)
         except RequestException as ex:
             logger_api.error("import_calendar failed for user %s key %s: %s", self.user.uid, key, ex)
             return create_api_base_response(None, ex.error)

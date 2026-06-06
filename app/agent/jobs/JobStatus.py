@@ -14,6 +14,6 @@ class JobStatus(Enum):
     CANCELED = "canceled"    # explicitly revoked or interrupted via SIGTERM/SIGKILL
 
     @classmethod
-    def is_terminal(cls, status: "JobStatus") -> bool:
+    def is_terminal(cls, status: JobStatus) -> bool:
         """Return True for statuses that mark the end of a job's life."""
         return status in {cls.SUCCESS, cls.FAILURE, cls.CANCELED}

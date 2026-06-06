@@ -2,7 +2,7 @@
 
 We trigger the Celery signals manually with the same kwargs Celery would supply at
 runtime and assert that JobPersistency receives the right state transitions. No real
-worker, no real broker — pure signal plumbing.
+worker, no real broker - pure signal plumbing.
 
 Hooks are connected once at module load (Celery's signal registry is global, so connecting
 in every fixture would multiply handlers across tests). Each test resets and reconfigures
@@ -121,7 +121,7 @@ def test_terminal_hook_releases_lock_when_max_concurrent_set(persistency, cache)
 
 
 def test_terminal_hook_skips_release_when_no_concurrency_gate(persistency, cache):
-    # max_concurrent=0 → no lock was ever taken, so nothing to delete.
+    # max_concurrent=0 -> no lock was ever taken, so nothing to delete.
     persistency.get.return_value = _state(status=JobStatus.STARTED, max_concurrent=0)
     task_postrun.send(sender=None, task_id="t-1", state="SUCCESS", retval={})
     cache.delete.assert_not_called()

@@ -13,10 +13,11 @@ class JobResultQueryArgsSchema(Schema):
 
 
 class JobStateSchema(Schema):
-    """Minimal public view of a JobState — what the polling UI actually needs."""
+    """Minimal public view of a JobState - what the polling UI actually needs."""
 
-    status  = fields.String(required=True, metadata={"description": "PENDING / STARTED / SUCCESS / FAILURE / RETRY / CANCELED."})
-    payload = fields.Dict()
+    status  = fields.String(required=True, metadata={"description": "One of: pending / started / success / failure / retry / canceled."})
+    payload = fields.Dict(metadata={"description": "Job-specific input echoed back to the owner, redacted of internal references (free-form: the keys depend on the job type)."})
+    result  = fields.Dict(allow_none=True, metadata={"description": "Small job-specific result, free-form (e.g. import counters). A large blob result is not inlined - download it from /jobs/<id>/result."})
     error   = fields.String(allow_none=True, metadata={"description": "Error message when status is FAILURE, otherwise null."})
 
 

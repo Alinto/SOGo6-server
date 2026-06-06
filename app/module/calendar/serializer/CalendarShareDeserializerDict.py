@@ -4,7 +4,7 @@ from typing import Any
 
 from app.module.calendar.model.CalendarShare import CalendarShare
 from app.module.calendar.model.enums.CalendarShareLevel import CalendarShareLevel
-from app.module.calendar.serializer.Deserializer import Deserializer
+from app.utils.serializer.Deserializer import Deserializer
 
 
 class CalendarShareDeserializerDict(Deserializer[dict[str, Any], CalendarShare]):
