@@ -9,12 +9,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from app.agent.Agent import agent
 from app.agent.jobs.Job import Job, agent_job
 from app.agent.jobs.job_large_store.JobLargeRef import JobLargeRef
 from app.config.settings.ProcessSetting import process_config
 from app.interface.calendar.InterfaceAgentCalendar import InterfaceAgentCalendar
 from app.module.calendar.jobs.JobRequestImportIcs import JobRequestImportIcs
-from app.service import sogo_agent
 
 if TYPE_CHECKING:
     from app.agent.jobs.job_large_store.JobLargeStore import JobLargeStore
@@ -57,7 +57,7 @@ class JobImportIcs(Job):
         if not source_ref:
             raise ValueError("JobImportIcs requires a source_ref")
         ref: JobLargeRef = JobLargeRef.from_dict(source_ref)
-        store: JobLargeStore = sogo_agent().large_store
+        store: JobLargeStore = agent.get_large_store()
         try:
             # An input blob is single-use: once we hold its ref, any failure below
             # (including a missing user_uid) must still drop it - hence inside the try.

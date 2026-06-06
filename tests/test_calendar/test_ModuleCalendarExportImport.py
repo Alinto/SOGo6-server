@@ -185,10 +185,10 @@ def test_async_import_offloads_blob_and_enqueues_job():
     module._agent = MagicMock()
     module._agent.enqueue.return_value = "job-77"
     ref = MagicMock()
-    module._agent.large_store.save.return_value = ref
+    module._agent.get_large_store.return_value.save.return_value = ref
     job_id = module.import_calendar(_fake_user("alice@example.com"), "cal-key", _MIN_ICS.encode("utf-8"))
     assert job_id == "job-77"
-    module._agent.large_store.save.assert_called_once_with(_MIN_ICS.encode("utf-8"), "text/calendar")
+    module._agent.get_large_store.return_value.save.assert_called_once_with(_MIN_ICS.encode("utf-8"), "text/calendar")
     request = module._agent.enqueue.call_args.args[0]
     assert request.source_ref is ref
     assert request.calendar_key == "cal-key"
@@ -201,11 +201,11 @@ def test_async_import_drops_blob_when_enqueue_fails():
     module._agent = MagicMock()
     module._agent.enqueue.side_effect = RuntimeError("queue down")
     ref = MagicMock()
-    module._agent.large_store.save.return_value = ref
+    module._agent.get_large_store.return_value.save.return_value = ref
     with pytest.raises(RuntimeError):
         module.import_calendar(_fake_user(), "cal-key", _MIN_ICS.encode("utf-8"))
     # The offloaded blob is dropped - nothing dangling.
-    module._agent.large_store.delete.assert_called_once_with(ref)
+    module._agent.get_large_store.return_value.delete.assert_called_once_with(ref)
 
 
 def test_async_import_rejects_oversized_payload_before_offload():
@@ -216,7 +216,7 @@ def test_async_import_rejects_oversized_payload_before_offload():
         with pytest.raises(RequestException) as exc:
             module.import_calendar(_fake_user(), "cal-key", _MIN_ICS.encode("utf-8"))
     assert exc.value.error == err.ERROR_CALENDAR_IMPORT_TOO_LARGE
-    module._agent.large_store.save.assert_not_called()
+    module._agent.get_large_store.return_value.save.assert_not_called()
     module._agent.enqueue.assert_not_called()
 
 
@@ -227,4 +227,4 @@ def test_async_import_rejects_readonly_calendar():
     with pytest.raises(RequestException) as exc:
         module.import_calendar(_fake_user(), "cal-key", _MIN_ICS.encode("utf-8"))
     assert exc.value.error == err.ERROR_CALENDAR_NOT_SUPPORTED
-    module._agent.large_store.save.assert_not_called()
+    module._agent.get_large_store.return_value.save.assert_not_called()

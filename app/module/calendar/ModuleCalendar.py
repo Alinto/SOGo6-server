@@ -624,13 +624,13 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         self._acl.check_permission(source.calendar.permissions, CalendarPermissionAction.CREATE)
         if not source.is_writable():
             raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
-        ref: JobLargeRef = self._agent.large_store.save(ics_bytes, "text/calendar")
+        ref: JobLargeRef = self._agent.get_large_store().save(ics_bytes, "text/calendar")
         try:
             request: JobRequestImportIcs = JobRequestImportIcs(calendar_key=key, source_ref=ref)
             return self._agent.enqueue(request, user_uid=user.uid)
         except Exception:
             # If we couldn't queue the job, the uploaded blob would dangle - drop it.
-            self._agent.large_store.delete(ref)
+            self._agent.get_large_store().delete(ref)
             raise
 
     def apply_import(self, user: User, key: str, ics_text: str) -> CalSyncResult:

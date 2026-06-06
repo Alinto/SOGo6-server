@@ -137,7 +137,7 @@ class InterfaceApiJob:
                 # stream by chunks instead - worth it for large calendars under
                 # concurrent downloads. Keep bytes for now (size-bounded payloads).
                 ref: JobLargeRef = JobLargeRef.from_dict(raw_ref)
-                payload: bytes = sogo_agent().large_store.load(ref)
+                payload: bytes = sogo_agent().get_large_store().load(ref)
             except (FileNotFoundError, ValueError, KeyError, OSError) as exc:
                 # The result has expired, been cleaned up, or is unreachable (e.g. a
                 # FILE backend whose directory is not shared with this process).
