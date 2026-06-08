@@ -105,15 +105,14 @@ ERROR_MAIL_DELETE_DRAFT_FAILED = E("S000364", "Deleting Draft Mail After Sending
 # tmp_draft
 ERROR_TMP_DRAFT_NOT_FOUND       = E("S000370", "Tmp Draft Not Found", HTTPStatus.NOT_FOUND)
 ERROR_TMP_DRAFT_LOCKED          = E("S000371", "Tmp Draft Is Locked By Another Operation", HTTPStatus.CONFLICT)
-ERROR_TMP_DRAFT_LIMIT_REACHED   = E("S000372", "Tmp Draft Limit Reached — Send, Delete Or Close An Existing Draft", HTTPStatus.FORBIDDEN)
-ERROR_TMP_DRAFT_OWNER_MISMATCH  = E("S000373", "Tmp Draft Does Not Belong To This User", HTTPStatus.UNAUTHORIZED)
-ERROR_TMP_DRAFT_INSERT_FAILED   = E("S000374", "Failed To Insert Tmp Draft", HTTPStatus.INTERNAL_SERVER_ERROR)
-ERROR_TMP_DRAFT_UPDATE_FAILED   = E("S000375", "Failed To Update Tmp Draft", HTTPStatus.INTERNAL_SERVER_ERROR)
-ERROR_TMP_DRAFT_DELETE_FAILED   = E("S000376", "Failed To Delete Tmp Draft", HTTPStatus.INTERNAL_SERVER_ERROR)
-ERROR_TMP_DRAFT_UPLOAD_NO_FILE  = E("S000377", "No File Provided In The Upload Request", HTTPStatus.BAD_REQUEST)
-ERROR_TMP_DRAFT_ATTACHMENT_FAILED = E("S000378", "Failed To Add Attachment To Draft", HTTPStatus.INTERNAL_SERVER_ERROR)
-ERROR_TMP_DRAFT_ATTACHMENT_NOT_FOUND = E("S000379", "Attachment Not Found In Draft", HTTPStatus.NOT_FOUND)
-ERROR_TMP_DRAFT_DELETE_ATTACHMENT_FAILED = E("S000380", "Failed To Delete Attachment From Draft", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_TMP_DRAFT_OWNER_MISMATCH  = E("S000372", "Tmp Draft Does Not Belong To This User", HTTPStatus.UNAUTHORIZED)
+ERROR_TMP_DRAFT_INSERT_FAILED   = E("S000373", "Failed To Insert Tmp Draft", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_TMP_DRAFT_UPDATE_FAILED   = E("S000374", "Failed To Update Tmp Draft", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_TMP_DRAFT_DELETE_FAILED   = E("S000375", "Failed To Delete Tmp Draft", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_TMP_DRAFT_UPLOAD_NO_FILE  = E("S000376", "No File Provided In The Upload Request", HTTPStatus.BAD_REQUEST)
+ERROR_TMP_DRAFT_ATTACHMENT_FAILED = E("S000377", "Failed To Add Attachment To Draft", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_TMP_DRAFT_ATTACHMENT_NOT_FOUND = E("S000378", "Attachment Not Found In Draft", HTTPStatus.NOT_FOUND)
+ERROR_TMP_DRAFT_DELETE_ATTACHMENT_FAILED = E("S000379", "Failed To Delete Attachment From Draft", HTTPStatus.INTERNAL_SERVER_ERROR)
 
 
 #User Profile
@@ -122,7 +121,7 @@ ERROR_USER_PROFILE_CREATION_FAILED   = E("S000315", "User Profile Creation Faile
 ERROR_USER_PROFILE_INSERT_MISMATCH   = E("S000316", "User Profile Insert Row Count Mismatch", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_USER_PROFILE_NOT_FOUND         = E("S000317", "User Profile Not Found", HTTPStatus.NOT_FOUND)
 ERROR_USER_PROFILE_UPDATE_FAILED     = E("S000318", "User Profile Update Failed", HTTPStatus.INTERNAL_SERVER_ERROR)
-ERROR_USER_PROFILE_NO_IDENTITY       = E("S000319", "Account must have at least one identity", HTTPStatus.BAD_REQUEST)
+ERROR_USER_PROFILE_NO_IDENTITY       = E("S000319", "Account must have at least wone identity", HTTPStatus.BAD_REQUEST)
 ERROR_USER_PROFILE_MISMATCH_CLASS_DB = E("S000326", "User profile colums differentiate from UserProfile class attributes", HTTPStatus.INTERNAL_SERVER_ERROR)
 
 #External Accounts
