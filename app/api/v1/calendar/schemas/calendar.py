@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from marshmallow import Schema, fields, validate
 
+from app.api.v1.calendar.schemas.components import CalendarPermissionsSchema
 from app.api.v1.calendar.schemas.event import DateTimeEndUtcField, DateTimeUtcField
 from app.utils.api.ApiBaseResponse import ApiBaseResponse
 
@@ -49,7 +50,7 @@ class CalendarSchema(Schema):
     # Full public subscription URL, computed server-side from the share token when active.
     public_url         = fields.String(allow_none=True, dump_only=True)
     # `dump_only`` because permissions are only available when retrieving calendar but can't be set in that way
-    permissions        = fields.Dict(allow_none=True, dump_only=True)
+    permissions        = fields.Nested(CalendarPermissionsSchema, allow_none=True, dump_only=True)
     created_at         = fields.DateTime(allow_none=True)
     updated_at         = fields.DateTime(allow_none=True)
 
