@@ -8,6 +8,7 @@ import ssl
 import urllib.error
 import urllib.parse
 import urllib.request
+from typing import Any, cast
 
 from app.module.calendar.CalendarConst import FETCH_TIMEOUT_SECONDS, MAX_ICS_BYTES, MAX_ICS_REDIRECTS
 from app.utils.errors import ERROR_CALENDAR_ICS_FETCH_FAILED, ERROR_CALENDAR_ICS_PARSE_FAILED
@@ -27,7 +28,9 @@ class _ValidatingRedirectHandler(urllib.request.HTTPRedirectHandler):
         self._max = max_redirects
         self._count = 0
 
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
+    def redirect_request(
+        self, req: urllib.request.Request, fp: Any, code: int, msg: Any, headers: Any, newurl: str,
+    ) -> urllib.request.Request | None:
         self._count += 1
         if self._count > self._max:
             logger_calendar.error("ICS feed exceeded max redirects (%d)", self._max)
@@ -64,13 +67,14 @@ class _PinnedHTTPSConnection(http.client.HTTPSConnection):
     Only the address used by `socket.create_connection` is swapped for the pinned IP.
     """
 
-    def __init__(self, host: str, pinned_ip: str, **kwargs) -> None:
+    def __init__(self, host: str, pinned_ip: str, **kwargs: Any) -> None:
         super().__init__(host, **kwargs)
         self._pinned_ip = pinned_ip
 
     def connect(self) -> None:
         sock = socket.create_connection((self._pinned_ip, self.port), timeout=self.timeout)
-        self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
+        # _context is set by http.client.HTTPSConnection but absent from typeshed stubs.
+        self.sock = self._context.wrap_socket(sock, server_hostname=self.host)  # type: ignore[attr-defined]
 
 
 class _PinnedHTTPSHandler(urllib.request.HTTPSHandler):
@@ -86,7 +90,7 @@ class _PinnedHTTPSHandler(urllib.request.HTTPSHandler):
         self._pinned_ip = pinned_ip
         self._context = context
 
-    def https_open(self, req):
+    def https_open(self, req: urllib.request.Request) -> Any:
         return self.do_open(
             lambda host, **kw: _PinnedHTTPSConnection(host, self._pinned_ip, **kw),
             req,
@@ -194,7 +198,7 @@ class IcsFetcher:
 
         pinned_ip: str | None = None
         for info in resolved:
-            ip_str: str = info[4][0].split("%")[0]
+            ip_str: str = cast(str, info[4][0]).split("%")[0]
             try:
                 addr = ipaddress.ip_address(ip_str)
             except ValueError:

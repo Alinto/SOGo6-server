@@ -183,7 +183,7 @@ class RepositoryEvent:
             logger_calendar.error("Event insert affected %s rows instead of 1 (uid=%s)", inserted, event.uid)
             raise RequestException(error=err.ERROR_CALENDAR_EVENT_INSERT_FAILED)
 
-        fetched = self.find_by_key(event.calendar_key, event.key)
+        fetched = self.find_by_key(event.require_calendar_key, event.require_key)
         if fetched is None:
             logger_calendar.error("Event key=%s was inserted but could not be fetched back", event.key)
             raise RequestException(error=err.ERROR_CALENDAR_EVENT_INSERT_FAILED)

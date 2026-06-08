@@ -19,7 +19,7 @@ from app.module.calendar.CalendarConst import (MAX_EVENT_DESCRIPTION_LENGTH, MAX
                                                MAX_EVENT_ALL_DAY_DURATION_HOURS,
                                                MAX_EVENT_LOCATION_LENGTH, MAX_EVENT_TITLE_LENGTH)
 from app.utils import errors as err
-from app.utils.exceptions import RequestException
+from app.utils.exceptions import BugException, RequestException
 
 
 @dataclass
@@ -182,6 +182,48 @@ class CalEvent:  # pylint: disable=too-many-instance-attributes,invalid-name
     def is_detached(self) -> bool:
         """True when this is a detached occurrence (has recurrence_id but no recurrence_rule)."""
         return self.recurrence_id is not None and self.recurrence_rule is None
+
+    @property
+    def require_uid(self) -> str:
+        """UID, guaranteed on any persisted or fully-built event (RFC 5545 requires it)."""
+        if self.uid is None:
+            raise BugException("CalEvent.uid accessed before it was set")
+        return self.uid
+
+    @property
+    def require_key(self) -> str:
+        """Opaque public key, guaranteed once the event has been persisted/loaded."""
+        if self.key is None:
+            raise BugException("CalEvent.key accessed before the event was persisted")
+        return self.key
+
+    @property
+    def require_calendar_key(self) -> str:
+        """Parent calendar key, guaranteed once the event is attached to a calendar."""
+        if self.calendar_key is None:
+            raise BugException("CalEvent.calendar_key accessed before the event was attached")
+        return self.calendar_key
+
+    @property
+    def require_date_start(self) -> datetime:
+        """Start datetime, guaranteed on any scheduled component (RFC 5545 DTSTART)."""
+        if self.date_start is None:
+            raise BugException("CalEvent.date_start accessed before it was set")
+        return self.date_start
+
+    @property
+    def require_date_end(self) -> datetime:
+        """End datetime, guaranteed once defaults have been applied (DTEND / DUE)."""
+        if self.date_end is None:
+            raise BugException("CalEvent.date_end accessed before it was set")
+        return self.date_end
+
+    @property
+    def require_recurrence_id(self) -> datetime:
+        """Recurrence id, guaranteed on a detached occurrence (RFC 5545 RECURRENCE-ID)."""
+        if self.recurrence_id is None:
+            raise BugException("CalEvent.recurrence_id accessed on a non-detached event")
+        return self.recurrence_id
 
     def apply_update(self, updates: dict[str, Any]) -> None:
         """Apply a partial update dict to this event, ignoring unknown or immutable fields."""
