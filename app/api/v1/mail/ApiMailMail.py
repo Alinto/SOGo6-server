@@ -17,6 +17,7 @@ from .schemas.mail import (
     MailActionSchema,
     MailDownloadSchema,
     MailEditResponseSchema,
+    MailReplyResponseSchema,
 )
 
 if TYPE_CHECKING:
@@ -317,10 +318,35 @@ class ApiMailDetailEdit(MethodView):
 
 @blp.route("/<string:mail_uid>/reply")
 class ApiMailDetailReply(MethodView):
-    """API to manage replies to a specific mail.
-    """
-    def post(self, account_id: str, folder_name: str, mail_uid: str) -> ResponseReturnValue:
-        logger_api.debug("Calling ApiMailDetailReply.post for account_id: %s, folder_name: %s, mail_uid: %s", account_id, folder_name, mail_uid)
+    """API to prepare a reply to a specific mail."""
+
+    @blp.response(200, MailReplyResponseSchema, example=MailReplyResponseSchema.example())
+    def get(self, account_id: str, folder_name: str, mail_uid: str) -> ResponseReturnValue:
+        """Prepare a reply draft for a specific mail.
+
+        Fetches the original mail, extracts its RFC 5322 ``Message-ID`` and
+        ``References`` headers, creates a new empty draft in the Drafts folder,
+        then registers a new ``tmp_draft`` row whose ``headers`` column contains
+        the pre-filled ``In-Reply-To`` and ``References`` values ready to be
+        injected when the reply is eventually sent.
+
+        Returns the ``key`` (tmp_draft key) and all the necessary information to pre-fill the reply form
+
+        :param account_id: The account identifier
+        :type account_id: str
+        :param folder_name: The folder containing the source mail.
+        :type folder_name: str
+        :param mail_uid: The unique identifier of the mail to reply to.
+        :type mail_uid: str
+        :return: Dict with ``key``
+        :rtype: ResponseReturnValue
+        """
+        logger_api.debug(
+            "Calling ApiMailDetailReply.get for account_id: %s, folder_name: %s, mail_uid: %s",
+            account_id,
+            folder_name,
+            mail_uid,
+        )
         interface: InterfaceApiMailMail = g.inter
         return interface.reply_mail(account_id, folder_name, mail_uid)
 

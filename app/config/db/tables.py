@@ -310,16 +310,22 @@ Key queries:
 # owner: uid of the user owning the draft — FK to sogo_user_profiles.uid — indexed for per-user queries
 # mail_server_uid: uid used to locate the Draft on the mail server
 # lock_state: True means a request is currently modifying the Draft; other operations must wait
-COL_DRAFT_KEY            = Column(name="key",             data_type="str",  is_unique=True, extra_args={"max_len": 64})
-COL_DRAFT_OWNER          = Column(name="owner",           data_type="str",                  extra_args={"max_len": 512})
-COL_DRAFT_MAIL_SERVER_UID = Column(name="mail_server_uid", data_type="str",                 extra_args={"max_len": 512})
-COL_DRAFT_LOCK_STATE     = Column(name="lock_state",      data_type="bool")
+# headers: JSON blob reserved for future use (e.g. custom mail headers set by the client before sending)
+# last_updated: Unix timestamp (seconds since epoch) updated on every insert/modify of this entry
+COL_DRAFT_KEY             = Column(name="key",             data_type="str",  is_unique=True, extra_args={"max_len": 64})
+COL_DRAFT_OWNER           = Column(name="owner",           data_type="str",                  extra_args={"max_len": 512})
+COL_DRAFT_MAIL_SERVER_UID = Column(name="mail_server_uid", data_type="str",                  extra_args={"max_len": 512})
+COL_DRAFT_LOCK_STATE      = Column(name="lock_state",      data_type="bool")
+COL_DRAFT_HEADERS         = Column(name="headers",         data_type="dict", is_nullable=True)
+COL_DRAFT_LAST_UPDATED    = Column(name="last_updated",    data_type="int",  is_nullable=True)
 
 ALL_DRAFT_COL = [COL_ID,
                  COL_DRAFT_KEY,
                  COL_DRAFT_OWNER,
                  COL_DRAFT_MAIL_SERVER_UID,
-                 COL_DRAFT_LOCK_STATE]
+                 COL_DRAFT_LOCK_STATE,
+                 COL_DRAFT_HEADERS,
+                 COL_DRAFT_LAST_UPDATED]
 
 IDX_DRAFT_OWNER = Index(name="idx_draft_owner", columns=(COL_DRAFT_OWNER.name,))
 

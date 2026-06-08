@@ -2,6 +2,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from email.message import EmailMessage
+from email.utils import make_msgid, formatdate, parseaddr
 
 from app.manager.outgoing.ClientOutgoing import ClientOutgoing
 from app.utils import constants as cs
@@ -119,13 +120,18 @@ class ModuleMailOutgoing:
             client.login(conf["username"], conf["password"], conf.get("authname", ""))
         return client
 
-    def send_mail(self, account_id: str, mail_data: dict) -> EmailMessage:
+    def send_mail(self, account_id: str, mail_data: dict, extra_headers: dict | None = None) -> EmailMessage:
         """Send an email using the outgoing mail client associated with the given account.
 
         :param account_id: The account ID to use for sending the email.
         :type account_id: str
         :param mail_data: Dict containing all email fields (validated upstream).
         :type mail_data: dict
+        :param extra_headers: Optional RFC 5322 headers to inject into the message
+            (e.g. ``{"In-Reply-To": "...", "References": "..."}``). These are added
+            after the standard headers so they can never overwrite ``From``, ``To``,
+            ``Subject``, ``Message-ID`` or ``Date``.
+        :type extra_headers: dict | None
         :return: The built EmailMessage that was sent.
         :rtype: EmailMessage
         """
@@ -139,7 +145,25 @@ class ModuleMailOutgoing:
         if bcc := mail_data.get("bcc"):
             message["Bcc"] = ", ".join(bcc)
         if return_receipt := mail_data.get("return_receipt"):
-            message["Disposition-Notification-To"] = return_receipt
+            message["Disposition-Notification-To"] = return_receipt  # RFC 3798
+            message["Return-Receipt-To"] = return_receipt             # RFC 3885
+
+        # --- Message-ID: generate once, never overwrite ---
+        if "Message-ID" not in message:
+            _, addr = parseaddr(mail_data.get("from_addr", ""))
+            domain = addr.split("@")[-1] if "@" in addr else "localhost"
+            message["Message-ID"] = make_msgid(domain=domain)
+
+        # --- Date: always reflect the actual send time ---
+        if "Date" in message:
+            del message["Date"]
+        message["Date"] = formatdate(localtime=True)
+
+        # --- Extra RFC 5322 headers ---
+        if extra_headers:
+            for header_name, header_value in extra_headers.items():
+                if header_name not in message:
+                    message[header_name] = header_value
 
         message.set_content(mail_data["body"])
 

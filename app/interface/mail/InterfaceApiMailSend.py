@@ -88,6 +88,13 @@ class InterfaceApiMailSend:
                 logger_api.error("Invalid tmp_draft key %s for user %s: %s", key, self.user.uid, str(ex))
                 return create_api_base_response(None, ex.error)
 
+            # Retrieve threading headers stored in the tmp_draft row
+            extra_headers: dict = {}
+            try:
+                extra_headers = self.mail_module.get_headers_from_tmp_draft(key)
+            except RequestException as ex:
+                logger_api.warning("Failed to retrieve headers from tmp_draft key %s for user %s: %s", key, self.user.uid, str(ex))
+
             # Inject attachments stored in the IMAP draft into mail_data before sending
             try:
                 draft_attachments = self.mail_module.get_attachments_from_tmp_draft(account_id, key)
@@ -97,8 +104,10 @@ class InterfaceApiMailSend:
                     mail_data["attachments"] = existing + draft_attachments
             except RequestException as ex:
                 logger_api.warning("Failed to retrieve attachments from tmp_draft key %s for user %s: %s", key, self.user.uid, str(ex))
+        else:
+            extra_headers = {}
         try:
-            message = self.mail_outgoing_module.send_mail(account_id, mail_data)
+            message = self.mail_outgoing_module.send_mail(account_id, mail_data, extra_headers=extra_headers or None)
         except RequestException as ex:
             logger_api.error("Request exception in send_mail for user %s, account %s: %s", self.user.uid, account_id, str(ex))
             return create_api_base_response(None, ex.error, error_msg=str(ex))

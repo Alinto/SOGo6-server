@@ -347,7 +347,27 @@ class MailEditResponseSchema(ApiBaseResponse):
         }
 
 
-# ===== Deprecated/Legacy Schemas =====
+class MailReplyResponseSchema(MailDetailResponseSchema):
+    """Response schema for the reply endpoint.
+
+    Extends MailDetailResponseSchema with reply-specific fields:
+    - key: the tmp_draft key for the new reply draft
+    - to: single contact dict (the original sender, overrides the list from MailDetailResponseSchema)
+    - cc: list of contacts (original mail's Cc, only present when all=true)
+    """
+
+    key = fields.Str(
+        required=True,
+        metadata={"description": "The tmp_draft key for the new reply draft"},
+    )
+
+    @classmethod
+    def example(cls) -> dict:
+        base = MailDetailResponseSchema.example()
+        base["key"] = "abc123def456"
+        base["cc"] = [{"email": "cc@example.com", "name": "CC Person"}]
+        return base
+
 
 class MailListQuerySchema(Schema):
     """Schema for mail list query parameters."""
