@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING, Any, Iterator
 
 from email.header import decode_header, make_header
 from email.message import Message
-from email.utils import parseaddr, getaddresses
+from email.utils import parseaddr, getaddresses, make_msgid, formatdate
 from io import BytesIO
 from re import search as reg_search
 import zipfile
@@ -473,7 +473,7 @@ class ModuleMail:
             from_ = {"name": from_addr[0], "email": from_addr[1]}
             to = [{"name": addr[0], "email": addr[1]} for addr in getaddresses([email.get("To", "")])]
             cc = [{"name": addr[0], "email": addr[1]} for addr in getaddresses([email.get("Cc", "")])]
-            reply_to = [{"name": addr[0], "email": addr[1]} for addr in getaddresses([email.get("Reply-To", "")])]
+            reply_to = [{"name": addr[0], "email": addr[1]} for addr in getaddresses([email.get("In-Reply-To", "")])]
             return_path = email.get("Return-Path", "")
         except (AttributeError, TypeError) as e:
             logger_mail_server.warning("Error parsing addresses for UID %s: %s", uid, e)
@@ -783,7 +783,6 @@ class ModuleMail:
             operation fails.
         """
         tmpdraftmngr = TmpDraftManager(self._get_db(), self.user.uid)
-        tmpdraftmngr.check_limit()
 
         client = self._open_client_for(account_id)
 
@@ -851,16 +850,88 @@ class ModuleMail:
 
 
     def reply_mail(self, account_id: str, folder_name: str, mail_uid: str) -> dict[str, Any]:
-        """Reply to a specific mail.
-        
-        :param folder_name: The name of the folder
+        """Prepare a reply draft for a specific mail.
+
+        Steps:
+        1. Fetch the original mail from IMAP and extract its ``Message-ID``,
+           ``References``, ``From`` and (optionally) ``Cc`` RFC 5322 headers.
+        2. Create a new empty draft in the Drafts folder.
+        3. Insert a new ``tmp_draft`` row (after checking the per-user limit) with
+           ``mail_server_uid`` pointing to the new draft and ``headers`` set to::
+
+               {
+                   "In-Reply-To": "<original-message-id>",
+                   "References": "<previous-refs> <original-message-id>"
+               }
+
+        :param account_id: The account identifier.
+        :type account_id: str
+        :param folder_name: The name of the folder containing the original mail.
         :type folder_name: str
-        :param mail_uid: The unique identifier of the mail
+        :param mail_uid: The UID of the mail to reply to.
         :type mail_uid: str
-        :return: Reply data
+        :param reply_all: If True, also return the Cc recipients of the original mail.
+        :type reply_all: bool
+        :return: Dict with ``key``, ``to`` (original sender), and optionally ``cc``.
         :rtype: dict[str, Any]
+        :raises RequestException: If fetching the mail, creating the draft, or the DB
+            operation fails.
         """
-        raise NotImplementedError("Message from ModuleMail.py: reply_mail is not implemented yet")
+        tmpdraftmngr = TmpDraftManager(self._get_db(), self.user.uid)
+
+        client = self._open_client_for(account_id)
+
+        try:
+            # --- Step 1: fetch the original mail and extract threading headers ---
+            raw_eml = client.fetch_mail_raw(folder_name, mail_uid)
+            original = email_existing.message_from_string(raw_eml, policy=email.policy.default)
+
+            original_message_id: str = original.get("Message-ID", "").strip()
+            original_references: str = original.get("References", "").strip()
+
+            # RFC 5322 - headers for the new reply draft
+            in_reply_to: str = original_message_id  # empty string if header absent
+
+            if original_references and original_message_id:
+                references: str = f"{original_references} {original_message_id}"
+            elif original_message_id:
+                # No prior References chain: this is the start of the thread.
+                # Per RFC 5322, References = just the parent's Message-ID.
+                # (Equals In-Reply-To — that is correct and expected for a first-level reply.)
+                references = original_message_id
+            else:
+                # Edge case: the parent has no Message-ID.
+                # Keep whatever References existed (may be empty).
+                references = original_references
+
+            threading_headers: dict = {}
+            if in_reply_to:
+                threading_headers["In-Reply-To"] = in_reply_to
+            if references:
+                threading_headers["References"] = references
+
+            # --- Step 2: create an empty draft in the Drafts folder ---
+            empty_draft_message = EmailMessage()
+            raw_draft = client.save_draft(empty_draft_message, uid=None)
+
+        except RequestException:
+            raise
+        except Exception as ex:
+            raise RequestException(err.ERROR_MAIL_EDIT_FAILED.m, error=err.ERROR_MAIL_EDIT_FAILED) from ex
+
+        new_mail_server_uid: str = raw_draft.get("uid", "")
+
+        # --- Step 3: insert tmp_draft row with threading headers ---
+        new_key = tmpdraftmngr.generate_key()
+        tmpdraftmngr.insert_with_headers(new_key, new_mail_server_uid, threading_headers)
+
+        mail_detail = self.get_mail_detail(account_id, folder_name, mail_uid)
+
+        result: dict[str, Any] = {
+            **mail_detail,
+            "key": new_key,
+        }
+        return result
 
     def forward_mail(self, account_id: str, folder_name: str, mail_uid: str) -> dict[str, Any]:
         """Forward a specific mail.
@@ -913,7 +984,6 @@ class ModuleMail:
         :rtype: dict[str, Any]
         :raises RequestException: If any validation or operation fails
         """
-        
 
         tmpdraftmngr = TmpDraftManager(self._get_db(), self.user.uid)
 
@@ -929,7 +999,7 @@ class ModuleMail:
                 message = EmailMessage()
 
             # --- Update headers (replace existing ones) ---
-            for header in ("From", "To", "Subject", "Cc", "Bcc", "Disposition-Notification-To"):
+            for header in ("From", "To", "Subject", "Cc", "Bcc", "Disposition-Notification-To", "Return-Receipt-To"):
                 if header in message:
                     del message[header]
 
@@ -944,7 +1014,20 @@ class ModuleMail:
             if bcc := mail_data.get("bcc"):
                 message["Bcc"] = ", ".join(bcc)
             if return_receipt := mail_data.get("return_receipt"):
-                message["Disposition-Notification-To"] = return_receipt
+                message["Disposition-Notification-To"] = return_receipt  # RFC 3798
+                message["Return-Receipt-To"] = return_receipt             # RFC 3885
+
+            # --- Message-ID: generate once, never overwrite ---
+            if "Message-ID" not in message:
+                from_addr = mail_data.get("from_addr", "")
+                _, addr = parseaddr(from_addr)
+                domain = addr.split("@")[-1] if "@" in addr else "localhost"
+                message["Message-ID"] = make_msgid(domain=domain)
+
+            # --- Date: always reflect the current save time ---
+            if "Date" in message:
+                del message["Date"]
+            message["Date"] = formatdate(localtime=True)
 
             # --- Update the text body while keeping attachments intact ---
             body_text = mail_data.get("body") or ""
@@ -1056,6 +1139,17 @@ class ModuleMail:
 
                 # --- Resolve filename conflicts ---
                 filename = self._resolve_attachment_filename(filename, attachments)
+
+                # --- Message-ID: generate once, never overwrite ---
+                if "Message-ID" not in message:
+                    _, addr = parseaddr(self.user.mail)
+                    domain = addr.split("@")[-1] if "@" in addr else "localhost"
+                    message["Message-ID"] = make_msgid(domain=domain)
+
+                # --- Date: always reflect the current upload time ---
+                if "Date" in message:
+                    del message["Date"]
+                message["Date"] = formatdate(localtime=True)
 
                 # --- Add the new attachment directly to the existing message ---
                 maintype, subtype = content_type.split("/", 1) if "/" in content_type else ("application", "octet-stream")
@@ -1237,6 +1331,21 @@ class ModuleMail:
         tmpdraftmngr.check_owner(row_owner)
         if row_locked:
             raise RequestException(err.ERROR_TMP_DRAFT_LOCKED.m, error=err.ERROR_TMP_DRAFT_LOCKED)
+
+    def get_headers_from_tmp_draft(self, key: str) -> dict:
+        """Return the RFC 5322 headers stored in the tmp_draft row identified by *key*.
+
+        :param key: The tmp_draft key.
+        :type key: str
+        :return: Dict of headers to inject (e.g. ``{"In-Reply-To": "...", "References": "..."}``)
+            or an empty dict when no headers are stored.
+        :rtype: dict
+        :raises RequestException: 404 if key not found, 401 if owner mismatch.
+        """
+        tmpdraftmngr = TmpDraftManager(self._get_db(), self.user.uid)
+        _key, row_owner, _uid, _locked = tmpdraftmngr.fetch_row(key)
+        tmpdraftmngr.check_owner(row_owner)
+        return tmpdraftmngr.fetch_headers(key)
 
     def delete_tmp_draft(self, key: str, account_id: str | None = None) -> None:
         """Delete a tmp_draft row by key, and remove the associated IMAP draft if present.

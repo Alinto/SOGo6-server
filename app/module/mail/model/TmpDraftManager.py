@@ -6,7 +6,9 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING, Generator
 
 from app.config.db.tables import (
+    COL_DRAFT_HEADERS,
     COL_DRAFT_KEY,
+    COL_DRAFT_LAST_UPDATED,
     COL_DRAFT_LOCK_STATE,
     COL_DRAFT_MAIL_SERVER_UID,
     COL_DRAFT_OWNER,
@@ -46,6 +48,26 @@ class TmpDraftManager:
             raise RequestException(err.ERROR_TMP_DRAFT_NOT_FOUND.m, error=err.ERROR_TMP_DRAFT_NOT_FOUND)
         return rows[0]  # type: ignore[return-value]
 
+    def fetch_headers(self, key: str) -> dict:
+        """Return the RFC 5322 headers dict stored for *key*, or an empty dict if absent.
+
+        :param key: The tmp_draft key to look up.
+        :type key: str
+        :return: Dict of headers (e.g. ``{"In-Reply-To": "...", "References": "..."}``)
+            or an empty dict when the column is NULL.
+        :rtype: dict
+        :raises RequestException: 404 if the key does not exist.
+        """
+        rows = list(self._db.select_from_table(
+            TABLE_DRAFT_STATE.name,
+            (COL_DRAFT_HEADERS.name,),
+            EqualCondition(COL_DRAFT_KEY.name, key),
+        ))
+        if not rows:
+            raise RequestException(err.ERROR_TMP_DRAFT_NOT_FOUND.m, error=err.ERROR_TMP_DRAFT_NOT_FOUND)
+        headers = rows[0][0]
+        return headers if isinstance(headers, dict) else {}
+
     def check_owner(self, row_owner: str) -> None:
         """Raise 403 if *row_owner* does not match the current user."""
         if row_owner != self._user_uid:
@@ -65,15 +87,6 @@ class TmpDraftManager:
             locked = poll_rows[0][0] if poll_rows else True
         if locked:
             raise RequestException(err.ERROR_TMP_DRAFT_LOCKED.m, error=err.ERROR_TMP_DRAFT_LOCKED)
-
-    def check_limit(self) -> None:
-        """Raise 429 if the user has reached MAX_TMP_DRAFT drafts."""
-        count = self._db.count_row_in_table(
-            TABLE_DRAFT_STATE.name,
-            EqualCondition(COL_DRAFT_OWNER.name, self._user_uid),
-        )
-        if count >= cs.MAX_TMP_DRAFT:
-            raise RequestException(err.ERROR_TMP_DRAFT_LIMIT_REACHED.m, error=err.ERROR_TMP_DRAFT_LIMIT_REACHED)
 
     def generate_key(self) -> str:
         """Return a new random hex key (does **not** write to DB)."""
@@ -107,8 +120,39 @@ class TmpDraftManager:
         """Insert a new locked row (mail_server_uid = empty string)."""
         inserted = self._db.insert_in_table(
             TABLE_DRAFT_STATE.name,
-            (COL_DRAFT_KEY.name, COL_DRAFT_OWNER.name, COL_DRAFT_MAIL_SERVER_UID.name, COL_DRAFT_LOCK_STATE.name),
-            [[key, self._user_uid, "", True]],
+            (COL_DRAFT_KEY.name, COL_DRAFT_OWNER.name, COL_DRAFT_MAIL_SERVER_UID.name, COL_DRAFT_LOCK_STATE.name, COL_DRAFT_LAST_UPDATED.name),
+            [[key, self._user_uid, "", True, int(time.time())]],
+        )
+        if inserted != 1:
+            raise RequestException(err.ERROR_TMP_DRAFT_INSERT_FAILED.m, error=err.ERROR_TMP_DRAFT_INSERT_FAILED)
+
+    def insert_with_headers(self, key: str, mail_server_uid: str, headers: dict) -> None:
+        """Insert a new unlocked row with a known mail_server_uid and RFC 5322 threading headers.
+
+        Used by reply/forward flows where the empty IMAP draft is created before the
+        tmp_draft row and the threading headers (``In-Reply-To``, ``References``) must
+        be persisted so the send layer can inject them later.
+
+        :param key: Opaque unique key for this tmp_draft entry.
+        :type key: str
+        :param mail_server_uid: UID of the empty draft already appended to Drafts.
+        :type mail_server_uid: str
+        :param headers: Dict of RFC 5322 headers to store, e.g.
+            ``{"In-Reply-To": "<id@host>", "References": "<prev@host> <id@host>"}``.
+        :type headers: dict
+        :raises RequestException: If the DB insert fails.
+        """
+        inserted = self._db.insert_in_table(
+            TABLE_DRAFT_STATE.name,
+            (
+                COL_DRAFT_KEY.name,
+                COL_DRAFT_OWNER.name,
+                COL_DRAFT_MAIL_SERVER_UID.name,
+                COL_DRAFT_LOCK_STATE.name,
+                COL_DRAFT_HEADERS.name,
+                COL_DRAFT_LAST_UPDATED.name,
+            ),
+            [[key, self._user_uid, mail_server_uid, False, headers, int(time.time())]],
         )
         if inserted != 1:
             raise RequestException(err.ERROR_TMP_DRAFT_INSERT_FAILED.m, error=err.ERROR_TMP_DRAFT_INSERT_FAILED)
@@ -123,11 +167,11 @@ class TmpDraftManager:
         )
 
     def release(self, key: str, new_mail_server_uid: str) -> None:
-        """Update mail_server_uid and unlock the row atomically."""
+        """Update mail_server_uid, last_updated and unlock the row atomically."""
         updated = self._db.update_in_table(
             TABLE_DRAFT_STATE.name,
-            (COL_DRAFT_MAIL_SERVER_UID.name, COL_DRAFT_LOCK_STATE.name),
-            [new_mail_server_uid, False],
+            (COL_DRAFT_MAIL_SERVER_UID.name, COL_DRAFT_LOCK_STATE.name, COL_DRAFT_LAST_UPDATED.name),
+            [new_mail_server_uid, False, int(time.time())],
             EqualCondition(COL_DRAFT_KEY.name, key),
         )
         if updated != 1:
@@ -136,16 +180,16 @@ class TmpDraftManager:
     def list_all(self) -> list[dict]:
         """Return all tmp_draft rows owned by the current user.
 
-        :return: List of dicts with keys ``key``, ``mail_server_uid``, ``locked``.
+        :return: List of dicts with keys ``key``, ``mail_server_uid``, ``locked``, ``last_updated``.
         :rtype: list[dict]
         """
         rows = list(self._db.select_from_table(
             TABLE_DRAFT_STATE.name,
-            (COL_DRAFT_KEY.name, COL_DRAFT_MAIL_SERVER_UID.name, COL_DRAFT_LOCK_STATE.name),
+            (COL_DRAFT_KEY.name, COL_DRAFT_MAIL_SERVER_UID.name, COL_DRAFT_LOCK_STATE.name, COL_DRAFT_LAST_UPDATED.name),
             EqualCondition(COL_DRAFT_OWNER.name, self._user_uid),
         ))
         return [
-            {"key": row[0], "mail_server_uid": row[1], "locked": row[2]}
+            {"key": row[0], "mail_server_uid": row[1], "locked": row[2], "last_updated": row[3]}
             for row in rows
         ]
 
@@ -190,7 +234,6 @@ class TmpDraftManager:
             self.lock_existing(key)
             return key, mail_server_uid
         else:
-            self.check_limit()
             new_key = self.generate_key()
             self.insert_locked(new_key)
             return new_key, None

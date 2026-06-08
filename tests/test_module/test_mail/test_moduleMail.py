@@ -173,12 +173,17 @@ def _make_module(monkeypatch, fake_client=None):
 
     mock_user = MagicMock()
     mock_user.login_mail_server = 'user@example.com'
+    mock_user.uid = 'test_user_123'
     mock_user.profile.preferences.get.return_value = {}
     mock_mail_settings = MagicMock()
+    mock_process_setting = MagicMock()
 
-    module = ModuleMail(user=mock_user, mail_settings=mock_mail_settings)
+    module = ModuleMail(user=mock_user, mail_settings=mock_mail_settings, process_setting=mock_process_setting)
     # Patch _open_client_for to always return our fake client
     monkeypatch.setattr(module, '_open_client_for', lambda account_id, do_login=True: fake_client)
+    # Patch _get_db to return a mock DB client
+    mock_db = MagicMock()
+    monkeypatch.setattr(module, '_get_db', lambda: mock_db)
     return module, fake_client
 
 
@@ -495,44 +500,6 @@ def test_share_folder_success(monkeypatch):
     assert len(fake_client.set_acl_calls) >= 1
     # share_folder yields (identifier, rights) tuples
     assert any(item[0] == 'user1@example.com' for item in result)
-
-
-# ========== Tests for NotImplementedError methods ==========
-
-
-def test_update_folder_not_implemented(monkeypatch):
-    """Test that update_folder raises NotImplementedError."""
-    module, _ = _make_module(monkeypatch)
-    with pytest.raises(NotImplementedError):
-        module.update_folder("INBOX", {"name": "NewName"})
-
-
-def test_move_mails_not_implemented(monkeypatch):
-    """Test that move_mails raises NotImplementedError."""
-    module, _ = _make_module(monkeypatch)
-    with pytest.raises(NotImplementedError):
-        module.move_mails("INBOX", [1, 2, 3], "Archive")
-
-
-def test_export_folder_mails_not_implemented(monkeypatch):
-    """Test that export_folder_mails raises NotImplementedError."""
-    module, _ = _make_module(monkeypatch)
-    with pytest.raises(NotImplementedError, match="export_folder_mails is not implemented yet"):
-        module.export_folder_mails("INBOX")
-
-
-def test_reply_mail_not_implemented(monkeypatch):
-    """Test that reply_mail raises NotImplementedError."""
-    module, _ = _make_module(monkeypatch)
-    with pytest.raises(NotImplementedError, match="reply_mail is not implemented yet"):
-        module.reply_mail(ACCOUNT_ID, "INBOX", "42")
-
-
-def test_forward_mail_not_implemented(monkeypatch):
-    """Test that forward_mail raises NotImplementedError."""
-    module, _ = _make_module(monkeypatch)
-    with pytest.raises(NotImplementedError, match="forward_mail is not implemented yet"):
-        module.forward_mail(ACCOUNT_ID, "INBOX", "42")
 
 
 # ========== Tests for perform_mail_action ==========

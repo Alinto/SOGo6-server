@@ -167,6 +167,7 @@ class CurrentDraftItemSchema(Schema):
     key = fields.String()
     mail_server_uid = fields.String()
     locked = fields.Boolean()
+    last_updated = fields.Integer(allow_none=True, metadata={"description": "Unix timestamp (seconds) of the last insert/update on this draft entry."})
 
 
 class CurrentDraftsResponseSchema(ApiBaseResponse):
@@ -179,6 +180,6 @@ class CurrentDraftsResponseSchema(ApiBaseResponse):
             "error_code": 0,
             "error_msg": "",
             "data": [
-                {"key": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4", "mail_server_uid": "42", "locked": False}
+                {"key": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4", "mail_server_uid": "42", "locked": False, "last_updated": 1749380000}
             ]
         }
