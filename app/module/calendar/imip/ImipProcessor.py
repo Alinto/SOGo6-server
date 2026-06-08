@@ -77,7 +77,7 @@ class ImipProcessor:
         :return: The updated event.
         """
         message: ImipMessage = self._parse_and_validate(ical_bytes, ImipMethod.REPLY)
-        source, event = self._find_writable_source_by_uid(user, message.event.uid)
+        source, event = self._find_writable_source_by_uid(user, message.event.require_uid)
 
         reply_by_email: dict[str, CalAttendee] = {a.email: a for a in message.event.attendees}
         for attendee in event.attendees:
@@ -107,7 +107,7 @@ class ImipProcessor:
         :return: The created or updated event.
         """
         message: ImipMessage = self._parse_and_validate(ical_bytes, ImipMethod.REQUEST)
-        result: tuple[CalendarSource, CalEvent] | None = self._sources.find_by_uid(user.uid, message.event.uid)
+        result: tuple[CalendarSource, CalEvent] | None = self._sources.find_by_uid(user.uid, message.event.require_uid)
 
         if result is not None:
             source, existing = result
@@ -164,7 +164,7 @@ class ImipProcessor:
         :param from_email: Email of the organizer (From: header, for logging).
         """
         message: ImipMessage = self._parse_and_validate(ical_bytes, ImipMethod.CANCEL)
-        result: tuple[CalendarSource, CalEvent] | None = self._sources.find_by_uid(user.uid, message.event.uid)
+        result: tuple[CalendarSource, CalEvent] | None = self._sources.find_by_uid(user.uid, message.event.require_uid)
 
         if result is None:
             logger_calendar.info(
@@ -183,7 +183,7 @@ class ImipProcessor:
                     master.recurrence_exceptions = list(master.recurrence_exceptions or []) + [message.event.recurrence_id]
                     source.update_event(master)
             else:
-                source.delete_event(master.uid)
+                source.delete_event(master.require_uid)
         except RequestException:
             raise
         except Exception as exc:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import base64
 from datetime import date, datetime, timedelta, timezone
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, cast
 
 from icalendar import Calendar
 
@@ -159,7 +159,7 @@ class CalendarEventDeserializerIcal(CalendarEventDeserializer[str]):
     def iter_vevents(self, text: str) -> list[Any]:
         """Parse a VCALENDAR string and return the raw VEVENT components."""
         try:
-            cal: Calendar = Calendar.from_ical(text)
+            cal: Calendar = cast(Calendar, Calendar.from_ical(text))
         except Exception as exc:  # pylint: disable=broad-except
             logger_calendar.exception("Failed to parse VCALENDAR")
             raise RequestException(error=ERROR_CALENDAR_ICS_PARSE_FAILED) from exc
@@ -168,7 +168,7 @@ class CalendarEventDeserializerIcal(CalendarEventDeserializer[str]):
     def iter_vtodos(self, text: str) -> list[Any]:
         """Parse a VCALENDAR string and return the raw VTODO components."""
         try:
-            cal: Calendar = Calendar.from_ical(text)
+            cal: Calendar = cast(Calendar, Calendar.from_ical(text))
         except Exception as exc:  # pylint: disable=broad-except
             logger_calendar.exception("Failed to parse VCALENDAR")
             raise RequestException(error=ERROR_CALENDAR_ICS_PARSE_FAILED) from exc

@@ -35,7 +35,7 @@ from app.module.calendar.model.CalEvent import CalEvent
 from app.module.calendar.rrule.RecurrenceScopeProcessor import EventAction, RecurrenceScopeProcessor, ScopeResult
 from app.module.calendar.source.CalendarSources import CalendarSources
 from app.utils import errors as err
-from app.utils.exceptions import RequestException
+from app.utils.exceptions import BugException, RequestException
 from app.utils.logger.logger import logger_calendar
 from app.utils.maths.sogo_hash import generate_uuid, get_unique_token
 from app.utils.module.importManager import import_and_instantiate_manager
@@ -62,7 +62,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
             module_args=process_settings.get_db_settings(),
         )
         self._db.connect()
-        self._cache: ClientRedis = cache
+        self._cache: ClientRedis | None = cache
         self._sources: CalendarSources = CalendarSources(self._db)
         self._imip: ImipProcessor = ImipProcessor(self._sources)
         self._acl: CalendarAclEngine = CalendarAclEngine()
@@ -87,7 +87,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         )
         cal.key = generate_uuid()
         cal.ctag = 0
-        source: CalendarSource = self._sources.get(cal)
+        source = self._sources.get(cal)
         return source.save_calendar(cal)
 
     #
@@ -267,7 +267,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
             if event.recurrence_id is not None:
                 source.delete_detached_occurrence(event)
             else:
-                source.delete_event(event.uid)
+                source.delete_event(event.require_uid)
             # Propagate deletion to attendees if the user is the organizer
             is_organizer: bool = bool(event.organizer and event.organizer.email == calendar_user.owner.mail)
             if is_organizer:
@@ -426,7 +426,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
             self._acl.get_permissions(source.calendar, calendar_user), CalendarPermissionAction.DELETE,
         )
         try:
-            source.delete_event(task.uid)
+            source.delete_event(task.require_uid)
         except RequestException:
             raise
         except Exception as exc:
@@ -494,8 +494,8 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         for reminder in reminders:
             if reminder.event_key not in events_by_key:
                 try:
-                    _, event = self._find_source_for_event(calendar_user, reminder.event_key)
-                    events_by_key[reminder.event_key] = event
+                    _, found_event = self._find_source_for_event(calendar_user, reminder.event_key)
+                    events_by_key[reminder.event_key] = found_event
                 except RequestException:
                     continue
 
@@ -587,6 +587,8 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         self._acl.check_permission(source.calendar.permissions, CalendarPermissionAction.CREATE)
         if not source.is_writable():
             raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
+        if self._cache is None:
+            raise BugException("ModuleCalendar requires a cache for calendar sync")
         engine: SyncEngine = SyncEngine(sources=self._sources, cache=self._cache)
         return engine.apply_ics(
             source.calendar, ics_text,
@@ -639,6 +641,8 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         source: CalendarSource = self.get_calendar(user, key)
         if source.calendar.source_type != CalendarSourceType.ICS:
             raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
+        if self._cache is None:
+            raise BugException("ModuleCalendar requires a cache for calendar sync")
         engine: SyncEngine = SyncEngine(sources=self._sources, cache=self._cache)
         return engine.sync(source.calendar)
 
@@ -672,7 +676,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
             total += repo_event.purge_deleted(calendar_key)
             total += repo_reminder.purge_deleted()
         elif user_uid is not None:
-            keys: list[str] = [s.calendar.key for s in self._sources.get_all(user_uid)]
+            keys: list[str] = [s.calendar.require_key for s in self._sources.get_all(user_uid)]
             total += sum(repo_event.purge_deleted(k) for k in keys)
             total += repo_reminder.purge_deleted()
         return total

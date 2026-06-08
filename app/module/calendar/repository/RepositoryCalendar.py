@@ -84,7 +84,7 @@ class RepositoryCalendar:
             logger_calendar.error("Calendar insert affected %s rows instead of 1 (key=%s)", inserted, cal.key)
             raise BugException("Calendar insert did not affect exactly 1 row")
 
-        fetched = self.find_by_key(cal.user_uid, cal.key)
+        fetched = self.find_by_key(cal.user_uid, cal.require_key)
         if fetched is None:
             raise BugException(f"Calendar key={cal.key} was inserted but could not be fetched back")
         return fetched

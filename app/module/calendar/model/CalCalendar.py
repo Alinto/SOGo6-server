@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from app.module.calendar.model.enums.CalendarSourceType import CalendarSourceType
+from app.utils.exceptions import BugException
 
 if TYPE_CHECKING:
     from app.module.calendar.model.CalEvent import CalEvent
@@ -81,6 +82,20 @@ class CalCalendar:  # pylint: disable=too-many-instance-attributes,invalid-name
     events: list[CalEvent] = field(default_factory=list)
 
     MUTABLE_FIELDS: frozenset[str] = frozenset({"name", "color", "description", "timezone", "is_default", "sync_config"})
+
+    @property
+    def require_id(self) -> int:
+        """Internal PK, guaranteed once the calendar has been persisted/loaded."""
+        if self.id is None:
+            raise BugException("CalCalendar.id accessed before the calendar was persisted")
+        return self.id
+
+    @property
+    def require_key(self) -> str:
+        """Opaque public key, guaranteed once the calendar has been persisted/loaded."""
+        if self.key is None:
+            raise BugException("CalCalendar.key accessed before the calendar was persisted")
+        return self.key
 
     def apply_update(self, updates: dict[str, Any]) -> None:
         """Apply a partial update dict to this calendar, ignoring unknown or immutable fields."""
