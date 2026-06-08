@@ -4,6 +4,7 @@ from marshmallow import Schema, fields, validate
 
 from app.utils.api.ApiBaseResponse import ApiBaseResponse
 from app.api.v1.calendar.schemas.calendar import CalendarSchema
+from app.api.v1.calendar.schemas.components import SyncConfigUpdateSchema, SyncResultSchema
 
 
 class ExternalCalendarCreateSchema(Schema):
@@ -24,7 +25,7 @@ class ExternalCalendarUpdateSchema(Schema):
 
     name = fields.String()
     color = fields.String(allow_none=True)
-    sync_config = fields.Dict(metadata={"description": "Partial sync_config update (url, sync_interval_minutes)."})
+    sync_config = fields.Nested(SyncConfigUpdateSchema, metadata={"description": "Partial sync_config update (url, sync_interval_minutes)."})
 
 
 class ExternalCalendarListDataSchema(Schema):
@@ -63,4 +64,4 @@ class SyncStatusResponseSchema(ApiBaseResponse):
 class SyncTriggerResponseSchema(ApiBaseResponse):
     """Response schema for triggering a sync."""
 
-    data = fields.Dict(allow_none=True)
+    data = fields.Nested(SyncResultSchema, allow_none=True)
