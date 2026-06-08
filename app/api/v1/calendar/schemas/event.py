@@ -7,10 +7,21 @@ from typing import Any
 
 from marshmallow import Schema, ValidationError, fields, validate
 
+from app.api.v1.calendar.schemas.components import (
+    AttachmentSchema, AttendeeSchema, ConferenceDataSchema, DatesWithTzSchema, EventRelationSchema,
+    OrganizerSchema, RecurrenceRuleSchema, ReminderSchema,
+)
 from app.module.calendar.CalendarConst import MAX_EVENT_DESCRIPTION_LENGTH, MAX_EVENT_LOCATION_LENGTH, MAX_EVENT_TITLE_LENGTH
+from app.module.calendar.model.enums.EventStatus import EventStatus
+from app.module.calendar.model.enums.EventVisibility import EventVisibility
+from app.module.calendar.model.enums.ShowAs import ShowAs
 from app.utils.api.ApiBaseResponse import ApiBaseResponse
 
 _SEARCH_MAX_LENGTH = 200
+
+_EVENT_STATUS_VALUES = EventStatus.event_values()
+_VISIBILITY_VALUES = [v.value for v in EventVisibility if v != EventVisibility.UNDEFINED]
+_SHOW_AS_VALUES = [s.value for s in ShowAs if s != ShowAs.UNDEFINED]
 
 
 def _validate_search(value: str | None) -> None:
@@ -83,30 +94,30 @@ class CalendarEventSchema(Schema):
     date_end = fields.String(metadata={"description": "ISO 8601 UTC with millisecond precision."})
     all_day = fields.Boolean()
     timezone = fields.String(allow_none=True)
-    status = fields.String()
-    visibility = fields.String()
-    show_as = fields.String()
+    status = fields.String(validate=validate.OneOf(_EVENT_STATUS_VALUES))
+    visibility = fields.String(validate=validate.OneOf(_VISIBILITY_VALUES))
+    show_as = fields.String(validate=validate.OneOf(_SHOW_AS_VALUES))
     url = fields.String(allow_none=True)
     color = fields.String(allow_none=True)
     categories = fields.List(fields.String())
     sequence = fields.Integer()
-    organizer = fields.Dict(allow_none=True)
-    attendees = fields.List(fields.Dict())
-    reminders = fields.List(fields.Dict())
-    conference_data = fields.Dict(allow_none=True)
-    related_to = fields.List(fields.Dict())
-    attachments = fields.List(fields.Dict())
-    extra_properties = fields.Dict()
+    organizer = fields.Nested(OrganizerSchema, allow_none=True)
+    attendees = fields.List(fields.Nested(AttendeeSchema))
+    reminders = fields.List(fields.Nested(ReminderSchema))
+    conference_data = fields.Nested(ConferenceDataSchema, allow_none=True)
+    related_to = fields.List(fields.Nested(EventRelationSchema))
+    attachments = fields.List(fields.Nested(AttachmentSchema))
+    extra_properties = fields.Dict(keys=fields.String(), values=fields.String())
     created_at = fields.String(allow_none=True)
     updated_at = fields.String(allow_none=True)
     component_type = fields.String()
     percent_complete = fields.Integer(allow_none=True)
     completed_at = fields.String(allow_none=True)
-    recurrence_rule = fields.Dict(allow_none=True)
+    recurrence_rule = fields.Nested(RecurrenceRuleSchema, allow_none=True)
     recurrence_exceptions = fields.List(fields.String())
     recurrence_id = fields.String(allow_none=True)
     recurrence_range = fields.String(allow_none=True)
-    dates_with_tz = fields.Dict(allow_none=True)
+    dates_with_tz = fields.Nested(DatesWithTzSchema, allow_none=True)
 
 
 class CalendarEventCreateSchema(Schema):
@@ -124,27 +135,24 @@ class CalendarEventCreateSchema(Schema):
                                        "example": "2026-04-22T10:00:00.000Z"})
     all_day = fields.Boolean(load_default=False)
     timezone = fields.String(load_default=None, allow_none=True, metadata={"example": "Europe/Paris"})
-    status = fields.String(load_default=None, allow_none=True,
-                           metadata={"description": "confirmed | tentative | cancelled",
-                                     "example": "confirmed"})
-    visibility = fields.String(load_default=None, allow_none=True,
-                               metadata={"description": "public | private | confidential",
-                                         "example": "public"})
-    show_as = fields.String(load_default=None, allow_none=True,
-                            metadata={"description": "busy | free | out-of-office | tentative",
-                                      "example": "busy"})
+    status = fields.String(load_default=None, allow_none=True, validate=validate.OneOf(_EVENT_STATUS_VALUES),
+                           metadata={"example": "confirmed"})
+    visibility = fields.String(load_default=None, allow_none=True, validate=validate.OneOf(_VISIBILITY_VALUES),
+                               metadata={"example": "public"})
+    show_as = fields.String(load_default=None, allow_none=True, validate=validate.OneOf(_SHOW_AS_VALUES),
+                            metadata={"example": "busy"})
     url = fields.String(load_default=None, allow_none=True)
     color = fields.String(load_default=None, allow_none=True, metadata={"example": "#3B82F6"})
     categories = fields.List(fields.String(), load_default=list, metadata={"example": []})
     sequence = fields.Integer(load_default=0)
-    organizer = fields.Dict(load_default=None, allow_none=True, metadata={"example": None})
-    attendees = fields.List(fields.Dict(), load_default=list, metadata={"example": []})
-    reminders = fields.List(fields.Dict(), load_default=list, metadata={"example": []})
-    conference_data = fields.Dict(load_default=None, allow_none=True, metadata={"example": None})
-    related_to = fields.List(fields.Dict(), load_default=list, metadata={"example": []})
-    attachments = fields.List(fields.Dict(), load_default=list, metadata={"example": []})
-    extra_properties = fields.Dict(load_default=dict, metadata={"example": {}})
-    recurrence_rule = fields.Dict(load_default=None, allow_none=True, metadata={"example": None})
+    organizer = fields.Nested(OrganizerSchema, load_default=None, allow_none=True, metadata={"example": None})
+    attendees = fields.List(fields.Nested(AttendeeSchema), load_default=list, metadata={"example": []})
+    reminders = fields.List(fields.Nested(ReminderSchema), load_default=list, metadata={"example": []})
+    conference_data = fields.Nested(ConferenceDataSchema, load_default=None, allow_none=True, metadata={"example": None})
+    related_to = fields.List(fields.Nested(EventRelationSchema), load_default=list, metadata={"example": []})
+    attachments = fields.List(fields.Nested(AttachmentSchema), load_default=list, metadata={"example": []})
+    extra_properties = fields.Dict(keys=fields.String(), values=fields.String(), load_default=dict, metadata={"example": {}})
+    recurrence_rule = fields.Nested(RecurrenceRuleSchema, load_default=None, allow_none=True, metadata={"example": None})
     recurrence_exceptions = fields.List(fields.String(), load_default=list, metadata={"example": []})
     recurrence_id = fields.String(load_default=None, allow_none=True)
     percent_complete = fields.Integer(load_default=None, allow_none=True)
@@ -161,21 +169,21 @@ class CalendarEventPatchSchema(Schema):
     date_end = fields.String(metadata={"description": "ISO 8601 UTC datetime."})
     all_day = fields.Boolean()
     timezone = fields.String(allow_none=True)
-    status = fields.String(allow_none=True)
-    visibility = fields.String(allow_none=True)
-    show_as = fields.String(allow_none=True)
+    status = fields.String(allow_none=True, validate=validate.OneOf(_EVENT_STATUS_VALUES))
+    visibility = fields.String(allow_none=True, validate=validate.OneOf(_VISIBILITY_VALUES))
+    show_as = fields.String(allow_none=True, validate=validate.OneOf(_SHOW_AS_VALUES))
     url = fields.String(allow_none=True)
     color = fields.String(allow_none=True)
     categories = fields.List(fields.String())
     sequence = fields.Integer()
-    organizer = fields.Dict(allow_none=True)
-    attendees = fields.List(fields.Dict())
-    reminders = fields.List(fields.Dict())
-    conference_data = fields.Dict(allow_none=True)
-    related_to = fields.List(fields.Dict())
-    attachments = fields.List(fields.Dict())
-    extra_properties = fields.Dict()
-    recurrence_rule = fields.Dict(allow_none=True)
+    organizer = fields.Nested(OrganizerSchema, allow_none=True)
+    attendees = fields.List(fields.Nested(AttendeeSchema))
+    reminders = fields.List(fields.Nested(ReminderSchema))
+    conference_data = fields.Nested(ConferenceDataSchema, allow_none=True)
+    related_to = fields.List(fields.Nested(EventRelationSchema))
+    attachments = fields.List(fields.Nested(AttachmentSchema))
+    extra_properties = fields.Dict(keys=fields.String(), values=fields.String())
+    recurrence_rule = fields.Nested(RecurrenceRuleSchema, allow_none=True)
     recurrence_exceptions = fields.List(fields.String())
     recurrence_id = fields.String(allow_none=True)
     recurrence_range = fields.String(allow_none=True)
