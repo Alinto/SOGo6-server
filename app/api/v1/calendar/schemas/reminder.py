@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from marshmallow import Schema, fields, validate
 
+from app.api.v1.calendar.schemas.components import DatesWithTzSchema
 from app.utils.api.ApiBaseResponse import ApiBaseResponse
 
 
@@ -32,7 +33,7 @@ class ReminderSchema(Schema):
     method = fields.String()
     minutes_before = fields.Integer()
     trigger_at = fields.String(metadata={"description": "ISO 8601 UTC datetime when the reminder fires."})
-    dates_with_tz = fields.Dict(allow_none=True)
+    dates_with_tz = fields.Nested(DatesWithTzSchema, allow_none=True)
 
 
 class ReminderListDataSchema(Schema):

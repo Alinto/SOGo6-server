@@ -165,7 +165,7 @@ class CalendarEventDeserializerDict(CalendarEventDeserializer[dict]):
     @staticmethod
     def _parse_reminder(data: dict[str, Any]) -> CalReminder:
         return CalReminder(
-            method=ReminderMethod(data.get("method", "display")),
+            method=ReminderMethod(data.get("method", ReminderMethod.POPUP.value)),
             minutes_before=data.get("minutes_before", 15),
         )
 

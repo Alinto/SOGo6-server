@@ -2,11 +2,19 @@ from __future__ import annotations
 
 from marshmallow import Schema, fields, validate
 
+from app.api.v1.calendar.schemas.components import (
+    AttachmentSchema, AttendeeSchema, EventRelationSchema, OrganizerSchema, RecurrenceRuleSchema, ReminderSchema,
+)
 from app.module.calendar.CalendarConst import MAX_EVENT_DESCRIPTION_LENGTH, MAX_EVENT_TITLE_LENGTH
+from app.module.calendar.model.enums.EventStatus import EventStatus
+from app.module.calendar.model.enums.EventVisibility import EventVisibility
 from app.utils.api.ApiBaseResponse import ApiBaseResponse
 from .event import CalendarEventQueryArgsSchema  # reuse date range / search args
 
 _SEARCH_MAX_LENGTH = 200
+
+_TASK_STATUS_VALUES = EventStatus.task_values()
+_VISIBILITY_VALUES = [v.value for v in EventVisibility if v != EventVisibility.UNDEFINED]
 
 
 class CalendarTaskQueryArgsSchema(CalendarEventQueryArgsSchema):
@@ -23,19 +31,19 @@ class CalendarTaskSchema(Schema):
     description = fields.String(allow_none=True)
     date_start = fields.String(allow_none=True, metadata={"description": "ISO 8601 UTC start (optional for VTODOs)."})
     due = fields.String(allow_none=True, metadata={"description": "ISO 8601 UTC due date (maps to RFC 5545 DUE)."})
-    status = fields.String()
-    visibility = fields.String()
+    status = fields.String(validate=validate.OneOf(_TASK_STATUS_VALUES))
+    visibility = fields.String(validate=validate.OneOf(_VISIBILITY_VALUES))
     priority = fields.Integer()
     percent_complete = fields.Integer(allow_none=True)
     completed_at = fields.String(allow_none=True)
     categories = fields.List(fields.String())
-    reminders = fields.List(fields.Dict())
-    organizer = fields.Dict(allow_none=True)
-    attendees = fields.List(fields.Dict())
-    related_to = fields.List(fields.Dict())
-    attachments = fields.List(fields.Dict())
-    extra_properties = fields.Dict()
-    recurrence_rule = fields.Dict(allow_none=True)
+    reminders = fields.List(fields.Nested(ReminderSchema))
+    organizer = fields.Nested(OrganizerSchema, allow_none=True)
+    attendees = fields.List(fields.Nested(AttendeeSchema))
+    related_to = fields.List(fields.Nested(EventRelationSchema))
+    attachments = fields.List(fields.Nested(AttachmentSchema))
+    extra_properties = fields.Dict(keys=fields.String(), values=fields.String())
+    recurrence_rule = fields.Nested(RecurrenceRuleSchema, allow_none=True)
     recurrence_exceptions = fields.List(fields.String())
     component_type = fields.String()
     created_at = fields.String(allow_none=True)
@@ -54,10 +62,9 @@ class CalendarTaskCreateSchema(Schema):
     due = fields.String(load_default=None, allow_none=True,
                         metadata={"description": "ISO 8601 UTC due date (RFC 5545 DUE). No limit if absent.",
                                   "example": "2026-04-23T17:00:00.000Z"})
-    status = fields.String(load_default=None, allow_none=True,
-                           metadata={"description": "needs_action | in_process | completed | cancelled",
-                                     "example": "needs_action"})
-    visibility = fields.String(load_default=None, allow_none=True,
+    status = fields.String(load_default=None, allow_none=True, validate=validate.OneOf(_TASK_STATUS_VALUES),
+                           metadata={"example": "needs_action"})
+    visibility = fields.String(load_default=None, allow_none=True, validate=validate.OneOf(_VISIBILITY_VALUES),
                                metadata={"example": "public"})
     priority = fields.Integer(load_default=0, validate=validate.Range(min=0, max=9),
                               metadata={"example": 1})
@@ -66,13 +73,13 @@ class CalendarTaskCreateSchema(Schema):
                                       metadata={"example": 0})
     completed_at = fields.String(load_default=None, allow_none=True)
     categories = fields.List(fields.String(), load_default=list, metadata={"example": []})
-    reminders = fields.List(fields.Dict(), load_default=list, metadata={"example": []})
-    organizer = fields.Dict(load_default=None, allow_none=True, metadata={"example": None})
-    attendees = fields.List(fields.Dict(), load_default=list, metadata={"example": []})
-    related_to = fields.List(fields.Dict(), load_default=list, metadata={"example": []})
-    attachments = fields.List(fields.Dict(), load_default=list, metadata={"example": []})
-    extra_properties = fields.Dict(load_default=dict, metadata={"example": {}})
-    recurrence_rule = fields.Dict(load_default=None, allow_none=True, metadata={"example": None})
+    reminders = fields.List(fields.Nested(ReminderSchema), load_default=list, metadata={"example": []})
+    organizer = fields.Nested(OrganizerSchema, load_default=None, allow_none=True, metadata={"example": None})
+    attendees = fields.List(fields.Nested(AttendeeSchema), load_default=list, metadata={"example": []})
+    related_to = fields.List(fields.Nested(EventRelationSchema), load_default=list, metadata={"example": []})
+    attachments = fields.List(fields.Nested(AttachmentSchema), load_default=list, metadata={"example": []})
+    extra_properties = fields.Dict(keys=fields.String(), values=fields.String(), load_default=dict, metadata={"example": {}})
+    recurrence_rule = fields.Nested(RecurrenceRuleSchema, load_default=None, allow_none=True, metadata={"example": None})
     recurrence_exceptions = fields.List(fields.String(), load_default=list, metadata={"example": []})
 
 
@@ -83,19 +90,19 @@ class CalendarTaskPatchSchema(Schema):
     description = fields.String(allow_none=True, validate=validate.Length(max=MAX_EVENT_DESCRIPTION_LENGTH))
     date_start = fields.String(allow_none=True)
     due = fields.String(allow_none=True)
-    status = fields.String(allow_none=True)
-    visibility = fields.String(allow_none=True)
+    status = fields.String(allow_none=True, validate=validate.OneOf(_TASK_STATUS_VALUES))
+    visibility = fields.String(allow_none=True, validate=validate.OneOf(_VISIBILITY_VALUES))
     priority = fields.Integer(validate=validate.Range(min=0, max=9))
     percent_complete = fields.Integer(allow_none=True, validate=validate.Range(min=0, max=100))
     completed_at = fields.String(allow_none=True)
     categories = fields.List(fields.String())
-    reminders = fields.List(fields.Dict())
-    organizer = fields.Dict(allow_none=True)
-    attendees = fields.List(fields.Dict())
-    related_to = fields.List(fields.Dict())
-    attachments = fields.List(fields.Dict())
-    extra_properties = fields.Dict()
-    recurrence_rule = fields.Dict(allow_none=True)
+    reminders = fields.List(fields.Nested(ReminderSchema))
+    organizer = fields.Nested(OrganizerSchema, allow_none=True)
+    attendees = fields.List(fields.Nested(AttendeeSchema))
+    related_to = fields.List(fields.Nested(EventRelationSchema))
+    attachments = fields.List(fields.Nested(AttachmentSchema))
+    extra_properties = fields.Dict(keys=fields.String(), values=fields.String())
+    recurrence_rule = fields.Nested(RecurrenceRuleSchema, allow_none=True)
     recurrence_exceptions = fields.List(fields.String())
 
 
