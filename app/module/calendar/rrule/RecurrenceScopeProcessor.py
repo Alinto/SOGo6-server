@@ -99,7 +99,7 @@ class RecurrenceScopeProcessor:
             and original.date_start != event_update.date_start
         ):
             source.realign_detached_occurrences(
-                uid=event_update.uid, old_start=original.date_start, new_start=event_update.date_start,
+                uid=event_update.require_uid, old_start=original.date_start, new_start=event_update.date_start,
             )
             realign_from = original.date_start
             realign_to = event_update.date_start
@@ -115,14 +115,14 @@ class RecurrenceScopeProcessor:
         named occurrence. The master is never modified; the RRULE expander will prefer
         this detached row over the generated slot.
         """
-        recurrence_id: datetime = event_update.recurrence_id
-        duration: timedelta = original.date_end - original.date_start
+        recurrence_id: datetime = event_update.require_recurrence_id
+        duration: timedelta = original.require_date_end - original.require_date_start
 
         # Use dates from event_update if they differ from the original (body provided new dates,
         # e.g. drag & drop). Otherwise default to the recurrence_id slot.
         has_new_dates: bool = event_update.date_start != original.date_start
-        start: datetime = event_update.date_start if has_new_dates else recurrence_id
-        end: datetime = event_update.date_end if has_new_dates else recurrence_id + duration
+        start: datetime = event_update.require_date_start if has_new_dates else recurrence_id
+        end: datetime = event_update.require_date_end if has_new_dates else recurrence_id + duration
 
         occurrence: CalEvent = dataclasses.replace(
             event_update,
@@ -142,9 +142,9 @@ class RecurrenceScopeProcessor:
     @staticmethod
     def _process_split_series(source: CalendarSource, original: CalEvent, event_update: CalEvent) -> ScopeResult:
         """Build a ScopeResult for a THISANDFUTURE split, collecting all touched events."""
-        from_dt: datetime = event_update.recurrence_id
+        from_dt: datetime = event_update.require_recurrence_id
         until: datetime = from_dt - timedelta(seconds=1)
-        touched: list[tuple[CalEvent, EventAction]] = list(source.split_event(original.uid, until, from_dt))
+        touched: list[tuple[CalEvent, EventAction]] = list(source.split_event(original.require_uid, until, from_dt))
         result: CalEvent = RecurrenceScopeProcessor.split_series(source, original, event_update)
         if result.uid != original.uid:
             touched.append((result, EventAction.INSERT))
@@ -162,12 +162,12 @@ class RecurrenceScopeProcessor:
         independent master is created from the split point with uid_parent_split.
         If no content changes, the series is simply truncated ("delete this and following").
         """
-        from_dt: datetime = event_update.recurrence_id
+        from_dt: datetime = event_update.require_recurrence_id
 
         if not RecurrenceScopeProcessor._has_content_changes(original, event_update):
-            return source.get_master_event_by_uid(original.uid) or original
+            return source.get_master_event_by_uid(original.require_uid) or original
 
-        duration: timedelta = original.date_end - original.date_start
+        duration: timedelta = original.require_date_end - original.require_date_start
         new_master: CalEvent = dataclasses.replace(
             event_update,
             key=None,

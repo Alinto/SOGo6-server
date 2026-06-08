@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from icalendar import Calendar
 
@@ -36,7 +36,7 @@ class CalendarDeserializerIcal(CalendarDeserializer[str]):
     def deserialize(self, text: str) -> CalCalendar:  # pylint: disable=arguments-renamed
         """Parse ICS text into a CalCalendar (header + events). Raises on unparseable input."""
         try:
-            cal: Calendar = Calendar.from_ical(text)
+            cal: Calendar = cast(Calendar, Calendar.from_ical(text))
         except Exception as exc:
             logger_calendar.error("Failed to parse VCALENDAR header: %s", exc)
             raise RequestException(error=ERROR_CALENDAR_ICS_PARSE_FAILED) from exc

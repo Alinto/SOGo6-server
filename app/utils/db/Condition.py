@@ -1,3 +1,4 @@
+from datetime import datetime
 from enum import IntEnum
 from app.utils.logger.logger import logger
 from app.utils.exceptions import BugException
@@ -51,7 +52,7 @@ class EqualCondition(Condition):
     """
     This condition is to check if a named paramater equal a value
     """
-    def __init__(self, param_name: str, param_value: str | int):
+    def __init__(self, param_name: str, param_value: str | int | datetime):
         super().__init__()
         self.param_name = param_name
         self.param_value = param_value
@@ -60,7 +61,7 @@ class NotEqualCondition(Condition):
     """
     This condition is to check if a named paramater does not equal a value
     """
-    def __init__(self, param_name: str, param_value: str | int):
+    def __init__(self, param_name: str, param_value: str | int | datetime):
         super().__init__()
         self.param_name = param_name
         self.param_value = param_value
@@ -85,14 +86,14 @@ class OrCondition(Condition):
 
 class LessOrEqualCondition(Condition):
     """Check if a named parameter is less than or equal to a value."""
-    def __init__(self, param_name: str, param_value):
+    def __init__(self, param_name: str, param_value: str | int | datetime):
         super().__init__()
         self.param_name = param_name
         self.param_value = param_value
 
 class GreaterOrEqualCondition(Condition):
     """Check if a named parameter is greater than or equal to a value."""
-    def __init__(self, param_name: str, param_value):
+    def __init__(self, param_name: str, param_value: str | int | datetime):
         super().__init__()
         self.param_name = param_name
         self.param_value = param_value

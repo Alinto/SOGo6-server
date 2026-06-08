@@ -3,6 +3,8 @@ from __future__ import annotations
 import email as email_lib
 import re
 from email.message import Message
+from email.utils import getaddresses, parseaddr
+from typing import cast
 
 from app.module.calendar.imip.ImipMessage import ImipMessage
 from app.module.calendar.imip.ImipMethod import ImipMethod
@@ -32,9 +34,9 @@ class ImipParser:
         :raises RequestException: If no text/calendar part is found or the METHOD is missing/unsupported.
         """
         msg: Message = email_lib.message_from_bytes(raw_bytes)
-        _, from_email = email_lib.utils.parseaddr(msg.get("From", ""))
+        _, from_email = parseaddr(msg.get("From", ""))
         to_emails: list[str] = [
-            addr for _, addr in email_lib.utils.getaddresses(msg.get_all("To", []))
+            addr for _, addr in getaddresses(msg.get_all("To", []))
             if addr
         ]
 
@@ -58,7 +60,7 @@ class ImipParser:
         """Walk MIME parts and return the first text/calendar payload as a string."""
         for part in msg.walk():
             if part.get_content_type() == "text/calendar":
-                payload: bytes | None = part.get_payload(decode=True)
+                payload: bytes | None = cast("bytes | None", part.get_payload(decode=True))
                 if payload:
                     charset: str = part.get_content_charset("utf-8")
                     return payload.decode(charset)

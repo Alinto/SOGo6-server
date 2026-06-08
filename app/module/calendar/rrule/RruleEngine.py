@@ -57,7 +57,7 @@ class RruleEngine:
             return [master]
 
         rule: CalRecurrenceRule = master.recurrence_rule
-        duration: timedelta = master.date_end - master.date_start
+        duration: timedelta = master.require_date_end - master.require_date_start
 
         override_map: dict[datetime, CalEvent] = {}
         if overrides:
@@ -65,7 +65,7 @@ class RruleEngine:
                 if ov.recurrence_id is not None:
                     override_map[self._normalize_dt(ov.recurrence_id)] = ov
 
-        occurrence_starts: list[datetime] = self._generate_dates(rule, master.date_start, end)
+        occurrence_starts: list[datetime] = self._generate_dates(rule, master.require_date_start, end)
 
         result: list[CalEvent] = []
         for occ_start in occurrence_starts:
@@ -79,7 +79,7 @@ class RruleEngine:
                 # RFC 5545 §3.8.4.4: a RECURRENCE-ID override replaces the slot,
                 # even if the slot is also listed in EXDATE.
                 override_event: CalEvent = override_map[occ_key]
-                if override_event.date_end >= start and override_event.date_start <= end:
+                if override_event.require_date_end >= start and override_event.require_date_start <= end:
                     result.append(override_event)
             elif self._is_excluded(occ_start, master.recurrence_exceptions):
                 continue
@@ -93,7 +93,7 @@ class RruleEngine:
 
         RFC 5545 §3.3.10 — The recurrence set starts at DTSTART.
         """
-        return master.date_start
+        return master.require_date_start
 
     def get_max_date(self, master: CalEvent) -> datetime | None:
         """Return the end of the last occurrence, or None for an unbounded series.
@@ -113,12 +113,12 @@ class RruleEngine:
             return None
         # When only COUNT is set, cap the search window to a hard bound so an unbounded
         # _generate_dates call cannot run away — COUNT will normally stop earlier.
-        hard_limit: datetime = master.date_start + timedelta(days=365 * MAX_RRULE_EXPANSION_YEARS)
+        hard_limit: datetime = master.require_date_start + timedelta(days=365 * MAX_RRULE_EXPANSION_YEARS)
         limit: datetime = rule.until if rule.until is not None else hard_limit
-        dates: list[datetime] = self._generate_dates(rule, master.date_start, limit)
+        dates: list[datetime] = self._generate_dates(rule, master.require_date_start, limit)
         if not dates:
             return master.date_end
-        return dates[-1] + (master.date_end - master.date_start)
+        return dates[-1] + (master.require_date_end - master.require_date_start)
 
     # Date generation
 

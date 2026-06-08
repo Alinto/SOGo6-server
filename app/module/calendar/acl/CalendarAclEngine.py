@@ -8,7 +8,7 @@ from app.module.calendar.model.enums.CalendarPermissionAction import CalendarPer
 from app.module.calendar.model.enums.CalendarShareLevel import CalendarShareLevel
 from app.module.calendar.model.enums.CalendarSourceType import CalendarSourceType
 from app.utils import errors as err
-from app.utils.exceptions import RequestException
+from app.utils.exceptions import BugException, RequestException
 
 if TYPE_CHECKING:
     from app.module.calendar.model.CalCalendar import CalCalendar
@@ -52,12 +52,17 @@ class CalendarAclEngine:
         # TODO: lookup real permissions from the ACL module
         return CalendarPermissions.denied()
 
-    def check_permission(self, permissions: CalendarPermissions, action: CalendarPermissionAction) -> None:
+    def check_permission(self, permissions: CalendarPermissions | None, action: CalendarPermissionAction) -> None:
         """Raise ERROR_CALENDAR_ACCESS_DENIED if the action is not allowed.
 
         For VIEW/RESPOND/MODIFY, the action is allowed if ANY visibility class has a sufficient level.
         For CREATE/DELETE, the dedicated flags are checked.
+
+        ``permissions`` must have been resolved beforehand (get_permissions); a None here
+        is a flow bug, not a denial.
         """
+        if permissions is None:
+            raise BugException("check_permission called before permissions were resolved")
         if action == CalendarPermissionAction.VIEW:
             if not self._any_level_at_least(permissions, CalendarShareLevel.VIEW_DATETIME):
                 raise RequestException(error=err.ERROR_CALENDAR_ACCESS_DENIED)
