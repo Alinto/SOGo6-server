@@ -64,8 +64,8 @@ class FreeBusyEngine:
             if fb_type is None:
                 continue
             # Clip the event to the queried range; discard zero-duration results
-            clipped_start = max(event.date_start, start)
-            clipped_end = min(event.date_end, end)
+            clipped_start = max(event.require_date_start, start)
+            clipped_end = min(event.require_date_end, end)
             if clipped_start >= clipped_end:
                 continue
             # Expose the title only for public events

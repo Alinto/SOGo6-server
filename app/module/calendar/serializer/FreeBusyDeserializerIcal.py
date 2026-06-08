@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any, cast
+
 from icalendar import Calendar
 
 from app.module.calendar.model.CalFreeBusyPeriod import CalFreeBusyPeriod
@@ -76,11 +78,13 @@ class FreeBusyDeserializerIcal(FreeBusyDeserializer[str]):
             for prop_name, prop_val in component.property_items():
                 if prop_name != "FREEBUSY":
                     continue
-                fbtype_str = prop_val.params.get("FBTYPE", "BUSY").upper()
+                # icalendar's property_items types values as ``object``; FREEBUSY carries a vPeriod.
+                prop: Any = cast(Any, prop_val)
+                fbtype_str = prop.params.get("FBTYPE", "BUSY").upper()
                 fb_type = _FBTYPE_TO_FB.get(fbtype_str)
                 if fb_type is None:
                     continue
-                start, end = prop_val.dt
+                start, end = prop.dt
                 periods.append(CalFreeBusyPeriod(
                     date_start=to_utc(start),
                     date_end=to_utc(end),

@@ -102,7 +102,7 @@ class CalendarSources:
         events: list[CalEvent] = []
         for source in self.get_all(user_uid):
             events.extend(source.get_events(start, end, search))
-        events.sort(key=lambda e: e.date_start)
+        events.sort(key=lambda e: e.require_date_start)
         return events
 
     def get_tasks(
@@ -126,7 +126,7 @@ class CalendarSources:
         tasks: list[CalEvent] = []
         for source in self.get_all(user_uid):
             tasks.extend(source.get_tasks(start, end, search))
-        tasks.sort(key=lambda e: e.date_start)
+        tasks.sort(key=lambda e: e.require_date_start)
         return tasks
 
     def update_sync_config(self, calendar: CalCalendar) -> None:
@@ -169,7 +169,7 @@ class CalendarSources:
             if scope_result.realign_from is not None and scope_result.realign_to is not None:
                 try:
                     att_source.realign_detached_occurrences(
-                        uid=event.uid, old_start=scope_result.realign_from, new_start=scope_result.realign_to,
+                        uid=event.require_uid, old_start=scope_result.realign_from, new_start=scope_result.realign_to,
                     )
                 except Exception as exc:  # pylint: disable=broad-except
                     logger_calendar.warning(
@@ -189,18 +189,18 @@ class CalendarSources:
             self._update_attendee_copy(att_source, evt)
         elif action == EventAction.DELETE:
             if evt.recurrence_id is not None:
-                att_copy: CalEvent | None = att_source.get_event_by_recurrence_id(evt.uid, evt.recurrence_id)
+                att_copy: CalEvent | None = att_source.get_event_by_recurrence_id(evt.require_uid, evt.recurrence_id)
                 if att_copy is not None:
                     att_source.delete_detached_occurrence(att_copy)
             else:
-                att_source.delete_event(evt.uid)
+                att_source.delete_event(evt.require_uid)
 
     def _update_attendee_copy(self, att_source: CalendarSource, event: CalEvent) -> None:
         """Find the attendee's copy and update propagatable fields."""
         if event.recurrence_id is not None:
-            copy: CalEvent | None = att_source.get_event_by_recurrence_id(event.uid, event.recurrence_id)
+            copy: CalEvent | None = att_source.get_event_by_recurrence_id(event.require_uid, event.recurrence_id)
         else:
-            copy = att_source.get_master_event_by_uid(event.uid)
+            copy = att_source.get_master_event_by_uid(event.require_uid)
         if copy is None:
             return
         for field_name in CalEvent.PROPAGATABLE_FIELDS:
@@ -244,7 +244,7 @@ class CalendarSources:
             if source is None:
                 continue
             try:
-                source.delete_event(updated.uid)
+                source.delete_event(updated.require_uid)
                 logger_calendar.info("Removed event uid=%s from local attendee %s", updated.uid, email)
             except Exception as exc:  # pylint: disable=broad-except
                 logger_calendar.warning("Could not remove event uid=%s from attendee %s: %s", updated.uid, email, exc)

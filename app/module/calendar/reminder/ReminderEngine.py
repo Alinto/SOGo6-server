@@ -65,7 +65,7 @@ class ReminderEngine:
         occurrences: list[CalEvent] = self._rrule_engine.expand(master, expand_start, expand_end)
         results: list[CalEventReminder] = []
         for occ in occurrences:
-            occ_trigger: datetime = occ.date_start - timedelta(minutes=reminder.minutes_before)
+            occ_trigger: datetime = occ.require_date_start - timedelta(minutes=reminder.minutes_before)
             if self._is_active(occ_trigger, occ.date_end, now, lookahead):
                 results.append(CalEventReminder(
                     event_key=reminder.event_key,

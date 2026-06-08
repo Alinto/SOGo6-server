@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from json import loads, dumps
 from json.decoder import JSONDecodeError
@@ -69,7 +69,7 @@ def _accepted_content_types() -> set[str] | None:
     view = current_app.view_functions.get(request.endpoint or "")
     view_class = getattr(view, "view_class", None)
     accepted = getattr(view_class, "accepted_content_types", None)
-    return accepted if isinstance(accepted, (set, frozenset)) else None
+    return cast("set[str]", accepted) if isinstance(accepted, (set, frozenset)) else None
 
 
 def _is_public_endpoint() -> bool:
