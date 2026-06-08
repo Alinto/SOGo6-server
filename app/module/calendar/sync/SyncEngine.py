@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from app.module.calendar.CalendarConst import MAX_ICS_EVENTS, SYNC_LOCK_TTL_SECONDS
 from app.module.calendar.model.CalEventSyncMeta import CalEventSyncMeta
@@ -80,7 +80,7 @@ class SyncEngine:
             raise
         finally:
             # Only release the lock if we still own it (compare-and-swap)
-            stored: str | None = self._cache.get(lock_key, str)
+            stored: str | None = cast("str | None", self._cache.get(lock_key, str))
             if stored == lock_token:
                 self._cache.delete(lock_key)
 
@@ -139,14 +139,14 @@ class SyncEngine:
         }
 
         remote_masters, remote_overrides, remote_keys = self._prepare_remote(
-            remote_events, calendar.key, default_timezone=default_timezone,
+            remote_events, calendar.require_key, default_timezone=default_timezone,
         )
 
         # An override (RECURRENCE-ID) is only meaningful if its parent master is reachable:
         # either present in the same payload, or already persisted in the calendar. Google
         # Calendar (and other producers) sometimes export detached occurrences without their
         # master when the master falls outside the export window — skip those silently.
-        known_master_uids: set[str] = {m.uid for m in remote_masters}
+        known_master_uids: set[str] = {m.require_uid for m in remote_masters}
         known_master_uids.update(meta.uid for meta in local_metadata if meta.recurrence_id is None)
 
         inserted: int = 0
@@ -162,7 +162,7 @@ class SyncEngine:
                 )
                 skipped += 1
                 continue
-            key = (remote_evt.uid, remote_evt.recurrence_id)
+            key = (remote_evt.require_uid, remote_evt.recurrence_id)
             if key not in local_by_key:
                 if not remote_evt.key:
                     remote_evt.key = generate_uuid()

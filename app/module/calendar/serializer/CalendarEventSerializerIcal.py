@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
-from icalendar import Alarm, Calendar, Event, Todo, vBinary, vCalAddress, vRecur, vText
+from icalendar import Alarm, Calendar, Component, Event, Todo, vBinary, vCalAddress, vRecur, vText
 
 from app.module.calendar.model.enums.ComponentType import ComponentType
 from app.module.calendar.serializer.IcalSerializerUtils import new_vcalendar
@@ -168,7 +168,7 @@ class CalendarEventSerializerIcal(CalendarEventSerializer[str]):
 
     # Property group builders
 
-    def _add_core(self, vevent: Event, event: CalEvent) -> None:
+    def _add_core(self, vevent: Component, event: CalEvent) -> None:
         """Add UID, SUMMARY, DESCRIPTION, LOCATION, URL, SEQUENCE, PRIORITY, CATEGORIES, COLOR."""
         vevent.add("uid", event.uid)
         vevent.add("summary", event.title)
@@ -197,11 +197,11 @@ class CalendarEventSerializerIcal(CalendarEventSerializer[str]):
         if event.color:
             vevent.add("color", event.color)
 
-    def _add_dates(self, vevent: Event, event: CalEvent) -> None:
+    def _add_dates(self, vevent: Component, event: CalEvent) -> None:
         """Add DTSTART, DTEND, DTSTAMP, CREATED, LAST-MODIFIED, RECURRENCE-ID."""
         if event.all_day:
-            vevent.add("dtstart", event.date_start.date())
-            vevent.add("dtend", event.date_end.date())
+            vevent.add("dtstart", event.require_date_start.date())
+            vevent.add("dtend", event.require_date_end.date())
         else:
             vevent.add("dtstart", event.date_start)
             vevent.add("dtend", event.date_end)
@@ -217,8 +217,8 @@ class CalendarEventSerializerIcal(CalendarEventSerializer[str]):
     def _add_dates_todo(self, vtodo: Todo, event: CalEvent) -> None:
         """Add DTSTART, DUE, DTSTAMP, CREATED, LAST-MODIFIED for a VTODO component."""
         if event.all_day:
-            vtodo.add("dtstart", event.date_start.date())
-            vtodo.add("due", event.date_end.date())
+            vtodo.add("dtstart", event.require_date_start.date())
+            vtodo.add("due", event.require_date_end.date())
         else:
             vtodo.add("dtstart", event.date_start)
             vtodo.add("due", event.date_end)
@@ -228,7 +228,7 @@ class CalendarEventSerializerIcal(CalendarEventSerializer[str]):
         if event.updated_at:
             vtodo.add("last-modified", event.updated_at)
 
-    def _add_status(self, vevent: Event, event: CalEvent) -> None:
+    def _add_status(self, vevent: Component, event: CalEvent) -> None:
         """Add STATUS, CLASS, TRANSP, and optional X-MICROSOFT-CDO-BUSYSTATUS."""
         vevent.add("status", _STATUS_OUT.get(event.status, "CONFIRMED"))
         vevent.add("class", _CLASS_OUT.get(event.visibility, "PUBLIC"))
@@ -243,14 +243,14 @@ class CalendarEventSerializerIcal(CalendarEventSerializer[str]):
         vtodo.add("status", _STATUS_OUT_VTODO.get(event.status, "NEEDS-ACTION"))
         vtodo.add("class", _CLASS_OUT.get(event.visibility, "PUBLIC"))
 
-    def _add_participants(self, vevent: Event, event: CalEvent) -> None:
+    def _add_participants(self, vevent: Component, event: CalEvent) -> None:
         """Add ORGANIZER and ATTENDEE properties."""
         if event.organizer:
             vevent.add("organizer", self._format_organizer(event.organizer), encode=False)
         for attendee in event.attendees:
             vevent.add("attendee", self._format_attendee(attendee), encode=False)
 
-    def _add_recurrence(self, vevent: Event, event: CalEvent) -> None:
+    def _add_recurrence(self, vevent: Component, event: CalEvent) -> None:
         """Add RRULE, RDATE, and EXDATE properties."""
         if event.recurrence_rule:
             vevent.add("rrule", self._format_rrule(event.recurrence_rule))
@@ -259,12 +259,12 @@ class CalendarEventSerializerIcal(CalendarEventSerializer[str]):
         for exdate in event.recurrence_exceptions:
             vevent.add("exdate", exdate)
 
-    def _add_attachments(self, vevent: Event, event: CalEvent) -> None:
+    def _add_attachments(self, vevent: Component, event: CalEvent) -> None:
         """Add ATTACH properties for each attachment."""
         for attach in event.attachments:
             self._add_attach(vevent, attach)
 
-    def _add_conference(self, vevent: Event, event: CalEvent) -> None:
+    def _add_conference(self, vevent: Component, event: CalEvent) -> None:
         """Add X-CONFERENCE extension properties from conference_data."""
         if not event.conference_data:
             return
@@ -280,7 +280,7 @@ class CalendarEventSerializerIcal(CalendarEventSerializer[str]):
                 ep_val.params["LABEL"] = ep.label
             vevent.add("x-conference-entrypoint", ep_val, encode=False)
 
-    def _add_alarms(self, vevent: Event, event: CalEvent) -> None:
+    def _add_alarms(self, vevent: Component, event: CalEvent) -> None:
         """Add VALARM sub-components for each reminder.
 
         Per RFC 5545 §3.6.6, ACTION=EMAIL requires SUMMARY (subject) and at least one
@@ -382,7 +382,7 @@ class CalendarEventSerializerIcal(CalendarEventSerializer[str]):
         return vRecur.from_ical(";".join(parts))
 
     @staticmethod
-    def _add_attach(vevent: Event, attach: CalAttachment) -> None:
+    def _add_attach(vevent: Component, attach: CalAttachment) -> None:
         """Add an ATTACH property for a CalAttachment (URI or binary)."""
         if attach.data is not None:
             bin_val = vBinary(attach.data)

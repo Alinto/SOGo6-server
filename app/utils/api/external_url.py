@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from typing import Any
+
 from flask import url_for
 
 
-def build_external_url(endpoint: str, public_base_url: str, **values: str) -> str:
+def build_external_url(endpoint: str, public_base_url: str, **values: Any) -> str:
     """Build an absolute URL for a Flask endpoint, preferring a configured public base URL.
 
     Behind a reverse proxy the host seen by Flask is not the public one, so when
