@@ -28,7 +28,7 @@ def _make_task(**kwargs):
         "uid": "task@example.com",
         "title": "My Task",
         "date_start": _dt(2026, 3, 1),
-        "date_end": _dt(9999, 12, 31),
+        "date_end": _dt(2026, 3, 2),
         "key": "task-key",
         "component_type": ComponentType.TASK,
     }
@@ -116,7 +116,7 @@ def test_create_task_due_mapped_to_date_end():
     module = MagicMock()
     module.create_task.return_value = task
     inter = _build_interface(module)
-    inter.create_task("cal-key", {"title": "T", "due": due_iso})
+    inter.create_task("cal-key", {"title": "T", "date_due": due_iso})
     call_args = module.create_task.call_args
     created_event = call_args[0][2]
     assert created_event.date_end is not None
@@ -165,13 +165,24 @@ def test_get_task_not_found():
     assert response["error_code"] == err.ERROR_CALENDAR_TASK_NOT_FOUND.c
 
 
-def test_get_task_serializes_date_end():
+def test_get_task_serializes_due():
     task = _make_task(date_end=_dt(2026, 6, 15, 12))
     module = MagicMock()
     module.get_task.return_value = task
     inter = _build_interface(module)
     response, _ = inter.get_task("task-key")
-    assert "2026-06-15" in response["data"]["date_end"]
+    assert "2026-06-15" in response["data"]["date_due"]
+    assert "date_end" not in response["data"]
+
+
+def test_get_task_without_due_returns_null():
+    # A task with no due date has date_end=None, surfaced as due=null.
+    task = _make_task(date_end=None)
+    module = MagicMock()
+    module.get_task.return_value = task
+    inter = _build_interface(module)
+    response, _ = inter.get_task("task-key")
+    assert response["data"]["date_due"] is None
 
 
 # ========== patch_task ==========
@@ -194,7 +205,7 @@ def test_patch_task_due_mapped_to_date_end():
     module.get_task.return_value = existing
     module.update_task.return_value = existing
     inter = _build_interface(module)
-    inter.patch_task("task-key", {"due": "2026-07-01T00:00:00+00:00"})
+    inter.patch_task("task-key", {"date_due": "2026-07-01T00:00:00+00:00"})
     call_args = module.update_task.call_args
     task_update = call_args[0][2]
     assert task_update.date_end == datetime(2026, 7, 1, 0, 0, tzinfo=timezone.utc)
