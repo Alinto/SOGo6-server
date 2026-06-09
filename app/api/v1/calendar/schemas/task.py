@@ -30,7 +30,7 @@ class CalendarTaskSchema(Schema):
     title = fields.String()
     description = fields.String(allow_none=True)
     date_start = fields.String(allow_none=True, metadata={"description": "ISO 8601 UTC start (optional for VTODOs)."})
-    due = fields.String(allow_none=True, metadata={"description": "ISO 8601 UTC due date (maps to RFC 5545 DUE)."})
+    date_due = fields.String(allow_none=True, metadata={"description": "ISO 8601 UTC due date (maps to RFC 5545 DUE)."})
     status = fields.String(validate=validate.OneOf(_TASK_STATUS_VALUES))
     visibility = fields.String(validate=validate.OneOf(_VISIBILITY_VALUES))
     priority = fields.Integer()
@@ -59,7 +59,7 @@ class CalendarTaskCreateSchema(Schema):
     date_start = fields.String(load_default=None, allow_none=True,
                                metadata={"description": "ISO 8601 UTC. Defaults to now if absent.",
                                          "example": "2026-04-22T09:00:00.000Z"})
-    due = fields.String(load_default=None, allow_none=True,
+    date_due = fields.String(load_default=None, allow_none=True,
                         metadata={"description": "ISO 8601 UTC due date (RFC 5545 DUE). No limit if absent.",
                                   "example": "2026-04-23T17:00:00.000Z"})
     status = fields.String(load_default=None, allow_none=True, validate=validate.OneOf(_TASK_STATUS_VALUES),
@@ -89,7 +89,7 @@ class CalendarTaskPatchSchema(Schema):
     title = fields.String(validate=validate.Length(max=MAX_EVENT_TITLE_LENGTH))
     description = fields.String(allow_none=True, validate=validate.Length(max=MAX_EVENT_DESCRIPTION_LENGTH))
     date_start = fields.String(allow_none=True)
-    due = fields.String(allow_none=True)
+    date_due = fields.String(allow_none=True)
     status = fields.String(allow_none=True, validate=validate.OneOf(_TASK_STATUS_VALUES))
     visibility = fields.String(allow_none=True, validate=validate.OneOf(_VISIBILITY_VALUES))
     priority = fields.Integer(validate=validate.Range(min=0, max=9))

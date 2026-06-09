@@ -55,7 +55,7 @@ class CalendarEventDeserializerDict(CalendarEventDeserializer[dict]):
             description=data.get("description"),
             location=data.get("location"),
             date_start=self._parse_dt(data["date_start"]) if "date_start" in data else None,
-            date_end=self._parse_dt(data["date_end"]) if "date_end" in data else None,
+            date_end=self._parse_dt_opt(data.get("date_end")),
             all_day=data.get("all_day", False),
             timezone=data.get("timezone") or "UTC",
             status=self._parse_enum(EventStatus, data.get("status"), EventStatus.CONFIRMED),
@@ -107,9 +107,9 @@ class CalendarEventDeserializerDict(CalendarEventDeserializer[dict]):
             return self._parse_recurrence_rule(value)
         if key == "recurrence_exceptions":
             return [self._parse_dt(d) for d in value]
-        if key in ("date_start", "date_end"):
+        if key == "date_start":
             return self._parse_dt(value)
-        if key in ("completed_at", "recurrence_id"):
+        if key in ("date_end", "completed_at", "recurrence_id"):
             return self._parse_dt_opt(value)
         if key == "attendees":
             return [self._parse_attendee(a) for a in value]
