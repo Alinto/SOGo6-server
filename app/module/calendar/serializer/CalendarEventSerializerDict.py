@@ -34,7 +34,7 @@ class CalendarEventSerializerDict(CalendarEventSerializer[dict]):
             "description": data.description,
             "location": data.location,
             "date_start": fmt_dt(data.require_date_start),
-            "date_end": fmt_dt(data.require_date_end),
+            "date_end": fmt_dt(data.date_end) if data.date_end is not None else None,
             "all_day": data.all_day,
             "timezone": data.timezone,
             "status": data.status.value,
@@ -150,7 +150,7 @@ class CalendarEventSerializerDict(CalendarEventSerializer[dict]):
         cal_tz = event.calendar_timezone
         return {
             "date_start_tz_event": apply_tz(event.require_date_start, event_tz) if event_tz else None,
-            "date_end_tz_event": apply_tz(event.require_date_end, event_tz) if event_tz else None,
+            "date_end_tz_event": apply_tz(event.date_end, event_tz) if (event_tz and event.date_end is not None) else None,
             "date_start_tz_calendar": apply_tz(event.require_date_start, cal_tz) if cal_tz else None,
-            "date_end_tz_calendar": apply_tz(event.require_date_end, cal_tz) if cal_tz else None,
+            "date_end_tz_calendar": apply_tz(event.date_end, cal_tz) if (cal_tz and event.date_end is not None) else None,
         }

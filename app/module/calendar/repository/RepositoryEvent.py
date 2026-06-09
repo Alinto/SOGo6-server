@@ -58,7 +58,7 @@ class RepositoryEvent:
         event.uid = d[tbl.COL_EVT_UID.name]
         event.component_type = ComponentType(d[tbl.COL_EVT_COMPONENT_TYPE.name])
         event.date_start = to_utc(d[tbl.COL_EVT_DATE_START.name])
-        event.date_end = to_utc(d[tbl.COL_EVT_DATE_END.name])
+        event.date_end = to_utc(d[tbl.COL_EVT_DATE_END.name]) if d[tbl.COL_EVT_DATE_END.name] is not None else None
         event.sequence = d[tbl.COL_EVT_SEQUENCE.name]
         event.recurrence_id = to_utc(d[tbl.COL_EVT_RECURRENCE_ID.name]) if d[tbl.COL_EVT_RECURRENCE_ID.name] is not None else None
         event.created_at = to_utc(d[tbl.COL_EVT_CREATED_AT.name]) if d[tbl.COL_EVT_CREATED_AT.name] is not None else None
@@ -83,7 +83,10 @@ class RepositoryEvent:
             EqualCondition(tbl.COL_EVT_IS_RECURRING.name, False),
             AndCondition(
                 LessOrEqualCondition(tbl.COL_EVT_DATE_START.name, end),
-                GreaterOrEqualCondition(tbl.COL_EVT_DATE_END.name, start),
+                OrCondition(
+                    IsNullCondition(tbl.COL_EVT_DATE_END.name),
+                    GreaterOrEqualCondition(tbl.COL_EVT_DATE_END.name, start),
+                ),
             ),
         )
         recurring = AndCondition(

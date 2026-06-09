@@ -41,8 +41,6 @@ if TYPE_CHECKING:
     from app.module.calendar.model.CalEvent import CalEvent
     from app.module.calendar.source.CalendarSource import CalendarSource
 
-_FAR_FUTURE = "9999-12-31T23:59:59Z"
-
 
 class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attributes,too-many-public-methods
     """Interface for all calendar operations (calendars, events, tasks, freebusy, reminders, external sync)."""
@@ -279,7 +277,7 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
             end: datetime = query_args.get("end_date_time") or self._add_months(now, 9)
             search: str | None = query_args.get("search")
             tasks: list[CalEvent] = self.module.get_tasks(CalendarUser(user=self.user, owner=self.user), start, end, search, key)
-            task_list: list[dict[str, Any]] = self._events_serializer.serialize(tasks)
+            task_list: list[dict[str, Any]] = [self._serialize_task(t) for t in tasks]
             return create_api_base_response({"tasks": task_list, "total_count": len(task_list)})
         except RequestException as ex:
             logger_api.error("get_tasks failed for user %s, calendar %s: %s", self.user.uid, key, ex)
@@ -291,7 +289,7 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
             task_body: dict[str, Any] = self._normalize_task_body(body)
             task: CalEvent = self._event_deserializer.deserialize(task_body)
             created: CalEvent = self.module.create_task(CalendarUser(user=self.user, owner=self.user), calendar_key, task)
-            return create_api_base_response(self._event_serializer.serialize(created), code=201)
+            return create_api_base_response(self._serialize_task(created), code=201)
         except RequestException as ex:
             logger_api.error("create_task failed for user %s calendar %s: %s", self.user.uid, calendar_key, ex)
             return create_api_base_response(None, ex.error)
@@ -303,7 +301,7 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         """Get a single VTODO by key."""
         try:
             task: CalEvent = self.module.get_task(CalendarUser(user=self.user, owner=self.user), task_key)
-            return create_api_base_response(self._event_serializer.serialize(task))
+            return create_api_base_response(self._serialize_task(task))
         except RequestException as ex:
             logger_api.error("get_task failed for user %s task %s: %s", self.user.uid, task_key, ex)
             return create_api_base_response(None, ex.error)
@@ -311,13 +309,13 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
     def patch_task(self, task_key: str, body: dict[str, Any]) -> tuple[dict[str, Any], int]:
         """Apply partial updates to a VTODO."""
         try:
-            if "due" in body:
+            if "date_due" in body:
                 body = dict(body)
-                body["date_end"] = body.pop("due")
+                body["date_end"] = body.pop("date_due")
             existing: CalEvent = self.module.get_task(CalendarUser(user=self.user, owner=self.user), task_key)
             task_update: CalEvent = self._event_deserializer.deserialize_with_update(existing, body)
             updated: CalEvent = self.module.update_task(CalendarUser(user=self.user, owner=self.user), task_key, task_update)
-            return create_api_base_response(self._event_serializer.serialize(updated))
+            return create_api_base_response(self._serialize_task(updated))
         except RequestException as ex:
             logger_api.error("patch_task failed for user %s task %s: %s", self.user.uid, task_key, ex)
             return create_api_base_response(None, ex.error)
@@ -537,6 +535,16 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         now_iso: str = datetime.now(timezone.utc).isoformat()
         task_body: dict[str, Any] = dict(body)
         task_body["date_start"] = task_body.get("date_start") or now_iso
-        task_body["date_end"] = task_body.pop("due", None) or _FAR_FUTURE
+        task_body["date_end"] = task_body.pop("date_due", None)
         task_body["component_type"] = "task"
         return task_body
+
+    def _serialize_task(self, task: CalEvent) -> dict[str, Any]:
+        """Serialize a VTODO: the event serializer emits date_end, surfaced here as ``date_due``.
+
+        Inverse of :meth:`_normalize_task_body`. A task without a due date has date_end=None,
+        so ``date_due`` comes out null.
+        """
+        result: dict[str, Any] = self._event_serializer.serialize(task)
+        result["date_due"] = result.pop("date_end", None)
+        return result

@@ -215,13 +215,18 @@ class CalendarEventSerializerIcal(CalendarEventSerializer[str]):
             vevent.add("recurrence-id", recid)
 
     def _add_dates_todo(self, vtodo: Todo, event: CalEvent) -> None:
-        """Add DTSTART, DUE, DTSTAMP, CREATED, LAST-MODIFIED for a VTODO component."""
+        """Add DTSTART, DUE, DTSTAMP, CREATED, LAST-MODIFIED for a VTODO component.
+
+        A VTODO may have no DUE (a task without a due date); the property is then omitted.
+        """
         if event.all_day:
             vtodo.add("dtstart", event.require_date_start.date())
-            vtodo.add("due", event.require_date_end.date())
+            if event.date_end is not None:
+                vtodo.add("due", event.date_end.date())
         else:
             vtodo.add("dtstart", event.date_start)
-            vtodo.add("due", event.date_end)
+            if event.date_end is not None:
+                vtodo.add("due", event.date_end)
         vtodo.add("dtstamp", datetime.now(timezone.utc))
         if event.created_at:
             vtodo.add("created", event.created_at)

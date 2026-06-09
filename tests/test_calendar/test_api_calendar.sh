@@ -639,7 +639,7 @@ CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/tasks" \
     -d '{
         "title": "Write release notes",
         "description": "Document all changes for v1.0",
-        "due": "2026-06-30T17:00:00Z",
+        "date_due": "2026-06-30T17:00:00Z",
         "percent_complete": 0,
         "categories": ["Dev", "Docs"]
     }')
@@ -647,6 +647,11 @@ check_code  "POST /tasks create" "$CODE" "201"
 check_error "POST /tasks create error_code"
 check_field ".data.title"          "Write release notes"
 check_field ".data.component_type" "task"
+# 'date_due' must be returned under the 'date_due' key (mapped back from the internal date_end),
+# and date_end must NOT leak into the task response.
+DUE_OUT=$(body | jq -r '.data.date_due // empty')
+echo "$DUE_OUT" | grep -q "2026-06-30T17:00:00" && ok "task 'date_due' returned (not 'date_end')" || fail "task date_due wrong/missing: '$DUE_OUT'"
+[ "$(body | jq -r '.data.date_end // "ABSENT"')" = "ABSENT" ] && ok "task response has no 'date_end'" || fail "task response still exposes 'date_end'"
 TASK_KEY=$(extract '.data.key')
 info "Task key: $TASK_KEY"
 
@@ -658,6 +663,21 @@ check_code  "GET /tasks/$TASK_KEY" "$CODE" "200"
 check_error "GET /tasks get error_code"
 check_field ".data.title"          "Write release notes"
 check_field ".data.component_type" "task"
+DUE_GET=$(body | jq -r '.data.date_due // empty')
+echo "$DUE_GET" | grep -q "2026-06-30T17:00:00" && ok "task 'date_due' round-trips on GET" || fail "task date_due on GET: '$DUE_GET'"
+
+
+step "27b. Task — create without due returns null due"
+info "A VTODO created without a due date must return due=null."
+
+CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/tasks" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d '{"title": "Task without a due date"}')
+check_code  "POST /tasks (no due)" "$CODE" "201"
+NODUE=$(body | jq -r '.data.date_due')
+[ "$NODUE" = "null" ] && ok "task without due -> date_due is null" || fail "task without due -> date_due='$NODUE' (expected null)"
+[ "$(body | jq -r '.data.date_end // "ABSENT"')" = "ABSENT" ] && ok "no-due task has no 'date_end'" || fail "no-due task exposes 'date_end'"
+
 
 step "28. Task — patch title and percent_complete"
 info "Marks the task as 100% complete and renames it. Verifies both fields in the response."
@@ -676,7 +696,7 @@ CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/tasks" \
     -H "$H_JSON" -H "$H_AUTH" \
     -d '{
         "title": "Review PR #42",
-        "due": "2026-06-20T12:00:00Z",
+        "date_due": "2026-06-20T12:00:00Z",
         "percent_complete": 50
     }')
 check_code  "POST /tasks second task" "$CODE" "201"

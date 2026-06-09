@@ -156,6 +156,8 @@ class CalEvent:  # pylint: disable=too-many-instance-attributes,invalid-name
 
     def validate(self) -> None:
         """Run business validations. Raises RequestException on failure."""
+        if self.component_type == ComponentType.EVENT and self.date_end is None:
+            raise RequestException(error=err.ERROR_CALENDAR_JSON_PARSE_FAILED)
         if not self.all_day and self.date_start is not None and self.date_end is not None:
             if (self.date_end - self.date_start) > timedelta(hours=MAX_EVENT_DURATION_HOURS):
                 raise RequestException(error=err.ERROR_CALENDAR_EVENT_DURATION_TOO_LONG)
@@ -213,10 +215,17 @@ class CalEvent:  # pylint: disable=too-many-instance-attributes,invalid-name
 
     @property
     def require_date_end(self) -> datetime:
-        """End datetime, guaranteed once defaults have been applied (DTEND / DUE)."""
+        """End datetime, guaranteed for a VEVENT (DTEND). A VTODO may have none (no DUE)."""
         if self.date_end is None:
             raise BugException("CalEvent.date_end accessed before it was set")
         return self.date_end
+
+    @property
+    def duration(self) -> timedelta:
+        """Span from start to end/due. Zero when there is no end (e.g. a task without a due date)."""
+        if self.date_start is None or self.date_end is None:
+            return timedelta(0)
+        return self.date_end - self.date_start
 
     @property
     def require_recurrence_id(self) -> datetime:
