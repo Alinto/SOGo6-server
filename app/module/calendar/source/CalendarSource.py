@@ -165,8 +165,11 @@ class CalendarSource(ABC):  # pylint: disable=too-many-public-methods
         return result
 
     def _filter_date_start(self, events: list[CalEvent], start: datetime) -> list[CalEvent]:
-        """Keep events that end at or after start (not already finished)."""
-        return [e for e in events if e.require_date_end >= start]
+        """Keep events that end at or after start (not already finished).
+
+        A task with no due date has no end, so it never counts as finished and is kept.
+        """
+        return [e for e in events if e.date_end is None or e.date_end >= start]
 
     def _filter_date_end(self, events: list[CalEvent], end: datetime) -> list[CalEvent]:
         """Keep events that start at or before end (not in the future)."""
@@ -235,17 +238,18 @@ class CalendarSource(ABC):  # pylint: disable=too-many-public-methods
     @staticmethod
     def _compute_realigned_dates(
         occ: CalEvent, delta: timedelta,
-    ) -> tuple[datetime, datetime, datetime]:
+    ) -> tuple[datetime, datetime, datetime | None]:
         """Compute the realigned recurrence_id, date_start and date_end for a detached occurrence.
 
         Shifts recurrence_id by the master delta while preserving the individual time offset
         the user may have applied to this occurrence. Returns (new_recurrence_id, new_start, new_end).
+        A task occurrence with no due date keeps new_end at None.
         """
-        occ_duration: timedelta = occ.require_date_end - occ.require_date_start
+        occ_duration: timedelta = occ.duration
         new_recurrence_id: datetime = occ.require_recurrence_id + delta
         time_offset: timedelta = occ.require_date_start - occ.require_recurrence_id
         new_start: datetime = new_recurrence_id + time_offset
-        new_end: datetime = new_start + occ_duration
+        new_end: datetime | None = new_start + occ_duration if occ.date_end is not None else None
         return new_recurrence_id, new_start, new_end
 
     def realign_detached_occurrences(self, uid: str, old_start: datetime, new_start: datetime) -> list[tuple[CalEvent, EventAction]]:

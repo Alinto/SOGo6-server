@@ -45,6 +45,8 @@ It is a plain Python dataclass. The `component_type` field discriminates between
 
 Fields are either *relational* (dedicated columns for filtering: `date_start`, `date_end`, `component_type`, `show_as`, `is_deleted`, `recurrence_id`) or *blob* (everything else, stored as JSON in `cal_event`). Unpersisted fields (`dates_with_tz`) are computed at serialization time and excluded from the blob via `CalEvent.UNPERSISTED_FIELDS`.
 
+`date_end` holds the component end instant: DTEND for a VEVENT, DUE for a VTODO. It is nullable: a VEVENT always has a DTEND (enforced by `CalEvent.validate`), but a VTODO may have no DUE, in which case `date_end` is `NULL` and the task API surfaces `date_due: null`. A task with no due date has no end, so it is treated as open-ended (zero duration on expansion, never filtered out as "finished").
+
 `CalCalendar` maps to the `sogo_calendar_calendars` table. `ctag` is incremented on every event mutation by `CalendarSourceDb._bump_ctag()` (CalDAV change detection via the `CS:getctag` extension).
 
 All datetimes are stored and processed in UTC. The original TZID is preserved in `CalEvent.timezone` for display only.
