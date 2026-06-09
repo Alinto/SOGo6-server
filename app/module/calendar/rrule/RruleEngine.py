@@ -57,7 +57,7 @@ class RruleEngine:
             return [master]
 
         rule: CalRecurrenceRule = master.recurrence_rule
-        duration: timedelta = master.require_date_end - master.require_date_start
+        duration: timedelta = master.duration
 
         override_map: dict[datetime, CalEvent] = {}
         if overrides:
@@ -69,9 +69,10 @@ class RruleEngine:
 
         result: list[CalEvent] = []
         for occ_start in occurrence_starts:
-            occ_end: datetime = occ_start + duration
+            # A task with no due date has no end, so every occurrence stays open-ended.
+            occ_end: datetime | None = occ_start + duration if master.date_end is not None else None
 
-            if occ_end < start:
+            if occ_end is not None and occ_end < start:
                 continue
 
             occ_key: datetime = self._normalize_dt(occ_start)
@@ -79,7 +80,10 @@ class RruleEngine:
                 # RFC 5545 §3.8.4.4: a RECURRENCE-ID override replaces the slot,
                 # even if the slot is also listed in EXDATE.
                 override_event: CalEvent = override_map[occ_key]
-                if override_event.require_date_end >= start and override_event.require_date_start <= end:
+                # A task override with no due date has no end, so it always overlaps the lower bound.
+                if (
+                    override_event.date_end is None or override_event.date_end >= start
+                ) and override_event.require_date_start <= end:
                     result.append(override_event)
             elif self._is_excluded(occ_start, master.recurrence_exceptions):
                 continue
@@ -118,7 +122,7 @@ class RruleEngine:
         dates: list[datetime] = self._generate_dates(rule, master.require_date_start, limit)
         if not dates:
             return master.date_end
-        return dates[-1] + (master.require_date_end - master.require_date_start)
+        return dates[-1] + master.duration
 
     # Date generation
 
@@ -559,7 +563,7 @@ class RruleEngine:
         return any(RruleEngine._normalize_dt(exc) == occ_utc for exc in exceptions)
 
     @staticmethod
-    def _make_occurrence(master: CalEvent, start: datetime, end: datetime) -> CalEvent:
+    def _make_occurrence(master: CalEvent, start: datetime, end: datetime | None) -> CalEvent:
         # RFC 5545 §3.8.4.4 — RECURRENCE-ID: each generated occurrence carries the
         # original occurrence datetime as its recurrence identifier
         return dataclasses.replace(

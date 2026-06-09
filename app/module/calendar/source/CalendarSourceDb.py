@@ -102,7 +102,7 @@ class CalendarSourceDb(CalendarSource):
         existing: CalEvent | None = self.get_event_by_recurrence_id(master.require_uid, recurrence_id)
         if existing is not None:
             return existing
-        duration: timedelta = master.require_date_end - master.require_date_start
+        duration: timedelta = master.duration
         occurrence: CalEvent = dataclasses.replace(
             master,
             key=None,
@@ -111,7 +111,7 @@ class CalendarSourceDb(CalendarSource):
             recurrence_rule=None,
             recurrence_range=None,
             date_start=recurrence_id,
-            date_end=recurrence_id + duration,
+            date_end=recurrence_id + duration if master.date_end is not None else None,
             sequence=0,
         )
         return self.insert_event(occurrence)

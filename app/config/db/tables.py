@@ -215,7 +215,7 @@ COL_EVT_CALENDAR_KEY      = Column(name="calendar_key",         data_type="str",
 COL_EVT_UID               = Column(name="uid",                  data_type="str",                                    extra_args={"max_len": 512})
 COL_EVT_COMPONENT_TYPE    = Column(name="component_type",       data_type="str",                                    extra_args={"max_len": 10})
 COL_EVT_DATE_START        = Column(name="date_start",           data_type="datetime")
-COL_EVT_DATE_END          = Column(name="date_end",             data_type="datetime")
+COL_EVT_DATE_END          = Column(name="date_end",             data_type="datetime", is_nullable=True)
 COL_EVT_SHOW_AS           = Column(name="show_as",              data_type="str",                                    extra_args={"max_len": 12})
 COL_EVT_IS_RECURRING      = Column(name="is_recurring",         data_type="bool")
 COL_EVT_DATE_END_RECUR    = Column(name="date_end_recurrence",  data_type="datetime", is_nullable=True)
