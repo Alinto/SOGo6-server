@@ -185,6 +185,7 @@ ERROR_CALENDAR_EVENT_DURATION_TOO_LONG       = E("S000619", "Event Duration Exce
 ERROR_CALENDAR_ACCESS_DENIED                 = E("S000620", "Access Denied To This Calendar", HTTPStatus.FORBIDDEN)
 ERROR_CALENDAR_IMPORT_NO_FILE                = E("S000621", "No File Provided In The Import Request", HTTPStatus.BAD_REQUEST)
 ERROR_CALENDAR_IMPORT_TOO_LARGE              = E("S000622", "Import Payload Exceeds Maximum Allowed Size", HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
+ERROR_CALENDAR_PUBLIC_LINK_DISABLED          = E("S000623", "Public Calendar Link Is Disabled For This Domain", HTTPStatus.FORBIDDEN)
 
 #the bugs
 ERROR_UNKOWN = E("S999999", "Undefined Error", HTTPStatus.INTERNAL_SERVER_ERROR)
