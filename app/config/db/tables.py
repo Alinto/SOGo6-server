@@ -206,7 +206,7 @@ Key queries:
 # recurrence_id: UTC datetime of the original occurrence this row replaces (RFC 5545 RECURRENCE-ID); NULL on master events; used for CalDAV per-occurrence addressing and THISANDFUTURE operations
 # is_deleted: soft delete flag — never DELETE FROM sogo_events; deleted events return HTTP 404 in CalDAV sync reports (RFC 4791)
 # sequence: RFC 5545 SEQUENCE — incremented by the organizer on each modification; attendees use it to detect whether a received iMIP message supersedes their current copy
-# search_vector: aggregation of title + description + location maintained by the service layer; drives FULLTEXT index (MariaDB) or TSVECTOR GIN index (PostgreSQL)
+# search_vector: aggregation of title + description + location maintained by the service layer; a single full-text column, stored as tsvector (GIN index) on PostgreSQL and as TEXT (FULLTEXT index) on MariaDB
 # cal_event: full serialized RFC 5545 component as JSON — contains all properties not needed for SQL filtering: title, description, location, url, timezone_start, timezone_end, all_day, status, visibility, color, priority, dtstamp, organizer, attendees, reminders, conference_data, attachments, recurrence_range (THISANDFUTURE), percent_complete (VTODO), completed_at (VTODO)
 # created_at / updated_at: UTC timestamps; updated_at serves as RFC 5545 LAST-MODIFIED when serializing to iCalendar
 COL_EVT_KEY               = Column(name="key",                  data_type="str",      is_unique=True,               extra_args={"max_len": 64})
@@ -221,7 +221,7 @@ COL_EVT_DATE_END_RECUR    = Column(name="date_end_recurrence",  data_type="datet
 COL_EVT_RECURRENCE_ID     = Column(name="recurrence_id",        data_type="datetime", is_nullable=True)
 COL_EVT_IS_DELETED        = Column(name="is_deleted",           data_type="bool")
 COL_EVT_SEQUENCE          = Column(name="sequence",             data_type="int")
-COL_EVT_SEARCH_VECTOR     = Column(name="search_vector",        data_type="text")
+COL_EVT_SEARCH_VECTOR     = Column(name="search_vector",        data_type="tsvector")
 COL_EVT_CAL_EVENT         = Column(name="cal_event",            data_type="dict")
 COL_EVT_CREATED_AT        = Column(name="created_at",           data_type="datetime")
 COL_EVT_UPDATED_AT        = Column(name="updated_at",           data_type="datetime")
@@ -247,9 +247,12 @@ ALL_EVT_COL = [COL_ID,
 IDX_EVT_CALENDAR_KEY = Index(name="idx_evt_calendar_key", columns=(COL_EVT_CALENDAR_KEY.name,))
 IDX_EVT_DATE_RANGE = Index(name="idx_evt_date_range", columns=(COL_EVT_CALENDAR_KEY.name, COL_EVT_DATE_START.name, COL_EVT_DATE_END.name))
 IDX_EVT_UID = Index(name="idx_evt_uid", columns=(COL_EVT_UID.name,))
+# Dedicated full-text structure, not a btree: GIN on the tsvector column (PostgreSQL) / FULLTEXT
+# on the TEXT column (MariaDB, where MATCH ... AGAINST requires it).
+IDX_EVT_SEARCH = Index(name="idx_evt_search_vector", columns=(COL_EVT_SEARCH_VECTOR.name,), fulltext=True)
 
 TABLE_EVENT = Table(name="sogo_calendar_events", columns=ALL_EVT_COL, primary_keys=(COL_ID.name, COL_EVT_KEY.name),
-                    indexes=[IDX_EVT_CALENDAR_KEY, IDX_EVT_DATE_RANGE, IDX_EVT_UID])
+                    indexes=[IDX_EVT_CALENDAR_KEY, IDX_EVT_DATE_RANGE, IDX_EVT_UID, IDX_EVT_SEARCH])
 
 ##############################
 # Table sogo_calendar_reminders #
