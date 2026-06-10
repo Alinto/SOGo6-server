@@ -4,8 +4,8 @@ from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
 from app.module.calendar.CalendarConst import (
-    IMPORT_REWRITES_OWNERSHIP, MAX_EVENT_FETCH_DAYS, MAX_FREEBUSY_DAYS, MAX_IMPORT_ICS_BYTES, MAX_TASK_FETCH_DAYS,
-    PUBLIC_SUBSCRIPTION_REFRESH, SHARE_TOKEN_LENGTH,
+    IMPORT_REMOVES_ATTENDEES, IMPORT_REWRITES_OWNERSHIP, MAX_EVENT_FETCH_DAYS, MAX_FREEBUSY_DAYS,
+    MAX_IMPORT_ICS_BYTES, MAX_TASK_FETCH_DAYS, PUBLIC_SUBSCRIPTION_REFRESH, SHARE_TOKEN_LENGTH,
 )
 from app.module.calendar.serializer.CalendarEventSerializerIcal import CalendarEventSerializerIcal
 from app.module.calendar.serializer.CalendarEventsSerializerIcal import CalendarEventsSerializerIcal
@@ -564,9 +564,11 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
 
         The importer takes ownership of every imported event when
         :data:`CalendarConst.IMPORT_REWRITES_OWNERSHIP` is True: the organizer is rewritten
-        to the importer and the SEQUENCE reset, while attendees are preserved. Events with
-        the same UID as an existing local row are updated; events absent from the payload are
-        left untouched (unlike a mirror sync).
+        to the importer and the SEQUENCE reset. Attendees are preserved unless
+        :data:`CalendarConst.IMPORT_REMOVES_ATTENDEES` is True, in which case the guest list
+        is stripped from every imported event. Events with the same UID as an existing local
+        row are updated; events absent from the payload are left untouched (unlike a mirror
+        sync).
 
         Events whose datetimes carry no explicit timezone (RFC 5545 floating time) are
         anchored to the destination calendar's timezone — itself defaulted to the user's
@@ -595,6 +597,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
             delete_missing=False,
             default_timezone=source.calendar.timezone,
             rewrite_owner_email=user.mail if IMPORT_REWRITES_OWNERSHIP else None,
+            remove_attendees=IMPORT_REMOVES_ATTENDEES,
         )
 
     #
