@@ -88,6 +88,7 @@ class SyncEngine:
         self, calendar: CalCalendar, ics_text: str, *,
         delete_missing: bool, default_timezone: str | None = None,
         rewrite_owner_email: str | None = None,
+        remove_attendees: bool = False,
     ) -> CalSyncResult:
         """Parse an ICS payload and apply it to the calendar via the upsert/diff pipeline.
 
@@ -105,6 +106,9 @@ class SyncEngine:
         :param rewrite_owner_email: When set, every parsed event has its ORGANIZER replaced
             with this email and its SEQUENCE reset to 0 — used by the import flow to make the
             importing user the sole owner of imported events. Attendees are left untouched.
+        :param remove_attendees: When True, every parsed event has its ATTENDEE list cleared —
+            used by the import flow when imported events must not carry over their original
+            guest list. Defaults to False (attendees preserved).
         :return: Counters of inserted, updated and deleted rows.
         :raises RequestException: ERROR_CALENDAR_ICS_PARSE_FAILED if the payload exceeds
             ``MAX_ICS_EVENTS`` or cannot be deserialized.
@@ -120,6 +124,9 @@ class SyncEngine:
             for event in remote_events:
                 event.organizer = CalOrganizer(email=rewrite_owner_email)
                 event.sequence = 0
+        if remove_attendees:
+            for event in remote_events:
+                event.attendees = []
         return self._apply_diff(calendar, remote_events, delete_missing=delete_missing, default_timezone=default_timezone)
 
     def _apply_diff(  # pylint: disable=too-many-locals
