@@ -189,8 +189,8 @@ A calendar owner can expose a read-only public ICS feed (the same model as Googl
 
 === Enabling and disabling
 
-* `POST /calendars/{key}/subscription` — generates a unique random token, stores it in the `share_token` column (a single column reused for this purpose), and returns `{share_token, public_url}`. Re-enabling rotates the token. Requires `MODIFY` on the calendar.
-* `DELETE /calendars/{key}/subscription` — clears the token, immediately invalidating the public URL.
+* `POST /calendars/{key}/subscription` — generates a unique random token, stores it in the `share_token` column (a single column reused for this purpose), and returns `{share_token, public_url}`. Re-enabling rotates the token. Requires `MODIFY` on the calendar. Gated by the domain setting `SOGO_D_CALENDAR_PUBLIC_LINK_ENABLED` (default `True`): when the domain disables it, `ModuleCalendar.enable_subscription` raises `ERROR_CALENDAR_PUBLIC_LINK_DISABLED` (403 — the caller is authenticated, no information leaks). The typed domain settings are passed as a method argument, like the `User`: they derive from the acting user, so they travel with the call rather than being stored on the module instance.
+* `DELETE /calendars/{key}/subscription` — clears the token, immediately invalidating the public URL. Always allowed, regardless of the domain setting (a user must be able to revoke an existing link even after the feature is disabled).
 * `GET /calendars/{key}` and `GET /calendars` include `public_url` (the absolute URL, or `null` when no subscription is active).
 
 The token is produced directly with `get_unique_token(SHARE_TOKEN_LENGTH)` (64 alphanumeric chars, ~381 bits). At that entropy a collision is statistically impossible, so there is no pre-check query: uniqueness is guaranteed by the `UNIQUE` constraint on the `share_token` column. Lookups use `RepositoryCalendar.find_by_share_token`, a *global* query with no user scope — the token alone identifies the calendar.
@@ -201,7 +201,9 @@ The `public_url` is built by `InterfaceApiCalendarCalendar._public_url`, which d
 
 `GET /public/calendars/{token}` declares `public_access = True` on its `MethodView`; the auth middleware reads that attribute by introspection (the same mechanism as `accepted_content_types`) and lets the request through without a bearer token, so `app/__init__.py` carries no per-route calendar knowledge. Anonymous requests fall back to `default_domain_settings`. The endpoint returns the full calendar serialised as `text/calendar; charset=utf-8` (synchronous, the same serialisation path as export) — including a `REFRESH-INTERVAL` / `X-PUBLISHED-TTL` (`PUBLIC_SUBSCRIPTION_REFRESH`, default `PT12H`) that advertises the resync period to subscription clients (Apple, Google, Outlook). An unknown or revoked token is a plain `404` — no data leaks and the token is never logged in full (only `token[:8]` for correlation), since the token is a secret credential.
 
-The pipeline goes `ApiCalendarPublicSubscription` &#8594; `InterfaceApiCalendarCalendar.export_public_calendar` &#8594; `ModuleCalendar.export_by_share_token`.
+The fetch is also gated by the *owner's* domain: when `SOGO_D_CALENDAR_PUBLIC_LINK_ENABLED` is disabled for the calendar owner's domain, existing URLs go dead with the *same* `404` as an unknown token (on purpose — a disabled domain must not reveal that a token exists). The token is kept in database, so re-enabling the setting revives the URLs unchanged. Since the caller is anonymous, the relevant domain is discovered from the token, with the interface orchestrating the two modules sequentially: `ModuleCalendar.get_calendar_by_share_token` resolves the owner, `_calendar_settings_by_uid` loads that domain's settings through `ModuleAdminConfig`, and `export_by_share_token` receives them — the calendar module itself never knows the admin module.
+
+The pipeline goes `ApiCalendarPublicSubscription` &#8594; `InterfaceApiCalendarCalendar.export_public_calendar` &#8594; `ModuleCalendar.get_calendar_by_share_token` &#8594; `ModuleCalendar.export_by_share_token`.
 
 == Access control (ACL)
 
