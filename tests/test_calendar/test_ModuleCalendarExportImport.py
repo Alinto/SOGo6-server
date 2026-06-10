@@ -133,6 +133,20 @@ def test_import_forwards_owner_email_for_rewrite_by_default():
     assert kwargs["delete_missing"] is False
     # Floating events are anchored to the destination calendar timezone.
     assert kwargs["default_timezone"] == "UTC"
+    # Attendees are stripped by default (IMPORT_REMOVES_ATTENDEES is True).
+    assert kwargs["remove_attendees"] is True
+
+
+def test_import_keeps_attendees_when_toggle_off():
+    source = _make_source()
+    module = _build_module(source)
+    with patch("app.module.calendar.ModuleCalendar.IMPORT_REMOVES_ATTENDEES", False), \
+         patch("app.module.calendar.ModuleCalendar.SyncEngine") as engine_class:
+        engine = MagicMock()
+        engine.apply_ics.return_value = CalSyncResult(inserted=1, total=1)
+        engine_class.return_value = engine
+        module.import_calendar(_fake_user(), "cal-key", _MIN_ICS)
+    assert engine.apply_ics.call_args.kwargs["remove_attendees"] is False
 
 
 def test_import_omits_owner_email_when_ownership_toggle_off():
