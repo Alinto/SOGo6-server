@@ -11,7 +11,9 @@ from mysql.connector import Error, ProgrammingError  # pylint: disable=no-name-i
 from app.utils.db.Table import Table, REX_VALID_NAMES
 from app.utils.db.Condition import (Condition, EqualCondition, NotEqualCondition, AndCondition, OrCondition,
                                     TrueCondition, LessOrEqualCondition, GreaterOrEqualCondition,
-                                    IsNullCondition, IsNotNullCondition, LikeCondition, JoinClause, Order)
+                                    IsNullCondition, IsNotNullCondition, LikeCondition, FullTextCondition,
+                                    JoinClause, Order)
+from app.utils.db.FullTextValue import FullTextValue
 from app.utils import errors as err
 from app.utils.exceptions import RequestException, BugException
 from app.utils.logger.logger import logger, logger_sql
@@ -49,6 +51,7 @@ data_type_sogo_to_mysql: dict[str, Any] = {
     "datetime": "DATETIME",
     "int":      "BIGINT",   # FK to serial (BIGINT AUTO_INCREMENT) in MySQL
     "text":     "MEDIUMTEXT",
+    "tsvector": "MEDIUMTEXT",  # no tsvector type on MariaDB; full-text search uses a FULLTEXT index on TEXT
 }
 
 data_type_mysql_to_sogo: dict[str, str] = {
@@ -126,7 +129,12 @@ def _col_ref(name: str) -> str:
     return f"`{parts[0]}`"
 
 
-def condition_to_query(condition: Condition, add_where: bool = False) -> Tuple[str, List[Any]]:
+def _boolean_prefix(terms: list[str]) -> str:
+    """Boolean-mode search string requiring each term as a prefix (joe -> +joe*)."""
+    return " ".join(f"+{term}*" for term in terms)
+
+
+def condition_to_query(condition: Condition, add_where: bool = False) -> Tuple[str, List[Any]]:  # pylint: disable=too-many-statements
     """
     Convert Condition objects into a SQL WHERE fragment and a list of parameter values.
 
@@ -174,6 +182,13 @@ def condition_to_query(condition: Condition, add_where: bool = False) -> Tuple[s
     elif isinstance(condition, LikeCondition):
         sql_condition = f"{_col_ref(condition.param_name)} LIKE %s"
         params.append(condition.pattern)
+    elif isinstance(condition, FullTextCondition):
+        terms = condition.terms()
+        if not terms:
+            sql_condition = "1 = 0"
+        else:
+            sql_condition = f"MATCH ({_col_ref(condition.param_name)}) AGAINST (%s IN BOOLEAN MODE)"
+            params.append(_boolean_prefix(terms))
     elif isinstance(condition, TrueCondition):
         sql_condition = "1 = 1"
     else:
@@ -291,9 +306,12 @@ class ClientMySQL(ClientSQL):
         if self.db_conn and not self.db_conn.is_connected():
             self.connect()
         for idx in table.index:
-            unique_kw = "UNIQUE " if idx.unique else ""
             cols = ", ".join(f"`{c}`" for c in idx.columns)
-            sql_query = f"CREATE {unique_kw}INDEX `{idx.name}` ON `{table.name}` ({cols})"
+            if idx.fulltext:
+                sql_query = f"CREATE FULLTEXT INDEX `{idx.name}` ON `{table.name}` ({cols})"
+            else:
+                unique_kw = "UNIQUE " if idx.unique else ""
+                sql_query = f"CREATE {unique_kw}INDEX `{idx.name}` ON `{table.name}` ({cols})"
             logger_sql.info("QUERY INDEX: %s", sql_query)
             if self.db_conn is not None:
                 cursor = self.db_conn.cursor()
@@ -339,7 +357,9 @@ class ClientMySQL(ClientSQL):
                 logger_sql.error("Try to insert more or less data than the columns. Column size: %s, data_size: %s", insert_len, value_len)
                 raise BugException(f"Try to insert more or less data than the columns. Column size: {insert_len}, data_size: {value_len}")
             for idx, value in enumerate(values):
-                if isinstance(value, dict) or isinstance(value, list):
+                if isinstance(value, FullTextValue):
+                    values[idx] = value.text
+                elif isinstance(value, dict) or isinstance(value, list):
                     values[idx] = json.dumps(value)
             sql_all_placeholder.append(placeholders_per_row)
             sql_all_values.extend(values)
@@ -386,7 +406,9 @@ class ClientMySQL(ClientSQL):
         params: List[Any] = []
         for idx, col in enumerate(column_tuple):
             val = values_list[idx]
-            if isinstance(val, dict) or isinstance(val, list):
+            if isinstance(val, FullTextValue):
+                val = val.text
+            elif isinstance(val, dict) or isinstance(val, list):
                 val = json.dumps(val)
             set_parts.append(f"`{col}` = %s")
             params.append(val)
@@ -418,7 +440,8 @@ class ClientMySQL(ClientSQL):
 
     def select_from_table(self, table_name: str, column_tuple: tuple[str, ...], condition: Condition,
                           offset: int = 0, limit: int = 0,
-                          sort_by: str | None = None, order: Order = Order.ASC) -> Generator[tuple[Any, ...], None, None]:
+                          sort_by: str | None = None, order: Order = Order.ASC,
+                          rank_by: FullTextCondition | None = None) -> Generator[tuple[Any, ...], None, None]:
         """
         Select values from a table under conditions
 
@@ -454,11 +477,18 @@ class ClientMySQL(ClientSQL):
 
         cond_sql, params = condition_to_query(condition, add_where=True)
 
-        # Build ORDER BY clause
-        order_clause = ""
+        # Build ORDER BY clause. rank_by (full-text relevance) takes precedence; sort_by is
+        # kept as a secondary, stable tiebreaker. The rank placeholder is appended after the
+        # WHERE params since ORDER BY follows WHERE in the statement.
+        order_terms = []
+        if rank_by is not None:
+            rank_terms = rank_by.terms()
+            if rank_terms:
+                order_terms.append(f"MATCH ({_col_ref(rank_by.param_name)}) AGAINST (%s IN BOOLEAN MODE) DESC")
+                params.append(_boolean_prefix(rank_terms))
         if sort_by:
-            order_direction = "ASC" if order == Order.ASC else "DESC"
-            order_clause = f" ORDER BY `{sort_by}` {order_direction}"
+            order_terms.append(f"`{sort_by}` {'ASC' if order == Order.ASC else 'DESC'}")
+        order_clause = f" ORDER BY {', '.join(order_terms)}" if order_terms else ""
 
         # Build LIMIT and OFFSET clauses
         limit_clause = ""
