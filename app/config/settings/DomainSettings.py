@@ -650,7 +650,7 @@ class CalendarContactSettings(SogoSchema):
     is_needed_by_ui = {"SOGO_D_CALDAV_ENABLED", "SOGO_D_CALDAV_PUBLIC_ACCESS_ENABLE",
                        "SOGO_D_CARDAV_ENABLED", "SOGO_D_CARDAV_PUBLIC_ACCESS_ENABLE",
                        "SOGO_D_JITSI_LINK_ENABLED", "SOGO_D_JITSI_BASE_URL",
-                       "SOGO_D_REMINDER_ALLOW_MAIL"}
+                       "SOGO_D_REMINDER_ALLOW_MAIL", "SOGO_D_CALENDAR_PUBLIC_LINK_ENABLED"}
 
     SOGO_D_CALDAV_ENABLED = fields.Boolean(load_default=True, dump_default=True)
     SOGO_D_CALDAV_PUBLIC_ACCESS_ENABLE = fields.Boolean(load_default=False, dump_default=False) #Enable or not public caldav access
@@ -665,6 +665,8 @@ class CalendarContactSettings(SogoSchema):
 
     SOGO_D_REMINDER_ALLOW_MAIL = fields.Boolean(load_default=True, dump_default=True) #Allow user to set reminder sent by email for events/tasks
 
+    SOGO_D_CALENDAR_PUBLIC_LINK_ENABLED = fields.Boolean(load_default=True, dump_default=True) #Allow users to expose a calendar through a public .ics subscription URL
+
 class CalendarContactSettingsObj(SettingsObj):
     """
     Obj with the fields of schema CalendarContactSettings as attributes with the proper type.
@@ -677,4 +679,5 @@ class CalendarContactSettingsObj(SettingsObj):
     SOGO_D_CARDAV_PUBLIC_ACCESS_ENABLE: bool = False
     SOGO_D_JITSI_LINK_ENABLED: bool = True
     SOGO_D_JITSI_BASE_URL: str = ""
+    SOGO_D_CALENDAR_PUBLIC_LINK_ENABLED: bool = True
     SOGO_D_REMINDER_ALLOW_MAIL: bool = True

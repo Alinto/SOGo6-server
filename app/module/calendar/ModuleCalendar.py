@@ -42,6 +42,7 @@ from app.utils.module.importManager import import_and_instantiate_manager
 
 if TYPE_CHECKING:
     from app.auth.User import User
+    from app.config.settings.DomainSettings import CalendarContactSettingsObj
     from app.config.settings.ProcessSetting import ProcessSetting
     from app.manager.cache.ClientRedis import ClientRedis
     from app.manager.db.ClientSQL import ClientSQL
@@ -603,11 +604,22 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
     #
     # Public subscription
     #
-    def enable_subscription(self, user: User, key: str) -> str:
+    def enable_subscription(self, user: User, key: str, domain_settings: CalendarContactSettingsObj) -> str:
         """Activate the public .ics subscription for a calendar and return its token.
 
         Generates a fresh capability token (replacing any existing one) and persists it.
+        Refused when the user's domain disables the public link feature
+        (``SOGO_D_CALENDAR_PUBLIC_LINK_ENABLED``); disabling an existing subscription stays
+        allowed regardless of the setting.
+
+        :param user: The acting user (calendar owner).
+        :param key: Opaque key of the calendar.
+        :param domain_settings: Typed domain settings of the acting user.
+        :raises RequestException: ERROR_CALENDAR_PUBLIC_LINK_DISABLED when the domain setting
+            is off; ERROR_CALENDAR_NOT_FOUND / ERROR_CALENDAR_ACCESS_DENIED from the lookup.
         """
+        if not domain_settings.SOGO_D_CALENDAR_PUBLIC_LINK_ENABLED:
+            raise RequestException(error=err.ERROR_CALENDAR_PUBLIC_LINK_DISABLED)
         source: CalendarSource = self.get_calendar(user, key)
         self._acl.check_permission(source.calendar.permissions, CalendarPermissionAction.MODIFY)
         # 64 alphanumeric chars (~381 bits): uniqueness is enforced by the UNIQUE constraint on
@@ -624,14 +636,39 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         source.calendar.share_token = None
         source.update_calendar(source.calendar)
 
-    def export_by_share_token(self, share_token: str) -> str:
-        """Return the full VCALENDAR for the calendar exposed by a public subscription token.
+    def get_calendar_by_share_token(self, share_token: str) -> CalCalendar:
+        """Return the calendar exposed by a public subscription token.
 
-        No user scope: the token is the capability. Raises NOT_FOUND when the token does not
-        match an active subscription (so we never reveal whether a token ever existed).
+        No user scope: the token is the capability. Used by the anonymous fetch flow to learn
+        the calendar owner before loading the owner's domain settings.
+
+        :raises RequestException: ERROR_CALENDAR_NOT_FOUND when the token does not match an
+            active subscription (so we never reveal whether a token ever existed).
         """
         source: CalendarSource | None = self._sources.get_by_share_token(share_token)
         if source is None:
+            raise RequestException(error=err.ERROR_CALENDAR_NOT_FOUND)
+        return source.calendar
+
+    def export_by_share_token(self, share_token: str, domain_settings: CalendarContactSettingsObj) -> str:
+        """Return the full VCALENDAR for the calendar exposed by a public subscription token.
+
+        The calendar owner's domain must still allow public links: when
+        ``SOGO_D_CALENDAR_PUBLIC_LINK_ENABLED`` is off, the URL goes dead (the token is kept,
+        so re-enabling the setting revives existing URLs).
+
+        :param share_token: The capability token from the public URL.
+        :param domain_settings: Typed domain settings of the calendar OWNER's domain - the
+            caller is anonymous, so the caller resolves the owner first (see
+            ``get_calendar_by_share_token``) and loads that domain's settings.
+        :raises RequestException: ERROR_CALENDAR_NOT_FOUND when the token does not match an
+            active subscription, or when the owner's domain disables public links - the same
+            error on purpose, so we never reveal whether a token ever existed.
+        """
+        source: CalendarSource | None = self._sources.get_by_share_token(share_token)
+        if source is None:
+            raise RequestException(error=err.ERROR_CALENDAR_NOT_FOUND)
+        if not domain_settings.SOGO_D_CALENDAR_PUBLIC_LINK_ENABLED:
             raise RequestException(error=err.ERROR_CALENDAR_NOT_FOUND)
         return self._serialize_calendar_to_ics(source, refresh_interval=PUBLIC_SUBSCRIPTION_REFRESH)
 
