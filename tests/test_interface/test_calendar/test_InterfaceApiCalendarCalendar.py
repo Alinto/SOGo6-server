@@ -20,6 +20,7 @@ def _build_interface(user_tz="Europe/Paris"):
     inter._process_setting = MagicMock(SOGO_P_PUBLIC_BASE_URL="")
     inter._user_module = MagicMock()
     inter._user_module.get_partial_user_preferences.return_value = {"USER_GENERAL": {"SOGO_U_TIMEZONE": user_tz}}
+    inter.settings = MagicMock(SOGO_D_CALENDAR_PUBLIC_LINK_ENABLED=True)
     return inter
 
 
@@ -68,6 +69,13 @@ def test_enable_subscription_translates_error():
     assert response["data"] is None
 
 
+def test_enable_subscription_translates_public_link_disabled():
+    inter = _build_interface()
+    inter.module.enable_subscription.side_effect = RequestException(error=err.ERROR_CALENDAR_PUBLIC_LINK_DISABLED)
+    response, _ = inter.enable_subscription("cal-key")
+    assert response["error_code"] == err.ERROR_CALENDAR_PUBLIC_LINK_DISABLED.c
+
+
 @patch("app.utils.api.external_url.url_for", return_value=_FAKE_URL)
 def test_disable_subscription_returns_calendar_without_url(_url_for):
     inter = _build_interface()
@@ -82,16 +90,20 @@ def test_disable_subscription_returns_calendar_without_url(_url_for):
 
 def test_export_public_calendar_returns_text_calendar():
     inter = _build_interface()
+    inter.module.get_calendar_by_share_token.return_value = MagicMock(user_uid="owner@example.com")
+    inter._calendar_settings_by_uid = MagicMock(return_value=MagicMock())
     inter.module.export_by_share_token.return_value = "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n"
     body, status, headers = inter.export_public_calendar("tok123")
     assert status == 200
     assert body.startswith("BEGIN:VCALENDAR")
     assert headers["Content-Type"] == "text/calendar; charset=utf-8"
+    # The domain settings handed to the export are the calendar OWNER's ones.
+    inter._calendar_settings_by_uid.assert_called_once_with("owner@example.com")
 
 
 def test_export_public_calendar_unknown_token_returns_error_envelope():
     inter = _build_interface()
-    inter.module.export_by_share_token.side_effect = RequestException(error=err.ERROR_CALENDAR_NOT_FOUND)
+    inter.module.get_calendar_by_share_token.side_effect = RequestException(error=err.ERROR_CALENDAR_NOT_FOUND)
     response, _ = inter.export_public_calendar("bad")
     assert response["error_code"] == err.ERROR_CALENDAR_NOT_FOUND.c
     assert response["data"] is None
