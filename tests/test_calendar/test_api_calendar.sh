@@ -622,6 +622,54 @@ TOTAL=$(extract '.data.total_count')
 info "Search 'Standup' → $TOTAL result(s)"
 [ "$TOTAL" -ge 1 ] 2>/dev/null && ok "search returned >= 1 result" || fail "search returned $TOTAL results"
 
+step "24b. Events — search behaviors (prefix, accents, no-match, hostile input)"
+info "Creates an accented event, then verifies prefix matching (as-you-type), accent-insensitive
+      search in both directions, an empty result on a no-match query, and that hostile input is
+      sanitized (200, zero result, table intact)."
+
+CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d '{
+        "title": "Réunion Café",
+        "location": "Hôtel Joël",
+        "date_start": "2026-06-12T14:00:00Z",
+        "date_end":   "2026-06-12T15:00:00Z"
+    }')
+check_code "POST /events accented" "$CODE" "201"
+
+CODE=$(req "$BASE/calendars/$CAL_KEY/events?search=Standu" -H "$H_AUTH")
+check_code "GET /events?search=Standu (prefix)" "$CODE" "200"
+TOTAL=$(extract '.data.total_count')
+[ "$TOTAL" -ge 1 ] 2>/dev/null && ok "prefix 'Standu' matches 'Standup'" || fail "prefix 'Standu' returned $TOTAL result(s)"
+
+CODE=$(req "$BASE/calendars/$CAL_KEY/events?search=reunion" -H "$H_AUTH")
+check_code "GET /events?search=reunion (unaccented query)" "$CODE" "200"
+TOTAL=$(extract '.data.total_count')
+[ "$TOTAL" -ge 1 ] 2>/dev/null && ok "'reunion' matches 'Réunion'" || fail "'reunion' returned $TOTAL result(s)"
+
+# Accented query against accented data ("Joël" lives in the event location)
+CODE=$(req "$BASE/calendars/$CAL_KEY/events?search=Jo%C3%ABl" -H "$H_AUTH")
+check_code "GET /events?search=Joël (accented query)" "$CODE" "200"
+TOTAL=$(extract '.data.total_count')
+[ "$TOTAL" -ge 1 ] 2>/dev/null && ok "'Joël' matches event location" || fail "'Joël' returned $TOTAL result(s)"
+
+CODE=$(req "$BASE/calendars/$CAL_KEY/events?search=zzzqqqxx" -H "$H_AUTH")
+check_code "GET /events?search=zzzqqqxx (no match)" "$CODE" "200"
+TOTAL=$(extract '.data.total_count')
+[ "$TOTAL" = "0" ] && ok "no-match query returns 0 result" || fail "no-match query returned $TOTAL result(s)"
+
+# Hostile input: must be reduced to harmless search words (200, no result, no SQL error)
+INJ="%27%3B%20DROP%20TABLE%20sogo_calendar_events%3B%20--"
+CODE=$(req "$BASE/calendars/$CAL_KEY/events?search=$INJ" -H "$H_AUTH")
+check_code "GET /events?search=<sql injection>" "$CODE" "200"
+TOTAL=$(extract '.data.total_count')
+[ "$TOTAL" = "0" ] && ok "hostile input returns 0 result" || fail "hostile input returned $TOTAL result(s)"
+
+CODE=$(req "$BASE/calendars/$CAL_KEY/events?search=Standup" -H "$H_AUTH")
+check_code "GET /events after hostile input (table intact)" "$CODE" "200"
+TOTAL=$(extract '.data.total_count')
+[ "$TOTAL" -ge 1 ] 2>/dev/null && ok "events table still answers after hostile input" || fail "events table broken after hostile input"
+
 step "25. Events — no params (defaults to today)"
 info "Without query params and no search, the API defaults to today's date range."
 

@@ -3,7 +3,7 @@ from abc import abstractmethod, ABCMeta
 
 from app.utils.logger.logger import logger_sql
 from app.utils.db.Table import Table
-from app.utils.db.Condition import Condition, JoinClause, Order
+from app.utils.db.Condition import Condition, FullTextCondition, JoinClause, Order
 
 
 class ClientSQL(metaclass=ABCMeta):
@@ -56,7 +56,8 @@ class ClientSQL(metaclass=ABCMeta):
     @abstractmethod
     def select_from_table(self, table_name: str, column_tuple: tuple[str, ...], condition: Condition,
                           offset: int = 0, limit: int = 0,
-                          sort_by: str | None = None, order: Order = Order.ASC) -> Generator[tuple[Any, ...]]:
+                          sort_by: str | None = None, order: Order = Order.ASC,
+                          rank_by: FullTextCondition | None = None) -> Generator[tuple[Any, ...]]:
         """
         select values from a table
 
@@ -74,6 +75,9 @@ class ClientSQL(metaclass=ABCMeta):
         :type sort_by: str | None
         :param order: Sort direction (ASC or DESC), defaults to Order.ASC
         :type order: Order
+        :param rank_by: When set, order by full-text relevance of this match (most relevant
+            first), with sort_by kept as a secondary tiebreaker. Defaults to None.
+        :type rank_by: FullTextCondition | None
         """
         logger_sql.error("Method 'select_from_table' of clientSQL must be implemented by the children %s", type(self).__name__)
         raise NotImplementedError

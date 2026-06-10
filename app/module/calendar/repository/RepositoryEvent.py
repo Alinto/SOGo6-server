@@ -11,12 +11,14 @@ from app.module.calendar.model.enums.ComponentType import ComponentType
 from app.module.calendar.serializer.CalendarEventDeserializerDict import CalendarEventDeserializerDict
 from app.module.calendar.serializer.CalendarEventSerializerDict import CalendarEventSerializerDict
 from app.utils import errors as err
-from app.utils.db.Condition import (AndCondition, EqualCondition, GreaterOrEqualCondition,
-                                     IsNotNullCondition, IsNullCondition, LessOrEqualCondition, LikeCondition,
+from app.utils.db.Condition import (AndCondition, EqualCondition, FullTextCondition, GreaterOrEqualCondition,
+                                     IsNotNullCondition, IsNullCondition, LessOrEqualCondition,
                                      NotEqualCondition, OrCondition)
+from app.utils.db.FullTextValue import FullTextValue
 from app.utils.exceptions import BugException, RequestException
 from app.utils.logger.logger import logger_calendar
 from app.utils.maths.sogo_hash import generate_uuid
+from app.utils.strings import strip_accents
 
 if TYPE_CHECKING:
     from app.manager.db.ClientSQL import ClientSQL
@@ -28,7 +30,6 @@ _INSERT_COLS: tuple[str, ...] = tuple(col.name for col in tbl.ALL_EVT_COL if col
 _serializer = CalendarEventSerializerDict()
 _deserializer = CalendarEventDeserializerDict()
 
-
 class RepositoryEvent:
     """Handles all DB reads and writes for sogo_events."""
 
@@ -37,13 +38,18 @@ class RepositoryEvent:
 
     @staticmethod
     def _build_search_vector(event: CalEvent) -> str:
-        """Build a plain-text search index from title, description and location."""
+        """Build a plain-text, accent-insensitive search index from title, description and location.
+
+        The same normalization (strip_accents) is applied to the stored search vector and to the
+        query, so the match works regardless of the PostgreSQL text-search config or the MariaDB
+        collation.
+        """
         parts = [event.title or ""]
         if event.description:
             parts.append(event.description)
         if event.location:
             parts.append(event.location)
-        return " ".join(parts)
+        return strip_accents(" ".join(parts))
 
     @staticmethod
     def _row_to_event(row: tuple) -> CalEvent:
@@ -77,7 +83,9 @@ class RepositoryEvent:
 
         Non-recurring: date_start <= end AND date_end >= start.
         Recurring: date_start <= end AND (date_end_recurrence IS NULL OR date_end_recurrence >= start).
-        When search is provided, a LIKE/ILIKE filter is applied against the search_vector column.
+        When search is provided, a full-text filter is applied against the search_vector column
+        (word/token match via the database full-text index, not a substring match), and results
+        are ordered by relevance first, then by date_start as a tiebreaker.
         """
         non_recurring = AndCondition(
             EqualCondition(tbl.COL_EVT_IS_RECURRING.name, False),
@@ -109,15 +117,18 @@ class RepositoryEvent:
             ),
             OrCondition(non_recurring, recurring),
         )
-        if search:
-            # Escape LIKE special characters so the search is a literal substring match.
-            safe = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-            condition = AndCondition(condition, LikeCondition(tbl.COL_EVT_SEARCH_VECTOR.name, f"%{safe}%"))
+        search_condition = (
+            FullTextCondition(tbl.COL_EVT_SEARCH_VECTOR.name, strip_accents(search))
+            if search else None
+        )
+        if search_condition is not None:
+            condition = AndCondition(condition, search_condition)
         rows = self._db.select_from_table(
             table_name=tbl.TABLE_EVENT.name,
             column_tuple=_ALL_COLS,
             condition=condition,
             sort_by=tbl.COL_EVT_DATE_START.name,
+            rank_by=search_condition,
         )
         return [self._row_to_event(row) for row in rows]
 
@@ -166,7 +177,7 @@ class RepositoryEvent:
             event.recurrence_id,
             False,
             event.sequence,
-            RepositoryEvent._build_search_vector(event),
+            FullTextValue(RepositoryEvent._build_search_vector(event)),
             blob,
             event.created_at,
             event.updated_at,
@@ -228,7 +239,7 @@ class RepositoryEvent:
             date_end_recurrence,
             event.recurrence_id,
             event.sequence,
-            RepositoryEvent._build_search_vector(event),
+            FullTextValue(RepositoryEvent._build_search_vector(event)),
             blob,
             event.updated_at,
         ]
