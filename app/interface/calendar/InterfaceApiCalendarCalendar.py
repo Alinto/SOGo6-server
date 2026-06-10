@@ -8,6 +8,7 @@ from app.utils.api.external_url import build_external_url
 
 from app.config.settings.DomainSettings import CalendarContactSettings, CalendarContactSettingsObj
 from app.config.settings.UserSettings import UserCalendarGeneralSettings, UserGeneralSettings
+from app.module.admin.ModuleAdminConfig import ModuleAdminConfig
 from app.module.calendar.ModuleCalendar import ModuleCalendar
 from app.module.calendar.freebusy.FreeBusyEngine import FreeBusyPrefs
 from app.module.calendar.model.CalCalendar import CalCalendar
@@ -33,6 +34,7 @@ from app.service import sogo_cache
 from app.utils.api.ApiBaseResponse import create_api_base_response
 from app.utils.errors import ERROR_CALENDAR_JSON_PARSE_FAILED
 from app.utils.exceptions import RequestException
+from app.utils.strings import get_domain_from_mail
 from app.auth.User import User
 from app.utils.logger.logger import logger_api
 
@@ -495,9 +497,13 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
     # Public subscription
     #
     def enable_subscription(self, key: str) -> tuple[dict[str, Any], int]:
-        """Activate the public .ics subscription and return its token and absolute URL."""
+        """Activate the public .ics subscription and return its token and absolute URL.
+
+        The module refuses when the user's domain disables the public link feature
+        (``SOGO_D_CALENDAR_PUBLIC_LINK_ENABLED``).
+        """
         try:
-            token: str = self.module.enable_subscription(self.user, key)
+            token: str = self.module.enable_subscription(self.user, key, self.settings)
             return create_api_base_response({"share_token": token, "public_url": self._public_url(token)})
         except RequestException as ex:
             logger_api.error("enable_subscription failed for user %s key %s: %s", self.user.uid, key, ex)
@@ -519,15 +525,32 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         """Serve the full calendar as ``text/calendar`` for a public subscription token.
 
         Unauthenticated path — the token is the capability. Returns the standard error
-        envelope (404) when the token does not match an active subscription.
+        envelope (404) when the token does not match an active subscription, or when the
+        calendar owner's domain disables public links. The caller being anonymous, the
+        relevant domain settings are the owner's ones: the owner is resolved from the token
+        first, then their domain settings are loaded and handed to the export.
         """
         try:
-            ics_text: str = self.module.export_by_share_token(token)
+            owner_uid: str = self.module.get_calendar_by_share_token(token).user_uid
+            owner_settings: CalendarContactSettingsObj = self._calendar_settings_by_uid(owner_uid)
+            ics_text: str = self.module.export_by_share_token(token, owner_settings)
             return ics_text, 200, {"Content-Type": "text/calendar; charset=utf-8"}
         except RequestException as ex:
             # An unknown token is a normal 404, not an anomaly — no log (and never log the
             # token itself, it is a secret capability).
             return create_api_base_response(None, ex.error)
+
+    def _calendar_settings_by_uid(self, user_uid: str) -> CalendarContactSettingsObj:
+        """Typed calendar domain settings of the domain owning ``user_uid``.
+
+        Used by the anonymous public fetch, where the relevant domain is the calendar owner's
+        one (not the caller's). A domainless uid resolves like an unknown domain:
+        get_one_domain_setting falls back to the default domain settings when no row matches.
+        """
+        config_module: ModuleAdminConfig = ModuleAdminConfig(self._process_setting)
+        domain: str = get_domain_from_mail(user_uid) or ""
+        raw: dict = config_module.get_one_domain_setting(domain)["settings"]
+        return CalendarContactSettingsObj(raw[CalendarContactSettings.subparent])
 
     @staticmethod
     def _normalize_task_body(body: dict[str, Any]) -> dict[str, Any]:
