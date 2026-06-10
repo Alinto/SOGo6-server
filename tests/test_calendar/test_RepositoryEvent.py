@@ -13,9 +13,10 @@ from app.module.calendar.model.enums.RecurrenceFrequency import RecurrenceFreque
 from app.module.calendar.model.enums.ShowAs import ShowAs
 from app.module.calendar.repository.RepositoryEvent import RepositoryEvent, _ALL_COLS, _INSERT_COLS
 from app.module.calendar.serializer.CalendarEventSerializerDict import CalendarEventSerializerDict
-from app.utils.db.Condition import (AndCondition, EqualCondition, GreaterOrEqualCondition,
-                                     IsNullCondition, LessOrEqualCondition,
+from app.utils.db.Condition import (AndCondition, Condition, EqualCondition, FullTextCondition,
+                                     GreaterOrEqualCondition, IsNullCondition, LessOrEqualCondition,
                                      OrCondition)
+from app.utils.db.FullTextValue import FullTextValue
 
 _UTC = timezone.utc
 _serializer = CalendarEventSerializerDict()
@@ -38,7 +39,9 @@ class FakeDB:
         self.updated_rows.append({"table": table_name, "cols": column_tuple, "vals": values_list, "cond": condition})
         return 1
 
-    def select_from_table(self, table_name, column_tuple, condition, limit=0, sort_by=None, offset=0, order=None):
+    def select_from_table(self, table_name, column_tuple, condition, limit=0, sort_by=None, offset=0, order=None, rank_by=None):
+        self.last_select_condition = condition
+        self.last_rank_by = rank_by
         return iter(self.select_result)
 
     def delete_row_in_table(self, table_name, condition, expected_row=0):
@@ -140,13 +143,29 @@ def test_row_to_event_preserves_blob_title():
 
 def test_search_vector_title_only():
     event = _make_event(title="Meeting")
-    assert "Meeting" in RepositoryEvent._build_search_vector(event)
+    assert "meeting" in RepositoryEvent._build_search_vector(event)
 
 
 def test_search_vector_includes_description_and_location():
     event = _make_event(title="Conf", description="Topic XYZ", location="Room A")
-    assert "Topic XYZ" in RepositoryEvent._build_search_vector(event)
-    assert "Room A" in RepositoryEvent._build_search_vector(event)
+    assert "topic xyz" in RepositoryEvent._build_search_vector(event)
+    assert "room a" in RepositoryEvent._build_search_vector(event)
+
+
+def test_search_vector_strips_accents():
+    event = _make_event(title="Réunion Joël", description="Café", location="Hôtel")
+    sv = RepositoryEvent._build_search_vector(event)
+    assert "reunion joel" in sv
+    assert "cafe" in sv
+    assert "hotel" in sv
+
+
+def test_search_vector_folds_special_letters():
+    event = _make_event(title="Søren cœur", description="Straße", location="Łódź")
+    sv = RepositoryEvent._build_search_vector(event)
+    assert "soren coeur" in sv
+    assert "strasse" in sv
+    assert "lodz" in sv
 
 
 # ========== insert ==========
@@ -181,6 +200,17 @@ def test_insert_sets_is_deleted_false():
     vals = db.inserted_rows[0]["vals"][0]
     col_idx = list(_INSERT_COLS).index("is_deleted")
     assert vals[col_idx] is False
+
+
+def test_insert_wraps_search_vector_for_fulltext():
+    db = FakeDB()
+    event = _make_event(calendar_key="cal-key-1")
+    db.select_result = [_build_row(event)]
+    repo = RepositoryEvent(db)
+    repo.insert(event)
+    vals = db.inserted_rows[0]["vals"][0]
+    col_idx = list(_INSERT_COLS).index("search_vector")
+    assert isinstance(vals[col_idx], FullTextValue)
 
 
 def test_insert_recurring_flag_set():
@@ -252,6 +282,34 @@ def test_find_by_calendar_maps_rows():
     results = repo.find_by_calendar("cal-key-1", datetime(2026, 1, 1, tzinfo=_UTC), datetime(2026, 12, 31, tzinfo=_UTC))
     assert len(results) == 1
     assert results[0].uid == "evt@example.com"
+
+
+def _contains_fulltext(condition: Condition) -> bool:
+    if isinstance(condition, FullTextCondition):
+        return True
+    if isinstance(condition, (AndCondition, OrCondition)):
+        return _contains_fulltext(condition.condition1) or _contains_fulltext(condition.condition2)
+    return False
+
+
+def test_find_by_calendar_search_uses_fulltext():
+    db = FakeDB()
+    db.select_result = []
+    repo = RepositoryEvent(db)
+    repo.find_by_calendar("cal-key-1", datetime(2026, 1, 1, tzinfo=_UTC), datetime(2026, 1, 31, tzinfo=_UTC), search="budget")
+    assert _contains_fulltext(db.last_select_condition)
+    # Search results are ranked by relevance
+    assert isinstance(db.last_rank_by, FullTextCondition)
+    assert db.last_rank_by.query == "budget"
+
+
+def test_find_by_calendar_no_search_has_no_fulltext():
+    db = FakeDB()
+    db.select_result = []
+    repo = RepositoryEvent(db)
+    repo.find_by_calendar("cal-key-1", datetime(2026, 1, 1, tzinfo=_UTC), datetime(2026, 1, 31, tzinfo=_UTC))
+    assert not _contains_fulltext(db.last_select_condition)
+    assert db.last_rank_by is None
 
 
 # ========== find_by_key ==========

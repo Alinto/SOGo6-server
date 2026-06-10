@@ -1,3 +1,4 @@
+import re
 from unittest import mock
 
 import pytest
@@ -7,7 +8,7 @@ from psycopg.errors import Error, OperationalError, DuplicateTable, UniqueViolat
 
 from app.manager.db.ClientPostgreSQL import ClientPostgreSQL, str_to_varchar, list_to_array, table_to_query, condition_to_query
 from app.utils.exceptions import RequestException, BugException
-from app.utils.db.Condition import EqualCondition, NotEqualCondition, AndCondition, OrCondition, TrueCondition, JoinClause
+from app.utils.db.Condition import EqualCondition, NotEqualCondition, AndCondition, OrCondition, TrueCondition, FullTextCondition, JoinClause
 from app.utils.db.Table import Table, Column, Index
 
 def test_str_to_varchar():
@@ -48,6 +49,12 @@ def test_table_to_query():
     assert sql_query.as_string() == "CREATE TABLE \"test\" (\"test1\" varchar NOT NULL, \"test2\" smallint NOT NULL," + \
           " \"test3\" serial NOT NULL, \"test4\" jsonb NOT NULL, \"test5\" jsonb NOT NULL, \"test6\" varchar[] NOT NULL," + \
           " \"test7\" varchar(255) , \"test8\" varchar NOT NULL UNIQUE, PRIMARY KEY (\"test1\", \"test2\"))"
+
+def test_table_to_query_tsvector():
+    """A tsvector column maps to the native PostgreSQL tsvector type."""
+    table = Table(name="test", columns=[Column(name="search_vector", data_type="tsvector")])
+    assert "\"search_vector\" tsvector" in table_to_query(table).as_string()
+
 
 def test_condition_to_query():
     """
@@ -91,6 +98,31 @@ def test_condition_to_query():
     assert "\"reminders\".\"is_deleted\"" in b9.as_string()
     assert "\"calendars\".\"user_uid\"" in b9.as_string()
 
+    a10 = FullTextCondition("search_vector", "team meeting")
+    b10 = condition_to_query(a10)
+    assert b10.as_string() == "\"search_vector\" @@ to_tsquery('simple', 'team:* & meeting:*')"
+
+
+def test_condition_to_query_fulltext_injection():
+    """Hostile search input is reduced to word-only prefix terms inside the quoted literal."""
+    payloads = [
+        "'; DROP TABLE sogo_calendar_events; --",
+        "joe' UNION SELECT password FROM users --",
+        '" OR 1=1 --',
+        "joe:* & !x | (y)",
+        "+secret* -hidden* @8",
+    ]
+    for payload in payloads:
+        rendered = condition_to_query(FullTextCondition("search_vector", payload)).as_string()
+        assert rendered.startswith("\"search_vector\" @@ to_tsquery('simple', '")
+        assert ";" not in rendered and "--" not in rendered
+        inner = re.search(r"to_tsquery\('simple', '([^']*)'\)$", rendered).group(1)
+        assert re.fullmatch(r"\w+:\*( & \w+:\*)*", inner)
+
+    # No word characters at all: always-false condition
+    rendered = condition_to_query(FullTextCondition("search_vector", "!!! ;; ()")).as_string()
+    assert rendered == "FALSE"
+
 class FakePostgresqlCursor:
     """
     Fake psyocgpg cursor object
@@ -120,9 +152,11 @@ class FakePostgresqlConn:
 
     def __init__(self):
         self.closed = False
-    
+        self.executed = []
+
     def execute(self, sql_query, params=None):
         query_str = sql_query.as_string()
+        self.executed.append(query_str)
         
         # Table info queries
         if query_str == "SELECT column_name, data_type FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'test'":
@@ -133,6 +167,8 @@ class FakePostgresqlConn:
                                          ('col_name5', 'smallint')], rowcount=5)
         elif query_str == "SELECT column_name, data_type FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'test2'":
             raise OperationalError()
+        elif query_str == "SELECT column_name, data_type FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'test_tsv'":
+            return FakePostgresqlCursor([('search_vector', 'tsvector')], rowcount=1)
         
         # Create index queries
         elif query_str.startswith("CREATE") and "INDEX" in query_str:
@@ -232,6 +268,14 @@ def test_client_get_table_info(mock_db: MockerFixture):
     ret = client.get_table_info(error_table_name)
     assert not ret
 
+
+def test_client_get_table_info_tsvector(mock_db: MockerFixture):
+    """get_table_info maps a tsvector column without raising (KeyError regression)."""
+    client = ClientPostgreSQL(db_user="", db_pwd="", db_host="", db_port=25, db_ssl=False, db_enc="")
+    client.connect()
+    ret = client.get_table_info("test_tsv")
+    assert ret == {"search_vector": "tsvector"}
+
 def test_client_create_table(mock_db: MockerFixture):
     """
     Test the create_table method of PostgreSQL client
@@ -274,12 +318,23 @@ def test_client_create_indexes(mock_db: MockerFixture):
     idx1 = Index(name="idx_trigger", columns=("trigger_at",))
     idx2 = Index(name="idx_composite", columns=("trigger_at", "event_key"))
     idx3 = Index(name="idx_unique", columns=("event_key",), unique=True)
-    table = Table(name="test", columns=[col1, col2], indexes=[idx1, idx2, idx3])
+    idx4 = Index(name="idx_fts", columns=("event_key",), fulltext=True)
+    table = Table(name="test", columns=[col1, col2], indexes=[idx1, idx2, idx3, idx4])
     client.create_indexes(table)
 
     # No indexes: should do nothing
     table_no_idx = Table(name="test", columns=[col1, col2])
     client.create_indexes(table_no_idx)
+
+
+def test_client_create_indexes_fulltext_gin(mock_db: MockerFixture):
+    """A full-text index builds a GIN index on the tsvector column."""
+    client = ClientPostgreSQL(db_user="", db_pwd="", db_host="", db_port=25, db_ssl=False, db_enc="")
+    client.connect()
+    idx = Index(name="idx_fts", columns=("search_vector",), fulltext=True)
+    table = Table(name="events", columns=[Column(name="search_vector", data_type="tsvector")], indexes=[idx])
+    client.create_indexes(table)
+    assert any("USING GIN" in q and "search_vector" in q for q in client.db_conn.executed)
 
 
 def test_client_insert_in_table(mock_db: MockerFixture):
@@ -361,6 +416,13 @@ def test_client_select_from_table(mock_db: MockerFixture):
     # Test select with offset
     results_offset = list(client.select_from_table("test_select", ("id", "name"), condition, offset=1))
     assert len(results_offset) == 2
+
+    # Test select ordered by full-text relevance (rank_by builds a ts_rank ORDER BY)
+    results_rank = list(client.select_from_table(
+        "test_select", ("id", "name"), condition,
+        sort_by="date_start", rank_by=FullTextCondition("search_vector", "budget"),
+    ))
+    assert len(results_rank) == 2
 
 
 def test_client_select_from_several_table(mock_db: MockerFixture):

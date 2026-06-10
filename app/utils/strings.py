@@ -1,4 +1,35 @@
+import re
+import unicodedata
+
 from yarl import URL
+
+# Unicode names of atomic latin letters carry their ASCII base: "LATIN SMALL LETTER O WITH
+# STROKE" -> "o", "LATIN SMALL LIGATURE OE" -> "oe". Bases longer than 2 letters (THORN, ETH)
+# have no ASCII equivalent and are kept as-is.
+_REX_LATIN_BASE = re.compile(r"^LATIN (?:SMALL|CAPITAL) (?:LETTER|LIGATURE) ([A-Z]{1,2})(?: WITH [A-Z ]+)?$")
+
+
+def _fold_latin_letter(char: str) -> str:
+    """Reduce an atomic latin letter to its ASCII base; other characters are returned unchanged."""
+    matched = _REX_LATIN_BASE.match(unicodedata.name(char, ""))
+    if not matched:
+        return char
+    base: str = matched.group(1)
+    return base if " CAPITAL " in unicodedata.name(char) else base.lower()
+
+
+def strip_accents(text: str) -> str:
+    """Lowercase and remove accents so two spellings of the same word compare equal.
+
+    Strips combining diacritics (NFKD), casefolds (also turns eszett into "ss"), then folds the
+    remaining atomic latin letters (o-stroke, l-stroke, ae/oe ligatures...) to their ASCII base
+    through their Unicode name. Non-latin scripts (cyrillic, greek, CJK...) are left untouched.
+    """
+    decomposed: str = unicodedata.normalize("NFKD", text)
+    no_accents: str = "".join(c for c in decomposed if not unicodedata.combining(c))
+    folded: str = no_accents.casefold()
+    return "".join(_fold_latin_letter(c) if ord(c) > 127 else c for c in folded)
+
 
 def get_domain_from_mail(string_input: str) -> str|None:
     """
