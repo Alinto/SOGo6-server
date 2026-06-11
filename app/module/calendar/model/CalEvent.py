@@ -185,6 +185,10 @@ class CalEvent:  # pylint: disable=too-many-instance-attributes,invalid-name
         """True when this is a detached occurrence (has recurrence_id but no recurrence_rule)."""
         return self.recurrence_id is not None and self.recurrence_rule is None
 
+    def is_organized_by(self, email: str) -> bool:
+        """True when this event's ORGANIZER matches the given email (False when no organizer)."""
+        return self.organizer is not None and self.organizer.email == email
+
     @property
     def require_uid(self) -> str:
         """UID, guaranteed on any persisted or fully-built event (RFC 5545 requires it)."""

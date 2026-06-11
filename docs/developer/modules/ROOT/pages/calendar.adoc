@@ -221,12 +221,14 @@ The interface builds `CalendarUser` from the authenticated user. Until the centr
 Centralizes all permission logic. Three responsibilities:
 
 * `get_permissions(calendar, calendar_user)` &#8594; `CalendarPermissions` — resolves what the user can do on this calendar. Owner gets full access. ICS calendars get read-only (VIEW_ALL, no create/delete). Non-owner permissions are stubbed (denied) until the ACL module is implemented.
-* `check_permission(permissions, action)` — raises `ERROR_CALENDAR_ACCESS_DENIED` if the action is not allowed.
+* `check_permission(permissions, action, event=None, calendar_user=None)` — raises `ERROR_CALENDAR_ACCESS_DENIED` if the action is not allowed. Event-level callers (update event/task) pass the event and the acting user so the conditional `MODIFY_IF_ORG` level can be resolved; calendar-level MODIFY checks (e.g. managing the public subscription) pass neither and are never satisfied by `MODIFY_IF_ORG` alone.
 * `sanitize_events(events, permissions)` — masks event fields based on visibility class (public/confidential/private) and permission level. Events with NONE level are excluded. VIEW_DATETIME level replaces title with "Busy" and hides details.
 
 === Permission model
 
-`CalendarPermissions` has one `CalendarShareLevel` per visibility class (public, confidential, private) plus `can_create` and `can_delete` flags. Share levels are ordered: `NONE < VIEW_DATETIME < VIEW_ALL < RESPOND < MODIFY`.
+`CalendarPermissions` has one `CalendarShareLevel` per visibility class (public, confidential, private) plus `can_create` and `can_delete` flags. Share levels are ordered: `NONE < VIEW_DATETIME < VIEW_ALL < RESPOND < MODIFY_IF_ORG < MODIFY`.
+
+`MODIFY_IF_ORG` is the conditional level between `RESPOND` and `MODIFY`: the user gets `MODIFY` only on events they ORGANIZE, and behaves as `RESPOND` on everything else. Levels serialise by *name* (`modify_if_org` in the API), so the numbering is internal.
 
 Each `CalCalendar` carries a transient `permissions` field populated at read time — the API response includes the user's permissions so the UI knows which actions to enable.
 
