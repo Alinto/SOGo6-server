@@ -5,6 +5,7 @@ import pytest
 
 from app.module.calendar.CalendarConst import MAX_EVENT_ALL_DAY_DURATION_HOURS, MAX_EVENT_DURATION_HOURS
 from app.module.calendar.model.CalEvent import CalEvent
+from app.module.calendar.model.CalOrganizer import CalOrganizer
 from app.utils.exceptions import RequestException
 
 _UTC = timezone.utc
@@ -92,3 +93,16 @@ def test_validate_all_day_exceeds_uses_all_day_cap_not_default():
 def test_validate_no_dates():
     event = _make_event(date_start=None, date_end=None)
     event.validate()
+
+
+# ========== is_organized_by ==========
+
+def test_is_organized_by_matches():
+    event = _make_event(organizer=CalOrganizer(email="bob@example.com"))
+    assert event.is_organized_by("bob@example.com") is True
+    assert event.is_organized_by("alice@example.com") is False
+
+
+def test_is_organized_by_false_without_organizer():
+    event = _make_event(organizer=None)
+    assert event.is_organized_by("bob@example.com") is False

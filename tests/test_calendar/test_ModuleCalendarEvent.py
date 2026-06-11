@@ -264,6 +264,18 @@ def test_update_event_attendee_cannot_modify():
     assert exc_info.value.error == err.ERROR_CALENDAR_NOT_ORGANIZER
 
 
+def test_update_event_acting_user_organizer_in_shared_calendar():
+    """A user organizing an event hosted in someone else's calendar can edit its content."""
+    organizer = CalOrganizer(email="bob@example.com")
+    event = _make_event(key="evt-key", organizer=organizer)
+    source = _make_source(events=[event])
+    module = _build_module({"cal-key": source})
+    bob = MagicMock(uid="bob@example.com", mail="bob@example.com")
+    alice = MagicMock(uid="alice@example.com", mail="alice@example.com")
+    updated = module.update_event(CalendarUser(user=bob, owner=alice), "evt-key", _merge(event, title="Mine"), organizer)
+    assert updated.title == "Mine"
+
+
 # ========== update_event — detached occurrence shift ==========
 
 def test_update_event_realigns_detached_when_start_changes():
