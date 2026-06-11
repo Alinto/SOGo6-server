@@ -52,11 +52,17 @@ class CalendarAclEngine:
         # TODO: lookup real permissions from the ACL module
         return CalendarPermissions.denied()
 
-    def check_permission(self, permissions: CalendarPermissions | None, action: CalendarPermissionAction) -> None:
+    def check_permission(self, permissions: CalendarPermissions | None, action: CalendarPermissionAction,
+                         event: CalEvent | None = None, calendar_user: CalendarUser | None = None) -> None:
         """Raise ERROR_CALENDAR_ACCESS_DENIED if the action is not allowed.
 
         For VIEW/RESPOND/MODIFY, the action is allowed if ANY visibility class has a sufficient level.
         For CREATE/DELETE, the dedicated flags are checked.
+
+        MODIFY_IF_ORG is conditional: it satisfies a MODIFY check only when ``event`` and
+        ``calendar_user`` are provided and the acting user is the event's ORGANIZER. Event-level
+        callers (update event/task) pass both; calendar-level MODIFY checks (no event) are
+        never satisfied by MODIFY_IF_ORG alone.
 
         ``permissions`` must have been resolved beforehand (get_permissions); a None here
         is a flow bug, not a denial.
@@ -70,7 +76,15 @@ class CalendarAclEngine:
             if not self._any_level_at_least(permissions, CalendarShareLevel.RESPOND):
                 raise RequestException(error=err.ERROR_CALENDAR_ACCESS_DENIED)
         elif action == CalendarPermissionAction.MODIFY:
-            if not self._any_level_at_least(permissions, CalendarShareLevel.MODIFY):
+            has_full_modify: bool = self._any_level_at_least(permissions, CalendarShareLevel.MODIFY)
+            # MODIFY_IF_ORG only grants MODIFY with an event context where the acting user is the
+            # organizer; without that context (calendar-level checks) it is never enough.
+            has_conditional_modify: bool = (
+                event is not None and calendar_user is not None
+                and self._any_level_at_least(permissions, CalendarShareLevel.MODIFY_IF_ORG)
+                and event.is_organized_by(calendar_user.user.mail)
+            )
+            if not has_full_modify and not has_conditional_modify:
                 raise RequestException(error=err.ERROR_CALENDAR_ACCESS_DENIED)
         elif action == CalendarPermissionAction.CREATE:
             if not permissions.can_create:
@@ -130,7 +144,7 @@ class CalendarAclEngine:
         """Return True if any visibility class has a level >= minimum.
 
         CalendarShareLevel is an IntEnum ordered by capability:
-        NONE(0) < VIEW_DATETIME(1) < VIEW_ALL(2) < RESPOND(3) < MODIFY(4)
+        NONE(0) < VIEW_DATETIME(1) < VIEW_ALL(2) < RESPOND(3) < MODIFY_IF_ORG(4) < MODIFY(5)
         """
         return (permissions.public_level >= minimum
                 or permissions.confidential_level >= minimum

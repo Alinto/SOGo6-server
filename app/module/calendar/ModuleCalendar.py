@@ -227,9 +227,14 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         """Update an event, handling recurrence scope and attendee propagation."""
         source, event = self._find_source_for_event(calendar_user, event_key)
         perms: CalendarPermissions = self._acl.get_permissions(source.calendar, calendar_user)
-        self._acl.check_permission(perms, CalendarPermissionAction.MODIFY)
-        # Only the organizer can modify event content (RFC 5545 §3.8.4.3)
-        if event.organizer and event.organizer.email != calendar_user.owner.mail:
+        self._acl.check_permission(perms, CalendarPermissionAction.MODIFY, event=event, calendar_user=calendar_user)
+        # Event content can only be modified by its organizer: an attendee must not change the
+        # organizer-controlled properties of an event (RFC 6638 §3.2.1; iTIP RFC 5546). The
+        # organizer must be either the calendar owner (delegated edit on the owner's own events)
+        # or the acting user (their own events in a calendar shared with them, the MODIFY_IF_ORG
+        # case). An event organized by a third party (received invitation) stays content read-only.
+        if event.organizer and not (event.is_organized_by(calendar_user.owner.mail)
+                                     or event.is_organized_by(calendar_user.user.mail)):
             raise RequestException(error=err.ERROR_CALENDAR_NOT_ORGANIZER)
         event_update.validate()
 
@@ -270,7 +275,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
             else:
                 source.delete_event(event.require_uid)
             # Propagate deletion to attendees if the user is the organizer
-            is_organizer: bool = bool(event.organizer and event.organizer.email == calendar_user.owner.mail)
+            is_organizer: bool = event.is_organized_by(calendar_user.owner.mail)
             if is_organizer:
                 self._sources.propagate(scope_result=ScopeResult(
                     result=event, touched=[(event, EventAction.DELETE)],
@@ -408,6 +413,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
             raise RequestException(error=err.ERROR_CALENDAR_TASK_NOT_FOUND)
         self._acl.check_permission(
             self._acl.get_permissions(source.calendar, calendar_user), CalendarPermissionAction.MODIFY,
+            event=task, calendar_user=calendar_user,
         )
         try:
             source.update_event(task_update)
