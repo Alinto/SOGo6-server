@@ -33,6 +33,7 @@ dependencies = [
     "mysql-connector-python (==9.5.0)",
     "celery",
     "icalendar",
+    "sievelib",
 ]
 
 

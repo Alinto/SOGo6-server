@@ -606,7 +606,7 @@ Tools
 * [ ]   0%: Clean deleted events and contacts (they are soft deleted by user)
 * [ ]   0%: Remove user (all info from database, not the user source)
 * [ ]   0%: rename user (in database, not user source) 
-* [ ]   0%: Update secret (for passwords, certificates...)
+* [ ]   0%: Update secret (for passwords, certificates...) (cannot be an endpoint but a script)
 
 '''
 
