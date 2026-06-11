@@ -161,6 +161,18 @@ ERROR_SMTP_SENDER_REFUSED         = E("S001407", "", HTTPStatus.BAD_REQUEST)
 ERROR_SMTP_DATA_ERROR             = E("S001408", "", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_SMTP_RESPONSE_ERROR         = E("S001409", "", HTTPStatus.INTERNAL_SERVER_ERROR)
 
+#Sieve
+ERROR_CONFIG_WRONG_MAIL_FILTERING = E("S001500", "Mail filtering server type is unknown or not supported", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_SIEVE_CONNECTION_FAILED     = E("S001501", "Sieve connection failed", HTTPStatus.SERVICE_UNAVAILABLE)
+ERROR_SIEVE_AUTH_FAILED           = E("S001502", "Sieve authentication failed: invalid credentials or unsupported mechanism", HTTPStatus.UNAUTHORIZED)
+ERROR_SIEVE_UNKNOWN_AUTH_MECH     = E("S001503", "Sieve authentication mechanism is unknown or not supported by server", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_SIEVE_COMMAND_FAILED        = E("S001504", "Sieve command failed", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_SIEVE_SCRIPT_NOT_FOUND      = E("S001505", "Sieve script not found", HTTPStatus.NOT_FOUND)
+ERROR_SIEVE_SCRIPT_INVALID        = E("S001506", "Sieve script content is invalid", HTTPStatus.BAD_REQUEST)
+ERROR_SIEVE_LOGOUT                = E("S001507", "Sieve command issued while not connected", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_SIEVE_PUSH_FAILED           = E("S001508", "Failed To Push Filters To Sieve", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_SIEVE_CAPABILITY_NOT_FOUND  = E("S001509", "Sieve capability not found in server response", HTTPStatus.INTERNAL_SERVER_ERROR)
+
 #Quota
 ERROR_IMAP_QUOTA_NOT_SUPPORTED = E("S000336", "IMAP server does not support QUOTA extension", HTTPStatus.NOT_IMPLEMENTED)
 ERROR_IMAP_QUOTA_FAILED        = E("S000337", "IMAP GETQUOTAROOT command failed", HTTPStatus.INTERNAL_SERVER_ERROR)
