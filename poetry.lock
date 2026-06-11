@@ -2382,6 +2382,24 @@ jwt = ["pyjwt (>=2.9.0)"]
 ocsp = ["cryptography (>=36.0.1)", "pyopenssl (>=20.0.1)", "requests (>=2.31.0)"]
 
 [[package]]
+name = "sievelib"
+version = "1.5.0"
+description = "Client-side SIEVE library"
+optional = false
+python-versions = ">=3.10"
+groups = ["main"]
+files = [
+    {file = "sievelib-1.5.0-py3-none-any.whl", hash = "sha256:4979c5de564eace76e132d4071caf4fe25cbb7e3c50187057e42b6eff53a255b"},
+    {file = "sievelib-1.5.0.tar.gz", hash = "sha256:2afbaaf2503afe912de0881e4c577383e6f90f8762931fb4d32f2b54123ce450"},
+]
+
+[package.dependencies]
+typing-extensions = "*"
+
+[package.extras]
+dev = ["black", "pre-commit", "pylint", "pytest"]
+
+[[package]]
 name = "six"
 version = "1.17.0"
 description = "Python 2 and 3 compatibility utilities"
@@ -2681,4 +2699,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.13,<4.0"
-content-hash = "91e9f754d8dfb390237c30bb879c6efcc2e75a619bc1c3e669aa3405753088db"
+content-hash = "5d9ab87206263947b47667e878bf1c3b76d80534e66fa6780d2822ecb018a284"

@@ -633,6 +633,23 @@ class MailSettingsObj(SettingsObj):
             }
         raise AggravatedException(err.ERROR_CONFIG_WRONG_MAIL_SERVER.m, err.ERROR_CONFIG_WRONG_MAIL_SERVER)
 
+    def get_mail_filtering_settings_for_type(self, type_filtering: str) -> dict:
+        """
+        Get the mail server settings for a specific filtering type.
+
+        :param type_filtering: The filtering type (e.g., "sieve")
+        :return: A dictionary with the mail server settings
+        """
+        if type_filtering == "sieve":
+            return {
+                "server": self.SOGO_D_SIEVE_SERVER,
+                "port": self.SOGO_D_SIEVE_PORT,
+                "encryption": self.SOGO_D_SIEVE_ENCRYPTION,
+                "auth_mech": self.SOGO_D_SIEVE_AUTH_MECH,
+                
+            }
+        raise AggravatedException(err.ERROR_CONFIG_WRONG_MAIL_FILTERING.m, err.ERROR_CONFIG_WRONG_MAIL_FILTERING)
+
 class CalendarContactSettings(SogoSchema):
     """
     Schema for calendar and contact settings

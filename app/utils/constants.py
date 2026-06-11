@@ -118,3 +118,16 @@ DELETE_MAIL_BEHAVIOR_MAP = {
     "EXPUNGE_ONLY":              (False,        True),
     "MOVE_TO_TRASH_ONLY":        (True,         False),
 }
+
+FILTER_SECTION_FILTERS: str = "filters"
+FILTER_SECTION_VACATION: str = "vacation"
+FILTER_SECTION_FORWARD: str = "forward"
+FILTER_SECTION_NOTIFICATION: str = "notification"
+
+# All sections that are pushed to the Sieve server as a merged script.
+FILTER_SIEVE_SECTIONS: tuple[str, ...] = (
+    FILTER_SECTION_FILTERS,
+    FILTER_SECTION_VACATION,
+    FILTER_SECTION_FORWARD,
+    FILTER_SECTION_NOTIFICATION,
+)
