@@ -9,6 +9,7 @@ import pytest
 from app.module.calendar.model.enums.AttendeeRole import AttendeeRole
 from app.module.calendar.model.enums.AttendeeStatus import AttendeeStatus
 from app.module.calendar.model.enums.EventStatus import EventStatus
+from app.module.calendar.model.enums.EventVisibility import EventVisibility
 from app.module.calendar.model.enums.ShowAs import ShowAs
 from app.module.calendar.model.enums.ComponentType import ComponentType
 from app.module.calendar.serializer.CalendarEventDeserializerDict import CalendarEventDeserializerDict
@@ -121,6 +122,19 @@ def test_reminders(deserializer):
     assert len(event.reminders) == 2
     assert event.reminders[0].minutes_before == 15
     assert event.reminders[1].minutes_before == 60
+
+
+def test_reminder_without_offset_left_unresolved(deserializer):
+    # No minutes_before: the deserializer leaves None so the module can apply the calendar default.
+    event = deserializer.deserialize({"date_start": "2026-03-19T09:30:00.000Z",
+                                      "reminders": [{"method": "popup"}]})
+    assert event.reminders[0].minutes_before is None
+
+
+def test_visibility_omitted_left_undefined(deserializer):
+    # No visibility: left UNDEFINED so the module can apply the calendar default_type.
+    event = deserializer.deserialize({"date_start": "2026-03-19T09:30:00.000Z"})
+    assert event.visibility == EventVisibility.UNDEFINED
 
 
 def test_conference_data_and_attachments(deserializer):

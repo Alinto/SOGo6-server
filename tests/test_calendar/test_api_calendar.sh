@@ -2320,6 +2320,109 @@ else
 fi
 
 
+step "98. Calendar defaults — create calendar with new-event preferences"
+info "include_in_freebusy=false plus default duration/alarm/type. All four must round-trip in the response."
+
+CODE=$(req -X POST "$BASE/calendars" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d '{
+        "name": "Defaults Calendar",
+        "timezone": "Europe/Paris",
+        "include_in_freebusy": false,
+        "default_event_duration_min": 45,
+        "default_alarm_duration_min": 25,
+        "default_type": "private"
+    }')
+check_code  "POST /calendars (defaults)" "$CODE" "201"
+check_error "POST /calendars (defaults) error_code"
+# jq's `//` (used by check_field) treats false like null, so assert booleans with a raw read.
+INC_FB=$(body | jq -r '.data.include_in_freebusy')
+[ "$INC_FB" = "false" ] && ok ".data.include_in_freebusy = 'false'" || fail ".data.include_in_freebusy — expected 'false', got '$INC_FB'"
+check_field ".data.default_event_duration_min" "45"
+check_field ".data.default_alarm_duration_min" "25"
+check_field ".data.default_type"               "private"
+DEF_CAL_KEY=$(extract '.data.key')
+info "Defaults calendar key: $DEF_CAL_KEY"
+
+
+step "99. Calendar defaults — new event inherits duration, type and alarm offset"
+info "Event sent without date_end, without visibility, with an alarm lacking minutes_before. The server fills all three from the calendar defaults."
+
+CODE=$(req -X POST "$BASE/calendars/$DEF_CAL_KEY/events" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d '{
+        "title": "Inherits Defaults",
+        "date_start": "2027-01-15T09:00:00Z",
+        "reminders": [{"method": "popup"}]
+    }')
+check_code  "POST /events (defaults applied)" "$CODE" "201"
+check_error "POST /events (defaults applied) error_code"
+DEND=$(extract '.data.date_end')
+case "$DEND" in
+    2027-01-15T09:45:00*) ok "date_end derived from default duration ($DEND)" ;;
+    *) fail "date_end not derived from default duration — got '$DEND' (expected 2027-01-15T09:45:00*)" ;;
+esac
+check_field ".data.visibility"                  "private"
+check_field ".data.reminders[0].minutes_before" "25"
+DEF_EVT_KEY=$(extract '.data.key')
+info "Defaults event key: $DEF_EVT_KEY"
+
+
+step "100. Calendar defaults — free/busy excludes an include_in_freebusy=false calendar"
+info "LOGIN_1 self free/busy on 2027-01-15 must be empty: the only event that day lives in the excluded calendar."
+
+CODE=$(req -X POST "$BASE/freebusy" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d "{
+        \"target_uids\": [\"$LOGIN_1\"],
+        \"start\": \"2027-01-15T00:00:00Z\",
+        \"end\":   \"2027-01-15T23:59:59Z\"
+    }")
+check_code  "POST /freebusy (exclusion)" "$CODE" "200"
+check_error "POST /freebusy (exclusion) error_code"
+FB_EXCL=$(body | jq -r --arg uid "$LOGIN_1" '.data.attendees[$uid].periods | length')
+[ "$FB_EXCL" = "0" ] && ok "excluded calendar contributes no busy period (count=0)" || fail "excluded calendar leaked $FB_EXCL period(s) into free/busy"
+
+
+step "101. Calendar defaults — free/busy still reflects an included calendar"
+info "An event the same day in the main (included) calendar must appear, proving the exclusion is per-calendar."
+
+CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d '{
+        "title": "Counts In FreeBusy",
+        "date_start": "2027-01-15T11:00:00Z",
+        "date_end":   "2027-01-15T12:00:00Z",
+        "show_as": "busy"
+    }')
+check_code "POST /events (included calendar)" "$CODE" "201"
+INCL_EVT_KEY=$(extract '.data.key')
+
+CODE=$(req -X POST "$BASE/freebusy" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d "{
+        \"target_uids\": [\"$LOGIN_1\"],
+        \"start\": \"2027-01-15T00:00:00Z\",
+        \"end\":   \"2027-01-15T23:59:59Z\"
+    }")
+check_code "POST /freebusy (inclusion)" "$CODE" "200"
+FB_INCL=$(body | jq -r --arg uid "$LOGIN_1" '.data.attendees[$uid].periods | length')
+[ "$FB_INCL" = "1" ] && ok "only the included calendar's event appears (count=1)" || fail "expected exactly 1 busy period (included only), got $FB_INCL"
+
+
+step "102. Calendar defaults — cleanup"
+info "Deletes the defaults calendar (cascades its event) and the included-calendar event. Skipped without -d."
+
+if $DO_DELETE; then
+    CODE=$(req -X DELETE "$BASE/events/$INCL_EVT_KEY" -H "$H_AUTH")
+    check_code "DELETE /events/$INCL_EVT_KEY (included)" "$CODE" "200"
+    CODE=$(req -X DELETE "$BASE/calendars/$DEF_CAL_KEY" -H "$H_AUTH")
+    check_code "DELETE /calendars/$DEF_CAL_KEY (defaults)" "$CODE" "200"
+else
+    skip "DELETE defaults calendar $DEF_CAL_KEY and included event $INCL_EVT_KEY"
+fi
+
+
 step "67. Delete — LOGIN_2 and LOGIN_3 freebusy events and calendars"
 info "Removes the freebusy test events and calendars created by LOGIN_2 and LOGIN_3. Skipped without -d."
 

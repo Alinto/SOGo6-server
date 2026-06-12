@@ -130,8 +130,10 @@ class CalendarEventCreateSchema(Schema):
     date_start = fields.String(required=True,
                                metadata={"description": "ISO 8601 UTC datetime.",
                                          "example": "2026-04-22T09:30:00.000Z"})
-    date_end = fields.String(required=True,
-                             metadata={"description": "ISO 8601 UTC datetime.",
+    date_end = fields.String(load_default=None, allow_none=True,
+                             metadata={"description": "ISO 8601 UTC datetime. Optional for a timed event when the "
+                                                      "parent calendar defines default_event_duration_min, which then "
+                                                      "derives the end from date_start.",
                                        "example": "2026-04-22T10:00:00.000Z"})
     all_day = fields.Boolean(load_default=False)
     timezone = fields.String(load_default=None, allow_none=True, metadata={"example": "Europe/Paris"})

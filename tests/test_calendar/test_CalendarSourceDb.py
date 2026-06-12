@@ -9,7 +9,9 @@ from unittest.mock import MagicMock
 from app.module.calendar.model.CalCalendar import CalCalendar
 from app.module.calendar.model.CalEvent import CalEvent
 from app.module.calendar.model.CalRecurrenceRule import CalRecurrenceRule
+from app.module.calendar.model.CalReminder import CalReminder
 from app.module.calendar.model.enums.RecurrenceFrequency import RecurrenceFrequency
+from app.module.calendar.model.enums.ReminderMethod import ReminderMethod
 from app.module.calendar.source.CalendarSourceDb import CalendarSourceDb
 
 _UTC = timezone.utc
@@ -28,6 +30,25 @@ def _build_source():
 
 def _event(date_start, date_end, **kwargs):
     return CalEvent(uid="e@x", title="T", key="e-k", date_start=date_start, date_end=date_end, **kwargs)
+
+
+# ========== _prepare_for_persistence — normalization + reminder resolution ==========
+
+def test_prepare_for_persistence_normalizes_all_day():
+    source = _build_source()
+    start = _dt(2026, 4, 28)
+    evt = _event(start, start, all_day=True)
+    source._prepare_for_persistence(evt)
+    assert evt.date_end == _dt(2026, 4, 29)
+
+
+def test_prepare_for_persistence_resolves_reminder_from_calendar_default():
+    source = _build_source()
+    source._calendar.default_alarm_duration_min = 25
+    evt = _event(_dt(2026, 4, 28, 9), _dt(2026, 4, 28, 10),
+                 reminders=[CalReminder(method=ReminderMethod.POPUP)])
+    source._prepare_for_persistence(evt)
+    assert evt.reminders[0].minutes_before == 25
 
 
 def test_upsert_relevant_when_non_recurring_future():

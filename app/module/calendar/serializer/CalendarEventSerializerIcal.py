@@ -309,7 +309,7 @@ class CalendarEventSerializerIcal(CalendarEventSerializer[str]):
 
             alarm: Alarm = Alarm()
             alarm.add("action", action)
-            alarm.add("trigger", timedelta(minutes=-reminder.minutes_before))
+            alarm.add("trigger", timedelta(minutes=-reminder.require_minutes_before))
             alarm.add("description", event.title or "Reminder")
             if action == "EMAIL":
                 alarm.add("summary", event.title or "Reminder")

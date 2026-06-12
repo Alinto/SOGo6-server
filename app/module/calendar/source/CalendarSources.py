@@ -105,6 +105,25 @@ class CalendarSources:
         events.sort(key=lambda e: e.require_date_start)
         return events
 
+    def get_freebusy_events(
+        self,
+        user_uid: str,
+        start: datetime | None = None,
+        end: datetime | None = None,
+    ) -> list[CalEvent]:
+        """Return events from every calendar that participates in free/busy.
+
+        Calendars flagged include_in_freebusy=False are skipped entirely, so their events
+        never contribute to the owner's busy slots.
+        """
+        events: list[CalEvent] = []
+        for source in self.get_all(user_uid):
+            if not source.calendar.include_in_freebusy:
+                continue
+            events.extend(source.get_events(start, end))
+        events.sort(key=lambda e: e.require_date_start)
+        return events
+
     def get_tasks(
         self,
         user_uid: str,

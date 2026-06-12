@@ -15,8 +15,8 @@ from app.module.calendar.model.enums.ComponentType import ComponentType
 from app.module.calendar.model.enums.EventStatus import EventStatus
 from app.module.calendar.model.enums.EventVisibility import EventVisibility
 from app.module.calendar.model.enums.ShowAs import ShowAs
-from app.module.calendar.CalendarConst import (MAX_EVENT_DESCRIPTION_LENGTH, MAX_EVENT_DURATION_HOURS,
-                                               MAX_EVENT_ALL_DAY_DURATION_HOURS,
+from app.module.calendar.CalendarConst import (DEFAULT_REMINDER_MINUTES, MAX_EVENT_DESCRIPTION_LENGTH,
+                                               MAX_EVENT_DURATION_HOURS, MAX_EVENT_ALL_DAY_DURATION_HOURS,
                                                MAX_EVENT_LOCATION_LENGTH, MAX_EVENT_TITLE_LENGTH)
 from app.utils import errors as err
 from app.utils.exceptions import BugException, RequestException
@@ -138,21 +138,60 @@ class CalEvent:  # pylint: disable=too-many-instance-attributes,invalid-name
         "related_to", "extra_properties", "recurrence_rule", "recurrence_exceptions", "priority",
     })
 
-    def apply_defaults(self) -> None:
-        """Fill in business defaults for fields left at their UNDEFINED/None sentinel.
+    def apply_defaults(
+        self,
+        default_visibility: EventVisibility | None = None,
+        default_duration_min: int | None = None,
+    ) -> None:
+        """Fill in creation-time defaults for fields left at their UNDEFINED/None sentinel.
 
-        Called before persisting to ensure all relational columns have valid values.
+        The parent calendar's own defaults take precedence over the global fallbacks:
+        default_visibility for the CLASS, default_duration_min to derive a missing DTEND.
+        Pass None on either to fall back to the global default. Reminder offsets and the
+        all-day DTEND invariant are resolved later, at the persistence boundary
+        (CalendarSourceDb), so they apply to updates too.
         """
         if self.component_type == ComponentType.UNDEFINED:
             self.component_type = ComponentType.EVENT
         if self.status == EventStatus.UNDEFINED:
             self.status = EventStatus.CONFIRMED
         if self.visibility == EventVisibility.UNDEFINED:
-            self.visibility = EventVisibility.PUBLIC
+            self.visibility = default_visibility or EventVisibility.PUBLIC
         if self.show_as == ShowAs.UNDEFINED:
             self.show_as = ShowAs.BUSY
         if self.all_day is None:
             self.all_day = False
+        self._apply_default_duration(default_duration_min)
+
+    def normalize_all_day(self) -> None:
+        """Ensure an all-day event has a valid exclusive DTEND (RFC 5545 §3.6.1).
+
+        For all-day events DTEND must be strictly greater than DTSTART; if it is not,
+        advance it to date_start + 1 day. Idempotent once the invariant holds.
+        """
+        if self.all_day and self.date_end is not None and self.date_start is not None and self.date_end <= self.date_start:
+            self.date_end = self.date_start + timedelta(days=1)
+
+    def _apply_default_duration(self, default_duration_min: int | None) -> None:
+        """Derive a missing DTEND from a calendar default duration, for timed events only.
+
+        Skipped for tasks/journals (DUE is legitimately optional), all-day events (a
+        minute-based duration is meaningless) and events that already carry an end.
+        """
+        if default_duration_min is None:
+            return
+        if self.component_type != ComponentType.EVENT:
+            return
+        if self.all_day or self.date_start is None or self.date_end is not None:
+            return
+        self.date_end = self.date_start + timedelta(minutes=default_duration_min)
+
+    def resolve_reminder_offsets(self, default_minutes: int | None) -> None:
+        """Fill reminders left without an explicit offset using the calendar default, or the global fallback."""
+        fallback: int = default_minutes if default_minutes is not None else DEFAULT_REMINDER_MINUTES
+        for reminder in self.reminders:
+            if reminder.minutes_before is None:
+                reminder.minutes_before = fallback
 
     def validate(self) -> None:
         """Run business validations. Raises RequestException on failure."""
