@@ -4,7 +4,7 @@ from typing import Any
 
 from app.module.calendar.model.CalendarShare import CalendarShare
 from app.module.calendar.serializer.CalendarPermissionsSerializerDict import CalendarPermissionsSerializerDict
-from app.module.calendar.serializer.Serializer import Serializer
+from app.utils.serializer.Serializer import Serializer
 
 
 class CalendarShareSerializerDict(Serializer[CalendarShare, dict[str, Any]]):
