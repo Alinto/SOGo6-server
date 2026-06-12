@@ -18,6 +18,7 @@ from app.module.calendar.model.CalOrganizer import CalOrganizer
 from app.module.calendar.model.enums.AttendeeStatus import AttendeeStatus
 from app.module.calendar.model.enums.CalendarSourceType import CalendarSourceType
 from app.module.calendar.model.enums.CalendarSyncStatus import CalendarSyncStatus
+from app.module.calendar.model.enums.EventVisibility import EventVisibility
 from app.module.calendar.model.enums.ReminderMethod import ReminderMethod
 from app.module.calendar.model.CalFreeBusyResult import CalFreeBusyResult
 from app.module.calendar.serializer.CalendarEventDeserializerDict import CalendarEventDeserializerDict
@@ -133,6 +134,7 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         anchor for floating-time events imported later.
         """
         try:
+            default_type_raw: str | None = body.get("default_type")
             cal: CalCalendar = CalCalendar(
                 user_uid=self.user.uid,
                 name=body["name"],
@@ -140,6 +142,10 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
                 description=body.get("description"),
                 timezone=body.get("timezone") or self._user_timezone(self.user.uid),
                 source_type=CalendarSourceType.LOCAL,
+                include_in_freebusy=body.get("include_in_freebusy", True),
+                default_event_duration_min=body.get("default_event_duration_min"),
+                default_alarm_duration_min=body.get("default_alarm_duration_min"),
+                default_type=EventVisibility(default_type_raw) if default_type_raw else None,
             )
             created: CalCalendar = self.module.create_calendar(self.user, cal)
             return create_api_base_response(self._calendar_serializer.serialize(created), code=201)
@@ -150,7 +156,8 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
     def update_calendar(self, key: str, body: dict[str, Any]) -> tuple[dict[str, Any], int]:
         """Update an existing calendar."""
         try:
-            updated: CalCalendar = self.module.update_calendar(self.user, key, body)
+            updates: dict[str, Any] = self._normalize_calendar_updates(body)
+            updated: CalCalendar = self.module.update_calendar(self.user, key, updates)
             return create_api_base_response(self._calendar_serializer.serialize(updated))
         except RequestException as ex:
             logger_api.error("update_calendar failed for user %s key %s: %s", self.user.uid, key, ex)
@@ -551,6 +558,15 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         domain: str = get_domain_from_mail(user_uid) or ""
         raw: dict = config_module.get_one_domain_setting(domain)["settings"]
         return CalendarContactSettingsObj(raw[CalendarContactSettings.subparent])
+
+    @staticmethod
+    def _normalize_calendar_updates(body: dict[str, Any]) -> dict[str, Any]:
+        """Convert API-format calendar update fields into model values (default_type string -> enum)."""
+        updates: dict[str, Any] = dict(body)
+        if "default_type" in updates:
+            raw = updates["default_type"]
+            updates["default_type"] = EventVisibility(raw) if raw else None
+        return updates
 
     @staticmethod
     def _normalize_task_body(body: dict[str, Any]) -> dict[str, Any]:

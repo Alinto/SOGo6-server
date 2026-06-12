@@ -10,6 +10,7 @@ from app.utils.exceptions import BugException
 if TYPE_CHECKING:
     from app.module.calendar.model.CalEvent import CalEvent
     from app.module.calendar.model.CalendarPermissions import CalendarPermissions
+    from app.module.calendar.model.enums.EventVisibility import EventVisibility
 
 
 @dataclass
@@ -62,6 +63,18 @@ class CalCalendar:  # pylint: disable=too-many-instance-attributes,invalid-name
     #          sync_interval_minutes}
     sync_config: dict | None = None
 
+    # Internal — when False, this calendar's events are excluded from the owner's free/busy.
+    include_in_freebusy: bool = True
+    # UI preference — default duration in minutes for a new timed event with no explicit end.
+    # None means "use the global default" (the event keeps whatever end the caller provided).
+    default_event_duration_min: int | None = None
+    # UI preference — default offset in minutes for an alarm added without an explicit one.
+    # None means "use the global default" (DEFAULT_REMINDER_MINUTES).
+    default_alarm_duration_min: int | None = None
+    # UI preference — default visibility (RFC 5545 CLASS) for new events. None means "use the
+    # global default" (public).
+    default_type: EventVisibility | None = None
+
     # RFC 5545 §3.7.3 PRODID — identifies the product that created the VCALENDAR object
     prodid: str | None = None
     # RFC 5545 §3.7.1 CALSCALE — calendar scale, almost always "GREGORIAN"
@@ -81,7 +94,9 @@ class CalCalendar:  # pylint: disable=too-many-instance-attributes,invalid-name
     # to or deserializing from a full VCALENDAR. Not persisted: events live in their own table.
     events: list[CalEvent] = field(default_factory=list)
 
-    MUTABLE_FIELDS: frozenset[str] = frozenset({"name", "color", "description", "timezone", "is_default", "sync_config"})
+    MUTABLE_FIELDS: frozenset[str] = frozenset({"name", "color", "description", "timezone", "is_default", "sync_config",
+                                                "include_in_freebusy", "default_event_duration_min",
+                                                "default_alarm_duration_min", "default_type"})
 
     @property
     def require_id(self) -> int:

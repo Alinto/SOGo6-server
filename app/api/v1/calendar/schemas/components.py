@@ -60,7 +60,10 @@ class ReminderSchema(Schema):
     """Event reminder / alarm (RFC 5545 VALARM)."""
 
     method = fields.String(required=True, validate=validate.OneOf(_METHOD_VALUES))
-    minutes_before = fields.Integer(required=True, metadata={"description": "Minutes before the start when the reminder fires."})
+    minutes_before = fields.Integer(load_default=None, allow_none=True,
+                                    metadata={"description": "Minutes before the start when the reminder fires. "
+                                                             "Optional: when omitted, the parent calendar's "
+                                                             "default_alarm_duration_min (or the global default) is used."})
 
 
 class EventRelationSchema(Schema):
