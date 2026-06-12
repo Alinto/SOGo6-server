@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from app.interface.calendar.InterfaceApiCalendarCalendar import InterfaceApiCalendarCalendar
 from app.module.calendar.model.CalCalendar import CalCalendar
+from app.module.calendar.model.enums.EventVisibility import EventVisibility
 from app.module.calendar.serializer.CalendarSerializerDict import CalendarSerializerDict
 from app.utils import errors as err
 from app.utils.exceptions import RequestException
@@ -44,6 +45,40 @@ def test_create_calendar_empty_timezone_falls_back_to_user():
     inter = _build_interface(user_tz="Asia/Tokyo")
     inter.create_calendar({"name": "Work", "timezone": ""})
     assert _created_calendar(inter).timezone == "Asia/Tokyo"
+
+
+# ========== new-event preferences ==========
+
+def test_create_calendar_wires_preferences_and_converts_default_type():
+    inter = _build_interface()
+    inter.create_calendar({"name": "Work", "default_type": "private",
+                           "default_event_duration_min": 45, "include_in_freebusy": False})
+    cal = _created_calendar(inter)
+    assert cal.default_type == EventVisibility.PRIVATE
+    assert cal.default_event_duration_min == 45
+    assert cal.include_in_freebusy is False
+
+
+def test_create_calendar_default_type_absent_stays_none():
+    inter = _build_interface()
+    inter.create_calendar({"name": "Work"})
+    assert _created_calendar(inter).default_type is None
+
+
+def test_update_calendar_normalizes_default_type_to_enum():
+    inter = _build_interface()
+    inter.module.update_calendar.return_value = CalCalendar(key="k", user_uid="u", name="C")
+    inter.update_calendar("k", {"default_type": "confidential"})
+    updates = inter.module.update_calendar.call_args.args[2]
+    assert updates["default_type"] == EventVisibility.CONFIDENTIAL
+
+
+def test_update_calendar_default_type_null_clears():
+    inter = _build_interface()
+    inter.module.update_calendar.return_value = CalCalendar(key="k", user_uid="u", name="C")
+    inter.update_calendar("k", {"default_type": None})
+    updates = inter.module.update_calendar.call_args.args[2]
+    assert updates["default_type"] is None
 
 
 # ========== public subscription ==========

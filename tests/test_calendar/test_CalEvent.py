@@ -3,9 +3,14 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from app.module.calendar.CalendarConst import MAX_EVENT_ALL_DAY_DURATION_HOURS, MAX_EVENT_DURATION_HOURS
+from app.module.calendar.CalendarConst import (DEFAULT_REMINDER_MINUTES, MAX_EVENT_ALL_DAY_DURATION_HOURS,
+                                               MAX_EVENT_DURATION_HOURS)
 from app.module.calendar.model.CalEvent import CalEvent
 from app.module.calendar.model.CalOrganizer import CalOrganizer
+from app.module.calendar.model.CalReminder import CalReminder
+from app.module.calendar.model.enums.ComponentType import ComponentType
+from app.module.calendar.model.enums.EventVisibility import EventVisibility
+from app.module.calendar.model.enums.ReminderMethod import ReminderMethod
 from app.utils.exceptions import RequestException
 
 _UTC = timezone.utc
@@ -106,3 +111,89 @@ def test_is_organized_by_matches():
 def test_is_organized_by_false_without_organizer():
     event = _make_event(organizer=None)
     assert event.is_organized_by("bob@example.com") is False
+
+
+# ========== apply_defaults — calendar-level defaults ==========
+
+def test_apply_defaults_visibility_uses_calendar_default():
+    event = _make_event()
+    event.apply_defaults(default_visibility=EventVisibility.PRIVATE)
+    assert event.visibility == EventVisibility.PRIVATE
+
+
+def test_apply_defaults_visibility_global_fallback_public():
+    event = _make_event()
+    event.apply_defaults()
+    assert event.visibility == EventVisibility.PUBLIC
+
+
+def test_apply_defaults_visibility_keeps_explicit_value():
+    event = _make_event(visibility=EventVisibility.CONFIDENTIAL)
+    event.apply_defaults(default_visibility=EventVisibility.PRIVATE)
+    assert event.visibility == EventVisibility.CONFIDENTIAL
+
+
+def test_apply_defaults_duration_fills_missing_end():
+    event = _make_event(date_start=_dt(2026, 6, 1, 9), date_end=None)
+    event.apply_defaults(default_duration_min=30)
+    assert event.date_end == _dt(2026, 6, 1, 9) + timedelta(minutes=30)
+
+
+def test_apply_defaults_duration_skips_when_end_present():
+    event = _make_event(date_start=_dt(2026, 6, 1, 9), date_end=_dt(2026, 6, 1, 10))
+    event.apply_defaults(default_duration_min=30)
+    assert event.date_end == _dt(2026, 6, 1, 10)
+
+
+def test_apply_defaults_duration_skips_all_day():
+    event = _make_event(date_start=_dt(2026, 6, 1), date_end=None, all_day=True)
+    event.apply_defaults(default_duration_min=30)
+    assert event.date_end is None
+
+
+def test_apply_defaults_duration_skips_task():
+    event = _make_event(date_start=_dt(2026, 6, 1, 9), date_end=None, component_type=ComponentType.TASK)
+    event.apply_defaults(default_duration_min=30)
+    assert event.date_end is None
+
+
+# ========== resolve_reminder_offsets ==========
+
+def test_resolve_reminder_offsets_uses_calendar_default():
+    event = _make_event(reminders=[CalReminder(method=ReminderMethod.POPUP)])
+    event.resolve_reminder_offsets(20)
+    assert event.reminders[0].minutes_before == 20
+
+
+def test_resolve_reminder_offsets_global_fallback():
+    event = _make_event(reminders=[CalReminder(method=ReminderMethod.POPUP)])
+    event.resolve_reminder_offsets(None)
+    assert event.reminders[0].minutes_before == DEFAULT_REMINDER_MINUTES
+
+
+def test_resolve_reminder_offsets_keeps_explicit_offset():
+    event = _make_event(reminders=[CalReminder(method=ReminderMethod.POPUP, minutes_before=5)])
+    event.resolve_reminder_offsets(20)
+    assert event.reminders[0].minutes_before == 5
+
+
+# ========== normalize_all_day ==========
+
+def test_normalize_all_day_advances_zero_duration_end():
+    start = _dt(2026, 4, 28)
+    event = _make_event(all_day=True, date_start=start, date_end=start)
+    event.normalize_all_day()
+    assert event.date_end == _dt(2026, 4, 29)
+
+
+def test_normalize_all_day_leaves_valid_end_untouched():
+    event = _make_event(all_day=True, date_start=_dt(2026, 4, 28), date_end=_dt(2026, 4, 30))
+    event.normalize_all_day()
+    assert event.date_end == _dt(2026, 4, 30)
+
+
+def test_normalize_all_day_ignores_timed_event():
+    start = _dt(2026, 4, 28, 9)
+    event = _make_event(all_day=False, date_start=start, date_end=start)
+    event.normalize_all_day()
+    assert event.date_end == start

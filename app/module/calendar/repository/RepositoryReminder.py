@@ -30,14 +30,14 @@ class RepositoryReminder:
             return
         now: datetime = datetime.now(timezone.utc)
         for reminder in event.reminders:
-            trigger_at: datetime = event.date_start - timedelta(minutes=reminder.minutes_before)
+            trigger_at: datetime = event.date_start - timedelta(minutes=reminder.require_minutes_before)
             self._db.insert_in_table(
                 table_name=tbl.TABLE_REMINDER.name,
                 column_tuple=_INSERT_COLS,
                 values_tuple=[[
                     event.key,
                     reminder.method.value,
-                    reminder.minutes_before,
+                    reminder.require_minutes_before,
                     trigger_at,
                     False,
                     now,

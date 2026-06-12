@@ -494,16 +494,9 @@ def test_create_event_preserves_explicit_organizer():
 
 
 # ========== all-day normalization (RFC 5545 §3.6.1) ==========
-
-def test_create_allday_normalizes_zero_duration():
-    """create_event must set date_end = date_start + 1 day when all_day=True and date_end <= date_start."""
-    source = _make_source("cal-key")
-    module = _build_module({"cal-key": source})
-    start = _dt(2026, 4, 28)
-    event = _make_event(all_day=True, date_start=start, date_end=start)
-    result = module.create_event(_fake_user(), "cal-key", event, CalOrganizer(email="user@example.com"))
-    assert result.date_end == _dt(2026, 4, 29)
-
+# Create-path normalization now lives at the persistence boundary (CalendarSourceDb) and on the
+# model (CalEvent.normalize_all_day); see test_CalendarSourceDb and test_CalEvent. The update path
+# is still exercised here because it runs through RecurrenceScopeProcessor before the source.
 
 def test_update_allday_normalizes_zero_duration():
     """update_event must normalize date_end when the patch produces date_end <= date_start."""
