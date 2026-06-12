@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.module.calendar.model.CalSyncResult import CalSyncResult
-from app.module.calendar.serializer.Serializer import Serializer
+from app.utils.serializer.Serializer import Serializer
 
 
 class SyncResultSerializerDict(Serializer[CalSyncResult, dict[str, Any]]):
