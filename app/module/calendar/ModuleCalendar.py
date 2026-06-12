@@ -152,16 +152,6 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
     #
     # Events — internal helpers
     #
-    @staticmethod
-    def _normalize_all_day(event: CalEvent) -> None:
-        """Ensure all-day events have a valid exclusive DTEND (RFC 5545 §3.6.1).
-
-        For all-day events, DTEND must be strictly greater than DTSTART.
-        If date_end <= date_start, advance date_end to date_start + 1 day.
-        """
-        if event.all_day and event.date_end is not None and event.date_start is not None and event.date_end <= event.date_start:
-            event.date_end = event.date_start + timedelta(days=1)
-
     def _find_source_for_event(self, calendar_user: CalendarUser, event_key: str) -> tuple[CalendarSource, CalEvent]:
         """Find the source and event by event_key (opaque UUID stored in the key column of sogo_events, not the uid)."""
         for source in self._sources.get_all(calendar_user.owner.uid):
@@ -191,15 +181,18 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
     #
     def create_event(self, calendar_user: CalendarUser, calendar_key: str, event: CalEvent, organizer: CalOrganizer) -> CalEvent:
         """Persist a new event in the calendar and propagate it to local attendees."""
-        event.apply_defaults()
         source: CalendarSource = self.get_calendar(calendar_user.owner, calendar_key)
         self._acl.check_permission(source.calendar.permissions, CalendarPermissionAction.CREATE)
+        calendar: CalCalendar = source.calendar
+        event.apply_defaults(
+            default_visibility=calendar.default_type,
+            default_duration_min=calendar.default_event_duration_min,
+        )
         event.calendar_key = source.calendar.key
         if not event.uid:
             event.uid = generate_uuid()
         if not event.organizer:
             event.organizer = organizer
-        self._normalize_all_day(event)
         event.validate()
         try:
             created: CalEvent = source.insert_event(event)
@@ -383,10 +376,15 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
     #
     def create_task(self, calendar_user: CalendarUser, calendar_key: str, task: CalEvent) -> CalEvent:
         """Persist a new VTODO in the calendar and return it."""
-        task.apply_defaults()
-        task.component_type = ComponentType.TASK
         source: CalendarSource = self.get_calendar(calendar_user.owner, calendar_key)
         self._acl.check_permission(source.calendar.permissions, CalendarPermissionAction.CREATE)
+        # Mark it a task before defaulting so the calendar default duration never forces a due date.
+        task.component_type = ComponentType.TASK
+        calendar: CalCalendar = source.calendar
+        task.apply_defaults(
+            default_visibility=calendar.default_type,
+            default_duration_min=calendar.default_event_duration_min,
+        )
         task.calendar_key = source.calendar.key
         if not task.uid:
             task.uid = generate_uuid()
@@ -750,7 +748,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         if (end - start) > timedelta(days=MAX_FREEBUSY_DAYS):
             raise RequestException(error=err.ERROR_CALENDAR_FREEBUSY_DATE_RANGE_TOO_LARGE)
         try:
-            events: list[CalEvent] = self._sources.get_events(target_uid, start, end)
+            events: list[CalEvent] = self._sources.get_freebusy_events(target_uid, start, end)
             return FreeBusyEngine().compute(events, start, end, prefs)
         except RequestException:
             raise

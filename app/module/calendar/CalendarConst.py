@@ -9,6 +9,10 @@ MAX_TASK_FETCH_DAYS: int = 365
 # Maximum number of days allowed for a free/busy query.
 MAX_FREEBUSY_DAYS: int = 30
 
+# Default reminder offset in minutes, used when an alarm is created without an explicit
+# offset and the parent calendar declares no default_alarm_duration_min of its own.
+DEFAULT_REMINDER_MINUTES: int = 15
+
 # Maximum duration in hours for a single event.
 MAX_EVENT_DURATION_HOURS: int = 24
 MAX_EVENT_ALL_DAY_DURATION_HOURS: int = 14 * 24

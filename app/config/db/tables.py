@@ -147,6 +147,8 @@ the schema with nullable columns only relevant to non-local calendars.
 # share_token: opaque token for the public .ics subscription URL — queried directly (WHERE share_token = ?) so must be a relational column, not JSON
 # ctag: collection tag incremented by the service layer on every event mutation — allows CalDAV clients to detect changes without listing all events (RFC 4791 / getctag extension)
 # sync_config: JSON blob grouping all external sync metadata — url, username, password (encrypted with SOGO_AES_ENC_KEY), etag, last_sync, cached_data, sync_interval_minutes — NULL for source_type='local'
+# include_in_freebusy: when FALSE, this calendar's events are excluded from the owner's free/busy aggregation; relational so it can gate the aggregation like is_default
+# preferences: JSON blob grouping the calendar's new-event UI defaults (default_event_duration_min, default_alarm_duration_min, default_type) — never filtered/sorted, NULL when none set
 # created_at / updated_at: UTC timestamps stored as DATETIME
 COL_CAL_KEY               = Column(name="key",                data_type="str",      is_unique=True,                    extra_args={"max_len": 64})
 COL_CAL_USER_UID          = Column(name="user_uid",           data_type="str",                                         extra_args={"max_len": 512})
@@ -159,6 +161,8 @@ COL_CAL_TIMEZONE          = Column(name="timezone",           data_type="str",  
 COL_CAL_SHARE_TOKEN       = Column(name="share_token",        data_type="str",      is_unique=True, is_nullable=True,  extra_args={"max_len": 64})
 COL_CAL_CTAG              = Column(name="ctag",               data_type="int")
 COL_CAL_SYNC_CONFIG       = Column(name="sync_config",        data_type="dict",     is_nullable=True)
+COL_CAL_INCLUDE_IN_FB     = Column(name="include_in_freebusy", data_type="bool")
+COL_CAL_PREFERENCES       = Column(name="preferences",        data_type="dict",     is_nullable=True)
 COL_CAL_CREATED_AT        = Column(name="created_at",         data_type="datetime")
 COL_CAL_UPDATED_AT        = Column(name="updated_at",         data_type="datetime")
 
@@ -174,6 +178,8 @@ ALL_CAL_COL = [COL_ID,
                COL_CAL_SHARE_TOKEN,
                COL_CAL_CTAG,
                COL_CAL_SYNC_CONFIG,
+               COL_CAL_INCLUDE_IN_FB,
+               COL_CAL_PREFERENCES,
                COL_CAL_CREATED_AT,
                COL_CAL_UPDATED_AT]
 

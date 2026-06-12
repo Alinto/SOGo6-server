@@ -4,9 +4,12 @@ from marshmallow import Schema, fields, validate
 
 from app.api.v1.calendar.schemas.components import CalendarPermissionsSchema
 from app.api.v1.calendar.schemas.event import DateTimeEndUtcField, DateTimeUtcField
+from app.module.calendar.model.enums.EventVisibility import EventVisibility
 from app.utils.api.ApiBaseResponse import ApiBaseResponse
 
 _COLOR_REGEX = r"^#[0-9A-Fa-f]{6}$"
+# RFC 5545 CLASS values exposed to the API (UNDEFINED is internal-only).
+_VISIBILITY_VALUES = [v.value for v in EventVisibility if v != EventVisibility.UNDEFINED]
 
 
 class CalendarCreateSchema(Schema):
@@ -20,6 +23,15 @@ class CalendarCreateSchema(Schema):
                                 metadata={"example": "Professional calendar"})
     timezone    = fields.String(load_default="UTC", validate=validate.Length(max=64),
                                 metadata={"example": "Europe/Paris"})
+    include_in_freebusy        = fields.Boolean(load_default=True,
+                                metadata={"description": "When false, this calendar's events are excluded from the owner's free/busy."})
+    default_event_duration_min = fields.Integer(load_default=None, allow_none=True,
+                                metadata={"description": "Default duration applied to a new event left without an explicit end."})
+    default_alarm_duration_min = fields.Integer(load_default=None, allow_none=True,
+                                metadata={"description": "Default offset for an alarm added without an explicit one."})
+    default_type               = fields.String(load_default=None, allow_none=True,
+                                validate=validate.OneOf(_VISIBILITY_VALUES),
+                                metadata={"description": "Default visibility (RFC 5545 CLASS) for new events."})
 
 
 class CalendarUpdateSchema(Schema):
@@ -34,6 +46,10 @@ class CalendarUpdateSchema(Schema):
     timezone    = fields.String(validate=validate.Length(max=64),
                                 metadata={"example": "Europe/Paris"})
     is_default  = fields.Boolean()
+    include_in_freebusy        = fields.Boolean()
+    default_event_duration_min = fields.Integer(allow_none=True)
+    default_alarm_duration_min = fields.Integer(allow_none=True)
+    default_type               = fields.String(allow_none=True, validate=validate.OneOf(_VISIBILITY_VALUES))
 
 
 class CalendarSchema(Schema):
@@ -47,6 +63,10 @@ class CalendarSchema(Schema):
     is_default         = fields.Boolean()
     source_type        = fields.String()
     ctag               = fields.Integer()
+    include_in_freebusy        = fields.Boolean()
+    default_event_duration_min = fields.Integer(allow_none=True)
+    default_alarm_duration_min = fields.Integer(allow_none=True)
+    default_type               = fields.String(allow_none=True)
     # Full public subscription URL, computed server-side from the share token when active.
     public_url         = fields.String(allow_none=True, dump_only=True)
     # `dump_only`` because permissions are only available when retrieving calendar but can't be set in that way

@@ -84,7 +84,7 @@ class RecurrenceScopeProcessor:
             return ScopeResult(result=occurrence, touched=[(occurrence, EventAction.INSERT)])
 
         # Branch 3: "All events" (or standalone/detached event) — standard update
-        RecurrenceScopeProcessor._normalize_all_day(event_update)
+        event_update.normalize_all_day()
         event_update.sequence = (original.sequence or 0) + 1
         source.update_event(event_update)
         touched: list[tuple[CalEvent, EventAction]] = [(event_update, EventAction.UPDATE)]
@@ -136,7 +136,7 @@ class RecurrenceScopeProcessor:
             date_end=end,
             sequence=0,
         )
-        RecurrenceScopeProcessor._normalize_all_day(occurrence)
+        occurrence.normalize_all_day()
         return source.insert_event(occurrence)
 
     @staticmethod
@@ -182,7 +182,7 @@ class RecurrenceScopeProcessor:
             uid_parent_split=original.uid,
             reminders=[],
         )
-        RecurrenceScopeProcessor._normalize_all_day(new_master)
+        new_master.normalize_all_day()
 
         # Convert COUNT to UNTIL on the new series
         if new_master.recurrence_rule is not None and new_master.recurrence_rule.count is not None:
@@ -202,9 +202,3 @@ class RecurrenceScopeProcessor:
             if getattr(original, field_name) != getattr(event_update, field_name):
                 return True
         return False
-
-    @staticmethod
-    def _normalize_all_day(event: CalEvent) -> None:
-        """Ensure all-day events have a valid exclusive DTEND (RFC 5545 §3.6.1)."""
-        if event.all_day and event.date_end is not None and event.date_start is not None and event.date_end <= event.date_start:
-            event.date_end = event.date_start + timedelta(days=1)
