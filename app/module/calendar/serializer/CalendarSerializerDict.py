@@ -23,5 +23,9 @@ class CalendarSerializerDict(CalendarSerializer[dict]):
             "is_default": data.is_default,
             "source_type": data.source_type.value,
             "ctag": data.ctag,
+            "include_in_freebusy": data.include_in_freebusy,
+            "default_event_duration_min": data.default_event_duration_min,
+            "default_alarm_duration_min": data.default_alarm_duration_min,
+            "default_type": data.default_type.value if data.default_type else None,
             "permissions": self._permissions_serializer.serialize(data.permissions) if data.permissions else None,
         }

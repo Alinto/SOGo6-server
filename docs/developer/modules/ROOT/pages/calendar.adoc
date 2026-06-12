@@ -51,6 +51,22 @@ Fields are either *relational* (dedicated columns for filtering: `date_start`, `
 
 All datetimes are stored and processed in UTC. The original TZID is preserved in `CalEvent.timezone` for display only.
 
+=== Calendar new-event defaults and free/busy participation
+
+A calendar carries four per-calendar settings, exposed on create/update (`POST`/`PATCH /calendars`) and in the calendar response:
+
+* `include_in_freebusy` (bool, default `true`) — a *relational* column (like `is_default`), not a blob. When `false`, the calendar's events are excluded from the owner's free/busy: `CalendarSources.get_freebusy_events` skips the calendar entirely so none of its events ever contribute a busy slot.
+* `default_event_duration_min` (int, nullable) — when a new timed event arrives without a `date_end`, the value derives one (`date_end = date_start + duration`). Skipped for all-day events and tasks (a VTODO's DUE stays optional), and never overrides an end the caller already provided.
+* `default_alarm_duration_min` (int, nullable) — when an alarm is added without an explicit offset, this becomes its `minutes_before`. It is not auto-created: no alarm is added to an event that has none.
+* `default_type` (RFC 5545 CLASS, nullable) — the visibility applied to a new event that does not specify one.
+
+The three new-event defaults are read-simple UI values, never filtered or sorted, so they are grouped in a single nullable `preferences` JSON column (same convention as `sync_config`) rather than three columns; `RepositoryCalendar` packs/unpacks them. `include_in_freebusy` stays relational because it gates an aggregation.
+
+Defaults split into two layers by their lifecycle:
+
+* *Creation-time* defaults (`default_type`, `default_event_duration_min`) are applied by `CalEvent.apply_defaults(default_visibility, default_duration_min)`, called from `ModuleCalendar.create_event` / `create_task` once the parent calendar is resolved. They only make sense on a brand-new event (you do not re-pick a visibility or re-derive an end on every edit) and fall back to the global defaults (public; no derived end) when the calendar value is `None`. For this to work the deserializer leaves `visibility` at `UNDEFINED` when the caller omits it (an eager `PUBLIC` would mask the calendar default).
+* *Persistence-time* preparation (`default_alarm_duration_min` resolution and the all-day DTEND invariant) lives at the write chokepoint: `CalendarSourceDb._prepare_for_persistence`, run at the top of every `insert_event` / `update_event`, calls `CalEvent.normalize_all_day()` and `CalEvent.resolve_reminder_offsets(calendar.default_alarm_duration_min)`. Placing it there covers create, update, tasks, attendee copies and recurrence splits uniformly, so no caller has to remember it. An unspecified alarm offset travels as `CalReminder.minutes_before = None` from the deserializer and is resolved here (global fallback `DEFAULT_REMINDER_MINUTES`); `CalReminder.require_minutes_before` raises if a `None` ever reached the reminder row, as a last-resort guard.
+
 == Calendar sources
 
 `CalendarSource` is an abstract base class with a fixed processing pipeline:

@@ -155,12 +155,23 @@ class CalendarSourceDb(CalendarSource):
         self._calendar.ctag = (self._calendar.ctag or 0) + 1
         self._repo_calendar.update(self._calendar)
 
+    def _prepare_for_persistence(self, event: CalEvent) -> None:
+        """Normalize the event and resolve calendar-default reminder offsets before any write.
+
+        Single preparation chokepoint for every persisted event (create, update, task,
+        attendee copies, recurrence splits): the all-day DTEND invariant and the reminder
+        offsets are guaranteed here, so callers never have to remember to apply them.
+        """
+        event.normalize_all_day()
+        event.resolve_reminder_offsets(self._calendar.default_alarm_duration_min)
+
     def insert_event(self, event: CalEvent) -> CalEvent:
         """Persist a new event row, bump ctag, and return the event with id and key populated.
 
         If the event has recurrence_id set, it is treated as a detached occurrence:
         the master event is located by uid to validate it is recurring and to populate parent_uid.
         """
+        self._prepare_for_persistence(event)
         if event.recurrence_id is not None:
             created: CalEvent = self._insert_detached_occurrence(event)
         else:
@@ -195,6 +206,7 @@ class CalendarSourceDb(CalendarSource):
 
     def update_event(self, event: CalEvent) -> None:
         """Persist changes to an existing event row and bump the calendar ctag."""
+        self._prepare_for_persistence(event)
         self._repo_event.update(event, self._date_end_recurrence(event))
         self._upsert_reminder_if_relevant(event)
         self._bump_ctag()

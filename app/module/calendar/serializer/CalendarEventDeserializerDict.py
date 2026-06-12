@@ -59,7 +59,9 @@ class CalendarEventDeserializerDict(CalendarEventDeserializer[dict]):
             all_day=data.get("all_day", False),
             timezone=data.get("timezone") or "UTC",
             status=self._parse_enum(EventStatus, data.get("status"), EventStatus.CONFIRMED),
-            visibility=self._parse_enum(EventVisibility, data.get("visibility"), EventVisibility.PUBLIC),
+            # Left UNDEFINED when the caller omits it so the module can apply the parent calendar's
+            # default_type; apply_defaults falls back to PUBLIC when the calendar declares none.
+            visibility=self._parse_enum(EventVisibility, data.get("visibility"), EventVisibility.UNDEFINED),
             show_as=self._parse_enum(ShowAs, data.get("show_as"), ShowAs.BUSY),
             color=data.get("color"),
             sequence=data.get("sequence", 0),
@@ -164,9 +166,11 @@ class CalendarEventDeserializerDict(CalendarEventDeserializer[dict]):
 
     @staticmethod
     def _parse_reminder(data: dict[str, Any]) -> CalReminder:
+        # minutes_before left as None when the caller omits it: the module resolves it from the
+        # parent calendar's default_alarm_duration_min (or the global fallback) before persisting.
         return CalReminder(
             method=ReminderMethod(data.get("method", ReminderMethod.POPUP.value)),
-            minutes_before=data.get("minutes_before", 15),
+            minutes_before=data.get("minutes_before"),
         )
 
     @staticmethod
