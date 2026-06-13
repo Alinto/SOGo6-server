@@ -140,6 +140,15 @@ class CalendarEventDeserializerIcal(CalendarEventDeserializer[str]):
     """
     Deserializes iCalendar format (RFC 5545) into calendar events.
     Uses the icalendar library for parsing.
+
+    Architecture note - unlike the Dict deserializer, sub-objects are parsed inline here rather
+    than split into dedicated per-sub-object deserializers. This mirrors the serializer side: the
+    iCalendar format does not decompose symmetrically (no standalone conference parser - the
+    X-CONFERENCE-* properties fall into extra_properties; RELATED-TO carries event-level
+    X-SOGO-SPLIT-FROM handling), and the RFC 5545 mapping tables plus the icalendar dependency
+    (confined to *Ical.py) stay cohesive in one place. Extracting only the few sub-objects that
+    would decompose cleanly (organizer/attendee/rrule) would leave a less consistent layout than
+    one cohesive format deserializer.
     """
 
     # Public interface

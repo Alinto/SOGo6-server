@@ -96,6 +96,16 @@ class CalendarEventSerializerIcal(CalendarEventSerializer[str]):
     """
     Serializes calendar events to iCalendar format (RFC 5545).
     Uses the icalendar library for encoding, folding, and escaping.
+
+    Architecture note - unlike the Dict serializer, sub-objects are mapped inline here rather
+    than split into dedicated per-sub-object serializers. The iCalendar format does not decompose
+    cleanly: a VALARM cannot be built from a CalReminder alone (it needs the event title and the
+    resolved EMAIL recipients), ATTACH and the X-CONFERENCE-* extension emit several coupled
+    properties / an encode flag onto the parent component, and RELATED-TO carries event-level
+    X-SOGO-SPLIT-FROM handling. Only organizer/attendee/rrule would extract cleanly, so a partial
+    split would leave a less consistent layout than one cohesive format serializer. Keeping the
+    RFC 5545 reverse-mapping tables and the icalendar dependency together here also honours the
+    rule that icalendar stays confined to *Ical.py.
     """
 
     # Public interface
