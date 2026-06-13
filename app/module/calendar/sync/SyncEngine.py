@@ -13,7 +13,7 @@ from app.module.calendar.serializer.CalendarDeserializerIcal import CalendarDese
 from app.module.calendar.serializer.CalendarEventDeserializerIcal import CalendarEventDeserializerIcal
 from app.module.calendar.serializer.CalendarEventsDeserializerIcal import CalendarEventsDeserializerIcal
 from app.module.calendar.sync.IcsFetcher import IcsFetcher
-from app.utils.calendar.DateTimeUtils import anchor_to_utc, to_utc
+from app.utils.datetime.DateTimeUtils import anchor_to_utc, to_utc
 from app.utils import errors as err
 from app.utils.exceptions import RequestException
 from app.utils.logger.logger import logger_calendar

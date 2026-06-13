@@ -10,7 +10,7 @@ from app.module.calendar.serializer.CalendarEventSerializer import CalendarEvent
 from app.module.calendar.serializer.CalOrganizerSerializerDict import CalOrganizerSerializerDict
 from app.module.calendar.serializer.CalRecurrenceRuleSerializerDict import CalRecurrenceRuleSerializerDict
 from app.module.calendar.serializer.CalReminderSerializerDict import CalReminderSerializerDict
-from app.utils.calendar.DateTimeUtils import apply_tz, fmt_dt
+from app.utils.datetime.DateTimeUtils import apply_tz, fmt_dt
 
 if TYPE_CHECKING:
     from app.module.calendar.model.CalEvent import CalEvent

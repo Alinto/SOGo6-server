@@ -9,7 +9,7 @@ from app.module.calendar.model.enums.FreeBusyType import FreeBusyType
 from app.module.calendar.model.CalFreeBusyRequest import CalFreeBusyRequest
 from app.module.calendar.serializer.FreeBusyDeserializer import FreeBusyDeserializer
 from app.utils import errors as err
-from app.utils.calendar.DateTimeUtils import to_utc
+from app.utils.datetime.DateTimeUtils import to_utc
 from app.utils.exceptions import RequestException
 
 # RFC 5545 §3.2.9 — reverse mapping from iCal FBTYPE to internal enum

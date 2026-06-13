@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 from app.config.db import tables as tbl
 from app.module.calendar.model.CalEventReminder import CalEventReminder
 from app.module.calendar.model.enums.ReminderMethod import ReminderMethod
-from app.utils.calendar.DateTimeUtils import to_utc
+from app.utils.datetime.DateTimeUtils import to_utc
 from app.utils.db.Condition import (AndCondition, Condition, EqualCondition, GreaterOrEqualCondition, JoinClause,
                                      LessOrEqualCondition)
 

@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Any
 
 from app.module.calendar.model.enums.RecurrenceFrequency import RecurrenceFrequency
-from app.utils.calendar.DateTimeUtils import to_utc
+from app.utils.datetime.DateTimeUtils import to_utc
 
 
 @dataclass

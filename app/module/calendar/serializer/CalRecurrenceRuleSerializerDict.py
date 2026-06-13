@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.module.calendar.model.CalRecurrenceRule import CalRecurrenceRule
-from app.utils.calendar.DateTimeUtils import fmt_dt
+from app.utils.datetime.DateTimeUtils import fmt_dt
 from app.utils.serializer.Serializer import Serializer
 
 

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
 
 from app.module.calendar.model.CalRecurrenceRule import CalRecurrenceRule
 from app.module.calendar.model.enums.RecurrenceFrequency import RecurrenceFrequency
+from app.utils.datetime.DateTimeUtils import to_utc
 from app.utils.serializer.Deserializer import Deserializer
 
 
@@ -32,5 +33,5 @@ class CalRecurrenceRuleDeserializerDict(Deserializer[dict[str, Any], CalRecurren
 
     @staticmethod
     def _parse_dt_opt(value: str | None) -> datetime | None:
-        """Parse an optional ISO 8601 UTC datetime string; return None when absent."""
-        return datetime.fromisoformat(value).astimezone(timezone.utc) if value else None
+        """Parse an optional ISO 8601 datetime string into UTC; return None when absent."""
+        return to_utc(datetime.fromisoformat(value)) if value else None

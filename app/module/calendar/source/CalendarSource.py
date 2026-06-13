@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from app.module.calendar.rrule.RecurrenceScopeProcessor import EventAction
 from app.module.calendar.rrule.RruleEngine import RruleEngine
 from app.utils import errors as err
+from app.utils.datetime.DateTimeUtils import to_utc
 from app.utils.exceptions import RequestException
 
 if TYPE_CHECKING:
@@ -99,10 +100,8 @@ class CalendarSource(ABC):  # pylint: disable=too-many-public-methods
         else:
             resolved_end = datetime.now(timezone.utc)
 
-        if resolved_start.tzinfo is None:
-            resolved_start = resolved_start.replace(tzinfo=timezone.utc)
-        if resolved_end.tzinfo is None:
-            resolved_end = resolved_end.replace(tzinfo=timezone.utc)
+        resolved_start = to_utc(resolved_start)
+        resolved_end = to_utc(resolved_end)
 
         raw: list[CalEvent] = fetch(resolved_start, resolved_end, search)
         if expand:

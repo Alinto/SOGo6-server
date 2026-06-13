@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, time, timedelta, timezone
+from datetime import datetime, time, timedelta
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
@@ -10,7 +10,7 @@ from app.module.calendar.model.enums.EventStatus import EventStatus
 from app.module.calendar.model.enums.EventVisibility import EventVisibility
 from app.module.calendar.model.enums.FreeBusyType import FreeBusyType
 from app.module.calendar.model.enums.ShowAs import ShowAs
-from app.utils.calendar.DateTimeUtils import resolve_tz
+from app.utils.datetime.DateTimeUtils import combine_in_tz_to_utc, resolve_tz
 
 if TYPE_CHECKING:
     from app.module.calendar.model.CalEvent import CalEvent
@@ -102,8 +102,8 @@ class FreeBusyEngine:
         current_date = local_start.date()
 
         while current_date <= local_end.date():
-            day_start_utc = datetime.combine(current_date, time(0, 0, 0), tzinfo=user_tz).astimezone(timezone.utc)
-            day_end_utc = datetime.combine(current_date, time(23, 59, 59), tzinfo=user_tz).astimezone(timezone.utc)
+            day_start_utc = combine_in_tz_to_utc(current_date, time(0, 0, 0), user_tz)
+            day_end_utc = combine_in_tz_to_utc(current_date, time(23, 59, 59), user_tz)
 
             p_start = max(day_start_utc, start)
             p_end = min(day_end_utc, end)
@@ -115,8 +115,8 @@ class FreeBusyEngine:
             if current_date.weekday() in _NON_WORKING_WEEKDAYS:
                 periods.append(CalFreeBusyPeriod(p_start, p_end, FreeBusyType.UNAVAILABLE))
             else:
-                work_start_utc = datetime.combine(current_date, work_start, tzinfo=user_tz).astimezone(timezone.utc)
-                work_end_utc = datetime.combine(current_date, work_end, tzinfo=user_tz).astimezone(timezone.utc)
+                work_start_utc = combine_in_tz_to_utc(current_date, work_start, user_tz)
+                work_end_utc = combine_in_tz_to_utc(current_date, work_end, user_tz)
 
                 before_end = min(work_start_utc, p_end)
                 if p_start < before_end:

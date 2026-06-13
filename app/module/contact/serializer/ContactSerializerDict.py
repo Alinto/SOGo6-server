@@ -8,7 +8,7 @@ from app.module.contact.serializer.CardImppSerializerDict import CardImppSeriali
 from app.module.contact.serializer.CardPhoneSerializerDict import CardPhoneSerializerDict
 from app.module.contact.serializer.CardUrlSerializerDict import CardUrlSerializerDict
 from app.module.contact.serializer.ContactSerializer import ContactSerializer
-from app.utils.calendar.DateTimeUtils import fmt_dt
+from app.utils.datetime.DateTimeUtils import fmt_dt
 
 if TYPE_CHECKING:
     from app.module.contact.model.CardContact import CardContact

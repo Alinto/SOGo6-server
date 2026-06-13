@@ -4,11 +4,12 @@ import dataclasses
 from calendar import isleap as _isleap  # pylint: disable=no-name-in-module
 from calendar import monthrange as _monthrange  # pylint: disable=no-name-in-module
 from datetime import date as _date
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
 from app.module.calendar.CalendarConst import MAX_RRULE_EXPANSION_YEARS
 from app.module.calendar.model.enums.RecurrenceFrequency import RecurrenceFrequency
+from app.utils.datetime.DateTimeUtils import to_utc
 from app.utils.logger.logger import logger_calendar
 
 if TYPE_CHECKING:
@@ -552,9 +553,7 @@ class RruleEngine:
     @staticmethod
     def _normalize_dt(dt: datetime) -> datetime:
         # RFC 5545 §3.3.5 — DATE-TIME: all comparisons use UTC-aware datetimes
-        if dt.tzinfo is None:
-            return dt.replace(tzinfo=timezone.utc)
-        return dt.astimezone(timezone.utc)
+        return to_utc(dt)
 
     @staticmethod
     def _is_excluded(occ: datetime, exceptions: list[datetime]) -> bool:

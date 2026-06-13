@@ -9,6 +9,7 @@ from app.module.calendar.model.CalFreeBusyResult import CalFreeBusyResult
 from app.module.calendar.model.enums.FreeBusyType import FreeBusyType
 from app.module.calendar.serializer.FreeBusySerializer import FreeBusySerializer
 from app.module.calendar.serializer.IcalSerializerUtils import new_vcalendar
+from app.utils.datetime.DateTimeUtils import to_utc
 from app.utils.maths.sogo_hash import generate_uuid
 
 if TYPE_CHECKING:
@@ -35,8 +36,8 @@ class FreeBusySerializerIcal(FreeBusySerializer[str]):
     def serialize(self, data: CalFreeBusyResult) -> str:  # pylint: disable=too-many-locals
         cal = new_vcalendar(method="REPLY")
 
-        start_utc = data.start.astimezone(timezone.utc)
-        end_utc = data.end.astimezone(timezone.utc)
+        start_utc = to_utc(data.start)
+        end_utc = to_utc(data.end)
         now = datetime.now(timezone.utc)
 
         for uid, periods in data.periods_by_uid.items():
@@ -56,7 +57,7 @@ class FreeBusySerializerIcal(FreeBusySerializer[str]):
             for fb_type, type_periods in by_type.items():
                 fb.add(
                     "freebusy",
-                    [(p.date_start.astimezone(timezone.utc), p.date_end.astimezone(timezone.utc)) for p in type_periods],
+                    [(to_utc(p.date_start), to_utc(p.date_end)) for p in type_periods],
                     parameters={"FBTYPE": _FB_TYPE_MAP[fb_type]},
                 )
 

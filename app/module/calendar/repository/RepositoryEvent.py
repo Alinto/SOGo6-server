@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from app.config.db import tables as tbl
-from app.utils.calendar.DateTimeUtils import to_utc
+from app.utils.datetime.DateTimeUtils import to_utc
 from app.module.calendar.model.CalEvent import CalEvent
 from app.module.calendar.model.CalEventSyncMeta import CalEventSyncMeta
 from app.module.calendar.model.enums.ComponentType import ComponentType

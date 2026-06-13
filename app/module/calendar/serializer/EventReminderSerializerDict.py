@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.utils.calendar.DateTimeUtils import apply_tz, fmt_dt
+from app.utils.datetime.DateTimeUtils import apply_tz, fmt_dt
 from app.module.calendar.model.CalEventReminder import CalEventReminder
 from app.utils.serializer.Serializer import Serializer
 

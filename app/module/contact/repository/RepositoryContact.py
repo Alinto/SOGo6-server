@@ -9,7 +9,7 @@ from app.module.contact.model.enums.CardKind import CardKind
 from app.module.contact.serializer.ContactDeserializerDict import ContactDeserializerDict
 from app.module.contact.serializer.ContactSerializerDict import ContactSerializerDict
 from app.utils import errors as err
-from app.utils.calendar.DateTimeUtils import to_utc
+from app.utils.datetime.DateTimeUtils import to_utc
 from app.utils.db.Condition import AndCondition, EqualCondition, FullTextCondition
 from app.utils.db.FullTextValue import FullTextValue
 from app.utils.exceptions import BugException, RequestException

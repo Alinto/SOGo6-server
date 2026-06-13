@@ -23,7 +23,7 @@ class CardContact:  # pylint: disable=too-many-instance-attributes
     itself is autonomous - it carries no address book by default, so the same object can also
     describe a directory entry that lives outside the user's books. Relational filter columns
     (last_name, first_name, organization, display_name, kind, uid) are derived from these fields
-    by the repository; everything else is stored in the cal_contact JSON blob.
+    by the repository; everything else is stored in the contact_data JSON blob.
 
     Dates are real datetime.date objects: the vCard textual form (including partial dates) is the
     serializer's concern, not the model's.

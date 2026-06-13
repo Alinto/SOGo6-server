@@ -6,7 +6,7 @@ import pytest
 
 from app.module.calendar.freebusy.FreeBusyEngine import FreeBusyEngine, FreeBusyPrefs
 from app.module.calendar.model.CalEvent import CalEvent
-from app.utils.calendar.DateTimeUtils import resolve_tz
+from app.utils.datetime.DateTimeUtils import resolve_tz
 from app.module.calendar.model.CalFreeBusyPeriod import CalFreeBusyPeriod
 from app.module.calendar.model.enums.EventStatus import EventStatus
 from app.module.calendar.model.enums.EventVisibility import EventVisibility
