@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from typing import Any
 
 from app.module.contact.model.CardContact import CardContact
@@ -11,6 +11,7 @@ from app.module.contact.serializer.CardImppDeserializerDict import CardImppDeser
 from app.module.contact.serializer.CardPhoneDeserializerDict import CardPhoneDeserializerDict
 from app.module.contact.serializer.CardUrlDeserializerDict import CardUrlDeserializerDict
 from app.module.contact.serializer.ContactDeserializer import ContactDeserializer
+from app.utils.datetime.DateTimeUtils import to_utc
 from app.utils.logger.logger import logger_contact
 
 
@@ -84,5 +85,5 @@ class ContactDeserializerDict(ContactDeserializer[dict]):
 
     @staticmethod
     def _parse_dt_opt(value: str | None) -> datetime | None:
-        """Parse an optional ISO 8601 UTC datetime string; return None when absent."""
-        return datetime.fromisoformat(value).astimezone(timezone.utc) if value else None
+        """Parse an optional ISO 8601 datetime string into UTC; return None when absent."""
+        return to_utc(datetime.fromisoformat(value)) if value else None

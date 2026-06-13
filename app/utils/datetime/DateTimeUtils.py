@@ -3,7 +3,7 @@ from __future__ import annotations
 # pylint R0801 (duplicate-code) may be reported here as a false positive:
 # short common patterns (e.g. "if not rows: return None") in unrelated files
 # can trigger the similarity checker against this module.
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
@@ -39,6 +39,11 @@ def anchor_to_utc(dt: datetime, default_tz_name: str | None) -> datetime:
     if default_tz_name:
         return dt.replace(tzinfo=resolve_tz(default_tz_name)).astimezone(timezone.utc)
     return dt.replace(tzinfo=timezone.utc)
+
+
+def combine_in_tz_to_utc(day: date, wall_time: time, tz: ZoneInfo) -> datetime:
+    """Combine a date and a wall-clock time interpreted in ``tz``, returning a UTC-aware datetime."""
+    return datetime.combine(day, wall_time, tzinfo=tz).astimezone(timezone.utc)
 
 
 def fmt_dt(dt: datetime) -> str:

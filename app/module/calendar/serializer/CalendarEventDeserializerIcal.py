@@ -25,7 +25,7 @@ from app.module.calendar.model.enums.RelationType import RelationType
 from app.module.calendar.model.enums.ReminderMethod import ReminderMethod
 from app.module.calendar.model.enums.ShowAs import ShowAs
 from app.module.calendar.serializer.CalendarEventDeserializer import CalendarEventDeserializer
-from app.utils.calendar.DateTimeUtils import to_utc
+from app.utils.datetime.DateTimeUtils import to_utc
 from app.utils.errors import ERROR_CALENDAR_ICS_PARSE_FAILED
 from app.utils.exceptions import RequestException
 from app.utils.logger.logger import logger_calendar

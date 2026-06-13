@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
 
 from app.module.calendar.model.CalEvent import CalEvent
@@ -17,6 +17,7 @@ from app.module.calendar.serializer.CalendarEventDeserializer import CalendarEve
 from app.module.calendar.serializer.CalOrganizerDeserializerDict import CalOrganizerDeserializerDict
 from app.module.calendar.serializer.CalRecurrenceRuleDeserializerDict import CalRecurrenceRuleDeserializerDict
 from app.module.calendar.serializer.CalReminderDeserializerDict import CalReminderDeserializerDict
+from app.utils.datetime.DateTimeUtils import to_utc
 from app.utils.logger.logger import logger_calendar
 
 
@@ -145,8 +146,8 @@ class CalendarEventDeserializerDict(CalendarEventDeserializer[dict]):
 
     @staticmethod
     def _parse_dt(value: str) -> datetime:
-        """Parse an ISO 8601 UTC string into a timezone-aware UTC datetime."""
-        return datetime.fromisoformat(value).astimezone(timezone.utc)
+        """Parse an ISO 8601 string into a timezone-aware UTC datetime."""
+        return to_utc(datetime.fromisoformat(value))
 
     def _parse_dt_opt(self, value: str | None) -> datetime | None:
         """Parse an optional ISO 8601 UTC string; return None if absent."""
