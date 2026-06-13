@@ -34,6 +34,36 @@ def test_deserialize_parses_typed_email():
     assert contact.emails == [CardEmail(value="a@b.com", types=["work"], pref=1)]
 
 
+def test_update_patches_only_present_fields():
+    origin = CardContact(uid="u1", key="k1", display_name="John", note="old", organization="ACME")
+    merged = _deserializer.deserialize_with_update(origin, {"note": "new"})
+    assert merged.note == "new"
+    assert merged.display_name == "John"
+    assert merged.organization == "ACME"
+    assert origin.note == "old"  # origin untouched
+
+
+def test_update_parses_typed_field():
+    origin = CardContact(uid="u1", display_name="John")
+    merged = _deserializer.deserialize_with_update(origin, {"emails": [{"value": "a@b.com", "types": ["work"]}]})
+    assert merged.emails == [CardEmail(value="a@b.com", types=["work"])]
+
+
+def test_update_skips_immutable_and_unknown_fields():
+    origin = CardContact(uid="u1", key="k1", addressbook_key="ab1", display_name="John")
+    merged = _deserializer.deserialize_with_update(origin, {"uid": "hacked", "key": "hacked", "bogus": 1, "note": "n"})
+    assert merged.uid == "u1"
+    assert merged.key == "k1"
+    assert merged.addressbook_key == "ab1"
+    assert merged.note == "n"
+
+
+def test_update_with_card_contact_returns_it_directly():
+    origin = CardContact(uid="u1", display_name="John")
+    replacement = CardContact(uid="u2", display_name="Jane")
+    assert _deserializer.deserialize_with_update(origin, replacement) is replacement
+
+
 def test_blob_round_trip_preserves_content():
     original = CardContact(
         uid="u1", display_name="John Doe", first_name="John", last_name="Doe",

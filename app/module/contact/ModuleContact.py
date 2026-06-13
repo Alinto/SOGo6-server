@@ -6,6 +6,7 @@ from app.module.contact.model.CardAddressBook import CardAddressBook
 from app.module.contact.model.enums.CardSourceType import CardSourceType
 from app.module.contact.source.ContactSources import ContactSources
 from app.utils import errors as err
+from app.utils.db.Condition import Order
 from app.utils.exceptions import BugException, RequestException
 from app.utils.logger.logger import logger_contact
 from app.utils.maths.sogo_hash import generate_uuid
@@ -120,7 +121,7 @@ class ModuleContact:
     #
     def get_contacts(
         self, user: User, addressbook_key: str | None = None, search: str | None = None,
-        offset: int = 0, limit: int = 0, sort_by: str | None = None,
+        offset: int = 0, limit: int = 0, sort_by: str | None = None, order: Order = Order.ASC,
         user_source: UserSourceSettingsObj | None = None,
     ) -> tuple[list[CardContact], int]:
         """Return a page of contacts plus the total count.
@@ -136,11 +137,15 @@ class ModuleContact:
         :param offset: Number of contacts to skip (pagination).
         :param limit: Maximum number of contacts to return (0 = no limit).
         :param sort_by: Column to sort by, or None for the default (display_name).
+        :param order: Sort direction (ascending or descending).
         :param user_source: Acting user's source config (None = local DB only).
         :return: A tuple (contacts page, total count matching the filter).
         """
         try:
-            return self._sources.get_contacts(user.uid, search, offset, limit, sort_by, addressbook_key, user_source)
+            return self._sources.get_contacts(
+                user.uid, search=search, offset=offset, limit=limit, sort_by=sort_by,
+                order=order, addressbook_key=addressbook_key, user_source=user_source,
+            )
         except RequestException:
             raise
         except Exception as exc:

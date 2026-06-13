@@ -10,7 +10,7 @@ from app.module.contact.serializer.ContactDeserializerDict import ContactDeseria
 from app.module.contact.serializer.ContactSerializerDict import ContactSerializerDict
 from app.utils import errors as err
 from app.utils.datetime.DateTimeUtils import to_utc
-from app.utils.db.Condition import AndCondition, EqualCondition, FullTextCondition
+from app.utils.db.Condition import AndCondition, EqualCondition, FullTextCondition, Order
 from app.utils.db.FullTextValue import FullTextValue
 from app.utils.exceptions import BugException, RequestException
 from app.utils.logger.logger import logger_contact
@@ -204,6 +204,7 @@ class RepositoryContact:
         offset: int = 0,
         limit: int = 0,
         sort_by: str = tbl.COL_CT_DISPLAY_NAME.name,
+        order: Order = Order.ASC,
     ) -> list[CardContact]:
         """Return non-deleted contacts of an address book, paginated and sorted.
 
@@ -228,6 +229,7 @@ class RepositoryContact:
             offset=offset,
             limit=limit,
             sort_by=sort_by,
+            order=order,
             rank_by=search_condition,
         )
         return [self._row_to_contact(row) for row in rows]

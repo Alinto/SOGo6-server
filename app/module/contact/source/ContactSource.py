@@ -3,6 +3,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
+from app.utils.db.Condition import Order
+
 if TYPE_CHECKING:
     from app.module.contact.model.CardAddressBook import CardAddressBook
     from app.module.contact.model.CardContact import CardContact
@@ -42,7 +44,8 @@ class ContactSource(ABC):
 
     @abstractmethod
     def get_contacts(
-        self, search: str | None = None, offset: int = 0, limit: int = 0, sort_by: str | None = None,
+        self, search: str | None = None, offset: int = 0, limit: int = 0,
+        sort_by: str | None = None, order: Order = Order.ASC,
     ) -> list[CardContact]:
         """Return the address book's contacts, paginated, sorted and optionally full-text filtered."""
 
