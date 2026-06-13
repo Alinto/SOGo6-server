@@ -187,5 +187,14 @@ ERROR_CALENDAR_IMPORT_NO_FILE                = E("S000621", "No File Provided In
 ERROR_CALENDAR_IMPORT_TOO_LARGE              = E("S000622", "Import Payload Exceeds Maximum Allowed Size", HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
 ERROR_CALENDAR_PUBLIC_LINK_DISABLED          = E("S000623", "Public Calendar Link Is Disabled For This Domain", HTTPStatus.FORBIDDEN)
 
+#the contacts
+ERROR_CONTACT_JSON_PARSE_FAILED              = E("S000700", "Failed To Parse Contact JSON Content", HTTPStatus.UNPROCESSABLE_ENTITY)
+ERROR_CONTACT_ADDRESSBOOK_NOT_FOUND          = E("S000701", "Address Book Not Found", HTTPStatus.NOT_FOUND)
+ERROR_CONTACT_ADDRESSBOOK_DUPLICATE          = E("S000702", "Address Book Already Exists", HTTPStatus.CONFLICT)
+ERROR_CONTACT_NOT_FOUND                      = E("S000703", "Contact Not Found", HTTPStatus.NOT_FOUND)
+ERROR_CONTACT_DUPLICATE                      = E("S000704", "Contact Already Exists", HTTPStatus.CONFLICT)
+ERROR_CONTACT_INSERT_FAILED                  = E("S000705", "Failed To Persist Contact", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_CONTACT_UPDATE_FAILED                  = E("S000706", "Failed To Update Contact", HTTPStatus.INTERNAL_SERVER_ERROR)
+
 #the bugs
 ERROR_UNKOWN = E("S999999", "Undefined Error", HTTPStatus.INTERNAL_SERVER_ERROR)
