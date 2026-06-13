@@ -131,10 +131,10 @@ class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attribute
             logger_api.error("get_contacts failed for user %s book %s: %s", self.user.uid, key, ex)
             return 0, *create_api_base_response(None, ex.error)
 
-    def get_contact(self, addressbook_key: str, key: str) -> tuple[dict[str, Any], int]:
-        """Get a single contact by key."""
+    def get_contact(self, key: str) -> tuple[dict[str, Any], int]:
+        """Get a single contact by its opaque key across the user's books."""
         try:
-            contact: CardContact = self.module.get_contact(self.user, addressbook_key, key)
+            contact: CardContact = self.module.get_contact(self.user, key)
             return create_api_base_response(self._contact_serializer.serialize(contact))
         except RequestException as ex:
             logger_api.error("get_contact failed for user %s contact %s: %s", self.user.uid, key, ex)
@@ -153,12 +153,12 @@ class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attribute
             logger_api.error("Failed to parse contact body for user %s book %s: %s", self.user.uid, addressbook_key, exc)
             return create_api_base_response(None, ERROR_CONTACT_JSON_PARSE_FAILED)
 
-    def patch_contact(self, addressbook_key: str, key: str, body: dict[str, Any]) -> tuple[dict[str, Any], int]:
-        """Apply partial updates to a contact."""
+    def patch_contact(self, key: str, body: dict[str, Any]) -> tuple[dict[str, Any], int]:
+        """Apply partial updates to a contact identified by its opaque key."""
         try:
-            existing: CardContact = self.module.get_contact(self.user, addressbook_key, key)
+            existing: CardContact = self.module.get_contact(self.user, key)
             contact_update: CardContact = self._contact_deserializer.deserialize_with_update(existing, body)
-            updated: CardContact = self.module.update_contact(self.user, addressbook_key, key, contact_update)
+            updated: CardContact = self.module.update_contact(self.user, key, contact_update)
             return create_api_base_response(self._contact_serializer.serialize(updated))
         except RequestException as ex:
             logger_api.error("patch_contact failed for user %s contact %s: %s", self.user.uid, key, ex)
@@ -167,10 +167,10 @@ class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attribute
             logger_api.error("Failed to parse patch body for user %s contact %s: %s", self.user.uid, key, exc)
             return create_api_base_response(None, ERROR_CONTACT_JSON_PARSE_FAILED)
 
-    def delete_contact(self, addressbook_key: str, key: str) -> tuple[dict[str, Any], int]:
-        """Delete a contact."""
+    def delete_contact(self, key: str) -> tuple[dict[str, Any], int]:
+        """Delete a contact identified by its opaque key."""
         try:
-            self.module.delete_contact(self.user, addressbook_key, key)
+            self.module.delete_contact(self.user, key)
             return create_api_base_response(None)
         except RequestException as ex:
             logger_api.error("delete_contact failed for user %s contact %s: %s", self.user.uid, key, ex)

@@ -105,9 +105,9 @@ def test_create_contact_invalid_date_returns_parse_error():
 def test_patch_contact_merges_and_updates():
     inter = _build_interface()
     inter.module.get_contact.return_value = CardContact(uid="u1", key="c1", display_name="John", note="old")
-    inter.module.update_contact.side_effect = lambda user, ab_key, key, contact: contact
-    inter.patch_contact("k1", "c1", {"note": "new"})
-    merged = inter.module.update_contact.call_args.args[3]
+    inter.module.update_contact.side_effect = lambda user, key, contact: contact
+    inter.patch_contact("c1", {"note": "new"})
+    merged = inter.module.update_contact.call_args.args[2]
     assert merged.note == "new"
     assert merged.display_name == "John"
 
