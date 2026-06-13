@@ -126,15 +126,15 @@ def test_get_contacts_delegates_to_sources_and_returns_page_and_total():
     contacts, total = module.get_contacts(_user(), "ab-k", search="a", limit=10)
     assert len(contacts) == 1
     assert total == 42
-    # addressbook_key + user_source threaded through to the aggregator.
-    assert module._sources.get_contacts.call_args.args[5] == "ab-k"
+    # addressbook_key threaded through to the aggregator.
+    assert module._sources.get_contacts.call_args.kwargs["addressbook_key"] == "ab-k"
 
 
 def test_get_contacts_transverse_when_no_addressbook_key():
     module = _build_module()
     module._sources.get_contacts.return_value = ([], 0)
     module.get_contacts(_user(), search="joe")
-    assert module._sources.get_contacts.call_args.args[5] is None
+    assert module._sources.get_contacts.call_args.kwargs["addressbook_key"] is None
 
 
 def test_delete_contact_raises_not_found_when_absent():

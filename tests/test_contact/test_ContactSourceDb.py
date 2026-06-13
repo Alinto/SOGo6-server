@@ -5,6 +5,7 @@ from app.module.contact.model.CardAddressBook import CardAddressBook
 from app.module.contact.model.CardContact import CardContact
 from app.module.contact.model.enums.CardSourceType import CardSourceType
 from app.module.contact.source.ContactSourceDb import ContactSourceDb
+from app.utils.db.Condition import Order
 
 
 def _book(**kwargs):
@@ -56,5 +57,18 @@ def test_insert_contact_bumps_ctag():
 def test_get_contacts_defaults_sort_to_display_name():
     source = _build_source(_book(key="ab-k"))
     source.get_contacts(search="joe", offset=0, limit=10, sort_by=None)
-    # find_by_addressbook(addressbook_key, search, offset, limit, sort_column)
+    # find_by_addressbook(addressbook_key, search, offset, limit, sort_column, order)
     assert source._repo_contact.find_by_addressbook.call_args.args[4] == "display_name"
+
+
+def test_get_contacts_rejects_unknown_sort_column():
+    source = _build_source(_book(key="ab-k"))
+    source.get_contacts(sort_by="last_name); DROP TABLE")
+    assert source._repo_contact.find_by_addressbook.call_args.args[4] == "display_name"
+
+
+def test_get_contacts_forwards_valid_sort_and_order():
+    source = _build_source(_book(key="ab-k"))
+    source.get_contacts(sort_by="last_name", order=Order.DESC)
+    assert source._repo_contact.find_by_addressbook.call_args.args[4] == "last_name"
+    assert source._repo_contact.find_by_addressbook.call_args.args[5] == Order.DESC

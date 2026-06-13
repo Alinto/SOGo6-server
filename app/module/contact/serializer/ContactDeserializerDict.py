@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 from datetime import date, datetime
 from typing import Any
 
@@ -13,6 +14,8 @@ from app.module.contact.serializer.CardUrlDeserializerDict import CardUrlDeseria
 from app.module.contact.serializer.ContactDeserializer import ContactDeserializer
 from app.utils.datetime.DateTimeUtils import to_utc
 from app.utils.logger.logger import logger_contact
+
+_SKIP = object()
 
 
 class ContactDeserializerDict(ContactDeserializer[dict]):
@@ -66,6 +69,44 @@ class ContactDeserializerDict(ContactDeserializer[dict]):
             extra_properties=data.get("extra_properties", {}),
             rev=self._parse_dt_opt(data.get("rev")),
         )
+
+    def deserialize_with_update(self, origin: CardContact, update: dict | CardContact) -> CardContact:
+        """Apply a partial update to an existing CardContact and return the result.
+
+        When update is a dict, parse each key and apply it to a copy of origin; only keys present
+        in the dict are modified. Identity fields (uid, key, db_id, addressbook_key) and the
+        server-managed version/rev are not in MUTABLE_FIELDS, so they are skipped here as well as
+        re-asserted by ModuleContact.update_contact. When update is a CardContact, return it directly.
+        """
+        if isinstance(update, CardContact):
+            return update
+
+        merged: CardContact = dataclasses.replace(origin)
+        for key, raw_value in update.items():
+            parsed = self._parse_field(key, raw_value)
+            if parsed is not _SKIP:
+                setattr(merged, key, parsed)
+        return merged
+
+    def _parse_field(self, key: str, value: Any) -> Any:  # pylint: disable=too-many-return-statements
+        """Parse a single update field. Returns _SKIP for unknown or immutable fields."""
+        if key == "kind":
+            return self._parse_kind(value)
+        if key == "emails":
+            return [self._email_deserializer.deserialize(e) for e in value]
+        if key == "phones":
+            return [self._phone_deserializer.deserialize(p) for p in value]
+        if key == "addresses":
+            return [self._address_deserializer.deserialize(a) for a in value]
+        if key == "urls":
+            return [self._url_deserializer.deserialize(u) for u in value]
+        if key == "impp":
+            return [self._impp_deserializer.deserialize(i) for i in value]
+        if key in ("birthday", "anniversary"):
+            return self._parse_date(value)
+        if key in CardContact.MUTABLE_FIELDS:
+            return value
+        return _SKIP
 
     @staticmethod
     def _parse_kind(value: str | None) -> CardKind:

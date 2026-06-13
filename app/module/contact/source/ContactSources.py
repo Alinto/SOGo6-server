@@ -6,6 +6,7 @@ from app.module.contact.model.enums.CardSourceType import CardSourceType
 from app.module.contact.repository.RepositoryAddressBook import RepositoryAddressBook
 from app.module.contact.source.ContactSourceDb import ContactSourceDb
 from app.utils import errors as err
+from app.utils.db.Condition import Order
 from app.utils.exceptions import RequestException
 from app.utils.logger.logger import logger_contact
 
@@ -62,7 +63,7 @@ class ContactSources:
 
     def get_contacts(
         self, user_uid: str, search: str | None = None, offset: int = 0, limit: int = 0,
-        sort_by: str | None = None, addressbook_key: str | None = None,
+        sort_by: str | None = None, order: Order = Order.ASC, addressbook_key: str | None = None,
         user_source: UserSourceSettingsObj | None = None,
     ) -> tuple[list[CardContact], int]:
         """Return a page of contacts plus the total count.
@@ -76,6 +77,7 @@ class ContactSources:
         :param offset: Number of contacts to skip (pagination).
         :param limit: Maximum number of contacts to return (0 = no limit).
         :param sort_by: Sort column applied at the DB level for the single-book case.
+        :param order: Sort direction (ascending or descending).
         :param addressbook_key: Restrict to one book, or None to span all the user's books.
         :param user_source: Acting user's source config (None = local DB only).
         :return: A tuple (contacts page, total count matching the filter).
@@ -84,12 +86,12 @@ class ContactSources:
             source = self.get_by_key(user_uid, addressbook_key, user_source)
             if source is None:
                 raise RequestException(error=err.ERROR_CONTACT_ADDRESSBOOK_NOT_FOUND)
-            return source.get_contacts(search, offset, limit, sort_by), source.count_contacts(search)
+            return source.get_contacts(search, offset, limit, sort_by, order), source.count_contacts(search)
 
         contacts: list[CardContact] = []
         for source in self.get_all(user_uid, user_source):
             contacts.extend(source.get_contacts(search))
-        contacts.sort(key=lambda contact: (contact.display_name or "").casefold())
+        contacts.sort(key=lambda contact: (contact.display_name or "").casefold(), reverse=order == Order.DESC)
         total: int = len(contacts)
         page: list[CardContact] = contacts[offset:offset + limit] if limit else contacts[offset:]
         return page, total
