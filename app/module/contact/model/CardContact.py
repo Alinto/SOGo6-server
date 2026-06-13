@@ -112,6 +112,13 @@ class CardContact:  # pylint: disable=too-many-instance-attributes
             raise BugException("CardContact.key accessed before the contact was persisted")
         return self.key
 
+    @property
+    def require_addressbook_key(self) -> str:
+        """Parent address book key, guaranteed once the contact has been attached to a book."""
+        if self.addressbook_key is None:
+            raise BugException("CardContact.addressbook_key accessed before the contact was attached to a book")
+        return self.addressbook_key
+
     def apply_defaults(self) -> None:
         """Fill in creation-time defaults: generate a UID and derive a display name when missing."""
         if not self.uid:
