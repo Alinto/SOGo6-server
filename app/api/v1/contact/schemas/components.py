@@ -53,3 +53,10 @@ class ImppSchema(Schema):
 
     uri  = fields.String(required=True, metadata={"example": "xmpp:john@example.com"})
     type = fields.String(allow_none=True)
+
+
+class AddressBookRefSchema(Schema):
+    """Lightweight reference to the address book a suggestion comes from."""
+
+    key  = fields.String(allow_none=True)
+    name = fields.String(allow_none=True)

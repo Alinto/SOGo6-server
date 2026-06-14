@@ -2,7 +2,14 @@ from __future__ import annotations
 
 from marshmallow import Schema, ValidationError, fields, validate
 
-from app.api.v1.contact.schemas.components import AddressSchema, EmailSchema, ImppSchema, PhoneSchema, UrlSchema
+from app.api.v1.contact.schemas.components import (
+    AddressBookRefSchema,
+    AddressSchema,
+    EmailSchema,
+    ImppSchema,
+    PhoneSchema,
+    UrlSchema,
+)
 from app.module.contact.model.enums.CardKind import CardKind
 from app.utils.api.ApiBaseResponse import ApiBaseResponse
 
@@ -122,3 +129,34 @@ class ContactResponseSchema(ApiBaseResponse):
     """Response schema for a single contact."""
 
     data = fields.Nested(ContactSchema, allow_none=True)
+
+
+class ContactAutocompleteQueryArgsSchema(Schema):
+    """Query string for the recipient autocompletion endpoint."""
+
+    q = fields.String(required=True, metadata={"description": "Partial name or email to autocomplete."})
+
+
+class ContactSuggestionSchema(Schema):
+    """A single recipient suggestion (one per email address).
+
+    contact_key and address_book are nullable: future sources (the directory, collected mail
+    addresses) may not map to a stored contact or a real address book.
+    """
+
+    name         = fields.String(allow_none=True)
+    email        = fields.String()
+    contact_key  = fields.String(allow_none=True)
+    address_book = fields.Nested(AddressBookRefSchema, allow_none=True)
+
+
+class ContactAutocompleteDataSchema(Schema):
+    """Data payload for the autocompletion response."""
+
+    suggestions = fields.List(fields.Nested(ContactSuggestionSchema))
+
+
+class ContactAutocompleteResponseSchema(ApiBaseResponse):
+    """Response schema for recipient autocompletion."""
+
+    data = fields.Nested(ContactAutocompleteDataSchema, allow_none=True)

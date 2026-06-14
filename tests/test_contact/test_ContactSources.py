@@ -19,8 +19,8 @@ def _build():
     return sources
 
 
-def _book(source_type=CardSourceType.LOCAL):
-    return CardAddressBook(user_uid="u", name="Personal", key="ab-k", source_type=source_type)
+def _book(source_type=CardSourceType.LOCAL, key="ab-k", name="Personal"):
+    return CardAddressBook(user_uid="u", name=name, key=key, source_type=source_type)
 
 
 def test_get_local_returns_db_source():
@@ -48,8 +48,9 @@ def test_get_by_key_returns_none_when_absent():
 
 # ========== get_contacts ==========
 
-def _source_with(contacts, count):
+def _source_with(contacts, count, book=None):
     source = MagicMock()
+    source.addressbook = book or _book()
     source.get_contacts.return_value = contacts
     source.count_contacts.return_value = count
     return source
@@ -79,6 +80,22 @@ def test_get_contacts_transverse_merges_and_sorts():
     page, total = sources.get_contacts("u")  # addressbook_key None -> transverse
     assert total == 3
     assert [c.display_name for c in page] == ["Amy", "Bob", "Zoe"]
+
+
+def test_get_contacts_stamps_addressbook_name():
+    sources = _build()
+    contact = CardContact(display_name="A", addressbook_key="ab-k")
+    sources.get_all = MagicMock(return_value=[_source_with([contact], 1, _book(key="ab-k", name="Work"))])
+    page, _ = sources.get_contacts("u")
+    assert page[0].addressbook_name == "Work"
+
+
+def test_get_contacts_resolve_ab_false_skips_stamping():
+    sources = _build()
+    contact = CardContact(display_name="A", addressbook_key="ab-k")
+    sources.get_all = MagicMock(return_value=[_source_with([contact], 1, _book(key="ab-k", name="Work"))])
+    page, _ = sources.get_contacts("u", resolve_ab=False)
+    assert page[0].addressbook_name is None
 
 
 def test_get_contacts_transverse_paginates():

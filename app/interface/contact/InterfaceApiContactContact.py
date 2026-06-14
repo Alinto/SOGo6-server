@@ -2,12 +2,19 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from app.config.settings.DomainSettings import CalendarContactSettings, CalendarContactSettingsObj
+from app.config.settings.DomainSettings import (
+    CalendarContactSettings,
+    CalendarContactSettingsObj,
+    UserModuleSettings,
+    UserModuleSettingsObj,
+)
+from app.module.contact.ContactConst import AUTOCOMPLETE_DEFAULT_LIMIT
 from app.module.contact.ModuleContact import ModuleContact
 from app.module.contact.model.CardAddressBook import CardAddressBook
 from app.module.contact.model.enums.CardSourceType import CardSourceType
 from app.module.contact.serializer.AddressBookSerializerDict import AddressBookSerializerDict
 from app.module.contact.serializer.AddressBooksSerializerList import AddressBooksSerializerList
+from app.module.contact.serializer.ContactAutocompleteSerializerList import ContactAutocompleteSerializerList
 from app.module.contact.serializer.ContactDeserializerDict import ContactDeserializerDict
 from app.module.contact.serializer.ContactSerializerDict import ContactSerializerDict
 from app.module.contact.serializer.ContactsSerializerList import ContactsSerializerList
@@ -35,12 +42,16 @@ class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attribute
         self.settings: CalendarContactSettingsObj = CalendarContactSettingsObj(
             user_domain_settings[CalendarContactSettings.subparent]
         )
+        self._user_module_settings: UserModuleSettingsObj = UserModuleSettingsObj(
+            user_domain_settings[UserModuleSettings.subparent]
+        )
         self.module: ModuleContact = ModuleContact(process_setting, cache=sogo_cache())
         self._addressbook_serializer: AddressBookSerializerDict = AddressBookSerializerDict()
         self._addressbooks_serializer: AddressBooksSerializerList = AddressBooksSerializerList()
         self._contact_serializer: ContactSerializerDict = ContactSerializerDict()
         self._contacts_serializer: ContactsSerializerList = ContactsSerializerList()
         self._contact_deserializer: ContactDeserializerDict = ContactDeserializerDict()
+        self._autocomplete_serializer: ContactAutocompleteSerializerList = ContactAutocompleteSerializerList()
 
     #
     # Address books
@@ -130,6 +141,26 @@ class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attribute
         except RequestException as ex:
             logger_api.error("get_contacts failed for user %s book %s: %s", self.user.uid, key, ex)
             return 0, *create_api_base_response(None, ex.error)
+
+    def autocomplete(self, query: str) -> tuple[dict[str, Any], int]:
+        """Return lightweight recipient suggestions (one {name, email} per email) for a query.
+
+        Below the domain's autocompletion minimum length the result is an empty list rather than an
+        error (standard autocomplete behaviour). The search spans all the user's address books (and
+        the directory once ContactSourceDirectory is wired); local books are capped at
+        AUTOCOMPLETE_DEFAULT_LIMIT contacts.
+
+        :param query: Partial name or email typed by the user.
+        :return: API envelope with a ``suggestions`` list, plus HTTP status code.
+        """
+        try:
+            if len(query.strip()) < self._user_module_settings.SOGO_D_AUTOCOMPLETION_MIN_LEN:
+                return create_api_base_response({"suggestions": []})
+            contacts, _ = self.module.get_contacts(self.user, search=query, limit=AUTOCOMPLETE_DEFAULT_LIMIT)
+            return create_api_base_response({"suggestions": self._autocomplete_serializer.serialize(contacts)})
+        except RequestException as ex:
+            logger_api.error("autocomplete failed for user %s: %s", self.user.uid, ex)
+            return create_api_base_response(None, ex.error)
 
     def get_contact(self, key: str) -> tuple[dict[str, Any], int]:
         """Get a single contact by its opaque key across the user's books."""

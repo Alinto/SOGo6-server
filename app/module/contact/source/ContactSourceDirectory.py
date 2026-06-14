@@ -11,21 +11,25 @@ if TYPE_CHECKING:
     from app.module.contact.model.CardContact import CardContact
 
 
-class ContactSourceLdap(ContactSource):  # pylint: disable=unused-argument
-    """Read-only contact source backed by an LDAP/SQL directory (the annuaire).
+class ContactSourceDirectory(ContactSource):  # pylint: disable=unused-argument
+    """Contact source backed by a domain user source (the directory / annuaire), SQL or LDAP.
 
-    Surfaces the domain user directory as a synthetic, read-only address book so directory
-    entries contribute to transverse search and recipient autocompletion alongside the user's
-    personal contacts. Entries are queried through the user source layer (UserSourceSettingsObj:
-    US_SEARCH, US_AUTO_QUERY_LIMIT, US_HIDDEN_USER...) and mapped to CardContact.
+    Surfaces the domain directory as a synthetic, domain-wide address book so its entries
+    contribute to transverse search and recipient autocompletion alongside the user's personal
+    contacts. The backend is abstracted by the user source layer (US_TYPE = sql | ldap); this class
+    is only an adapter that maps directory entries to CardContact. Mirrors SOGo's
+    SOGoContactSourceFolder (a system source with isAddressBook), not an ACL-shared personal book.
 
     TODO: not implemented yet. Open work before this is functional:
       - add a CardSourceType.DIRECTORY value and dispatch to it in ContactSources.get/get_all
-      - build the synthetic read-only CardAddressBook representing the directory
-      - adapt the directory query primitive (owned by the user source / annuaire layer) and map
-        each directory entry to a CardContact
+        (surfaced as a domain-wide source when the user source declares US_IS_ADDRESSBOOK)
+      - build the synthetic CardAddressBook representing the directory
+      - adapt the user source query primitive (owned by ModuleUserSource, which dispatches SQL vs
+        LDAP) and map each directory entry to a CardContact
       - apply US_AUTO_QUERY_LIMIT and require a search term for large directories instead of the
         in-memory merge used for local books
+      - derive is_writable from the backend (LDAP is read-only; a SQL system source may be writable
+        by configured modifiers, like SOGo's [source modifiers])
     """
 
     def __init__(self, addressbook: CardAddressBook, user_source: UserSourceSettingsObj) -> None:
@@ -34,17 +38,18 @@ class ContactSourceLdap(ContactSource):  # pylint: disable=unused-argument
         self._user_source = user_source
 
     def is_writable(self) -> bool:
-        # A directory is read-only: contacts cannot be created, updated or deleted through it.
+        # TODO: derive from the backend (LDAP read-only; SQL system source writable by modifiers).
+        # Read-only is the safe default until the directory write path is designed.
         return False
 
     def save_addressbook(self, addressbook: CardAddressBook) -> CardAddressBook:
-        raise NotImplementedError("TODO: the directory address book is synthetic and read-only")
+        raise NotImplementedError("TODO: the directory address book is synthetic")
 
     def update_addressbook(self, addressbook: CardAddressBook) -> None:
-        raise NotImplementedError("TODO: the directory address book is synthetic and read-only")
+        raise NotImplementedError("TODO: the directory address book is synthetic")
 
     def delete_addressbook(self, hard_delete: bool = False) -> None:
-        raise NotImplementedError("TODO: the directory address book is synthetic and read-only")
+        raise NotImplementedError("TODO: the directory address book is synthetic")
 
     def get_contacts(
         self, search: str | None = None, offset: int = 0, limit: int = 0,
@@ -58,17 +63,17 @@ class ContactSourceLdap(ContactSource):  # pylint: disable=unused-argument
         raise NotImplementedError("TODO: directory contact count not implemented")
 
     def get_contact_by_key(self, key: str) -> CardContact | None:
-        # TODO: resolve a directory entry by its opaque key (mapped from the LDAP dn/uid).
+        # TODO: resolve a directory entry by its opaque key (mapped from the backend dn/uid).
         raise NotImplementedError("TODO: directory contact lookup not implemented")
 
     def get_contact_by_uid(self, uid: str) -> CardContact | None:
         raise NotImplementedError("TODO: directory contact lookup not implemented")
 
     def insert_contact(self, contact: CardContact) -> CardContact:
-        raise NotImplementedError("TODO: the directory address book is synthetic and read-only")
+        raise NotImplementedError("TODO: directory write path not designed yet")
 
     def update_contact(self, contact: CardContact) -> None:
-        raise NotImplementedError("TODO: the directory address book is synthetic and read-only")
+        raise NotImplementedError("TODO: directory write path not designed yet")
 
     def delete_contact(self, key: str) -> None:
-        raise NotImplementedError("TODO: the directory address book is synthetic and read-only")
+        raise NotImplementedError("TODO: directory write path not designed yet")

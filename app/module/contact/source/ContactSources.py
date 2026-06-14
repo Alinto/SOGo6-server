@@ -26,8 +26,8 @@ class ContactSources:
 
     The optional user_source threaded through the read methods is the acting user's source config
     (a user belongs to exactly one source). When None, only the local DB address books are served;
-    when provided, the directory/LDAP source is also surfaced - the seam for the annuaire, built
-    with ContactSourceLdap later.
+    when provided, the directory source is also surfaced - the seam for the annuaire (SQL or LDAP),
+    built with ContactSourceDirectory later.
     """
 
     def __init__(self, db: ClientSQL) -> None:
@@ -61,16 +61,20 @@ class ContactSources:
         book = self._repo_addressbook.find_by_key(user_uid, key)
         return self.get(book, user_source) if book is not None else None
 
-    def get_contacts(
+    def get_contacts(  # pylint: disable=too-many-locals
         self, user_uid: str, search: str | None = None, offset: int = 0, limit: int = 0,
         sort_by: str | None = None, order: Order = Order.ASC, addressbook_key: str | None = None,
-        user_source: UserSourceSettingsObj | None = None,
+        user_source: UserSourceSettingsObj | None = None, resolve_ab: bool = True,
     ) -> tuple[list[CardContact], int]:
         """Return a page of contacts plus the total count.
 
         When addressbook_key is given, the query is scoped to that single address book (DB-level
         pagination). When None, contacts from every source of the user are merged, sorted by display
         name and paginated in memory - the seam through which the LDAP directory will also contribute.
+
+        When resolve_ab is True, each returned contact is stamped with its originating address book
+        name (display only) from a local key->name cache built from the sources already loaded - no
+        extra query, no Redis. Callers that do not need the provenance can pass resolve_ab=False.
 
         :param user_uid: Owner of the address books to query.
         :param search: Optional full-text query.
@@ -80,18 +84,32 @@ class ContactSources:
         :param order: Sort direction (ascending or descending).
         :param addressbook_key: Restrict to one book, or None to span all the user's books.
         :param user_source: Acting user's source config (None = local DB only).
+        :param resolve_ab: When True, stamp each contact with its address book name for the response.
         :return: A tuple (contacts page, total count matching the filter).
         """
         if addressbook_key is not None:
             source = self.get_by_key(user_uid, addressbook_key, user_source)
             if source is None:
                 raise RequestException(error=err.ERROR_CONTACT_ADDRESSBOOK_NOT_FOUND)
-            return source.get_contacts(search, offset, limit, sort_by, order), source.count_contacts(search)
+            page: list[CardContact] = source.get_contacts(search, offset, limit, sort_by, order)
+            if resolve_ab:
+                self._stamp_addressbook_name(page, {source.addressbook.key: source.addressbook.name})
+            return page, source.count_contacts(search)
 
+        sources = self.get_all(user_uid, user_source)
+        book_names: dict[str | None, str] = {src.addressbook.key: src.addressbook.name for src in sources}
         contacts: list[CardContact] = []
-        for source in self.get_all(user_uid, user_source):
+        for source in sources:
             contacts.extend(source.get_contacts(search))
         contacts.sort(key=lambda contact: (contact.display_name or "").casefold(), reverse=order == Order.DESC)
         total: int = len(contacts)
-        page: list[CardContact] = contacts[offset:offset + limit] if limit else contacts[offset:]
+        page = contacts[offset:offset + limit] if limit else contacts[offset:]
+        if resolve_ab:
+            self._stamp_addressbook_name(page, book_names)
         return page, total
+
+    @staticmethod
+    def _stamp_addressbook_name(contacts: list[CardContact], book_names: dict[str | None, str]) -> None:
+        """Stamp each contact's originating address book name (display only) from a key->name cache."""
+        for contact in contacts:
+            contact.addressbook_name = book_names.get(contact.addressbook_key)

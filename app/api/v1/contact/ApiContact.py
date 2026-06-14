@@ -23,6 +23,8 @@ from .schemas.contact import (
     ContactListResponseSchema,
     ContactResponseSchema,
     ContactSearchQueryArgsSchema,
+    ContactAutocompleteQueryArgsSchema,
+    ContactAutocompleteResponseSchema,
 )
 
 if TYPE_CHECKING:
@@ -125,6 +127,19 @@ class ApiContactList(MethodView):
         logger_api.debug("GET /contacts user=%s params=%s", g.user.uid, collection_param)
         interface: InterfaceApiContactContact = g.inter
         return interface.get_contacts(None, collection_param, search=query_args.get("search"))
+
+
+@blp.route("/contacts/autocomplete")
+class ApiContactAutocomplete(MethodView):
+    """Recipient autocompletion: lightweight {name, email} suggestions across the user's contacts."""
+
+    @blp.response(200, ContactAutocompleteResponseSchema)
+    @blp.arguments(ContactAutocompleteQueryArgsSchema, location="query", arg_name="query_args")
+    def get(self, query_args: dict) -> ResponseReturnValue:
+        """Return recipient suggestions for the ``q`` query string."""
+        logger_api.debug("GET /contacts/autocomplete user=%s q=%s", g.user.uid, query_args.get("q"))
+        interface: InterfaceApiContactContact = g.inter
+        return interface.autocomplete(query_args["q"])
 
 
 @blp.route("/contacts/<string:key>")
