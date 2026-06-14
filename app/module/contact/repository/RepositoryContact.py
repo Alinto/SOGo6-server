@@ -284,3 +284,15 @@ class RepositoryContact:
                 values_list=[True, None, now],
                 condition=condition,
             )
+
+    def purge_deleted(self) -> int:
+        """Physically remove every soft-deleted contact row (is_deleted = True).
+
+        Returns the number of rows deleted. Covers both individually deleted contacts and the
+        tombstones detached from a deleted address book (addressbook_key NULL), once they are no
+        longer needed for CardDAV sync reports. Reclaims DB space.
+        """
+        return self._db.delete_row_in_table(
+            table_name=tbl.TABLE_CONTACT.name,
+            condition=EqualCondition(tbl.COL_CT_IS_DELETED.name, True),
+        )

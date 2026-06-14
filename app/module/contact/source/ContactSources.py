@@ -42,6 +42,9 @@ class ContactSources:
         """
         if addressbook.source_type == CardSourceType.LOCAL:
             return ContactSourceDb(self._db, addressbook)
+        # TODO directory: a non-LOCAL source builds a read-only ContactSourceDirectory from the
+        # matching US_IS_ADDRESSBOOK entry in user_sources. Blocked on the user source query
+        # primitive; wired together with the key routing in get_by_key (see TODO there).
         logger_contact.error("Unknown source_type=%s for address book key=%s", addressbook.source_type, addressbook.key)
         raise RequestException(error=err.ERROR_CONTACT_ADDRESSBOOK_NOT_SUPPORTED)
 
@@ -58,6 +61,10 @@ class ContactSources:
         self, user_uid: str, key: str, user_sources: dict[str, UserSourceSettingsObj] | None = None,
     ) -> ContactSource | None:
         """Return the source for a specific address book, or None if not found."""
+        # TODO directory: route on the key. Directory books carry a reserved "dir:<source_uid>"
+        # prefix (a raw UUID never starts with it), so the branch is unambiguous: strip the prefix,
+        # look the source_uid up in user_sources, build a synthetic directory book. A plain UUID
+        # falls through to the DB lookup below. Blocked on the user source query primitive.
         book = self._repo_addressbook.find_by_key(user_uid, key)
         return self.get(book, user_sources) if book is not None else None
 

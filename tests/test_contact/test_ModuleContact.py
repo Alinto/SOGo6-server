@@ -99,9 +99,9 @@ def test_get_contact_raises_not_found():
     module = _build_module()
     source = _fake_source()
     source.get_contact_by_key.return_value = None
-    module._sources.get_all.return_value = [source]
+    module._sources.get_by_key.return_value = source
     with pytest.raises(RequestException) as exc:
-        module.get_contact(_user(), "missing")
+        module.get_contact(_user(), "ab-k", "missing")
     assert exc.value.error == err.ERROR_CONTACT_NOT_FOUND
 
 
@@ -110,9 +110,9 @@ def test_update_contact_preserves_identity():
     existing = CardContact(db_id=7, key="ct-k", uid="u-1", addressbook_key="ab-k", display_name="Old")
     source = _fake_source(_book(key="ab-k"))
     source.get_contact_by_key.return_value = existing
-    module._sources.get_all.return_value = [source]
+    module._sources.get_by_key.return_value = source
     update = CardContact(key="hacked", uid="hacked", addressbook_key="other", display_name="New")
-    module.update_contact(_user(), "ct-k", update)
+    module.update_contact(_user(), "ab-k", "ct-k", update)
     persisted = source.update_contact.call_args.args[0]
     assert persisted.db_id == 7
     assert persisted.key == "ct-k"
@@ -125,9 +125,9 @@ def test_update_contact_denied_for_non_owner():
     module = _build_module()
     source = _fake_source(_book(user_uid="someone-else@example.com"))
     source.get_contact_by_key.return_value = CardContact(key="ct-k", uid="u-1", display_name="X")
-    module._sources.get_all.return_value = [source]
+    module._sources.get_by_key.return_value = source
     with pytest.raises(RequestException) as exc:
-        module.update_contact(_user(), "ct-k", CardContact(display_name="Y"))
+        module.update_contact(_user(), "ab-k", "ct-k", CardContact(display_name="Y"))
     assert exc.value.error == err.ERROR_CONTACT_ACCESS_DENIED
 
 
@@ -152,6 +152,13 @@ def test_delete_contact_raises_not_found_when_absent():
     module = _build_module()
     source = _fake_source()
     source.get_contact_by_key.return_value = None
-    module._sources.get_all.return_value = [source]
+    module._sources.get_by_key.return_value = source
     with pytest.raises(RequestException):
-        module.delete_contact(_user(), "missing")
+        module.delete_contact(_user(), "ab-k", "missing")
+
+
+def test_clean_purges_all_soft_deleted():
+    module = _build_module()
+    module._db.delete_row_in_table.return_value = 5
+    assert module.clean() == 5
+    module._db.delete_row_in_table.assert_called_once()

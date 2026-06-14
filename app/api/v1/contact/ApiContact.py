@@ -142,28 +142,28 @@ class ApiContactAutocomplete(MethodView):
         return interface.autocomplete(query_args["q"])
 
 
-@blp.route("/contacts/<string:key>")
+@blp.route("/addressbooks/<string:key>/contacts/<string:contact_key>")
 class ApiContactDetail(MethodView):
-    """API to retrieve, update and delete a single contact by its opaque key."""
+    """API to retrieve, update and delete a single contact within an address book."""
 
     @blp.response(200, ContactResponseSchema)
-    def get(self, key: str) -> ResponseReturnValue:
-        """Get a contact by its key."""
-        logger_api.debug("GET /contacts/%s user=%s", key, g.user.uid)
+    def get(self, key: str, contact_key: str) -> ResponseReturnValue:
+        """Get a contact by its key within the address book."""
+        logger_api.debug("GET /addressbooks/%s/contacts/%s user=%s", key, contact_key, g.user.uid)
         interface: InterfaceApiContactContact = g.inter
-        return interface.get_contact(key)
+        return interface.get_contact(key, contact_key)
 
     @blp.arguments(ContactPatchSchema)
     @blp.response(200, ContactResponseSchema)
-    def patch(self, body: dict, key: str) -> ResponseReturnValue:
+    def patch(self, body: dict, key: str, contact_key: str) -> ResponseReturnValue:
         """Apply partial updates to a contact."""
-        logger_api.debug("PATCH /contacts/%s user=%s", key, g.user.uid)
+        logger_api.debug("PATCH /addressbooks/%s/contacts/%s user=%s", key, contact_key, g.user.uid)
         interface: InterfaceApiContactContact = g.inter
-        return interface.patch_contact(key, body)
+        return interface.patch_contact(key, contact_key, body)
 
     @blp.response(200, ContactResponseSchema)
-    def delete(self, key: str) -> ResponseReturnValue:
+    def delete(self, key: str, contact_key: str) -> ResponseReturnValue:
         """Delete a contact."""
-        logger_api.debug("DELETE /contacts/%s user=%s", key, g.user.uid)
+        logger_api.debug("DELETE /addressbooks/%s/contacts/%s user=%s", key, contact_key, g.user.uid)
         interface: InterfaceApiContactContact = g.inter
-        return interface.delete_contact(key)
+        return interface.delete_contact(key, contact_key)

@@ -228,20 +228,20 @@ check_not_empty ".data.uid"
 CT_KEY=$(extract '.data.key')
 info "Contact key: $CT_KEY"
 
-step "6. Contact - flat get by key"
-info "Fetches the contact via the flat /contacts/<key> route (no address book in the URL)."
-CODE=$(req "$BASE/contacts/$CT_KEY" -H "$H_AUTH")
-check_code  "GET /contacts/$CT_KEY" "$CODE" "200"
+step "6. Contact - get by key (nested under address book)"
+info "Fetches the contact via /addressbooks/<key>/contacts/<key>."
+CODE=$(req "$BASE/addressbooks/$AB_KEY/contacts/$CT_KEY" -H "$H_AUTH")
+check_code  "GET /addressbooks/$AB_KEY/contacts/$CT_KEY" "$CODE" "200"
 check_field ".data.display_name" "John Doe"
 check_field ".data.organization" "Acme Corp"
 
 # 4. CONTACT PATCH
 step "7. Contact - patch (partial)"
 info "Patches the note only; verifies the display name is preserved."
-CODE=$(req -X PATCH "$BASE/contacts/$CT_KEY" \
+CODE=$(req -X PATCH "$BASE/addressbooks/$AB_KEY/contacts/$CT_KEY" \
     -H "$H_JSON" -H "$H_AUTH" \
     -d '{"note": "Met at conference"}')
-check_code  "PATCH /contacts/$CT_KEY" "$CODE" "200"
+check_code  "PATCH /addressbooks/$AB_KEY/contacts/$CT_KEY" "$CODE" "200"
 check_field ".data.note" "Met at conference"
 check_field ".data.display_name" "John Doe"
 
@@ -294,8 +294,8 @@ info "Contacts across all books: $ALL"
 # 9. ERROR PATHS
 step "12. Error paths"
 info "Unknown contact key -> 404 S000703; unknown address book -> 404 S000701."
-CODE=$(req "$BASE/contacts/does-not-exist" -H "$H_AUTH")
-check_code       "GET /contacts/does-not-exist" "$CODE" "404"
+CODE=$(req "$BASE/addressbooks/$AB_KEY/contacts/does-not-exist" -H "$H_AUTH")
+check_code       "GET /addressbooks/$AB_KEY/contacts/does-not-exist" "$CODE" "404"
 check_error_code "unknown contact error_code" "S000703"
 
 CODE=$(req "$BASE/addressbooks/does-not-exist" -H "$H_AUTH")
@@ -333,14 +333,14 @@ SUGG=$(extract '.data.suggestions | length')
 # 11. CONDITIONAL DELETE
 step "14. Cleanup (DELETE)"
 if $DO_DELETE; then
-    CODE=$(req -X DELETE "$BASE/contacts/$CT_KEY" -H "$H_AUTH")
-    check_code "DELETE /contacts/$CT_KEY" "$CODE" "200"
-    CODE=$(req "$BASE/contacts/$CT_KEY" -H "$H_AUTH")
+    CODE=$(req -X DELETE "$BASE/addressbooks/$AB_KEY/contacts/$CT_KEY" -H "$H_AUTH")
+    check_code "DELETE /addressbooks/$AB_KEY/contacts/$CT_KEY" "$CODE" "200"
+    CODE=$(req "$BASE/addressbooks/$AB_KEY/contacts/$CT_KEY" -H "$H_AUTH")
     check_code "GET deleted contact -> 404" "$CODE" "404"
     CODE=$(req -X DELETE "$BASE/addressbooks/$AB_KEY" -H "$H_AUTH")
     check_code "DELETE /addressbooks/$AB_KEY" "$CODE" "200"
 else
-    skip "DELETE /contacts/$CT_KEY and DELETE /addressbooks/$AB_KEY"
+    skip "DELETE /addressbooks/$AB_KEY/contacts/$CT_KEY and DELETE /addressbooks/$AB_KEY"
 fi
 
 echo ""
