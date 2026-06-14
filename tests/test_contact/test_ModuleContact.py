@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from app.module.contact.ModuleContact import ModuleContact
+from app.module.contact.acl.ContactAclEngine import ContactAclEngine
 from app.module.contact.model.CardAddressBook import CardAddressBook
 from app.module.contact.model.CardContact import CardContact
 from app.module.contact.model.enums.CardSourceType import CardSourceType
@@ -18,8 +19,8 @@ def _user(uid="alice@example.com"):
     return user
 
 
-def _book(key="ab-k", is_default=False):
-    return CardAddressBook(user_uid="alice@example.com", name="Personal", key=key,
+def _book(key="ab-k", is_default=False, user_uid="alice@example.com"):
+    return CardAddressBook(user_uid=user_uid, name="Personal", key=key,
                            is_default=is_default, source_type=CardSourceType.LOCAL)
 
 
@@ -34,6 +35,7 @@ def _build_module():
     module._db = MagicMock()
     module._cache = None
     module._sources = MagicMock()
+    module._acl = ContactAclEngine()
     return module
 
 
@@ -84,14 +86,13 @@ def test_create_contact_applies_defaults_and_sets_book_key():
     source.insert_contact.assert_called_once()
 
 
-def test_create_contact_rejects_read_only_source():
+def test_create_contact_denied_for_non_owner():
     module = _build_module()
-    source = _fake_source()
-    source.is_writable.return_value = False
+    source = _fake_source(_book(user_uid="someone-else@example.com"))
     module._sources.get_by_key.return_value = source
     with pytest.raises(RequestException) as exc:
         module.create_contact(_user(), "ab-k", CardContact(display_name="X"))
-    assert exc.value.error == err.ERROR_CONTACT_ADDRESSBOOK_READ_ONLY
+    assert exc.value.error == err.ERROR_CONTACT_ACCESS_DENIED
 
 
 def test_get_contact_raises_not_found():
@@ -120,15 +121,14 @@ def test_update_contact_preserves_identity():
     assert persisted.display_name == "New"
 
 
-def test_update_contact_rejects_read_only_source():
+def test_update_contact_denied_for_non_owner():
     module = _build_module()
-    source = _fake_source()
+    source = _fake_source(_book(user_uid="someone-else@example.com"))
     source.get_contact_by_key.return_value = CardContact(key="ct-k", uid="u-1", display_name="X")
-    source.is_writable.return_value = False
     module._sources.get_all.return_value = [source]
     with pytest.raises(RequestException) as exc:
         module.update_contact(_user(), "ct-k", CardContact(display_name="Y"))
-    assert exc.value.error == err.ERROR_CONTACT_ADDRESSBOOK_READ_ONLY
+    assert exc.value.error == err.ERROR_CONTACT_ACCESS_DENIED
 
 
 def test_get_contacts_delegates_to_sources_and_returns_page_and_total():
