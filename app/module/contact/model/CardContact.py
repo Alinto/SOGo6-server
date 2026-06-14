@@ -9,6 +9,7 @@ from app.module.contact.model.CardEmail import CardEmail
 from app.module.contact.model.CardImpp import CardImpp
 from app.module.contact.model.CardPhone import CardPhone
 from app.module.contact.model.CardUrl import CardUrl
+from app.module.contact.ContactConst import DEFAULT_DISPLAY_NAME, DEFAULT_VCARD_VERSION
 from app.module.contact.model.enums.CardKind import CardKind
 from app.utils import errors as err
 from app.utils.exceptions import BugException, RequestException
@@ -37,7 +38,7 @@ class CardContact:  # pylint: disable=too-many-instance-attributes
     # UUID key of the parent address book - nullable: set by the source at persistence time
     addressbook_key: str | None = None
     # vCard VERSION (RFC 6350 §6.7.9)
-    version: str = "4.0"
+    version: str = DEFAULT_VCARD_VERSION
     # vCard KIND (RFC 6350 §6.1.4)
     kind: CardKind = CardKind.INDIVIDUAL
 
@@ -131,7 +132,7 @@ class CardContact:  # pylint: disable=too-many-instance-attributes
         parts: list[str] = [p for p in (self.first_name, self.middle_name, self.last_name) if p]
         if parts:
             return " ".join(parts)
-        return self.organization or self.nickname or "Unnamed Contact"
+        return self.organization or self.nickname or DEFAULT_DISPLAY_NAME
 
     def validate(self) -> None:
         """Run business validations. Raises RequestException on failure.

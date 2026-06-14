@@ -5,7 +5,8 @@ from typing import TYPE_CHECKING
 
 from app.module.calendar.CalendarConst import (
     IMPORT_REMOVES_ATTENDEES, IMPORT_REWRITES_OWNERSHIP, MAX_EVENT_FETCH_DAYS, MAX_FREEBUSY_DAYS,
-    MAX_IMPORT_ICS_BYTES, MAX_TASK_FETCH_DAYS, PUBLIC_SUBSCRIPTION_REFRESH, SHARE_TOKEN_LENGTH,
+    MAX_IMPORT_ICS_BYTES, MAX_TASK_FETCH_DAYS, PUBLIC_SUBSCRIPTION_REFRESH, SHARE_TOKEN_LENGTH, 
+    DEFAULT_CALENDAR_NAME
 )
 from app.module.calendar.serializer.CalendarEventSerializerIcal import CalendarEventSerializerIcal
 from app.module.calendar.serializer.CalendarEventsSerializerIcal import CalendarEventsSerializerIcal
@@ -72,7 +73,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         if hasattr(self, "_db"):
             self._db.close()
 
-    def create_personal_calendar(self, user_uid: str, name: str = "Personal Calendar", tz: str = "UTC") -> CalCalendar:
+    def create_personal_calendar(self, user_uid: str, name: str = DEFAULT_CALENDAR_NAME, tz: str = "UTC") -> CalCalendar:
         """Create and persist the default personal calendar for a user.
 
         If the user already has a default calendar, returns it without creating a new one.

@@ -39,8 +39,8 @@ class ContactSource(ABC):
         """Persist changes to the address book row."""
 
     @abstractmethod
-    def delete_addressbook(self) -> None:
-        """Delete the address book and all its contacts."""
+    def delete_addressbook(self, hard_delete: bool = False) -> None:
+        """Delete the address book; its contacts are tombstoned (soft) or physically removed (hard)."""
 
     @abstractmethod
     def get_contacts(

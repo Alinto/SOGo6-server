@@ -12,3 +12,4 @@ class CardSourceType(str, Enum):
     UNDEFINED = "undefined"
     LOCAL = "local"
     CARDDAV = "carddav"
+    LDAP = "ldap"

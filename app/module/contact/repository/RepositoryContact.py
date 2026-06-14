@@ -267,7 +267,12 @@ class RepositoryContact:
             )
 
     def delete_all(self, addressbook_key: str, hard_delete: bool = False) -> None:
-        """Soft-delete (or hard-delete) all contacts belonging to an address book."""
+        """Remove all contacts of an address book, physically or as tombstones.
+
+        Hard delete physically removes the rows. Soft delete (the default) marks every contact
+        is_deleted and detaches it from the book by clearing addressbook_key, so the book row can
+        be dropped while the contact tombstones survive for CardDAV sync reports.
+        """
         condition = EqualCondition(tbl.COL_CT_ADDRESSBOOK_KEY.name, addressbook_key)
         if hard_delete:
             self._db.delete_row_in_table(table_name=tbl.TABLE_CONTACT.name, condition=condition)
@@ -275,7 +280,7 @@ class RepositoryContact:
             now: datetime = datetime.now(timezone.utc)
             self._db.update_in_table(
                 table_name=tbl.TABLE_CONTACT.name,
-                column_tuple=(tbl.COL_CT_IS_DELETED.name, tbl.COL_CT_UPDATED_AT.name),
-                values_list=[True, now],
+                column_tuple=(tbl.COL_CT_IS_DELETED.name, tbl.COL_CT_ADDRESSBOOK_KEY.name, tbl.COL_CT_UPDATED_AT.name),
+                values_list=[True, None, now],
                 condition=condition,
             )

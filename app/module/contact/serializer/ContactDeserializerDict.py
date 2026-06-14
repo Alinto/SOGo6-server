@@ -4,6 +4,7 @@ import dataclasses
 from datetime import date, datetime
 from typing import Any
 
+from app.module.contact.ContactConst import DEFAULT_VCARD_VERSION
 from app.module.contact.model.CardContact import CardContact
 from app.module.contact.model.enums.CardKind import CardKind
 from app.module.contact.serializer.CardAddressDeserializerDict import CardAddressDeserializerDict
@@ -39,7 +40,7 @@ class ContactDeserializerDict(ContactDeserializer[dict]):
             key=data.get("key"),
             addressbook_key=data.get("addressbook_key"),
             uid=data.get("uid"),
-            version=data.get("version") or "4.0",
+            version=data.get("version") or DEFAULT_VCARD_VERSION,
             kind=self._parse_kind(data.get("kind")),
             display_name=data.get("display_name"),
             first_name=data.get("first_name"),

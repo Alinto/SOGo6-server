@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from app.module.contact.ContactConst import DEFAULT_ADDRESSBOOK_NAME
 from app.module.contact.model.CardAddressBook import CardAddressBook
 from app.module.contact.model.enums.CardSourceType import CardSourceType
 from app.module.contact.source.ContactSources import ContactSources
@@ -40,7 +41,7 @@ class ModuleContact:
         if hasattr(self, "_db"):
             self._db.close()
 
-    def create_personal_addressbook(self, user_uid: str, name: str = "Personal contacts") -> CardAddressBook:
+    def create_personal_addressbook(self, user_uid: str, name: str = DEFAULT_ADDRESSBOOK_NAME) -> CardAddressBook:
         """Create and persist the default personal address book for a user.
 
         Idempotent: if the user already has a default address book, returns it without creating
@@ -111,10 +112,13 @@ class ModuleContact:
         source.update_addressbook(book)
         return book
 
-    def delete_addressbook(self, user: User, key: str, user_source: UserSourceSettingsObj | None = None) -> None:
-        """Delete an address book and all its contacts."""
+    def delete_addressbook(
+        self, user: User, key: str, hard_delete: bool = False,
+        user_source: UserSourceSettingsObj | None = None,
+    ) -> None:
+        """Delete an address book; its contacts are tombstoned and detached (soft) or removed (hard)."""
         source: ContactSource = self._get_writable_addressbook(user, key, user_source)
-        source.delete_addressbook()
+        source.delete_addressbook(hard_delete=hard_delete)
 
     #
     # Contacts
