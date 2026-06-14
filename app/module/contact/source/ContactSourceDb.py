@@ -46,9 +46,9 @@ class ContactSourceDb(ContactSource):
         self._repo_addressbook.update(addressbook)
         self._addressbook = addressbook
 
-    def delete_addressbook(self) -> None:
-        """Hard-delete every contact of the book, then the book row."""
-        self._repo_contact.delete_all(self._addressbook.require_key, hard_delete=True)
+    def delete_addressbook(self, hard_delete: bool = False) -> None:
+        """Remove the book's contacts (tombstoned and detached by default, physical when hard), then the book row."""
+        self._repo_contact.delete_all(self._addressbook.require_key, hard_delete=hard_delete)
         self._repo_addressbook.delete(self._addressbook.require_id)
 
     def get_contacts(

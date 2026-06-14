@@ -39,11 +39,17 @@ def test_save_addressbook_no_clear_when_not_default():
     source._repo_addressbook.clear_default.assert_not_called()
 
 
-def test_delete_addressbook_cascades_contacts_then_book():
+def test_delete_addressbook_soft_tombstones_contacts_then_book():
     source = _build_source(_book(key="ab-k", id=1))
     source.delete_addressbook()
-    source._repo_contact.delete_all.assert_called_once()
+    source._repo_contact.delete_all.assert_called_once_with("ab-k", hard_delete=False)
     source._repo_addressbook.delete.assert_called_once_with(1)
+
+
+def test_delete_addressbook_hard_removes_contacts():
+    source = _build_source(_book(key="ab-k", id=1))
+    source.delete_addressbook(hard_delete=True)
+    source._repo_contact.delete_all.assert_called_once_with("ab-k", hard_delete=True)
 
 
 def test_insert_contact_bumps_ctag():

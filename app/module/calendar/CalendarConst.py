@@ -1,5 +1,8 @@
 from datetime import timedelta
 
+# Name given to the personal calendar provisioned for a user at first login.
+DEFAULT_CALENDAR_NAME: str = "Personal calendar"
+
 # Maximum number of days allowed for events fetch request.
 MAX_EVENT_FETCH_DAYS: int = 45
 

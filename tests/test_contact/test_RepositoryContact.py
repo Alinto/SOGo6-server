@@ -1,4 +1,6 @@
 """Unit tests for RepositoryContact pure helpers (search vector + row mapping)."""
+from unittest.mock import MagicMock
+
 from app.config.db import tables as tbl
 from app.module.contact.model.CardContact import CardContact
 from app.module.contact.model.CardEmail import CardEmail
@@ -49,3 +51,22 @@ def test_row_to_contact_rebuilds_from_blob_and_overrides_relational():
     assert contact.db_id == 1
     assert contact.addressbook_key == "ab-k"
     assert contact.last_name == "Override"
+
+
+# ========== delete_all ==========
+
+def test_delete_all_soft_tombstones_and_detaches():
+    db = MagicMock()
+    RepositoryContact(db).delete_all("ab-k", hard_delete=False)
+    db.delete_row_in_table.assert_not_called()
+    kwargs = db.update_in_table.call_args.kwargs
+    cols, vals = kwargs["column_tuple"], kwargs["values_list"]
+    assert vals[cols.index(tbl.COL_CT_IS_DELETED.name)] is True
+    assert vals[cols.index(tbl.COL_CT_ADDRESSBOOK_KEY.name)] is None  # detached from the deleted book
+
+
+def test_delete_all_hard_physically_removes():
+    db = MagicMock()
+    RepositoryContact(db).delete_all("ab-k", hard_delete=True)
+    db.delete_row_in_table.assert_called_once()
+    db.update_in_table.assert_not_called()

@@ -361,7 +361,7 @@ Key queries:
 # contact_data: full vCard fiche as JSON - everything not promoted to a relational column
 # created_at / updated_at: UTC timestamps
 COL_CT_KEY                = Column(name="key",            data_type="str",      is_unique=True,                    extra_args={"max_len": 64})
-COL_CT_ADDRESSBOOK_KEY    = Column(name="addressbook_key", data_type="str",                                        extra_args={"max_len": 64})
+COL_CT_ADDRESSBOOK_KEY    = Column(name="addressbook_key", data_type="str",      is_nullable=True,                  extra_args={"max_len": 64})
 COL_CT_UID                = Column(name="uid",            data_type="str",                                         extra_args={"max_len": 512})
 COL_CT_KIND               = Column(name="kind",           data_type="str",                                         extra_args={"max_len": 12})
 COL_CT_LAST_NAME          = Column(name="last_name",      data_type="str",      is_nullable=True,                  extra_args={"max_len": 255})
