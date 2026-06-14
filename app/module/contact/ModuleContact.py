@@ -3,8 +3,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from app.module.contact.ContactConst import DEFAULT_ADDRESSBOOK_NAME
+from app.module.contact.acl.ContactAclEngine import ContactAclEngine
 from app.module.contact.model.CardAddressBook import CardAddressBook
 from app.module.contact.model.enums.CardSourceType import CardSourceType
+from app.module.contact.model.enums.ContactShareLevel import ContactShareLevel
 from app.module.contact.source.ContactSources import ContactSources
 from app.utils import errors as err
 from app.utils.db.Condition import Order
@@ -36,6 +38,7 @@ class ModuleContact:
         self._db.connect()
         self._cache: ClientRedis | None = cache
         self._sources: ContactSources = ContactSources(self._db)
+        self._acl: ContactAclEngine = ContactAclEngine()
 
     def __del__(self) -> None:
         if hasattr(self, "_db"):
@@ -79,17 +82,20 @@ class ModuleContact:
             raise RequestException(error=err.ERROR_CONTACT_ADDRESSBOOK_NOT_FOUND)
         return source
 
+    def _require_modify(self, source: ContactSource, user: User) -> None:
+        """Enforce that the acting user may modify the source's address book (ACL MODIFY level)."""
+        self._acl.check_permission(self._acl.get_share_level(source.addressbook, user), ContactShareLevel.MODIFY)
+
     def _get_writable_addressbook(
         self, user: User, key: str, user_source: UserSourceSettingsObj | None = None,
     ) -> ContactSource:
-        """Resolve the source for a write, rejecting read-only sources (e.g. the LDAP directory).
+        """Resolve the source for an address book the acting user is allowed to modify.
 
-        Resolution is uniform across sources; the read-only rule is enforced here at the source
-        (is_writable) rather than by hiding the book from write callers.
+        Access is decided by the ACL engine (owner gets MODIFY; otherwise ERROR_CONTACT_ACCESS_DENIED).
+        Resolution is uniform across sources.
         """
         source: ContactSource = self.get_addressbook(user, key, user_source)
-        if not source.is_writable():
-            raise RequestException(error=err.ERROR_CONTACT_ADDRESSBOOK_READ_ONLY)
+        self._require_modify(source, user)
         return source
 
     def create_addressbook(
@@ -213,8 +219,7 @@ class ModuleContact:
         :return: The persisted contact after the update.
         """
         source, existing = self._find_source_for_contact(user, key, user_source)
-        if not source.is_writable():
-            raise RequestException(error=err.ERROR_CONTACT_ADDRESSBOOK_READ_ONLY)
+        self._require_modify(source, user)
         # Identity columns are not mutable through an update: a contact cannot be moved to
         # another book nor have its uid/key reassigned by the request body.
         contact_update.db_id = existing.db_id
@@ -237,8 +242,7 @@ class ModuleContact:
     def delete_contact(self, user: User, key: str, user_source: UserSourceSettingsObj | None = None) -> None:
         """Soft-delete a contact by its opaque key across the user's books."""
         source, _ = self._find_source_for_contact(user, key, user_source)
-        if not source.is_writable():
-            raise RequestException(error=err.ERROR_CONTACT_ADDRESSBOOK_READ_ONLY)
+        self._require_modify(source, user)
         try:
             source.delete_contact(key)
         except RequestException:

@@ -197,6 +197,7 @@ ERROR_CONTACT_INSERT_FAILED                  = E("S000705", "Failed To Persist C
 ERROR_CONTACT_UPDATE_FAILED                  = E("S000706", "Failed To Update Contact", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_CONTACT_ADDRESSBOOK_NOT_SUPPORTED      = E("S000707", "Operation Not Supported On This Address Book Source", HTTPStatus.METHOD_NOT_ALLOWED)
 ERROR_CONTACT_ADDRESSBOOK_READ_ONLY          = E("S000708", "Address Book Is Read-Only", HTTPStatus.FORBIDDEN)
+ERROR_CONTACT_ACCESS_DENIED                  = E("S000709", "Access Denied To This Address Book", HTTPStatus.FORBIDDEN)
 
 #the bugs
 ERROR_UNKOWN = E("S999999", "Undefined Error", HTTPStatus.INTERNAL_SERVER_ERROR)
