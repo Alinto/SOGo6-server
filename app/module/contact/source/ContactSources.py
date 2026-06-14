@@ -24,30 +24,30 @@ class ContactSources:
     Single entry point for all address book access - ModuleContact never touches
     RepositoryAddressBook directly. All reads are scoped to a user_uid.
 
-    The optional user_source threaded through the read methods is the acting user's source config
-    (a user belongs to exactly one source). When None, only the local DB address books are served;
-    when provided, the directory source is also surfaced - the seam for the annuaire (SQL or LDAP),
-    built with ContactSourceDirectory later.
+    The optional user_sources threaded through the read methods are the domain's user sources
+    (keyed by source_uid). When None, only the local DB address books are served; when provided,
+    the ones flagged US_IS_ADDRESSBOOK are surfaced as read-only directory address books - the seam
+    for the annuaire (SQL or LDAP), one ContactSourceDirectory per source.
     """
 
     def __init__(self, db: ClientSQL) -> None:
         self._db = db
         self._repo_addressbook = RepositoryAddressBook(db)
 
-    def get(self, addressbook: CardAddressBook, user_source: UserSourceSettingsObj | None = None) -> ContactSource:
+    def get(self, addressbook: CardAddressBook, user_sources: dict[str, UserSourceSettingsObj] | None = None) -> ContactSource:
         """Return the appropriate ContactSource for the given address book.
 
-        Local books are served from the DB; user_source is reserved for building the directory/LDAP
-        source (it carries the acting user's source config).
+        Local books are served from the DB; user_sources is reserved for building the directory
+        source of a directory address book (the matching US_IS_ADDRESSBOOK source is picked from it).
         """
         if addressbook.source_type == CardSourceType.LOCAL:
             return ContactSourceDb(self._db, addressbook)
         logger_contact.error("Unknown source_type=%s for address book key=%s", addressbook.source_type, addressbook.key)
         raise RequestException(error=err.ERROR_CONTACT_ADDRESSBOOK_NOT_SUPPORTED)
 
-    def get_all(self, user_uid: str, user_source: UserSourceSettingsObj | None = None) -> list[ContactSource]:
+    def get_all(self, user_uid: str, user_sources: dict[str, UserSourceSettingsObj] | None = None) -> list[ContactSource]:
         """Return a source for every address book owned by user_uid (local books; directory later)."""
-        return [self.get(book, user_source) for book in self._repo_addressbook.find_all(user_uid)]
+        return [self.get(book, user_sources) for book in self._repo_addressbook.find_all(user_uid)]
 
     def get_default(self, user_uid: str) -> ContactSource | None:
         """Return the default address book source for user_uid, or None if the user has none."""
@@ -55,16 +55,16 @@ class ContactSources:
         return self.get(book) if book is not None else None
 
     def get_by_key(
-        self, user_uid: str, key: str, user_source: UserSourceSettingsObj | None = None,
+        self, user_uid: str, key: str, user_sources: dict[str, UserSourceSettingsObj] | None = None,
     ) -> ContactSource | None:
         """Return the source for a specific address book, or None if not found."""
         book = self._repo_addressbook.find_by_key(user_uid, key)
-        return self.get(book, user_source) if book is not None else None
+        return self.get(book, user_sources) if book is not None else None
 
     def get_contacts(  # pylint: disable=too-many-locals
         self, user_uid: str, search: str | None = None, offset: int = 0, limit: int = 0,
         sort_by: str | None = None, order: Order = Order.ASC, addressbook_key: str | None = None,
-        user_source: UserSourceSettingsObj | None = None, resolve_ab: bool = True,
+        user_sources: dict[str, UserSourceSettingsObj] | None = None, resolve_ab: bool = True,
     ) -> tuple[list[CardContact], int]:
         """Return a page of contacts plus the total count.
 
@@ -83,12 +83,12 @@ class ContactSources:
         :param sort_by: Sort column applied at the DB level for the single-book case.
         :param order: Sort direction (ascending or descending).
         :param addressbook_key: Restrict to one book, or None to span all the user's books.
-        :param user_source: Acting user's source config (None = local DB only).
+        :param user_sources: Domain user sources keyed by source_uid; the US_IS_ADDRESSBOOK ones are surfaced as directory books (None = local DB only).
         :param resolve_ab: When True, stamp each contact with its address book name for the response.
         :return: A tuple (contacts page, total count matching the filter).
         """
         if addressbook_key is not None:
-            source = self.get_by_key(user_uid, addressbook_key, user_source)
+            source = self.get_by_key(user_uid, addressbook_key, user_sources)
             if source is None:
                 raise RequestException(error=err.ERROR_CONTACT_ADDRESSBOOK_NOT_FOUND)
             page: list[CardContact] = source.get_contacts(search, offset, limit, sort_by, order)
@@ -96,7 +96,7 @@ class ContactSources:
                 self._stamp_addressbook_name(page, {source.addressbook.key: source.addressbook.name})
             return page, source.count_contacts(search)
 
-        sources = self.get_all(user_uid, user_source)
+        sources = self.get_all(user_uid, user_sources)
         book_names: dict[str | None, str] = {src.addressbook.key: src.addressbook.name for src in sources}
         contacts: list[CardContact] = []
         for source in sources:

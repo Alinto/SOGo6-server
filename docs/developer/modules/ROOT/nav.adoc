@@ -20,4 +20,5 @@
 * Considerations
 ** xref:signed_and_encrypted_mails.adoc[]
 ** xref:calendar.adoc[]
+** xref:contact.adoc[]
 ** xref:SOGo6Plan.adoc[]

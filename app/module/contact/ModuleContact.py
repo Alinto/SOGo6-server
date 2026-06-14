@@ -68,16 +68,16 @@ class ModuleContact:
     # Address books
     #
     def get_all_addressbooks(
-        self, user: User, user_source: UserSourceSettingsObj | None = None,
+        self, user: User, user_sources: dict[str, UserSourceSettingsObj] | None = None,
     ) -> list[CardAddressBook]:
-        """Return all address books owned by the user (local DB books; directory when user_source set)."""
-        return [source.addressbook for source in self._sources.get_all(user.uid, user_source)]
+        """Return all address books owned by the user (local DB books; directory when user_sources set)."""
+        return [source.addressbook for source in self._sources.get_all(user.uid, user_sources)]
 
     def get_addressbook(
-        self, user: User, key: str, user_source: UserSourceSettingsObj | None = None,
+        self, user: User, key: str, user_sources: dict[str, UserSourceSettingsObj] | None = None,
     ) -> ContactSource:
         """Return the source for an address book, or raise ADDRESSBOOK_NOT_FOUND."""
-        source: ContactSource | None = self._sources.get_by_key(user.uid, key, user_source)
+        source: ContactSource | None = self._sources.get_by_key(user.uid, key, user_sources)
         if source is None:
             raise RequestException(error=err.ERROR_CONTACT_ADDRESSBOOK_NOT_FOUND)
         return source
@@ -87,32 +87,32 @@ class ModuleContact:
         self._acl.check_permission(self._acl.get_share_level(source.addressbook, user), ContactShareLevel.MODIFY)
 
     def _get_writable_addressbook(
-        self, user: User, key: str, user_source: UserSourceSettingsObj | None = None,
+        self, user: User, key: str, user_sources: dict[str, UserSourceSettingsObj] | None = None,
     ) -> ContactSource:
         """Resolve the source for an address book the acting user is allowed to modify.
 
         Access is decided by the ACL engine (owner gets MODIFY; otherwise ERROR_CONTACT_ACCESS_DENIED).
         Resolution is uniform across sources.
         """
-        source: ContactSource = self.get_addressbook(user, key, user_source)
+        source: ContactSource = self.get_addressbook(user, key, user_sources)
         self._require_modify(source, user)
         return source
 
     def create_addressbook(
-        self, user: User, book: CardAddressBook, user_source: UserSourceSettingsObj | None = None,
+        self, user: User, book: CardAddressBook, user_sources: dict[str, UserSourceSettingsObj] | None = None,
     ) -> CardAddressBook:
         """Persist a new address book. Generates key and ctag."""
         book.user_uid = user.uid
         book.key = generate_uuid()
         book.ctag = 0
-        source: ContactSource = self._sources.get(book, user_source)
+        source: ContactSource = self._sources.get(book, user_sources)
         return source.save_addressbook(book)
 
     def update_addressbook(
-        self, user: User, key: str, updates: dict, user_source: UserSourceSettingsObj | None = None,
+        self, user: User, key: str, updates: dict, user_sources: dict[str, UserSourceSettingsObj] | None = None,
     ) -> CardAddressBook:
         """Apply updates to an existing address book and persist it."""
-        source: ContactSource = self._get_writable_addressbook(user, key, user_source)
+        source: ContactSource = self._get_writable_addressbook(user, key, user_sources)
         book: CardAddressBook = source.addressbook
         book.apply_update(updates)
         source.update_addressbook(book)
@@ -120,10 +120,10 @@ class ModuleContact:
 
     def delete_addressbook(
         self, user: User, key: str, hard_delete: bool = False,
-        user_source: UserSourceSettingsObj | None = None,
+        user_sources: dict[str, UserSourceSettingsObj] | None = None,
     ) -> None:
         """Delete an address book; its contacts are tombstoned and detached (soft) or removed (hard)."""
-        source: ContactSource = self._get_writable_addressbook(user, key, user_source)
+        source: ContactSource = self._get_writable_addressbook(user, key, user_sources)
         source.delete_addressbook(hard_delete=hard_delete)
 
     #
@@ -132,7 +132,7 @@ class ModuleContact:
     def get_contacts(
         self, user: User, addressbook_key: str | None = None, search: str | None = None,
         offset: int = 0, limit: int = 0, sort_by: str | None = None, order: Order = Order.ASC,
-        resolve_ab: bool = True, user_source: UserSourceSettingsObj | None = None,
+        resolve_ab: bool = True, user_sources: dict[str, UserSourceSettingsObj] | None = None,
     ) -> tuple[list[CardContact], int]:
         """Return a page of contacts plus the total count.
 
@@ -149,13 +149,13 @@ class ModuleContact:
         :param sort_by: Column to sort by, or None for the default (display_name).
         :param order: Sort direction (ascending or descending).
         :param resolve_ab: When True, stamp each contact with its address book name for the response.
-        :param user_source: Acting user's source config (None = local DB only).
+        :param user_sources: Domain user sources keyed by source_uid; the US_IS_ADDRESSBOOK ones are surfaced as directory books (None = local DB only).
         :return: A tuple (contacts page, total count matching the filter).
         """
         try:
             return self._sources.get_contacts(
                 user.uid, search=search, offset=offset, limit=limit, sort_by=sort_by,
-                order=order, addressbook_key=addressbook_key, user_source=user_source, resolve_ab=resolve_ab,
+                order=order, addressbook_key=addressbook_key, user_sources=user_sources, resolve_ab=resolve_ab,
             )
         except RequestException:
             raise
@@ -164,37 +164,37 @@ class ModuleContact:
             raise RequestException(error=err.ERROR_UNKOWN) from exc
 
     def _find_source_for_contact(
-        self, user: User, key: str, user_source: UserSourceSettingsObj | None = None,
+        self, user: User, key: str, user_sources: dict[str, UserSourceSettingsObj] | None = None,
     ) -> tuple[ContactSource, CardContact]:
         """Locate the source and contact owning an opaque contact key across the user's books.
 
         Backs the flat /contacts/<key> addressing: the contact is resolved without knowing its
         book up front. Raises CONTACT_NOT_FOUND when no source holds it.
         """
-        for source in self._sources.get_all(user.uid, user_source):
+        for source in self._sources.get_all(user.uid, user_sources):
             contact: CardContact | None = source.get_contact_by_key(key)
             if contact is not None:
                 return source, contact
         raise RequestException(error=err.ERROR_CONTACT_NOT_FOUND)
 
-    def get_contact(self, user: User, key: str, user_source: UserSourceSettingsObj | None = None) -> CardContact:
+    def get_contact(self, user: User, key: str, user_sources: dict[str, UserSourceSettingsObj] | None = None) -> CardContact:
         """Return a single contact by its opaque key across the user's books, or raise CONTACT_NOT_FOUND."""
-        _, contact = self._find_source_for_contact(user, key, user_source)
+        _, contact = self._find_source_for_contact(user, key, user_sources)
         return contact
 
     def create_contact(
         self, user: User, addressbook_key: str, contact: CardContact,
-        user_source: UserSourceSettingsObj | None = None,
+        user_sources: dict[str, UserSourceSettingsObj] | None = None,
     ) -> CardContact:
         """Persist a new contact in the address book and return it.
 
         :param user: The authenticated user.
         :param addressbook_key: Opaque key of the destination address book.
         :param contact: The contact to create (uid and display name are filled by apply_defaults).
-        :param user_source: Acting user's source config (None = local DB).
+        :param user_sources: Domain user sources keyed by source_uid; the US_IS_ADDRESSBOOK ones are surfaced as directory books (None = local DB).
         :return: The persisted contact with id and key populated.
         """
-        source: ContactSource = self._get_writable_addressbook(user, addressbook_key, user_source)
+        source: ContactSource = self._get_writable_addressbook(user, addressbook_key, user_sources)
         contact.apply_defaults()
         contact.addressbook_key = source.addressbook.require_key
         contact.validate()
@@ -208,17 +208,17 @@ class ModuleContact:
 
     def update_contact(
         self, user: User, key: str, contact_update: CardContact,
-        user_source: UserSourceSettingsObj | None = None,
+        user_sources: dict[str, UserSourceSettingsObj] | None = None,
     ) -> CardContact:
         """Update an existing contact, preserving its identity, and return the persisted result.
 
         :param user: The authenticated user.
         :param key: Opaque key of the contact to update.
         :param contact_update: The merged contact carrying the new field values.
-        :param user_source: Acting user's source config (None = local DB).
+        :param user_sources: Domain user sources keyed by source_uid; the US_IS_ADDRESSBOOK ones are surfaced as directory books (None = local DB).
         :return: The persisted contact after the update.
         """
-        source, existing = self._find_source_for_contact(user, key, user_source)
+        source, existing = self._find_source_for_contact(user, key, user_sources)
         self._require_modify(source, user)
         # Identity columns are not mutable through an update: a contact cannot be moved to
         # another book nor have its uid/key reassigned by the request body.
@@ -239,9 +239,9 @@ class ModuleContact:
             raise BugException(f"Contact key={key} was updated but could not be fetched back")
         return refetched
 
-    def delete_contact(self, user: User, key: str, user_source: UserSourceSettingsObj | None = None) -> None:
+    def delete_contact(self, user: User, key: str, user_sources: dict[str, UserSourceSettingsObj] | None = None) -> None:
         """Soft-delete a contact by its opaque key across the user's books."""
-        source, _ = self._find_source_for_contact(user, key, user_source)
+        source, _ = self._find_source_for_contact(user, key, user_sources)
         self._require_modify(source, user)
         try:
             source.delete_contact(key)
