@@ -37,7 +37,8 @@ TEST COVERAGE:
    7  Sorting (sort_by + sort_order)
    8  Cross-book listing (GET /contacts spans all books)
    9  Error paths (unknown contact key, unknown address book)
-  10  Conditional DELETE (only with -d): contact then address book
+  10  Recipient autocomplete (/contacts/autocomplete)
+  11  Conditional DELETE (only with -d): contact then address book
 EOF
     exit 0
 }
@@ -301,8 +302,36 @@ CODE=$(req "$BASE/addressbooks/does-not-exist" -H "$H_AUTH")
 check_code       "GET /addressbooks/does-not-exist" "$CODE" "404"
 check_error_code "unknown address book error_code" "S000701"
 
-# 10. CONDITIONAL DELETE
-step "13. Cleanup (DELETE)"
+# 10. AUTOCOMPLETE
+step "13. Contact - recipient autocomplete"
+info "Self-contained: a probe contact is created just before each query (robust to a clean DB)."
+req -X POST "$BASE/addressbooks/$AB_KEY/contacts" -H "$H_JSON" -H "$H_AUTH" \
+    -d '{"display_name":"Zorglub Probe","emails":[{"value":"zorglub@probe.test"}]}' >/dev/null
+CODE=$(req "$BASE/contacts/autocomplete?q=zorglub" -H "$H_AUTH")
+check_code "GET /contacts/autocomplete?q=zorglub" "$CODE" "200"
+SUGG=$(extract '.data.suggestions | length')
+info "Suggestions: $SUGG"
+[ "$SUGG" -ge 1 ] 2>/dev/null && ok "autocomplete returned >= 1 suggestion" || fail "autocomplete returned $SUGG"
+check_not_empty ".data.suggestions[0].email"
+check_not_empty ".data.suggestions[0].contact_key"
+check_not_empty ".data.suggestions[0].address_book.key"
+check_not_empty ".data.suggestions[0].address_book.name"
+
+CODE=$(req "$BASE/contacts/autocomplete?q=a" -H "$H_AUTH")
+check_code "GET /contacts/autocomplete?q=a (below min length)" "$CODE" "200"
+SUGG=$(extract '.data.suggestions | length')
+[ "$SUGG" = "0" ] && ok "too-short query returns 0 suggestions" || fail "expected 0, got $SUGG"
+
+info "Interior email segment must be searchable (Postgres lexes a whole email as one token)."
+req -X POST "$BASE/addressbooks/$AB_KEY/contacts" -H "$H_JSON" -H "$H_AUTH" \
+    -d '{"display_name":"Marie Curie","emails":[{"value":"marie.curie77@lab.test"}]}' >/dev/null
+CODE=$(req "$BASE/contacts/autocomplete?q=curie77" -H "$H_AUTH")
+check_code "GET /contacts/autocomplete?q=curie77 (interior email segment)" "$CODE" "200"
+SUGG=$(extract '.data.suggestions | length')
+[ "$SUGG" -ge 1 ] 2>/dev/null && ok "interior email segment matches" || fail "interior segment returned $SUGG"
+
+# 11. CONDITIONAL DELETE
+step "14. Cleanup (DELETE)"
 if $DO_DELETE; then
     CODE=$(req -X DELETE "$BASE/contacts/$CT_KEY" -H "$H_AUTH")
     check_code "DELETE /contacts/$CT_KEY" "$CODE" "200"
