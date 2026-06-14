@@ -399,6 +399,79 @@ TABLE_CONTACT = Table(name="sogo_contacts_contacts", columns=ALL_CT_COL,
                       primary_keys=(COL_ID.name, COL_CT_KEY.name),
                       indexes=[IDX_CT_ADDRESSBOOK_KEY, IDX_CT_UID, IDX_CT_SORT, IDX_CT_SEARCH])
 
+#############################
+# Table sogo_contacts_lists #
+#############################
+"""
+Stores distribution lists (vCard KIND:group, RFC 6350 6.1.4). A list belongs to one address book,
+like a contact, and is the object members are attached to. Members themselves live in the join table
+sogo_contacts_list_members and are plain references to contacts (modify-propagates).
+
+Key queries:
+  SELECT ... FROM sogo_contacts_lists WHERE addressbook_key = ? AND is_deleted = FALSE ORDER BY name
+"""
+# key: opaque token exposed in the API instead of id, like contacts and address books
+# addressbook_key: key of the owning address book - nullable so the row survives the book's deletion
+# uid: vCard UID - the stable identity carried in the .vcf and matched across CardDAV sync (RFC 6352);
+#   dormant while the API is REST only, used by the KIND:group serializer
+# name: display name of the list
+# description: optional free-text description, nullable
+# is_deleted: soft delete flag - never DELETE FROM (required for CardDAV sync reports)
+# created_at / updated_at: UTC timestamps
+COL_LST_KEY               = Column(name="key",            data_type="str",      is_unique=True,                    extra_args={"max_len": 64})
+COL_LST_ADDRESSBOOK_KEY   = Column(name="addressbook_key", data_type="str",      is_nullable=True,                  extra_args={"max_len": 64})
+COL_LST_UID               = Column(name="uid",            data_type="str",                                         extra_args={"max_len": 512})
+COL_LST_NAME              = Column(name="name",           data_type="str",                                         extra_args={"max_len": 255})
+COL_LST_DESCRIPTION       = Column(name="description",    data_type="text",     is_nullable=True)
+COL_LST_IS_DELETED        = Column(name="is_deleted",     data_type="bool")
+COL_LST_CREATED_AT        = Column(name="created_at",     data_type="datetime")
+COL_LST_UPDATED_AT        = Column(name="updated_at",     data_type="datetime")
+
+ALL_LST_COL = [COL_ID,
+               COL_LST_KEY,
+               COL_LST_ADDRESSBOOK_KEY,
+               COL_LST_UID,
+               COL_LST_NAME,
+               COL_LST_DESCRIPTION,
+               COL_LST_IS_DELETED,
+               COL_LST_CREATED_AT,
+               COL_LST_UPDATED_AT]
+
+IDX_LST_ADDRESSBOOK_KEY = Index(name="idx_lst_addressbook_key", columns=(COL_LST_ADDRESSBOOK_KEY.name,))
+IDX_LST_UID = Index(name="idx_lst_uid", columns=(COL_LST_UID.name,))
+
+TABLE_CONTACT_LIST = Table(name="sogo_contacts_lists", columns=ALL_LST_COL,
+                           primary_keys=(COL_ID.name, COL_LST_KEY.name),
+                           indexes=[IDX_LST_ADDRESSBOOK_KEY, IDX_LST_UID])
+
+####################################
+# Table sogo_contacts_list_members #
+####################################
+"""
+Join table between a distribution list and its member contacts (N:M). A member is a reference to a
+contact, never an ad-hoc email, so editing the contact propagates to every list it belongs to.
+Both ends are referenced by their opaque key, consistent with the rest of the schema (contacts
+reference their book by addressbook_key, events reference their calendar by key) - never by the
+internal id. A member contact may live in another address book; the join ignores the book.
+
+Key queries:
+  SELECT contact_key FROM sogo_contacts_list_members WHERE list_key = ?            (expand a list)
+  SELECT list_key    FROM sogo_contacts_list_members WHERE contact_key = ?         (lists of a contact)
+"""
+# list_key: key of the owning list (sogo_contacts_lists.key)
+# contact_key: key of the member contact (sogo_contacts_contacts.key)
+COL_LM_LIST_KEY           = Column(name="list_key",      data_type="str",                                         extra_args={"max_len": 64})
+COL_LM_CONTACT_KEY        = Column(name="contact_key",   data_type="str",                                         extra_args={"max_len": 64})
+
+ALL_LM_COL = [COL_LM_LIST_KEY,
+              COL_LM_CONTACT_KEY]
+
+IDX_LM_CONTACT_KEY = Index(name="idx_lm_contact_key", columns=(COL_LM_CONTACT_KEY.name,))
+
+TABLE_CONTACT_LIST_MEMBER = Table(name="sogo_contacts_list_members", columns=ALL_LM_COL,
+                                  primary_keys=(COL_LM_LIST_KEY.name, COL_LM_CONTACT_KEY.name),
+                                  indexes=[IDX_LM_CONTACT_KEY])
+
 ALL_TABLES = [TABLE_SETTINGS,
               TABLE_DOMAIN,
               TABLE_RULES,
@@ -407,4 +480,6 @@ ALL_TABLES = [TABLE_SETTINGS,
               TABLE_EVENT,
               TABLE_REMINDER,
               TABLE_ADDRESSBOOK,
-              TABLE_CONTACT]
+              TABLE_CONTACT,
+              TABLE_CONTACT_LIST,
+              TABLE_CONTACT_LIST_MEMBER]
