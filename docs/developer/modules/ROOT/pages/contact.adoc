@@ -54,7 +54,7 @@ Fields are either *relational* — dedicated columns for filtering and sorting: 
 
 == Address books and contacts
 
-Address books are addressed by their opaque key. Contacts are addressed *flat* by their own key — `GET /contacts/{key}` resolves the contact without naming its book. `ModuleContact._find_source_for_contact` iterates the user's books and returns the first that holds the key, mirroring `ModuleCalendar._find_source_for_event`. Creation stays scoped to a book (`POST /addressbooks/{key}/contacts`) since a new contact must be placed somewhere.
+Both are addressed by their opaque key, and a contact is always scoped to its address book: `GET /addressbooks/{key}/contacts/{contact_key}`. `ModuleContact` resolves the book first (`get_addressbook`), then the contact within it (`source.get_contact_by_key`). The transverse `/contacts` listing and `/contacts/autocomplete` are the only cross-book endpoints (they span every book of the user).
 
 [cols="2,1,3"]
 |===
@@ -63,8 +63,8 @@ Address books are addressed by their opaque key. Contacts are addressed *flat* b
 | `/addressbooks` | GET, POST | List / create address books
 | `/addressbooks/{key}` | GET, PATCH, DELETE | Get / update / delete one address book
 | `/addressbooks/{key}/contacts` | GET, POST | List (paginated) / create contacts in a book
-| `/contacts` | GET | List (paginated) contacts across every book
-| `/contacts/{key}` | GET, PATCH, DELETE | Get / patch / delete one contact
+| `/addressbooks/{key}/contacts/{contact_key}` | GET, PATCH, DELETE | Get / patch / delete one contact
+| `/contacts` | GET | List (paginated) contacts across every book (transverse)
 | `/contacts/autocomplete` | GET | Recipient suggestions
 |===
 

@@ -7,6 +7,7 @@ from app.module.contact.acl.ContactAclEngine import ContactAclEngine
 from app.module.contact.model.CardAddressBook import CardAddressBook
 from app.module.contact.model.enums.CardSourceType import CardSourceType
 from app.module.contact.model.enums.ContactShareLevel import ContactShareLevel
+from app.module.contact.repository.RepositoryContact import RepositoryContact
 from app.module.contact.source.ContactSources import ContactSources
 from app.utils import errors as err
 from app.utils.db.Condition import Order
@@ -163,23 +164,15 @@ class ModuleContact:
             logger_contact.exception("Unexpected error fetching contacts (book=%s)", addressbook_key)
             raise RequestException(error=err.ERROR_UNKOWN) from exc
 
-    def _find_source_for_contact(
-        self, user: User, key: str, user_sources: dict[str, UserSourceSettingsObj] | None = None,
-    ) -> tuple[ContactSource, CardContact]:
-        """Locate the source and contact owning an opaque contact key across the user's books.
-
-        Backs the flat /contacts/<key> addressing: the contact is resolved without knowing its
-        book up front. Raises CONTACT_NOT_FOUND when no source holds it.
-        """
-        for source in self._sources.get_all(user.uid, user_sources):
-            contact: CardContact | None = source.get_contact_by_key(key)
-            if contact is not None:
-                return source, contact
-        raise RequestException(error=err.ERROR_CONTACT_NOT_FOUND)
-
-    def get_contact(self, user: User, key: str, user_sources: dict[str, UserSourceSettingsObj] | None = None) -> CardContact:
-        """Return a single contact by its opaque key across the user's books, or raise CONTACT_NOT_FOUND."""
-        _, contact = self._find_source_for_contact(user, key, user_sources)
+    def get_contact(
+        self, user: User, addressbook_key: str, key: str,
+        user_sources: dict[str, UserSourceSettingsObj] | None = None,
+    ) -> CardContact:
+        """Return a single contact by key within an address book, or raise CONTACT_NOT_FOUND."""
+        source: ContactSource = self.get_addressbook(user, addressbook_key, user_sources)
+        contact: CardContact | None = source.get_contact_by_key(key)
+        if contact is None:
+            raise RequestException(error=err.ERROR_CONTACT_NOT_FOUND)
         return contact
 
     def create_contact(
@@ -207,19 +200,22 @@ class ModuleContact:
             raise RequestException(error=err.ERROR_CONTACT_INSERT_FAILED) from exc
 
     def update_contact(
-        self, user: User, key: str, contact_update: CardContact,
+        self, user: User, addressbook_key: str, key: str, contact_update: CardContact,
         user_sources: dict[str, UserSourceSettingsObj] | None = None,
     ) -> CardContact:
         """Update an existing contact, preserving its identity, and return the persisted result.
 
         :param user: The authenticated user.
+        :param addressbook_key: Opaque key of the address book holding the contact.
         :param key: Opaque key of the contact to update.
         :param contact_update: The merged contact carrying the new field values.
         :param user_sources: Domain user sources keyed by source_uid; the US_IS_ADDRESSBOOK ones are surfaced as directory books (None = local DB).
         :return: The persisted contact after the update.
         """
-        source, existing = self._find_source_for_contact(user, key, user_sources)
-        self._require_modify(source, user)
+        source: ContactSource = self._get_writable_addressbook(user, addressbook_key, user_sources)
+        existing: CardContact | None = source.get_contact_by_key(key)
+        if existing is None:
+            raise RequestException(error=err.ERROR_CONTACT_NOT_FOUND)
         # Identity columns are not mutable through an update: a contact cannot be moved to
         # another book nor have its uid/key reassigned by the request body.
         contact_update.db_id = existing.db_id
@@ -239,10 +235,14 @@ class ModuleContact:
             raise BugException(f"Contact key={key} was updated but could not be fetched back")
         return refetched
 
-    def delete_contact(self, user: User, key: str, user_sources: dict[str, UserSourceSettingsObj] | None = None) -> None:
-        """Soft-delete a contact by its opaque key across the user's books."""
-        source, _ = self._find_source_for_contact(user, key, user_sources)
-        self._require_modify(source, user)
+    def delete_contact(
+        self, user: User, addressbook_key: str, key: str,
+        user_sources: dict[str, UserSourceSettingsObj] | None = None,
+    ) -> None:
+        """Soft-delete a contact by key within an address book."""
+        source: ContactSource = self._get_writable_addressbook(user, addressbook_key, user_sources)
+        if source.get_contact_by_key(key) is None:
+            raise RequestException(error=err.ERROR_CONTACT_NOT_FOUND)
         try:
             source.delete_contact(key)
         except RequestException:
@@ -250,3 +250,12 @@ class ModuleContact:
         except Exception as exc:
             logger_contact.exception("Unexpected error deleting contact %s", key)
             raise RequestException(error=err.ERROR_UNKOWN) from exc
+
+    def clean(self) -> int:
+        """Physically remove every soft-deleted contact row, returning the number purged.
+
+        Global purge (unlike the calendar's per-calendar/user clean): deleting an address book
+        detaches its contacts (addressbook_key NULL), so a per-book or per-user scope cannot reach
+        those tombstones - only an is_deleted sweep does.
+        """
+        return RepositoryContact(self._db).purge_deleted()
