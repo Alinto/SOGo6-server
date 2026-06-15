@@ -3,6 +3,7 @@ from unittest.mock import MagicMock
 
 from app.module.contact.model.CardAddressBook import CardAddressBook
 from app.module.contact.model.CardContact import CardContact
+from app.module.contact.model.CardList import CardList
 from app.module.contact.model.enums.CardSourceType import CardSourceType
 from app.module.contact.source.ContactSourceDb import ContactSourceDb
 from app.utils.db.Condition import Order
@@ -20,6 +21,9 @@ def _build_source(book=None):
     source._addressbook = book or _book()
     source._repo_addressbook = MagicMock()
     source._repo_contact = MagicMock()
+    source._repo_list = MagicMock()
+    source._repo_list.find_by_addressbook.return_value = []
+    source._repo_list.find_member_keys.return_value = []
     return source
 
 
@@ -78,3 +82,74 @@ def test_get_contacts_forwards_valid_sort_and_order():
     source.get_contacts(sort_by="last_name", order=Order.DESC)
     assert source._repo_contact.find_by_addressbook.call_args.args[4] == "last_name"
     assert source._repo_contact.find_by_addressbook.call_args.args[5] == Order.DESC
+
+
+# ========== distribution lists ==========
+
+def test_delete_addressbook_clears_list_members_then_removes_lists():
+    source = _build_source(_book(key="ab-k", id=1))
+    source._repo_list.find_by_addressbook.return_value = [CardList(name="Team", key="lst-1")]
+    source.delete_addressbook()
+    source._repo_list.delete_members.assert_called_once_with("lst-1")
+    source._repo_list.delete_all.assert_called_once_with("ab-k", hard_delete=False)
+
+
+def test_get_lists_defaults_sort_to_name():
+    source = _build_source(_book(key="ab-k"))
+    source.get_lists(sort_by=None)
+    assert source._repo_list.find_by_addressbook.call_args.args[4] == "name"
+
+
+def test_get_lists_rejects_unknown_sort_column():
+    source = _build_source(_book(key="ab-k"))
+    source.get_lists(sort_by="name); DROP TABLE")
+    assert source._repo_list.find_by_addressbook.call_args.args[4] == "name"
+
+
+def test_get_lists_populates_members():
+    source = _build_source(_book(key="ab-k"))
+    source._repo_list.find_by_addressbook.return_value = [CardList(name="Team", key="lst-1")]
+    source._repo_list.find_member_keys.return_value = ["ct-1", "ct-2"]
+    lists = source.get_lists()
+    assert lists[0].members == ["ct-1", "ct-2"]
+
+
+def test_get_list_by_key_populates_members():
+    source = _build_source(_book(key="ab-k"))
+    source._repo_list.find_by_key.return_value = CardList(name="Team", key="lst-1")
+    source._repo_list.find_member_keys.return_value = ["ct-1"]
+    result = source.get_list_by_key("lst-1")
+    assert result.members == ["ct-1"]
+
+
+def test_get_list_by_key_returns_none_when_absent():
+    source = _build_source(_book(key="ab-k"))
+    source._repo_list.find_by_key.return_value = None
+    assert source.get_list_by_key("missing") is None
+    source._repo_list.find_member_keys.assert_not_called()
+
+
+def test_insert_list_persists_members_and_bumps_ctag():
+    source = _build_source(_book(ctag=3))
+    created = CardList(name="Team", key="lst-1")
+    source._repo_list.insert.return_value = created
+    source._repo_list.find_member_keys.return_value = ["ct-1", "ct-2"]
+    result = source.insert_list(CardList(name="Team", members=["ct-1", "ct-2"]))
+    source._repo_list.replace_members.assert_called_once_with("lst-1", ["ct-1", "ct-2"])
+    assert result.members == ["ct-1", "ct-2"]
+    assert source._addressbook.ctag == 4
+
+
+def test_update_list_replaces_members_and_bumps_ctag():
+    source = _build_source(_book(ctag=1))
+    source.update_list(CardList(name="Team", key="lst-1", id=7, members=["ct-9"]))
+    source._repo_list.replace_members.assert_called_once_with("lst-1", ["ct-9"])
+    assert source._addressbook.ctag == 2
+
+
+def test_delete_list_clears_members_and_bumps_ctag():
+    source = _build_source(_book(key="ab-k", ctag=2))
+    source.delete_list("lst-1")
+    source._repo_list.delete_by_key.assert_called_once_with("ab-k", "lst-1")
+    source._repo_list.delete_members.assert_called_once_with("lst-1")
+    assert source._addressbook.ctag == 3
