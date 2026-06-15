@@ -1,4 +1,4 @@
-# Default vCard VERSION (RFC 6350 6.7.9) applied when a contact does not carry one.
+# Default vCard VERSION (RFC 6350 §6.7.9) applied when a contact does not carry one.
 DEFAULT_VCARD_VERSION: str = "4.0"
 
 # Fallback formatted name (vCard FN) used when a contact has neither a structured name,

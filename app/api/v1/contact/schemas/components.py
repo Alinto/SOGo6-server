@@ -10,7 +10,7 @@ from marshmallow import Schema, fields
 
 
 class EmailSchema(Schema):
-    """vCard EMAIL property (RFC 6350 6.4.2)."""
+    """vCard EMAIL property (RFC 6350 §6.4.2)."""
 
     value = fields.String(required=True, metadata={"description": "Email address.", "example": "john@example.com"})
     types = fields.List(fields.String(), load_default=list,
@@ -19,7 +19,7 @@ class EmailSchema(Schema):
 
 
 class PhoneSchema(Schema):
-    """vCard TEL property (RFC 6350 6.4.1)."""
+    """vCard TEL property (RFC 6350 §6.4.1)."""
 
     number = fields.String(required=True, metadata={"description": "Phone number.", "example": "+33123456789"})
     types  = fields.List(fields.String(), load_default=list,
@@ -28,7 +28,7 @@ class PhoneSchema(Schema):
 
 
 class AddressSchema(Schema):
-    """vCard ADR property (RFC 6350 6.3.1)."""
+    """vCard ADR property (RFC 6350 §6.3.1)."""
 
     po_box      = fields.String(allow_none=True)
     extended    = fields.String(allow_none=True)
@@ -42,14 +42,14 @@ class AddressSchema(Schema):
 
 
 class UrlSchema(Schema):
-    """vCard URL property (RFC 6350 6.7.8)."""
+    """vCard URL property (RFC 6350 §6.7.8)."""
 
     value = fields.String(required=True, metadata={"example": "https://example.com"})
     type  = fields.String(allow_none=True, metadata={"description": "TYPE parameter (e.g. work, home)."})
 
 
 class ImppSchema(Schema):
-    """vCard IMPP property (RFC 6350 6.4.3) - instant messaging address."""
+    """vCard IMPP property (RFC 6350 §6.4.3) - instant messaging address."""
 
     uri  = fields.String(required=True, metadata={"example": "xmpp:john@example.com"})
     type = fields.String(allow_none=True)

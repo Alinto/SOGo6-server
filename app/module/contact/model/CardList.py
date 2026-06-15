@@ -18,6 +18,11 @@ class CardList:  # pylint: disable=too-many-instance-attributes
     contact keys held in the sogo_contacts_list_members join table, not embedded data, so editing
     a member contact propagates to every list it belongs to. Maps to sogo_contacts_lists.
 
+    Members are restricted to contacts of the list's own address book (enforced by the service
+    layer). A foreign MEMBER URI that RFC 6350 6.6.5 allows but that does not resolve to a contact
+    of this book (e.g. "mailto:" or a contact from another book) cannot be represented and would be
+    dropped when importing a third-party KIND:group card.
+
     id is the internal integer PK; key is the opaque public identifier exposed in the API (prevents
     row enumeration). uid is the vCard UID, dormant while the API is REST only and used by the
     KIND:group serializer.

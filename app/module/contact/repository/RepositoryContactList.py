@@ -7,7 +7,7 @@ from app.config.db import tables as tbl
 from app.module.contact.model.CardList import CardList
 from app.utils import errors as err
 from app.utils.datetime.DateTimeUtils import to_utc
-from app.utils.db.Condition import AndCondition, EqualCondition, LikeCondition, Order, TrueCondition
+from app.utils.db.Condition import AndCondition, Condition, EqualCondition, LikeCondition, Order, TrueCondition
 from app.utils.exceptions import BugException, RequestException
 from app.utils.logger.logger import logger_contact
 from app.utils.maths.sogo_hash import generate_uuid
@@ -145,17 +145,11 @@ class RepositoryContactList:
         When search is provided, a case-insensitive name substring filter is applied (lists have no
         full-text vector; the set per book is small).
         """
-        condition: AndCondition = AndCondition(
-            EqualCondition(tbl.COL_LST_ADDRESSBOOK_KEY.name, addressbook_key),
-            EqualCondition(tbl.COL_LST_IS_DELETED.name, False),
-        )
-        if search:
-            condition = AndCondition(condition, LikeCondition(tbl.COL_LST_NAME.name, f"%{search}%"))
         # pylint: disable=duplicate-code
         rows = self._db.select_from_table(
             table_name=tbl.TABLE_CONTACT_LIST.name,
             column_tuple=_ALL_COLS,
-            condition=condition,
+            condition=self._book_filter(addressbook_key, search),
             offset=offset,
             limit=limit,
             sort_by=sort_by,
@@ -166,18 +160,23 @@ class RepositoryContactList:
 
     def count_by_addressbook(self, addressbook_key: str, search: str | None = None) -> int:
         """Return the number of non-deleted lists in an address book (for pagination total)."""
-        condition: AndCondition = AndCondition(
+        rows = self._db.select_from_table(
+            table_name=tbl.TABLE_CONTACT_LIST.name,
+            column_tuple=(tbl.COL_LST_KEY.name,),
+            condition=self._book_filter(addressbook_key, search),
+        )
+        return sum(1 for _ in rows)
+
+    @staticmethod
+    def _book_filter(addressbook_key: str, search: str | None) -> Condition:
+        """Build the non-deleted-lists-of-a-book condition, with an optional name substring filter."""
+        condition: Condition = AndCondition(
             EqualCondition(tbl.COL_LST_ADDRESSBOOK_KEY.name, addressbook_key),
             EqualCondition(tbl.COL_LST_IS_DELETED.name, False),
         )
         if search:
             condition = AndCondition(condition, LikeCondition(tbl.COL_LST_NAME.name, f"%{search}%"))
-        rows = self._db.select_from_table(
-            table_name=tbl.TABLE_CONTACT_LIST.name,
-            column_tuple=(tbl.COL_LST_KEY.name,),
-            condition=condition,
-        )
-        return sum(1 for _ in rows)
+        return condition
 
     def delete_by_key(self, addressbook_key: str, key: str, hard_delete: bool = False) -> None:
         """Soft-delete (or hard-delete) a single list row by its opaque key. The caller clears members."""
@@ -241,15 +240,6 @@ class RepositoryContactList:
             condition=EqualCondition(tbl.COL_LM_LIST_KEY.name, list_key),
         )
         return [row[0] for row in rows]
-
-    def count_members(self, list_key: str) -> int:
-        """Return the number of members of a list."""
-        rows = self._db.select_from_table(
-            table_name=tbl.TABLE_CONTACT_LIST_MEMBER.name,
-            column_tuple=(tbl.COL_LM_CONTACT_KEY.name,),
-            condition=EqualCondition(tbl.COL_LM_LIST_KEY.name, list_key),
-        )
-        return sum(1 for _ in rows)
 
     def replace_members(self, list_key: str, contact_keys: list[str]) -> None:
         """Replace a list's membership with the given contact keys (full rewrite of the join rows)."""

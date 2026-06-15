@@ -351,7 +351,9 @@ Key queries:
 """
 # key: opaque token exposed in the API instead of id
 # addressbook_key: FK to sogo_contacts_addressbooks.key - present in every WHERE clause
-# uid: vCard UID - unique per (addressbook_key, uid)
+# uid: vCard UID - expected unique per (addressbook_key, uid), but NOT enforced at the DB level yet
+#   (the REST API generates the uid itself; a real unique constraint is needed once CardDAV clients
+#   own the uid - RFC 6352)
 # kind: vCard KIND - 'individual', 'org', 'group'
 # last_name / first_name / organization: relational copies of the name parts, for ORDER BY and filtering
 # display_name: vCard FN - the formatted name shown in listings
