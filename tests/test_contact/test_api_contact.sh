@@ -276,6 +276,11 @@ check_count "page body" ".data.contacts" "2"
 PTOTAL=$(pagination '.total')
 info "X-Pagination total: $PTOTAL"
 [ "$PTOTAL" -ge 4 ] 2>/dev/null && ok "X-Pagination total >= 4" || fail "X-Pagination total=$PTOTAL"
+req "$BASE/addressbooks/$AB_KEY/contacts?page=1&page_size=2&sort_by=display_name&sort_order=asc" -H "$H_AUTH" >/dev/null
+P1=$(extract '.data.contacts[0].key')
+req "$BASE/addressbooks/$AB_KEY/contacts?page=2&page_size=2&sort_by=display_name&sort_order=asc" -H "$H_AUTH" >/dev/null
+P2=$(extract '.data.contacts[0].key')
+[ -n "$P1" ] && [ -n "$P2" ] && [ "$P1" != "$P2" ] && ok "page 2 differs from page 1" || fail "page 2 ('$P2') == page 1 ('$P1')"
 
 # 7. SORT
 step "10. Contact - sort by last_name desc"
@@ -285,6 +290,10 @@ check_code "GET contacts?sort_by=last_name&sort_order=desc" "$CODE" "200"
 FIRST=$(extract '.data.contacts[0].last_name')
 info "First last_name: $FIRST"
 [ "$FIRST" = "Zzz" ] && ok "desc sort puts Zzz first" || fail "expected Zzz first, got '$FIRST'"
+
+CODE=$(req "$BASE/addressbooks/$AB_KEY/contacts?sort_by=last_name&sort_order=asc&page_size=20" -H "$H_AUTH")
+ASC_LAST=$(extract '.data.contacts[-1].last_name')
+[ "$ASC_LAST" = "Zzz" ] && ok "asc sort puts Zzz last" || fail "expected Zzz last in asc, got '$ASC_LAST'"
 
 # 8. CROSS-BOOK LISTING
 step "11. Contact - cross-book listing (GET /contacts)"
@@ -351,6 +360,12 @@ check_not_empty ".data.key"
 LIST_KEY=$(extract '.data.key')
 info "List key: $LIST_KEY"
 
+info "A list member must be a contact of the book: a bogus member key is rejected with S000714."
+CODE=$(req -X POST "$BASE/addressbooks/$AB_KEY/lists" -H "$H_JSON" -H "$H_AUTH" \
+    -d '{"name":"Bad List","members":["does-not-exist"]}')
+check_code       "POST lists with invalid member" "$CODE" "422"
+check_error_code "invalid member error_code" "S000714"
+
 step "15. Distribution list - collection + get by key"
 CODE=$(req "$BASE/addressbooks/$AB_KEY/lists" -H "$H_AUTH")
 check_code "GET /addressbooks/$AB_KEY/lists" "$CODE" "200"
@@ -372,13 +387,27 @@ LSUG=$(body | jq -r --arg k "$LIST_KEY" '.data.suggestions[] | select(.type=="li
 LMEM=$(body | jq -r --arg k "$LIST_KEY" '.data.suggestions[] | select(.type=="list" and .list_key==$k) | .members[0].email // empty')
 [ -n "$LMEM" ] && ok "list members are resolved with an email ($LMEM)" || fail "list members not resolved"
 
+step "15b. Distribution list - deleting a member contact drops it from the list"
+info "Deletes member LM2; the list must lose it (member_count 2 -> 1) without an explicit list edit."
+CODE=$(req -X DELETE "$BASE/addressbooks/$AB_KEY/contacts/$LM2" -H "$H_AUTH")
+check_code "DELETE member contact $LM2" "$CODE" "200"
+CODE=$(req "$BASE/addressbooks/$AB_KEY/lists/$LIST_KEY" -H "$H_AUTH")
+check_code  "GET list after member deletion" "$CODE" "200"
+check_field ".data.member_count" "1"
+
 step "16. Distribution list - patch (rename + membership replacement)"
-info "Renames the list and reduces its membership to a single contact."
+info "Renames the list and replaces its membership; then a name-only PATCH must keep that membership."
 CODE=$(req -X PATCH "$BASE/addressbooks/$AB_KEY/lists/$LIST_KEY" -H "$H_JSON" -H "$H_AUTH" \
     -d "{\"name\":\"Core Team\",\"members\":[\"$CT_KEY\"]}")
 check_code  "PATCH /addressbooks/$AB_KEY/lists/$LIST_KEY" "$CODE" "200"
 check_field ".data.name" "Core Team"
 check_field ".data.member_count" "1"
+
+CODE=$(req -X PATCH "$BASE/addressbooks/$AB_KEY/lists/$LIST_KEY" -H "$H_JSON" -H "$H_AUTH" \
+    -d '{"name":"Final Team"}')
+check_code  "PATCH list name only" "$CODE" "200"
+check_field ".data.name" "Final Team"
+check_field ".data.member_count" "1"  # a name-only PATCH must not wipe the membership
 
 step "17. Distribution list - error path"
 info "Unknown list key -> 404 S000710."
@@ -399,6 +428,9 @@ if $DO_DELETE; then
     check_code "GET deleted contact -> 404" "$CODE" "404"
     CODE=$(req -X DELETE "$BASE/addressbooks/$AB_KEY" -H "$H_AUTH")
     check_code "DELETE /addressbooks/$AB_KEY" "$CODE" "200"
+    # Book is gone: any access scoped to it must 404 (cascade).
+    CODE=$(req "$BASE/addressbooks/$AB_KEY/lists" -H "$H_AUTH")
+    check_code "GET lists of deleted book -> 404" "$CODE" "404"
 else
     skip "DELETE list/$LIST_KEY, contact/$CT_KEY and address book/$AB_KEY"
 fi

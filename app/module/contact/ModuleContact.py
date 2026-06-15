@@ -400,15 +400,16 @@ class ModuleContact:
             raise RequestException(error=err.ERROR_UNKOWN) from exc
 
     def clean(self) -> int:
-        """Physically remove every soft-deleted contact and list row, returning the number purged.
+        """Physically remove soft-deleted rows and dangling membership, returning the total reclaimed.
 
         Global purge (unlike the calendar's per-calendar/user clean): deleting an address book
         detaches its contacts and lists (addressbook_key NULL), so a per-book or per-user scope
         cannot reach those tombstones - only an is_deleted sweep does. After the tombstones are gone,
-        membership rows left pointing at a purged contact or list are dropped as well.
+        membership rows left pointing at a purged contact or list are dropped too; the returned count
+        sums the contact rows, list rows and orphan membership rows physically removed.
         """
         contact_repo: RepositoryContact = RepositoryContact(self._db)
         list_repo: RepositoryContactList = RepositoryContactList(self._db)
         purged: int = contact_repo.purge_deleted() + list_repo.purge_deleted()
-        list_repo.purge_orphan_members(list_repo.all_keys(), contact_repo.all_keys())
+        purged += list_repo.purge_orphan_members(list_repo.all_keys(), contact_repo.all_keys())
         return purged

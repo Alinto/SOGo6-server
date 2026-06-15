@@ -43,7 +43,9 @@ class CardAddressBook:  # pylint: disable=too-many-instance-attributes
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
-    MUTABLE_FIELDS: ClassVar[frozenset[str]] = frozenset({"name", "description", "is_default", "sync_config"})
+    # sync_config is deliberately excluded: external CardDAV sync metadata (incl. credentials) is
+    # written by the sync engine, never through a user PATCH.
+    MUTABLE_FIELDS: ClassVar[frozenset[str]] = frozenset({"name", "description", "is_default"})
 
     @property
     def require_id(self) -> int:

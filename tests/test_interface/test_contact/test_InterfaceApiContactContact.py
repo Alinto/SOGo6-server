@@ -12,6 +12,9 @@ from app.module.contact.serializer.AddressBooksSerializerList import AddressBook
 from app.module.contact.model.CardList import CardList
 from app.module.contact.serializer.ContactAutocompleteSerializerList import ContactAutocompleteSerializerList
 from app.module.contact.serializer.ContactListAutocompleteSerializerList import ContactListAutocompleteSerializerList
+from app.module.contact.serializer.ContactListDeserializerDict import ContactListDeserializerDict
+from app.module.contact.serializer.ContactListSerializerDict import ContactListSerializerDict
+from app.module.contact.serializer.ContactListsSerializerList import ContactListsSerializerList
 from app.module.contact.serializer.ContactDeserializerDict import ContactDeserializerDict
 from app.module.contact.serializer.ContactSerializerDict import ContactSerializerDict
 from app.module.contact.serializer.ContactsSerializerList import ContactsSerializerList
@@ -33,6 +36,9 @@ def _build_interface():
     inter._contact_deserializer = ContactDeserializerDict()
     inter._autocomplete_serializer = ContactAutocompleteSerializerList()
     inter._list_autocomplete_serializer = ContactListAutocompleteSerializerList()
+    inter._list_serializer = ContactListSerializerDict()
+    inter._lists_serializer = ContactListsSerializerList()
+    inter._list_deserializer = ContactListDeserializerDict()
     inter._user_module_settings = MagicMock(SOGO_D_AUTOCOMPLETION_MIN_LEN=2)
     return inter
 
@@ -126,6 +132,68 @@ def test_request_exception_returns_error_envelope():
     data, _ = inter.get_addressbook("missing")
     assert data["error_code"] == err.ERROR_CONTACT_ADDRESSBOOK_NOT_FOUND.c
     assert data["data"] is None
+
+
+# ========== Distribution lists ==========
+
+def test_get_lists_returns_total_count_and_page():
+    inter = _build_interface()
+    inter.module.get_all_lists.return_value = ([CardList(name="Team", key="l1")], 7)
+    total, data, _ = inter.get_lists("ab1", CollectionPaginateArgs(page=1, page_size=20), search="te")
+    assert total == 7
+    assert [l["key"] for l in data["data"]["lists"]] == ["l1"]
+
+
+def test_get_lists_translates_pagination_and_sort():
+    inter = _build_interface()
+    inter.module.get_all_lists.return_value = ([], 0)
+    inter.get_lists("ab1", CollectionPaginateArgs(page=2, page_size=10, sort_by="name", sort_order="desc"))
+    kwargs = inter.module.get_all_lists.call_args.kwargs
+    assert kwargs["offset"] == 10 and kwargs["limit"] == 10
+    assert kwargs["sort_by"] == "name" and kwargs["order"] == Order.DESC
+
+
+def test_get_list_serializes():
+    inter = _build_interface()
+    inter.module.get_list.return_value = CardList(name="Team", key="l1", members=["c1", "c2"])
+    data, _ = inter.get_list("ab1", "l1")
+    assert data["data"]["name"] == "Team"
+    assert data["data"]["member_count"] == 2
+
+
+def test_create_list_deserializes_and_returns_201():
+    inter = _build_interface()
+    inter.module.create_list.side_effect = lambda user, ab_key, card_list: card_list
+    _, code = inter.create_list("ab1", {"name": "Team", "members": ["c1"]})
+    created = inter.module.create_list.call_args.args[2]
+    assert created.name == "Team"
+    assert created.members == ["c1"]
+    assert code == 201
+
+
+def test_create_list_missing_name_returns_parse_error():
+    inter = _build_interface()
+    data, _ = inter.create_list("ab1", {"description": "no name"})
+    assert data["error_code"] == err.ERROR_CONTACT_JSON_PARSE_FAILED.c
+
+
+def test_patch_list_merges_and_preserves_members():
+    inter = _build_interface()
+    inter.module.get_list.return_value = CardList(id=1, key="l1", uid="u1", addressbook_key="ab1",
+                                                  name="Old", members=["c1", "c2"])
+    inter.module.update_list.side_effect = lambda user, ab_key, key, card_list: card_list
+    inter.patch_list("ab1", "l1", {"name": "New"})
+    merged = inter.module.update_list.call_args.args[3]
+    assert merged.name == "New"
+    assert merged.members == ["c1", "c2"]  # name-only PATCH keeps the membership
+
+
+def test_delete_list_returns_success_envelope():
+    inter = _build_interface()
+    data, _ = inter.delete_list("ab1", "l1")
+    assert data["data"] is None
+    assert data["error_code"] == "S000000"
+    inter.module.delete_list.assert_called_once()
 
 
 def test_autocomplete_returns_one_suggestion_per_email_plus_lists():
