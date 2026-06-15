@@ -15,7 +15,11 @@ from app.module.contact.model.enums.CardSourceType import CardSourceType
 from app.module.contact.serializer.AddressBookSerializerDict import AddressBookSerializerDict
 from app.module.contact.serializer.AddressBooksSerializerList import AddressBooksSerializerList
 from app.module.contact.serializer.ContactAutocompleteSerializerList import ContactAutocompleteSerializerList
+from app.module.contact.serializer.ContactListAutocompleteSerializerList import ContactListAutocompleteSerializerList
 from app.module.contact.serializer.ContactDeserializerDict import ContactDeserializerDict
+from app.module.contact.serializer.ContactListDeserializerDict import ContactListDeserializerDict
+from app.module.contact.serializer.ContactListSerializerDict import ContactListSerializerDict
+from app.module.contact.serializer.ContactListsSerializerList import ContactListsSerializerList
 from app.module.contact.serializer.ContactSerializerDict import ContactSerializerDict
 from app.module.contact.serializer.ContactsSerializerList import ContactsSerializerList
 from app.service import sogo_cache
@@ -29,6 +33,7 @@ from app.utils.logger.logger import logger_api
 if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
     from app.module.contact.model.CardContact import CardContact
+    from app.module.contact.model.CardList import CardList
     from app.module.contact.source.ContactSource import ContactSource
     from app.utils.api.paginate_sort_filter import CollectionPaginateArgs, CustomPaginateResponse
 
@@ -52,6 +57,10 @@ class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attribute
         self._contacts_serializer: ContactsSerializerList = ContactsSerializerList()
         self._contact_deserializer: ContactDeserializerDict = ContactDeserializerDict()
         self._autocomplete_serializer: ContactAutocompleteSerializerList = ContactAutocompleteSerializerList()
+        self._list_autocomplete_serializer: ContactListAutocompleteSerializerList = ContactListAutocompleteSerializerList()
+        self._list_serializer: ContactListSerializerDict = ContactListSerializerDict()
+        self._lists_serializer: ContactListsSerializerList = ContactListsSerializerList()
+        self._list_deserializer: ContactListDeserializerDict = ContactListDeserializerDict()
 
     #
     # Address books
@@ -143,12 +152,13 @@ class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attribute
             return 0, *create_api_base_response(None, ex.error)
 
     def autocomplete(self, query: str) -> tuple[dict[str, Any], int]:
-        """Return lightweight recipient suggestions (one {name, email} per email) for a query.
+        """Return lightweight recipient suggestions (contacts one per email, plus distribution lists).
 
         Below the domain's autocompletion minimum length the result is an empty list rather than an
         error (standard autocomplete behaviour). The search spans all the user's address books (and
-        the directory once ContactSourceDirectory is wired); local books are capped at
-        AUTOCOMPLETE_DEFAULT_LIMIT contacts.
+        the directory once ContactSourceDirectory is wired); contacts and lists are each capped at
+        AUTOCOMPLETE_DEFAULT_LIMIT. A list surfaces as a suggestion carrying its member_count instead
+        of an email address.
 
         :param query: Partial name or email typed by the user.
         :return: API envelope with a ``suggestions`` list, plus HTTP status code.
@@ -157,7 +167,12 @@ class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attribute
             if len(query.strip()) < self._user_module_settings.SOGO_D_AUTOCOMPLETION_MIN_LEN:
                 return create_api_base_response({"suggestions": []})
             contacts, _ = self.module.get_contacts(self.user, search=query, limit=AUTOCOMPLETE_DEFAULT_LIMIT)
-            return create_api_base_response({"suggestions": self._autocomplete_serializer.serialize(contacts)})
+            lists = self.module.search_all_lists(self.user, search=query, limit=AUTOCOMPLETE_DEFAULT_LIMIT)
+            suggestions: list[dict[str, Any]] = (
+                self._autocomplete_serializer.serialize(contacts)
+                + self._list_autocomplete_serializer.serialize(lists)
+            )
+            return create_api_base_response({"suggestions": suggestions})
         except RequestException as ex:
             logger_api.error("autocomplete failed for user %s: %s", self.user.uid, ex)
             return create_api_base_response(None, ex.error)
@@ -205,4 +220,82 @@ class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attribute
             return create_api_base_response(None)
         except RequestException as ex:
             logger_api.error("delete_contact failed for user %s contact %s: %s", self.user.uid, key, ex)
+            return create_api_base_response(None, ex.error)
+
+    #
+    # Distribution lists
+    #
+    def get_lists(
+        self, addressbook_key: str, collection_param: CollectionPaginateArgs, search: str | None = None,
+    ) -> CustomPaginateResponse:
+        """List the distribution lists of an address book, with search, sort and pagination.
+
+        Lists are book-scoped (unlike the transverse contact listing). Pagination and sort come from
+        collection_param; the total count is surfaced through the X-Pagination header.
+
+        :param addressbook_key: Address book key holding the lists.
+        :param collection_param: Parsed pagination and sort arguments from the request.
+        :param search: Optional name filter.
+        :return: A tuple (total_count, API response dict, status code).
+        """
+        try:
+            order: Order = Order.DESC if collection_param.sort_order == "desc" else Order.ASC
+            lists, total = self.module.get_all_lists(
+                self.user,
+                addressbook_key,
+                search=search,
+                offset=collection_param.first_item,
+                limit=collection_param.page_size,
+                sort_by=collection_param.sort_by,
+                order=order,
+            )
+            serialized: list[dict[str, Any]] = self._lists_serializer.serialize(lists)
+            return total, *create_api_base_response({"lists": serialized})
+        except RequestException as ex:
+            logger_api.error("get_lists failed for user %s book %s: %s", self.user.uid, addressbook_key, ex)
+            return 0, *create_api_base_response(None, ex.error)
+
+    def get_list(self, addressbook_key: str, key: str) -> tuple[dict[str, Any], int]:
+        """Get a single distribution list by key within an address book."""
+        try:
+            card_list: CardList = self.module.get_list(self.user, addressbook_key, key)
+            return create_api_base_response(self._list_serializer.serialize(card_list))
+        except RequestException as ex:
+            logger_api.error("get_list failed for user %s list %s: %s", self.user.uid, key, ex)
+            return create_api_base_response(None, ex.error)
+
+    def create_list(self, addressbook_key: str, body: dict[str, Any]) -> tuple[dict[str, Any], int]:
+        """Create a new distribution list in the given address book."""
+        try:
+            card_list: CardList = self._list_deserializer.deserialize(body)
+            created: CardList = self.module.create_list(self.user, addressbook_key, card_list)
+            return create_api_base_response(self._list_serializer.serialize(created), code=201)
+        except RequestException as ex:
+            logger_api.error("create_list failed for user %s book %s: %s", self.user.uid, addressbook_key, ex)
+            return create_api_base_response(None, ex.error)
+        except (ValueError, KeyError) as exc:
+            logger_api.error("Failed to parse list body for user %s book %s: %s", self.user.uid, addressbook_key, exc)
+            return create_api_base_response(None, ERROR_CONTACT_JSON_PARSE_FAILED)
+
+    def patch_list(self, addressbook_key: str, key: str, body: dict[str, Any]) -> tuple[dict[str, Any], int]:
+        """Apply partial updates to a distribution list within an address book."""
+        try:
+            existing: CardList = self.module.get_list(self.user, addressbook_key, key)
+            list_update: CardList = self._list_deserializer.deserialize_with_update(existing, body)
+            updated: CardList = self.module.update_list(self.user, addressbook_key, key, list_update)
+            return create_api_base_response(self._list_serializer.serialize(updated))
+        except RequestException as ex:
+            logger_api.error("patch_list failed for user %s list %s: %s", self.user.uid, key, ex)
+            return create_api_base_response(None, ex.error)
+        except (ValueError, KeyError) as exc:
+            logger_api.error("Failed to parse patch body for user %s list %s: %s", self.user.uid, key, exc)
+            return create_api_base_response(None, ERROR_CONTACT_JSON_PARSE_FAILED)
+
+    def delete_list(self, addressbook_key: str, key: str) -> tuple[dict[str, Any], int]:
+        """Delete a distribution list within an address book."""
+        try:
+            self.module.delete_list(self.user, addressbook_key, key)
+            return create_api_base_response(None)
+        except RequestException as ex:
+            logger_api.error("delete_list failed for user %s list %s: %s", self.user.uid, key, ex)
             return create_api_base_response(None, ex.error)

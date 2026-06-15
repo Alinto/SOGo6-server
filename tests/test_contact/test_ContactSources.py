@@ -5,6 +5,7 @@ import pytest
 
 from app.module.contact.model.CardAddressBook import CardAddressBook
 from app.module.contact.model.CardContact import CardContact
+from app.module.contact.model.CardList import CardList
 from app.module.contact.model.enums.CardSourceType import CardSourceType
 from app.module.contact.source.ContactSourceDb import ContactSourceDb
 from app.module.contact.source.ContactSources import ContactSources
@@ -38,6 +39,18 @@ def test_get_by_key_returns_source_when_found():
     sources = _build()
     sources._repo_addressbook.find_by_key.return_value = _book()
     assert sources.get_by_key("u", "ab-k") is not None
+
+
+def test_search_all_lists_resolves_members_and_book_name():
+    sources = _build()
+    fake_source = MagicMock()
+    fake_source.addressbook = _book(key="ab-k", name="Personal")
+    fake_source.get_lists.return_value = [CardList(name="Team", key="l1", addressbook_key="ab-k", members=["c1"])]
+    fake_source.get_contact_by_key.return_value = CardContact(display_name="Carol", key="c1")
+    sources.get_all = MagicMock(return_value=[fake_source])
+    result = sources.search_all_lists("u", search="te")
+    assert result[0].addressbook_name == "Personal"
+    assert [c.key for c in result[0].member_contacts] == ["c1"]
 
 
 def test_get_by_key_returns_none_when_absent():

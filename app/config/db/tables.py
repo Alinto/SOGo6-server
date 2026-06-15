@@ -452,7 +452,8 @@ Join table between a distribution list and its member contacts (N:M). A member i
 contact, never an ad-hoc email, so editing the contact propagates to every list it belongs to.
 Both ends are referenced by their opaque key, consistent with the rest of the schema (contacts
 reference their book by addressbook_key, events reference their calendar by key) - never by the
-internal id. A member contact may live in another address book; the join ignores the book.
+internal id. A member must be a contact of the list's own address book (enforced by the service
+layer); the join carries no book column.
 
 Key queries:
   SELECT contact_key FROM sogo_contacts_list_members WHERE list_key = ?            (expand a list)

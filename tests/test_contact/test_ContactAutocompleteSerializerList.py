@@ -14,9 +14,12 @@ def test_one_suggestion_per_email_with_provenance():
                     emails=[CardEmail(value="bob@x.com")]),
     ]
     assert _serializer.serialize(contacts) == [
-        {"name": "Alice", "email": "a@x.com", "contact_key": "c1", "address_book": {"key": "ab1", "name": "Personal"}},
-        {"name": "Alice", "email": "a2@x.com", "contact_key": "c1", "address_book": {"key": "ab1", "name": "Personal"}},
-        {"name": "Bob", "email": "bob@x.com", "contact_key": "c2", "address_book": {"key": "ab1", "name": "Personal"}},
+        {"type": "contact", "name": "Alice", "email": "a@x.com", "contact_key": "c1", "list_key": None,
+         "member_count": None, "members": None, "address_book": {"key": "ab1", "name": "Personal"}},
+        {"type": "contact", "name": "Alice", "email": "a2@x.com", "contact_key": "c1", "list_key": None,
+         "member_count": None, "members": None, "address_book": {"key": "ab1", "name": "Personal"}},
+        {"type": "contact", "name": "Bob", "email": "bob@x.com", "contact_key": "c2", "list_key": None,
+         "member_count": None, "members": None, "address_book": {"key": "ab1", "name": "Personal"}},
     ]
 
 
@@ -26,4 +29,5 @@ def test_contact_without_email_yields_no_suggestion():
 
 def test_contact_without_addressbook_has_null_address_book():
     result = _serializer.serialize([CardContact(display_name="X", key="c1", emails=[CardEmail(value="x@x.com")])])
-    assert result == [{"name": "X", "email": "x@x.com", "contact_key": "c1", "address_book": None}]
+    assert result == [{"type": "contact", "name": "X", "email": "x@x.com", "contact_key": "c1",
+                       "list_key": None, "member_count": None, "members": None, "address_book": None}]

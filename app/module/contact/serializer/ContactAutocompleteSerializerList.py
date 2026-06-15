@@ -24,9 +24,13 @@ class ContactAutocompleteSerializerList(ContactsSerializer[list]):
             )
             for email in contact.emails:
                 suggestions.append({
+                    "type": "contact",
                     "name": contact.display_name,
                     "email": email.value,
                     "contact_key": contact.key,
+                    "list_key": None,
+                    "member_count": None,
+                    "members": None,
                     "address_book": address_book,
                 })
         return suggestions

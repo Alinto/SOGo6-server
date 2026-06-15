@@ -97,8 +97,12 @@ class ContactSourceDb(ContactSource):
         self._bump_ctag()
 
     def delete_contact(self, key: str) -> None:
-        """Soft-delete a contact by key and bump the book ctag."""
+        """Soft-delete a contact by key, drop it from every list it belonged to, and bump the book ctag."""
         self._repo_contact.delete_by_key(self._addressbook.require_key, key)
+        # A deleted contact must not linger as a list member (dangling reference, inflated count).
+        # Lists in other books that held it are not ctag-bumped here; that cross-book sync nicety
+        # belongs with the CardDAV layer.
+        self._repo_list.remove_contact_from_lists(key)
         self._bump_ctag()
 
     def get_lists(

@@ -64,6 +64,14 @@ def test_insert_contact_bumps_ctag():
     source._repo_addressbook.update.assert_called_once()
 
 
+def test_delete_contact_removes_it_from_all_lists():
+    source = _build_source(_book(key="ab-k", ctag=2))
+    source.delete_contact("ct-k")
+    source._repo_contact.delete_by_key.assert_called_once_with("ab-k", "ct-k")
+    source._repo_list.remove_contact_from_lists.assert_called_once_with("ct-k")
+    assert source._addressbook.ctag == 3
+
+
 def test_get_contacts_defaults_sort_to_display_name():
     source = _build_source(_book(key="ab-k"))
     source.get_contacts(search="joe", offset=0, limit=10, sort_by=None)

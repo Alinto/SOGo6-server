@@ -7,7 +7,7 @@ from app.config.db import tables as tbl
 from app.module.contact.model.CardList import CardList
 from app.utils import errors as err
 from app.utils.datetime.DateTimeUtils import to_utc
-from app.utils.db.Condition import AndCondition, EqualCondition, LikeCondition, Order
+from app.utils.db.Condition import AndCondition, EqualCondition, LikeCondition, Order, TrueCondition
 from app.utils.exceptions import BugException, RequestException
 from app.utils.logger.logger import logger_contact
 from app.utils.maths.sogo_hash import generate_uuid
@@ -221,6 +221,15 @@ class RepositoryContactList:
             condition=EqualCondition(tbl.COL_LST_IS_DELETED.name, True),
         )
 
+    def all_keys(self) -> set[str]:
+        """Return the opaque keys of every list row still present (used for orphan detection)."""
+        rows = self._db.select_from_table(
+            table_name=tbl.TABLE_CONTACT_LIST.name,
+            column_tuple=(tbl.COL_LST_KEY.name,),
+            condition=TrueCondition(),
+        )
+        return {row[0] for row in rows}
+
     #
     # Membership (sogo_contacts_list_members join)
     #
@@ -261,3 +270,38 @@ class RepositoryContactList:
             table_name=tbl.TABLE_CONTACT_LIST_MEMBER.name,
             condition=EqualCondition(tbl.COL_LM_LIST_KEY.name, list_key),
         )
+
+    def remove_contact_from_lists(self, contact_key: str) -> None:
+        """Remove a contact from every list it belongs to (called when the contact is deleted)."""
+        self._db.delete_row_in_table(
+            table_name=tbl.TABLE_CONTACT_LIST_MEMBER.name,
+            condition=EqualCondition(tbl.COL_LM_CONTACT_KEY.name, contact_key),
+        )
+
+    def purge_orphan_members(self, live_list_keys: set[str], live_contact_keys: set[str]) -> int:
+        """Remove member rows pointing at a vanished list or contact, returning the count removed.
+
+        Called by the maintenance clean() once list and contact tombstones have been physically
+        purged: a membership row whose list_key or contact_key no longer resolves to an existing row
+        is dropped. The live key sets are supplied by the caller (the contact keys come from another
+        repository, so this method never reaches outside its own join table).
+        """
+        member_pairs: list[tuple] = list(self._db.select_from_table(
+            table_name=tbl.TABLE_CONTACT_LIST_MEMBER.name,
+            column_tuple=_MEMBER_COLS,
+            condition=TrueCondition(),
+        ))
+        orphan_list_keys: set[str] = {lk for lk, _ in member_pairs if lk not in live_list_keys}
+        orphan_contact_keys: set[str] = {ck for _, ck in member_pairs if ck not in live_contact_keys}
+        removed: int = 0
+        for list_key in orphan_list_keys:
+            removed += self._db.delete_row_in_table(
+                table_name=tbl.TABLE_CONTACT_LIST_MEMBER.name,
+                condition=EqualCondition(tbl.COL_LM_LIST_KEY.name, list_key),
+            )
+        for contact_key in orphan_contact_keys:
+            removed += self._db.delete_row_in_table(
+                table_name=tbl.TABLE_CONTACT_LIST_MEMBER.name,
+                condition=EqualCondition(tbl.COL_LM_CONTACT_KEY.name, contact_key),
+            )
+        return removed

@@ -7,6 +7,7 @@ from app.module.contact.ModuleContact import ModuleContact
 from app.module.contact.acl.ContactAclEngine import ContactAclEngine
 from app.module.contact.model.CardAddressBook import CardAddressBook
 from app.module.contact.model.CardContact import CardContact
+from app.module.contact.model.CardList import CardList
 from app.module.contact.model.enums.CardSourceType import CardSourceType
 from app.utils import errors as err
 from app.utils.exceptions import RequestException
@@ -157,8 +158,118 @@ def test_delete_contact_raises_not_found_when_absent():
         module.delete_contact(_user(), "ab-k", "missing")
 
 
-def test_clean_purges_all_soft_deleted():
+# ========== distribution lists ==========
+
+def test_create_list_generates_uid_and_sets_book_key():
     module = _build_module()
-    module._db.delete_row_in_table.return_value = 5
-    assert module.clean() == 5
-    module._db.delete_row_in_table.assert_called_once()
+    source = _fake_source(_book(key="ab-k"))
+    source.insert_list.side_effect = lambda card_list: card_list
+    module._sources.get_by_key.return_value = source
+    result = module.create_list(_user(), "ab-k", CardList(name="Team", members=["ct-1"]))
+    assert result.uid
+    assert result.addressbook_key == "ab-k"
+    source.insert_list.assert_called_once()
+
+
+def test_create_list_denied_for_non_owner():
+    module = _build_module()
+    source = _fake_source(_book(user_uid="someone-else@example.com"))
+    module._sources.get_by_key.return_value = source
+    with pytest.raises(RequestException) as exc:
+        module.create_list(_user(), "ab-k", CardList(name="X"))
+    assert exc.value.error == err.ERROR_CONTACT_ACCESS_DENIED
+
+
+def test_create_list_rejects_member_not_in_book():
+    module = _build_module()
+    source = _fake_source(_book(key="ab-k"))
+    source.get_contact_by_key.return_value = None  # member does not resolve in this book
+    module._sources.get_by_key.return_value = source
+    with pytest.raises(RequestException) as exc:
+        module.create_list(_user(), "ab-k", CardList(name="Team", members=["ghost"]))
+    assert exc.value.error == err.ERROR_CONTACT_LIST_MEMBER_INVALID
+    source.insert_list.assert_not_called()
+
+
+def test_update_list_rejects_member_not_in_book():
+    module = _build_module()
+    source = _fake_source(_book(key="ab-k"))
+    source.get_list_by_key.return_value = CardList(id=1, key="lst-k", name="Old")
+    source.get_contact_by_key.return_value = None
+    module._sources.get_by_key.return_value = source
+    with pytest.raises(RequestException) as exc:
+        module.update_list(_user(), "ab-k", "lst-k", CardList(name="New", members=["ghost"]))
+    assert exc.value.error == err.ERROR_CONTACT_LIST_MEMBER_INVALID
+    source.update_list.assert_not_called()
+
+
+def test_get_list_raises_not_found():
+    module = _build_module()
+    source = _fake_source()
+    source.get_list_by_key.return_value = None
+    module._sources.get_by_key.return_value = source
+    with pytest.raises(RequestException) as exc:
+        module.get_list(_user(), "ab-k", "missing")
+    assert exc.value.error == err.ERROR_CONTACT_LIST_NOT_FOUND
+
+
+def test_update_list_preserves_identity():
+    module = _build_module()
+    existing = CardList(id=7, key="lst-k", uid="u-1", addressbook_key="ab-k", name="Old")
+    source = _fake_source(_book(key="ab-k"))
+    source.get_list_by_key.return_value = existing
+    module._sources.get_by_key.return_value = source
+    update = CardList(key="hacked", uid="hacked", addressbook_key="other", name="New", members=["ct-1"])
+    module.update_list(_user(), "ab-k", "lst-k", update)
+    persisted = source.update_list.call_args.args[0]
+    assert persisted.id == 7
+    assert persisted.key == "lst-k"
+    assert persisted.uid == "u-1"
+    assert persisted.addressbook_key == "ab-k"
+    assert persisted.name == "New"
+
+
+def test_delete_list_denied_for_non_owner():
+    module = _build_module()
+    source = _fake_source(_book(user_uid="someone-else@example.com"))
+    module._sources.get_by_key.return_value = source
+    with pytest.raises(RequestException) as exc:
+        module.delete_list(_user(), "ab-k", "lst-k")
+    assert exc.value.error == err.ERROR_CONTACT_ACCESS_DENIED
+
+
+def test_delete_list_raises_not_found_when_absent():
+    module = _build_module()
+    source = _fake_source()
+    source.get_list_by_key.return_value = None
+    module._sources.get_by_key.return_value = source
+    with pytest.raises(RequestException):
+        module.delete_list(_user(), "ab-k", "missing")
+
+
+def test_get_all_lists_returns_page_and_total():
+    module = _build_module()
+    source = _fake_source(_book(key="ab-k"))
+    source.get_lists.return_value = [CardList(name="Team")]
+    source.count_lists.return_value = 3
+    module._sources.get_by_key.return_value = source
+    lists, total = module.get_all_lists(_user(), "ab-k")
+    assert len(lists) == 1
+    assert total == 3
+
+
+def test_search_all_lists_delegates_transverse():
+    module = _build_module()
+    module._sources.search_all_lists.return_value = [CardList(name="Team")]
+    result = module.search_all_lists(_user(), search="te", limit=25)
+    assert len(result) == 1
+    assert module._sources.search_all_lists.call_args.kwargs["search"] == "te"
+
+
+# ========== clean ==========
+
+def test_clean_purges_contacts_and_lists():
+    module = _build_module()
+    module._db.delete_row_in_table.return_value = 5  # each purge_deleted reports 5 rows
+    module._db.select_from_table.return_value = []   # no rows, no orphan members
+    assert module.clean() == 10  # contacts (5) + lists (5)

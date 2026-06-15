@@ -10,7 +10,7 @@ from app.module.contact.serializer.ContactDeserializerDict import ContactDeseria
 from app.module.contact.serializer.ContactSerializerDict import ContactSerializerDict
 from app.utils import errors as err
 from app.utils.datetime.DateTimeUtils import to_utc
-from app.utils.db.Condition import AndCondition, EqualCondition, FullTextCondition, Order
+from app.utils.db.Condition import AndCondition, EqualCondition, FullTextCondition, Order, TrueCondition
 from app.utils.db.FullTextValue import FullTextValue
 from app.utils.exceptions import BugException, RequestException
 from app.utils.logger.logger import logger_contact
@@ -296,3 +296,12 @@ class RepositoryContact:
             table_name=tbl.TABLE_CONTACT.name,
             condition=EqualCondition(tbl.COL_CT_IS_DELETED.name, True),
         )
+
+    def all_keys(self) -> set[str]:
+        """Return the opaque keys of every contact row still present (used for orphan detection)."""
+        rows = self._db.select_from_table(
+            table_name=tbl.TABLE_CONTACT.name,
+            column_tuple=(tbl.COL_CT_KEY.name,),
+            condition=TrueCondition(),
+        )
+        return {row[0] for row in rows}

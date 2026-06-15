@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, ClassVar
+from typing import Any, ClassVar, TYPE_CHECKING
 
 from app.utils.exceptions import BugException
+
+if TYPE_CHECKING:
+    from app.module.contact.model.CardContact import CardContact
 
 
 @dataclass
@@ -35,6 +38,12 @@ class CardList:  # pylint: disable=too-many-instance-attributes
     # MEMBER (RFC 6350 §6.6.5) - member contact keys (references into sogo_contacts_contacts.key),
     # valid only on a KIND:group card; loaded from the join table
     members: list[str] = field(default_factory=list)
+    # Transient - originating address book name, stamped at fetch time for display (autocomplete
+    # provenance), never persisted; mirrors CardContact.addressbook_name
+    addressbook_name: str | None = None
+    # Transient - members resolved to their CardContact, populated for autocomplete only (so a list
+    # suggestion can carry each member's name and email); never persisted
+    member_contacts: list[CardContact] = field(default_factory=list)
 
     is_deleted: bool = False
     created_at: datetime | None = None

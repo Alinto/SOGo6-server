@@ -8,6 +8,7 @@ from app.module.contact.model.CardAddressBook import CardAddressBook
 from app.module.contact.model.enums.CardSourceType import CardSourceType
 from app.module.contact.model.enums.ContactShareLevel import ContactShareLevel
 from app.module.contact.repository.RepositoryContact import RepositoryContact
+from app.module.contact.repository.RepositoryContactList import RepositoryContactList
 from app.module.contact.source.ContactSources import ContactSources
 from app.utils import errors as err
 from app.utils.db.Condition import Order
@@ -23,6 +24,7 @@ if TYPE_CHECKING:
     from app.manager.cache.ClientRedis import ClientRedis
     from app.manager.db.ClientSQL import ClientSQL
     from app.module.contact.model.CardContact import CardContact
+    from app.module.contact.model.CardList import CardList
     from app.module.contact.source.ContactSource import ContactSource
 
 
@@ -251,11 +253,162 @@ class ModuleContact:
             logger_contact.exception("Unexpected error deleting contact %s", key)
             raise RequestException(error=err.ERROR_UNKOWN) from exc
 
+    #
+    # Distribution lists
+    #
+    def get_all_lists(
+        self, user: User, addressbook_key: str, search: str | None = None,
+        offset: int = 0, limit: int = 0, sort_by: str | None = None, order: Order = Order.ASC,
+        user_sources: dict[str, UserSourceSettingsObj] | None = None,
+    ) -> tuple[list[CardList], int]:
+        """Return a page of distribution lists of an address book plus the total count.
+
+        Lists are book-scoped (unlike the transverse contact listing): a list belongs to one book.
+
+        :param user: The authenticated user.
+        :param addressbook_key: Opaque key of the address book holding the lists.
+        :param search: Optional name filter.
+        :param offset: Number of lists to skip (pagination).
+        :param limit: Maximum number of lists to return (0 = no limit).
+        :param sort_by: Column to sort by, or None for the default (name).
+        :param order: Sort direction (ascending or descending).
+        :param user_sources: Domain user sources keyed by source_uid (None = local DB only).
+        :return: A tuple (lists page, total count in the book).
+        """
+        try:
+            source: ContactSource = self.get_addressbook(user, addressbook_key, user_sources)
+            return source.get_lists(search, offset, limit, sort_by, order), source.count_lists(search)
+        except RequestException:
+            raise
+        except Exception as exc:
+            logger_contact.exception("Unexpected error fetching lists (book=%s)", addressbook_key)
+            raise RequestException(error=err.ERROR_UNKOWN) from exc
+
+    def search_all_lists(
+        self, user: User, search: str | None = None, limit: int = 0,
+        user_sources: dict[str, UserSourceSettingsObj] | None = None,
+    ) -> list[CardList]:
+        """Return the user's distribution lists across every book, name-filtered and capped (autocomplete).
+
+        Transverse counterpart of get_all_lists, used by recipient autocompletion so a list surfaces
+        as a suggestion alongside contacts.
+        """
+        try:
+            return self._sources.search_all_lists(user.uid, search=search, limit=limit, user_sources=user_sources)
+        except RequestException:
+            raise
+        except Exception as exc:
+            logger_contact.exception("Unexpected error searching lists for user %s", user.uid)
+            raise RequestException(error=err.ERROR_UNKOWN) from exc
+
+    def get_list(
+        self, user: User, addressbook_key: str, key: str,
+        user_sources: dict[str, UserSourceSettingsObj] | None = None,
+    ) -> CardList:
+        """Return a single list by key within an address book (members populated), or raise LIST_NOT_FOUND."""
+        source: ContactSource = self.get_addressbook(user, addressbook_key, user_sources)
+        card_list: CardList | None = source.get_list_by_key(key)
+        if card_list is None:
+            raise RequestException(error=err.ERROR_CONTACT_LIST_NOT_FOUND)
+        return card_list
+
+    @staticmethod
+    def _validate_members(source: ContactSource, member_keys: list[str]) -> None:
+        """Ensure every member key is a non-deleted contact of the list's own address book.
+
+        A distribution list references contacts stored in its address book; a member key that does
+        not resolve there (unknown, deleted, or from another book) is rejected.
+        """
+        for member_key in dict.fromkeys(member_keys):
+            if source.get_contact_by_key(member_key) is None:
+                raise RequestException(error=err.ERROR_CONTACT_LIST_MEMBER_INVALID)
+
+    def create_list(
+        self, user: User, addressbook_key: str, card_list: CardList,
+        user_sources: dict[str, UserSourceSettingsObj] | None = None,
+    ) -> CardList:
+        """Persist a new distribution list in the address book and return it.
+
+        :param user: The authenticated user.
+        :param addressbook_key: Opaque key of the destination address book.
+        :param card_list: The list to create; its uid is generated here, its members are persisted.
+        :param user_sources: Domain user sources keyed by source_uid (None = local DB).
+        :return: The persisted list with id, key and members populated.
+        """
+        source: ContactSource = self._get_writable_addressbook(user, addressbook_key, user_sources)
+        self._validate_members(source, card_list.members)
+        card_list.addressbook_key = source.addressbook.require_key
+        card_list.uid = generate_uuid()
+        try:
+            return source.insert_list(card_list)
+        except RequestException:
+            raise
+        except Exception as exc:
+            logger_contact.exception("Unexpected error creating list in address book %s", addressbook_key)
+            raise RequestException(error=err.ERROR_CONTACT_LIST_INSERT_FAILED) from exc
+
+    def update_list(
+        self, user: User, addressbook_key: str, key: str, list_update: CardList,
+        user_sources: dict[str, UserSourceSettingsObj] | None = None,
+    ) -> CardList:
+        """Update an existing list, preserving its identity, and return the persisted result.
+
+        :param user: The authenticated user.
+        :param addressbook_key: Opaque key of the address book holding the list.
+        :param key: Opaque key of the list to update.
+        :param list_update: The merged list carrying the new name, description and membership.
+        :param user_sources: Domain user sources keyed by source_uid (None = local DB).
+        :return: The persisted list after the update, members populated.
+        """
+        source: ContactSource = self._get_writable_addressbook(user, addressbook_key, user_sources)
+        existing: CardList | None = source.get_list_by_key(key)
+        if existing is None:
+            raise RequestException(error=err.ERROR_CONTACT_LIST_NOT_FOUND)
+        self._validate_members(source, list_update.members)
+        # Identity columns are not mutable through an update: a list cannot be moved to another book
+        # nor have its uid/key reassigned by the request body.
+        list_update.id = existing.id
+        list_update.key = existing.key
+        list_update.uid = existing.uid
+        list_update.addressbook_key = existing.addressbook_key
+        try:
+            source.update_list(list_update)
+        except RequestException:
+            raise
+        except Exception as exc:
+            logger_contact.exception("Unexpected error updating list %s", key)
+            raise RequestException(error=err.ERROR_CONTACT_LIST_UPDATE_FAILED) from exc
+        refetched: CardList | None = source.get_list_by_key(key)
+        if refetched is None:
+            raise BugException(f"List key={key} was updated but could not be fetched back")
+        return refetched
+
+    def delete_list(
+        self, user: User, addressbook_key: str, key: str,
+        user_sources: dict[str, UserSourceSettingsObj] | None = None,
+    ) -> None:
+        """Soft-delete a distribution list by key within an address book and clear its membership."""
+        source: ContactSource = self._get_writable_addressbook(user, addressbook_key, user_sources)
+        if source.get_list_by_key(key) is None:
+            raise RequestException(error=err.ERROR_CONTACT_LIST_NOT_FOUND)
+        try:
+            source.delete_list(key)
+        except RequestException:
+            raise
+        except Exception as exc:
+            logger_contact.exception("Unexpected error deleting list %s", key)
+            raise RequestException(error=err.ERROR_UNKOWN) from exc
+
     def clean(self) -> int:
-        """Physically remove every soft-deleted contact row, returning the number purged.
+        """Physically remove every soft-deleted contact and list row, returning the number purged.
 
         Global purge (unlike the calendar's per-calendar/user clean): deleting an address book
-        detaches its contacts (addressbook_key NULL), so a per-book or per-user scope cannot reach
-        those tombstones - only an is_deleted sweep does.
+        detaches its contacts and lists (addressbook_key NULL), so a per-book or per-user scope
+        cannot reach those tombstones - only an is_deleted sweep does. After the tombstones are gone,
+        membership rows left pointing at a purged contact or list are dropped as well.
         """
-        return RepositoryContact(self._db).purge_deleted()
+        contact_repo: RepositoryContact = RepositoryContact(self._db)
+        list_repo: RepositoryContactList = RepositoryContactList(self._db)
+        purged: int = contact_repo.purge_deleted() + list_repo.purge_deleted()
+        list_repo.purge_orphan_members(list_repo.all_keys(), contact_repo.all_keys())
+        return purged
