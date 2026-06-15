@@ -26,8 +26,9 @@ class CardContact:  # pylint: disable=too-many-instance-attributes
     (last_name, first_name, organization, display_name, kind, uid) are derived from these fields
     by the repository; everything else is stored in the contact_data JSON blob.
 
-    Dates are real datetime.date objects: the vCard textual form (including partial dates) is the
-    serializer's concern, not the model's.
+    Dates are real datetime.date objects, so only complete calendar dates are represented; the
+    vCard partial forms (year-less "--0415") and text forms ("circa 1800", RFC 6350 6.2.5) are not
+    modelled yet and would be lost on a round-trip through this model.
     """
     # vCard UID (RFC 6350 §6.7.6) - stable semantic identifier
     uid: str | None = None
@@ -85,7 +86,9 @@ class CardContact:  # pylint: disable=too-many-instance-attributes
     # TZ (RFC 6350 §6.5.1)
     timezone: str | None = None
 
-    # Catch-all for X-* and properties not mapped above - kept for lossless round-trip
+    # Catch-all for single-valued, parameter-less X-* and unmapped properties. NOT lossless: a flat
+    # name->value map cannot keep repeated properties, property parameters (TYPE, PREF, GROUP) nor
+    # the Apple "item1.X-ABLabel" grouping; those are dropped if present.
     extra_properties: dict[str, str] = field(default_factory=dict)
     # REV (RFC 6350 §6.7.4) - revision timestamp
     rev: datetime | None = None

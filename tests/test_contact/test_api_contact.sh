@@ -38,7 +38,8 @@ TEST COVERAGE:
    8  Cross-book listing (GET /contacts spans all books)
    9  Error paths (unknown contact key, unknown address book)
   10  Recipient autocomplete (/contacts/autocomplete)
-  11  Conditional DELETE (only with -d): contact then address book
+  11  Distribution lists (create, list, get, patch, error path)
+  12  Conditional DELETE (only with -d): list, contact, then address book
 EOF
     exit 0
 }
@@ -244,6 +245,9 @@ CODE=$(req -X PATCH "$BASE/addressbooks/$AB_KEY/contacts/$CT_KEY" \
 check_code  "PATCH /addressbooks/$AB_KEY/contacts/$CT_KEY" "$CODE" "200"
 check_field ".data.note" "Met at conference"
 check_field ".data.display_name" "John Doe"
+# A partial PATCH must not wipe fields it did not touch (regression: schema load_default).
+check_field ".data.emails[0].value" "john@acme.com"
+check_field ".data.phones[0].number" "+33123456789"
 
 # Seed a few more contacts for search / pagination / sort
 info "Seeding additional contacts (Alice Martin, Bob Acme, Zoe Last)."
@@ -330,9 +334,65 @@ check_code "GET /contacts/autocomplete?q=curie77 (interior email segment)" "$COD
 SUGG=$(extract '.data.suggestions | length')
 [ "$SUGG" -ge 1 ] 2>/dev/null && ok "interior email segment matches" || fail "interior segment returned $SUGG"
 
-# 11. CONDITIONAL DELETE
-step "14. Cleanup (DELETE)"
+# 11. DISTRIBUTION LISTS
+step "14. Distribution list - create"
+info "Creates a probe member, then a list referencing two contacts; checks member_count round-trip."
+req -X POST "$BASE/addressbooks/$AB_KEY/contacts" -H "$H_JSON" -H "$H_AUTH" \
+    -d '{"display_name":"List Member Two","emails":[{"value":"member2@list.test"}]}' >/dev/null
+LM2=$(extract '.data.key')
+
+CODE=$(req -X POST "$BASE/addressbooks/$AB_KEY/lists" -H "$H_JSON" -H "$H_AUTH" \
+    -d "{\"name\":\"Project Team\",\"description\":\"Functional test list\",\"members\":[\"$CT_KEY\",\"$LM2\"]}")
+check_code  "POST /addressbooks/$AB_KEY/lists" "$CODE" "201"
+check_error "POST lists error_code"
+check_field ".data.name" "Project Team"
+check_field ".data.member_count" "2"
+check_not_empty ".data.key"
+LIST_KEY=$(extract '.data.key')
+info "List key: $LIST_KEY"
+
+step "15. Distribution list - collection + get by key"
+CODE=$(req "$BASE/addressbooks/$AB_KEY/lists" -H "$H_AUTH")
+check_code "GET /addressbooks/$AB_KEY/lists" "$CODE" "200"
+LCOUNT=$(extract '.data.lists | length')
+info "Lists in book: $LCOUNT"
+[ "$LCOUNT" -ge 1 ] 2>/dev/null && ok "list collection >= 1" || fail "list collection=$LCOUNT"
+
+CODE=$(req "$BASE/addressbooks/$AB_KEY/lists/$LIST_KEY" -H "$H_AUTH")
+check_code  "GET /addressbooks/$AB_KEY/lists/$LIST_KEY" "$CODE" "200"
+check_field ".data.member_count" "2"
+check_count "members" ".data.members" "2"
+
+info "A distribution list must surface in autocomplete with type=list, member_count and resolved members."
+info "Assertions target this run's list ($LIST_KEY): autocomplete is transverse and may match other lists."
+CODE=$(req "$BASE/contacts/autocomplete?q=Project" -H "$H_AUTH")
+check_code "GET /contacts/autocomplete?q=Project" "$CODE" "200"
+LSUG=$(body | jq -r --arg k "$LIST_KEY" '.data.suggestions[] | select(.type=="list" and .list_key==$k) | .member_count')
+[ "$LSUG" = "2" ] && ok "list suggestion has member_count=2" || fail "list suggestion member_count='$LSUG'"
+LMEM=$(body | jq -r --arg k "$LIST_KEY" '.data.suggestions[] | select(.type=="list" and .list_key==$k) | .members[0].email // empty')
+[ -n "$LMEM" ] && ok "list members are resolved with an email ($LMEM)" || fail "list members not resolved"
+
+step "16. Distribution list - patch (rename + membership replacement)"
+info "Renames the list and reduces its membership to a single contact."
+CODE=$(req -X PATCH "$BASE/addressbooks/$AB_KEY/lists/$LIST_KEY" -H "$H_JSON" -H "$H_AUTH" \
+    -d "{\"name\":\"Core Team\",\"members\":[\"$CT_KEY\"]}")
+check_code  "PATCH /addressbooks/$AB_KEY/lists/$LIST_KEY" "$CODE" "200"
+check_field ".data.name" "Core Team"
+check_field ".data.member_count" "1"
+
+step "17. Distribution list - error path"
+info "Unknown list key -> 404 S000710."
+CODE=$(req "$BASE/addressbooks/$AB_KEY/lists/does-not-exist" -H "$H_AUTH")
+check_code       "GET /addressbooks/$AB_KEY/lists/does-not-exist" "$CODE" "404"
+check_error_code "unknown list error_code" "S000710"
+
+# 12. CONDITIONAL DELETE
+step "18. Cleanup (DELETE)"
 if $DO_DELETE; then
+    CODE=$(req -X DELETE "$BASE/addressbooks/$AB_KEY/lists/$LIST_KEY" -H "$H_AUTH")
+    check_code "DELETE /addressbooks/$AB_KEY/lists/$LIST_KEY" "$CODE" "200"
+    CODE=$(req "$BASE/addressbooks/$AB_KEY/lists/$LIST_KEY" -H "$H_AUTH")
+    check_code "GET deleted list -> 404" "$CODE" "404"
     CODE=$(req -X DELETE "$BASE/addressbooks/$AB_KEY/contacts/$CT_KEY" -H "$H_AUTH")
     check_code "DELETE /addressbooks/$AB_KEY/contacts/$CT_KEY" "$CODE" "200"
     CODE=$(req "$BASE/addressbooks/$AB_KEY/contacts/$CT_KEY" -H "$H_AUTH")
@@ -340,7 +400,7 @@ if $DO_DELETE; then
     CODE=$(req -X DELETE "$BASE/addressbooks/$AB_KEY" -H "$H_AUTH")
     check_code "DELETE /addressbooks/$AB_KEY" "$CODE" "200"
 else
-    skip "DELETE /addressbooks/$AB_KEY/contacts/$CT_KEY and DELETE /addressbooks/$AB_KEY"
+    skip "DELETE list/$LIST_KEY, contact/$CT_KEY and address book/$AB_KEY"
 fi
 
 echo ""

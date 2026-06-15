@@ -64,7 +64,23 @@ class ContactCreateSchema(ContactWriteSchema):
 
 
 class ContactPatchSchema(ContactWriteSchema):
-    """Request body for patching a contact (only the provided fields are modified)."""
+    """Request body for patching a contact (only the provided fields are modified).
+
+    Unlike the create schema, the multi-valued fields carry NO load_default: an absent field must
+    stay absent in the loaded body so the partial merge leaves the stored value untouched. With a
+    load_default Marshmallow would inject an empty list/dict for an omitted field and the merge would
+    wipe the existing emails/phones/etc.
+    """
+
+    kind             = fields.String(validate=validate.OneOf(_KIND_VALUES))
+    emails           = fields.List(fields.Nested(EmailSchema))
+    phones           = fields.List(fields.Nested(PhoneSchema))
+    addresses        = fields.List(fields.Nested(AddressSchema))
+    urls             = fields.List(fields.Nested(UrlSchema))
+    impp             = fields.List(fields.Nested(ImppSchema))
+    photos           = fields.List(fields.String())
+    categories       = fields.List(fields.String())
+    extra_properties = fields.Dict(keys=fields.String(), values=fields.String())
 
 
 class ContactSchema(Schema):
@@ -137,16 +153,31 @@ class ContactAutocompleteQueryArgsSchema(Schema):
     q = fields.String(required=True, metadata={"description": "Partial name or email to autocomplete."})
 
 
-class ContactSuggestionSchema(Schema):
-    """A single recipient suggestion (one per email address).
+class SuggestionMemberSchema(Schema):
+    """A resolved member of a distribution-list suggestion (recipient name + email)."""
 
-    contact_key and address_book are nullable: future sources (the directory, collected mail
-    addresses) may not map to a stored contact or a real address book.
+    contact_key = fields.String(allow_none=True)
+    name        = fields.String(allow_none=True)
+    email       = fields.String(allow_none=True)
+
+
+class ContactSuggestionSchema(Schema):
+    """A single recipient suggestion: a contact email or a distribution list.
+
+    type discriminates the two: a "contact" carries an email (one suggestion per address), a "list"
+    carries list_key, member_count and the full list of its members (each name + email) instead of
+    an email. contact_key/list_key and address_book are nullable - future sources (the directory,
+    collected mail addresses) may not map to a stored object or a real address book.
     """
 
+    type         = fields.String(metadata={"description": "Suggestion kind: 'contact' or 'list'."})
     name         = fields.String(allow_none=True)
-    email        = fields.String()
+    email        = fields.String(allow_none=True)
     contact_key  = fields.String(allow_none=True)
+    list_key     = fields.String(allow_none=True)
+    member_count = fields.Integer(allow_none=True, metadata={"description": "Number of members (lists only)."})
+    members      = fields.List(fields.Nested(SuggestionMemberSchema), allow_none=True,
+                               metadata={"description": "Resolved members of the list (lists only)."})
     address_book = fields.Nested(AddressBookRefSchema, allow_none=True)
 
 

@@ -8,7 +8,7 @@ from flask.typing import ResponseReturnValue
 from flask_smorest import Blueprint
 
 from app.interface.contact.InterfaceApiContactContact import InterfaceApiContactContact
-from app.module.contact.source.ContactSourceDb import SORTABLE_COLUMNS
+from app.module.contact.source.ContactSourceDb import LIST_SORTABLE_COLUMNS, SORTABLE_COLUMNS
 from app.utils.api.paginate_sort_filter import collection_paginate, CustomPaginateResponse
 from app.utils.logger.logger import logger_api
 from .schemas.addressbook import (
@@ -26,6 +26,13 @@ from .schemas.contact import (
     ContactAutocompleteQueryArgsSchema,
     ContactAutocompleteResponseSchema,
 )
+from .schemas.list import (
+    ListCreateSchema,
+    ListPatchSchema,
+    ListCollectionResponseSchema,
+    ListResponseSchema,
+    ListSearchQueryArgsSchema,
+)
 
 if TYPE_CHECKING:
     from app.utils.api.paginate_sort_filter import CollectionPaginateArgs
@@ -33,6 +40,7 @@ if TYPE_CHECKING:
 # collection_paginate types sort_value_set as a mutable set; SORTABLE_COLUMNS stays the immutable
 # source of truth in the source layer and is exposed here as a plain set for the decorator.
 _SORT_VALUES: set[str] = set(SORTABLE_COLUMNS)
+_LIST_SORT_VALUES: set[str] = set(LIST_SORTABLE_COLUMNS)
 
 blp = Blueprint("Contact", __name__, url_prefix="")
 
@@ -167,3 +175,52 @@ class ApiContactDetail(MethodView):
         logger_api.debug("DELETE /addressbooks/%s/contacts/%s user=%s", key, contact_key, g.user.uid)
         interface: InterfaceApiContactContact = g.inter
         return interface.delete_contact(key, contact_key)
+
+
+@blp.route("/addressbooks/<string:key>/lists")
+class ApiListCollection(MethodView):
+    """API to list (paginated) and create distribution lists within one address book."""
+
+    @blp.response(200, ListCollectionResponseSchema)
+    @blp.arguments(ListSearchQueryArgsSchema, location="query", arg_name="query_args")
+    @collection_paginate(blp, sort_value_set=_LIST_SORT_VALUES, can_filter=False)
+    def get(self, query_args: dict, collection_param: CollectionPaginateArgs, key: str) -> CustomPaginateResponse:
+        """List the distribution lists of an address book, with search, sort and pagination."""
+        logger_api.debug("GET /addressbooks/%s/lists user=%s params=%s", key, g.user.uid, collection_param)
+        interface: InterfaceApiContactContact = g.inter
+        return interface.get_lists(key, collection_param, search=query_args.get("search"))
+
+    @blp.arguments(ListCreateSchema)
+    @blp.response(201, ListResponseSchema)
+    def post(self, body: dict, key: str) -> ResponseReturnValue:
+        """Create a new distribution list in the address book."""
+        logger_api.debug("POST /addressbooks/%s/lists user=%s", key, g.user.uid)
+        interface: InterfaceApiContactContact = g.inter
+        return interface.create_list(key, body)
+
+
+@blp.route("/addressbooks/<string:key>/lists/<string:list_key>")
+class ApiListDetail(MethodView):
+    """API to retrieve, update and delete a single distribution list within an address book."""
+
+    @blp.response(200, ListResponseSchema)
+    def get(self, key: str, list_key: str) -> ResponseReturnValue:
+        """Get a distribution list by its key within the address book."""
+        logger_api.debug("GET /addressbooks/%s/lists/%s user=%s", key, list_key, g.user.uid)
+        interface: InterfaceApiContactContact = g.inter
+        return interface.get_list(key, list_key)
+
+    @blp.arguments(ListPatchSchema)
+    @blp.response(200, ListResponseSchema)
+    def patch(self, body: dict, key: str, list_key: str) -> ResponseReturnValue:
+        """Apply partial updates to a distribution list."""
+        logger_api.debug("PATCH /addressbooks/%s/lists/%s user=%s", key, list_key, g.user.uid)
+        interface: InterfaceApiContactContact = g.inter
+        return interface.patch_list(key, list_key, body)
+
+    @blp.response(200, ListResponseSchema)
+    def delete(self, key: str, list_key: str) -> ResponseReturnValue:
+        """Delete a distribution list."""
+        logger_api.debug("DELETE /addressbooks/%s/lists/%s user=%s", key, list_key, g.user.uid)
+        interface: InterfaceApiContactContact = g.inter
+        return interface.delete_list(key, list_key)

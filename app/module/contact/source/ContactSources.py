@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from app.manager.db.ClientSQL import ClientSQL
     from app.module.contact.model.CardAddressBook import CardAddressBook
     from app.module.contact.model.CardContact import CardContact
+    from app.module.contact.model.CardList import CardList
     from app.module.contact.source.ContactSource import ContactSource
 
 
@@ -114,6 +115,37 @@ class ContactSources:
         if resolve_ab:
             self._stamp_addressbook_name(page, book_names)
         return page, total
+
+    def search_all_lists(
+        self, user_uid: str, search: str | None = None, limit: int = 0,
+        user_sources: dict[str, UserSourceSettingsObj] | None = None, resolve_ab: bool = True,
+    ) -> list[CardList]:
+        """Return the user's distribution lists across every book (transverse), for autocomplete.
+
+        Lists from every source are merged, sorted by name, then capped to limit (the cap is on the
+        number of lists, not on members). Each surviving list is stamped with its originating address
+        book name and has its members fully resolved to their CardContact (exhaustively, so a
+        suggestion can expand to every recipient); resolution stays within the list's own book.
+        """
+        sources = self.get_all(user_uid, user_sources)
+        source_by_book: dict[str | None, ContactSource] = {src.addressbook.key: src for src in sources}
+        lists: list[CardList] = []
+        for source in sources:
+            lists.extend(source.get_lists(search))
+        lists.sort(key=lambda card_list: (card_list.name or "").casefold())
+        if limit:
+            lists = lists[:limit]
+        for card_list in lists:
+            list_source: ContactSource | None = source_by_book.get(card_list.addressbook_key)
+            if list_source is None:
+                continue
+            if resolve_ab:
+                card_list.addressbook_name = list_source.addressbook.name
+            card_list.member_contacts = [
+                contact for contact in (list_source.get_contact_by_key(key) for key in card_list.members)
+                if contact is not None
+            ]
+        return lists
 
     @staticmethod
     def _stamp_addressbook_name(contacts: list[CardContact], book_names: dict[str | None, str]) -> None:

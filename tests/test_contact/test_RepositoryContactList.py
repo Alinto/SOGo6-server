@@ -54,6 +54,14 @@ def test_delete_by_key_soft_marks_is_deleted():
     assert vals[cols.index(tbl.COL_LST_IS_DELETED.name)] is True
 
 
+def test_remove_contact_from_lists_deletes_by_contact_key():
+    db = MagicMock()
+    RepositoryContactList(db).remove_contact_from_lists("ct-9")
+    cond = db.delete_row_in_table.call_args.kwargs["condition"]
+    assert cond.param_name == tbl.COL_LM_CONTACT_KEY.name
+    assert cond.param_value == "ct-9"
+
+
 def test_delete_all_soft_detaches_from_book():
     db = MagicMock()
     RepositoryContactList(db).delete_all("ab-k", hard_delete=False)
@@ -61,3 +69,18 @@ def test_delete_all_soft_detaches_from_book():
     cols, vals = kwargs["column_tuple"], kwargs["values_list"]
     assert vals[cols.index(tbl.COL_LST_IS_DELETED.name)] is True
     assert vals[cols.index(tbl.COL_LST_ADDRESSBOOK_KEY.name)] is None
+
+
+# ========== purge_orphan_members ==========
+
+def test_purge_orphan_members_drops_vanished_refs_only():
+    db = MagicMock()
+    db.select_from_table.return_value = [
+        ("lst-live", "ct-live"),    # both ends present -> kept
+        ("lst-gone", "ct-live"),    # list vanished -> dropped by list_key
+        ("lst-live", "ct-gone"),    # contact vanished -> dropped by contact_key
+    ]
+    db.delete_row_in_table.return_value = 1
+    RepositoryContactList(db).purge_orphan_members({"lst-live"}, {"ct-live"})
+    deleted_values = {call.kwargs["condition"].param_value for call in db.delete_row_in_table.call_args_list}
+    assert deleted_values == {"lst-gone", "ct-gone"}
