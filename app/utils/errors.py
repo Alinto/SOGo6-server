@@ -198,6 +198,10 @@ ERROR_CONTACT_UPDATE_FAILED                  = E("S000706", "Failed To Update Co
 ERROR_CONTACT_ADDRESSBOOK_NOT_SUPPORTED      = E("S000707", "Operation Not Supported On This Address Book Source", HTTPStatus.METHOD_NOT_ALLOWED)
 ERROR_CONTACT_ADDRESSBOOK_READ_ONLY          = E("S000708", "Address Book Is Read-Only", HTTPStatus.FORBIDDEN)
 ERROR_CONTACT_ACCESS_DENIED                  = E("S000709", "Access Denied To This Address Book", HTTPStatus.FORBIDDEN)
+ERROR_CONTACT_LIST_NOT_FOUND                 = E("S000710", "Distribution List Not Found", HTTPStatus.NOT_FOUND)
+ERROR_CONTACT_LIST_DUPLICATE                 = E("S000711", "Distribution List Already Exists", HTTPStatus.CONFLICT)
+ERROR_CONTACT_LIST_INSERT_FAILED             = E("S000712", "Failed To Persist Distribution List", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_CONTACT_LIST_UPDATE_FAILED             = E("S000713", "Failed To Update Distribution List", HTTPStatus.INTERNAL_SERVER_ERROR)
 
 #the bugs
 ERROR_UNKOWN = E("S999999", "Undefined Error", HTTPStatus.INTERNAL_SERVER_ERROR)

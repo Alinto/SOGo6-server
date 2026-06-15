@@ -9,6 +9,7 @@ if TYPE_CHECKING:
     from app.config.settings.DomainSettings import UserSourceSettingsObj
     from app.module.contact.model.CardAddressBook import CardAddressBook
     from app.module.contact.model.CardContact import CardContact
+    from app.module.contact.model.CardList import CardList
 
 
 class ContactSourceDirectory(ContactSource):  # pylint: disable=unused-argument
@@ -77,3 +78,25 @@ class ContactSourceDirectory(ContactSource):  # pylint: disable=unused-argument
 
     def delete_contact(self, key: str) -> None:
         raise NotImplementedError("TODO: directory write path not designed yet")
+
+    def get_lists(
+        self, search: str | None = None, offset: int = 0, limit: int = 0,
+        sort_by: str | None = None, order: Order = Order.ASC,
+    ) -> list[CardList]:
+        # A directory has no distribution lists; lists are a local-book concept only.
+        raise NotImplementedError("TODO: the directory has no distribution lists")
+
+    def count_lists(self, search: str | None = None) -> int:
+        raise NotImplementedError("TODO: the directory has no distribution lists")
+
+    def get_list_by_key(self, key: str) -> CardList | None:
+        raise NotImplementedError("TODO: the directory has no distribution lists")
+
+    def insert_list(self, card_list: CardList) -> CardList:
+        raise NotImplementedError("TODO: the directory has no distribution lists")
+
+    def update_list(self, card_list: CardList) -> None:
+        raise NotImplementedError("TODO: the directory has no distribution lists")
+
+    def delete_list(self, key: str) -> None:
+        raise NotImplementedError("TODO: the directory has no distribution lists")
