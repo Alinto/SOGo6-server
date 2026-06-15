@@ -111,7 +111,7 @@
             "SOGO_D_NOTIFY_ALLOW_EXT_DOMAIN": true,
             "SOGO_D_MAIL_OUTGOING_TYPE": "smtp",
             "SOGO_D_SMTP_SERVER": "postfix",
-            "SOGO_D_SMTP_PORT": 584,
+            "SOGO_D_SMTP_PORT": 25,
             "SOGO_D_SMTP_MASTER_ENABLED": false,
             "SOGO_D_MAIL_MAX_SUBMISSION": 0,
             "SOGO_D_MAIL_MAX_SUBMISSION_INTERVAL": 30,
