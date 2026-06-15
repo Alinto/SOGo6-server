@@ -1,4 +1,5 @@
 from app.utils.db.Table import Column, Index, Table
+from app.config.settings.ProcessSetting import process_config
 
 
 
@@ -21,7 +22,7 @@ COL_SETTINGS_DOMAIN_DEFAULT = Column(name="settings_domain_default", data_type="
 ALL_SETTINGS_COL            = [COL_SETTINGS_UNIQUE,
                                COL_SETTINGS_SYSTEM,
                                COL_SETTINGS_DOMAIN_DEFAULT]
-TABLE_SETTINGS = Table(name="sogo_settings", columns=ALL_SETTINGS_COL, primary_keys=(COL_SETTINGS_UNIQUE.name,))
+TABLE_SETTINGS = Table(name=process_config.SOGO_P_TABLE_SETTINGS, columns=ALL_SETTINGS_COL, primary_keys=(COL_SETTINGS_UNIQUE.name,))
 
 ###############################
 # Table sogo_settings_domains #
@@ -52,7 +53,7 @@ ALL_DOMAIN_COL           = [COL_ID,
                             COL_DOMAIN_INFO,
                             COL_DOMAIN_SETTINGS,
                             COL_DOMAIN_ORIGIN]
-TABLE_DOMAIN = Table(name="sogo_settings_domains", columns=ALL_DOMAIN_COL, primary_keys=(COL_ID.name, COL_HASH.name, COL_DOMAIN_NAME.name))
+TABLE_DOMAIN = Table(name=process_config.SOGO_P_TABLE_DOMAINS, columns=ALL_DOMAIN_COL, primary_keys=(COL_ID.name, COL_HASH.name, COL_DOMAIN_NAME.name))
 
 #############################
 # Table sogo_settings_rules #
@@ -77,7 +78,7 @@ ALL_RULE_COL      = [COL_ID,
                      COL_RULE_NAME,
                      COL_RULE_DOMAINS,
                      COL_RULE_SETTINGS]
-TABLE_RULES = Table(name="sogo_settings_rules", columns=ALL_RULE_COL, primary_keys=(COL_ID.name, COL_HASH.name, COL_RULE_NAME.name))
+TABLE_RULES = Table(name=process_config.SOGO_P_TABLE_RULES, columns=ALL_RULE_COL, primary_keys=(COL_ID.name, COL_HASH.name, COL_RULE_NAME.name))
 
 #############################
 # Table sogo_user_profiles #
@@ -121,7 +122,7 @@ ALL_USER_COL              = [COL_ID,
                              COL_USER_DELEGATION_GIVEN,
                              COL_USER_DELEGATION_GOT,
                              ]
-TABLE_USER = Table(name="sogo_user_profiles", columns=ALL_USER_COL, primary_keys=(COL_ID.name, COL_HASH.name, COL_USER_UID.name,))
+TABLE_USER = Table(name=process_config.SOGO_P_TABLE_USERS, columns=ALL_USER_COL, primary_keys=(COL_ID.name, COL_HASH.name, COL_USER_UID.name,))
 
 
 
@@ -178,7 +179,7 @@ ALL_CAL_COL = [COL_ID,
 
 IDX_CAL_USER_UID = Index(name="idx_cal_user_uid", columns=(COL_CAL_USER_UID.name,))
 
-TABLE_CALENDAR = Table(name="sogo_calendar_calendars", columns=ALL_CAL_COL, primary_keys=(COL_ID.name, COL_CAL_KEY.name),
+TABLE_CALENDAR = Table(name=process_config.SOGO_P_TABLES_CALENDARS, columns=ALL_CAL_COL, primary_keys=(COL_ID.name, COL_CAL_KEY.name),
                        indexes=[IDX_CAL_USER_UID])
 
 #####################
@@ -248,7 +249,7 @@ IDX_EVT_CALENDAR_KEY = Index(name="idx_evt_calendar_key", columns=(COL_EVT_CALEN
 IDX_EVT_DATE_RANGE = Index(name="idx_evt_date_range", columns=(COL_EVT_CALENDAR_KEY.name, COL_EVT_DATE_START.name, COL_EVT_DATE_END.name))
 IDX_EVT_UID = Index(name="idx_evt_uid", columns=(COL_EVT_UID.name,))
 
-TABLE_EVENT = Table(name="sogo_calendar_events", columns=ALL_EVT_COL, primary_keys=(COL_ID.name, COL_EVT_KEY.name),
+TABLE_EVENT = Table(name=process_config.SOGO_P_TABLES_EVENTS, columns=ALL_EVT_COL, primary_keys=(COL_ID.name, COL_EVT_KEY.name),
                     indexes=[IDX_EVT_CALENDAR_KEY, IDX_EVT_DATE_RANGE, IDX_EVT_UID])
 
 ##############################
@@ -279,7 +280,7 @@ ALL_REM_COL = [COL_ID,
 IDX_REM_TRIGGER = Index(name="idx_rem_trigger", columns=(COL_REM_TRIGGER_AT.name, COL_REM_IS_DELETED.name))
 IDX_REM_EVENT_KEY = Index(name="idx_rem_event_key", columns=(COL_REM_EVENT_KEY.name,))
 
-TABLE_REMINDER = Table(name="sogo_calendar_reminders", columns=ALL_REM_COL, primary_keys=(COL_ID.name,),
+TABLE_REMINDER = Table(name=process_config.SOGO_P_TABLES_REMINDER, columns=ALL_REM_COL, primary_keys=(COL_ID.name,),
                        indexes=[IDX_REM_TRIGGER, IDX_REM_EVENT_KEY])
 
 ALL_TABLES = [TABLE_SETTINGS,
