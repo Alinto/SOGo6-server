@@ -13,6 +13,10 @@ class FormatEngine:
     shared by every MIME-DIR / LDIF format is implemented once here, parameterised by the two folding
     constants; a new format subclasses this engine, sets those constants and implements the three
     contract methods. Engines are stateless - every method is a classmethod.
+
+    The contract methods raise NotImplementedError rather than using @abstractmethod: an engine is
+    never instantiated (all methods are classmethods), so @abstractmethod would enforce nothing,
+    whereas the raise gives a clear "must implement" signal at call time.
     """
 
     # Subclasses MUST set these.
@@ -67,11 +71,15 @@ class FormatEngine:
 
     @classmethod
     def unfold(cls, text: str) -> list[str]:
-        """Return the logical lines, joining continuation lines (prefixed by a CONTINUATION_CHARS char)."""
-        logical: list[str] = []
+        """Return the logical lines, joining continuation lines (prefixed by a CONTINUATION_CHARS char).
+
+        Continuation fragments are accumulated and joined once per logical line, so unfolding a file
+        made of many continuation lines stays linear rather than quadratic.
+        """
+        fragments: list[list[str]] = []
         for physical in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
-            if physical[:1] in cls.CONTINUATION_CHARS and logical:
-                logical[-1] += physical[1:]
+            if physical[:1] in cls.CONTINUATION_CHARS and fragments:
+                fragments[-1].append(physical[1:])
             else:
-                logical.append(physical)
-        return logical
+                fragments.append([physical])
+        return ["".join(fragment) for fragment in fragments]

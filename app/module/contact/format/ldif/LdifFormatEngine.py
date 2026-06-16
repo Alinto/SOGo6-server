@@ -87,6 +87,18 @@ class LdifFormatEngine(FormatEngine):
         """Parse a document into records, each a list of (attribute, value) pairs."""
         return [[(line.name, line.value) for line in cls.parse_item(body)] for body in cls.split_items(document)]
 
+    @staticmethod
+    def escape_dn(value: str) -> str:
+        """Escape an attribute value for use in a distinguished name (RFC 4514 §2.4)."""
+        escaped: str = value
+        for char in ("\\", '"', "+", ",", ";", "<", ">"):
+            escaped = escaped.replace(char, "\\" + char)
+        if escaped[:1] in (" ", "#"):
+            escaped = "\\" + escaped
+        if escaped.endswith(" "):
+            escaped = escaped[:-1] + "\\ "
+        return escaped
+
     #
     # Internal helpers
     #

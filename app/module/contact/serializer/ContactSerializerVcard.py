@@ -12,6 +12,7 @@ from app.module.contact.format.vcard.VcardFormatEngine import VcardFormatEngine
 if TYPE_CHECKING:
     from datetime import date
 
+    from app.module.contact.model.CardAddress import CardAddress
     from app.module.contact.model.CardContact import CardContact
 
 
@@ -56,6 +57,14 @@ class ContactSerializerVcard(ContactSerializer[str], ABC):
     def _geo_value(self, geo: str) -> str:
         """The GEO property value in this version's form."""
 
+    @abstractmethod
+    def _format_date(self, value: date) -> str:
+        """Format a BDAY / ANNIVERSARY date: basic (YYYYMMDD) in 4.0, extended (RFC 2426) in 3.0."""
+
+    @abstractmethod
+    def _format_uid(self, uid: str) -> str:
+        """Render the UID value: a urn:uuid: URI in 4.0, the bare value in 3.0."""
+
     #
     # Common mapping
     #
@@ -90,9 +99,9 @@ class ContactSerializerVcard(ContactSerializer[str], ABC):
         if c.note:
             lines.append(self._text_line(vc.PROP_NOTE, c.note))
         if c.birthday:
-            lines.append(ContentLine(name=vc.PROP_BDAY, value=c.birthday.isoformat()))
+            lines.append(ContentLine(name=vc.PROP_BDAY, value=self._format_date(c.birthday)))
         if c.anniversary:
-            lines.append(ContentLine(name=self._anniversary_name(), value=c.anniversary.isoformat()))
+            lines.append(ContentLine(name=self._anniversary_name(), value=self._format_date(c.anniversary)))
         if c.geo:
             lines.append(ContentLine(name=vc.PROP_GEO, value=self._geo_value(c.geo)))
         if c.public_key:
@@ -104,7 +113,7 @@ class ContactSerializerVcard(ContactSerializer[str], ABC):
         for photo in c.photos:
             lines.append(ContentLine(name=vc.PROP_PHOTO, value=photo))
         if c.uid:
-            lines.append(ContentLine(name=vc.PROP_UID, value=c.uid))
+            lines.append(ContentLine(name=vc.PROP_UID, value=self._format_uid(c.uid)))
         if c.rev:
             lines.append(ContentLine(name=vc.PROP_REV, value=self._format_timestamp(c.rev)))
         for name, value in c.extra_properties.items():
@@ -129,15 +138,13 @@ class ContactSerializerVcard(ContactSerializer[str], ABC):
         """A URI/addr property carrying TYPE/PREF (EMAIL, TEL, URL, IMPP): value kept verbatim."""
         return ContentLine(name=name, value=value, params=self._type_params(types, pref))
 
-    def _adr_line(self, address: object) -> ContentLine:
+    def _adr_line(self, address: CardAddress) -> ContentLine:
         """An ADR property: 7 structured components plus TYPE/PREF parameters."""
         return self._structured_line(
             vc.PROP_ADR,
-            [getattr(address, "po_box", None), getattr(address, "extended", None),
-             getattr(address, "street", None), getattr(address, "locality", None),
-             getattr(address, "region", None), getattr(address, "postal_code", None),
-             getattr(address, "country", None)],
-            params=self._type_params(getattr(address, "types", []), getattr(address, "pref", None)))
+            [address.po_box, address.extended, address.street, address.locality,
+             address.region, address.postal_code, address.country],
+            params=self._type_params(address.types, address.pref))
 
     @staticmethod
     def _single_type(value: str | None) -> list[str]:

@@ -38,6 +38,8 @@ def test_parse_real_vcard4():
     assert (contact.organization, contact.department) == ("Lieu de travail", "Service")
     assert contact.birthday is None                          # "Année-mois-jour" is not a real date
     assert "GENDER" in contact.extra_properties              # unmapped property kept
+    assert len(contact.addresses) == 2                       # both ADR (work + home), quirks tolerated
+    assert any(addr.country == "Pays" for addr in contact.addresses)
 
 
 def test_reserialize_real_files_is_stable():
@@ -52,3 +54,6 @@ def test_reserialize_real_files_is_stable():
         second = ContactsDeserializerVcard().deserialize(text)[0]
         assert second.display_name == first.display_name
         assert [e.value for e in second.emails] == [e.value for e in first.emails]
+        assert [p.number for p in second.phones] == [p.number for p in first.phones]
+        assert second.organization == first.organization
+        assert second.addresses == first.addresses
