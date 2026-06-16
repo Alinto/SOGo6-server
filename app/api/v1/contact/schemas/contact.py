@@ -117,6 +117,7 @@ class ContactSchema(Schema):
     sound          = fields.String(allow_none=True)
     timezone       = fields.String(allow_none=True)
     extra_properties = fields.Dict(keys=fields.String(), values=fields.String())
+    import_format  = fields.String(metadata={"description": "Format the contact was imported from (read-only)."})
     rev            = fields.String(allow_none=True)
     created_at     = fields.String(allow_none=True)
     updated_at     = fields.String(allow_none=True)

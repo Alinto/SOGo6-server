@@ -11,6 +11,7 @@ from app.module.contact.model.CardPhone import CardPhone
 from app.module.contact.model.CardUrl import CardUrl
 from app.module.contact.ContactConst import DEFAULT_DISPLAY_NAME, DEFAULT_VCARD_VERSION
 from app.module.contact.model.enums.CardKind import CardKind
+from app.module.contact.model.enums.ContactImportFormat import ContactImportFormat
 from app.utils import errors as err
 from app.utils.exceptions import BugException, RequestException
 from app.utils.maths.sogo_hash import generate_uuid
@@ -92,6 +93,9 @@ class CardContact:  # pylint: disable=too-many-instance-attributes
     extra_properties: dict[str, str] = field(default_factory=dict)
     # REV (RFC 6350 §6.7.4) - revision timestamp
     rev: datetime | None = None
+    # Internal - format the contact was imported from; tells the dialect of extra_properties.
+    # Server-set (stamped by the importing deserializer), never accepted from the API body.
+    import_format: ContactImportFormat = ContactImportFormat.UNDEFINED
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

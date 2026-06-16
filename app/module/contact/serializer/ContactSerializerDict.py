@@ -65,6 +65,7 @@ class ContactSerializerDict(ContactSerializer[dict]):
             "sound": data.sound,
             "timezone": data.timezone,
             "extra_properties": data.extra_properties,
+            "import_format": data.import_format.value,
             "rev": fmt_dt(data.rev) if data.rev else None,
             "created_at": fmt_dt(data.created_at) if data.created_at else None,
             "updated_at": fmt_dt(data.updated_at) if data.updated_at else None,

@@ -1,0 +1,19 @@
+BEGIN:VCARD
+VERSION:4.0
+N:NOM DE FAMILLE;Prénom;;Monsieur/Madame;
+FN:NOM DE FAMILLE Prénom
+TITLE:Monsieur/Madame
+NICKNAME:Votre surnom
+GENDER:Masculin/Féminin
+ORG:Lieu de travail;Service
+ADR;TYPE=WORK:;;Adresse de votre lieu de travail;Ville;Province;Code Postal;Pays;PREF;QUOTED-PRINTABLE:;Service
+ADR;TYPE=HOME:;;;;;;Pays
+EMAIL;INTERNET:votre.adresse@mail.com
+TITLE;QUOTED-PRINTABLE:Votre Fonction
+TEL;WORK:-
+TEL;TYPE=HOME,VOICE:(+indicatif) 000 00 00 00
+TEL;CELL:(+indicatif) 000 00 00 00
+NOTE;QUOTED-PRINTABLE:Une petite note sur vous-même
+BDAY;value=date:Année-mois(chiffre)-jour
+URL;type=pref:http://www.votresite.com
+END:VCARD
