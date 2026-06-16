@@ -1,5 +1,7 @@
+from .format.vcard.VcardConst import VCARD_VERSION_4
+
 # Default vCard VERSION (RFC 6350 §6.7.9) applied when a contact does not carry one.
-DEFAULT_VCARD_VERSION: str = "4.0"
+DEFAULT_VCARD_VERSION: str = VCARD_VERSION_4
 
 # Fallback formatted name (vCard FN) used when a contact has neither a structured name,
 # an organization nor a nickname to derive a display name from.

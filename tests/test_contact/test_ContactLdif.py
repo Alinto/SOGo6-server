@@ -1,0 +1,78 @@
+"""Unit tests for the LDIF engine and the LDIF contact / list serializers."""
+import base64
+
+from app.module.contact.format.ldif.LdifFormatEngine import LdifFormatEngine
+from app.module.contact.model.CardAddress import CardAddress
+from app.module.contact.model.CardContact import CardContact
+from app.module.contact.model.CardEmail import CardEmail
+from app.module.contact.model.CardList import CardList
+from app.module.contact.model.CardPhone import CardPhone
+from app.module.contact.serializer.ContactDeserializerLdif import ContactDeserializerLdif
+from app.module.contact.serializer.ContactListDeserializerLdif import ContactListDeserializerLdif
+from app.module.contact.serializer.ContactListSerializerLdif import ContactListSerializerLdif
+from app.module.contact.serializer.ContactSerializerLdif import ContactSerializerLdif
+from app.module.contact.serializer.ContactsDeserializerLdif import ContactsDeserializerLdif
+from app.module.contact.serializer.ContactsSerializerLdif import ContactsSerializerLdif
+
+
+# ========== LdifFormatEngine ==========
+
+def test_emit_attr_plain():
+    assert LdifFormatEngine.emit_attr("cn", "John Doe") == "cn: John Doe"
+
+
+def test_emit_attr_base64_for_non_ascii():
+    line = LdifFormatEngine.emit_attr("cn", "Joël")
+    assert line.startswith("cn:: ")
+    assert base64.b64decode(line[len("cn:: "):]).decode("utf-8") == "Joël"
+
+
+def test_parse_records_decodes_and_splits():
+    text = ("dn: cn=A,ou=contacts\ncn: A\nmail: a@x.com\n\n"
+            "dn: cn=B,ou=contacts\ncn:: " + base64.b64encode("Bé".encode()).decode() + "\n")
+    records = LdifFormatEngine.parse_records(text)
+    assert len(records) == 2
+    assert ("cn", "A") in records[0] and ("mail", "a@x.com") in records[0]
+    assert ("cn", "Bé") in records[1]
+
+
+# ========== contact round-trip ==========
+
+def test_contact_round_trip_maps_inetorgperson():
+    contact = CardContact(
+        display_name="John Doe", first_name="John", last_name="Doe", organization="Acme",
+        department="R&D", job_title="Engineer", note="A note", uid="u-1",
+        emails=[CardEmail(value="john@acme.com")],
+        phones=[CardPhone(number="+331", types=["cell"]), CardPhone(number="+332")],
+        addresses=[CardAddress(street="1 rue", locality="Paris", postal_code="75001", country="France")])
+    back = ContactDeserializerLdif().deserialize(ContactSerializerLdif().serialize(contact))
+    assert (back.display_name, back.first_name, back.last_name) == ("John Doe", "John", "Doe")
+    assert (back.organization, back.department, back.job_title) == ("Acme", "R&D", "Engineer")
+    assert back.note == "A note" and back.uid == "u-1"
+    assert [e.value for e in back.emails] == ["john@acme.com"]
+    assert sorted(p.number for p in back.phones) == ["+331", "+332"]
+    assert any("cell" in p.types for p in back.phones)  # the cell phone maps to/from "mobile"
+    assert back.addresses[0].locality == "Paris" and back.addresses[0].country == "France"
+
+
+def test_contacts_round_trip_and_header():
+    contacts = [CardContact(display_name="Alice", last_name="A"), CardContact(display_name="Bob", last_name="B")]
+    text = ContactsSerializerLdif().serialize(contacts)
+    assert text.startswith("version: 1")
+    back = ContactsDeserializerLdif().deserialize(text)
+    assert [c.display_name for c in back] == ["Alice", "Bob"]
+
+
+# ========== list (groupOfNames) ==========
+
+def test_list_serialize_groupofnames_and_skip_in_contacts():
+    card_list = CardList(name="Team", description="The team",
+                         member_contacts=[CardContact(display_name="Alice", uid="m1")])
+    text = ContactListSerializerLdif().serialize(card_list)
+    assert "objectClass: groupOfNames" in text
+    assert "member: cn=Alice,ou=contacts" in text
+    # A groupOfNames record must not be read back as a contact.
+    assert ContactsDeserializerLdif().deserialize(text) == []
+    back = ContactListDeserializerLdif().deserialize(text)
+    assert back.name == "Team" and back.description == "The team"
+    assert back.members == ["cn=Alice,ou=contacts"]  # member DNs, resolved at import time

@@ -28,11 +28,13 @@ It is built around two domain objects — `CardAddressBook` and `CardContact` �
 * *ContactSourceDirectory* — Read-only source backed by a domain user source (the directory / annuaire, SQL or LDAP). A stub for now; see <<Directory>>.
 * *ContactAclEngine* — Resolves and enforces address book permissions. See <<acl>>.
 * *RepositoryContact / RepositoryAddressBook* — SQL-only persistence. No business logic.
-* *Serializers / Deserializers* — Format conversion (Dict). `deserialize_with_update(origin, update)` merges a dict update onto an existing CardContact.
+* *Serializers / Deserializers* — Format conversion: Dict (the JSON blob and the REST API), plus vCard and LDIF for import / export (see <<import-export>>). `deserialize_with_update(origin, update)` merges a dict update onto an existing CardContact.
 
 == Domain model
 
-`CardContact` is the single canonical representation of a contact, a plain Python dataclass aligned with vCard (RFC 6350): structured name (N), formatted name (FN, `display_name`), `kind` (individual / group / org), multi-valued `emails` / `phones` / `addresses` / `urls` / `impp`, `categories`, `birthday` / `anniversary`, `organization`, and a catch-all `extra_properties` for X-* properties (lossless round-trip).
+`CardContact` is the single canonical representation of a contact, a plain Python dataclass aligned with vCard (RFC 6350): structured name (N), formatted name (FN, `display_name`), `kind` (individual / group / org), multi-valued `emails` / `phones` / `addresses` / `urls` / `impp`, `categories`, `birthday` / `anniversary`, `organization`, and a catch-all `extra_properties` for unmapped / X-* properties (best-effort passthrough: a flat name->value map, so property parameters and repeated occurrences are not preserved).
+
+`import_format` records the format a contact was imported from (`undefined` / `vcard3` / `vcard4` / `ldif`), so the dialect of the entries kept in `extra_properties` can be told apart. It is server-set (stamped by the importing deserializer) and read-only — never accepted from the request body.
 
 Fields are either *relational* — dedicated columns for filtering and sorting: `key`, `addressbook_key`, `uid`, `kind`, `last_name`, `first_name`, `organization`, `display_name`, `is_deleted`, `created_at`, `updated_at`, and the full-text `search_vector` — or *blob*: everything else, serialized as JSON in the `contact_data` column. The same dict produced by `ContactSerializerDict` is reused as the blob, so it must carry every field needed to reconstruct the contact; the relational columns are authoritative and override their blob counterparts on read.
 
@@ -81,7 +83,7 @@ A list is `CardList` (key, uid, name, description, members) mapped to its own ta
 
 `ModuleContact` exposes the same shape as for contacts: `get_all_lists` (book-scoped, paginated), `get_list` (members populated), `create_list` (generates the uid, persists the membership), `update_list` (identity preserved, full membership replacement) and `delete_list`. Writes go through `_get_writable_addressbook`, so the `MODIFY` ACL applies to lists exactly as to contacts. `ContactSourceDb` orchestrates the list row and its membership as two separate concerns and bumps the book `ctag` on every list mutation. The API exposes member contact keys plus a `member_count`; resolving each member to a full contact card is left to the caller.
 
-The list response carries the member keys and their count, not the expanded member cards. Membership is maintained at delete time (deleting a list or its address book clears the join rows), so the only orphan rows possible come from a physically purged contact — `clean()` drops those after the tombstone sweep (see <<Soft delete>>). The vCard `KIND:group` / `MEMBER` serializer is deferred to the CardDAV jalon; the REST API is reference-key based.
+The REST list response carries the member keys and their count, not the expanded member cards. Membership is maintained at delete time (deleting a list or its address book clears the join rows), so the only orphan rows possible come from a physically purged contact — `clean()` drops those after the tombstone sweep (see <<Soft delete>>). The vCard `KIND:group` / `MEMBER` export serializer is implemented (`ContactListSerializerVcard`, see <<import-export>>): it emits each member as `MEMBER:urn:uuid:<uid>` resolved from the populated `member_contacts`.
 
 == Pagination, sorting and search
 
@@ -143,7 +145,39 @@ A user's personal address book is created at first login. `InterfaceAuthUser.pla
 
 == Serialization
 
-All serializers extend `Serializer[TIn, TOut]`, all deserializers extend `Deserializer[TIn, TOut]`. Multi-valued vCard sub-objects (email, phone, address, url, impp) have their own dedicated sub-serializers composed by `ContactSerializerDict` / `ContactDeserializerDict`. Collection serializers (`ContactsSerializerList`, `AddressBooksSerializerList`, `ContactListsSerializerList`) and the lightweight autocomplete serializers (`ContactAutocompleteSerializerList`, `ContactListAutocompleteSerializerList`) reuse the single-object serializers. Distribution lists have their own `ContactListSerializerDict` / `ContactListDeserializerDict`; the deserializer's `deserialize_with_update` merges a partial update onto an existing `CardList` (only `name` / `description` / `members` are mutable). All datetimes are ISO 8601 UTC; `birthday` / `anniversary` are plain `YYYY-MM-DD`.
+All serializers extend `Serializer[TIn, TOut]`, all deserializers extend `Deserializer[TIn, TOut]`. Multi-valued vCard sub-objects (email, phone, address, url, impp) have their own dedicated sub-serializers composed by `ContactSerializerDict` / `ContactDeserializerDict`. Collection serializers (`ContactsSerializerList`, `AddressBooksSerializerList`, `ContactListsSerializerList`) and the lightweight autocomplete serializers (`ContactAutocompleteSerializerList`, `ContactListAutocompleteSerializerList`) reuse the single-object serializers. Distribution lists have their own `ContactListSerializerDict` / `ContactListDeserializerDict`; the deserializer's `deserialize_with_update` merges a partial update onto an existing `CardList` (only `name` / `description` / `members` are mutable). All datetimes are ISO 8601 UTC; `birthday` / `anniversary` are plain `YYYY-MM-DD`. The vCard and LDIF serializers/deserializers used for import / export are covered in <<import-export>>.
+
+[#import-export]
+== Import and export (vCard, LDIF)
+
+Beyond the JSON of the REST API (the `*Dict` serializers), a contact and an address book can be exchanged as vCard 3.0 (RFC 2426), vCard 4.0 (RFC 6350) or LDIF (RFC 2849). The codecs are hand-written (no external library) and live in `app/module/contact/format/`.
+
+=== Format engines
+
+`FormatEngine` is the common contract of a directory-format codec. It implements once the line folding / unfolding shared by every MIME-DIR and LDIF format (octet-based, never splitting a UTF-8 character) and `parse_item`, and declares the three methods each format provides: `split_items` (a document -> card / record bodies), `parse_line` and `emit_line`. A line is a `ContentLine` (name, value, params, group) - the rich vCard case; an LDIF attribute is a degenerate `ContentLine` with empty params and group.
+
+----
+  format/
+    FormatEngine.py   ContentLine.py            <- shared base + line model
+    vcard/  VcardFormatEngine.py  VcardConst.py
+    ldif/   LdifFormatEngine.py   LdifConst.py
+----
+
+An engine owns the *syntax* only (folding, escaping, parameters) and knows no property name nor version; the serializers own the *semantics* (mapping `CardContact` / `CardList` onto properties).
+
+=== vCard serializers
+
+Writing chooses a version: `ContactSerializerVcard` is the abstract mapping, `ContactSerializerVcard3` / `ContactSerializerVcard4` carry the deltas (the VERSION value, the TYPE/PREF encoding, `KIND`, `ANNIVERSARY` vs `X-ANNIVERSARY`, the `GEO` form). `ContactsSerializerVcard` concatenates cards into a `.vcf`; `ContactListSerializerVcard3` / `...Vcard4` emit a list as a group card (`KIND:group` + `MEMBER` in 4.0, `X-ADDRESSBOOKSERVER-*` in 3.0).
+
+Reading is symmetric: `ContactDeserializerVcard` is the abstract base with the version-independent parsing and a static `detect_version` (reads the card's `VERSION`, defaults to `DEFAULT_VCARD_VERSION`); `ContactDeserializerVcard3` / `...Vcard4` override the version hooks (`import_format`, `_parse_type_pref`, `_decode_geo`) - no version branch lives in the base. The reader is *lenient*: an unknown property is kept verbatim in `extra_properties`, a partial or text date is dropped, a malformed line never raises. `ContactsDeserializerVcard` splits a multi-card document, detects each card's version independently and skips group cards (parsed by `ContactListDeserializerVcard`, whose members are kept as UID references resolved to contact keys at import time).
+
+=== LDIF
+
+`ContactSerializerLdif` / `ContactDeserializerLdif` map a contact onto `inetOrgPerson` attributes (cn, sn, givenName, mail, telephoneNumber / mobile, o, ou, title, description, the first postal address, uid); `ContactListSerializerLdif` / `ContactListDeserializerLdif` map a list onto `groupOfNames` (member DNs). A whole-document (address book) is handled by the `Contacts*Ldif` pair, which skips `groupOfNames` records; attributes outside the mapped subset are kept in `extra_properties`.
+
+=== Fidelity and limits
+
+Conversion is faithful for the fields the model carries, but it is *not* a byte-exact round-trip of the full RFCs. Not preserved: property parameters (LANGUAGE, ALTID, PID, MEDIATYPE, LABEL), property grouping (`item1.X-ABLabel`), embedded binary (a base64 photo / logo / sound / key - only URI values survive), partial / text dates, quoted-printable encoding, and on the LDIF side the change records (`changetype`) and every field outside the `inetOrgPerson` subset. Byte-exact fidelity - required for full Apple / Google / Outlook / Nextcloud interoperability - belongs to a later stage built on a stored raw vCard, alongside the CardDAV server.
 
 == Module — ModuleContact
 

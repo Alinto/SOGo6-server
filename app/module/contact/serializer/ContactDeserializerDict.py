@@ -7,6 +7,7 @@ from typing import Any
 from app.module.contact.ContactConst import DEFAULT_VCARD_VERSION
 from app.module.contact.model.CardContact import CardContact
 from app.module.contact.model.enums.CardKind import CardKind
+from app.module.contact.model.enums.ContactImportFormat import ContactImportFormat
 from app.module.contact.serializer.CardAddressDeserializerDict import CardAddressDeserializerDict
 from app.module.contact.serializer.CardEmailDeserializerDict import CardEmailDeserializerDict
 from app.module.contact.serializer.CardImppDeserializerDict import CardImppDeserializerDict
@@ -68,6 +69,7 @@ class ContactDeserializerDict(ContactDeserializer[dict]):
             sound=data.get("sound"),
             timezone=data.get("timezone"),
             extra_properties=data.get("extra_properties", {}),
+            import_format=self._parse_import_format(data.get("import_format")),
             rev=self._parse_dt_opt(data.get("rev")),
         )
 
@@ -119,6 +121,16 @@ class ContactDeserializerDict(ContactDeserializer[dict]):
         except ValueError:
             logger_contact.warning("Unknown CardKind value %r, using INDIVIDUAL", value)
             return CardKind.INDIVIDUAL
+
+    @staticmethod
+    def _parse_import_format(value: str | None) -> ContactImportFormat:
+        """Parse a ContactImportFormat from the blob; fall back to UNDEFINED on missing or unknown."""
+        if value is None:
+            return ContactImportFormat.UNDEFINED
+        try:
+            return ContactImportFormat(value)
+        except ValueError:
+            return ContactImportFormat.UNDEFINED
 
     @staticmethod
     def _parse_date(value: str | None) -> date | None:
