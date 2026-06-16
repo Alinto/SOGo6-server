@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from app.module.contact.serializer.ContactSerializerVcard import ContactSerializerVcard
 from app.module.contact.format.vcard import VcardConst as vc
 from app.module.contact.format.ContentLine import ContentLine
+
+if TYPE_CHECKING:
+    from datetime import date
 
 
 class ContactSerializerVcard4(ContactSerializerVcard):
@@ -10,6 +15,14 @@ class ContactSerializerVcard4(ContactSerializerVcard):
 
     def version(self) -> str:
         return vc.VCARD_VERSION_4
+
+    def _format_date(self, value: date) -> str:
+        # 4.0 dates use the basic form YYYYMMDD; the extended form is disallowed (RFC 6350 §4.3.1).
+        return value.strftime("%Y%m%d")
+
+    def _format_uid(self, uid: str) -> str:
+        # 4.0 UID is preferably a URI; prefix a bare uuid so MEMBER:urn:uuid:<uid> matches it.
+        return uid if ":" in uid else vc.UID_URN_PREFIX + uid
 
     def _type_params(self, types: list[str], pref: int | None) -> dict[str, list[str]]:
         # 4.0: TYPE is a comma list, PREF is a dedicated parameter (1 = most preferred).

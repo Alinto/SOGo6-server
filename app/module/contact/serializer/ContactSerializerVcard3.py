@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from app.module.contact.serializer.ContactSerializerVcard import ContactSerializerVcard
 from app.module.contact.format.vcard import VcardConst as vc
 from app.module.contact.format.ContentLine import ContentLine
+
+if TYPE_CHECKING:
+    from datetime import date
 
 
 class ContactSerializerVcard3(ContactSerializerVcard):
@@ -10,6 +15,14 @@ class ContactSerializerVcard3(ContactSerializerVcard):
 
     def version(self) -> str:
         return vc.VCARD_VERSION_3
+
+    def _format_date(self, value: date) -> str:
+        # 3.0 dates use the ISO extended form YYYY-MM-DD (RFC 2426).
+        return value.isoformat()
+
+    def _format_uid(self, uid: str) -> str:
+        # 3.0 keeps the UID value as-is (Apple's X-ADDRESSBOOKSERVER convention uses the bare uid).
+        return uid
 
     def _type_params(self, types: list[str], pref: int | None) -> dict[str, list[str]]:
         # 3.0 has no PREF parameter: the preferred entry is marked with the TYPE value "pref".

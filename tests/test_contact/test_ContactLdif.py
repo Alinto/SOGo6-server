@@ -76,3 +76,8 @@ def test_list_serialize_groupofnames_and_skip_in_contacts():
     back = ContactListDeserializerLdif().deserialize(text)
     assert back.name == "Team" and back.description == "The team"
     assert back.members == ["cn=Alice,ou=contacts"]  # member DNs, resolved at import time
+
+
+def test_dn_escapes_special_characters_in_cn():
+    text = ContactListSerializerLdif().serialize(CardList(name="Sales, Inc. + Co"))
+    assert "dn: cn=Sales\\, Inc. \\+ Co,ou=contacts" in text

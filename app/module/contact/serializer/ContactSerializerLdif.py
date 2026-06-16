@@ -55,9 +55,8 @@ class ContactSerializerLdif(ContactSerializer[str]):
 
     @staticmethod
     def _dn(common_name: str) -> str:
-        """Build the entry distinguished name from the common name (commas escaped per RFC 4514)."""
-        escaped: str = common_name.replace("\\", "\\\\").replace(",", "\\,")
-        return f"{ld.ATTR_CN}={escaped},{ld.BASE_DN}"
+        """Build the entry distinguished name from the common name (escaped per RFC 4514)."""
+        return f"{ld.ATTR_CN}={LdifFormatEngine.escape_dn(common_name)},{ld.BASE_DN}"
 
     @staticmethod
     def _fallback_cn(data: CardContact) -> str:

@@ -83,7 +83,7 @@ A list is `CardList` (key, uid, name, description, members) mapped to its own ta
 
 `ModuleContact` exposes the same shape as for contacts: `get_all_lists` (book-scoped, paginated), `get_list` (members populated), `create_list` (generates the uid, persists the membership), `update_list` (identity preserved, full membership replacement) and `delete_list`. Writes go through `_get_writable_addressbook`, so the `MODIFY` ACL applies to lists exactly as to contacts. `ContactSourceDb` orchestrates the list row and its membership as two separate concerns and bumps the book `ctag` on every list mutation. The API exposes member contact keys plus a `member_count`; resolving each member to a full contact card is left to the caller.
 
-The REST list response carries the member keys and their count, not the expanded member cards. Membership is maintained at delete time (deleting a list or its address book clears the join rows), so the only orphan rows possible come from a physically purged contact — `clean()` drops those after the tombstone sweep (see <<Soft delete>>). The vCard `KIND:group` / `MEMBER` export serializer is implemented (`ContactListSerializerVcard`, see <<import-export>>): it emits each member as `MEMBER:urn:uuid:<uid>` resolved from the populated `member_contacts`.
+The REST list response carries the member keys and their count, not the expanded member cards. Membership is maintained at delete time (deleting a list or its address book clears the join rows), so the only orphan rows possible come from a physically purged contact — `clean()` drops those after the tombstone sweep (see <<Soft delete>>). The vCard `KIND:group` / `MEMBER` export serializer is implemented (`ContactListSerializerVcard3` / `...Vcard4`, see <<import-export>>): it emits each member as `MEMBER:urn:uuid:<uid>` resolved from the populated `member_contacts`.
 
 == Pagination, sorting and search
 
@@ -150,7 +150,7 @@ All serializers extend `Serializer[TIn, TOut]`, all deserializers extend `Deseri
 [#import-export]
 == Import and export (vCard, LDIF)
 
-Beyond the JSON of the REST API (the `*Dict` serializers), a contact and an address book can be exchanged as vCard 3.0 (RFC 2426), vCard 4.0 (RFC 6350) or LDIF (RFC 2849). The codecs are hand-written (no external library) and live in `app/module/contact/format/`.
+Beyond the JSON of the REST API (the `*Dict` serializers), a contact and an address book can be exchanged as vCard 3.0 (RFC 2426), vCard 4.0 (RFC 6350) or LDIF (RFC 2849). The codecs are hand-written (no external library) and live in `app/module/contact/format/`. They are the conversion layer only: no dedicated export / import HTTP endpoint is wired yet (the route, `Accept` / `?format=` negotiation and the member UID/DN -> contact-key resolution at import are a later step).
 
 === Format engines
 
@@ -173,7 +173,7 @@ Reading is symmetric: `ContactDeserializerVcard` is the abstract base with the v
 
 === LDIF
 
-`ContactSerializerLdif` / `ContactDeserializerLdif` map a contact onto `inetOrgPerson` attributes (cn, sn, givenName, mail, telephoneNumber / mobile, o, ou, title, description, the first postal address, uid); `ContactListSerializerLdif` / `ContactListDeserializerLdif` map a list onto `groupOfNames` (member DNs). A whole-document (address book) is handled by the `Contacts*Ldif` pair, which skips `groupOfNames` records; attributes outside the mapped subset are kept in `extra_properties`.
+`ContactSerializerLdif` / `ContactDeserializerLdif` map a contact onto `inetOrgPerson` attributes (cn, sn, givenName, displayName, mail, telephoneNumber / mobile, o, ou, title, description, the first postal address, uid); `ContactListSerializerLdif` / `ContactListDeserializerLdif` map a list onto `groupOfNames` (member DNs). A whole-document (address book) is handled by the `Contacts*Ldif` pair, which skips `groupOfNames` records; attributes outside the mapped subset are kept in `extra_properties`.
 
 === Fidelity and limits
 

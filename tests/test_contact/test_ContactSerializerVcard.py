@@ -50,6 +50,8 @@ def _assert_round_trip(original, text, deserializer):
     assert back.birthday == date(1985, 4, 15)
     assert back.anniversary == date(2010, 6, 1)
     assert back.geo == "geo:48.85,2.35"
+    assert back.timezone == "Europe/Paris"
+    assert back.public_key == "https://acme.com/key.asc"
     assert back.uid == "u-123"
     assert back.extra_properties["X-TWITTER"] == "@johndoe"
 
@@ -99,3 +101,29 @@ def test_unknown_properties_go_to_extra_without_raising():
 def test_partial_birthday_is_dropped_not_raised():
     contact = ContactDeserializerVcard4().deserialize("BEGIN:VCARD\r\nVERSION:4.0\r\nBDAY:--0415\r\nEND:VCARD")
     assert contact.birthday is None
+
+
+# ========== version-specific value forms (RFC) ==========
+
+def test_vcard4_emits_basic_date_and_urn_uid():
+    contact = CardContact(uid="abc-123", display_name="X", birthday=date(1985, 4, 15))
+    text = ContactSerializerVcard4().serialize(contact)
+    assert "BDAY:19850415" in text              # 4.0 basic date form (RFC 6350 4.3.1)
+    assert "UID:urn:uuid:abc-123" in text       # 4.0 UID as a URI, matching MEMBER:urn:uuid:
+
+
+def test_vcard3_keeps_extended_date_and_bare_uid():
+    contact = CardContact(uid="abc-123", display_name="X", birthday=date(1985, 4, 15))
+    text = ContactSerializerVcard3().serialize(contact)
+    assert "BDAY:1985-04-15" in text            # 3.0 ISO extended date form
+    assert "UID:abc-123" in text
+
+
+def test_reader_accepts_foreign_type_pref_encoding():
+    # A 4.0 file using the 3.0 "TYPE=pref" token, and a 3.0 file using a 4.0 "PREF=" parameter.
+    v4 = ContactDeserializerVcard4().deserialize(
+        "BEGIN:VCARD\r\nVERSION:4.0\r\nEMAIL;TYPE=work,pref:a@x.com\r\nEND:VCARD")
+    assert v4.emails[0].types == ["work"] and v4.emails[0].pref == 1
+    v3 = ContactDeserializerVcard3().deserialize(
+        "BEGIN:VCARD\r\nVERSION:3.0\r\nEMAIL;TYPE=work;PREF=1:a@x.com\r\nEND:VCARD")
+    assert v3.emails[0].types == ["work"] and v3.emails[0].pref == 1
