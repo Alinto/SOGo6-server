@@ -23,8 +23,10 @@ def test_one_suggestion_per_email_with_provenance():
     ]
 
 
-def test_contact_without_email_yields_no_suggestion():
-    assert _serializer.serialize([CardContact(display_name="NoMail")]) == []
+def test_contact_without_email_yields_name_only_suggestion():
+    result = _serializer.serialize([CardContact(display_name="NoMail", key="c9")])
+    assert result == [{"type": "contact", "name": "NoMail", "email": None, "contact_key": "c9",
+                       "list_key": None, "member_count": None, "members": None, "address_book": None}]
 
 
 def test_contact_without_addressbook_has_null_address_book():
