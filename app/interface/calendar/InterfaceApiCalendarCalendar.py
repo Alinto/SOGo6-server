@@ -33,7 +33,7 @@ from app.module.calendar.serializer.CalSyncStatusSerializerDict import CalSyncSt
 from app.module.user.ModuleUserProfile import ModuleUserProfile
 from app.service import sogo_cache
 from app.utils.api.ApiBaseResponse import create_api_base_response
-from app.utils.errors import ERROR_CALENDAR_JSON_PARSE_FAILED
+from app.utils.errors import ERROR_CALENDAR_EXPORT_FORMAT_UNSUPPORTED, ERROR_CALENDAR_JSON_PARSE_FAILED
 from app.utils.exceptions import RequestException
 from app.utils.strings import get_domain_from_mail
 from app.auth.User import User
@@ -458,7 +458,7 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
     #
     # Import / Export
     #
-    def export_calendar(self, key: str, query_args: dict[str, Any]) -> tuple[str, int, dict[str, str]] | tuple[dict[str, Any], int]:
+    def export_calendar(self, key: str, query_args: dict[str, Any], accept: str) -> tuple[str, int, dict[str, str]] | tuple[dict[str, Any], int]:
         """Export the calendar as a VCALENDAR payload.
 
         :param key: Opaque calendar key.
@@ -466,10 +466,13 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
             and ``end_date_time`` bounds, and a ``download`` flag that toggles the
             Content-Disposition attachment header so browsers trigger a file download
             instead of inlining the iCalendar.
+        :param accept: Raw HTTP Accept header value; the export serialization is negotiated from it.
         :return: A tuple ``(ics_text, status_code, headers)`` for Flask when successful, or
-            the standard error envelope on failure.
+            the standard error envelope on failure (406 when the requested format is unsupported).
         """
         try:
+            if not self._negotiate_export_format(accept):
+                return create_api_base_response(None, ERROR_CALENDAR_EXPORT_FORMAT_UNSUPPORTED)
             date_start: datetime | None = query_args.get("start_date_time")
             date_end: datetime | None = query_args.get("end_date_time")
             download: bool = bool(query_args.get("download"))
@@ -482,6 +485,16 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         except RequestException as ex:
             logger_api.error("export_calendar failed for user %s key %s: %s", self.user.uid, key, ex)
             return create_api_base_response(None, ex.error)
+
+    @staticmethod
+    def _negotiate_export_format(accept: str) -> bool:
+        """Whether the Accept header allows the only export serialization (iCalendar).
+
+        Empty, wildcard or a text/calendar accept are served; any other explicit type is refused so
+        the caller answers 406 (mirrors the contact export content negotiation).
+        """
+        value: str = accept.lower()
+        return not value or "*/*" in value or "text/calendar" in value
 
     def import_calendar(self, key: str, ics_text: str) -> tuple[dict[str, Any], int]:
         """Import a VCALENDAR payload into a calendar (additive merge).

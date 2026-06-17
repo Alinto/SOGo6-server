@@ -31,7 +31,7 @@ def test_export_returns_inline_text_by_default():
     module = MagicMock()
     module.export_calendar.return_value = "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n"
     inter = _build_interface(module)
-    body, status, headers = inter.export_calendar("cal-key", {})
+    body, status, headers = inter.export_calendar("cal-key", {}, "text/calendar")
     assert status == 200
     assert body.startswith("BEGIN:VCALENDAR")
     assert headers["Content-Type"] == "text/calendar; charset=utf-8"
@@ -42,7 +42,7 @@ def test_export_with_download_true_adds_attachment_header():
     module = MagicMock()
     module.export_calendar.return_value = "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n"
     inter = _build_interface(module)
-    body, status, headers = inter.export_calendar("cal-key", {"download": True})
+    body, status, headers = inter.export_calendar("cal-key", {"download": True}, "text/calendar")
     assert status == 200
     assert "attachment" in headers["Content-Disposition"]
     assert "cal-key" in headers["Content-Disposition"]
@@ -54,7 +54,7 @@ def test_export_forwards_date_range_query_arguments():
     inter = _build_interface(module)
     date_start = datetime(2026, 1, 1, tzinfo=_UTC)
     date_end = datetime(2026, 12, 31, tzinfo=_UTC)
-    inter.export_calendar("cal-key", {"start_date_time": date_start, "end_date_time": date_end})
+    inter.export_calendar("cal-key", {"start_date_time": date_start, "end_date_time": date_end}, "text/calendar")
     module.export_calendar.assert_called_once_with(inter.user, "cal-key", date_start=date_start, date_end=date_end)
 
 
@@ -62,7 +62,7 @@ def test_export_without_date_range_passes_none():
     module = MagicMock()
     module.export_calendar.return_value = "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n"
     inter = _build_interface(module)
-    inter.export_calendar("cal-key", {})
+    inter.export_calendar("cal-key", {}, "text/calendar")
     module.export_calendar.assert_called_once_with(inter.user, "cal-key", date_start=None, date_end=None)
 
 
@@ -70,9 +70,18 @@ def test_export_translates_request_exception_to_error_envelope():
     module = MagicMock()
     module.export_calendar.side_effect = RequestException(error=err.ERROR_CALENDAR_NOT_FOUND)
     inter = _build_interface(module)
-    response, _ = inter.export_calendar("missing", {})
+    response, _ = inter.export_calendar("missing", {}, "text/calendar")
     assert response["error_code"] == err.ERROR_CALENDAR_NOT_FOUND.c
     assert response["data"] is None
+
+
+def test_export_unsupported_accept_returns_406():
+    module = MagicMock()
+    inter = _build_interface(module)
+    response, code = inter.export_calendar("cal-key", {}, "application/json")
+    assert code == err.ERROR_CALENDAR_EXPORT_FORMAT_UNSUPPORTED.h
+    assert response["error_code"] == err.ERROR_CALENDAR_EXPORT_FORMAT_UNSUPPORTED.c
+    module.export_calendar.assert_not_called()
 
 
 # ========== import_calendar ==========
