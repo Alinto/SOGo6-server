@@ -16,7 +16,7 @@ _JSON_TYPE_TO_FB: dict[str, FreeBusyType] = {
 
 
 class FreeBusyDeserializerDict(Deserializer[dict[str, Any], dict[str, list[CalFreeBusyPeriod]]]):
-    """Deserializes a FreeBusy dict (as produced by FreeBusySerializerDict) into periods per attendee."""
+    """Deserializes a FreeBusy dict (as produced by CalFreeBusyResultSerializerDict) into periods per attendee."""
 
     @staticmethod
     def _parse_dt(value: str) -> datetime:

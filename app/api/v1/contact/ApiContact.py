@@ -2,7 +2,7 @@ from __future__ import annotations  # pylint: disable=duplicate-code
 
 from typing import TYPE_CHECKING
 
-from flask import g
+from flask import g, request
 from flask.views import MethodView
 from flask.typing import ResponseReturnValue
 from flask_smorest import Blueprint
@@ -41,6 +41,26 @@ if TYPE_CHECKING:
 # source of truth in the source layer and is exposed here as a plain set for the decorator.
 _SORT_VALUES: set[str] = set(SORTABLE_COLUMNS)
 _LIST_SORT_VALUES: set[str] = set(LIST_SORTABLE_COLUMNS)
+
+# OpenAPI for the export routes: the serialization is content-negotiated from the Accept header, and the
+# body is a vCard / LDIF document, not the usual JSON envelope - declared here so Swagger shows it.
+_EXPORT_OPENAPI: dict = {
+    "parameters": [{
+        "in": "header", "name": "Accept", "required": False,
+        "description": "Export serialization: 'text/vcard; version=3.0' (default, widest client support), "
+                       "'text/vcard; version=4.0' or 'text/ldif'. An unsupported type returns 406.",
+        "schema": {"type": "string", "enum": [
+            "text/vcard; version=4.0", "text/vcard; version=3.0", "text/ldif"]},
+    }],
+    "responses": {
+        "200": {
+            "description": "The serialized vCard or LDIF document, as a file attachment.",
+            "content": {"text/vcard": {"schema": {"type": "string"}},
+                        "text/ldif": {"schema": {"type": "string"}}},
+        },
+        "406": {"description": "The requested export format is not supported."},
+    },
+}
 
 blp = Blueprint("Contact", __name__, url_prefix="")
 
@@ -177,6 +197,32 @@ class ApiContactDetail(MethodView):
         return interface.delete_contact(key, contact_key)
 
 
+@blp.route("/addressbooks/<string:key>/export")
+class ApiAddressBookExport(MethodView):
+    """API to export a whole address book (contacts and lists) as vCard or LDIF."""
+
+    @blp.doc(**_EXPORT_OPENAPI)
+    def get(self, key: str) -> ResponseReturnValue:
+        """Download the address book; the serialization is negotiated from the Accept header."""
+        logger_api.debug("GET /addressbooks/%s/export user=%s accept=%s",
+                         key, g.user.uid, request.headers.get("Accept"))
+        interface: InterfaceApiContactContact = g.inter
+        return interface.export_addressbook(key, request.headers.get("Accept", ""))
+
+
+@blp.route("/addressbooks/<string:key>/contacts/<string:contact_key>/export")
+class ApiContactExport(MethodView):
+    """API to export a single contact as vCard or LDIF."""
+
+    @blp.doc(**_EXPORT_OPENAPI)
+    def get(self, key: str, contact_key: str) -> ResponseReturnValue:
+        """Download one contact; the serialization is negotiated from the Accept header."""
+        logger_api.debug("GET /addressbooks/%s/contacts/%s/export user=%s",
+                         key, contact_key, g.user.uid)
+        interface: InterfaceApiContactContact = g.inter
+        return interface.export_contact(key, contact_key, request.headers.get("Accept", ""))
+
+
 @blp.route("/addressbooks/<string:key>/lists")
 class ApiListCollection(MethodView):
     """API to list (paginated) and create distribution lists within one address book."""
@@ -224,3 +270,15 @@ class ApiListDetail(MethodView):
         logger_api.debug("DELETE /addressbooks/%s/lists/%s user=%s", key, list_key, g.user.uid)
         interface: InterfaceApiContactContact = g.inter
         return interface.delete_list(key, list_key)
+
+
+@blp.route("/addressbooks/<string:key>/lists/<string:list_key>/export")
+class ApiListExport(MethodView):
+    """API to export a single distribution list as a vCard group card or LDIF groupOfNames."""
+
+    @blp.doc(**_EXPORT_OPENAPI)
+    def get(self, key: str, list_key: str) -> ResponseReturnValue:
+        """Download one list; the serialization is negotiated from the Accept header."""
+        logger_api.debug("GET /addressbooks/%s/lists/%s/export user=%s", key, list_key, g.user.uid)
+        interface: InterfaceApiContactContact = g.inter
+        return interface.export_list(key, list_key, request.headers.get("Accept", ""))

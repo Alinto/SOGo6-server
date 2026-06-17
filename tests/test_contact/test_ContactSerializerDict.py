@@ -1,4 +1,4 @@
-"""Unit tests for ContactSerializerDict."""
+"""Unit tests for CardContactSerializerDict."""
 from datetime import date
 
 from app.module.contact.model.CardAddress import CardAddress
@@ -6,9 +6,9 @@ from app.module.contact.model.CardContact import CardContact
 from app.module.contact.model.CardEmail import CardEmail
 from app.module.contact.model.CardPhone import CardPhone
 from app.module.contact.model.enums.CardKind import CardKind
-from app.module.contact.serializer.ContactSerializerDict import ContactSerializerDict
+from app.module.contact.serializer.CardContactSerializerDict import CardContactSerializerDict
 
-_serializer = ContactSerializerDict()
+_serializer = CardContactSerializerDict()
 
 
 def test_serialize_scalar_fields():

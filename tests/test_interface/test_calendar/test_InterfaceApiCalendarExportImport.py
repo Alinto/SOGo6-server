@@ -6,7 +6,7 @@ import pytest
 
 from app.interface.calendar.InterfaceApiCalendarCalendar import InterfaceApiCalendarCalendar
 from app.module.calendar.model.CalSyncResult import CalSyncResult
-from app.module.calendar.serializer.SyncResultSerializerDict import SyncResultSerializerDict
+from app.module.calendar.serializer.CalSyncResultSerializerDict import CalSyncResultSerializerDict
 from app.utils import errors as err
 from app.utils.exceptions import RequestException
 
@@ -19,7 +19,7 @@ def _build_interface(module=None):
     inter.user.uid = "alice@example.com"
     inter.user.mail = "alice@example.com"
     inter.module = module if module is not None else MagicMock()
-    inter._sync_result_serializer = SyncResultSerializerDict()
+    inter._sync_result_serializer = CalSyncResultSerializerDict()
     inter._user_module = MagicMock()
     inter._user_module.get_partial_user_preferences.return_value = {"USER_GENERAL": {"SOGO_U_TIMEZONE": "UTC"}}
     return inter

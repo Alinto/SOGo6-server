@@ -9,9 +9,9 @@ from app.module.calendar.model.CalSyncResult import CalSyncResult
 from app.module.calendar.model.enums.CalendarSourceType import CalendarSourceType
 from app.module.calendar.model.enums.CalendarSyncStatus import CalendarSyncStatus
 from app.module.calendar.model.CalOrganizer import CalOrganizer
-from app.module.calendar.serializer.CalendarDeserializerIcal import CalendarDeserializerIcal
-from app.module.calendar.serializer.CalendarEventDeserializerIcal import CalendarEventDeserializerIcal
-from app.module.calendar.serializer.CalendarEventsDeserializerIcal import CalendarEventsDeserializerIcal
+from app.module.calendar.serializer.CalCalendarDeserializerIcal import CalCalendarDeserializerIcal
+from app.module.calendar.serializer.CalEventDeserializerIcal import CalEventDeserializerIcal
+from app.module.calendar.serializer.CalEventsDeserializerIcal import CalEventsDeserializerIcal
 from app.module.calendar.sync.IcsFetcher import IcsFetcher
 from app.utils.datetime.DateTimeUtils import anchor_to_utc, to_utc
 from app.utils import errors as err
@@ -38,8 +38,8 @@ class SyncEngine:
     def __init__(self, sources: CalendarSources, cache: ClientRedis) -> None:
         self._sources = sources
         self._cache = cache
-        self._deserializer = CalendarDeserializerIcal(
-            CalendarEventsDeserializerIcal(CalendarEventDeserializerIcal())
+        self._deserializer = CalCalendarDeserializerIcal(
+            CalEventsDeserializerIcal(CalEventDeserializerIcal())
         )
 
     def sync(self, calendar: CalCalendar) -> CalSyncResult:

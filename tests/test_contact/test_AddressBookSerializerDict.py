@@ -1,12 +1,12 @@
-"""Unit tests for AddressBookSerializerDict and the list serializers."""
+"""Unit tests for CardAddressBookSerializerDict and the list serializers."""
 from app.module.contact.model.CardAddressBook import CardAddressBook
 from app.module.contact.model.CardContact import CardContact
 from app.module.contact.model.enums.CardSourceType import CardSourceType
-from app.module.contact.serializer.AddressBookSerializerDict import AddressBookSerializerDict
-from app.module.contact.serializer.AddressBooksSerializerList import AddressBooksSerializerList
-from app.module.contact.serializer.ContactsSerializerList import ContactsSerializerList
+from app.module.contact.serializer.CardAddressBookSerializerDict import CardAddressBookSerializerDict
+from app.module.contact.serializer.CardAddressBooksSerializerList import CardAddressBooksSerializerList
+from app.module.contact.serializer.CardContactsSerializerList import CardContactsSerializerList
 
-_serializer = AddressBookSerializerDict()
+_serializer = CardAddressBookSerializerDict()
 
 
 def test_serialize_addressbook():
@@ -29,7 +29,7 @@ def test_addressbooks_list_serializer():
         CardAddressBook(user_uid="alice", name="A", key="k1", source_type=CardSourceType.LOCAL),
         CardAddressBook(user_uid="alice", name="B", key="k2", source_type=CardSourceType.LOCAL),
     ]
-    result = AddressBooksSerializerList().serialize(books)
+    result = CardAddressBooksSerializerList().serialize(books)
     assert [b["key"] for b in result] == ["k1", "k2"]
 
 
@@ -38,5 +38,5 @@ def test_contacts_list_serializer():
         CardContact(uid="u1", key="c1", display_name="Alice"),
         CardContact(uid="u2", key="c2", display_name="Bob"),
     ]
-    result = ContactsSerializerList().serialize(contacts)
+    result = CardContactsSerializerList().serialize(contacts)
     assert [c["display_name"] for c in result] == ["Alice", "Bob"]

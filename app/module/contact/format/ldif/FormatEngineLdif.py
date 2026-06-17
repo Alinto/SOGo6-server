@@ -113,6 +113,20 @@ class FormatEngineLdif(FormatEngine):
             escaped = escaped[:-1] + "\\ "
         return escaped
 
+    @staticmethod
+    def unescape_dn(value: str) -> str:
+        """Reverse escape_dn: drop the RFC 4514 backslash escaping from a DN attribute value."""
+        result: list[str] = []
+        index: int = 0
+        while index < len(value):
+            if value[index] == "\\" and index + 1 < len(value):
+                result.append(value[index + 1])
+                index += 2
+            else:
+                result.append(value[index])
+                index += 1
+        return "".join(result)
+
     #
     # Internal helpers
     #

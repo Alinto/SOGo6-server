@@ -1,14 +1,14 @@
-"""Unit tests for ContactDeserializerDict."""
+"""Unit tests for CardContactDeserializerDict."""
 from datetime import date
 
 from app.module.contact.model.CardContact import CardContact
 from app.module.contact.model.CardEmail import CardEmail
 from app.module.contact.model.enums.CardKind import CardKind
-from app.module.contact.serializer.ContactDeserializerDict import ContactDeserializerDict
-from app.module.contact.serializer.ContactSerializerDict import ContactSerializerDict
+from app.module.contact.serializer.CardContactDeserializerDict import CardContactDeserializerDict
+from app.module.contact.serializer.CardContactSerializerDict import CardContactSerializerDict
 
-_deserializer = ContactDeserializerDict()
-_serializer = ContactSerializerDict()
+_deserializer = CardContactDeserializerDict()
+_serializer = CardContactSerializerDict()
 
 
 def test_deserialize_minimal():

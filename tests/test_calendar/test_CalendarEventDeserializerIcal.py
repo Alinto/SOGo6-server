@@ -1,5 +1,5 @@
 """
-Unit tests for CalendarEventDeserializerIcal.
+Unit tests for CalEventDeserializerIcal.
 RFC 5545 Section 4 examples: https://icalendar.org/iCalendar-RFC-5545/4-icalendar-object-examples.html
 """
 from datetime import datetime, timezone
@@ -13,8 +13,8 @@ from app.module.calendar.model.enums.EventStatus import EventStatus
 from app.module.calendar.model.enums.EventVisibility import EventVisibility
 from app.module.calendar.model.enums.RecurrenceFrequency import RecurrenceFrequency
 from app.module.calendar.model.enums.ReminderMethod import ReminderMethod
-from app.module.calendar.serializer.CalendarEventDeserializerIcal import CalendarEventDeserializerIcal
-from app.module.calendar.serializer.CalendarEventsDeserializerIcal import CalendarEventsDeserializerIcal
+from app.module.calendar.serializer.CalEventDeserializerIcal import CalEventDeserializerIcal
+from app.module.calendar.serializer.CalEventsDeserializerIcal import CalEventsDeserializerIcal
 from tests.test_calendar.ical_examples import (
     ICAL_EXAMPLE_1,
     ICAL_EXAMPLE_2,
@@ -89,7 +89,7 @@ ICAL_TEXT_ESCAPE = (
 @pytest.fixture
 def deserializer():
     """Return a fresh deserializer instance."""
-    return CalendarEventDeserializerIcal()
+    return CalEventDeserializerIcal()
 
 
 # ==========================================================================
@@ -353,7 +353,7 @@ ICAL_RECURRENCE_ID = (
 
 def test_recurrence_id_parsed(deserializer):
     """Override VEVENT must have recurrence_id pointing to the original occurrence datetime."""
-    events_deserializer = CalendarEventsDeserializerIcal(deserializer)
+    events_deserializer = CalEventsDeserializerIcal(deserializer)
     events = events_deserializer.deserialize(ICAL_RECURRENCE_ID)
 
     overrides = [e for e in events if e.recurrence_id is not None]

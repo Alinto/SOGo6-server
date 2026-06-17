@@ -1,9 +1,9 @@
-"""Unit tests for ContactAutocompleteSerializerList."""
+"""Unit tests for CardContactAutocompleteSerializerList."""
 from app.module.contact.model.CardContact import CardContact
 from app.module.contact.model.CardEmail import CardEmail
-from app.module.contact.serializer.ContactAutocompleteSerializerList import ContactAutocompleteSerializerList
+from app.module.contact.serializer.CardContactAutocompleteSerializerList import CardContactAutocompleteSerializerList
 
-_serializer = ContactAutocompleteSerializerList()
+_serializer = CardContactAutocompleteSerializerList()
 
 
 def test_one_suggestion_per_email_with_provenance():

@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING
 from app.config.db import tables as tbl
 from app.module.contact.model.CardContact import CardContact
 from app.module.contact.model.enums.CardKind import CardKind
-from app.module.contact.serializer.ContactDeserializerDict import ContactDeserializerDict
-from app.module.contact.serializer.ContactSerializerDict import ContactSerializerDict
+from app.module.contact.serializer.CardContactDeserializerDict import CardContactDeserializerDict
+from app.module.contact.serializer.CardContactSerializerDict import CardContactSerializerDict
 from app.utils import errors as err
 from app.utils.datetime.DateTimeUtils import to_utc
 from app.utils.db.Condition import AndCondition, Condition, EqualCondition, FullTextCondition, Order, OrCondition, TrueCondition
@@ -24,8 +24,8 @@ if TYPE_CHECKING:
 _ALL_COLS: tuple[str, ...] = tuple(col.name for col in tbl.ALL_CT_COL)
 _INSERT_COLS: tuple[str, ...] = tuple(col.name for col in tbl.ALL_CT_COL if col.name != tbl.COL_ID.name)
 
-_serializer = ContactSerializerDict()
-_deserializer = ContactDeserializerDict()
+_serializer = CardContactSerializerDict()
+_deserializer = CardContactDeserializerDict()
 
 
 class RepositoryContact:

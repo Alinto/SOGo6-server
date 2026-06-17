@@ -1,10 +1,10 @@
-"""Unit tests for ContactListSerializerDict."""
+"""Unit tests for CardListSerializerDict."""
 from datetime import datetime, timezone
 
 from app.module.contact.model.CardList import CardList
-from app.module.contact.serializer.ContactListSerializerDict import ContactListSerializerDict
+from app.module.contact.serializer.CardListSerializerDict import CardListSerializerDict
 
-_serializer = ContactListSerializerDict()
+_serializer = CardListSerializerDict()
 
 
 def test_serialize_exposes_members_and_count():

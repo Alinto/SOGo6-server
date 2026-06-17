@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 from app.module.contact.ContactConst import ALLOWED_FILE_MIME_TYPES, DEFAULT_ADDRESSBOOK_NAME, FILE_MAX_SIZE_KB
 from app.manager.db.DbFileStorage import DbFileStorage
 from app.module.contact.acl.ContactAclEngine import ContactAclEngine
+from app.module.contact.model.AddressBookContent import AddressBookContent
 from app.module.contact.model.CardAddressBook import CardAddressBook
 from app.module.contact.model.enums.CardSourceType import CardSourceType
 from app.module.contact.model.enums.ContactShareLevel import ContactShareLevel
@@ -384,6 +385,55 @@ class ModuleContact:
             raise
         except Exception as exc:
             logger_contact.exception("Unexpected error deleting list %s", key)
+            raise RequestException(error=err.ERROR_UNKOWN) from exc
+
+    #
+    # Export
+    #
+    # TODO: export (and the upcoming import) of a whole book run inline and hold the entire document in
+    # memory. For large books this should be offloaded to the Agent as a background task whose result is
+    # delivered asynchronously (and streamed), instead of blocking the request thread.
+    def get_list_for_export(
+        self, user: User, addressbook_key: str, key: str,
+        user_sources: dict[str, UserSourceSettingsObj] | None = None,
+    ) -> CardList:
+        """Return a single list with its member_contacts resolved, ready to serialize as a group card.
+
+        Read access at ACL VIEW level. The list serializers emit members by their contact UID, so the
+        members (kept as keys) are resolved to the contacts of the same book here; a member pointing to a
+        purged contact is skipped.
+        """
+        source: ContactSource = self._get_readable_addressbook(user, addressbook_key, user_sources)
+        card_list: CardList | None = source.get_list_by_key(key)
+        if card_list is None:
+            raise RequestException(error=err.ERROR_CONTACT_LIST_NOT_FOUND)
+        members: list[CardContact | None] = [source.get_contact_by_key(member) for member in card_list.members]
+        card_list.member_contacts = [member for member in members if member is not None]
+        return card_list
+
+    def get_addressbook_content(
+        self, user: User, key: str, user_sources: dict[str, UserSourceSettingsObj] | None = None,
+    ) -> AddressBookContent:
+        """Return a book's full content (every contact and list) for export, read access at ACL VIEW level.
+
+        Photos are inlined as data URIs so the exported document is self-contained. Each list's
+        member_contacts are populated from the already-loaded contacts (the list serializers emit members
+        by their contact UID), so resolving membership costs no extra per-member query.
+        """
+        try:
+            source: ContactSource = self._get_readable_addressbook(user, key, user_sources)
+            contacts: list[CardContact] = source.get_contacts()
+            for contact in contacts:
+                contact.photos = self._file.load_all(contact.photos)
+            by_key: dict[str, CardContact] = {contact.key: contact for contact in contacts if contact.key}
+            lists: list[CardList] = source.get_lists()
+            for card_list in lists:
+                card_list.member_contacts = [by_key[member] for member in card_list.members if member in by_key]
+            return AddressBookContent(contacts=contacts, lists=lists)
+        except RequestException:
+            raise
+        except Exception as exc:
+            logger_contact.exception("Unexpected error reading content of book %s", key)
             raise RequestException(error=err.ERROR_UNKOWN) from exc
 
     def clean(self) -> int:
