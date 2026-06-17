@@ -16,7 +16,7 @@ from app.module.contact.serializer.ContactDeserializer import ContactDeserialize
 from app.module.contact.format.vcard import VcardConst as vc
 from app.module.contact.format.ContentLine import ContentLine
 from app.module.contact.format.vcard.FormatEngineVcard import FormatEngineVcard
-from app.utils.datetime.DateTimeUtils import to_utc
+from app.utils.datetime.DateTimeUtils import normalize_partial_date, to_utc
 from app.utils.logger.logger import logger_contact
 
 
@@ -107,9 +107,9 @@ class ContactDeserializerVcard(ContactDeserializer[str], ABC):
             elif name == vc.PROP_NOTE:
                 contact.note = FormatEngineVcard.unescape_text(line.value)
             elif name == vc.PROP_BDAY:
-                contact.birthday = self._parse_date(line.value)
+                self._apply_date(contact, "birthday", line.value)
             elif name in (vc.PROP_ANNIVERSARY, vc.PROP_X_ANNIVERSARY):
-                contact.anniversary = self._parse_date(line.value)
+                self._apply_date(contact, "anniversary", line.value)
             elif name == vc.PROP_GEO:
                 contact.geo = self._decode_geo(line.value)
             elif name == vc.PROP_KEY:
@@ -170,15 +170,18 @@ class ContactDeserializerVcard(ContactDeserializer[str], ABC):
             return CardKind.INDIVIDUAL
 
     @staticmethod
-    def _parse_date(value: str) -> date | None:
-        """Parse a vCard date (ISO extended 1985-04-12 or basic 19850412); None on partial/text forms."""
-        text: str = value.strip()
-        for fmt in ("%Y-%m-%d", "%Y%m%d"):
-            try:
-                return datetime.strptime(text, fmt).date()
-            except ValueError:
-                continue
-        return None
+    def _apply_date(contact: CardContact, base: str, value: str) -> None:
+        """Route a vCard date onto contact.<base> (a real date) or contact.<base>_yearless ("--MM-DD").
+
+        A text / unparseable date leaves both fields unset (lenient reader).
+        """
+        canonical: str | None = normalize_partial_date(value)
+        if canonical is None:
+            return
+        if canonical.startswith("--"):
+            setattr(contact, f"{base}_yearless", canonical)
+        else:
+            setattr(contact, base, date.fromisoformat(canonical))
 
     @staticmethod
     def _parse_timestamp(value: str) -> datetime | None:

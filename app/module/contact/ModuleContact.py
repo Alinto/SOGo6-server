@@ -89,13 +89,18 @@ class ModuleContact:
         """Enforce that the acting user may modify the source's address book (ACL MODIFY level)."""
         self._acl.check_permission(self._acl.get_share_level(source.addressbook, user), ContactShareLevel.MODIFY)
 
+    def _get_readable_addressbook(
+        self, user: User, key: str, user_sources: dict[str, UserSourceSettingsObj] | None = None,
+    ) -> ContactSource:
+        """Resolve the source for an address book the acting user may read (ACL VIEW level)."""
+        source: ContactSource = self.get_addressbook(user, key, user_sources)
+        self._acl.check_permission(self._acl.get_share_level(source.addressbook, user), ContactShareLevel.VIEW)
+        return source
+
     def _get_writable_addressbook(
         self, user: User, key: str, user_sources: dict[str, UserSourceSettingsObj] | None = None,
     ) -> ContactSource:
-        """Resolve the source for an address book the acting user may modify.
-
-        Access is decided by the ACL engine (owner gets MODIFY; otherwise ERROR_CONTACT_ACCESS_DENIED).
-        """
+        """Resolve the source for an address book the acting user may modify (ACL MODIFY level)."""
         source: ContactSource = self.get_addressbook(user, key, user_sources)
         self._require_modify(source, user)
         return source
@@ -163,6 +168,8 @@ class ModuleContact:
         :return: A tuple (contacts page, total count matching the filter).
         """
         try:
+            if addressbook_key is not None:
+                self._get_readable_addressbook(user, addressbook_key, user_sources)  # existence + ACL VIEW
             contacts, total = self._sources.get_contacts(
                 user.uid, search=search, offset=offset, limit=limit, sort_by=sort_by,
                 order=order, addressbook_key=addressbook_key, user_sources=user_sources, resolve_ab=resolve_ab,
@@ -184,7 +191,7 @@ class ModuleContact:
         user_sources: dict[str, UserSourceSettingsObj] | None = None,
     ) -> CardContact:
         """Return a single contact by key within an address book, or raise CONTACT_NOT_FOUND."""
-        source: ContactSource = self.get_addressbook(user, addressbook_key, user_sources)
+        source: ContactSource = self._get_readable_addressbook(user, addressbook_key, user_sources)
         contact: CardContact | None = source.get_contact_by_key(key)
         if contact is None:
             raise RequestException(error=err.ERROR_CONTACT_NOT_FOUND)
@@ -271,7 +278,7 @@ class ModuleContact:
         Lists are book-scoped (unlike the transverse contact listing): a list belongs to one book.
         """
         try:
-            source: ContactSource = self.get_addressbook(user, addressbook_key, user_sources)
+            source: ContactSource = self._get_readable_addressbook(user, addressbook_key, user_sources)
             return source.get_lists(search, offset, limit, sort_by, order), source.count_lists(search)
         except RequestException:
             raise
@@ -301,7 +308,7 @@ class ModuleContact:
         user_sources: dict[str, UserSourceSettingsObj] | None = None,
     ) -> CardList:
         """Return a single list by key within an address book (members populated), or raise LIST_NOT_FOUND."""
-        source: ContactSource = self.get_addressbook(user, addressbook_key, user_sources)
+        source: ContactSource = self._get_readable_addressbook(user, addressbook_key, user_sources)
         card_list: CardList | None = source.get_list_by_key(key)
         if card_list is None:
             raise RequestException(error=err.ERROR_CONTACT_LIST_NOT_FOUND)

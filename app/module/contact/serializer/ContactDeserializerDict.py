@@ -14,7 +14,7 @@ from app.module.contact.serializer.CardImppDeserializerDict import CardImppDeser
 from app.module.contact.serializer.CardPhoneDeserializerDict import CardPhoneDeserializerDict
 from app.module.contact.serializer.CardUrlDeserializerDict import CardUrlDeserializerDict
 from app.module.contact.serializer.ContactDeserializer import ContactDeserializer
-from app.utils.datetime.DateTimeUtils import to_utc
+from app.utils.datetime.DateTimeUtils import normalize_partial_date, to_utc
 from app.utils.logger.logger import logger_contact
 
 _SKIP = object()
@@ -24,8 +24,7 @@ class ContactDeserializerDict(ContactDeserializer[dict]):
     """Deserializes plain dicts into CardContact objects.
 
     Fields absent from the dict keep the CardContact dataclass default. Multi-valued sub-objects
-    are delegated to their own deserializers. The textual vCard date forms (partial dates) are the
-    vCard deserializer's concern; here BDAY / ANNIVERSARY are full ISO dates (YYYY-MM-DD).
+    are delegated to their own deserializers. BDAY / ANNIVERSARY accept a full or year-less date.
     """
 
     def __init__(self) -> None:
@@ -37,6 +36,8 @@ class ContactDeserializerDict(ContactDeserializer[dict]):
 
     def deserialize(self, data: dict[str, Any]) -> CardContact:
         """Convert a dict into a CardContact."""
+        birthday, birthday_yearless = self._split_date(data.get("birthday"))
+        anniversary, anniversary_yearless = self._split_date(data.get("anniversary"))
         return CardContact(
             key=data.get("key"),
             addressbook_key=data.get("addressbook_key"),
@@ -61,8 +62,10 @@ class ContactDeserializerDict(ContactDeserializer[dict]):
             impp=[self._impp_deserializer.deserialize(i) for i in data.get("impp", [])],
             photos=data.get("photos", []),
             categories=data.get("categories", []),
-            birthday=self._parse_date(data.get("birthday")),
-            anniversary=self._parse_date(data.get("anniversary")),
+            birthday=birthday,
+            birthday_yearless=birthday_yearless,
+            anniversary=anniversary,
+            anniversary_yearless=anniversary_yearless,
             geo=data.get("geo"),
             note=data.get("note"),
             public_key=data.get("public_key"),
@@ -86,6 +89,11 @@ class ContactDeserializerDict(ContactDeserializer[dict]):
 
         merged: CardContact = dataclasses.replace(origin)
         for key, raw_value in update.items():
+            if key in ("birthday", "anniversary"):
+                full, yearless = self._split_date(raw_value)  # one merged key -> the two model fields
+                setattr(merged, key, full)
+                setattr(merged, f"{key}_yearless", yearless)
+                continue
             parsed = self._parse_field(key, raw_value)
             if parsed is not _SKIP:
                 setattr(merged, key, parsed)
@@ -105,8 +113,6 @@ class ContactDeserializerDict(ContactDeserializer[dict]):
             return [self._url_deserializer.deserialize(u) for u in value]
         if key == "impp":
             return [self._impp_deserializer.deserialize(i) for i in value]
-        if key in ("birthday", "anniversary"):
-            return self._parse_date(value)
         if key in CardContact.MUTABLE_FIELDS:
             return value
         return _SKIP
@@ -133,9 +139,19 @@ class ContactDeserializerDict(ContactDeserializer[dict]):
             return ContactImportFormat.UNDEFINED
 
     @staticmethod
-    def _parse_date(value: str | None) -> date | None:
-        """Parse a full ISO date (YYYY-MM-DD); return None when absent."""
-        return date.fromisoformat(value) if value else None
+    def _split_date(value: str | None) -> tuple[date | None, str | None]:
+        """Route a date string to (full date, year-less "--MM-DD"); at most one is set.
+
+        Raises ValueError on a present-but-invalid value so the interface returns a parse error.
+        """
+        if not value:
+            return None, None
+        canonical: str | None = normalize_partial_date(value)
+        if canonical is None:
+            raise ValueError(f"Invalid contact date: {value!r}")
+        if canonical.startswith("--"):
+            return None, canonical
+        return date.fromisoformat(canonical), None
 
     @staticmethod
     def _parse_dt_opt(value: str | None) -> datetime | None:

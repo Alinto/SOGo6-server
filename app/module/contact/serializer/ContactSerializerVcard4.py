@@ -1,13 +1,9 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from app.module.contact.serializer.ContactSerializerVcard import ContactSerializerVcard
 from app.module.contact.format.vcard import VcardConst as vc
 from app.module.contact.format.ContentLine import ContentLine
-
-if TYPE_CHECKING:
-    from datetime import date
+from app.utils.datetime.DateTimeUtils import partial_date_to_basic
 
 
 class ContactSerializerVcard4(ContactSerializerVcard):
@@ -16,9 +12,9 @@ class ContactSerializerVcard4(ContactSerializerVcard):
     def version(self) -> str:
         return vc.VCARD_VERSION_4
 
-    def _format_date(self, value: date) -> str:
-        # 4.0 dates use the basic form YYYYMMDD; the extended form is disallowed (RFC 6350 §4.3.1).
-        return value.strftime("%Y%m%d")
+    def _format_date(self, value: str) -> str:
+        # 4.0 dates use the basic form YYYYMMDD / --MMDD (RFC 6350 §4.3.1, extended form disallowed).
+        return partial_date_to_basic(value)
 
     def _format_uid(self, uid: str) -> str:
         # 4.0 UID is preferably a URI; prefix a bare uuid so MEMBER:urn:uuid:<uid> matches it.

@@ -1,5 +1,5 @@
 """Unit tests for the ContactSources factory."""
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -85,12 +85,28 @@ def test_get_contacts_scoped_unknown_book_raises():
     assert exc.value.error == err.ERROR_CONTACT_ADDRESSBOOK_NOT_FOUND
 
 
-def test_get_contacts_transverse_merges_and_sorts():
+def test_get_contacts_transverse_all_db_uses_single_query():
+    # All-DB sources -> one find_by_addressbooks query (no per-book full load / in-memory paging).
+    sources = _build()
+    db1 = ContactSourceDb(sources._db, _book(key="ab1", name="One"))
+    db2 = ContactSourceDb(sources._db, _book(key="ab2", name="Two"))
+    sources.get_all = MagicMock(return_value=[db1, db2])
+    with patch("app.module.contact.source.ContactSources.RepositoryContact") as repo_cls:
+        repo = repo_cls.return_value
+        repo.find_by_addressbooks.return_value = [CardContact(display_name="A", addressbook_key="ab1")]
+        repo.count_by_addressbooks.return_value = 7
+        page, total = sources.get_contacts("u")  # addressbook_key None -> transverse
+    assert total == 7 and len(page) == 1
+    assert repo.find_by_addressbooks.call_args.args[0] == ["ab1", "ab2"]  # both books, one query
+
+
+def test_get_contacts_transverse_mixed_sources_merges_in_memory():
+    # A non-DB (directory) source forces the in-memory merge fallback.
     sources = _build()
     src1 = _source_with([CardContact(display_name="Zoe"), CardContact(display_name="Bob")], 2)
     src2 = _source_with([CardContact(display_name="Amy")], 1)
     sources.get_all = MagicMock(return_value=[src1, src2])
-    page, total = sources.get_contacts("u")  # addressbook_key None -> transverse
+    page, total = sources.get_contacts("u")
     assert total == 3
     assert [c.display_name for c in page] == ["Amy", "Bob", "Zoe"]
 

@@ -2,9 +2,37 @@
 from datetime import date, datetime, time, timezone
 from zoneinfo import ZoneInfo
 
-from app.utils.datetime.DateTimeUtils import anchor_to_utc, combine_in_tz_to_utc
+from app.utils.datetime.DateTimeUtils import (
+    anchor_to_utc,
+    combine_in_tz_to_utc,
+    normalize_partial_date,
+    partial_date_to_basic,
+)
 
 _UTC = timezone.utc
+
+
+def test_normalize_partial_date_full():
+    assert normalize_partial_date("1985-04-12") == "1985-04-12"
+    assert normalize_partial_date("19850412") == "1985-04-12"  # basic -> canonical extended
+    assert normalize_partial_date("  1985-04-12 ") == "1985-04-12"
+
+
+def test_normalize_partial_date_yearless():
+    assert normalize_partial_date("--0412") == "--04-12"
+    assert normalize_partial_date("--04-12") == "--04-12"
+
+
+def test_normalize_partial_date_rejects_invalid_and_text():
+    assert normalize_partial_date("1985-13-40") is None  # impossible calendar date
+    assert normalize_partial_date("circa 1800") is None  # text form
+    assert normalize_partial_date("1985") is None        # year only, not modelled
+    assert normalize_partial_date("--13-01") is None     # month out of range
+
+
+def test_partial_date_to_basic():
+    assert partial_date_to_basic("1985-04-12") == "19850412"
+    assert partial_date_to_basic("--04-12") == "--0412"
 
 
 def test_anchor_naive_with_default_tz():

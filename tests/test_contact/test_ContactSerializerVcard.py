@@ -98,8 +98,16 @@ def test_unknown_properties_go_to_extra_without_raising():
     assert contact.extra_properties["X-CUSTOM"] == "hello"
 
 
-def test_partial_birthday_is_dropped_not_raised():
+def test_partial_birthday_is_preserved():
+    # A year-less vCard date (--0415) can't be a date.date: kept in birthday_yearless, not dropped.
     contact = ContactDeserializerVcard4().deserialize("BEGIN:VCARD\r\nVERSION:4.0\r\nBDAY:--0415\r\nEND:VCARD")
+    assert contact.birthday is None and contact.birthday_yearless == "--04-15"
+    assert "BDAY:--0415" in ContactSerializerVcard4().serialize(contact)        # 4.0 basic
+    assert "BDAY:--04-15" in ContactSerializerVcard3().serialize(contact)       # 3.0 extended
+
+
+def test_text_birthday_is_dropped_not_raised():
+    contact = ContactDeserializerVcard4().deserialize("BEGIN:VCARD\r\nVERSION:4.0\r\nBDAY:circa 1800\r\nEND:VCARD")
     assert contact.birthday is None
 
 

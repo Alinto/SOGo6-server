@@ -41,6 +41,11 @@ def test_serialize_dates_as_iso():
     assert result["anniversary"] == "2020-01-01"
 
 
+def test_serialize_yearless_date_in_single_key():
+    contact = CardContact(display_name="John", birthday_yearless="--04-15")
+    assert _serializer.serialize(contact)["birthday"] == "--04-15"  # year-less merged into one key
+
+
 def test_serialize_none_dates():
     result = _serializer.serialize(CardContact(display_name="John"))
     assert result["birthday"] is None

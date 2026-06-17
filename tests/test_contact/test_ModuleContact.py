@@ -151,6 +151,7 @@ def test_update_contact_denied_for_non_owner():
 
 def test_get_contacts_delegates_to_sources_and_returns_page_and_total():
     module = _build_module()
+    module._sources.get_by_key.return_value = _fake_source(_book(key="ab-k"))  # ACL VIEW on the book
     module._sources.get_contacts.return_value = ([CardContact(display_name="A")], 42)
     contacts, total = module.get_contacts(_user(), "ab-k", search="a", limit=10)
     assert len(contacts) == 1
@@ -161,12 +162,22 @@ def test_get_contacts_delegates_to_sources_and_returns_page_and_total():
 
 def test_get_contacts_without_image_resolution_drops_references():
     module = _build_module()
+    module._sources.get_by_key.return_value = _fake_source(_book(key="ab-k"))  # ACL VIEW on the book
     contact = CardContact(display_name="A")
     contact.photos = ["sogo:file:abc", "https://example.com/p.png"]
     module._sources.get_contacts.return_value = ([contact], 1)
     module.get_contacts(_user(), "ab-k", resolve_images=False)
     assert contact.photos == ["https://example.com/p.png"]  # managed ref dropped, external URI kept
     module._file.load_all.assert_not_called()             # no blob loaded
+
+
+def test_get_contact_denied_for_non_owner():
+    module = _build_module()
+    source = _fake_source(_book(user_uid="someone-else@example.com"))
+    module._sources.get_by_key.return_value = source
+    with pytest.raises(RequestException) as exc:
+        module.get_contact(_user(), "ab-k", "ct-k")
+    assert exc.value.error == err.ERROR_CONTACT_ACCESS_DENIED  # ACL VIEW denies a non-owner read
 
 
 def test_get_contacts_transverse_when_no_addressbook_key():
