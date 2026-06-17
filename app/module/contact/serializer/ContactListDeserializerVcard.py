@@ -3,7 +3,7 @@ from __future__ import annotations
 from app.module.contact.model.CardList import CardList
 from app.module.contact.serializer.ContactListDeserializer import ContactListDeserializer
 from app.module.contact.format.vcard import VcardConst as vc
-from app.module.contact.format.vcard.VcardFormatEngine import VcardFormatEngine
+from app.module.contact.format.vcard.FormatEngineVcard import FormatEngineVcard
 
 
 class ContactListDeserializerVcard(ContactListDeserializer[str]):
@@ -19,11 +19,11 @@ class ContactListDeserializerVcard(ContactListDeserializer[str]):
     def deserialize(self, data: str) -> CardList:
         card_list: CardList = CardList(name="")
         members: list[str] = []
-        for line in VcardFormatEngine.parse_item(data):
+        for line in FormatEngineVcard.parse_item(data):
             if line.name == vc.PROP_FN:
-                card_list.name = VcardFormatEngine.unescape_text(line.value)
+                card_list.name = FormatEngineVcard.unescape_text(line.value)
             elif line.name == vc.PROP_NOTE:
-                card_list.description = VcardFormatEngine.unescape_text(line.value)
+                card_list.description = FormatEngineVcard.unescape_text(line.value)
             elif line.name == vc.PROP_UID:
                 card_list.uid = self._strip_uid_prefix(line.value)
             elif line.name in (vc.PROP_MEMBER, vc.PROP_X_ABS_MEMBER):

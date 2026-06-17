@@ -37,6 +37,10 @@ def _build_module():
     module._cache = None
     module._sources = MagicMock()
     module._acl = ContactAclEngine()
+    module._file = MagicMock()
+    module._file.save_all.side_effect = lambda previous, incoming, max_size, allowed: incoming
+    module._file.load_all.side_effect = lambda values: values
+    module._file.purge_orphans.return_value = 0
     return module
 
 
@@ -122,6 +126,19 @@ def test_update_contact_preserves_identity():
     assert persisted.display_name == "New"
 
 
+def test_update_contact_deletes_dropped_photo_blobs():
+    module = _build_module()
+    existing = CardContact(db_id=1, key="ct-k", uid="u-1", addressbook_key="ab-k", display_name="X")
+    existing.photos = ["sogo:file:old", "https://example.com/keep.png"]
+    source = _fake_source(_book(key="ab-k"))
+    source.get_contact_by_key.return_value = existing
+    module._sources.get_by_key.return_value = source
+    update = CardContact(display_name="X")
+    update.photos = ["https://example.com/keep.png"]  # the managed ref is dropped, the URI kept
+    module.update_contact(_user(), "ab-k", "ct-k", update)
+    module._file.delete.assert_called_once_with("sogo:file:old")  # only the dropped blob is reclaimed
+
+
 def test_update_contact_denied_for_non_owner():
     module = _build_module()
     source = _fake_source(_book(user_uid="someone-else@example.com"))
@@ -140,6 +157,16 @@ def test_get_contacts_delegates_to_sources_and_returns_page_and_total():
     assert total == 42
     # addressbook_key threaded through to the aggregator.
     assert module._sources.get_contacts.call_args.kwargs["addressbook_key"] == "ab-k"
+
+
+def test_get_contacts_without_image_resolution_drops_references():
+    module = _build_module()
+    contact = CardContact(display_name="A")
+    contact.photos = ["sogo:file:abc", "https://example.com/p.png"]
+    module._sources.get_contacts.return_value = ([contact], 1)
+    module.get_contacts(_user(), "ab-k", resolve_images=False)
+    assert contact.photos == ["https://example.com/p.png"]  # managed ref dropped, external URI kept
+    module._file.load_all.assert_not_called()             # no blob loaded
 
 
 def test_get_contacts_transverse_when_no_addressbook_key():
@@ -273,3 +300,12 @@ def test_clean_purges_contacts_and_lists():
     module._db.delete_row_in_table.return_value = 5  # each purge_deleted reports 5 rows
     module._db.select_from_table.return_value = []   # no rows, no orphan members
     assert module.clean() == 10  # contacts (5) + lists (5)
+
+
+def test_clean_purges_orphan_blobs():
+    module = _build_module()
+    module._db.delete_row_in_table.return_value = 0
+    module._db.select_from_table.return_value = []
+    module._file.purge_orphans.return_value = 3   # three unreferenced blobs reclaimed
+    assert module.clean() == 3
+    module._file.purge_orphans.assert_called_once()

@@ -7,7 +7,7 @@ from app.module.contact.serializer.ContactDeserializerVcard3 import ContactDeser
 from app.module.contact.serializer.ContactDeserializerVcard4 import ContactDeserializerVcard4
 from app.module.contact.serializer.ContactsDeserializer import ContactsDeserializer
 from app.module.contact.format.vcard import VcardConst as vc
-from app.module.contact.format.vcard.VcardFormatEngine import VcardFormatEngine
+from app.module.contact.format.vcard.FormatEngineVcard import FormatEngineVcard
 
 if TYPE_CHECKING:
     from app.module.contact.model.CardContact import CardContact
@@ -29,7 +29,7 @@ class ContactsDeserializerVcard(ContactsDeserializer[str]):
 
     def deserialize(self, data: str) -> list[CardContact]:
         contacts: list[CardContact] = []
-        for body in VcardFormatEngine.split_items(data):
+        for body in FormatEngineVcard.split_items(data):
             if ContactDeserializerVcard.is_group_card(body):
                 continue
             version: str = ContactDeserializerVcard.detect_version(body)

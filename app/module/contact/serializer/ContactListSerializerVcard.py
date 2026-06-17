@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 from app.module.contact.serializer.ContactListSerializer import ContactListSerializer
 from app.module.contact.format.vcard import VcardConst as vc
 from app.module.contact.format.ContentLine import ContentLine
-from app.module.contact.format.vcard.VcardFormatEngine import VcardFormatEngine
+from app.module.contact.format.vcard.FormatEngineVcard import FormatEngineVcard
 
 if TYPE_CHECKING:
     from app.module.contact.model.CardList import CardList
@@ -27,17 +27,17 @@ class ContactListSerializerVcard(ContactListSerializer[str], ABC):
             ContentLine(name=vc.PROP_BEGIN, value=vc.VALUE_VCARD),
             ContentLine(name=vc.PROP_VERSION, value=self.version()),
             self._kind_line(),
-            ContentLine(name=vc.PROP_FN, value=VcardFormatEngine.escape_text(data.name)),
+            ContentLine(name=vc.PROP_FN, value=FormatEngineVcard.escape_text(data.name)),
         ]
         if data.uid:
             lines.append(ContentLine(name=vc.PROP_UID, value=data.uid))
         if data.description:
-            lines.append(ContentLine(name=vc.PROP_NOTE, value=VcardFormatEngine.escape_text(data.description)))
+            lines.append(ContentLine(name=vc.PROP_NOTE, value=FormatEngineVcard.escape_text(data.description)))
         for member in data.member_contacts:
             if member.uid:
                 lines.append(self._member_line(member.uid))
         lines.append(ContentLine(name=vc.PROP_END, value=vc.VALUE_VCARD))
-        return "\r\n".join(VcardFormatEngine.emit_line(line) for line in lines) + "\r\n"
+        return "\r\n".join(FormatEngineVcard.emit_line(line) for line in lines) + "\r\n"
 
     @abstractmethod
     def version(self) -> str:

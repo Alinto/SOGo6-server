@@ -159,25 +159,48 @@ Beyond the JSON of the REST API (the `*Dict` serializers), a contact and an addr
 ----
   format/
     FormatEngine.py   ContentLine.py            <- shared base + line model
-    vcard/  VcardFormatEngine.py  VcardConst.py
-    ldif/   LdifFormatEngine.py   LdifConst.py
+    vcard/  FormatEngineVcard.py  VcardConst.py
+    ldif/   FormatEngineLdif.py   LdifConst.py
 ----
 
 An engine owns the *syntax* only (folding, escaping, parameters) and knows no property name nor version; the serializers own the *semantics* (mapping `CardContact` / `CardList` onto properties).
 
 === vCard serializers
 
-Writing chooses a version: `ContactSerializerVcard` is the abstract mapping, `ContactSerializerVcard3` / `ContactSerializerVcard4` carry the deltas (the VERSION value, the TYPE/PREF encoding, `KIND`, `ANNIVERSARY` vs `X-ANNIVERSARY`, the `GEO` form). `ContactsSerializerVcard` concatenates cards into a `.vcf`; `ContactListSerializerVcard3` / `...Vcard4` emit a list as a group card (`KIND:group` + `MEMBER` in 4.0, `X-ADDRESSBOOKSERVER-*` in 3.0).
+Writing chooses a version: `ContactSerializerVcard` is the abstract mapping, `ContactSerializerVcard3` / `ContactSerializerVcard4` carry the deltas (the VERSION value, the TYPE/PREF encoding, `KIND`, `ANNIVERSARY` vs `X-ANNIVERSARY`, the `GEO` form, the `PHOTO` encoding - see <<photos>>). `ContactsSerializerVcard` concatenates cards into a `.vcf`; `ContactListSerializerVcard3` / `...Vcard4` emit a list as a group card (`KIND:group` + `MEMBER` in 4.0, `X-ADDRESSBOOKSERVER-*` in 3.0).
 
 Reading is symmetric: `ContactDeserializerVcard` is the abstract base with the version-independent parsing and a static `detect_version` (reads the card's `VERSION`, defaults to `DEFAULT_VCARD_VERSION`); `ContactDeserializerVcard3` / `...Vcard4` override the version hooks (`import_format`, `_parse_type_pref`, `_decode_geo`) - no version branch lives in the base. The reader is *lenient*: an unknown property is kept verbatim in `extra_properties`, a partial or text date is dropped, a malformed line never raises. `ContactsDeserializerVcard` splits a multi-card document, detects each card's version independently and skips group cards (parsed by `ContactListDeserializerVcard`, whose members are kept as UID references resolved to contact keys at import time).
 
 === LDIF
 
-`ContactSerializerLdif` / `ContactDeserializerLdif` map a contact onto `inetOrgPerson` attributes (cn, sn, givenName, displayName, mail, telephoneNumber / mobile, o, ou, title, description, the first postal address, uid); `ContactListSerializerLdif` / `ContactListDeserializerLdif` map a list onto `groupOfNames` (member DNs). A whole-document (address book) is handled by the `Contacts*Ldif` pair, which skips `groupOfNames` records; attributes outside the mapped subset are kept in `extra_properties`.
+`ContactSerializerLdif` / `ContactDeserializerLdif` map a contact onto `inetOrgPerson` attributes (cn, sn, givenName, displayName, mail, telephoneNumber / mobile, o, ou, title, description, the first postal address, uid, and the binary `jpegPhoto`); `ContactListSerializerLdif` / `ContactListDeserializerLdif` map a list onto `groupOfNames` (member DNs). A whole-document (address book) is handled by the `Contacts*Ldif` pair, which skips `groupOfNames` records; attributes outside the mapped subset are kept in `extra_properties`.
 
 === Fidelity and limits
 
-Conversion is faithful for the fields the model carries, but it is *not* a byte-exact round-trip of the full RFCs. Not preserved: property parameters (LANGUAGE, ALTID, PID, MEDIATYPE, LABEL), property grouping (`item1.X-ABLabel`), embedded binary (a base64 photo / logo / sound / key - only URI values survive), partial / text dates, quoted-printable encoding, and on the LDIF side the change records (`changetype`) and every field outside the `inetOrgPerson` subset. Byte-exact fidelity - required for full Apple / Google / Outlook / Nextcloud interoperability - belongs to a later stage built on a stored raw vCard, alongside the CardDAV server.
+Conversion is faithful for the fields the model carries, but it is *not* a byte-exact round-trip of the full RFCs. Not preserved: property parameters (LANGUAGE, ALTID, PID, MEDIATYPE, LABEL), property grouping (`item1.X-ABLabel`), embedded binary other than photos (a base64 logo / sound / key - only URI values survive), partial / text dates, quoted-printable encoding, and on the LDIF side the change records (`changetype`) and every field outside the `inetOrgPerson` subset. An inline `PHOTO` *is* preserved: it is carried as a `data:` URI through the model and offloaded to file storage (see <<photos>>). Byte-exact fidelity - required for full Apple / Google / Outlook / Nextcloud interoperability - belongs to a later stage built on a stored raw vCard, alongside the CardDAV server.
+
+[[photos]]
+== Binary media (photos)
+
+A contact `PHOTO` may be an external URI or an inline image. Inline images are *not* stored in the contact's JSON blob (a base64 image would bloat every listing); they are offloaded to a separate, swappable file store, leaving only an opaque reference in the contact.
+
+The exchange representation, everywhere a photo crosses a boundary (JSON, vCard, LDIF), is a base64 `data:` URI (`data:<mime>;base64,...`), produced by `app/utils/uri/DataUri.py`. Each format expresses it in its own syntax, handled by the serializers: vCard 4.0 carries the `data:` URI verbatim, vCard 3.0 uses `PHOTO;ENCODING=b;TYPE=<subtype>` (external ones `PHOTO;VALUE=uri`), LDIF uses the binary `jpegPhoto`.
+
+The serializers do *not* inspect the bytes: they only translate the format syntax to/from a `data:` URI carrying the format's nominal type (4.0 the declared one, 3.0 the `TYPE` token, LDIF a nominal `image/jpeg`). Everything else about a file's bytes belongs to one place - the file layer.
+
+`FileAdapter` (`app/utils/file/`) is the single owner of the whole inbound/outbound file lifecycle, and the swappable storage abstraction. It is generic (no contact notion - limits are passed in) so other modules, e.g. calendar attachments, reuse it. It exposes the per-item primitives `save` / `load` / `matches` / `delete`, and three list-level operations shared by every backend:
+
+* `save_all(previous, incoming, max_size, allowed_types)` - inbound: each inline payload is decoded and sniffed *once*; its real (sniffed) type and size are validated against the caller's limits (a malformed data URI or non-http(s) value is rejected); then it is offloaded to storage and replaced by a reference. An unchanged file (matched by content) reuses its existing blob instead of duplicating it; an http(s) URI passes through. It never deletes - blobs a contact stops using become orphans, reclaimed by `purge_orphans`.
+* `load_all(values)` - outbound: each reference is turned back into a `data:` URI; a reference whose blob is gone is dropped rather than leaked.
+* `purge_orphans(referenced)` - maintenance: drops every stored blob no live owner references.
+
+`ModuleContact` calls `save_all` on create / update (with the contact's file limits) and `load_all` on every contact it returns, so a client only ever sees `data:` URIs and references never leave the module. `get_contacts` takes a `resolve_images` flag (default True): set it to False for a listing that should not load every photo blob - the managed references are then dropped (external URIs kept) instead of being inlined.
+
+`FileAdapterDatabase` (`app/utils/file/`) is the current backend; it stores blobs in `sogo_file_storage` (key, data, content_type, content_hash, timestamps) through the `DbFileStorage` manager (`app/manager/db/`), which is injected into its constructor (so the utils layer never imports a manager at runtime). The reference scheme is `sogo:file:<key>`; `matches` compares a stored `content_hash` (sha256) without loading the blob, which keeps the update round-trip cheap. A file backend (file share / WebDAV) can be substituted without touching the module - only the key-to-storage mapping differs.
+
+*Validation and typing.* `save_all` rejects an inline file larger than `FILE_MAX_SIZE_KB` (`ERROR_FILE_TOO_LARGE`) or whose sniffed type is not in `ALLOWED_FILE_MIME_TYPES` (`ERROR_FILE_TYPE_NOT_ALLOWED`, both generic file errors) - the contact module passes its own limits in - both checked on the bytes (`app/utils/media/MediaType.py`), before anything is stored. The declared label (vCard `TYPE`, `data:` URI mediatype, the `jpegPhoto` name) is never trusted: the type *stored and echoed back* is the sniffed one, so a mislabeled file is corrected from its content, a PNG survives a round-trip through LDIF, and a polyglot (image bytes declared `text/html`) cannot be echoed with an executable content type. SVG is deliberately excluded from the allowlist: it is a script-bearing document and a stored-XSS vector when rendered as anything other than an `<img>` source.
+
+*Lifecycle.* `save_all` itself never deletes - it would otherwise mutate the store before the owning row is committed, stranding the row on missing bytes if the commit then failed. Instead `update_contact` reclaims the blobs a write dropped (a replaced or removed photo) *after* the row commits (`_delete_dropped_files`), so the old `sogo_file_storage` row disappears immediately. A *deleted* contact is soft-deleted and keeps its blobs, like the tombstone itself; those, and any blob a post-commit delete missed, are reclaimed by `ModuleContact.clean()` (`FileAdapter.purge_orphans` drops every row no surviving contact references) - the same backstop sweep that purges tombstones and dangling distribution-list membership.
 
 == Module — ModuleContact
 

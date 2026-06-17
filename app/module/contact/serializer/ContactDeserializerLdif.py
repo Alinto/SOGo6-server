@@ -1,20 +1,21 @@
 from __future__ import annotations
 
 from app.module.contact.format.ldif import LdifConst as ld
-from app.module.contact.format.ldif.LdifFormatEngine import LdifFormatEngine
+from app.module.contact.format.ldif.FormatEngineLdif import FormatEngineLdif
 from app.module.contact.model.CardAddress import CardAddress
 from app.module.contact.model.CardContact import CardContact
 from app.module.contact.model.CardEmail import CardEmail
 from app.module.contact.model.CardPhone import CardPhone
 from app.module.contact.model.enums.ContactImportFormat import ContactImportFormat
 from app.module.contact.serializer.ContactDeserializer import ContactDeserializer
+from app.utils.uri.DataUri import DataUri
 
 
 class ContactDeserializerLdif(ContactDeserializer[str]):
     """Parse the first LDIF record of a document into a CardContact (inetOrgPerson mapping)."""
 
     def deserialize(self, data: str) -> CardContact:
-        records: list[list[tuple[str, str]]] = LdifFormatEngine.parse_records(data)
+        records: list[list[tuple[str, str]]] = FormatEngineLdif.parse_records(data)
         return self.contact_from_pairs(records[0] if records else [])
 
     @staticmethod
@@ -54,6 +55,11 @@ class ContactDeserializerLdif(ContactDeserializer[str]):
                 contact.note = value
             elif name == ld.ATTR_UID.lower():
                 contact.uid = value
+            elif name == ld.ATTR_JPEGPHOTO.lower():
+                # value is the raw base64 of the binary attribute (kept undecoded by the engine). The
+                # jpeg type here is nominal (a PNG in jpegPhoto stays mislabelled until the file layer
+                # re-types it from the bytes when saved); only the stored form is authoritative.
+                contact.photos.append(DataUri.wrap_base64(ld.JPEGPHOTO_MEDIA_TYPE, value))
             elif ContactDeserializerLdif._apply_address(address, name, value):
                 has_address = True
             else:

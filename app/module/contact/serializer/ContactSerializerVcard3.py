@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 from app.module.contact.serializer.ContactSerializerVcard import ContactSerializerVcard
 from app.module.contact.format.vcard import VcardConst as vc
 from app.module.contact.format.ContentLine import ContentLine
+from app.utils.uri.DataUri import DataUri
 
 if TYPE_CHECKING:
     from datetime import date
@@ -43,3 +44,19 @@ class ContactSerializerVcard3(ContactSerializerVcard):
         # 3.0 GEO is "lat;lon"; drop the 4.0 "geo:" URI prefix and swap the separator.
         coordinates: str = geo[len(vc.GEO_URI_PREFIX):] if geo.startswith(vc.GEO_URI_PREFIX) else geo
         return coordinates.replace(",", ";")
+
+    def _photo_line(self, value: str) -> ContentLine:
+        # 3.0 has no data: URI: an inline image uses ENCODING=b;TYPE=<subtype> with the base64 in the
+        # value, an external one is flagged VALUE=uri (RFC 2426 §4).
+        unwrapped: tuple[str, str] | None = DataUri.unwrap_base64(value)
+        if unwrapped is None:
+            return ContentLine(name=vc.PROP_PHOTO, value=value, params={vc.PARAM_VALUE: [vc.VALUE_URI]})
+        content_type, payload = unwrapped
+        return ContentLine(name=vc.PROP_PHOTO, value=payload,
+                           params={vc.PARAM_ENCODING: [vc.ENCODING_BASE64],
+                                   vc.PARAM_TYPE: [self._media_subtype(content_type)]})
+
+    @staticmethod
+    def _media_subtype(content_type: str) -> str:
+        """The vCard 3.0 PHOTO TYPE token for a media type (image/jpeg -> JPEG)."""
+        return content_type.split("/")[-1].upper()

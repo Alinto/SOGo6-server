@@ -32,6 +32,7 @@ TEST COVERAGE:
    2  Address book CRUD (create, list, get, patch)
    3  Contact CRUD with sub-objects (create, flat get, field round-trip)
    4  Contact PATCH (partial update preserves other fields)
+  4b  Contact inline photo (storage round-trip, type sniffing, SVG/HTML rejection)
    5  Full-text search
    6  Pagination (page/page_size + X-Pagination header)
    7  Sorting (sort_by + sort_order)
@@ -138,6 +139,14 @@ check_count() {
     local label="$1" path="$2" want="$3"
     local got; got=$(body | jq -r "$path | length")
     [ "$got" = "$want" ] && ok "$label count=$want" || fail "$label - expected $want, got $got"
+}
+check_prefix() {
+    local path="$1" want="$2"
+    local got; got=$(body | jq -r "$path // empty")
+    case "$got" in
+        "$want"*) ok "$path starts with '$want'" ;;
+        *) fail "$path - expected prefix '$want', got '${got:0:48}...'" ;;
+    esac
 }
 
 if ! command -v jq &>/dev/null; then
@@ -257,6 +266,45 @@ for c in \
     '{"display_name":"Zoe Last","last_name":"Zzz"}' ; do
     req -X POST "$BASE/addressbooks/$AB_KEY/contacts" -H "$H_JSON" -H "$H_AUTH" -d "$c" >/dev/null
 done
+
+# 4c. CONTACT PHOTOS (inline binary file storage)
+step "7b. Contact - inline photo (storage, type sniffing, rejections)"
+info "Stores a contact PHOTO as an inline data: URI; verifies it round-trips and that the stored"
+info "type is sniffed from the bytes (not the declared label), and that unsafe values are rejected."
+
+# A real 1x1 PNG (magic bytes 89 50 4E 47 ...), so the server sniffs it as image/png.
+PNG_B64="iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+
+CODE=$(req -X POST "$BASE/addressbooks/$AB_KEY/contacts" -H "$H_JSON" -H "$H_AUTH" \
+    -d "{\"display_name\":\"Photo Holder\",\"last_name\":\"Holder\",\"photos\":[\"data:image/png;base64,$PNG_B64\"]}")
+check_code   "POST contact with inline PNG photo" "$CODE" "201"
+check_error  "photo contact error_code"
+check_prefix ".data.photos[0]" "data:image/png;base64,"
+PH_KEY=$(extract '.data.key')
+
+info "The photo survives a fetch (resolved from storage back into a data: URI)."
+CODE=$(req "$BASE/addressbooks/$AB_KEY/contacts/$PH_KEY" -H "$H_AUTH")
+check_code   "GET photo contact" "$CODE" "200"
+check_prefix ".data.photos[0]" "data:image/png;base64,"
+
+info "A mislabeled type (PNG bytes declared application/octet-stream) is re-typed from the content."
+CODE=$(req -X POST "$BASE/addressbooks/$AB_KEY/contacts" -H "$H_JSON" -H "$H_AUTH" \
+    -d "{\"display_name\":\"Mislabeled Photo\",\"last_name\":\"Mislabeled\",\"photos\":[\"data:application/octet-stream;base64,$PNG_B64\"]}")
+check_code   "POST contact with mislabeled photo type" "$CODE" "201"
+check_prefix ".data.photos[0]" "data:image/png;base64,"
+
+info "An SVG photo is rejected (script-bearing document, excluded from the allowlist)."
+SVG_B64=$(printf '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>' | base64 | tr -d '\n')
+CODE=$(req -X POST "$BASE/addressbooks/$AB_KEY/contacts" -H "$H_JSON" -H "$H_AUTH" \
+    -d "{\"display_name\":\"Bad SVG\",\"photos\":[\"data:image/svg+xml;base64,$SVG_B64\"]}")
+check_code       "POST contact with SVG photo (rejected)" "$CODE" "415"
+check_error_code "SVG photo error_code" "S000041"
+
+info "A non-base64 data: URI (data:text/html) is rejected, never stored nor echoed back."
+CODE=$(req -X POST "$BASE/addressbooks/$AB_KEY/contacts" -H "$H_JSON" -H "$H_AUTH" \
+    -d '{"display_name":"Bad HTML","photos":["data:text/html,<script>alert(1)</script>"]}')
+check_code       "POST contact with non-image data: URI (rejected)" "$CODE" "415"
+check_error_code "non-image photo error_code" "S000041"
 
 # 5. SEARCH
 step "8. Contact - full-text search"

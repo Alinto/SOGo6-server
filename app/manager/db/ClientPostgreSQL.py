@@ -81,6 +81,7 @@ data_type_sogo_to_postgre: dict[str, Any] = {
     "int":      "integer",  # FK to serial (4-byte integer) in PostgreSQL
     "text":     "text",
     "tsvector": "tsvector",
+    "bytes":    "bytea",
 }
 
 data_type_postgre_to_sogo: dict[str, Any] = {
@@ -96,6 +97,7 @@ data_type_postgre_to_sogo: dict[str, Any] = {
     "bigint":                      "int",
     "text":                        "text",
     "tsvector":                    "tsvector",  # search_vector full-text column
+    "bytea":                       "bytes",
 }
 
 def table_to_query(table: Table) -> Composed:

@@ -9,7 +9,7 @@ from app.module.contact.format.ContentLine import ContentLine
 from app.module.contact.format.FormatEngine import FormatEngine
 
 
-class LdifFormatEngine(FormatEngine):
+class FormatEngineLdif(FormatEngine):
     """LDIF syntax codec (RFC 2849): attribute parse/emit (base64 of non-safe values), record splitting.
 
     An LDIF line maps to a degenerate ContentLine (no params, no group); the value carries the
@@ -56,10 +56,15 @@ class LdifFormatEngine(FormatEngine):
         name: str = line[:colon]
         rest: str = line[colon + 1:]
         if rest.startswith(":"):
+            payload: str = rest[1:].strip()
             try:
-                value: str = base64.b64decode(rest[1:].strip()).decode("utf-8", errors="replace")
+                decoded: bytes = base64.b64decode(payload)
             except (ValueError, binascii.Error):
-                value = ""
+                return ContentLine(name=name)
+            try:
+                value: str = decoded.decode("utf-8")
+            except UnicodeDecodeError:
+                value = payload  # binary attribute (e.g. jpegPhoto): keep the raw base64, lossless
         elif rest.startswith("<"):
             value = ""  # URL-valued, not fetched (also dropped by split_items)
         else:
@@ -81,6 +86,15 @@ class LdifFormatEngine(FormatEngine):
     def emit_attr(cls, name: str, value: str) -> str:
         """Emit a single attribute line (shorthand for emit_line of a bare ContentLine)."""
         return cls.emit_line(ContentLine(name=name, value=value))
+
+    @classmethod
+    def emit_attr_base64(cls, name: str, base64_payload: str) -> str:
+        """Emit a binary attribute line (attr:: <payload>) from an already base64-encoded value.
+
+        For binary attributes (e.g. jpegPhoto) whose payload is base64 text: emitting it through the
+        text path would re-encode it as if it were the literal string. This writes the `::` form directly.
+        """
+        return cls.fold(f"{name}:: {base64_payload}")
 
     @classmethod
     def parse_records(cls, document: str) -> list[list[tuple[str, str]]]:

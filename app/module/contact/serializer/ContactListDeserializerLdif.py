@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from app.module.contact.format.ldif import LdifConst as ld
-from app.module.contact.format.ldif.LdifFormatEngine import LdifFormatEngine
+from app.module.contact.format.ldif.FormatEngineLdif import FormatEngineLdif
 from app.module.contact.model.CardList import CardList
 from app.module.contact.serializer.ContactListDeserializer import ContactListDeserializer
 
@@ -15,7 +15,7 @@ class ContactListDeserializerLdif(ContactListDeserializer[str]):
     """
 
     def deserialize(self, data: str) -> CardList:
-        records: list[list[tuple[str, str]]] = LdifFormatEngine.parse_records(data)
+        records: list[list[tuple[str, str]]] = FormatEngineLdif.parse_records(data)
         return self._list_from_pairs(records[0] if records else [])
 
     @staticmethod

@@ -19,6 +19,10 @@ class ContactDeserializerVcard4(ContactDeserializerVcard):
         # 4.0 GEO is already the stored "geo:lat,lon" URI form.
         return value.strip()
 
+    def _parse_photo(self, line: ContentLine) -> str:
+        # 4.0 PHOTO is already a URI (external or data:); keep it verbatim.
+        return line.value
+
     def _parse_type_pref(self, content_line: ContentLine) -> tuple[list[str], int | None]:
         # 4.0: the PREF parameter is authoritative; a TYPE=pref is tolerated as a fallback.
         types: list[str] = [value for value in content_line.param_values(vc.PARAM_TYPE) if value.lower() != "pref"]

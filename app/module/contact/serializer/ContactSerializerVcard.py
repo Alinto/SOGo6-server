@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from app.module.contact.serializer.ContactSerializer import ContactSerializer
 from app.module.contact.format.vcard import VcardConst as vc
 from app.module.contact.format.ContentLine import ContentLine
-from app.module.contact.format.vcard.VcardFormatEngine import VcardFormatEngine
+from app.module.contact.format.vcard.FormatEngineVcard import FormatEngineVcard
 
 if TYPE_CHECKING:
     from datetime import date
@@ -32,7 +32,7 @@ class ContactSerializerVcard(ContactSerializer[str], ABC):
         ]
         lines.extend(self._build_lines(data))
         lines.append(ContentLine(name=vc.PROP_END, value=vc.VALUE_VCARD))
-        return "\r\n".join(VcardFormatEngine.emit_line(line) for line in lines) + "\r\n"
+        return "\r\n".join(FormatEngineVcard.emit_line(line) for line in lines) + "\r\n"
 
     #
     # Version-specific hooks
@@ -65,6 +65,10 @@ class ContactSerializerVcard(ContactSerializer[str], ABC):
     def _format_uid(self, uid: str) -> str:
         """Render the UID value: a urn:uuid: URI in 4.0, the bare value in 3.0."""
 
+    @abstractmethod
+    def _photo_line(self, value: str) -> ContentLine:
+        """Render a PHOTO: a data: URI directly in 4.0, ENCODING=b/VALUE=uri in 3.0."""
+
     #
     # Common mapping
     #
@@ -95,7 +99,7 @@ class ContactSerializerVcard(ContactSerializer[str], ABC):
         if c.categories:
             lines.append(ContentLine(
                 name=vc.PROP_CATEGORIES,
-                value=",".join(VcardFormatEngine.escape_text(category) for category in c.categories)))
+                value=",".join(FormatEngineVcard.escape_text(category) for category in c.categories)))
         if c.note:
             lines.append(self._text_line(vc.PROP_NOTE, c.note))
         if c.birthday:
@@ -111,7 +115,7 @@ class ContactSerializerVcard(ContactSerializer[str], ABC):
         if c.timezone:
             lines.append(self._text_line(vc.PROP_TZ, c.timezone))
         for photo in c.photos:
-            lines.append(ContentLine(name=vc.PROP_PHOTO, value=photo))
+            lines.append(self._photo_line(photo))
         if c.uid:
             lines.append(ContentLine(name=vc.PROP_UID, value=self._format_uid(c.uid)))
         if c.rev:
@@ -126,12 +130,12 @@ class ContactSerializerVcard(ContactSerializer[str], ABC):
     @staticmethod
     def _text_line(name: str, value: str) -> ContentLine:
         """A TEXT-valued property: the value is escaped (RFC 6350 §3.4)."""
-        return ContentLine(name=name, value=VcardFormatEngine.escape_text(value))
+        return ContentLine(name=name, value=FormatEngineVcard.escape_text(value))
 
     @staticmethod
     def _structured_line(name: str, components: list[str | None], params: dict[str, list[str]] | None = None) -> ContentLine:
         """A structured property (N, ORG, ADR): components escaped and joined by ';'."""
-        rendered: str = ";".join(VcardFormatEngine.escape_text(component or "") for component in components)
+        rendered: str = ";".join(FormatEngineVcard.escape_text(component or "") for component in components)
         return ContentLine(name=name, value=rendered, params=params or {})
 
     def _typed_line(self, name: str, value: str, types: list[str], pref: int | None) -> ContentLine:

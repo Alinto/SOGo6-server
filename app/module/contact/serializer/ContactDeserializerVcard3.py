@@ -4,6 +4,7 @@ from app.module.contact.model.enums.ContactImportFormat import ContactImportForm
 from app.module.contact.serializer.ContactDeserializerVcard import ContactDeserializerVcard
 from app.module.contact.format.vcard import VcardConst as vc
 from app.module.contact.format.ContentLine import ContentLine
+from app.utils.uri.DataUri import DataUri
 
 
 class ContactDeserializerVcard3(ContactDeserializerVcard):
@@ -28,3 +29,16 @@ class ContactDeserializerVcard3(ContactDeserializerVcard):
             return types, 1
         pref_param: str | None = content_line.first_param(vc.PARAM_PREF)
         return types, int(pref_param) if pref_param is not None and pref_param.isdigit() else None
+
+    def _parse_photo(self, line: ContentLine) -> str:
+        # 3.0 inline image: ENCODING=b with base64 in the value -> data: URI typed from the TYPE token;
+        # a plain-URI PHOTO is kept as-is.
+        encoding: str | None = line.first_param(vc.PARAM_ENCODING)
+        if encoding is not None and encoding.lower() in (vc.ENCODING_BASE64, vc.ENCODING_BASE64_ALT):
+            return DataUri.wrap_base64(self._media_type(line.first_param(vc.PARAM_TYPE)), line.value)
+        return line.value
+
+    @staticmethod
+    def _media_type(type_token: str | None) -> str:
+        """The media type for a vCard 3.0 PHOTO TYPE token (JPEG -> image/jpeg); a default when absent."""
+        return f"image/{type_token.lower()}" if type_token else vc.PHOTO_DEFAULT_MEDIA_TYPE

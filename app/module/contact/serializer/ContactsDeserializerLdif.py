@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from app.module.contact.format.ldif import LdifConst as ld
-from app.module.contact.format.ldif.LdifFormatEngine import LdifFormatEngine
+from app.module.contact.format.ldif.FormatEngineLdif import FormatEngineLdif
 from app.module.contact.serializer.ContactDeserializerLdif import ContactDeserializerLdif
 from app.module.contact.serializer.ContactsDeserializer import ContactsDeserializer
 
@@ -16,7 +16,7 @@ class ContactsDeserializerLdif(ContactsDeserializer[str]):
 
     def deserialize(self, data: str) -> list[CardContact]:
         contacts: list[CardContact] = []
-        for pairs in LdifFormatEngine.parse_records(data):
+        for pairs in FormatEngineLdif.parse_records(data):
             if not self._is_group(pairs):
                 contacts.append(ContactDeserializerLdif.contact_from_pairs(pairs))
         return contacts

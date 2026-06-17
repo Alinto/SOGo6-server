@@ -305,3 +305,20 @@ class RepositoryContact:
             condition=TrueCondition(),
         )
         return {row[0] for row in rows}
+
+    def all_photo_values(self) -> set[str]:
+        """Return every photo value referenced across all contacts (used to detect orphan media blobs).
+
+        Photos live in the JSON blob, so this scans contact_data; the caller filters the storage
+        references out of the returned set.
+        """
+        rows = self._db.select_from_table(
+            table_name=tbl.TABLE_CONTACT.name,
+            column_tuple=(tbl.COL_CT_CONTACT_DATA.name,),
+            condition=TrueCondition(),
+        )
+        values: set[str] = set()
+        for (data,) in rows:
+            if data:
+                values.update(data.get("photos", []))
+        return values

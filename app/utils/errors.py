@@ -46,6 +46,10 @@ ERROR_TABLE_SYSTEM_NOT_UNIQUE = E("S000007", "Sogo Table For System Settings Is 
 #General Error
 ERROR_CONFIG_ERROR = E("S000020", "A configuration Problem prevent SOGo to work properly", HTTPStatus.INTERNAL_SERVER_ERROR)
 
+#FILE (generic inline file storage)
+ERROR_FILE_TOO_LARGE        = E("S000040", "File Exceeds The Maximum Allowed Size", HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
+ERROR_FILE_TYPE_NOT_ALLOWED = E("S000041", "File Media Type Is Not Allowed", HTTPStatus.UNSUPPORTED_MEDIA_TYPE)
+
 #CACHE
 ERROR_CACHE_DATA_NOT_JSON  = E("S000100", "Cache Server Data Is Not A Json", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_CACHE_TTL_BELOW_0    = E("S000101", "Cache Server Data TTL Is Below 1", HTTPStatus.INTERNAL_SERVER_ERROR)
