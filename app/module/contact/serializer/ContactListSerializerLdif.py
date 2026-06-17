@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from app.module.contact.format.ldif import LdifConst as ld
-from app.module.contact.format.ldif.LdifFormatEngine import LdifFormatEngine
+from app.module.contact.format.ldif.FormatEngineLdif import FormatEngineLdif
 from app.module.contact.serializer.ContactListSerializer import ContactListSerializer
 
 if TYPE_CHECKING:
@@ -15,14 +15,14 @@ class ContactListSerializerLdif(ContactListSerializer[str]):
     """Serialize a CardList to an LDIF groupOfNames record; members are the contacts' entry DNs."""
 
     def serialize(self, data: CardList) -> str:
-        lines: list[str] = [LdifFormatEngine.emit_attr(ld.ATTR_DN, self._dn(data.name))]
+        lines: list[str] = [FormatEngineLdif.emit_attr(ld.ATTR_DN, self._dn(data.name))]
         for object_class in (ld.OC_TOP, ld.OC_GROUPOFNAMES):
-            lines.append(LdifFormatEngine.emit_attr(ld.ATTR_OBJECTCLASS, object_class))
-        lines.append(LdifFormatEngine.emit_attr(ld.ATTR_CN, data.name))
+            lines.append(FormatEngineLdif.emit_attr(ld.ATTR_OBJECTCLASS, object_class))
+        lines.append(FormatEngineLdif.emit_attr(ld.ATTR_CN, data.name))
         if data.description:
-            lines.append(LdifFormatEngine.emit_attr(ld.ATTR_DESCRIPTION, data.description))
+            lines.append(FormatEngineLdif.emit_attr(ld.ATTR_DESCRIPTION, data.description))
         for member in data.member_contacts:
-            lines.append(LdifFormatEngine.emit_attr(ld.ATTR_MEMBER, self._dn(self._member_cn(member))))
+            lines.append(FormatEngineLdif.emit_attr(ld.ATTR_MEMBER, self._dn(self._member_cn(member))))
         return "\n".join(lines)
 
     @staticmethod
@@ -34,4 +34,4 @@ class ContactListSerializerLdif(ContactListSerializer[str]):
     @staticmethod
     def _dn(common_name: str) -> str:
         """Build a distinguished name from a common name (escaped per RFC 4514)."""
-        return f"{ld.ATTR_CN}={LdifFormatEngine.escape_dn(common_name)},{ld.BASE_DN}"
+        return f"{ld.ATTR_CN}={FormatEngineLdif.escape_dn(common_name)},{ld.BASE_DN}"

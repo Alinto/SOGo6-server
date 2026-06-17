@@ -52,6 +52,7 @@ data_type_sogo_to_mysql: dict[str, Any] = {
     "int":      "BIGINT",   # FK to serial (BIGINT AUTO_INCREMENT) in MySQL
     "text":     "MEDIUMTEXT",
     "tsvector": "MEDIUMTEXT",  # no tsvector type on MariaDB; full-text search uses a FULLTEXT index on TEXT
+    "bytes":    "LONGBLOB",
 }
 
 data_type_mysql_to_sogo: dict[str, str] = {
@@ -69,6 +70,9 @@ data_type_mysql_to_sogo: dict[str, str] = {
     "bigint":     "int",
     "int":        "int",
     "tinyint": "int",
+    "longblob":   "bytes",
+    "mediumblob": "bytes",
+    "blob":       "bytes",
 }
 
 

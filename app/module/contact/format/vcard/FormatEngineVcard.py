@@ -7,7 +7,7 @@ from app.module.contact.format.ContentLine import ContentLine
 from app.module.contact.format.FormatEngine import FormatEngine
 
 
-class VcardFormatEngine(FormatEngine):
+class FormatEngineVcard(FormatEngine):
     """vCard syntax codec (RFC 6350 §3): content-line parse/emit, escaping, card splitting.
 
     Owns only the vCard syntax - it knows no property name nor version. The serializers map
@@ -107,12 +107,12 @@ class VcardFormatEngine(FormatEngine):
     @staticmethod
     def split_components(value: str) -> list[str]:
         """Split a structured value (N, ADR) on unescaped semicolons. Parts stay escaped."""
-        return VcardFormatEngine._split_escaped(value, ";")
+        return FormatEngineVcard._split_escaped(value, ";")
 
     @staticmethod
     def split_values(value: str) -> list[str]:
         """Split a multi-value (CATEGORIES) on unescaped commas. Parts stay escaped."""
-        return VcardFormatEngine._split_escaped(value, ",")
+        return FormatEngineVcard._split_escaped(value, ",")
 
     #
     # Internal helpers

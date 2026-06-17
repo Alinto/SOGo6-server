@@ -35,7 +35,6 @@ class CardContact:  # pylint: disable=too-many-instance-attributes
     uid: str | None = None
     # Opaque public identifier exposed in the API
     key: str | None = None
-    # Internal database primary key
     db_id: int | None = None
     # UUID key of the parent address book - nullable: set by the source at persistence time
     addressbook_key: str | None = None
@@ -68,7 +67,8 @@ class CardContact:  # pylint: disable=too-many-instance-attributes
     addresses: list[CardAddress] = field(default_factory=list)
     urls: list[CardUrl] = field(default_factory=list)
     impp: list[CardImpp] = field(default_factory=list)
-    # PHOTO (RFC 6350 §6.2.4) - URI only; embedded binary data is deliberately not supported
+    # PHOTO (RFC 6350 §6.2.4) - external URIs or inline data URIs (data:<mime>;base64,...).
+    # Inline payloads are offloaded to file storage by the module and surface as data URIs again.
     photos: list[str] = field(default_factory=list)
     # CATEGORIES (RFC 6350 §6.7.1)
     categories: list[str] = field(default_factory=list)
@@ -149,7 +149,7 @@ class CardContact:  # pylint: disable=too-many-instance-attributes
         """Run business validations. Raises RequestException on failure.
 
         vCard requires a non-empty FN; apply_defaults guarantees one, so an empty display_name
-        here means the caller bypassed it.
+        here means the caller bypassed it. (Inline files are validated by the file layer, not here.)
         """
         if not self.display_name:
             raise RequestException(error=err.ERROR_CONTACT_JSON_PARSE_FAILED)

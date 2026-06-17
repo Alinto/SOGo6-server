@@ -32,6 +32,11 @@ ATTR_ST: str = "st"
 ATTR_POSTALCODE: str = "postalCode"
 ATTR_C: str = "c"
 ATTR_UID: str = "uid"
+ATTR_JPEGPHOTO: str = "jpegPhoto"
+
+# inetOrgPerson stores a photo as the binary jpegPhoto attribute. Its real type is sniffed from the
+# bytes on read (the name is nominal: PNG/GIF are common too); this is the fallback when unrecognised.
+JPEGPHOTO_MEDIA_TYPE: str = "image/jpeg"
 
 # groupOfNames
 ATTR_MEMBER: str = "member"

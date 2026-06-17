@@ -42,3 +42,7 @@ class ContactSerializerVcard4(ContactSerializerVcard):
     def _geo_value(self, geo: str) -> str:
         # 4.0 GEO is a "geo:lat,lon" URI, which is the form already stored on the model.
         return geo
+
+    def _photo_line(self, value: str) -> ContentLine:
+        # 4.0 PHOTO is a URI value: a data: URI carries an inline image directly (RFC 6350 §6.2.4).
+        return ContentLine(name=vc.PROP_PHOTO, value=value)

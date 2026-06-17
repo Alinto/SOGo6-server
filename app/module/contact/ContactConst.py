@@ -13,3 +13,15 @@ DEFAULT_ADDRESSBOOK_NAME: str = "Personal contacts"
 # Maximum number of contacts scanned for a recipient autocompletion query on the local books.
 # The external directory applies its own US_AUTO_QUERY_LIMIT once ContactSourceDirectory is wired.
 AUTOCOMPLETE_DEFAULT_LIMIT: int = 25
+
+# Maximum size of an inline file embedded in a contact (e.g. a photo), in kilobytes. The file layer
+# rejects a larger inline payload when saved, before it is offloaded to storage.
+FILE_MAX_SIZE_KB: int = 2048
+
+# Media types accepted for an inline contact file. The real type is sniffed from the bytes by the
+# file layer, so a payload whose content is not one of these is rejected when saved. SVG is
+# intentionally excluded: it is a script-bearing document and a stored-XSS vector when a client
+# renders the file as anything other than an <img> source.
+ALLOWED_FILE_MIME_TYPES: frozenset[str] = frozenset({
+    "image/jpeg", "image/png", "image/gif", "image/webp", "image/bmp", "image/tiff",
+})

@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from app.module.contact.ContactConst import DEFAULT_ADDRESSBOOK_NAME
+from app.module.contact.ContactConst import ALLOWED_FILE_MIME_TYPES, DEFAULT_ADDRESSBOOK_NAME, FILE_MAX_SIZE_KB
+from app.manager.db.DbFileStorage import DbFileStorage
 from app.module.contact.acl.ContactAclEngine import ContactAclEngine
 from app.module.contact.model.CardAddressBook import CardAddressBook
 from app.module.contact.model.enums.CardSourceType import CardSourceType
@@ -13,6 +14,8 @@ from app.module.contact.source.ContactSources import ContactSources
 from app.utils import errors as err
 from app.utils.db.Condition import Order
 from app.utils.exceptions import BugException, RequestException
+from app.utils.file.FileAdapter import FileAdapter
+from app.utils.file.FileAdapterDatabase import FileAdapterDatabase
 from app.utils.logger.logger import logger_contact
 from app.utils.maths.sogo_hash import generate_uuid
 from app.utils.module.importManager import import_and_instantiate_manager
@@ -42,6 +45,7 @@ class ModuleContact:
         self._cache: ClientRedis | None = cache
         self._sources: ContactSources = ContactSources(self._db)
         self._acl: ContactAclEngine = ContactAclEngine()
+        self._file: FileAdapter = FileAdapterDatabase(DbFileStorage(self._db))
 
     def __del__(self) -> None:
         if hasattr(self, "_db"):
@@ -52,10 +56,6 @@ class ModuleContact:
 
         Idempotent: if the user already has a default address book, returns it without creating
         a new one. Called at first login alongside the personal calendar provisioning.
-
-        :param user_uid: The user the address book belongs to.
-        :param name: Display name of the personal address book.
-        :return: The existing or newly created default address book.
         """
         for source in self._sources.get_all(user_uid):
             if source.addressbook.is_default:
@@ -92,10 +92,9 @@ class ModuleContact:
     def _get_writable_addressbook(
         self, user: User, key: str, user_sources: dict[str, UserSourceSettingsObj] | None = None,
     ) -> ContactSource:
-        """Resolve the source for an address book the acting user is allowed to modify.
+        """Resolve the source for an address book the acting user may modify.
 
         Access is decided by the ACL engine (owner gets MODIFY; otherwise ERROR_CONTACT_ACCESS_DENIED).
-        Resolution is uniform across sources.
         """
         source: ContactSource = self.get_addressbook(user, key, user_sources)
         self._require_modify(source, user)
@@ -132,10 +131,23 @@ class ModuleContact:
     #
     # Contacts
     #
+    def _save_files(self, previous: list[str], incoming: list[str]) -> list[str]:
+        """Save a contact's inline files (photos) through the file layer, with the contact limits."""
+        return self._file.save_all(previous, incoming, FILE_MAX_SIZE_KB * 1024, ALLOWED_FILE_MIME_TYPES)
+
+    def _delete_dropped_files(self, previous: list[str], current: list[str]) -> None:
+        """Reclaim the blobs a write stopped using. Call after the row commit, never before: deleting
+        first would strand the row on missing bytes if the commit then failed. clean() is the backstop.
+        """
+        for reference in previous:
+            if FileAdapter.is_reference(reference) and reference not in current:
+                self._file.delete(reference)
+
     def get_contacts(
         self, user: User, addressbook_key: str | None = None, search: str | None = None,
         offset: int = 0, limit: int = 0, sort_by: str | None = None, order: Order = Order.ASC,
-        resolve_ab: bool = True, user_sources: dict[str, UserSourceSettingsObj] | None = None,
+        resolve_ab: bool = True, resolve_images: bool = True,
+        user_sources: dict[str, UserSourceSettingsObj] | None = None,
     ) -> tuple[list[CardContact], int]:
         """Return a page of contacts plus the total count.
 
@@ -144,22 +156,23 @@ class ModuleContact:
         sort_by must be validated against an allowlist by the caller (it becomes an ORDER BY column);
         the interface restricts it to the sortable contact fields.
 
-        :param user: The authenticated user.
-        :param addressbook_key: Opaque key of one address book, or None to span all of them.
-        :param search: Optional full-text query.
-        :param offset: Number of contacts to skip (pagination).
-        :param limit: Maximum number of contacts to return (0 = no limit).
-        :param sort_by: Column to sort by, or None for the default (display_name).
-        :param order: Sort direction (ascending or descending).
         :param resolve_ab: When True, stamp each contact with its address book name for the response.
-        :param user_sources: Domain user sources keyed by source_uid; the US_IS_ADDRESSBOOK ones are surfaced as directory books (None = local DB only).
+        :param resolve_images: When True, inline stored photos as data URIs; when False, drop the managed
+            references (keeping external URIs) so a listing does not load every photo blob from storage.
+        :param user_sources: Domain user sources by source_uid (None = local DB).
         :return: A tuple (contacts page, total count matching the filter).
         """
         try:
-            return self._sources.get_contacts(
+            contacts, total = self._sources.get_contacts(
                 user.uid, search=search, offset=offset, limit=limit, sort_by=sort_by,
                 order=order, addressbook_key=addressbook_key, user_sources=user_sources, resolve_ab=resolve_ab,
             )
+            for contact in contacts:
+                if resolve_images:
+                    contact.photos = self._file.load_all(contact.photos)
+                else:
+                    contact.photos = [photo for photo in contact.photos if not FileAdapter.is_reference(photo)]
+            return contacts, total
         except RequestException:
             raise
         except Exception as exc:
@@ -175,45 +188,34 @@ class ModuleContact:
         contact: CardContact | None = source.get_contact_by_key(key)
         if contact is None:
             raise RequestException(error=err.ERROR_CONTACT_NOT_FOUND)
+        contact.photos = self._file.load_all(contact.photos)
         return contact
 
     def create_contact(
         self, user: User, addressbook_key: str, contact: CardContact,
         user_sources: dict[str, UserSourceSettingsObj] | None = None,
     ) -> CardContact:
-        """Persist a new contact in the address book and return it.
-
-        :param user: The authenticated user.
-        :param addressbook_key: Opaque key of the destination address book.
-        :param contact: The contact to create (uid and display name are filled by apply_defaults).
-        :param user_sources: Domain user sources keyed by source_uid; the US_IS_ADDRESSBOOK ones are surfaced as directory books (None = local DB).
-        :return: The persisted contact with id and key populated.
-        """
+        """Persist a new contact in the address book and return it (uid/display name filled by apply_defaults)."""
         source: ContactSource = self._get_writable_addressbook(user, addressbook_key, user_sources)
         contact.apply_defaults()
         contact.addressbook_key = source.addressbook.require_key
         contact.validate()
+        contact.photos = self._save_files([], contact.photos)
         try:
-            return source.insert_contact(contact)
+            created: CardContact = source.insert_contact(contact)
         except RequestException:
             raise
         except Exception as exc:
             logger_contact.exception("Unexpected error creating contact in address book %s", addressbook_key)
             raise RequestException(error=err.ERROR_CONTACT_INSERT_FAILED) from exc
+        created.photos = self._file.load_all(created.photos)
+        return created
 
     def update_contact(
         self, user: User, addressbook_key: str, key: str, contact_update: CardContact,
         user_sources: dict[str, UserSourceSettingsObj] | None = None,
     ) -> CardContact:
-        """Update an existing contact, preserving its identity, and return the persisted result.
-
-        :param user: The authenticated user.
-        :param addressbook_key: Opaque key of the address book holding the contact.
-        :param key: Opaque key of the contact to update.
-        :param contact_update: The merged contact carrying the new field values.
-        :param user_sources: Domain user sources keyed by source_uid; the US_IS_ADDRESSBOOK ones are surfaced as directory books (None = local DB).
-        :return: The persisted contact after the update.
-        """
+        """Update an existing contact, preserving its identity, and return the persisted result."""
         source: ContactSource = self._get_writable_addressbook(user, addressbook_key, user_sources)
         existing: CardContact | None = source.get_contact_by_key(key)
         if existing is None:
@@ -225,6 +227,7 @@ class ModuleContact:
         contact_update.uid = existing.uid
         contact_update.addressbook_key = existing.addressbook_key
         contact_update.validate()
+        contact_update.photos = self._save_files(existing.photos, contact_update.photos)
         try:
             source.update_contact(contact_update)
         except RequestException:
@@ -232,9 +235,11 @@ class ModuleContact:
         except Exception as exc:
             logger_contact.exception("Unexpected error updating contact %s", key)
             raise RequestException(error=err.ERROR_CONTACT_UPDATE_FAILED) from exc
+        self._delete_dropped_files(existing.photos, contact_update.photos)
         refetched: CardContact | None = source.get_contact_by_key(key)
         if refetched is None:
             raise BugException(f"Contact key={key} was updated but could not be fetched back")
+        refetched.photos = self._file.load_all(refetched.photos)
         return refetched
 
     def delete_contact(
@@ -264,16 +269,6 @@ class ModuleContact:
         """Return a page of distribution lists of an address book plus the total count.
 
         Lists are book-scoped (unlike the transverse contact listing): a list belongs to one book.
-
-        :param user: The authenticated user.
-        :param addressbook_key: Opaque key of the address book holding the lists.
-        :param search: Optional name filter.
-        :param offset: Number of lists to skip (pagination).
-        :param limit: Maximum number of lists to return (0 = no limit).
-        :param sort_by: Column to sort by, or None for the default (name).
-        :param order: Sort direction (ascending or descending).
-        :param user_sources: Domain user sources keyed by source_uid (None = local DB only).
-        :return: A tuple (lists page, total count in the book).
         """
         try:
             source: ContactSource = self.get_addressbook(user, addressbook_key, user_sources)
@@ -327,14 +322,7 @@ class ModuleContact:
         self, user: User, addressbook_key: str, card_list: CardList,
         user_sources: dict[str, UserSourceSettingsObj] | None = None,
     ) -> CardList:
-        """Persist a new distribution list in the address book and return it.
-
-        :param user: The authenticated user.
-        :param addressbook_key: Opaque key of the destination address book.
-        :param card_list: The list to create; its uid is generated here, its members are persisted.
-        :param user_sources: Domain user sources keyed by source_uid (None = local DB).
-        :return: The persisted list with id, key and members populated.
-        """
+        """Persist a new distribution list in the address book and return it (uid generated here)."""
         source: ContactSource = self._get_writable_addressbook(user, addressbook_key, user_sources)
         self._validate_members(source, card_list.members)
         card_list.addressbook_key = source.addressbook.require_key
@@ -351,15 +339,7 @@ class ModuleContact:
         self, user: User, addressbook_key: str, key: str, list_update: CardList,
         user_sources: dict[str, UserSourceSettingsObj] | None = None,
     ) -> CardList:
-        """Update an existing list, preserving its identity, and return the persisted result.
-
-        :param user: The authenticated user.
-        :param addressbook_key: Opaque key of the address book holding the list.
-        :param key: Opaque key of the list to update.
-        :param list_update: The merged list carrying the new name, description and membership.
-        :param user_sources: Domain user sources keyed by source_uid (None = local DB).
-        :return: The persisted list after the update, members populated.
-        """
+        """Update an existing list, preserving its identity, and return the persisted result."""
         source: ContactSource = self._get_writable_addressbook(user, addressbook_key, user_sources)
         existing: CardList | None = source.get_list_by_key(key)
         if existing is None:
@@ -400,16 +380,16 @@ class ModuleContact:
             raise RequestException(error=err.ERROR_UNKOWN) from exc
 
     def clean(self) -> int:
-        """Physically remove soft-deleted rows and dangling membership, returning the total reclaimed.
+        """Physically remove soft-deleted rows, dangling membership and orphan media; returns the total reclaimed.
 
-        Global purge (unlike the calendar's per-calendar/user clean): deleting an address book
-        detaches its contacts and lists (addressbook_key NULL), so a per-book or per-user scope
-        cannot reach those tombstones - only an is_deleted sweep does. After the tombstones are gone,
-        membership rows left pointing at a purged contact or list are dropped too; the returned count
-        sums the contact rows, list rows and orphan membership rows physically removed.
+        Global purge (unlike the calendar's per-calendar/user clean): deleting an address book detaches
+        its contacts and lists (addressbook_key NULL), so only an is_deleted sweep reaches those
+        tombstones. Orphan membership rows and blobs no contact references any more are then reclaimed.
         """
         contact_repo: RepositoryContact = RepositoryContact(self._db)
         list_repo: RepositoryContactList = RepositoryContactList(self._db)
         purged: int = contact_repo.purge_deleted() + list_repo.purge_deleted()
         purged += list_repo.purge_orphan_members(list_repo.all_keys(), contact_repo.all_keys())
+        referenced: set[str] = {value for value in contact_repo.all_photo_values() if FileAdapter.is_reference(value)}
+        purged += self._file.purge_orphans(referenced)
         return purged

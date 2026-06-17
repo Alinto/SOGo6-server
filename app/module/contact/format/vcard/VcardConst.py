@@ -49,6 +49,16 @@ PROP_PHOTO: str = "PHOTO"
 PARAM_TYPE: str = "TYPE"
 PARAM_PREF: str = "PREF"
 PARAM_VALUE_PREF: str = "PREF"  # vCard 3.0 marks the preferred entry with TYPE=PREF
+PARAM_ENCODING: str = "ENCODING"
+PARAM_VALUE: str = "VALUE"
+
+# vCard 3.0 inline binary (PHOTO): ENCODING=b (RFC 2426) with the base64 in the value; "base64" is a
+# tolerated synonym. External media is flagged VALUE=uri. 4.0 has no encoding: PHOTO is a data: URI.
+ENCODING_BASE64: str = "b"
+ENCODING_BASE64_ALT: str = "base64"
+VALUE_URI: str = "uri"
+# Media type assumed for a 3.0 PHOTO whose TYPE parameter is missing.
+PHOTO_DEFAULT_MEDIA_TYPE: str = "application/octet-stream"
 
 # Distribution lists: vCard 4.0 uses KIND:group + MEMBER; vCard 3.0 / Apple use X-ADDRESSBOOKSERVER-*
 KIND_GROUP: str = "group"

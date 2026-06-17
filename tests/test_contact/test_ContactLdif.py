@@ -1,7 +1,7 @@
 """Unit tests for the LDIF engine and the LDIF contact / list serializers."""
 import base64
 
-from app.module.contact.format.ldif.LdifFormatEngine import LdifFormatEngine
+from app.module.contact.format.ldif.FormatEngineLdif import FormatEngineLdif
 from app.module.contact.model.CardAddress import CardAddress
 from app.module.contact.model.CardContact import CardContact
 from app.module.contact.model.CardEmail import CardEmail
@@ -15,14 +15,14 @@ from app.module.contact.serializer.ContactsDeserializerLdif import ContactsDeser
 from app.module.contact.serializer.ContactsSerializerLdif import ContactsSerializerLdif
 
 
-# ========== LdifFormatEngine ==========
+# ========== FormatEngineLdif ==========
 
 def test_emit_attr_plain():
-    assert LdifFormatEngine.emit_attr("cn", "John Doe") == "cn: John Doe"
+    assert FormatEngineLdif.emit_attr("cn", "John Doe") == "cn: John Doe"
 
 
 def test_emit_attr_base64_for_non_ascii():
-    line = LdifFormatEngine.emit_attr("cn", "Joël")
+    line = FormatEngineLdif.emit_attr("cn", "Joël")
     assert line.startswith("cn:: ")
     assert base64.b64decode(line[len("cn:: "):]).decode("utf-8") == "Joël"
 
@@ -30,7 +30,7 @@ def test_emit_attr_base64_for_non_ascii():
 def test_parse_records_decodes_and_splits():
     text = ("dn: cn=A,ou=contacts\ncn: A\nmail: a@x.com\n\n"
             "dn: cn=B,ou=contacts\ncn:: " + base64.b64encode("Bé".encode()).decode() + "\n")
-    records = LdifFormatEngine.parse_records(text)
+    records = FormatEngineLdif.parse_records(text)
     assert len(records) == 2
     assert ("cn", "A") in records[0] and ("mail", "a@x.com") in records[0]
     assert ("cn", "Bé") in records[1]
