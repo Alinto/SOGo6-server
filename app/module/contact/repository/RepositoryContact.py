@@ -10,7 +10,7 @@ from app.module.contact.serializer.ContactDeserializerDict import ContactDeseria
 from app.module.contact.serializer.ContactSerializerDict import ContactSerializerDict
 from app.utils import errors as err
 from app.utils.datetime.DateTimeUtils import to_utc
-from app.utils.db.Condition import AndCondition, EqualCondition, FullTextCondition, Order, TrueCondition
+from app.utils.db.Condition import AndCondition, Condition, EqualCondition, FullTextCondition, Order, OrCondition, TrueCondition
 from app.utils.db.FullTextValue import FullTextValue
 from app.utils.exceptions import BugException, RequestException
 from app.utils.logger.logger import logger_contact
@@ -246,6 +246,45 @@ class RepositoryContact:
             table_name=tbl.TABLE_CONTACT.name,
             column_tuple=(tbl.COL_CT_KEY.name,),
             condition=condition,
+        )
+        return sum(1 for _ in rows)
+
+    @staticmethod
+    def _in_addressbooks(addressbook_keys: list[str]) -> Condition:
+        """A condition matching a row whose addressbook_key is any of the given keys (OR-chain)."""
+        condition: Condition = EqualCondition(tbl.COL_CT_ADDRESSBOOK_KEY.name, addressbook_keys[0])
+        for key in addressbook_keys[1:]:
+            condition = OrCondition(condition, EqualCondition(tbl.COL_CT_ADDRESSBOOK_KEY.name, key))
+        return condition
+
+    def find_by_addressbooks(
+        self, addressbook_keys: list[str], search: str | None = None, offset: int = 0, limit: int = 0,
+        sort_by: str = tbl.COL_CT_DISPLAY_NAME.name, order: Order = Order.ASC,
+    ) -> list[CardContact]:
+        """Transverse listing: non-deleted contacts across several books, paginated and sorted at the DB level."""
+        if not addressbook_keys:
+            return []
+        condition = AndCondition(self._in_addressbooks(addressbook_keys),
+                                 EqualCondition(tbl.COL_CT_IS_DELETED.name, False))
+        search_condition = FullTextCondition(tbl.COL_CT_SEARCH_VECTOR.name, strip_accents(search)) if search else None
+        if search_condition is not None:
+            condition = AndCondition(condition, search_condition)
+        rows = self._db.select_from_table(
+            table_name=tbl.TABLE_CONTACT.name, column_tuple=_ALL_COLS, condition=condition,
+            offset=offset, limit=limit, sort_by=sort_by, order=order, rank_by=search_condition,
+        )
+        return [self._row_to_contact(row) for row in rows]
+
+    def count_by_addressbooks(self, addressbook_keys: list[str], search: str | None = None) -> int:
+        """Return the number of non-deleted contacts across several books (transverse pagination total)."""
+        if not addressbook_keys:
+            return 0
+        condition = AndCondition(self._in_addressbooks(addressbook_keys),
+                                 EqualCondition(tbl.COL_CT_IS_DELETED.name, False))
+        if search:
+            condition = AndCondition(condition, FullTextCondition(tbl.COL_CT_SEARCH_VECTOR.name, strip_accents(search)))
+        rows = self._db.select_from_table(
+            table_name=tbl.TABLE_CONTACT.name, column_tuple=(tbl.COL_CT_KEY.name,), condition=condition,
         )
         return sum(1 for _ in rows)
 

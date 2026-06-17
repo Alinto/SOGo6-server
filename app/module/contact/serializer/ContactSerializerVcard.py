@@ -10,8 +10,6 @@ from app.module.contact.format.ContentLine import ContentLine
 from app.module.contact.format.vcard.FormatEngineVcard import FormatEngineVcard
 
 if TYPE_CHECKING:
-    from datetime import date
-
     from app.module.contact.model.CardAddress import CardAddress
     from app.module.contact.model.CardContact import CardContact
 
@@ -58,8 +56,8 @@ class ContactSerializerVcard(ContactSerializer[str], ABC):
         """The GEO property value in this version's form."""
 
     @abstractmethod
-    def _format_date(self, value: date) -> str:
-        """Format a BDAY / ANNIVERSARY date: basic (YYYYMMDD) in 4.0, extended (RFC 2426) in 3.0."""
+    def _format_date(self, value: str) -> str:
+        """Format a canonical BDAY / ANNIVERSARY date: basic (YYYYMMDD) in 4.0, extended in 3.0."""
 
     @abstractmethod
     def _format_uid(self, uid: str) -> str:
@@ -102,10 +100,12 @@ class ContactSerializerVcard(ContactSerializer[str], ABC):
                 value=",".join(FormatEngineVcard.escape_text(category) for category in c.categories)))
         if c.note:
             lines.append(self._text_line(vc.PROP_NOTE, c.note))
-        if c.birthday:
-            lines.append(ContentLine(name=vc.PROP_BDAY, value=self._format_date(c.birthday)))
-        if c.anniversary:
-            lines.append(ContentLine(name=self._anniversary_name(), value=self._format_date(c.anniversary)))
+        birthday: str | None = c.birthday.isoformat() if c.birthday else c.birthday_yearless
+        if birthday:
+            lines.append(ContentLine(name=vc.PROP_BDAY, value=self._format_date(birthday)))
+        anniversary: str | None = c.anniversary.isoformat() if c.anniversary else c.anniversary_yearless
+        if anniversary:
+            lines.append(ContentLine(name=self._anniversary_name(), value=self._format_date(anniversary)))
         if c.geo:
             lines.append(ContentLine(name=vc.PROP_GEO, value=self._geo_value(c.geo)))
         if c.public_key:

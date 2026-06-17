@@ -70,3 +70,22 @@ def test_delete_all_hard_physically_removes():
     RepositoryContact(db).delete_all("ab-k", hard_delete=True)
     db.delete_row_in_table.assert_called_once()
     db.update_in_table.assert_not_called()
+
+
+# ========== transverse listing (find/count_by_addressbooks) ==========
+
+def test_find_by_addressbooks_empty_keys_skips_query():
+    db = MagicMock()
+    repo = RepositoryContact(db)
+    assert repo.find_by_addressbooks([]) == []
+    assert repo.count_by_addressbooks([]) == 0
+    db.select_from_table.assert_not_called()  # no SQL for a user with no books
+
+
+def test_find_by_addressbooks_queries_once_paginated():
+    db = MagicMock()
+    db.select_from_table.return_value = iter([])
+    RepositoryContact(db).find_by_addressbooks(["a", "b", "c"], search="x", offset=5, limit=10)
+    kwargs = db.select_from_table.call_args.kwargs
+    assert kwargs["offset"] == 5 and kwargs["limit"] == 10  # DB-level pagination, single query
+    db.select_from_table.assert_called_once()

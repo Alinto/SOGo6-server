@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from app.config.db import tables as tbl
 from app.module.contact.model.enums.CardSourceType import CardSourceType
 from app.module.contact.repository.RepositoryAddressBook import RepositoryAddressBook
-from app.module.contact.source.ContactSourceDb import ContactSourceDb
+from app.module.contact.repository.RepositoryContact import RepositoryContact
+from app.module.contact.source.ContactSourceDb import SORTABLE_COLUMNS, ContactSourceDb
 from app.utils import errors as err
 from app.utils.db.Condition import Order
 from app.utils.exceptions import RequestException
@@ -106,6 +108,18 @@ class ContactSources:
 
         sources = self.get_all(user_uid, user_sources)
         book_names: dict[str | None, str] = {src.addressbook.key: src.addressbook.name for src in sources}
+
+        if all(isinstance(src, ContactSourceDb) for src in sources):
+            # Single DB query across every book, paginated and sorted at the DB level (no full load).
+            book_keys: list[str] = [src.addressbook.require_key for src in sources]
+            sort_column: str = sort_by if sort_by in SORTABLE_COLUMNS else tbl.COL_CT_DISPLAY_NAME.name
+            repo: RepositoryContact = RepositoryContact(self._db)
+            page = repo.find_by_addressbooks(book_keys, search, offset, limit, sort_column, order)
+            if resolve_ab:
+                self._stamp_addressbook_name(page, book_names)
+            return page, repo.count_by_addressbooks(book_keys, search)
+
+        # Mixed sources (a directory contributes): merge and paginate in memory.
         contacts: list[CardContact] = []
         for source in sources:
             contacts.extend(source.get_contacts(search))

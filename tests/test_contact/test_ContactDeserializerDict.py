@@ -27,6 +27,20 @@ def test_deserialize_unknown_kind_falls_back_to_individual():
 def test_deserialize_parses_date():
     contact = _deserializer.deserialize({"display_name": "X", "birthday": "1990-04-15"})
     assert contact.birthday == date(1990, 4, 15)
+    assert contact.birthday_yearless is None
+
+
+def test_deserialize_yearless_date_routes_to_yearless():
+    contact = _deserializer.deserialize({"display_name": "X", "birthday": "--04-15"})
+    assert contact.birthday is None and contact.birthday_yearless == "--04-15"
+
+
+def test_patch_date_clears_the_counterpart_field():
+    origin = CardContact(display_name="X", birthday=date(1990, 4, 15))
+    merged = _deserializer.deserialize_with_update(origin, {"birthday": "--04-15"})  # full -> year-less
+    assert merged.birthday is None and merged.birthday_yearless == "--04-15"
+    back = _deserializer.deserialize_with_update(merged, {"birthday": "2001-02-03"})  # year-less -> full
+    assert back.birthday == date(2001, 2, 3) and back.birthday_yearless is None
 
 
 def test_deserialize_parses_typed_email():

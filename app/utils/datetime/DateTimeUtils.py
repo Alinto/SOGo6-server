@@ -3,8 +3,12 @@ from __future__ import annotations
 # pylint R0801 (duplicate-code) may be reported here as a false positive:
 # short common patterns (e.g. "if not rows: return None") in unrelated files
 # can trigger the similarity checker against this module.
+import re
 from datetime import date, datetime, time, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+_FULL_DATE: re.Pattern[str] = re.compile(r"^(\d{4})-?(\d{2})-?(\d{2})$")  # 1985-04-12 or 19850412
+_YEARLESS_DATE: re.Pattern[str] = re.compile(r"^--(\d{2})-?(\d{2})$")     # --0412 or --04-12
 
 
 def to_utc(dt: datetime | date) -> datetime:
@@ -68,3 +72,34 @@ def apply_tz(dt: datetime, tz_name: str) -> str | None:
         return dt.astimezone(ZoneInfo(tz_name)).isoformat()
     except (ZoneInfoNotFoundError, KeyError):
         return None
+
+
+def normalize_partial_date(value: str) -> str | None:
+    """Normalise a date that may omit the year (vCard reduced accuracy, RFC 6350 4.3.1).
+
+    Accepts full ("1985-04-12" / "19850412") and year-less ("--0412" / "--04-12") forms; returns the
+    canonical extended string ("YYYY-MM-DD" or "--MM-DD"), or None on a text / partial-other form.
+    """
+    text: str = value.strip()
+    full: re.Match[str] | None = _FULL_DATE.match(text)
+    if full is not None:
+        year, month, day = full.groups()
+        try:
+            date(int(year), int(month), int(day))  # reject an impossible calendar date
+        except ValueError:
+            return None
+        return f"{year}-{month}-{day}"
+    yearless: re.Match[str] | None = _YEARLESS_DATE.match(text)
+    if yearless is not None:
+        month, day = yearless.groups()
+        if not (1 <= int(month) <= 12 and 1 <= int(day) <= 31):
+            return None
+        return f"--{month}-{day}"
+    return None
+
+
+def partial_date_to_basic(canonical: str) -> str:
+    """Render a canonical date (normalize_partial_date output) in basic form: YYYYMMDD or --MMDD."""
+    if canonical.startswith("--"):
+        return "--" + canonical[2:].replace("-", "")
+    return canonical.replace("-", "")

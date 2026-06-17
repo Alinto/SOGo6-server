@@ -27,9 +27,8 @@ class CardContact:  # pylint: disable=too-many-instance-attributes
     (last_name, first_name, organization, display_name, kind, uid) are derived from these fields
     by the repository; everything else is stored in the contact_data JSON blob.
 
-    Dates are real datetime.date objects, so only complete calendar dates are represented; the
-    vCard partial forms (year-less "--0415") and text forms ("circa 1800", RFC 6350 6.2.5) are not
-    modelled yet and would be lost on a round-trip through this model.
+    Birthday/anniversary are real date objects; a year-less date (RFC 6350 4.3.1) is kept apart in the
+    birthday_yearless / anniversary_yearless string. Text forms ("circa 1800") are dropped.
     """
     # vCard UID (RFC 6350 §6.7.6) - stable semantic identifier
     uid: str | None = None
@@ -73,9 +72,13 @@ class CardContact:  # pylint: disable=too-many-instance-attributes
     # CATEGORIES (RFC 6350 §6.7.1)
     categories: list[str] = field(default_factory=list)
 
-    # BDAY / ANNIVERSARY (RFC 6350 §6.2.5 / §6.2.6)
+    # BDAY / ANNIVERSARY (RFC 6350 §6.2.5 / §6.2.6). A full date is a real date; a year-less one
+    # (RFC 6350 §4.3.1, the iOS case) cannot be a date.date, so it lives in the _yearless string
+    # ("--MM-DD"). At most one of the pair is set; the API exposes a single merged value.
     birthday: date | None = None
+    birthday_yearless: str | None = None
     anniversary: date | None = None
+    anniversary_yearless: str | None = None
     # GEO (RFC 6350 §6.5.2) - "geo:lat,lon"
     geo: str | None = None
     # NOTE (RFC 6350 §6.7.2)

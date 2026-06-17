@@ -166,7 +166,8 @@ class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attribute
         try:
             if len(query.strip()) < self._user_module_settings.SOGO_D_AUTOCOMPLETION_MIN_LEN:
                 return create_api_base_response({"suggestions": []})
-            contacts, _ = self.module.get_contacts(self.user, search=query, limit=AUTOCOMPLETE_DEFAULT_LIMIT)
+            contacts, _ = self.module.get_contacts(
+                self.user, search=query, limit=AUTOCOMPLETE_DEFAULT_LIMIT, resolve_images=False)
             lists = self.module.search_all_lists(self.user, search=query, limit=AUTOCOMPLETE_DEFAULT_LIMIT)
             suggestions: list[dict[str, Any]] = (
                 self._autocomplete_serializer.serialize(contacts)
