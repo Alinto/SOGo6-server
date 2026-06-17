@@ -8,9 +8,9 @@ from app.module.calendar.CalendarConst import (
     MAX_IMPORT_ICS_BYTES, MAX_TASK_FETCH_DAYS, PUBLIC_SUBSCRIPTION_REFRESH, SHARE_TOKEN_LENGTH,
     DEFAULT_CALENDAR_NAME
 )
-from app.module.calendar.serializer.CalendarEventSerializerIcal import CalendarEventSerializerIcal
-from app.module.calendar.serializer.CalendarEventsSerializerIcal import CalendarEventsSerializerIcal
-from app.module.calendar.serializer.CalendarSerializerIcal import CalendarSerializerIcal
+from app.module.calendar.serializer.CalEventSerializerIcal import CalEventSerializerIcal
+from app.module.calendar.serializer.CalEventsSerializerIcal import CalEventsSerializerIcal
+from app.module.calendar.serializer.CalCalendarSerializerIcal import CalCalendarSerializerIcal
 from app.module.calendar.freebusy.FreeBusyEngine import FreeBusyEngine, FreeBusyPrefs
 from app.module.calendar.imip.ImipBuilder import ImipBuilder
 from app.module.calendar.imip.ImipProcessor import ImipProcessor
@@ -560,8 +560,8 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         events: list[CalEvent] = source.get_events(date_start, date_end, expand=False)
         events.extend(source.get_tasks(date_start, date_end, expand=False))
         source.calendar.events = events
-        serializer: CalendarSerializerIcal = CalendarSerializerIcal(
-            CalendarEventsSerializerIcal(CalendarEventSerializerIcal()), refresh_interval=refresh_interval,
+        serializer: CalCalendarSerializerIcal = CalCalendarSerializerIcal(
+            CalEventsSerializerIcal(CalEventSerializerIcal()), refresh_interval=refresh_interval,
         )
         return serializer.serialize(source.calendar)
 

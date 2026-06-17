@@ -6,18 +6,26 @@ from app.module.contact.model.CardAddressBook import CardAddressBook
 from app.module.contact.ContactConst import AUTOCOMPLETE_DEFAULT_LIMIT
 from app.module.contact.model.CardContact import CardContact
 from app.module.contact.model.CardEmail import CardEmail
+from app.module.contact.model.AddressBookContent import AddressBookContent
 from app.module.contact.model.enums.CardSourceType import CardSourceType
-from app.module.contact.serializer.AddressBookSerializerDict import AddressBookSerializerDict
-from app.module.contact.serializer.AddressBooksSerializerList import AddressBooksSerializerList
+from app.module.contact.serializer.AddressBookContentSerializerLdif import AddressBookContentSerializerLdif
+from app.module.contact.serializer.AddressBookContentSerializerVcard import AddressBookContentSerializerVcard
+from app.module.contact.serializer.CardAddressBookSerializerDict import CardAddressBookSerializerDict
+from app.module.contact.serializer.CardAddressBooksSerializerList import CardAddressBooksSerializerList
+from app.module.contact.model.enums.ContactExportFormat import ContactExportFormat
+from app.module.contact.serializer.CardListSerializerVcard3 import CardListSerializerVcard3
+from app.module.contact.serializer.CardListSerializerVcard4 import CardListSerializerVcard4
+from app.module.contact.serializer.CardContactSerializerVcard3 import CardContactSerializerVcard3
+from app.module.contact.serializer.CardContactSerializerVcard4 import CardContactSerializerVcard4
 from app.module.contact.model.CardList import CardList
-from app.module.contact.serializer.ContactAutocompleteSerializerList import ContactAutocompleteSerializerList
-from app.module.contact.serializer.ContactListAutocompleteSerializerList import ContactListAutocompleteSerializerList
-from app.module.contact.serializer.ContactListDeserializerDict import ContactListDeserializerDict
-from app.module.contact.serializer.ContactListSerializerDict import ContactListSerializerDict
-from app.module.contact.serializer.ContactListsSerializerList import ContactListsSerializerList
-from app.module.contact.serializer.ContactDeserializerDict import ContactDeserializerDict
-from app.module.contact.serializer.ContactSerializerDict import ContactSerializerDict
-from app.module.contact.serializer.ContactsSerializerList import ContactsSerializerList
+from app.module.contact.serializer.CardContactAutocompleteSerializerList import CardContactAutocompleteSerializerList
+from app.module.contact.serializer.CardListAutocompleteSerializerList import CardListAutocompleteSerializerList
+from app.module.contact.serializer.CardListDeserializerDict import CardListDeserializerDict
+from app.module.contact.serializer.CardListSerializerDict import CardListSerializerDict
+from app.module.contact.serializer.CardListsSerializerList import CardListsSerializerList
+from app.module.contact.serializer.CardContactDeserializerDict import CardContactDeserializerDict
+from app.module.contact.serializer.CardContactSerializerDict import CardContactSerializerDict
+from app.module.contact.serializer.CardContactsSerializerList import CardContactsSerializerList
 from app.utils import errors as err
 from app.utils.api.paginate_sort_filter import CollectionPaginateArgs
 from app.utils.db.Condition import Order
@@ -29,17 +37,24 @@ def _build_interface():
     inter.user = MagicMock()
     inter.user.uid = "alice@example.com"
     inter.module = MagicMock()
-    inter._addressbook_serializer = AddressBookSerializerDict()
-    inter._addressbooks_serializer = AddressBooksSerializerList()
-    inter._contact_serializer = ContactSerializerDict()
-    inter._contacts_serializer = ContactsSerializerList()
-    inter._contact_deserializer = ContactDeserializerDict()
-    inter._autocomplete_serializer = ContactAutocompleteSerializerList()
-    inter._list_autocomplete_serializer = ContactListAutocompleteSerializerList()
-    inter._list_serializer = ContactListSerializerDict()
-    inter._lists_serializer = ContactListsSerializerList()
-    inter._list_deserializer = ContactListDeserializerDict()
+    inter._addressbook_serializer = CardAddressBookSerializerDict()
+    inter._addressbooks_serializer = CardAddressBooksSerializerList()
+    inter._contact_serializer = CardContactSerializerDict()
+    inter._contacts_serializer = CardContactsSerializerList()
+    inter._contact_deserializer = CardContactDeserializerDict()
+    inter._autocomplete_serializer = CardContactAutocompleteSerializerList()
+    inter._list_autocomplete_serializer = CardListAutocompleteSerializerList()
+    inter._list_serializer = CardListSerializerDict()
+    inter._lists_serializer = CardListsSerializerList()
+    inter._list_deserializer = CardListDeserializerDict()
     inter._user_module_settings = MagicMock(SOGO_D_AUTOCOMPLETION_MIN_LEN=2)
+    inter._book_export_serializers = {
+        ContactExportFormat.VCARD4: AddressBookContentSerializerVcard(
+            CardContactSerializerVcard4(), CardListSerializerVcard4()),
+        ContactExportFormat.VCARD3: AddressBookContentSerializerVcard(
+            CardContactSerializerVcard3(), CardListSerializerVcard3()),
+        ContactExportFormat.LDIF: AddressBookContentSerializerLdif(),
+    }
     return inter
 
 
@@ -222,3 +237,63 @@ def test_autocomplete_below_min_length_returns_empty_without_querying():
     assert data["data"]["suggestions"] == []
     inter.module.get_contacts.assert_not_called()
     inter.module.search_all_lists.assert_not_called()
+
+
+# ========== Export ==========
+
+def _book_content():
+    return AddressBookContent(
+        contacts=[CardContact(display_name="Alice", uid="u1"), CardContact(display_name="Bob", uid="u2")],
+        lists=[CardList(name="Team", uid="l1", members=[])],
+    )
+
+
+def test_export_addressbook_defaults_to_vcard3():
+    inter = _build_interface()
+    inter.module.get_addressbook_content.return_value = _book_content()
+    body, code, headers = inter.export_addressbook("k1", "")
+    assert code == 200
+    assert body.count("BEGIN:VCARD") == 3 and "VERSION:3.0" in body
+    assert headers["Content-Type"] == "text/vcard; charset=utf-8; version=3.0"
+    assert headers["Content-Disposition"] == 'attachment; filename="addressbook-k1.vcf"'
+
+
+def test_export_addressbook_vcard4_when_requested():
+    inter = _build_interface()
+    inter.module.get_addressbook_content.return_value = _book_content()
+    body, code, _ = inter.export_addressbook("k1", "text/vcard; version=4.0")
+    assert code == 200 and "VERSION:4.0" in body
+
+
+def test_export_addressbook_ldif_from_accept():
+    inter = _build_interface()
+    inter.module.get_addressbook_content.return_value = _book_content()
+    body, code, headers = inter.export_addressbook("k1", "text/ldif")
+    assert code == 200 and body.startswith("version: 1")
+    assert headers["Content-Type"] == "text/ldif; charset=utf-8"
+    assert headers["Content-Disposition"].endswith('.ldif"')
+
+
+def test_export_addressbook_unsupported_accept_returns_406():
+    inter = _build_interface()
+    data, code = inter.export_addressbook("k1", "application/json")
+    assert code == err.ERROR_CONTACT_EXPORT_FORMAT_UNSUPPORTED.h
+    assert data["error_code"] == err.ERROR_CONTACT_EXPORT_FORMAT_UNSUPPORTED.c
+    inter.module.get_addressbook_content.assert_not_called()
+
+
+def test_export_contact_vcard3_from_accept():
+    inter = _build_interface()
+    inter.module.get_contact.return_value = CardContact(display_name="Alice", uid="u1")
+    body, code, headers = inter.export_contact("k1", "u1", "text/vcard; version=3.0")
+    assert code == 200 and "VERSION:3.0" in body
+    assert headers["Content-Disposition"] == 'attachment; filename="contact-u1.vcf"'
+
+
+def test_export_list_as_group_card():
+    inter = _build_interface()
+    inter.module.get_list_for_export.return_value = CardList(
+        name="Team", uid="l1", member_contacts=[CardContact(uid="m1")])
+    body, code, headers = inter.export_list("k1", "l1", "")
+    assert code == 200 and "KIND:group" in body and "MEMBER:urn:uuid:m1" in body
+    assert headers["Content-Disposition"] == 'attachment; filename="list-l1.vcf"'

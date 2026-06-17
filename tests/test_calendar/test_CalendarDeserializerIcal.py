@@ -1,15 +1,15 @@
-"""Unit tests for CalendarDeserializerIcal — VCALENDAR header parsing + event delegation."""
+"""Unit tests for CalCalendarDeserializerIcal — VCALENDAR header parsing + event delegation."""
 import pytest
 
-from app.module.calendar.serializer.CalendarDeserializerIcal import CalendarDeserializerIcal
-from app.module.calendar.serializer.CalendarEventDeserializerIcal import CalendarEventDeserializerIcal
-from app.module.calendar.serializer.CalendarEventsDeserializerIcal import CalendarEventsDeserializerIcal
+from app.module.calendar.serializer.CalCalendarDeserializerIcal import CalCalendarDeserializerIcal
+from app.module.calendar.serializer.CalEventDeserializerIcal import CalEventDeserializerIcal
+from app.module.calendar.serializer.CalEventsDeserializerIcal import CalEventsDeserializerIcal
 from app.utils.exceptions import RequestException
 
 
 @pytest.fixture
 def deserializer():
-    return CalendarDeserializerIcal(CalendarEventsDeserializerIcal(CalendarEventDeserializerIcal()))
+    return CalCalendarDeserializerIcal(CalEventsDeserializerIcal(CalEventDeserializerIcal()))
 
 
 _ICS = (

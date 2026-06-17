@@ -29,8 +29,8 @@ from app.module.calendar.model.CalReminder import CalReminder
 from app.module.calendar.model.enums.ComponentType import ComponentType
 from app.module.calendar.model.enums.RecurrenceFrequency import RecurrenceFrequency
 from app.module.calendar.model.enums.ReminderMethod import ReminderMethod
-from app.module.calendar.serializer.CalendarEventDeserializerIcal import CalendarEventDeserializerIcal
-from app.module.calendar.serializer.CalendarEventSerializerIcal import CalendarEventSerializerIcal
+from app.module.calendar.serializer.CalEventDeserializerIcal import CalEventDeserializerIcal
+from app.module.calendar.serializer.CalEventSerializerIcal import CalEventSerializerIcal
 from app.utils.exceptions import RequestException
 from tests.test_calendar.ical_examples import (
     ICAL_EXAMPLE_1,
@@ -108,12 +108,12 @@ def _compare_events(a: CalEvent, b: CalEvent) -> None:
 
 @pytest.fixture
 def deserializer():
-    return CalendarEventDeserializerIcal()
+    return CalEventDeserializerIcal()
 
 
 @pytest.fixture
 def serializer():
-    return CalendarEventSerializerIcal()
+    return CalEventSerializerIcal()
 
 
 # ==========================================================================

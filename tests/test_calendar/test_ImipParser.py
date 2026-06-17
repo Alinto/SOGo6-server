@@ -8,12 +8,12 @@ import pytest
 from app.module.calendar.imip.ImipMethod import ImipMethod
 from app.module.calendar.imip.ImipParser import ImipParser
 from app.module.calendar.model.CalEvent import CalEvent
-from app.module.calendar.serializer.CalendarEventSerializerIcal import CalendarEventSerializerIcal
+from app.module.calendar.serializer.CalEventSerializerIcal import CalEventSerializerIcal
 from app.utils.errors import ERROR_CALENDAR_ICS_PARSE_FAILED, ERROR_CALENDAR_IMIP_INVALID_REQUEST
 from app.utils.exceptions import RequestException
 
 
-_serializer = CalendarEventSerializerIcal()
+_serializer = CalEventSerializerIcal()
 
 
 def _make_event():

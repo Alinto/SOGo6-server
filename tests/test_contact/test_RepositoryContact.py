@@ -6,10 +6,10 @@ from app.module.contact.model.CardContact import CardContact
 from app.module.contact.model.CardEmail import CardEmail
 from app.module.contact.model.enums.CardKind import CardKind
 from app.module.contact.repository.RepositoryContact import RepositoryContact
-from app.module.contact.serializer.ContactSerializerDict import ContactSerializerDict
+from app.module.contact.serializer.CardContactSerializerDict import CardContactSerializerDict
 
 _COLS = tuple(col.name for col in tbl.ALL_CT_COL)
-_serializer = ContactSerializerDict()
+_serializer = CardContactSerializerDict()
 
 
 def _row(blob, **overrides):

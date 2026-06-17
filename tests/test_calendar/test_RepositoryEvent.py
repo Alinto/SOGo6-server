@@ -12,14 +12,14 @@ from app.module.calendar.model.enums.EventVisibility import EventVisibility
 from app.module.calendar.model.enums.RecurrenceFrequency import RecurrenceFrequency
 from app.module.calendar.model.enums.ShowAs import ShowAs
 from app.module.calendar.repository.RepositoryEvent import RepositoryEvent, _ALL_COLS, _INSERT_COLS
-from app.module.calendar.serializer.CalendarEventSerializerDict import CalendarEventSerializerDict
+from app.module.calendar.serializer.CalEventSerializerDict import CalEventSerializerDict
 from app.utils.db.Condition import (AndCondition, Condition, EqualCondition, FullTextCondition,
                                      GreaterOrEqualCondition, IsNullCondition, LessOrEqualCondition,
                                      OrCondition)
 from app.utils.db.FullTextValue import FullTextValue
 
 _UTC = timezone.utc
-_serializer = CalendarEventSerializerDict()
+_serializer = CalEventSerializerDict()
 
 
 class FakeDB:

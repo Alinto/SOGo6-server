@@ -3,7 +3,7 @@ iCalendar RFC 5545 constants shared between the serializer and deserializer.
 """
 
 # Product identifier emitted in PRODID property
-PRODID = "-//SOGo//CalendarSerializer//EN"
+PRODID = "-//SOGo//CalCalendarSerializer//EN"
 
 # iCalendar standard version
 ICAL_VERSION = "2.0"

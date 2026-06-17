@@ -207,6 +207,7 @@ ERROR_CONTACT_LIST_DUPLICATE                 = E("S000711", "Distribution List A
 ERROR_CONTACT_LIST_INSERT_FAILED             = E("S000712", "Failed To Persist Distribution List", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_CONTACT_LIST_UPDATE_FAILED             = E("S000713", "Failed To Update Distribution List", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_CONTACT_LIST_MEMBER_INVALID            = E("S000714", "Distribution List Member Is Not A Contact Of This Address Book", HTTPStatus.UNPROCESSABLE_ENTITY)
+ERROR_CONTACT_EXPORT_FORMAT_UNSUPPORTED      = E("S000715", "Requested Export Format Is Not Supported", HTTPStatus.NOT_ACCEPTABLE)
 
 #the bugs
 ERROR_UNKOWN = E("S999999", "Undefined Error", HTTPStatus.INTERNAL_SERVER_ERROR)

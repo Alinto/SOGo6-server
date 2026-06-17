@@ -8,11 +8,11 @@ from typing import cast
 
 from app.module.calendar.imip.ImipMessage import ImipMessage
 from app.module.calendar.imip.ImipMethod import ImipMethod
-from app.module.calendar.serializer.CalendarEventDeserializerIcal import CalendarEventDeserializerIcal
+from app.module.calendar.serializer.CalEventDeserializerIcal import CalEventDeserializerIcal
 from app.utils import errors as err
 from app.utils.exceptions import RequestException
 
-_deserializer: CalendarEventDeserializerIcal = CalendarEventDeserializerIcal()
+_deserializer: CalEventDeserializerIcal = CalEventDeserializerIcal()
 
 
 class ImipParser:
@@ -20,7 +20,7 @@ class ImipParser:
 
     Intended for use by the asynchronous agent when polling incoming mail.
     Uses only stdlib (email, re) for MIME parsing; delegates iCalendar
-    parsing to CalendarEventDeserializerIcal.
+    parsing to CalEventDeserializerIcal.
     """
 
     @staticmethod

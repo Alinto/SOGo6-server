@@ -21,15 +21,15 @@ from app.module.calendar.model.enums.CalendarSyncStatus import CalendarSyncStatu
 from app.module.calendar.model.enums.EventVisibility import EventVisibility
 from app.module.calendar.model.enums.ReminderMethod import ReminderMethod
 from app.module.calendar.model.CalFreeBusyResult import CalFreeBusyResult
-from app.module.calendar.serializer.CalendarEventDeserializerDict import CalendarEventDeserializerDict
-from app.module.calendar.serializer.CalendarEventSerializerDict import CalendarEventSerializerDict
-from app.module.calendar.serializer.CalendarEventsSerializerDict import CalendarEventsSerializerDict
-from app.module.calendar.serializer.CalendarSerializerDict import CalendarSerializerDict
-from app.module.calendar.serializer.CalendarsSerializerList import CalendarsSerializerList
-from app.module.calendar.serializer.EventReminderSerializerDict import EventReminderSerializerDict
-from app.module.calendar.serializer.FreeBusySerializerDict import FreeBusySerializerDict
-from app.module.calendar.serializer.SyncResultSerializerDict import SyncResultSerializerDict
-from app.module.calendar.serializer.SyncStatusSerializerDict import SyncStatusSerializerDict
+from app.module.calendar.serializer.CalEventDeserializerDict import CalEventDeserializerDict
+from app.module.calendar.serializer.CalEventSerializerDict import CalEventSerializerDict
+from app.module.calendar.serializer.CalEventsSerializerDict import CalEventsSerializerDict
+from app.module.calendar.serializer.CalCalendarSerializerDict import CalCalendarSerializerDict
+from app.module.calendar.serializer.CalCalendarsSerializerList import CalCalendarsSerializerList
+from app.module.calendar.serializer.CalEventReminderSerializerDict import CalEventReminderSerializerDict
+from app.module.calendar.serializer.CalFreeBusyResultSerializerDict import CalFreeBusyResultSerializerDict
+from app.module.calendar.serializer.CalSyncResultSerializerDict import CalSyncResultSerializerDict
+from app.module.calendar.serializer.CalSyncStatusSerializerDict import CalSyncStatusSerializerDict
 from app.module.user.ModuleUserProfile import ModuleUserProfile
 from app.service import sogo_cache
 from app.utils.api.ApiBaseResponse import create_api_base_response
@@ -65,15 +65,15 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         self.settings: CalendarContactSettingsObj = CalendarContactSettingsObj(user_domain_settings[CalendarContactSettings.subparent])
         self.module: ModuleCalendar = ModuleCalendar(process_setting, cache=sogo_cache())
         self._user_module: ModuleUserProfile = ModuleUserProfile(process_setting, user_domain_settings)
-        self._events_serializer: CalendarEventsSerializerDict = CalendarEventsSerializerDict()
-        self._event_serializer: CalendarEventSerializerDict = CalendarEventSerializerDict()
-        self._event_deserializer: CalendarEventDeserializerDict = CalendarEventDeserializerDict()
-        self._calendar_serializer: CalendarSerializerDict = CalendarSerializerDict()
-        self._calendars_serializer: CalendarsSerializerList = CalendarsSerializerList()
-        self._freebusy_serializer: FreeBusySerializerDict = FreeBusySerializerDict()
-        self._reminder_serializer: EventReminderSerializerDict = EventReminderSerializerDict()
-        self._sync_result_serializer: SyncResultSerializerDict = SyncResultSerializerDict()
-        self._sync_status_serializer: SyncStatusSerializerDict = SyncStatusSerializerDict()
+        self._events_serializer: CalEventsSerializerDict = CalEventsSerializerDict()
+        self._event_serializer: CalEventSerializerDict = CalEventSerializerDict()
+        self._event_deserializer: CalEventDeserializerDict = CalEventDeserializerDict()
+        self._calendar_serializer: CalCalendarSerializerDict = CalCalendarSerializerDict()
+        self._calendars_serializer: CalCalendarsSerializerList = CalCalendarsSerializerList()
+        self._freebusy_serializer: CalFreeBusyResultSerializerDict = CalFreeBusyResultSerializerDict()
+        self._reminder_serializer: CalEventReminderSerializerDict = CalEventReminderSerializerDict()
+        self._sync_result_serializer: CalSyncResultSerializerDict = CalSyncResultSerializerDict()
+        self._sync_status_serializer: CalSyncStatusSerializerDict = CalSyncStatusSerializerDict()
 
     def _calendar_user_for(self, calendar_key: str) -> CalendarUser:
         """Build a CalendarUser by resolving the owner from the calendar's user_uid."""
@@ -107,7 +107,7 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
                 calendars = [c for c in calendars if c.source_type.value == source_type]
             serialized: list[dict[str, Any]] = self._calendars_serializer.serialize(calendars)
             # public_url is an API-level value (derived via url_for) injected after serialization;
-            # the order matches since CalendarsSerializerList preserves the input order.
+            # the order matches since CalCalendarsSerializerList preserves the input order.
             for index, cal in enumerate(calendars):
                 serialized[index]["public_url"] = self._public_url(cal.share_token)
             return create_api_base_response({"calendars": serialized, "total_count": len(calendars)})

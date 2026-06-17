@@ -8,8 +8,8 @@ from app.utils.datetime.DateTimeUtils import to_utc
 from app.module.calendar.model.CalEvent import CalEvent
 from app.module.calendar.model.CalEventSyncMeta import CalEventSyncMeta
 from app.module.calendar.model.enums.ComponentType import ComponentType
-from app.module.calendar.serializer.CalendarEventDeserializerDict import CalendarEventDeserializerDict
-from app.module.calendar.serializer.CalendarEventSerializerDict import CalendarEventSerializerDict
+from app.module.calendar.serializer.CalEventDeserializerDict import CalEventDeserializerDict
+from app.module.calendar.serializer.CalEventSerializerDict import CalEventSerializerDict
 from app.utils import errors as err
 from app.utils.db.Condition import (AndCondition, EqualCondition, FullTextCondition, GreaterOrEqualCondition,
                                      IsNotNullCondition, IsNullCondition, LessOrEqualCondition,
@@ -27,8 +27,8 @@ if TYPE_CHECKING:
 _ALL_COLS: tuple[str, ...] = tuple(col.name for col in tbl.ALL_EVT_COL)
 _INSERT_COLS: tuple[str, ...] = tuple(col.name for col in tbl.ALL_EVT_COL if col.name != tbl.COL_ID.name)
 
-_serializer = CalendarEventSerializerDict()
-_deserializer = CalendarEventDeserializerDict()
+_serializer = CalEventSerializerDict()
+_deserializer = CalEventDeserializerDict()
 
 class RepositoryEvent:
     """Handles all DB reads and writes for sogo_events."""

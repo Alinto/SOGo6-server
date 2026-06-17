@@ -1,10 +1,10 @@
-"""Unit tests for ContactListAutocompleteSerializerList."""
+"""Unit tests for CardListAutocompleteSerializerList."""
 from app.module.contact.model.CardContact import CardContact
 from app.module.contact.model.CardEmail import CardEmail
 from app.module.contact.model.CardList import CardList
-from app.module.contact.serializer.ContactListAutocompleteSerializerList import ContactListAutocompleteSerializerList
+from app.module.contact.serializer.CardListAutocompleteSerializerList import CardListAutocompleteSerializerList
 
-_serializer = ContactListAutocompleteSerializerList()
+_serializer = CardListAutocompleteSerializerList()
 
 
 def test_list_suggestion_carries_resolved_members_not_email():

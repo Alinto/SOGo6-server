@@ -1,5 +1,5 @@
 """
-Tests unitaires pour CalendarEventSerializerIcal.
+Tests unitaires pour CalEventSerializerIcal.
 Verifie la conformite RFC 5545 des proprietes, de l'encodage TEXT et du folding.
 """
 import re
@@ -22,8 +22,8 @@ from app.module.calendar.model.enums.RecurrenceFrequency import RecurrenceFreque
 from app.module.calendar.model.enums.ReminderMethod import ReminderMethod
 from app.module.calendar.model.enums.ShowAs import ShowAs
 from app.module.calendar.model.enums.ComponentType import ComponentType
-from app.module.calendar.serializer.CalendarEventSerializerIcal import CalendarEventSerializerIcal
-from app.module.calendar.serializer.CalendarEventsSerializerIcal import CalendarEventsSerializerIcal
+from app.module.calendar.serializer.CalEventSerializerIcal import CalEventSerializerIcal
+from app.module.calendar.serializer.CalEventsSerializerIcal import CalEventsSerializerIcal
 
 
 def _unfolded_lines(ical_text: str) -> list[str]:
@@ -41,7 +41,7 @@ def _has_line(ical_text: str, line: str) -> bool:
 @pytest.fixture
 def serializer():
     """Fournit une instance fraiche du serialiseur."""
-    return CalendarEventSerializerIcal()
+    return CalEventSerializerIcal()
 
 
 @pytest.fixture
@@ -534,11 +534,11 @@ def test_attach_binary(serializer):
 
 
 # ==========================================================================
-# CalendarEventsSerializerIcal — body components
+# CalEventsSerializerIcal — body components
 # ==========================================================================
 
 def test_events_serializer_dispatches_vtodo_and_vevent():
-    s = CalendarEventsSerializerIcal(CalendarEventSerializerIcal())
+    s = CalEventsSerializerIcal(CalEventSerializerIcal())
     event = CalEvent(
         uid="e@e.com", title="E",
         date_start=datetime(2026, 1, 1, tzinfo=timezone.utc),
@@ -555,7 +555,7 @@ def test_events_serializer_dispatches_vtodo_and_vevent():
 
 
 def test_events_serializer_empty_list():
-    s = CalendarEventsSerializerIcal(CalendarEventSerializerIcal())
+    s = CalEventsSerializerIcal(CalEventSerializerIcal())
     assert s.serialize([]) == []
 
 

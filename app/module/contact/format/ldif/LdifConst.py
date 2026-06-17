@@ -47,4 +47,5 @@ BASE_DN: str = "ou=contacts"
 # The phone TYPE that maps to the "mobile" attribute rather than telephoneNumber.
 MOBILE_TYPE: str = "cell"
 
-LDIF_VERSION_HEADER: str = "version: 1"
+LDIF_VERSION: str = "1"
+LDIF_VERSION_HEADER: str = f"version: {LDIF_VERSION}"

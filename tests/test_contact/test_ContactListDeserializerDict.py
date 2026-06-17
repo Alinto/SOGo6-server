@@ -1,10 +1,10 @@
-"""Unit tests for ContactListDeserializerDict."""
+"""Unit tests for CardListDeserializerDict."""
 import pytest
 
 from app.module.contact.model.CardList import CardList
-from app.module.contact.serializer.ContactListDeserializerDict import ContactListDeserializerDict
+from app.module.contact.serializer.CardListDeserializerDict import CardListDeserializerDict
 
-_deserializer = ContactListDeserializerDict()
+_deserializer = CardListDeserializerDict()
 
 
 def test_deserialize_minimal():
