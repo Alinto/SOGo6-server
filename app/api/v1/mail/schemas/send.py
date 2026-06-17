@@ -1,12 +1,9 @@
 from marshmallow import Schema, fields, validate
 from app.utils.api.ApiBaseResponse import ApiBaseResponse
-from app.utils import constants as cs
-
 
 class SaveDraftQuerySchema(Schema):
     """Query parameters for PUT /<key>/save."""
     close = fields.Boolean(load_default=False, metadata={"description": "If true, delete the tmp_draft entry after saving (the IMAP draft is kept)."})
-
 
 class SaveDraftSchema(Schema):
     """
@@ -19,7 +16,7 @@ class SaveDraftSchema(Schema):
     body = fields.String(required=False, load_default="")
     cc = fields.List(fields.Email(), required=False, load_default=[])
     bcc = fields.List(fields.Email(), required=False, load_default=[])
-    return_receipt = fields.Email(required=False, allow_none=True, load_default=None)
+    return_receipt = fields.Boolean(required=False, allow_none=True, load_default=None)
 
     @classmethod
     def example(cls) -> dict:
@@ -36,9 +33,6 @@ class SaveDraftSchema(Schema):
             "cc": [],
             "bcc": []
         }
-
-
-
 
 
 class UploadAttachmentResponseSchema(ApiBaseResponse):
@@ -59,6 +53,7 @@ class UploadAttachmentResponseSchema(ApiBaseResponse):
             "error_msg": "",
             "data": {
                 "key": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
+                "filename": "myfile.txt"
             }
         }
 
@@ -103,14 +98,6 @@ class UploadAttachmentFileSchema(Schema):
     )
 
 
-class AttachmentSchema(Schema):
-    """
-    Schema for a mail attachment
-    """
-    filename = fields.String(required=False, load_default="file")
-    data = fields.Raw(required=True, metadata={"description": "Raw binary data of the attachment"})
-
-
 class SendMailQuerySchema(Schema):
     """
     Query parameters for POST /mailboxes/<account_id>/send
@@ -128,11 +115,13 @@ class SendMailSchema(Schema):
     body = fields.String(required=False, load_default="")
     cc = fields.List(fields.Email(), required=False, load_default=[])
     bcc = fields.List(fields.Email(), required=False, load_default=[])
-    return_receipt = fields.Email(required=False, allow_none=True, load_default=None)
-    attachments = fields.List(fields.Nested(AttachmentSchema), required=False, load_default=[]) #TODO : à revoir
+    return_receipt = fields.Boolean(required=False, allow_none=True, load_default=None)
 
     @classmethod
     def example(cls) -> dict:
+        """
+        Simple example for sending a mail
+        """
         return {
             "from": "sogo-tests1@example.org",
             "to": ["sogo-tests1@example.org"],
@@ -152,6 +141,9 @@ class SendMailResponseSchema(ApiBaseResponse):
 
     @classmethod
     def example(cls) -> dict:
+        """
+        example
+        """
         return {}
 
 
@@ -176,6 +168,9 @@ class CurrentDraftsResponseSchema(ApiBaseResponse):
 
     @classmethod
     def example(cls) -> dict:
+        """
+        example
+        """
         return {
             "error_code": 0,
             "error_msg": "",

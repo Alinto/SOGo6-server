@@ -3,7 +3,7 @@ from __future__ import annotations
 from marshmallow import Schema, fields, validate
 
 from app.api.v1.calendar.schemas.components import (
-    AttachmentSchema, AttendeeSchema, EventRelationSchema, OrganizerSchema, RecurrenceRuleSchema, ReminderSchema,
+    AttachmentCalendarSchema, AttendeeSchema, EventRelationSchema, OrganizerSchema, RecurrenceRuleSchema, ReminderSchema,
 )
 from app.module.calendar.CalendarConst import MAX_EVENT_DESCRIPTION_LENGTH, MAX_EVENT_TITLE_LENGTH
 from app.module.calendar.model.enums.EventStatus import EventStatus
@@ -41,7 +41,7 @@ class CalendarTaskSchema(Schema):
     organizer = fields.Nested(OrganizerSchema, allow_none=True)
     attendees = fields.List(fields.Nested(AttendeeSchema))
     related_to = fields.List(fields.Nested(EventRelationSchema))
-    attachments = fields.List(fields.Nested(AttachmentSchema))
+    attachments = fields.List(fields.Nested(AttachmentCalendarSchema))
     extra_properties = fields.Dict(keys=fields.String(), values=fields.String())
     recurrence_rule = fields.Nested(RecurrenceRuleSchema, allow_none=True)
     recurrence_exceptions = fields.List(fields.String())
@@ -77,7 +77,7 @@ class CalendarTaskCreateSchema(Schema):
     organizer = fields.Nested(OrganizerSchema, load_default=None, allow_none=True, metadata={"example": None})
     attendees = fields.List(fields.Nested(AttendeeSchema), load_default=list, metadata={"example": []})
     related_to = fields.List(fields.Nested(EventRelationSchema), load_default=list, metadata={"example": []})
-    attachments = fields.List(fields.Nested(AttachmentSchema), load_default=list, metadata={"example": []})
+    attachments = fields.List(fields.Nested(AttachmentCalendarSchema), load_default=list, metadata={"example": []})
     extra_properties = fields.Dict(keys=fields.String(), values=fields.String(), load_default=dict, metadata={"example": {}})
     recurrence_rule = fields.Nested(RecurrenceRuleSchema, load_default=None, allow_none=True, metadata={"example": None})
     recurrence_exceptions = fields.List(fields.String(), load_default=list, metadata={"example": []})
@@ -100,7 +100,7 @@ class CalendarTaskPatchSchema(Schema):
     organizer = fields.Nested(OrganizerSchema, allow_none=True)
     attendees = fields.List(fields.Nested(AttendeeSchema))
     related_to = fields.List(fields.Nested(EventRelationSchema))
-    attachments = fields.List(fields.Nested(AttachmentSchema))
+    attachments = fields.List(fields.Nested(AttachmentCalendarSchema))
     extra_properties = fields.Dict(keys=fields.String(), values=fields.String())
     recurrence_rule = fields.Nested(RecurrenceRuleSchema, allow_none=True)
     recurrence_exceptions = fields.List(fields.String())

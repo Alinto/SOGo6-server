@@ -36,13 +36,24 @@ def get_domain_from_mail(string_input: str) -> str|None:
     Get a mail string and return the domain if there is one.
     Domain in mail pov so domain for user@domain
     """
-    if not isinstance(string_input, str):
-        raise ValueError(f"Method get_domain_from_mail expects a str and got {type(string_input)} instead")
     if '@' in string_input:
         tmp : list[str] = string_input.split('@')
         if len(tmp) == 2:
             return tmp[1]
     return None
+
+def get_domain_from_contact(string_input: str) -> str|None:
+    """
+    A contact is either directly a mail "foo@bar.nu" or a full name
+    "Foo Bar <foo@bar.nu>"
+    """
+    mail = string_input.strip()
+    if idx := mail.index("<"):
+        mail = mail[idx:-1] #removing the last '>'
+        if '<' in mail or '>' in mail:
+            raise ValueError(f"Contact is not confromed to 'CN <mail>': '{string_input}'")
+    return get_domain_from_mail(mail)
+
 
 def get_imap_config_from_url(imap_str: str) -> dict:
     """

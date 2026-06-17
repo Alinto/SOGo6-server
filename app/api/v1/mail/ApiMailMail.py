@@ -350,16 +350,6 @@ class ApiMailDetailReply(MethodView):
         interface: InterfaceApiMailMail = g.inter
         return interface.reply_mail(account_id, folder_name, mail_uid)
 
-@blp.route("/<string:mail_uid>/forward")
-class ApiMailDetailForward(MethodView):
-    """API to manage forwards of a specific mail.
-    """
-    def post(self, account_id: str, folder_name: str, mail_uid: str) -> ResponseReturnValue:
-        """Action: Forward a specific mail in the specified folder. (NOT IMPLEMENTED)
-        """
-        logger_api.debug("Calling ApiMailDetailForward.post for account_id: %s, folder_name: %s, mail_uid: %s", account_id, folder_name, mail_uid)
-        interface: InterfaceApiMailMail = g.inter
-        return interface.forward_mail(account_id, folder_name, mail_uid)
 
 @blp.route("/<string:mail_uid>/raw")
 class ApiMailDetailRaw(MethodView):

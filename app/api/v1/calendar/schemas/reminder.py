@@ -22,7 +22,7 @@ class ReminderQueryArgsSchema(Schema):
     )
 
 
-class ReminderSchema(Schema):
+class ReminderDataSchema(Schema):
     """Representation of a single active reminder in API responses."""
 
     event_key = fields.String()
@@ -39,7 +39,7 @@ class ReminderSchema(Schema):
 class ReminderListDataSchema(Schema):
     """Data payload for the reminder list response."""
 
-    reminders = fields.List(fields.Nested(ReminderSchema))
+    reminders = fields.List(fields.Nested(ReminderDataSchema))
     total_count = fields.Integer()
 
 

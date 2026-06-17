@@ -185,7 +185,7 @@ ALL_CAL_COL = [COL_ID,
 
 IDX_CAL_USER_UID = Index(name="idx_cal_user_uid", columns=(COL_CAL_USER_UID.name,))
 
-TABLE_CALENDAR = Table(name=process_config.SOGO_P_TABLES_CALENDARS, columns=ALL_CAL_COL, primary_keys=(COL_ID.name, COL_CAL_KEY.name),
+TABLE_CALENDAR = Table(name=process_config.SOGO_P_TABLE_CALENDARS, columns=ALL_CAL_COL, primary_keys=(COL_ID.name, COL_CAL_KEY.name),
                        indexes=[IDX_CAL_USER_UID])
 
 #####################
@@ -261,7 +261,7 @@ IDX_EVT_UID = Index(name="idx_evt_uid", columns=(COL_EVT_UID.name,))
 # on the TEXT column (MariaDB, where MATCH ... AGAINST requires it).
 IDX_EVT_SEARCH = Index(name="idx_evt_search_vector", columns=(COL_EVT_SEARCH_VECTOR.name,), fulltext=True)
 
-TABLE_EVENT = Table(name=process_config.SOGO_P_TABLES_EVENTS, columns=ALL_EVT_COL, primary_keys=(COL_ID.name, COL_EVT_KEY.name),
+TABLE_EVENT = Table(name=process_config.SOGO_P_TABLE_EVENTS, columns=ALL_EVT_COL, primary_keys=(COL_ID.name, COL_EVT_KEY.name),
                     indexes=[IDX_EVT_CALENDAR_KEY, IDX_EVT_DATE_RANGE, IDX_EVT_UID, IDX_EVT_SEARCH])
 
 ##############################
@@ -292,7 +292,7 @@ ALL_REM_COL = [COL_ID,
 IDX_REM_TRIGGER = Index(name="idx_rem_trigger", columns=(COL_REM_TRIGGER_AT.name, COL_REM_IS_DELETED.name))
 IDX_REM_EVENT_KEY = Index(name="idx_rem_event_key", columns=(COL_REM_EVENT_KEY.name,))
 
-TABLE_REMINDER = Table(name=process_config.SOGO_P_TABLES_REMINDER, columns=ALL_REM_COL, primary_keys=(COL_ID.name,),
+TABLE_REMINDER = Table(name=process_config.SOGO_P_TABLE_REMINDERS, columns=ALL_REM_COL, primary_keys=(COL_ID.name,),
                        indexes=[IDX_REM_TRIGGER, IDX_REM_EVENT_KEY])
 
 ##############################
@@ -329,7 +329,7 @@ ALL_DRAFT_COL = [COL_ID,
 
 IDX_DRAFT_OWNER = Index(name="idx_draft_owner", columns=(COL_DRAFT_OWNER.name,))
 
-TABLE_DRAFT_STATE = Table(name="tmp_draft", columns=ALL_DRAFT_COL, primary_keys=(COL_ID.name, COL_DRAFT_KEY.name),
+TABLE_DRAFT_STATE = Table(name=process_config.SOGO_P_TABLE_TMP_DRAFTS, columns=ALL_DRAFT_COL, primary_keys=(COL_ID.name, COL_DRAFT_KEY.name),
                           indexes=[IDX_DRAFT_OWNER])
 
 ALL_TABLES = [TABLE_SETTINGS,
