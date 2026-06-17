@@ -180,7 +180,7 @@ External ICS subscriptions are stored as `CalCalendar` rows with `source_type=ic
 
 === Export
 
-`GET /calendars/{key}/export` serialises the calendar back into a VCALENDAR string (`text/calendar`). Recurring masters keep their `RRULE` intact — the expansion happens on the recipient side. Query parameters:
+`GET /calendars/{key}/export` serialises the calendar back into a VCALENDAR string (`text/calendar`). The serialization is content-negotiated from the request `Accept` header (same shape as the contact export): an empty, `*/*` or `text/calendar` accept is served, any other explicit media type returns `406 Not Acceptable` (`ERROR_CALENDAR_EXPORT_FORMAT_UNSUPPORTED`). iCalendar being the only format, the negotiation is a single allow/deny — but the contract stays isomorphic with the contact module. Recurring masters keep their `RRULE` intact — the expansion happens on the recipient side. Query parameters:
 
 * `start_date_time`, `end_date_time` — same semantics as the events list, restrict the export window.
 * `download=true` — adds `Content-Disposition: attachment; filename="calendar-{key}.ics"` so browsers download the response instead of inlining it. Default is inline so the URL stays consumable by any HTTP client or `curl`.

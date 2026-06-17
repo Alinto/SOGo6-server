@@ -2,7 +2,7 @@ from __future__ import annotations  # pylint: disable=duplicate-code
 
 from typing import TYPE_CHECKING
 
-from flask import g
+from flask import g, request
 from flask.views import MethodView
 from flask.typing import ResponseReturnValue
 from flask_smorest import Blueprint
@@ -53,6 +53,24 @@ if TYPE_CHECKING:
     from werkzeug.datastructures import FileStorage
 
 blp = Blueprint("Calendar", __name__, url_prefix="")
+
+# OpenAPI for the export route: the serialization is content-negotiated from the Accept header, and the
+# body is an iCalendar document, not the usual JSON envelope - declared here so Swagger shows it.
+_EXPORT_OPENAPI: dict = {
+    "parameters": [{
+        "in": "header", "name": "Accept", "required": False,
+        "description": "Export serialization: 'text/calendar' (the only supported format). "
+                       "An unsupported type returns 406.",
+        "schema": {"type": "string", "enum": ["text/calendar"]},
+    }],
+    "responses": {
+        "200": {
+            "description": "The serialized iCalendar document.",
+            "content": {"text/calendar": {"schema": {"type": "string"}}},
+        },
+        "406": {"description": "The requested export format is not supported."},
+    },
+}
 
 
 @blp.before_request
@@ -115,12 +133,13 @@ class ApiCalendarDetail(MethodView):
 class ApiCalendarExport(MethodView):
     """API to download a calendar as a VCALENDAR (.ics) payload."""
 
+    @blp.doc(**_EXPORT_OPENAPI)
     @blp.arguments(CalendarExportQueryArgsSchema, location="query", arg_name="query_args")
     def get(self, query_args: dict, key: str) -> ResponseReturnValue:
-        """Stream the calendar as ``text/calendar``."""
+        """Stream the calendar as ``text/calendar``; the serialization is negotiated from the Accept header."""
         logger_api.debug("GET /calendars/%s/export user=%s args=%s", key, g.user.uid, query_args)
         interface: InterfaceApiCalendarCalendar = g.inter
-        return interface.export_calendar(key, query_args)
+        return interface.export_calendar(key, query_args, request.headers.get("Accept", ""))
 
 
 @blp.route("/calendars/<string:key>/subscription")
