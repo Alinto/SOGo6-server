@@ -1,13 +1,14 @@
 from __future__ import annotations
 from typing import Any, Callable, TypeVar, ParamSpec, Iterator, cast
 
-from email import message_from_bytes
-import imaplib
-import re
 from datetime import datetime
+from email import message_from_bytes
+from email.message import EmailMessage
+import imaplib
+from logging import WARNING
+import re
 from socket import timeout as sock_timeout, gaierror
 from ssl import SSLError
-from email.message import EmailMessage
 
 from app.utils.exceptions import RequestException, BugException
 from app.utils.logger.logger import logger_imap
@@ -17,9 +18,9 @@ from app.utils import constants as cs
 from app.utils.strings import quote, imap_join_folders
 
 # Maximum debug output from imaplib
-#TODO link this to the admin param for mail server log
-#TODO all imap are logged, including login/auth password...
-imaplib.Debug = 4  # type: ignore[attr-defined]
+#TODO all imap are logged, including login/auth password used SecretString (on ldap branch not in develoope now)
+if logger_imap.level < WARNING:
+    imaplib.Debug = 4  # type: ignore[attr-defined]
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -205,7 +206,6 @@ class ImapFolder:
         #Check status
         match = re.search(r'^([^\s]+)\s+\(MESSAGES\s+(\d+).*?UNSEEN\s+(\d+)\)', response_status)
         if match:
-            name = match.group(1)
             self.nb_mails = int(match.group(2))
             self.nb_unseen = int(match.group(3))
             return True
@@ -1805,7 +1805,7 @@ class ClientImap(ClientMailServer):
                 new_uid = m.group(1)
                 break
 
-        # TODO: fallback
+        # TODO: fallback just in case but no sure if necessary, so commented to see if we fall in this case
         # if new_uid is None:
         #     # Fallback: search for the last message with \Draft flag in the folder
         #     self.select_mailbox(quoted_folder)

@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING
 
 from io import BytesIO
-from flask import g, request, send_file
+from flask import g, send_file
 from flask.views import MethodView
 from flask.typing import ResponseReturnValue
 from flask_smorest import Blueprint
@@ -156,13 +156,13 @@ class ApiMailSendAccountCreateAttachment(MethodView):
             account_id,
         )
 
-        file = request.files.get("file")
-        if file is None:
+        attach = file.get("file")
+        if attach is None:
             raise RequestException(err.ERROR_TMP_DRAFT_UPLOAD_NO_FILE.m, error=err.ERROR_TMP_DRAFT_UPLOAD_NO_FILE)
 
-        filename: str = file.filename or "attachment"
-        content_type: str = file.content_type or "application/octet-stream"
-        file_data: bytes = file.read()
+        filename: str = attach.filename or "attachment"
+        content_type: str = attach.content_type or "application/octet-stream"
+        file_data: bytes = attach.read()
 
         interface: InterfaceApiMailSend = g.inter
         return interface.upload_attachment(account_id, filename, content_type, file_data, key=None)
@@ -193,13 +193,13 @@ class ApiMailSendAccountUploadAttachment(MethodView):
             key,
         )
 
-        file = request.files.get("file")
-        if file is None:
+        attach = file.get("file")
+        if attach is None:
             raise RequestException(err.ERROR_TMP_DRAFT_UPLOAD_NO_FILE.m, error=err.ERROR_TMP_DRAFT_UPLOAD_NO_FILE)
 
-        filename: str = file.filename or "attachment"
-        content_type: str = file.content_type or "application/octet-stream"
-        file_data: bytes = file.read()
+        filename: str = attach.filename or "attachment"
+        content_type: str = attach.content_type or "application/octet-stream"
+        file_data: bytes = attach.read()
 
         interface: InterfaceApiMailSend = g.inter
 
@@ -256,7 +256,7 @@ class ApiMailSendAccountDeleteAttachment(MethodView):
 
 
 
-@blp.route("/<string:key>") 
+@blp.route("/<string:key>")
 class ApiMailSendAccountDeleteDraft(MethodView):
     """
     Action: Delete the IMAP draft and its tmp_draft row.

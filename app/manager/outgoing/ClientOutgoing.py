@@ -20,7 +20,21 @@ class ClientOutgoing(metaclass=ABCMeta):
 
     @abstractmethod
     def login(self, username: str, password: str, authname: str = "") -> None:
-        """Authenticate the user to the outgoing mail server."""
+        """
+        Login to the outgoing mail server.
+
+        The param authname is only use for PLAIN method (authzid)
+        https://datatracker.ietf.org/doc/html/rfc4616#section-2
+        In means that username will act as authname. Can be useful to
+        make admin operation and user.
+
+        :param username: the username to use
+        :type username: str
+        :param password: the password in plain text to use
+        :type password: str
+        :param authname: authzid of PLAIN SASL, defaults to ""
+        :type authname: str, optional
+        """
 
     @abstractmethod
     def send_mail(self, message: Message) -> None:
