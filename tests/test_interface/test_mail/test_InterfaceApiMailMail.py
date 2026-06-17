@@ -210,32 +210,6 @@ def test_reply_mail_module_error():
     assert status_code == 400
 
 
-# ========== Tests for forward_mail ==========
-
-def test_forward_mail_success():
-    """Test forwarding a mail for a valid account."""
-    fake_module = FakeModuleMail()
-    interface = make_interface(fake_module)
-
-    result, status_code = interface.forward_mail(account_id=0, folder_name="INBOX", mail_uid=42)
-
-    assert status_code == 200
-    assert result["data"]["forward"] == "Forward draft created"
-    assert fake_module.forward_mail_args == (0, "INBOX", 42)
-
-
-def test_forward_mail_module_error():
-    """Test error handling when forwarding mail fails."""
-    fake_module = FakeModuleMail()
-    fake_module.forward_mail = lambda *args: (_ for _ in ()).throw(RequestException("Cannot forward", err.ERROR_VALIDATION_ERROR))
-    interface = make_interface(fake_module)
-
-    result, status_code = interface.forward_mail(account_id=0, folder_name="INBOX", mail_uid=42)
-
-    assert result["error_code"] == "S000300"
-    assert status_code == 400
-
-
 # ========== Tests for mail_action ==========
 
 def test_mail_action_tag_success():

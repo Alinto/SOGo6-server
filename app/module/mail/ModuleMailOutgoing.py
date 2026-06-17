@@ -11,6 +11,7 @@ from app.utils.exceptions import RequestException
 from app.utils.maths.crypto_utils import decrypt_password
 from app.utils.module.importManager import import_and_instantiate_manager
 from app.utils.logger.logger import logger_mail_server
+from app.utils.strings import get_domain_from_mail
 
 if TYPE_CHECKING:
     from app.auth.User import User
@@ -33,7 +34,7 @@ class ModuleMailOutgoing:
         self.user = user
         self.mail_settings = mail_settings
 
-    def _get_outgoing_conf(self, account_id: str) -> dict:
+    def _get_outgoing_conf(self, account_id: str, is_system:bool = False) -> dict:
         """Build the outgoing client configuration for the given account.
 
         For the main account (DEFAULT_IDENTITY_KEY_VALUE), use domain SMTP settings
@@ -42,6 +43,8 @@ class ModuleMailOutgoing:
 
         :param account_id: Account identifier (DEFAULT_IDENTITY_KEY_VALUE or external id)
         :type account_id: str
+        :param is_system: True if the message is a system message (notificaiton, noreply...)
+        :type is_system: bool
         :return: Configuration dict with keys 'type', 'username', 'password', 'args'
         :rtype: dict
         :raises RequestException: If the external account is not found
@@ -57,7 +60,7 @@ class ModuleMailOutgoing:
 
             if outgoing_type == "smtp":
                 # Use master credentials if enabled
-                if self.mail_settings.SOGO_D_SMTP_MASTER_ENABLED:
+                if is_system and self.mail_settings.SOGO_D_SMTP_MASTER_ENABLED:
                     conf["username"] = self.mail_settings.SOGO_D_SMTP_MASTER_LOGIN
                     conf["password"] = decrypt_password(self.mail_settings.SOGO_D_SMTP_MASTER_PWD)
                     conf["authname"] = self.user.login_mail_outgoing
@@ -144,14 +147,14 @@ class ModuleMailOutgoing:
             message["Cc"] = ", ".join(cc)
         if bcc := mail_data.get("bcc"):
             message["Bcc"] = ", ".join(bcc)
-        if return_receipt := mail_data.get("return_receipt"):
-            message["Disposition-Notification-To"] = return_receipt  # RFC 3798
-            message["Return-Receipt-To"] = return_receipt             # RFC 3885
+        if mail_data.get("return_receipt", False):
+            message["Disposition-Notification-To"] = message["From"]  # RFC 3798
+            message["Return-Receipt-To"] = message["From"]             # RFC 3885
 
         # --- Message-ID: generate once, never overwrite ---
         if "Message-ID" not in message:
             _, addr = parseaddr(mail_data.get("from_addr", ""))
-            domain = addr.split("@")[-1] if "@" in addr else "localhost"
+            domain = get_domain_from_mail(addr)
             message["Message-ID"] = make_msgid(domain=domain)
 
         # --- Date: always reflect the actual send time ---
@@ -165,7 +168,8 @@ class ModuleMailOutgoing:
                 if header_name not in message:
                     message[header_name] = header_value
 
-        message.set_content(mail_data["body"])
+        message.set_content(mail_data["body"], subtype = "plain")
+        message.set_content(mail_data["body"], subtype = "html")
 
         for attachment in (mail_data.get("attachments") or []):
             try:

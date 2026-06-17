@@ -113,24 +113,6 @@ class InterfaceApiMailMail:
             logger_api.error("Request exception in reply_mail: %s", str(ex))
             return create_api_base_response(None, ex.error)
 
-    def forward_mail(self, account_id: str, folder_name: str, mail_uid: str) -> tuple[dict[str, Any], int]:
-        """Forward a specific mail.
-
-        :param account_id: The ID of the account
-        :type account_id: str
-        :param folder_name: The ID of the folder
-        :type folder_name: str
-        :param mail_uid: The unique identifier of the mail
-        :type mail_uid: str
-        :return: A tuple of (API response dict, status code)
-        :rtype: tuple[dict[str, Any], int]
-        """
-        try:
-            forward_data = self.mail_module.forward_mail(account_id, folder_name, mail_uid)
-            return create_api_base_response(forward_data)
-        except RequestException as ex:
-            logger_api.error("Request exception in forward_mail: %s", str(ex))
-            return create_api_base_response(None, ex.error)
 
     def get_mail_raw(self, account_id: str, folder_name: str, mail_uid: str) -> tuple[dict[str, Any], int]:
         """Retrieve the raw content of a specific mail.

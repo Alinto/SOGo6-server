@@ -73,7 +73,7 @@ class EventRelationSchema(Schema):
     relation_type = fields.String(validate=validate.OneOf(_RELATION_VALUES))
 
 
-class AttachmentSchema(Schema):
+class AttachmentCalendarSchema(Schema):
     """Event attachment (RFC 5545 ATTACH)."""
 
     filename = fields.String(allow_none=True)

@@ -1,27 +1,28 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Any, Iterator
+from typing import TYPE_CHECKING, Any, Iterator, cast
 
+import email as email_existing
+import email.mime.text
+import email.policy
 from email.header import decode_header, make_header
+from email.message import EmailMessage
 from email.message import Message
 from email.utils import parseaddr, getaddresses, make_msgid, formatdate
 from io import BytesIO
 from re import search as reg_search
 import zipfile
-from email.message import EmailMessage
-import email.policy
-import email as email_existing
-import email.mime.text
+
 
 from app.config.settings.UserSettings import UserMailViewSettings, UserMailViewSettingsObj, UserMailGeneralSettings
 from app.module.mail.model.TmpDraftManager import TmpDraftManager
 from app.manager.mail.ClientMailServer import ClientMailServer
 from app.utils import constants as cs
 from app.utils import errors as err
-from app.utils.exceptions import RequestException
+from app.utils.exceptions import RequestException, BugException
 from app.utils.maths.crypto_utils import decrypt_password
 from app.utils.module.importManager import import_and_instantiate_manager
 from app.utils.logger.logger import logger_mail_server
-from app.utils.strings import get_imap_config_from_url
+from app.utils.strings import get_imap_config_from_url, get_domain_from_mail, get_domain_from_contact
 from app.utils.constants import DELETE_MAIL_BEHAVIOR_MAP
 
 if TYPE_CHECKING:
@@ -55,7 +56,6 @@ class ModuleMail:
         :raises BugException: If the module was instantiated without a process_setting.
         :raises RequestException: If the DB connection fails.
         """
-        from app.utils.exceptions import BugException
         if self._process_setting is None:
             raise BugException("ModuleMail was instantiated without a process_setting but a DB operation was requested")
         if self._db is None:
@@ -387,12 +387,12 @@ class ModuleMail:
                     logger_mail_server.info("Deleted ACL for folder '%s', user '%s' (no rights specified)", folder_path, identifier)
                 except RequestException as e:
                     logger_mail_server.warning("Failed to delete ACL for user '%s': %s", identifier, e)
-        
+
         yield from client.get_acl(folder_path)
 
-#######
-#MAILS#
-#######
+##############
+#MAILS SERVER#
+##############
 
     def _parse_mail(self, mail_dict:dict) -> dict:
         """
@@ -456,34 +456,34 @@ class ModuleMail:
         :rtype: dict
         """
         uid = mail_dict["uid"]
-        email: Message = mail_dict["mail"]
+        email_msg: Message = mail_dict["mail"]
         flags_dict: dict = mail_dict["flags"]
         size = mail_dict["size"]
 
         # Parse subject
         try:
-            subject = str(make_header(decode_header(email.get("Subject", ""))))
+            subject = str(make_header(decode_header(email_msg.get("Subject", ""))))
         except (UnicodeDecodeError, AttributeError) as e:
             logger_mail_server.warning("Error decoding subject for UID %s: %s", uid, e)
             subject = ""
 
         # Parse addresses
         try:
-            from_addr = parseaddr(email.get("From", ""))
+            from_addr = parseaddr(email_msg.get("From", ""))
             from_ = {"name": from_addr[0], "email": from_addr[1]}
-            to = [{"name": addr[0], "email": addr[1]} for addr in getaddresses([email.get("To", "")])]
-            cc = [{"name": addr[0], "email": addr[1]} for addr in getaddresses([email.get("Cc", "")])]
-            reply_to = [{"name": addr[0], "email": addr[1]} for addr in getaddresses([email.get("In-Reply-To", "")])]
-            return_path = email.get("Return-Path", "")
+            to = [{"name": addr[0], "email": addr[1]} for addr in getaddresses([email_msg.get("To", "")])]
+            cc = [{"name": addr[0], "email": addr[1]} for addr in getaddresses([email_msg.get("Cc", "")])]
+            reply_to = [{"name": addr[0], "email": addr[1]} for addr in getaddresses([email_msg.get("In-Reply-To", "")])]
+            return_path = email_msg.get("Return-Path", "")
         except (AttributeError, TypeError) as e:
             logger_mail_server.warning("Error parsing addresses for UID %s: %s", uid, e)
             from_, to, cc, reply_to = {"name": "", "email": ""}, [], [], []
 
         # Parse date
-        date = email.get("Date", "")
+        date = email_msg.get("Date", "")
 
         # Parse priority
-        priority_header = email.get("X-Priority", None)
+        priority_header = email_msg.get("X-Priority", None)
         priority = 3  # default value
 
         if priority_header:
@@ -497,7 +497,7 @@ class ModuleMail:
                     priority = 3
 
         # Check for read receipt
-        should_ask_receipt = bool(email.get("Disposition-Notification-To") or email.get("Return-Receipt-To"))
+        should_ask_receipt = bool(email_msg.get("Disposition-Notification-To") or email_msg.get("Return-Receipt-To"))
 
         # Parse content, attachments, and encryption info
         contents = []
@@ -508,7 +508,7 @@ class ModuleMail:
         mail_type_data: list[dict[str, Any]] = []
         has_walked = False
 
-        for part in email.walk():
+        for part in email_msg.walk():
             #The first part will be the full email, skip it
             if part.get_content_maintype() == "multipart":
                 continue
@@ -608,7 +608,7 @@ class ModuleMail:
             if mail_dict.get("has_contact", False):
                 mail_type.append("contact")
 
-        
+
         # Build mail entry with full details
         return {
             "uid": str(uid),
@@ -782,13 +782,13 @@ class ModuleMail:
         :raises RequestException: If fetching the mail, creating the draft, or the DB
             operation fails.
         """
-        tmpdraftmngr = TmpDraftManager(self._get_db(), self.user.uid)
+        tmp_draft_mngr = TmpDraftManager(self._get_db(), self.user.uid)
 
         client = self._open_client_for(account_id)
 
         try:
             raw_eml = client.fetch_mail_raw(folder_name, mail_uid)
-            message = email_existing.message_from_string(raw_eml, policy=email.policy.default)
+            message = cast(EmailMessage, email_existing.message_from_string(raw_eml, policy=email.policy.default)) # type: ignore [arg-type]
             raw_draft = client.save_draft(message, uid=None)
         except RequestException:
             raise
@@ -796,9 +796,9 @@ class ModuleMail:
             raise RequestException(err.ERROR_MAIL_EDIT_FAILED.m, error=err.ERROR_MAIL_EDIT_FAILED) from ex
 
         new_mail_server_uid: str = raw_draft.get("uid", "")
-        new_key = tmpdraftmngr.generate_key()
-        tmpdraftmngr.insert_locked(new_key)
-        tmpdraftmngr.release(new_key, new_mail_server_uid)
+        new_key = tmp_draft_mngr.generate_key()
+        tmp_draft_mngr.insert_locked(new_key)
+        tmp_draft_mngr.release(new_key, new_mail_server_uid)
 
         # delete the original mail from its source folder
         try:
@@ -877,14 +877,14 @@ class ModuleMail:
         :raises RequestException: If fetching the mail, creating the draft, or the DB
             operation fails.
         """
-        tmpdraftmngr = TmpDraftManager(self._get_db(), self.user.uid)
+        tmp_draft_mngr = TmpDraftManager(self._get_db(), self.user.uid)
 
         client = self._open_client_for(account_id)
 
         try:
             # --- Step 1: fetch the original mail and extract threading headers ---
             raw_eml = client.fetch_mail_raw(folder_name, mail_uid)
-            original = email_existing.message_from_string(raw_eml, policy=email.policy.default)
+            original = email_existing.message_from_string(raw_eml, policy=email.policy.default) # type: ignore [arg-type]
 
             original_message_id: str = original.get("Message-ID", "").strip()
             original_references: str = original.get("References", "").strip()
@@ -922,8 +922,8 @@ class ModuleMail:
         new_mail_server_uid: str = raw_draft.get("uid", "")
 
         # --- Step 3: insert tmp_draft row with threading headers ---
-        new_key = tmpdraftmngr.generate_key()
-        tmpdraftmngr.insert_with_headers(new_key, new_mail_server_uid, threading_headers)
+        new_key = tmp_draft_mngr.generate_key()
+        tmp_draft_mngr.insert_with_headers(new_key, new_mail_server_uid, threading_headers)
 
         mail_detail = self.get_mail_detail(account_id, folder_name, mail_uid)
 
@@ -933,17 +933,6 @@ class ModuleMail:
         }
         return result
 
-    def forward_mail(self, account_id: str, folder_name: str, mail_uid: str) -> dict[str, Any]:
-        """Forward a specific mail.
-        
-        :param folder_name: The name of the folder
-        :type folder_name: str
-        :param mail_uid: The unique identifier of the mail
-        :type mail_uid: str
-        :return: Forward data
-        :rtype: dict[str, Any]
-        """
-        raise NotImplementedError("Message from ModuleMail.py: forward_mail is not implemented yet")
 
     def get_mail_raw(self, account_id: str, folder_name: str, mail_uid: str) -> dict[str, Any]:
         """Retrieve the raw content of a specific mail.
@@ -985,16 +974,17 @@ class ModuleMail:
         :raises RequestException: If any validation or operation fails
         """
 
-        tmpdraftmngr = TmpDraftManager(self._get_db(), self.user.uid)
+        tmp_draft_mngr = TmpDraftManager(self._get_db(), self.user.uid)
 
-        with tmpdraftmngr.locked(key, wait_if_locked=False) as (resolved_key, mail_server_uid):
+        with tmp_draft_mngr.locked(key, wait_if_locked=False) as (resolved_key, mail_server_uid):
             client = self._open_client_for(account_id)
 
             # --- Fetch existing draft to preserve attachments, or start fresh ---
+            message: EmailMessage
             if mail_server_uid is not None:
-                folder_path = client.folders_map_type_to_name[cs.MAIL_FOLDER_DRAFT]
+                folder_path = self.domain_mail_folder_name[cs.MAIL_FOLDER_DRAFT]
                 raw_eml = client.fetch_mail_raw(folder_path, mail_server_uid)
-                message = email_existing.message_from_string(raw_eml, policy=email.policy.default)
+                message = cast(EmailMessage, email_existing.message_from_string(raw_eml, _class=EmailMessage, policy=email.policy.default)) # type: ignore [arg-type]
             else:
                 message = EmailMessage()
 
@@ -1003,7 +993,8 @@ class ModuleMail:
                 if header in message:
                     del message[header]
 
-            if from_addr := mail_data.get("from_addr"):
+            from_addr = mail_data.get("from_addr")
+            if from_addr:
                 message["From"] = from_addr
             if to_list := mail_data.get("to"):
                 message["To"] = ", ".join(to_list)
@@ -1013,15 +1004,15 @@ class ModuleMail:
                 message["Cc"] = ", ".join(cc)
             if bcc := mail_data.get("bcc"):
                 message["Bcc"] = ", ".join(bcc)
-            if return_receipt := mail_data.get("return_receipt"):
-                message["Disposition-Notification-To"] = return_receipt  # RFC 3798
-                message["Return-Receipt-To"] = return_receipt             # RFC 3885
+
+            if mail_data.get("return_receipt", False) and from_addr:
+                message["Disposition-Notification-To"] = from_addr  # RFC 3798
+                message["Return-Receipt-To"] = from_addr             # RFC 3885
 
             # --- Message-ID: generate once, never overwrite ---
             if "Message-ID" not in message:
                 from_addr = mail_data.get("from_addr", "")
-                _, addr = parseaddr(from_addr)
-                domain = addr.split("@")[-1] if "@" in addr else "localhost"
+                domain = get_domain_from_contact(from_addr)
                 message["Message-ID"] = make_msgid(domain=domain)
 
             # --- Date: always reflect the current save time ---
@@ -1039,22 +1030,20 @@ class ModuleMail:
                         break
                 else:
                     # No text/plain part found; attach one
-                    message.attach(email.mime.text.MIMEText(body_text, "plain"))
+                    message.attach(email.mime.text.MIMEText(body_text, "plain")) # type: ignore [arg-type]
             else:
                 message.set_content(body_text)
 
             raw_draft = client.save_draft(message, mail_server_uid)
             new_mail_server_uid: str = raw_draft.get("uid", "")
 
-            tmpdraftmngr.release(resolved_key, new_mail_server_uid)
+            tmp_draft_mngr.release(resolved_key, new_mail_server_uid)
 
         if close:
-            tmpdraftmngr.delete(resolved_key)
+            tmp_draft_mngr.delete(resolved_key)
 
         parsed = self._parse_mail(raw_draft)
         parsed["key"] = resolved_key
-        #remove uid from parsed?
-        # TODO: parsed.pop("uid", None)
         return parsed
 
     @staticmethod
@@ -1113,21 +1102,20 @@ class ModuleMail:
         :rtype: dict[str, Any]
         :raises RequestException: If any validation or operation fails
         """
-        import email as email_existing
+        tmp_draft_mngr = TmpDraftManager(self._get_db(), self.user.uid)
 
-        tmpdraftmngr = TmpDraftManager(self._get_db(), self.user.uid)
-
-        with tmpdraftmngr.locked(key, wait_if_locked=True) as (resolved_key, mail_server_uid):
+        with tmp_draft_mngr.locked(key, wait_if_locked=True) as (resolved_key, mail_server_uid):
             attachments: list[str] = []
             try:
                 client = self._open_client_for(account_id)
 
                 # --- Fetch existing draft or start with an empty message ---
+                message: EmailMessage
                 if mail_server_uid is not None:
-                    folder_path = client.folders_map_type_to_name[cs.MAIL_FOLDER_DRAFT]
+                    folder_path = self.domain_mail_folder_name[cs.MAIL_FOLDER_DRAFT]
                     raw_eml = client.fetch_mail_raw(folder_path, mail_server_uid)
                     # Parse directly as EmailMessage (policy=default) so we can call add_attachment() on it
-                    message = email_existing.message_from_string(raw_eml, policy=email.policy.default)
+                    message = cast(EmailMessage, email_existing.message_from_string(raw_eml, _class=EmailMessage, policy=email.policy.default)) # type: ignore [arg-type]
                     # Collect already-present attachment filenames for the response
                     for part in message.walk():
                         if part.get_content_disposition() == "attachment":
@@ -1142,8 +1130,7 @@ class ModuleMail:
 
                 # --- Message-ID: generate once, never overwrite ---
                 if "Message-ID" not in message:
-                    _, addr = parseaddr(self.user.mail)
-                    domain = addr.split("@")[-1] if "@" in addr else "localhost"
+                    domain = get_domain_from_mail(self.user.mail)
                     message["Message-ID"] = make_msgid(domain=domain)
 
                 # --- Date: always reflect the current upload time ---
@@ -1163,7 +1150,7 @@ class ModuleMail:
                     raise RequestException(err.ERROR_TMP_DRAFT_ATTACHMENT_FAILED.m, error=err.ERROR_TMP_DRAFT_ATTACHMENT_FAILED) from ex
                 raise
 
-            tmpdraftmngr.release(resolved_key, new_mail_server_uid)
+            tmp_draft_mngr.release(resolved_key, new_mail_server_uid)
 
         return {
             "key": resolved_key,
@@ -1185,17 +1172,17 @@ class ModuleMail:
         :type filename: str
         :raises RequestException: If the key is invalid, attachment not found, or IMAP operation fails.
         """
-        tmpdraftmngr = TmpDraftManager(self._get_db(), self.user.uid)
+        tmp_draft_mngr = TmpDraftManager(self._get_db(), self.user.uid)
 
-        with tmpdraftmngr.locked(key, wait_if_locked=False) as (resolved_key, mail_server_uid):
+        with tmp_draft_mngr.locked(key, wait_if_locked=False) as (resolved_key, mail_server_uid):
             try:
                 if mail_server_uid is None:
                     raise RequestException(err.ERROR_TMP_DRAFT_ATTACHMENT_NOT_FOUND.m, error=err.ERROR_TMP_DRAFT_ATTACHMENT_NOT_FOUND)
 
                 client = self._open_client_for(account_id)
-                folder_path = client.folders_map_type_to_name[cs.MAIL_FOLDER_DRAFT]
+                folder_path = self.domain_mail_folder_name[cs.MAIL_FOLDER_DRAFT]
                 raw_eml = client.fetch_mail_raw(folder_path, mail_server_uid)
-                message = email_existing.message_from_string(raw_eml, policy=email.policy.default)
+                message = cast(EmailMessage, email_existing.message_from_string(raw_eml, policy=email.policy.default)) # type: ignore [arg-type]
 
                 if not self._remove_attachment_from_message(message, filename):
                     raise RequestException(err.ERROR_TMP_DRAFT_ATTACHMENT_NOT_FOUND.m, error=err.ERROR_TMP_DRAFT_ATTACHMENT_NOT_FOUND)
@@ -1207,7 +1194,7 @@ class ModuleMail:
                     raise RequestException(err.ERROR_TMP_DRAFT_DELETE_ATTACHMENT_FAILED.m, error=err.ERROR_TMP_DRAFT_DELETE_ATTACHMENT_FAILED) from ex
                 raise
 
-            tmpdraftmngr.release(resolved_key, new_mail_server_uid)
+            tmp_draft_mngr.release(resolved_key, new_mail_server_uid)
 
     @staticmethod
     def _remove_attachment_from_message(message: Message, filename: str) -> bool:
@@ -1227,14 +1214,17 @@ class ModuleMail:
         if not message.is_multipart():
             return False
 
-        payload: list = message.get_payload()
-        for i, part in enumerate(payload):
-            if part.get_content_disposition() == "attachment" and part.get_filename() == filename:
-                del payload[i]
-                message.set_payload(payload)
-                return True
-            if part.is_multipart() and ModuleMail._remove_attachment_from_message(part, filename):
-                return True
+        payload = message.get_payload()
+        if isinstance(payload, list):
+            for i, part in enumerate(payload):
+                if part.get_content_disposition() == "attachment" and part.get_filename() == filename:
+                    del payload[i]
+                    message.set_payload(payload)
+                    return True
+                if part.is_multipart() and ModuleMail._remove_attachment_from_message(part, filename):
+                    return True
+        else:
+            raise BugException(f"Unexpected result of message.get_payload(), expected list and get: '{type(payload)}'")
 
         return False
 
@@ -1254,19 +1244,17 @@ class ModuleMail:
         :raises RequestException: If the tmp_draft row is not found, the owner
             doesn't match, or the IMAP fetch fails.
         """
-        import email as email_existing
-
-        tmpdraftmngr = TmpDraftManager(self._get_db(), self.user.uid)
-        _key, row_owner, mail_server_uid, _locked = tmpdraftmngr.fetch_row(key)
-        tmpdraftmngr.check_owner(row_owner)
+        tmp_draft_mngr = TmpDraftManager(self._get_db(), self.user.uid)
+        _key, row_owner, mail_server_uid, _locked = tmp_draft_mngr.fetch_row(key)
+        tmp_draft_mngr.check_owner(row_owner)
 
         if not mail_server_uid:
             return []
 
         client = self._open_client_for(account_id)
-        folder_path = client.folders_map_type_to_name[cs.MAIL_FOLDER_DRAFT]
+        folder_path = self.domain_mail_folder_name[cs.MAIL_FOLDER_DRAFT]
         raw_eml = client.fetch_mail_raw(folder_path, mail_server_uid)
-        message = email_existing.message_from_string(raw_eml, policy=email.policy.default)
+        message = email_existing.message_from_string(raw_eml, policy=email.policy.default) # type: ignore [arg-type]
 
         attachments: list[dict] = []
         for part in message.walk():
@@ -1281,7 +1269,7 @@ class ModuleMail:
                 })
         return attachments
 
-    def download_draft_attachment(self, account_id: str, key: str, filename: str) -> tuple[bytes, str]:
+    def download_draft_attachment(self, account_id: str, key: str, filename: str) -> tuple[Any, str]:
         """Download a single attachment from the IMAP draft linked to *key*.
 
         Fetches the raw EML from the Drafts folder for the given tmp_draft key,
@@ -1299,17 +1287,17 @@ class ModuleMail:
         :raises RequestException: If the tmp_draft row is not found, the owner
             doesn't match, the attachment is not found, or the IMAP fetch fails.
         """
-        tmpdraftmngr = TmpDraftManager(self._get_db(), self.user.uid)
-        _key, row_owner, mail_server_uid, _locked = tmpdraftmngr.fetch_row(key)
-        tmpdraftmngr.check_owner(row_owner)
+        tmp_draft_mngr = TmpDraftManager(self._get_db(), self.user.uid)
+        _key, row_owner, mail_server_uid, _locked = tmp_draft_mngr.fetch_row(key)
+        tmp_draft_mngr.check_owner(row_owner)
 
         if not mail_server_uid:
             raise RequestException(err.ERROR_TMP_DRAFT_ATTACHMENT_NOT_FOUND.m, error=err.ERROR_TMP_DRAFT_ATTACHMENT_NOT_FOUND)
 
         client = self._open_client_for(account_id)
-        folder_path = client.folders_map_type_to_name[cs.MAIL_FOLDER_DRAFT]
+        folder_path = self.domain_mail_folder_name[cs.MAIL_FOLDER_DRAFT]
         raw_eml = client.fetch_mail_raw(folder_path, mail_server_uid)
-        message = email_existing.message_from_string(raw_eml, policy=email.policy.default)
+        message = email_existing.message_from_string(raw_eml, policy=email.policy.default) # type: ignore [arg-type]
 
         for part in message.walk():
             if part.get_content_disposition() == "attachment" and part.get_filename() == filename:
@@ -1326,9 +1314,9 @@ class ModuleMail:
         :type key: str
         :raises RequestException: 404 if key not found, 401 if owner mismatch, 409 if locked.
         """
-        tmpdraftmngr = TmpDraftManager(self._get_db(), self.user.uid)
-        _key, row_owner, _uid, row_locked = tmpdraftmngr.fetch_row(key)
-        tmpdraftmngr.check_owner(row_owner)
+        tmp_draft_mngr = TmpDraftManager(self._get_db(), self.user.uid)
+        _key, row_owner, _uid, row_locked = tmp_draft_mngr.fetch_row(key)
+        tmp_draft_mngr.check_owner(row_owner)
         if row_locked:
             raise RequestException(err.ERROR_TMP_DRAFT_LOCKED.m, error=err.ERROR_TMP_DRAFT_LOCKED)
 
@@ -1342,10 +1330,10 @@ class ModuleMail:
         :rtype: dict
         :raises RequestException: 404 if key not found, 401 if owner mismatch.
         """
-        tmpdraftmngr = TmpDraftManager(self._get_db(), self.user.uid)
-        _key, row_owner, _uid, _locked = tmpdraftmngr.fetch_row(key)
-        tmpdraftmngr.check_owner(row_owner)
-        return tmpdraftmngr.fetch_headers(key)
+        tmp_draft_mngr = TmpDraftManager(self._get_db(), self.user.uid)
+        _key, row_owner, _uid, _locked = tmp_draft_mngr.fetch_row(key)
+        tmp_draft_mngr.check_owner(row_owner)
+        return tmp_draft_mngr.fetch_headers(key)
 
     def delete_tmp_draft(self, key: str, account_id: str | None = None) -> None:
         """Delete a tmp_draft row by key, and remove the associated IMAP draft if present.
@@ -1361,18 +1349,18 @@ class ModuleMail:
         :type account_id: str | None
         :raises RequestException: If deletion fails.
         """
-        tmpdraftmngr = TmpDraftManager(self._get_db(), self.user.uid)
+        tmp_draft_mngr = TmpDraftManager(self._get_db(), self.user.uid)
 
         if account_id is not None:
             try:
-                _key, _owner, mail_server_uid, _locked = tmpdraftmngr.fetch_row(key)
+                _key, _owner, mail_server_uid, _locked = tmp_draft_mngr.fetch_row(key)
                 if mail_server_uid:
                     client = self._open_client_for(account_id)
                     client.delete_mail_permanently_from_folder_type(cs.MAIL_FOLDER_DRAFT, mail_server_uid)
             except RequestException:
                 logger_mail_server.warning("Failed to delete IMAP draft for uid %s", mail_server_uid)
 
-        tmpdraftmngr.delete(key)
+        tmp_draft_mngr.delete(key)
 
     def delete_draft_and_tmp(self, account_id: str, key: str) -> None:
         """Delete the IMAP draft and its tmp_draft row.
@@ -1385,9 +1373,9 @@ class ModuleMail:
         :type key: str
         :raises RequestException: 404 if not found, 401 if wrong owner, 409 if locked.
         """
-        tmpdraftmngr = TmpDraftManager(self._get_db(), self.user.uid)
-        _key, row_owner, mail_server_uid, row_locked = tmpdraftmngr.fetch_row(key)
-        tmpdraftmngr.check_owner(row_owner)
+        tmp_draft_mngr = TmpDraftManager(self._get_db(), self.user.uid)
+        _key, row_owner, mail_server_uid, row_locked = tmp_draft_mngr.fetch_row(key)
+        tmp_draft_mngr.check_owner(row_owner)
         if row_locked:
             raise RequestException(err.ERROR_TMP_DRAFT_LOCKED.m, error=err.ERROR_TMP_DRAFT_LOCKED)
 
@@ -1398,7 +1386,7 @@ class ModuleMail:
             except RequestException:
                 logger_mail_server.warning("Failed to delete IMAP draft for uid %s on delete endpoint", mail_server_uid)
 
-        tmpdraftmngr.delete(key)
+        tmp_draft_mngr.delete(key)
 
     def close_draft(self, key: str) -> None:
         """Remove the tmp_draft row without deleting the IMAP draft.
@@ -1409,12 +1397,12 @@ class ModuleMail:
         :type key: str
         :raises RequestException: 404 if not found, 401 if wrong owner, 409 if locked.
         """
-        tmpdraftmngr = TmpDraftManager(self._get_db(), self.user.uid)
-        _key, row_owner, _uid, row_locked = tmpdraftmngr.fetch_row(key)
-        tmpdraftmngr.check_owner(row_owner)
+        tmp_draft_mngr = TmpDraftManager(self._get_db(), self.user.uid)
+        _key, row_owner, _uid, row_locked = tmp_draft_mngr.fetch_row(key)
+        tmp_draft_mngr.check_owner(row_owner)
         if row_locked:
             raise RequestException(err.ERROR_TMP_DRAFT_LOCKED.m, error=err.ERROR_TMP_DRAFT_LOCKED)
-        tmpdraftmngr.delete(key)
+        tmp_draft_mngr.delete(key)
 
     def list_current_drafts(self) -> list[dict]:
         """Return all tmp_draft entries owned by the current user.
@@ -1422,8 +1410,8 @@ class ModuleMail:
         :return: List of dicts with ``key``, ``mail_server_uid``, ``locked``.
         :rtype: list[dict]
         """
-        tmpdraftmngr = TmpDraftManager(self._get_db(), self.user.uid)
-        return tmpdraftmngr.list_all()
+        tmp_draft_mngr = TmpDraftManager(self._get_db(), self.user.uid)
+        return tmp_draft_mngr.list_all()
 
     def save_mail_to_folder(self, account_id: str, message: EmailMessage, folder_type: str) -> None:
         """Append an already-built email message to a folder identified by its type.
@@ -1583,7 +1571,6 @@ class ModuleMail:
         :rtype: dict[str, Any]
         :raises RequestException: If operation fails
         """
-        #TODO mechanism to store the origin folder in the tag so when set as ham
         junk_folder = self.domain_mail_folder_name.get(cs.MAIL_FOLDER_JUNK, "Junk")
         client.copy_mail_to_mailbox(folder_name, mail_uid, junk_folder, create_dest=True)
         client.add_flags_to_mail(folder_name, mail_uid, ['\\Deleted'])

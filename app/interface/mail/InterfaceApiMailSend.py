@@ -1,16 +1,13 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Dict, Any, Union, Tuple
-from http import HTTPStatus
+from typing import TYPE_CHECKING
 
-from flask import request
 
 from app.config.settings.DomainSettings import UserModuleSettings, UserModuleSettingsObj, MailSettings, MailSettingsObj
 from app.module.mail.ModuleMail import ModuleMail
 from app.module.mail.ModuleMailOutgoing import ModuleMailOutgoing
 from app.module.user.ModuleUserProfile import ModuleUserProfile
-from app.utils.exceptions import RequestException, BugException
+from app.utils.exceptions import RequestException
 from app.utils.api.ApiBaseResponse import create_api_base_response
-from app.utils import errors as err
 from app.utils import constants as cs
 from app.utils.logger.logger import logger_api
 
@@ -30,7 +27,7 @@ class InterfaceApiMailSend:
         self,
         process_setting: ProcessSetting,
         user: User,
-        user_domain: Dict
+        user_domain: dict
     ) -> None:
         self.process_setting = process_setting
         self.user = user
