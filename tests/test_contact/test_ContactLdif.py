@@ -61,14 +61,25 @@ def test_list_serialize_groupofnames_and_skip_in_contacts():
                          member_contacts=[CardContact(display_name="Alice", uid="m1")])
     text = CardListSerializerLdif().serialize(card_list)
     assert "objectClass: groupOfNames" in text
-    assert "member: cn=Alice,ou=contacts" in text
+    assert "member: cn=Alice+uid=m1,ou=contacts" in text  # uid in the member RDN keeps the DN unique
     # A groupOfNames record must not be read back as a contact.
     assert CardContactsDeserializerLdif().deserialize(text) == []
     back = CardListDeserializerLdif().deserialize(text)
     assert back.name == "Team" and back.description == "The team"
-    assert back.members == ["cn=Alice,ou=contacts"]  # member DNs, resolved at import time
+    assert back.members == ["cn=Alice+uid=m1,ou=contacts"]  # member DNs, resolved at import time
+
+
+def test_empty_group_is_skipped():
+    # A groupOfNames must carry at least one member (RFC 4519); an empty group serializes to nothing.
+    assert CardListSerializerLdif().serialize(CardList(name="Empty")) == ""
+
+
+def test_contact_dn_includes_uid_for_uniqueness():
+    text = CardContactSerializerLdif().serialize(CardContact(display_name="John Doe", uid="u-9"))
+    assert "dn: cn=John Doe+uid=u-9,ou=contacts" in text
 
 
 def test_dn_escapes_special_characters_in_cn():
-    text = CardListSerializerLdif().serialize(CardList(name="Sales, Inc. + Co"))
+    card_list = CardList(name="Sales, Inc. + Co", member_contacts=[CardContact(display_name="Alice", uid="m1")])
+    text = CardListSerializerLdif().serialize(card_list)
     assert "dn: cn=Sales\\, Inc. \\+ Co,ou=contacts" in text

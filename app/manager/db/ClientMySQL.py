@@ -491,7 +491,7 @@ class ClientMySQL(ClientSQL):
                 order_terms.append(f"MATCH ({_col_ref(rank_by.param_name)}) AGAINST (%s IN BOOLEAN MODE) DESC")
                 params.append(_boolean_prefix(rank_terms))
         if sort_by:
-            order_terms.append(f"`{sort_by}` {'ASC' if order == Order.ASC else 'DESC'}")
+            order_terms.append(f"{_col_ref(sort_by)} {'ASC' if order == Order.ASC else 'DESC'}")
         order_clause = f" ORDER BY {', '.join(order_terms)}" if order_terms else ""
 
         # Build LIMIT and OFFSET clauses

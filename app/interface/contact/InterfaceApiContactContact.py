@@ -87,19 +87,21 @@ class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attribute
         # as a one-item document, like a single vCard is one card. JSON is the framework's native format
         # (no dedicated serializer class): the AddressBookContent <-> dict mapping is the Dict serializer's
         # job, the dict <-> JSON string is done inline here (json.dumps / json.loads).
+        self._book_dict_serializer: AddressBookContentSerializerDict = AddressBookContentSerializerDict()
+        self._book_dict_deserializer: AddressBookContentDeserializerDict = AddressBookContentDeserializerDict()
         self._book_export_serializers: dict[ContactExportFormat, Callable[[AddressBookContent], str]] = {
             ContactExportFormat.VCARD4: AddressBookContentSerializerVcard(
                 CardContactSerializerVcard4(), CardListSerializerVcard4()).serialize,
             ContactExportFormat.VCARD3: AddressBookContentSerializerVcard(
                 CardContactSerializerVcard3(), CardListSerializerVcard3()).serialize,
             ContactExportFormat.LDIF: AddressBookContentSerializerLdif().serialize,
-            ContactExportFormat.JSON: lambda content: json.dumps(AddressBookContentSerializerDict().serialize(content)),
+            ContactExportFormat.JSON: lambda content: json.dumps(self._book_dict_serializer.serialize(content)),
         }
         self._import_deserializers: dict[str, Callable[[str], AddressBookContent]] = {
             "vcard3": AddressBookContentDeserializerVcard().deserialize,
             "vcard4": AddressBookContentDeserializerVcard().deserialize,
             "ldif": AddressBookContentDeserializerLdif().deserialize,
-            "json": lambda document: AddressBookContentDeserializerDict().deserialize(json.loads(document)),
+            "json": lambda document: self._book_dict_deserializer.deserialize(json.loads(document)),
         }
         self._import_result_serializer: ContactImportResultSerializerDict = ContactImportResultSerializerDict()
 

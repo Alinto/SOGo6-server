@@ -16,7 +16,7 @@ class CardContactSerializerLdif(CardContactSerializer[str]):
 
     def serialize(self, data: CardContact) -> str:
         common_name: str = data.display_name or self._fallback_cn(data)
-        lines: list[str] = [FormatEngineLdif.emit_attr(ld.ATTR_DN, self._dn(common_name))]
+        lines: list[str] = [FormatEngineLdif.emit_attr(ld.ATTR_DN, FormatEngineLdif.build_dn(common_name, data.uid))]
         for object_class in (ld.OC_TOP, ld.OC_PERSON, ld.OC_ORGANIZATIONAL_PERSON, ld.OC_INETORGPERSON):
             lines.append(FormatEngineLdif.emit_attr(ld.ATTR_OBJECTCLASS, object_class))
         lines.append(FormatEngineLdif.emit_attr(ld.ATTR_CN, common_name))
@@ -64,11 +64,6 @@ class CardContactSerializerLdif(CardContactSerializer[str]):
             (ld.ATTR_STREET, address.street), (ld.ATTR_L, address.locality), (ld.ATTR_ST, address.region),
             (ld.ATTR_POSTALCODE, address.postal_code), (ld.ATTR_C, address.country)]
         return [FormatEngineLdif.emit_attr(attr, value) for attr, value in pairs if value]
-
-    @staticmethod
-    def _dn(common_name: str) -> str:
-        """Build the entry distinguished name from the common name (escaped per RFC 4514)."""
-        return f"{ld.ATTR_CN}={FormatEngineLdif.escape_dn(common_name)},{ld.BASE_DN}"
 
     @staticmethod
     def _fallback_cn(data: CardContact) -> str:
