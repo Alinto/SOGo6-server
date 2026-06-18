@@ -8,7 +8,7 @@ from typing import Any
 from marshmallow import Schema, ValidationError, fields, validate
 
 from app.api.v1.calendar.schemas.components import (
-    AttachmentSchema, AttendeeSchema, ConferenceDataSchema, DatesWithTzSchema, EventRelationSchema,
+    AttachmentCalendarSchema, AttendeeSchema, ConferenceDataSchema, DatesWithTzSchema, EventRelationSchema,
     OrganizerSchema, RecurrenceRuleSchema, ReminderSchema,
 )
 from app.module.calendar.CalendarConst import MAX_EVENT_DESCRIPTION_LENGTH, MAX_EVENT_LOCATION_LENGTH, MAX_EVENT_TITLE_LENGTH
@@ -63,12 +63,12 @@ class CalendarEventQueryArgsSchema(Schema):
     start_date_time = DateTimeUtcField(
         load_default=None,
         allow_none=True,
-        metadata={"description": "ISO 8601 UTC datetime — only return events ending after this instant."},
+        metadata={"description": "ISO 8601 UTC datetime - only return events ending after this instant."},
     )
     end_date_time = DateTimeEndUtcField(
         load_default=None,
         allow_none=True,
-        metadata={"description": "ISO 8601 UTC datetime or date — only return events starting before this instant. Date-only values default to 23:59:59 UTC."},
+        metadata={"description": "ISO 8601 UTC datetime or date - only return events starting before this instant. Date-only values default to 23:59:59 UTC."},
     )
     search = fields.String(
         load_default=None,
@@ -106,7 +106,7 @@ class CalendarEventSchema(Schema):
     reminders = fields.List(fields.Nested(ReminderSchema))
     conference_data = fields.Nested(ConferenceDataSchema, allow_none=True)
     related_to = fields.List(fields.Nested(EventRelationSchema))
-    attachments = fields.List(fields.Nested(AttachmentSchema))
+    attachments = fields.List(fields.Nested(AttachmentCalendarSchema))
     extra_properties = fields.Dict(keys=fields.String(), values=fields.String())
     created_at = fields.String(allow_none=True)
     updated_at = fields.String(allow_none=True)
@@ -152,7 +152,7 @@ class CalendarEventCreateSchema(Schema):
     reminders = fields.List(fields.Nested(ReminderSchema), load_default=list, metadata={"example": []})
     conference_data = fields.Nested(ConferenceDataSchema, load_default=None, allow_none=True, metadata={"example": None})
     related_to = fields.List(fields.Nested(EventRelationSchema), load_default=list, metadata={"example": []})
-    attachments = fields.List(fields.Nested(AttachmentSchema), load_default=list, metadata={"example": []})
+    attachments = fields.List(fields.Nested(AttachmentCalendarSchema), load_default=list, metadata={"example": []})
     extra_properties = fields.Dict(keys=fields.String(), values=fields.String(), load_default=dict, metadata={"example": {}})
     recurrence_rule = fields.Nested(RecurrenceRuleSchema, load_default=None, allow_none=True, metadata={"example": None})
     recurrence_exceptions = fields.List(fields.String(), load_default=list, metadata={"example": []})
@@ -183,7 +183,7 @@ class CalendarEventPatchSchema(Schema):
     reminders = fields.List(fields.Nested(ReminderSchema))
     conference_data = fields.Nested(ConferenceDataSchema, allow_none=True)
     related_to = fields.List(fields.Nested(EventRelationSchema))
-    attachments = fields.List(fields.Nested(AttachmentSchema))
+    attachments = fields.List(fields.Nested(AttachmentCalendarSchema))
     extra_properties = fields.Dict(keys=fields.String(), values=fields.String())
     recurrence_rule = fields.Nested(RecurrenceRuleSchema, allow_none=True)
     recurrence_exceptions = fields.List(fields.String())

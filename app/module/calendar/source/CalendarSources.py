@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 class CalendarSources:
     """Factory and lookup for CalendarSource instances.
 
-    Single entry point for all calendar access — ModuleCalendar never touches
+    Single entry point for all calendar access - ModuleCalendar never touches
     RepositoryCalendar directly.
     """
 
@@ -35,7 +35,7 @@ class CalendarSources:
         """Return the appropriate CalendarSource for the given calendar.
 
         Both local and ICS calendars are backed by the database. ICS calendars
-        are read-only mirrors — their events are populated by the sync engine,
+        are read-only mirrors - their events are populated by the sync engine,
         not by direct CRUD operations.
         """
         if calendar.source_type == CalendarSourceType.LOCAL:
@@ -76,7 +76,7 @@ class CalendarSources:
     def get_by_share_token(self, share_token: str) -> CalendarSource | None:
         """Return the source for the calendar exposed by this public subscription token.
 
-        Not scoped to a user — the token is the capability granting access to the feed.
+        Not scoped to a user - the token is the capability granting access to the feed.
         """
         cal = self._repo_calendar.find_by_share_token(share_token)
         return self.get(cal) if cal is not None else None
@@ -234,9 +234,9 @@ class CalendarSources:
         - Attendee added (in updated but not in original): create a copy in their calendar.
         - Attendee removed (in original but not in updated): delete their copy.
 
-        Existing attendee copies are NOT updated here — content propagation is handled
+        Existing attendee copies are NOT updated here - content propagation is handled
         separately by propagate().
-        External attendees (no local account) are silently skipped — the iMIP agent handles them.
+        External attendees (no local account) are silently skipped - the iMIP agent handles them.
         """
         if not updated.organizer:
             return

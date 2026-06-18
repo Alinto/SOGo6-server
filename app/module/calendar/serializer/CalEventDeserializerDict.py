@@ -95,7 +95,7 @@ class CalEventDeserializerDict(CalEventDeserializer[dict]):
         """Apply an update to an existing CalEvent and return the result.
 
         When update is a dict, parse each key and apply it to a copy of origin.
-        Only keys present in the dict are modified — other fields keep origin's values.
+        Only keys present in the dict are modified - other fields keep origin's values.
         When update is a CalEvent, return it directly (full replacement).
         """
         if isinstance(update, CalEvent):

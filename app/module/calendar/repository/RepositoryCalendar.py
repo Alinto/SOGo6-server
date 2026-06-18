@@ -16,10 +16,10 @@ if TYPE_CHECKING:
     from app.manager.db.ClientSQL import ClientSQL
 
 
-# All column names in ALL_CAL_COL order — used for SELECT and row mapping
+# All column names in ALL_CAL_COL order - used for SELECT and row mapping
 _ALL_COLS: tuple[str, ...] = tuple(col.name for col in tbl.ALL_CAL_COL)
 
-# Columns for INSERT — id is serial, omitted
+# Columns for INSERT - id is serial, omitted
 _INSERT_COLS: tuple[str, ...] = tuple(col.name for col in tbl.ALL_CAL_COL if col.name != tbl.COL_ID.name)
 
 

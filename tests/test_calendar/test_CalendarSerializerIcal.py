@@ -1,4 +1,4 @@
-"""Unit tests for CalCalendarSerializerIcal — the VCALENDAR wrapping and calendar-level header."""
+"""Unit tests for CalCalendarSerializerIcal - the VCALENDAR wrapping and calendar-level header."""
 from datetime import datetime, timedelta, timezone
 
 import pytest

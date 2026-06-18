@@ -96,7 +96,7 @@ def test_overlapping_periods_merged():
 
 def test_event_ending_at_query_start_excluded():
     # Event 14:00-15:00, query 15:00-16:00: DB returns the event (date_end >= start),
-    # but after clipping the period is [15:00, 15:00] — zero duration, must be dropped.
+    # but after clipping the period is [15:00, 15:00] - zero duration, must be dropped.
     event = _make_event(_dt(2026, 4, 22, 14), _dt(2026, 4, 22, 15))
     result = _ENGINE.compute(
         [event],
@@ -108,7 +108,7 @@ def test_event_ending_at_query_start_excluded():
 
 
 def test_adjacent_periods_not_merged():
-    # Event A ends at 16:00, event B starts at 16:00 — they share an instant but do not overlap.
+    # Event A ends at 16:00, event B starts at 16:00 - they share an instant but do not overlap.
     # The person is free starting at 16:00; the two periods must remain separate.
     e1 = _make_event(_dt(2026, 4, 22, 15), _dt(2026, 4, 22, 16))
     e2 = _make_event(_dt(2026, 4, 22, 16), _dt(2026, 4, 22, 17))
@@ -146,7 +146,7 @@ def test_off_hours_weekend_is_unavailable():
 
 
 def test_off_hours_no_unavailable_without_flag():
-    # Saturday — but busy_off_hours is False
+    # Saturday - but busy_off_hours is False
     result = _ENGINE.compute(
         [],
         _dt(2026, 4, 25, 0),
@@ -159,7 +159,7 @@ def test_off_hours_no_unavailable_without_flag():
 # ========== busy_off_hours: before/after work hours ==========
 
 def test_off_hours_before_work_is_unavailable():
-    # 2026-04-22 is a Wednesday — check 00:00-09:00 is UNAVAILABLE
+    # 2026-04-22 is a Wednesday - check 00:00-09:00 is UNAVAILABLE
     result = _ENGINE.compute(
         [],
         _dt(2026, 4, 22, 0),
@@ -188,7 +188,7 @@ def test_allday_event_is_busy_when_query_overlaps():
     for any query that falls within the event day."""
     event = _make_event(
         _dt(2026, 4, 28, 0),
-        _dt(2026, 4, 29, 0),  # exclusive end — correct RFC 5545 storage
+        _dt(2026, 4, 29, 0),  # exclusive end - correct RFC 5545 storage
         show_as=ShowAs.BUSY,
     )
     event.all_day = True
@@ -199,10 +199,10 @@ def test_allday_event_is_busy_when_query_overlaps():
 
 def test_allday_zero_duration_not_busy():
     """An all-day event stored with date_end == date_start (zero duration, malformed)
-    must NOT appear as busy — this confirms the server-side normalization is necessary."""
+    must NOT appear as busy - this confirms the server-side normalization is necessary."""
     event = _make_event(
         _dt(2026, 4, 28, 0),
-        _dt(2026, 4, 28, 0),  # zero duration — wrong, but tests the engine behaviour
+        _dt(2026, 4, 28, 0),  # zero duration - wrong, but tests the engine behaviour
     )
     event.all_day = True
     result = _ENGINE.compute([event], _dt(2026, 4, 28, 13, 58), _dt(2026, 4, 29, 13, 58), _PREFS_NO_OOH)

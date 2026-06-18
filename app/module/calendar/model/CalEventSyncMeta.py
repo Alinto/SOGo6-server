@@ -6,7 +6,7 @@ from datetime import datetime
 
 @dataclass
 class CalEventSyncMeta:
-    """Lightweight metadata for sync diff — avoids loading full event blobs."""
+    """Lightweight metadata for sync diff - avoids loading full event blobs."""
 
     db_id: int
     key: str

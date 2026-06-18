@@ -15,7 +15,7 @@ from app.utils.maths.sogo_hash import generate_uuid
 if TYPE_CHECKING:
     from app.module.calendar.model.CalFreeBusyPeriod import CalFreeBusyPeriod
 
-# RFC 5545 §3.2.9 — FBTYPE parameter values
+# RFC 5545 §3.2.9 - FBTYPE parameter values
 _FB_TYPE_MAP: dict[FreeBusyType, str] = {
     FreeBusyType.BUSY: "BUSY",
     FreeBusyType.TENTATIVE: "BUSY-TENTATIVE",

@@ -20,7 +20,7 @@ def _cal(**kwargs):
     return CalCalendar(key="k", user_uid="u", name="Cal", source_type=CalendarSourceType.LOCAL, **kwargs)
 
 
-# ========== _row_to_calendar — unpack preferences ==========
+# ========== _row_to_calendar - unpack preferences ==========
 
 def test_row_to_calendar_null_preferences_yields_none_defaults():
     cal = RepositoryCalendar._row_to_calendar(_row(preferences=None))

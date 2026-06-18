@@ -268,7 +268,7 @@ def test_recurrence_roundtrip():
 
 
 # ==========================================================================
-# deserialize — partial dict (update scenario)
+# deserialize - partial dict (update scenario)
 # ==========================================================================
 
 def test_partial_recurrence_exceptions_as_datetimes(deserializer):

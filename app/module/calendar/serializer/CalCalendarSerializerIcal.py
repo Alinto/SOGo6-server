@@ -18,10 +18,10 @@ class CalCalendarSerializerIcal(CalCalendarSerializer[str]):
     """Serializes a calendar collection to a full VCALENDAR string (RFC 5545).
 
     Owns the calendar-level header (PRODID/VERSION/CALSCALE plus the X-WR-* descriptors read by
-    Apple/Google/Outlook) and delegates the body — one component per event — to an injected
+    Apple/Google/Outlook) and delegates the body - one component per event - to an injected
     CalEventsSerializerIcal. When a refresh interval is provided, the output advertises a
     suggested resync period (REFRESH-INTERVAL per RFC 7986 §5.7, and X-PUBLISHED-TTL for clients
-    that only read the legacy property) — used for live subscription feeds, not one-off exports.
+    that only read the legacy property) - used for live subscription feeds, not one-off exports.
     """
 
     def __init__(

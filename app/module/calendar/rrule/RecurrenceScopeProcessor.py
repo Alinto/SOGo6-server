@@ -46,20 +46,20 @@ class RecurrenceScopeProcessor:
 
     When a user modifies a recurring event, three scopes are possible:
 
-    1. **This event only** (split_occurrence) — A single occurrence is overridden by
+    1. **This event only** (split_occurrence) - A single occurrence is overridden by
        inserting a detached occurrence row (RFC 5545 RECURRENCE-ID without RANGE).
        The master event is untouched; the RRULE expander prefers the detached row.
 
-    2. **This and following events** (split_series) — The original series is truncated
+    2. **This and following events** (split_series) - The original series is truncated
        just before the target date, and a new independent master is optionally created
        from that date onward. Data is duplicated: the new master carries its own RRULE
        and uid_parent_split links back to the original series for traceability.
 
-    3. **All events** — Standard update applied directly to the event.
+    3. **All events** - Standard update applied directly to the event.
 
     All methods are static. event_update is always a fully merged CalEvent produced by
     deserialize_with_update (origin + body changes). The processor uses it directly
-    for construction — no field-level detection or sentinel logic needed.
+    for construction - no field-level detection or sentinel logic needed.
     Propagation to attendees is handled by the caller (ModuleCalendar).
     """
 
@@ -70,20 +70,20 @@ class RecurrenceScopeProcessor:
         Returns a ScopeResult carrying the resulting CalEvent and the full list of
         touched (CalEvent, EventAction) pairs persisted on the organizer's calendar.
         """
-        # Branch 1: "This and following events" — split the series at recurrence_id
+        # Branch 1: "This and following events" - split the series at recurrence_id
         if not original.is_detached and event_update.recurrence_id is not None and event_update.recurrence_range == "THISANDFUTURE":
             if original.recurrence_rule is None:
                 raise RequestException(error=err.ERROR_CALENDAR_EVENT_NOT_RECURRING)
             return RecurrenceScopeProcessor._process_split_series(source, original, event_update)
 
-        # Branch 2: "This event only" — create a detached occurrence override
+        # Branch 2: "This event only" - create a detached occurrence override
         if not original.is_detached and event_update.recurrence_id is not None:
             if original.recurrence_rule is None:
                 raise RequestException(error=err.ERROR_CALENDAR_EVENT_NOT_RECURRING)
             occurrence: CalEvent = RecurrenceScopeProcessor.split_occurrence(source, original, event_update)
             return ScopeResult(result=occurrence, touched=[(occurrence, EventAction.INSERT)])
 
-        # Branch 3: "All events" (or standalone/detached event) — standard update
+        # Branch 3: "All events" (or standalone/detached event) - standard update
         event_update.normalize_all_day()
         event_update.sequence = (original.sequence or 0) + 1
         source.update_event(event_update)

@@ -1,4 +1,4 @@
-"""Unit tests for CalCalendarDeserializerIcal — VCALENDAR header parsing + event delegation."""
+"""Unit tests for CalCalendarDeserializerIcal - VCALENDAR header parsing + event delegation."""
 import pytest
 
 from app.module.calendar.serializer.CalCalendarDeserializerIcal import CalCalendarDeserializerIcal

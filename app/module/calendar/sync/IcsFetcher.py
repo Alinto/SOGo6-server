@@ -39,7 +39,7 @@ class _ValidatingRedirectHandler(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
-# DNS rebinding protection — why these two classes exist:
+# DNS rebinding protection - why these two classes exist:
 #
 # _validate_url() resolves the hostname once and checks that every returned IP is public.
 # A naive follow-up call to urllib.request.urlopen() would re-resolve the same hostname
@@ -60,9 +60,9 @@ class _PinnedHTTPSConnection(http.client.HTTPSConnection):
 
     The hostname passed as `host` is kept for two purposes that must not change after
     DNS validation:
-      * TLS SNI (`server_hostname=` in wrap_socket) — lets the remote serve the right
+      * TLS SNI (`server_hostname=` in wrap_socket) - lets the remote serve the right
         certificate when multiple sites share an IP.
-      * Certificate validation — the CN/SAN is matched against the hostname, not the IP,
+      * Certificate validation - the CN/SAN is matched against the hostname, not the IP,
         so plugging the IP here would break verification for any real HTTPS endpoint.
     Only the address used by `socket.create_connection` is swapped for the pinned IP.
     """
@@ -81,7 +81,7 @@ class _PinnedHTTPSHandler(urllib.request.HTTPSHandler):
     """urllib HTTPS handler that routes every request through _PinnedHTTPSConnection.
 
     Installed in the opener so that urlopen() never falls back to the stdlib default
-    HTTPSHandler — which would resolve the hostname again and undo the IP pinning.
+    HTTPSHandler - which would resolve the hostname again and undo the IP pinning.
     Forwards the SSLContext so certificate verification stays enabled.
     """
 
@@ -169,7 +169,7 @@ class IcsFetcher:
     def _validate_url(url: str) -> str:
         """Reject URLs that could enable SSRF attacks and return the validated IP to pin.
 
-        Only the https scheme is allowed (plain HTTP is refused — ICS feeds without TLS have
+        Only the https scheme is allowed (plain HTTP is refused - ICS feeds without TLS have
         no business being subscribed to in 2026). The hostname must resolve to a public IP:
         private, loopback, link-local, reserved and multicast ranges are all rejected (covers
         RFC 1918, ::1, 169.254.x.x, etc.). All resolved addresses must be public; otherwise

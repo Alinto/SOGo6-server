@@ -8,7 +8,7 @@ class CalSyncResult:
     """Result of an external calendar synchronization or .ics import.
 
     ``skipped`` counts entries present in the payload that the engine chose to ignore
-    (e.g. orphan detached occurrences whose master is missing — RFC 5545 §3.8.4.4
+    (e.g. orphan detached occurrences whose master is missing - RFC 5545 §3.8.4.4
     considers these invalid). They are intentionally not part of ``total``, which only
     reflects entries the engine actually attempted to materialize.
     """

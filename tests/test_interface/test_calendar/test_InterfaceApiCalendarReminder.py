@@ -1,4 +1,4 @@
-"""Unit tests for InterfaceApiCalendarCalendar — get_reminders method."""
+"""Unit tests for InterfaceApiCalendarCalendar - get_reminders method."""
 from datetime import datetime, timezone
 from unittest.mock import MagicMock
 

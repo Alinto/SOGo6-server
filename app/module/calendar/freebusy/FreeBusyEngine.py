@@ -15,7 +15,7 @@ from app.utils.datetime.DateTimeUtils import combine_in_tz_to_utc, resolve_tz
 if TYPE_CHECKING:
     from app.module.calendar.model.CalEvent import CalEvent
 
-# Weekdays considered non-working (weekday() convention: Monday=0 … Sunday=6).
+# Weekdays considered non-working (weekday() convention: Monday=0 ... Sunday=6).
 # Saturday=5, Sunday=6.
 # TODO: Check if this can be defined by users  # pylint: disable=fixme
 _NON_WORKING_WEEKDAYS: frozenset[int] = frozenset({5, 6})

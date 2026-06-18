@@ -26,7 +26,7 @@ from app.utils.logger.logger import logger_calendar
 if TYPE_CHECKING:
     from app.module.calendar.model.CalEvent import CalEvent
 
-# Module-level reverse mapping tables — enum → RFC 5545 string value.
+# Module-level reverse mapping tables - enum -> RFC 5545 string value.
 
 _STATUS_OUT: dict[EventStatus, str] = {
     EventStatus.CONFIRMED: "CONFIRMED",
@@ -189,7 +189,7 @@ class CalEventSerializerIcal(CalEventSerializer[str]):
         if event.url:
             vevent.add("url", event.url)
         vevent.add("sequence", event.sequence)
-        # RFC 5545 §3.8.1.9: PRIORITY is 0-9 where 0 means "undefined" — omit when unset.
+        # RFC 5545 §3.8.1.9: PRIORITY is 0-9 where 0 means "undefined" - omit when unset.
         # Clamp on the way out to guarantee a compliant value even if the model drifted.
         if event.priority:
             vevent.add("priority", max(0, min(9, event.priority)))
@@ -313,7 +313,7 @@ class CalEventSerializerIcal(CalEventSerializer[str]):
                     recipients = [self._format_organizer(event.organizer)]
                 if not recipients:
                     logger_calendar.warning(
-                        "VALARM EMAIL on event %s has no recipient — downgrading to DISPLAY", event.uid,
+                        "VALARM EMAIL on event %s has no recipient - downgrading to DISPLAY", event.uid,
                     )
                     action = "DISPLAY"
 

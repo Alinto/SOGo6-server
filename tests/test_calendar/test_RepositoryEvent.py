@@ -445,4 +445,4 @@ def test_purge_deleted_calls_delete():
     count = RepositoryEvent(db).purge_deleted("cal-key")
     assert count == 5
     assert len(db.deleted_rows) == 1
-    assert db.deleted_rows[0]["table"] == "sogo_calendar_events"
+    assert db.deleted_rows[0]["table"] == "sogo6_calendar_events"

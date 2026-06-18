@@ -151,7 +151,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         source.delete_calendar()
 
     #
-    # Events — internal helpers
+    # Events - internal helpers
     #
     def _find_source_for_event(self, calendar_user: CalendarUser, event_key: str) -> tuple[CalendarSource, CalEvent]:
         """Find the source and event by event_key (opaque UUID stored in the key column of sogo_events, not the uid)."""
@@ -178,7 +178,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         return source
 
     #
-    # Events — CRUD
+    # Events - CRUD
     #
     def create_event(self, calendar_user: CalendarUser, calendar_key: str, event: CalEvent, organizer: CalOrganizer) -> CalEvent:
         """Persist a new event in the calendar and propagate it to local attendees."""
@@ -320,7 +320,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
 
         When recurrence_id is provided, the status applies to a single occurrence only.
         A detached occurrence is created if it does not already exist.
-        Does not increment SEQUENCE — PARTSTAT is not a content change (RFC 5545 §3.8.7.4).
+        Does not increment SEQUENCE - PARTSTAT is not a content change (RFC 5545 §3.8.7.4).
         Propagates the status to all other local copies of the event (organizer + other attendees).
 
         :param user: The attendee updating their status.
@@ -358,7 +358,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
 
 
     #
-    # iMIP — thin wrappers delegating to ImipProcessor
+    # iMIP - thin wrappers delegating to ImipProcessor
     #
     def process_imip_reply(self, calendar_user: CalendarUser, ical_bytes: bytes, from_email: str) -> CalEvent:
         """Process an incoming iMIP REPLY. Delegates to ImipProcessor."""
@@ -480,7 +480,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         until event.date_end + lookahead_minutes. For recurring events, occurrences
         are expanded and each is checked independently.
 
-        User filtering is done in SQL via JOIN (reminders → events → calendars).
+        User filtering is done in SQL via JOIN (reminders -> events -> calendars).
 
         :param user: The user whose reminders to fetch.
         :param method: Optional method filter (popup / email).
@@ -532,7 +532,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
 
         Recurring masters are exported with their RRULE intact; expansion happens client-side.
         ``date_start`` and ``date_end`` bound the export window on event ``date_start`` /
-        recurrence end; both are optional and default to no bound on their side (1970 → +∞).
+        recurrence end; both are optional and default to no bound on their side (1970 -> +inf).
 
         :param user: The calendar owner triggering the export.
         :param key: Opaque calendar key.
@@ -555,7 +555,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
 
         expand=False keeps recurring masters with their RRULE intact and includes VTODO,
         so the output mirrors the stored components rather than flat occurrences.
-        ``refresh_interval`` advertises a resync period — set for live subscription feeds only.
+        ``refresh_interval`` advertises a resync period - set for live subscription feeds only.
         """
         events: list[CalEvent] = source.get_events(date_start, date_end, expand=False)
         events.extend(source.get_tasks(date_start, date_end, expand=False))
@@ -577,7 +577,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         sync).
 
         Events whose datetimes carry no explicit timezone (RFC 5545 floating time) are
-        anchored to the destination calendar's timezone — itself defaulted to the user's
+        anchored to the destination calendar's timezone - itself defaulted to the user's
         timezone at creation time.
 
         :param user: The user importing the file (becomes the new organizer when rewriting).
@@ -740,9 +740,9 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
 
         prefs must be provided by the caller (loaded from user settings).
 
-        IMPORTANT — timezone: the off-hours computation (when prefs.busy_off_hours is True)
+        IMPORTANT - timezone: the off-hours computation (when prefs.busy_off_hours is True)
         uses prefs.timezone, which must be the target user's IANA timezone (SOGO_U_TIMEZONE).
-        This means that "working hours" (e.g. 09:00–17:00) are interpreted in that timezone,
+        This means that "working hours" (e.g. 09:00-17:00) are interpreted in that timezone,
         not in UTC or in the requester's timezone. The caller (interface layer) is responsible
         for loading SOGO_U_TIMEZONE and setting it on FreeBusyPrefs before calling this method.
         """

@@ -1,4 +1,4 @@
-"""Unit tests for InterfaceApiCalendarCalendar — export_calendar and import_calendar."""
+"""Unit tests for InterfaceApiCalendarCalendar - export_calendar and import_calendar."""
 from datetime import datetime, timezone
 from unittest.mock import MagicMock
 

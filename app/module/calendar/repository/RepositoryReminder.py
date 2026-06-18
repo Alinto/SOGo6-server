@@ -76,7 +76,7 @@ class RepositoryReminder:
         Uses INNER JOIN on sogo_events and sogo_calendars to filter by user
         and exclude soft-deleted events in a single SQL query.
         Returned CalEventReminder objects have title, location, timezone and
-        calendar_timezone set to None — the caller enriches them from the full CalEvent.
+        calendar_timezone set to None - the caller enriches them from the full CalEvent.
         """
         rem: str = tbl.TABLE_REMINDER.name
         evt: str = tbl.TABLE_EVENT.name

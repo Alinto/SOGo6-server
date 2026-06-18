@@ -44,7 +44,6 @@ def _fulltext_to_tsvector() -> Composable:
     return SQL("to_tsvector({cfg}, regexp_replace({ph}, '[^[:alnum:]_]+', ' ', 'g'))").format(
         cfg=Literal(POSTGRES_TEXT_SEARCH_CONFIG), ph=Placeholder())
 
-
 def str_to_varchar(max_len: int = 0) -> str:
     """
     Convert a string type to a varchar()

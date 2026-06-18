@@ -117,7 +117,7 @@ def serializer():
 
 
 # ==========================================================================
-# Roundtrip CalEvent — comparaison champs (fiable)
+# Roundtrip CalEvent - comparaison champs (fiable)
 # ==========================================================================
 
 def test_roundtrip_example1_fields(deserializer, serializer):
@@ -142,7 +142,7 @@ def test_roundtrip_example3_fields(deserializer, serializer):
 
 
 # ==========================================================================
-# Roundtrip string — les properties VEVENT de l'input doivent etre presentes
+# Roundtrip string - les properties VEVENT de l'input doivent etre presentes
 # dans l'output (hors DTSTAMP et ATTENDEE dont les params peuvent differer)
 # ==========================================================================
 
@@ -162,7 +162,7 @@ def test_roundtrip_example2_string(deserializer, serializer):
     reserialized = serializer.serialize(event_a)
 
     # Pour example 2, DTSTART/DTEND sont convertis en UTC apres parsing
-    # → on compare seulement les properties independantes du timezone
+    # -> on compare seulement les properties independantes du timezone
     original = _vevent_lines(ICAL_EXAMPLE_2, exclude=frozenset({
         "DTSTAMP", "ATTENDEE", "DTSTART", "DTEND",
     }))
@@ -191,7 +191,7 @@ def test_roundtrip_example3_string(deserializer, serializer):
 
 
 # ==========================================================================
-# Exemples non-VEVENT (VJOURNAL, VFREEBUSY) — pas de crash
+# Exemples non-VEVENT (VJOURNAL, VFREEBUSY) - pas de crash
 # Ces composants ne sont pas supportes ; on verifie uniquement l'absence
 # d'exception lors du cycle deserialise->serialise.
 # ==========================================================================

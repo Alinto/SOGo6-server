@@ -46,8 +46,8 @@ MAX_RRULE_EXPANSION_YEARS: int = 10
 
 # When True, importing a .ics file replaces (or injects) the ORGANIZER of every VEVENT/VTODO
 # with the importing user's email so the importer becomes the sole owner of the imported
-# events. This rewrite leaves the ATTENDEE lines alone — whether they survive the import is
-# governed by IMPORT_REMOVES_ATTENDEES below. When False, events are imported as-is — the
+# events. This rewrite leaves the ATTENDEE lines alone - whether they survive the import is
+# governed by IMPORT_REMOVES_ATTENDEES below. When False, events are imported as-is - the
 # importer ends up owning copies of events organised by someone else, which is generally only
 # useful for migrations where the original organiser identity must be preserved.
 IMPORT_REWRITES_OWNERSHIP: bool = True
@@ -55,7 +55,7 @@ IMPORT_REWRITES_OWNERSHIP: bool = True
 # When True, importing a .ics file strips the ATTENDEE lines of every VEVENT/VTODO so the
 # events land as plain personal entries: no guest list is displayed and no iMIP can ever
 # target the historical guests on a later edit. When False, attendees are preserved and the
-# historical guest list is kept — iMIP would then only fire if the user later edits the
+# historical guest list is kept - iMIP would then only fire if the user later edits the
 # event explicitly.
 IMPORT_REMOVES_ATTENDEES: bool = True
 

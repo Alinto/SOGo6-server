@@ -22,7 +22,7 @@ class CalendarAclEngine:
     """Resolves and enforces calendar permissions.
 
     Centralizes all ACL logic: permission resolution, action checks, and event sanitization.
-    Currently stubbed — owner gets full access, non-owner is denied.
+    Currently stubbed - owner gets full access, non-owner is denied.
     Will be connected to the ACL module when it is implemented.
     """
 

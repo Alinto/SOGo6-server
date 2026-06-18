@@ -12,7 +12,7 @@ from app.utils import errors as err
 from app.utils.datetime.DateTimeUtils import to_utc
 from app.utils.exceptions import RequestException
 
-# RFC 5545 §3.2.9 — reverse mapping from iCal FBTYPE to internal enum
+# RFC 5545 §3.2.9 - reverse mapping from iCal FBTYPE to internal enum
 _FBTYPE_TO_FB: dict[str, FreeBusyType] = {
     "BUSY": FreeBusyType.BUSY,
     "BUSY-TENTATIVE": FreeBusyType.TENTATIVE,

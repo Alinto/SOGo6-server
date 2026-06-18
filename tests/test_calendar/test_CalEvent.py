@@ -113,7 +113,7 @@ def test_is_organized_by_false_without_organizer():
     assert event.is_organized_by("bob@example.com") is False
 
 
-# ========== apply_defaults — calendar-level defaults ==========
+# ========== apply_defaults - calendar-level defaults ==========
 
 def test_apply_defaults_visibility_uses_calendar_default():
     event = _make_event()
