@@ -151,6 +151,14 @@ class ModuleMailOutgoing:
             message["Disposition-Notification-To"] = message["From"]  # RFC 3798
             message["Return-Receipt-To"] = message["From"]             # RFC 3885
 
+        # --- X-Priority header ---
+        if priority := mail_data.get("priority"):
+            message["X-Priority"] = str(priority)
+
+        # --- Reply-To header ---
+        if reply_to := mail_data.get("reply_to"):
+            message["Reply-To"] = reply_to
+
         # --- Message-ID: generate once, never overwrite ---
         if "Message-ID" not in message:
             _, addr = parseaddr(mail_data.get("from_addr", ""))
@@ -168,8 +176,15 @@ class ModuleMailOutgoing:
                 if header_name not in message:
                     message[header_name] = header_value
 
-        message.set_content(mail_data["body"], subtype = "plain")
-        message.set_content(mail_data["body"], subtype = "html")
+        # --- Body: multipart/alternative if is_html is True, else text/plain only ---
+        body_text = mail_data["body"]
+        is_html = mail_data.get("is_html", True)
+        
+        if is_html:
+            message.set_content(body_text, subtype="plain")
+            message.add_alternative(body_text, subtype="html")
+        else:
+            message.set_content(body_text, subtype="plain")
 
         for attachment in (mail_data.get("attachments") or []):
             try:
