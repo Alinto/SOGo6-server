@@ -25,7 +25,8 @@ class AddressBookContentSerializerLdif(Serializer["AddressBookContent", str]):
 
     def serialize(self, data: AddressBookContent) -> str:
         records: list[str] = [self._contact_serializer.serialize(contact) for contact in data.contacts]
-        records += [self._list_serializer.serialize(card_list) for card_list in data.lists]
+        records += [record for card_list in data.lists
+                    if (record := self._list_serializer.serialize(card_list))]  # empty groups serialize to ""
         if not records:
             return f"{ld.LDIF_VERSION_HEADER}\n"
         return f"{ld.LDIF_VERSION_HEADER}\n\n" + "\n\n".join(records) + "\n"

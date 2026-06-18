@@ -9,9 +9,11 @@ from app.module.contact.serializer.CardContactSerializerVcard4 import CardContac
 
 
 def _content():
+    alice = CardContact(display_name="Alice", uid="u1")
+    bob = CardContact(display_name="Bob", uid="u2")
     return AddressBookContent(
-        contacts=[CardContact(display_name="Alice", uid="u1"), CardContact(display_name="Bob", uid="u2")],
-        lists=[CardList(name="Team", uid="l1", members=[])],
+        contacts=[alice, bob],
+        lists=[CardList(name="Team", uid="l1", member_contacts=[alice, bob])],
     )
 
 

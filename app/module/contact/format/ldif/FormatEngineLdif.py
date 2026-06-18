@@ -114,6 +114,19 @@ class FormatEngineLdif(FormatEngine):
         return escaped
 
     @staticmethod
+    def build_dn(common_name: str, uid: str | None = None) -> str:
+        """Build a person entry DN under the contacts base (RFC 4514).
+
+        When a uid is given it is added as a second RDN component (cn=...+uid=...) so the DN stays
+        unique even when two contacts share a common name - required to load the records into a
+        directory (ldapadd rejects duplicate DNs). The caller must emit a matching uid attribute.
+        """
+        rdn: str = f"{ld.ATTR_CN}={FormatEngineLdif.escape_dn(common_name)}"
+        if uid:
+            rdn += f"+{ld.ATTR_UID}={FormatEngineLdif.escape_dn(uid)}"
+        return f"{rdn},{ld.BASE_DN}"
+
+    @staticmethod
     def unescape_dn(value: str) -> str:
         """Reverse escape_dn: drop the RFC 4514 backslash escaping from a DN attribute value."""
         result: list[str] = []
