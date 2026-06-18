@@ -49,9 +49,9 @@ class CalendarSource(ABC):  # pylint: disable=too-many-public-methods
     ) -> list[CalEvent]:
         """Return events overlapping [start, end], sorted by date_start ASC.
 
-        With ``expand=True`` (default): resolve bounds → fetch → expand recurring → filter.
+        With ``expand=True`` (default): resolve bounds -> fetch -> expand recurring -> filter.
         With ``expand=False`` (export): recurring masters keep their RRULE and are returned
-        as-is — no expansion, no Python date filter (the SQL fetch already bounds the range)
+        as-is - no expansion, no Python date filter (the SQL fetch already bounds the range)
         so the recipient calendar can rebuild the series. The upper bound also defaults to
         ``9999-12-31`` in that mode to capture future occurrences.
 
@@ -177,7 +177,7 @@ class CalendarSource(ABC):  # pylint: disable=too-many-public-methods
     def search(self, events: list[CalEvent], query: str) -> list[CalEvent]:
         """Keep events matching query in title, description or location.
 
-        Matching is case-insensitive and accent-insensitive: "etape" matches "Étape".
+        Matching is case-insensitive and accent-insensitive: "etape" matches an accented "Etape".
         """
         needle: str = self._fold(query)
         return [
@@ -293,7 +293,7 @@ class CalendarSource(ABC):  # pylint: disable=too-many-public-methods
         """Truncate a recurring series at `until` and soft-delete future detached occurrences.
 
         Called on the organizer's and each attendee's source as part of a THISANDFUTURE split.
-        No-op on read-only sources — only DB-backed sources hold mutable recurring events.
+        No-op on read-only sources - only DB-backed sources hold mutable recurring events.
         Returns a list of (CalEvent, EventAction) for every row touched.
         """
         return []

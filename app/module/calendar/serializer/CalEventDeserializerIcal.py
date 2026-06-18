@@ -30,7 +30,7 @@ from app.utils.errors import ERROR_CALENDAR_ICS_PARSE_FAILED
 from app.utils.exceptions import RequestException
 from app.utils.logger.logger import logger_calendar
 
-# Module-level mapping tables — built once, reused on every call.
+# Module-level mapping tables - built once, reused on every call.
 
 _FREQ_MAP: dict[str, RecurrenceFrequency] = {
     "SECONDLY": RecurrenceFrequency.SECONDLY,

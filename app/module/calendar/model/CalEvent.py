@@ -36,17 +36,17 @@ class CalEvent:  # pylint: disable=too-many-instance-attributes,invalid-name
     # RFC 5545 §3.8.2.2 (DTEND) or DUE (VTODO / TASK)
     date_end: datetime | None = None
 
-    # Internal — database primary key, never exposed in the API
+    # Internal - database primary key, never exposed in the API
     db_id: int | None = None
     # Opaque public identifier exposed in the API (JSON field "key")
     key: str | None = None
-    # UUID key of the parent calendar — stored in DB and exposed in the API
+    # UUID key of the parent calendar - stored in DB and exposed in the API
     calendar_key: str | None = None
-    # IANA timezone of the parent calendar — transient, not persisted, set by CalendarSource
+    # IANA timezone of the parent calendar - transient, not persisted, set by CalendarSource
     calendar_timezone: str | None = None
-    # Domain type of the component — drives serialization dispatch
+    # Domain type of the component - drives serialization dispatch
     component_type: ComponentType = ComponentType.UNDEFINED
-    # RFC 5545 §3.3.4 — DATE value type vs DATE-TIME
+    # RFC 5545 §3.3.4 - DATE value type vs DATE-TIME
     all_day: bool | None = None
     # RFC 5545 §3.2.19 (TZID parameter)
     timezone: str = "UTC"
@@ -57,19 +57,19 @@ class CalEvent:  # pylint: disable=too-many-instance-attributes,invalid-name
     location: str | None = None
     # RFC 5545 §3.8.8.3 (URL)
     url: str | None = None
-    # RFC 5545 §3.8.1.11 (STATUS — CONFIRMED, TENTATIVE, CANCELLED)
+    # RFC 5545 §3.8.1.11 (STATUS - CONFIRMED, TENTATIVE, CANCELLED)
     status: EventStatus = field(default=EventStatus.UNDEFINED)
-    # RFC 5545 §3.8.1.3 (CLASS — PUBLIC, PRIVATE, CONFIDENTIAL)
+    # RFC 5545 §3.8.1.3 (CLASS - PUBLIC, PRIVATE, CONFIDENTIAL)
     visibility: EventVisibility = field(default=EventVisibility.UNDEFINED)
-    # RFC 5545 §3.8.2.7 (TRANSP — OPAQUE/TRANSPARENT maps to BUSY/FREE)
+    # RFC 5545 §3.8.2.7 (TRANSP - OPAQUE/TRANSPARENT maps to BUSY/FREE)
     show_as: ShowAs = field(default=ShowAs.UNDEFINED)
     # RFC 7986 §5.9 (COLOR)
     color: str | None = None
     # RFC 5545 §3.8.7.4 (SEQUENCE)
     sequence: int = 0
-    # RFC 5545 §3.8.1.9 (PRIORITY) — 0 = undefined, 1 = highest, 9 = lowest
+    # RFC 5545 §3.8.1.9 (PRIORITY) - 0 = undefined, 1 = highest, 9 = lowest
     priority: int = 0
-    # RFC 5545 §3.7.3 (DTSTAMP) — required in every component
+    # RFC 5545 §3.7.3 (DTSTAMP) - required in every component
     dtstamp: datetime | None = None
 
     # RFC 5545 §3.8.4.3 (ORGANIZER)
@@ -80,7 +80,7 @@ class CalEvent:  # pylint: disable=too-many-instance-attributes,invalid-name
     reminders: list[CalReminder] = field(default_factory=list)
     # RFC 5545 §3.8.1.1 (ATTACH)
     attachments: list[CalAttachment] = field(default_factory=list)
-    # Google Calendar API (conferenceData) — no RFC basis
+    # Google Calendar API (conferenceData) - no RFC basis
     conference_data: CalConferenceData | None = None
     # RFC 5545 §3.8.1.2 (CATEGORIES)
     categories: list[str] = field(default_factory=list)
@@ -93,19 +93,19 @@ class CalEvent:  # pylint: disable=too-many-instance-attributes,invalid-name
     recurrence_exceptions: list[datetime] = field(default_factory=list)
     # RFC 5545 §3.8.4.4 (RECURRENCE-ID)
     recurrence_id: datetime | None = None
-    # RFC 5545 §3.8.5.3 RANGE=THISANDFUTURE — None or 'THISANDFUTURE'
+    # RFC 5545 §3.8.5.3 RANGE=THISANDFUTURE - None or 'THISANDFUTURE'
     recurrence_range: str | None = None
-    # UID of the master recurring event — set on detached occurrences (RECURRENCE-ID rows)
+    # UID of the master recurring event - set on detached occurrences (RECURRENCE-ID rows)
     parent_uid: str | None = None
     # UID of the original series this event was split from (THISANDFUTURE operation).
     # Set on the new master created during a split so the history is traceable.
-    # Never used for business logic — informational only, serialized to iCal as
+    # Never used for business logic - informational only, serialized to iCal as
     # RELATED-TO;RELTYPE=X-SOGO-SPLIT-FROM per the SOGo 6 extension.
     uid_parent_split: str | None = None
 
-    # RFC 5545 §3.8.1.8 (PERCENT-COMPLETE) — VTODO only
+    # RFC 5545 §3.8.1.8 (PERCENT-COMPLETE) - VTODO only
     percent_complete: int | None = None
-    # RFC 5545 §3.8.2.1 (COMPLETED) — VTODO only
+    # RFC 5545 §3.8.2.1 (COMPLETED) - VTODO only
     completed_at: datetime | None = None
 
     # Catch-all for X-* and other non-standard properties
@@ -126,11 +126,11 @@ class CalEvent:  # pylint: disable=too-many-instance-attributes,invalid-name
         "recurrence_rule", "recurrence_exceptions", "percent_complete", "completed_at",
     })
 
-    # Fields computed at serialization time — never persisted in the DB blob.
+    # Fields computed at serialization time - never persisted in the DB blob.
     UNPERSISTED_FIELDS: ClassVar[frozenset[str]] = frozenset({"dates_with_tz"})
 
     # Fields propagated from the organizer's copy to attendee copies on event update.
-    # Excludes reminders and conference_data — each attendee manages their own.
+    # Excludes reminders and conference_data - each attendee manages their own.
     PROPAGATABLE_FIELDS: ClassVar[frozenset[str]] = frozenset({
         "title", "description", "location", "url", "date_start", "date_end",
         "all_day", "timezone", "status", "visibility", "show_as", "color",

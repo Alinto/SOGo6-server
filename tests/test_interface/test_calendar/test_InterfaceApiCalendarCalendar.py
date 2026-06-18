@@ -1,4 +1,4 @@
-"""Unit tests for InterfaceApiCalendarCalendar — calendar CRUD timezone defaulting and public subscription."""
+"""Unit tests for InterfaceApiCalendarCalendar - calendar CRUD timezone defaulting and public subscription."""
 from unittest.mock import MagicMock, patch
 
 from app.interface.calendar.InterfaceApiCalendarCalendar import InterfaceApiCalendarCalendar

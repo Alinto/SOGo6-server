@@ -124,7 +124,7 @@ def create_interface_with_settings(monkeypatch, fake_module, allow_external=True
     # Mock ModuleMail
     class FakeModuleMail:
         """Fake ModuleMail for testing."""
-        def __init__(self, user, mail_settings):
+        def __init__(self, user, mail_settings, process_setting=None):
             pass
 
         def get_mailbox_quota(self, account_id):

@@ -3,7 +3,7 @@ import pytest
 from app.utils.strings import get_domain_from_mail, strip_accents
 
 def test_get_domain_from_mail():
-    with pytest.raises(ValueError):
+    with pytest.raises(TypeError):
         get_domain_from_mail(1)
     assert get_domain_from_mail("aa") is None
     assert get_domain_from_mail("aa@bb.com") == "bb.com"

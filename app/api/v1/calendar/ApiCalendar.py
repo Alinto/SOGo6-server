@@ -174,8 +174,8 @@ class ApiCalendarPublicSubscription(MethodView):
 
     def get(self, token: str) -> ResponseReturnValue:
         """Serve the calendar matching the token as a text/calendar feed, or 404."""
-        # The token is a secret; never log it in full (capability URL — would leak access).
-        logger_api.debug("GET /public/calendars/%s… (public subscription)", token[:8])
+        # The token is a secret; never log it in full (capability URL - would leak access).
+        logger_api.debug("GET /public/calendars/%s... (public subscription)", token[:8])
         interface: InterfaceApiCalendarCalendar = g.inter
         return interface.export_public_calendar(token)
 

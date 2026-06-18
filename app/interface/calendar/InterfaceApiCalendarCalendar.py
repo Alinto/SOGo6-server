@@ -271,7 +271,7 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
     def get_tasks(self, key: str | None, query_args: dict[str, Any]) -> tuple[dict[str, Any], int]:
         """List VTODO tasks in a calendar with optional date range and search filters.
 
-        When no date bounds are provided, defaults to 3 months ago → 9 months ahead.
+        When no date bounds are provided, defaults to 3 months ago -> 9 months ahead.
 
         :param key: Calendar key, or None to query all user calendars.
         :type key: str | None
@@ -500,7 +500,7 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         """Import a VCALENDAR payload into a calendar (additive merge).
 
         Floating-time events (no explicit timezone) are anchored to the destination
-        calendar's timezone by the module — no user-preference lookup needed here.
+        calendar's timezone by the module - no user-preference lookup needed here.
 
         :param key: Opaque calendar key.
         :param ics_text: Raw VCALENDAR payload (UTF-8 decoded), typically read from an upload.
@@ -544,7 +544,7 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
     def export_public_calendar(self, token: str) -> tuple[str, int, dict[str, str]] | tuple[dict[str, Any], int]:
         """Serve the full calendar as ``text/calendar`` for a public subscription token.
 
-        Unauthenticated path — the token is the capability. Returns the standard error
+        Unauthenticated path - the token is the capability. Returns the standard error
         envelope (404) when the token does not match an active subscription, or when the
         calendar owner's domain disables public links. The caller being anonymous, the
         relevant domain settings are the owner's ones: the owner is resolved from the token
@@ -556,7 +556,7 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
             ics_text: str = self.module.export_by_share_token(token, owner_settings)
             return ics_text, 200, {"Content-Type": "text/calendar; charset=utf-8"}
         except RequestException as ex:
-            # An unknown token is a normal 404, not an anomaly — no log (and never log the
+            # An unknown token is a normal 404, not an anomaly - no log (and never log the
             # token itself, it is a secret capability).
             return create_api_base_response(None, ex.error)
 

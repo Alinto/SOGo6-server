@@ -86,7 +86,7 @@ def test_ics_calendar_is_read_only():
     assert perms.can_delete is False
 
 
-# ========== check_permission — VIEW ==========
+# ========== check_permission - VIEW ==========
 
 def test_check_view_allowed_with_view_datetime():
     engine = CalendarAclEngine()
@@ -112,7 +112,7 @@ def test_check_view_allowed_if_any_class_sufficient():
     )
 
 
-# ========== check_permission — RESPOND ==========
+# ========== check_permission - RESPOND ==========
 
 def test_check_respond_allowed():
     engine = CalendarAclEngine()
@@ -131,7 +131,7 @@ def test_check_respond_denied_with_view_datetime():
         engine.check_permission(_perms(public=CalendarShareLevel.VIEW_DATETIME), CalendarPermissionAction.RESPOND)
 
 
-# ========== check_permission — MODIFY ==========
+# ========== check_permission - MODIFY ==========
 
 def test_check_modify_allowed():
     engine = CalendarAclEngine()
@@ -152,7 +152,7 @@ def test_check_modify_allowed_on_confidential_only():
     )
 
 
-# ========== check_permission — MODIFY_IF_ORG ==========
+# ========== check_permission - MODIFY_IF_ORG ==========
 
 def test_modify_if_org_allowed_when_user_is_organizer():
     engine = CalendarAclEngine()
@@ -210,7 +210,7 @@ def test_plain_modify_ignores_organizer():
     )
 
 
-# ========== check_permission — CREATE / DELETE ==========
+# ========== check_permission - CREATE / DELETE ==========
 
 def test_check_create_allowed():
     engine = CalendarAclEngine()
@@ -234,7 +234,7 @@ def test_check_delete_denied():
         engine.check_permission(_perms(can_delete=False), CalendarPermissionAction.DELETE)
 
 
-# ========== check_permission — owner shortcut ==========
+# ========== check_permission - owner shortcut ==========
 
 def test_owner_passes_all_checks():
     engine = CalendarAclEngine()
@@ -251,7 +251,7 @@ def test_denied_fails_all_checks():
             engine.check_permission(perms, action)
 
 
-# ========== sanitize_events — exclusion (NONE) ==========
+# ========== sanitize_events - exclusion (NONE) ==========
 
 def test_sanitize_excludes_events_with_none_level():
     engine = CalendarAclEngine()
@@ -272,7 +272,7 @@ def test_sanitize_keeps_public_excludes_private():
     assert result[0].uid == "pub"
 
 
-# ========== sanitize_events — masking (VIEW_DATETIME) ==========
+# ========== sanitize_events - masking (VIEW_DATETIME) ==========
 
 def test_sanitize_masks_event_with_view_datetime():
     engine = CalendarAclEngine()
@@ -299,7 +299,7 @@ def test_sanitize_mask_does_not_mutate_original():
     assert event.title == "Original"
 
 
-# ========== sanitize_events — full visibility (VIEW_ALL+) ==========
+# ========== sanitize_events - full visibility (VIEW_ALL+) ==========
 
 def test_sanitize_preserves_event_with_view_all():
     engine = CalendarAclEngine()
@@ -323,7 +323,7 @@ def test_sanitize_preserves_event_with_modify():
     assert result[0].title == "Private Note"
 
 
-# ========== sanitize_events — mixed visibility classes ==========
+# ========== sanitize_events - mixed visibility classes ==========
 
 def test_sanitize_mixed_visibility():
     engine = CalendarAclEngine()
@@ -345,7 +345,7 @@ def test_sanitize_mixed_visibility():
     assert result[1].title == "Busy"
 
 
-# ========== sanitize_events — empty list ==========
+# ========== sanitize_events - empty list ==========
 
 def test_sanitize_empty_list():
     engine = CalendarAclEngine()

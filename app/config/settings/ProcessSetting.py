@@ -101,6 +101,16 @@ class ProcessSetting(FlaskConfig):
     # differs from the public one. Empty: fall back to Flask's own external URL.
     SOGO_P_PUBLIC_BASE_URL: str = ""
 
+    # --- Table names ---
+    SOGO_P_TABLE_SETTINGS:   str = "sogo6_sogo_settings"
+    SOGO_P_TABLE_DOMAINS:    str = "sogo6_sogo_settings_domains"
+    SOGO_P_TABLE_RULES:      str = "sogo6_sogo_settings_rules"
+    SOGO_P_TABLE_USERS:      str = "sogo6_sogo_user_profiles"
+    SOGO_P_TABLE_CALENDARS: str = "sogo6_calendar_calendars"
+    SOGO_P_TABLE_EVENTS:    str = "sogo6_calendar_events"
+    SOGO_P_TABLE_REMINDERS:  str = "sogo6_calendar_reminders"
+    SOGO_P_TABLE_TMP_DRAFTS:  str = "sogo6_tmp_draft"
+
     def __getitem__(self, i:str) -> Any:
         if hasattr(self, i):
             return getattr(self, i)

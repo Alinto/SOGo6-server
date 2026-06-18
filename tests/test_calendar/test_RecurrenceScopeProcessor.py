@@ -81,7 +81,7 @@ class FakeSource(CalendarSource):
         return self._events_by_uid.get(uid)
 
 
-# ========== process — dispatch ==========
+# ========== process - dispatch ==========
 
 def test_process_standard_update():
     master = _make_event(key="evt-key", sequence=2)
@@ -205,7 +205,7 @@ def test_split_series_creates_new_master():
 
 
 def test_split_series_truncate_only():
-    """No content changes via process() → no new master, returns truncated original."""
+    """No content changes via process() -> no new master, returns truncated original."""
     master = _make_event(key="evt-key", uid="m@e.com", recurrence_rule=_daily_rule())
     source = FakeSource()
     source._events_by_uid[master.uid] = master

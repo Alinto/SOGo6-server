@@ -1,4 +1,4 @@
-"""Unit tests for InterfaceApiCalendarCalendar — task (VTODO) CRUD methods."""
+"""Unit tests for InterfaceApiCalendarCalendar - task (VTODO) CRUD methods."""
 # pylint: disable=missing-function-docstring
 from datetime import datetime, timezone
 from unittest.mock import MagicMock

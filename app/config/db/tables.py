@@ -1,4 +1,5 @@
 from app.utils.db.Table import Column, Index, Table
+from app.config.settings.ProcessSetting import process_config
 
 
 
@@ -21,7 +22,7 @@ COL_SETTINGS_DOMAIN_DEFAULT = Column(name="settings_domain_default", data_type="
 ALL_SETTINGS_COL            = [COL_SETTINGS_UNIQUE,
                                COL_SETTINGS_SYSTEM,
                                COL_SETTINGS_DOMAIN_DEFAULT]
-TABLE_SETTINGS = Table(name="sogo_settings", columns=ALL_SETTINGS_COL, primary_keys=(COL_SETTINGS_UNIQUE.name,))
+TABLE_SETTINGS = Table(name=process_config.SOGO_P_TABLE_SETTINGS, columns=ALL_SETTINGS_COL, primary_keys=(COL_SETTINGS_UNIQUE.name,))
 
 ###############################
 # Table sogo_settings_domains #
@@ -52,7 +53,7 @@ ALL_DOMAIN_COL           = [COL_ID,
                             COL_DOMAIN_INFO,
                             COL_DOMAIN_SETTINGS,
                             COL_DOMAIN_ORIGIN]
-TABLE_DOMAIN = Table(name="sogo_settings_domains", columns=ALL_DOMAIN_COL, primary_keys=(COL_ID.name, COL_HASH.name, COL_DOMAIN_NAME.name))
+TABLE_DOMAIN = Table(name=process_config.SOGO_P_TABLE_DOMAINS, columns=ALL_DOMAIN_COL, primary_keys=(COL_ID.name, COL_HASH.name, COL_DOMAIN_NAME.name))
 
 #############################
 # Table sogo_settings_rules #
@@ -77,7 +78,7 @@ ALL_RULE_COL      = [COL_ID,
                      COL_RULE_NAME,
                      COL_RULE_DOMAINS,
                      COL_RULE_SETTINGS]
-TABLE_RULES = Table(name="sogo_settings_rules", columns=ALL_RULE_COL, primary_keys=(COL_ID.name, COL_HASH.name, COL_RULE_NAME.name))
+TABLE_RULES = Table(name=process_config.SOGO_P_TABLE_RULES, columns=ALL_RULE_COL, primary_keys=(COL_ID.name, COL_HASH.name, COL_RULE_NAME.name))
 
 #############################
 # Table sogo_user_profiles #
@@ -121,7 +122,7 @@ ALL_USER_COL              = [COL_ID,
                              COL_USER_DELEGATION_GIVEN,
                              COL_USER_DELEGATION_GOT,
                              ]
-TABLE_USER = Table(name="sogo_user_profiles", columns=ALL_USER_COL, primary_keys=(COL_ID.name, COL_HASH.name, COL_USER_UID.name,))
+TABLE_USER = Table(name=process_config.SOGO_P_TABLE_USERS, columns=ALL_USER_COL, primary_keys=(COL_ID.name, COL_HASH.name, COL_USER_UID.name,))
 
 
 
@@ -184,7 +185,7 @@ ALL_CAL_COL = [COL_ID,
 
 IDX_CAL_USER_UID = Index(name="idx_cal_user_uid", columns=(COL_CAL_USER_UID.name,))
 
-TABLE_CALENDAR = Table(name="sogo_calendar_calendars", columns=ALL_CAL_COL, primary_keys=(COL_ID.name, COL_CAL_KEY.name),
+TABLE_CALENDAR = Table(name=process_config.SOGO_P_TABLE_CALENDARS, columns=ALL_CAL_COL, primary_keys=(COL_ID.name, COL_CAL_KEY.name),
                        indexes=[IDX_CAL_USER_UID])
 
 #####################
@@ -207,7 +208,8 @@ Key queries:
 # date_start: DTSTART in UTC — lower bound for date range queries
 # date_end: DTEND in UTC for VEVENT/VJOURNAL, DUE in UTC for VTODO; all-day events store DTEND-1s (DTEND is exclusive in RFC 5545, -1s makes SQL range queries inclusive)
 # show_as: RFC 5545 TRANSP — 'busy' (OPAQUE) or 'free' (TRANSPARENT) or 'out-of-office' / 'tentative' (Microsoft extensions); used in FreeBusy queries
-# is_recurring: TRUE when the event has an RRULE; discriminator for the dual SQL range strategy — date_end_recurrence alone cannot serve this role because unbounded recurring series have date_end_recurrence = NULL, same as non-recurring events
+# is_recurring: TRUE when the event has an RRULE; discriminator for the dual SQL range
+#   strategy — date_end_recurrence alone cannot serve this role because unbounded recurring series have date_end_recurrence = NULL, same as non-recurring events
 # date_end_recurrence: UTC datetime of the last occurrence's end; NULL for infinite recurrences; used with is_recurring = TRUE for efficient date range queries
 # recurrence_id: UTC datetime of the original occurrence this row replaces (RFC 5545 RECURRENCE-ID); NULL on master events; used for CalDAV per-occurrence addressing and THISANDFUTURE operations
 # is_deleted: soft delete flag — never DELETE FROM sogo_events; deleted events return HTTP 404 in CalDAV sync reports (RFC 4791)
@@ -257,7 +259,7 @@ IDX_EVT_UID = Index(name="idx_evt_uid", columns=(COL_EVT_UID.name,))
 # on the TEXT column (MariaDB, where MATCH ... AGAINST requires it).
 IDX_EVT_SEARCH = Index(name="idx_evt_search_vector", columns=(COL_EVT_SEARCH_VECTOR.name,), fulltext=True)
 
-TABLE_EVENT = Table(name="sogo_calendar_events", columns=ALL_EVT_COL, primary_keys=(COL_ID.name, COL_EVT_KEY.name),
+TABLE_EVENT = Table(name=process_config.SOGO_P_TABLE_EVENTS, columns=ALL_EVT_COL, primary_keys=(COL_ID.name, COL_EVT_KEY.name),
                     indexes=[IDX_EVT_CALENDAR_KEY, IDX_EVT_DATE_RANGE, IDX_EVT_UID, IDX_EVT_SEARCH])
 
 ##############################
@@ -288,7 +290,7 @@ ALL_REM_COL = [COL_ID,
 IDX_REM_TRIGGER = Index(name="idx_rem_trigger", columns=(COL_REM_TRIGGER_AT.name, COL_REM_IS_DELETED.name))
 IDX_REM_EVENT_KEY = Index(name="idx_rem_event_key", columns=(COL_REM_EVENT_KEY.name,))
 
-TABLE_REMINDER = Table(name="sogo_calendar_reminders", columns=ALL_REM_COL, primary_keys=(COL_ID.name,),
+TABLE_REMINDER = Table(name=process_config.SOGO_P_TABLE_REMINDERS, columns=ALL_REM_COL, primary_keys=(COL_ID.name,),
                        indexes=[IDX_REM_TRIGGER, IDX_REM_EVENT_KEY])
 
 ####################################
@@ -504,6 +506,43 @@ ALL_FS_COL = [COL_FS_KEY,
 
 TABLE_FILE_STORAGE = Table(name="sogo_file_storage", columns=ALL_FS_COL, primary_keys=(COL_FS_KEY.name,))
 
+##############################
+# Table tmp_draft      #
+##############################
+"""
+Temporary table tracking draft state for mail operations.
+Prevents concurrent modifications on the same draft.
+
+Key queries:
+  SELECT ... FROM tmp_draft WHERE owner = ?
+  SELECT ... FROM tmp_draft WHERE key = ?
+"""
+# key: opaque unique hash identifying this draft state entry
+# owner: uid of the user owning the draft — FK to sogo_user_profiles.uid — indexed for per-user queries
+# mail_server_uid: uid used to locate the Draft on the mail server
+# lock_state: True means a request is currently modifying the Draft; other operations must wait
+# headers: JSON blob reserved for future use (e.g. custom mail headers set by the client before sending)
+# last_updated: Unix timestamp (seconds since epoch) updated on every insert/modify of this entry
+COL_DRAFT_KEY             = Column(name="key",             data_type="str",  is_unique=True, extra_args={"max_len": 64})
+COL_DRAFT_OWNER           = Column(name="owner",           data_type="str",                  extra_args={"max_len": 512})
+COL_DRAFT_MAIL_SERVER_UID = Column(name="mail_server_uid", data_type="str",                  extra_args={"max_len": 512})
+COL_DRAFT_LOCK_STATE      = Column(name="lock_state",      data_type="bool")
+COL_DRAFT_HEADERS         = Column(name="headers",         data_type="dict", is_nullable=True)
+COL_DRAFT_LAST_UPDATED    = Column(name="last_updated",    data_type="int",  is_nullable=True)
+
+ALL_DRAFT_COL = [COL_ID,
+                 COL_DRAFT_KEY,
+                 COL_DRAFT_OWNER,
+                 COL_DRAFT_MAIL_SERVER_UID,
+                 COL_DRAFT_LOCK_STATE,
+                 COL_DRAFT_HEADERS,
+                 COL_DRAFT_LAST_UPDATED]
+
+IDX_DRAFT_OWNER = Index(name="idx_draft_owner", columns=(COL_DRAFT_OWNER.name,))
+
+TABLE_DRAFT_STATE = Table(name=process_config.SOGO_P_TABLE_TMP_DRAFTS, columns=ALL_DRAFT_COL, primary_keys=(COL_ID.name, COL_DRAFT_KEY.name),
+                          indexes=[IDX_DRAFT_OWNER])
+
 ALL_TABLES = [TABLE_SETTINGS,
               TABLE_DOMAIN,
               TABLE_RULES,
@@ -515,4 +554,5 @@ ALL_TABLES = [TABLE_SETTINGS,
               TABLE_CONTACT,
               TABLE_CONTACT_LIST,
               TABLE_CONTACT_LIST_MEMBER,
-              TABLE_FILE_STORAGE]
+              TABLE_FILE_STORAGE,
+              TABLE_DRAFT_STATE]

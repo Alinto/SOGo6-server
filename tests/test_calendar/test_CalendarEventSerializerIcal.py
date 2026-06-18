@@ -85,7 +85,7 @@ def test_required_vevent_properties(serializer, minimal_event):
     assert _has_line(output, "SUMMARY:Test Event")
     assert _has_line(output, "DTSTART:20240315T090000Z")
     assert _has_line(output, "DTEND:20240315T100000Z")
-    # DTSTAMP est obligatoire (RFC 5545 §3.6.1) — presence suffisante, valeur dynamique
+    # DTSTAMP est obligatoire (RFC 5545 §3.6.1) - presence suffisante, valeur dynamique
     lines = _unfolded_lines(output)
     assert any(ln.startswith("DTSTAMP:") for ln in lines)
 
@@ -204,7 +204,7 @@ def test_text_escape_newline_in_description(serializer):
 
 
 # ==========================================================================
-# Folding (RFC 5545 §3.1 — 75 octets max)
+# Folding (RFC 5545 §3.1 - 75 octets max)
 # ==========================================================================
 
 def test_long_line_is_folded(serializer):
@@ -529,12 +529,12 @@ def test_attach_binary(serializer):
     )
     output = serializer.serialize(event)
     lines = _unfolded_lines(output)
-    # icalendar trie les params alphabetiquement — on verifie chaque param independamment
+    # icalendar trie les params alphabetiquement - on verifie chaque param independamment
     assert any("ATTACH" in ln and "ENCODING=BASE64" in ln and "VALUE=BINARY" in ln and "FMTTYPE=text/plain" in ln for ln in lines)
 
 
 # ==========================================================================
-# CalEventsSerializerIcal — body components
+# CalEventsSerializerIcal - body components
 # ==========================================================================
 
 def test_events_serializer_dispatches_vtodo_and_vevent():
@@ -569,7 +569,7 @@ def test_priority_emitted_when_set(serializer, minimal_event):
 
 
 def test_priority_omitted_when_undefined(serializer, minimal_event):
-    # priority=0 means undefined per RFC 5545 §3.8.1.9 — must not be emitted.
+    # priority=0 means undefined per RFC 5545 §3.8.1.9 - must not be emitted.
     assert "PRIORITY" not in serializer.serialize(minimal_event)
 
 

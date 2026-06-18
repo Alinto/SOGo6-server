@@ -152,7 +152,7 @@ def test_expand_true_explodes_recurring_master():
     master = _recurring_master("daily")
     source = FakeCalendarSource([master])
     events = source.get_events(start=_dt(2026, 1, 1), end=_dt(2026, 1, 31), expand=True)
-    # DAILY count=5 → five distinct occurrences, each carrying a recurrence_id.
+    # DAILY count=5 -> five distinct occurrences, each carrying a recurrence_id.
     occurrences = [e for e in events if e.uid == "daily"]
     assert len(occurrences) == 5
     assert all(e.recurrence_id is not None for e in occurrences)

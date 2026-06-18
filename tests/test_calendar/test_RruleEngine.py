@@ -59,7 +59,7 @@ def test_daily_basic(engine):
 
 
 def test_daily_mid_series_window(engine):
-    # Series starts Jan 1; window opens Jan 5 — occurrences Jan 1-4 must be absent.
+    # Series starts Jan 1; window opens Jan 5 - occurrences Jan 1-4 must be absent.
     master = _master(_dt(2026, 1, 1), _dt(2026, 1, 1, 10), rule=_rule(RecurrenceFrequency.DAILY))
     result = engine.expand(master, _dt(2026, 1, 5), _dt(2026, 1, 7))
     starts = [e.date_start for e in result]
@@ -99,7 +99,7 @@ def test_out_of_range_empty(engine):
 # WEEKLY
 
 def test_weekly_byday(engine):
-    # Jan 5 2026 = Monday. MO: Jan 5, 12 — WE: Jan 7, 14
+    # Jan 5 2026 = Monday. MO: Jan 5, 12 - WE: Jan 7, 14
     master = _master(
         _dt(2026, 1, 5), _dt(2026, 1, 5, 10),
         rule=_rule(RecurrenceFrequency.WEEKLY, by_day=["MO", "WE"]),
@@ -154,7 +154,7 @@ def test_monthly_bymonthday(engine):
 
 
 def test_monthly_byday_positional(engine):
-    # FREQ=MONTHLY;BYDAY=1MO → first Monday of each month.
+    # FREQ=MONTHLY;BYDAY=1MO -> first Monday of each month.
     # First Monday Jan 2026 = Jan 5; Feb = Feb 2; Mar = Mar 2
     master = _master(
         _dt(2026, 1, 1), _dt(2026, 1, 1, 10),
@@ -328,7 +328,7 @@ def test_hourly(engine):
 # BYYEARDAY
 
 def test_byyearday_positive(engine):
-    # BYYEARDAY=100: Jan(31)+Feb(28)+Mar(31)+10 = 100 → April 10 in non-leap years.
+    # BYYEARDAY=100: Jan(31)+Feb(28)+Mar(31)+10 = 100 -> April 10 in non-leap years.
     master = _master(
         _dt(2026, 1, 1), _dt(2026, 1, 1, 10),
         rule=_rule(RecurrenceFrequency.YEARLY, by_year_day=[100]),
@@ -341,7 +341,7 @@ def test_byyearday_positive(engine):
 
 
 def test_byyearday_negative(engine):
-    # BYYEARDAY=-1 → last day of year (Dec 31).
+    # BYYEARDAY=-1 -> last day of year (Dec 31).
     master = _master(
         _dt(2026, 1, 1), _dt(2026, 1, 1, 10),
         rule=_rule(RecurrenceFrequency.YEARLY, by_year_day=[-1]),
@@ -370,7 +370,7 @@ def test_byweekno(engine):
 # BYHOUR / BYMINUTE / BYSECOND
 
 def test_daily_byhour_expands_multiple_times_per_day(engine):
-    # FREQ=DAILY;BYHOUR=9,14 → 2 occurrences per day at 09:00 and 14:00.
+    # FREQ=DAILY;BYHOUR=9,14 -> 2 occurrences per day at 09:00 and 14:00.
     master = _master(
         datetime(2026, 1, 5, 9, 0, 0, tzinfo=_UTC),
         datetime(2026, 1, 5, 10, 0, 0, tzinfo=_UTC),
@@ -386,7 +386,7 @@ def test_daily_byhour_expands_multiple_times_per_day(engine):
 
 
 def test_hourly_byminute_filters_minutes(engine):
-    # FREQ=HOURLY;BYMINUTE=0;COUNT=3 → only at :00 of each hour.
+    # FREQ=HOURLY;BYMINUTE=0;COUNT=3 -> only at :00 of each hour.
     master = _master(
         datetime(2026, 1, 5, 9, 0, 0, tzinfo=_UTC),
         datetime(2026, 1, 5, 9, 30, 0, tzinfo=_UTC),
@@ -401,7 +401,7 @@ def test_hourly_byminute_filters_minutes(engine):
 # BYSETPOS in DAILY / WEEKLY
 
 def test_daily_byhour_bysetpos_selects_last_per_day(engine):
-    # FREQ=DAILY;BYHOUR=9,12,17;BYSETPOS=-1 → only 17:00 each day.
+    # FREQ=DAILY;BYHOUR=9,12,17;BYSETPOS=-1 -> only 17:00 each day.
     master = _master(
         datetime(2026, 1, 5, 9, 0, 0, tzinfo=_UTC),
         datetime(2026, 1, 5, 10, 0, 0, tzinfo=_UTC),
@@ -413,7 +413,7 @@ def test_daily_byhour_bysetpos_selects_last_per_day(engine):
 
 
 def test_weekly_byday_bysetpos_selects_first_per_week(engine):
-    # FREQ=WEEKLY;BYDAY=MO,WE,FR;BYSETPOS=1 → only Monday each week.
+    # FREQ=WEEKLY;BYDAY=MO,WE,FR;BYSETPOS=1 -> only Monday each week.
     # Jan 5 2026 = Monday.
     master = _master(
         _dt(2026, 1, 5), _dt(2026, 1, 5, 10),
@@ -438,7 +438,7 @@ def test_get_max_date_no_rrule(engine):
 
 
 def test_get_max_date_infinite(engine):
-    # No UNTIL, no COUNT → unbounded series.
+    # No UNTIL, no COUNT -> unbounded series.
     master = _master(
         _dt(2026, 3, 10), _dt(2026, 3, 10, 10),
         rule=_rule(RecurrenceFrequency.WEEKLY),
@@ -447,7 +447,7 @@ def test_get_max_date_infinite(engine):
 
 
 def test_get_max_date_count(engine):
-    # FREQ=DAILY;COUNT=3 starting March 10 → last occurrence March 12.
+    # FREQ=DAILY;COUNT=3 starting March 10 -> last occurrence March 12.
     master = _master(
         _dt(2026, 3, 10), _dt(2026, 3, 10, 10),
         rule=_rule(RecurrenceFrequency.DAILY, count=3),
@@ -457,7 +457,7 @@ def test_get_max_date_count(engine):
 
 def test_get_max_date_until_last_occurrence_before_until(engine):
     # FREQ=WEEKLY;BYDAY=MO;UNTIL=2026-03-26 (a Thursday).
-    # Mar 9 = Monday. Mondays: Mar 9, 16, 23 → last start = Mar 23, last end = Mar 23 10:00.
+    # Mar 9 = Monday. Mondays: Mar 9, 16, 23 -> last start = Mar 23, last end = Mar 23 10:00.
     until = datetime(2026, 3, 26, 23, 59, 59, tzinfo=_UTC)
     master = _master(
         _dt(2026, 3, 9), _dt(2026, 3, 9, 10),

@@ -107,6 +107,9 @@ FOLDER_SUSBCRIBED = "subscribed"
 FOLDER_UNSEEN = "unseen_count"
 FOLDER_COUNT = "message_count"
 
+# tmp_draft
+TMP_DRAFT_KEY_SIZE = 32  # Length of the unique hash key for a tmp_draft entry
+
 # Mail deletion behavior mapping to (move_to_trash, permanently) flags
 DELETE_MAIL_BEHAVIOR_MAP = {
     # behavior                   move_to_trash  permanently

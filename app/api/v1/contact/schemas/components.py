@@ -9,7 +9,7 @@ from __future__ import annotations
 from marshmallow import Schema, fields
 
 
-class EmailSchema(Schema):
+class CardEmailSchema(Schema):
     """vCard EMAIL property (RFC 6350 §6.4.2)."""
 
     value = fields.String(required=True, metadata={"description": "Email address.", "example": "john@example.com"})
@@ -18,7 +18,7 @@ class EmailSchema(Schema):
     pref  = fields.Integer(allow_none=True, metadata={"description": "PREF parameter (1 = most preferred)."})
 
 
-class PhoneSchema(Schema):
+class CardPhoneSchema(Schema):
     """vCard TEL property (RFC 6350 §6.4.1)."""
 
     number = fields.String(required=True, metadata={"description": "Phone number.", "example": "+33123456789"})
@@ -27,7 +27,7 @@ class PhoneSchema(Schema):
     pref   = fields.Integer(allow_none=True, metadata={"description": "PREF parameter (1 = most preferred)."})
 
 
-class AddressSchema(Schema):
+class CardAddressSchema(Schema):
     """vCard ADR property (RFC 6350 §6.3.1)."""
 
     po_box      = fields.String(allow_none=True)
@@ -41,14 +41,14 @@ class AddressSchema(Schema):
     pref        = fields.Integer(allow_none=True)
 
 
-class UrlSchema(Schema):
+class CardUrlSchema(Schema):
     """vCard URL property (RFC 6350 §6.7.8)."""
 
     value = fields.String(required=True, metadata={"example": "https://example.com"})
     type  = fields.String(allow_none=True, metadata={"description": "TYPE parameter (e.g. work, home)."})
 
 
-class ImppSchema(Schema):
+class CardImppSchema(Schema):
     """vCard IMPP property (RFC 6350 §6.4.3) - instant messaging address."""
 
     uri  = fields.String(required=True, metadata={"example": "xmpp:john@example.com"})

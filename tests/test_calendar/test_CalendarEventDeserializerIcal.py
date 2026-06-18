@@ -93,7 +93,7 @@ def deserializer():
 
 
 # ==========================================================================
-# Example 1 — Three-Day Conference
+# Example 1 - Three-Day Conference
 # ==========================================================================
 
 def test_example1_uid(deserializer):
@@ -146,7 +146,7 @@ def test_example1_description_unfolding(deserializer):
 
 
 # ==========================================================================
-# Example 2 — Group-Scheduled Meeting with Timezone
+# Example 2 - Group-Scheduled Meeting with Timezone
 # ==========================================================================
 
 def test_example2_uid(deserializer):
@@ -192,7 +192,7 @@ def test_example2_categories(deserializer):
 
 
 # ==========================================================================
-# Example 3 — Multiple Categories and URI Attachment
+# Example 3 - Multiple Categories and URI Attachment
 # ==========================================================================
 
 def test_example3_uid_and_sequence(deserializer):
@@ -425,7 +425,7 @@ def test_vtodo_status_needs_action(deserializer):
 
 def test_vtodo_due_maps_to_date_end(deserializer):
     event = deserializer.deserialize(ICAL_EXAMPLE_4)
-    # DUE:19980415T000000 (naive → UTC)
+    # DUE:19980415T000000 (naive -> UTC)
     assert event.date_end == datetime(1998, 4, 15, 0, 0, 0, tzinfo=timezone.utc)
 
 

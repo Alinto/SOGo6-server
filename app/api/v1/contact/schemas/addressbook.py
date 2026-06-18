@@ -22,7 +22,7 @@ class AddressBookUpdateSchema(Schema):
     is_default  = fields.Boolean(metadata={"description": "Mark this book as the user's default address book."})
 
 
-class AddressBookSchema(Schema):
+class CardAddressBookSchema(Schema):
     """Representation of an address book in API responses."""
 
     key         = fields.String()
@@ -36,7 +36,7 @@ class AddressBookSchema(Schema):
 class AddressBookListDataSchema(Schema):
     """Data payload for the address book list response."""
 
-    addressbooks = fields.List(fields.Nested(AddressBookSchema))
+    addressbooks = fields.List(fields.Nested(CardAddressBookSchema))
     total_count  = fields.Integer()
 
 
@@ -49,7 +49,7 @@ class AddressBookListResponseSchema(ApiBaseResponse):
 class AddressBookResponseSchema(ApiBaseResponse):
     """Response schema for a single address book."""
 
-    data = fields.Nested(AddressBookSchema, allow_none=True)
+    data = fields.Nested(CardAddressBookSchema, allow_none=True)
 
 
 class ContactImportQueryArgsSchema(Schema):

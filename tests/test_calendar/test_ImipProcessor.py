@@ -348,7 +348,7 @@ def test_cancel_partial_idempotent():
 
     module.process_imip_cancel(_fake_user(), raw, "organizer@example.com")
 
-    # Already in EXDATE — should not update
+    # Already in EXDATE - should not update
     assert len(source.updated) == 0
 
 
