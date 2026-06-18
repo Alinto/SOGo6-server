@@ -325,6 +325,15 @@ CODE=$(req -X POST "$BASE/addressbooks/$AB_KEY/contacts" -H "$H_JSON" -H "$H_AUT
 check_code       "POST contact with non-image data: URI (rejected)" "$CODE" "415"
 check_error_code "non-image photo error_code" "S000041"
 
+info "An oversized photo (decoded > FILE_MAX_SIZE_KB) is rejected before storage."
+BIG_PHOTO=$(mktemp); BIG_BODY=$(mktemp)
+{ printf '\x89PNG\r\n\x1a\n'; head -c 2200000 /dev/zero; } | base64 | tr -d '\n' > "$BIG_PHOTO"
+{ printf '{"display_name":"Big Photo","photos":["data:image/png;base64,'; cat "$BIG_PHOTO"; printf '"]}'; } > "$BIG_BODY"
+CODE=$(req -X POST "$BASE/addressbooks/$AB_KEY/contacts" -H "$H_JSON" -H "$H_AUTH" --data-binary "@$BIG_BODY")
+check_code       "POST contact with oversized photo (rejected)" "$CODE" "413"
+check_error_code "oversized photo error_code" "S000040"
+rm -f "$BIG_PHOTO" "$BIG_BODY"
+
 # 5. SEARCH
 step "8. Contact - full-text search"
 info "Searches for 'acme'; expects at least the two Acme Corp contacts."
@@ -543,6 +552,40 @@ LST_LDIF=$(mktemp); body > "$LST_LDIF"
 CODE=$(req -X POST "$BASE/addressbooks/$IMP_KEY/lists/import?format=ldif" -H "$H_AUTH" -F "file=@$LST_LDIF")
 check_code "POST .../lists/import (LDIF list)" "$CODE" "200"
 rm -f "$LST_LDIF"
+
+step "19b. Import - error paths"
+info "Rejects: missing file part, unknown ?format, unparseable document, oversized payload."
+
+# Missing 'file' part in the multipart body -> 422 (the upload schema requires it).
+CODE=$(req -X POST "$BASE/addressbooks/import?format=json" -H "$H_AUTH" -F "notfile=x")
+check_code "POST /addressbooks/import (no file part) -> 422" "$CODE" "422"
+
+# Unknown ?format -> 422 (query OneOf validation, before the body is read).
+ANY_DOC=$(mktemp); echo '{"contacts":[],"lists":[]}' > "$ANY_DOC"
+CODE=$(req -X POST "$BASE/addressbooks/import?format=xml" -H "$H_AUTH" -F "file=@$ANY_DOC")
+check_code "POST /addressbooks/import (bad ?format) -> 422" "$CODE" "422"
+
+# Unparseable document for a declared format -> 422 (S000718). JSON makes the failure deterministic.
+BAD_DOC=$(mktemp); printf 'not json at all {{{' > "$BAD_DOC"
+CODE=$(req -X POST "$BASE/addressbooks/import?format=json" -H "$H_AUTH" -F "file=@$BAD_DOC")
+check_code       "POST /addressbooks/import (corrupt json) -> 422" "$CODE" "422"
+check_error_code "import parse-failed error_code" "S000718"
+
+# Oversized payload (> IMPORT_MAX_BYTES / the WSGI cap) -> 413.
+BIG_DOC=$(mktemp); head -c $((11 * 1024 * 1024)) /dev/zero > "$BIG_DOC"
+CODE=$(req -X POST "$BASE/addressbooks/import?format=json" -H "$H_AUTH" -F "file=@$BIG_DOC")
+check_code "POST /addressbooks/import (too large) -> 413" "$CODE" "413"
+rm -f "$ANY_DOC" "$BAD_DOC" "$BIG_DOC"
+
+step "19c. Distribution list - soft delete (always runs)"
+info "A throwaway list is created then deleted; a subsequent fetch must 404 (soft delete)."
+CODE=$(req -X POST "$BASE/addressbooks/$AB_KEY/lists" -H "$H_JSON" -H "$H_AUTH" -d '{"name":"Throwaway List"}')
+check_code "POST throwaway list -> 201" "$CODE" "201"
+TW_KEY=$(extract '.data.key')
+CODE=$(req -X DELETE "$BASE/addressbooks/$AB_KEY/lists/$TW_KEY" -H "$H_AUTH")
+check_code "DELETE throwaway list -> 200" "$CODE" "200"
+CODE=$(req "$BASE/addressbooks/$AB_KEY/lists/$TW_KEY" -H "$H_AUTH")
+check_code "GET deleted throwaway list -> 404" "$CODE" "404"
 
 # 14. CONDITIONAL DELETE
 step "20. Cleanup (DELETE)"

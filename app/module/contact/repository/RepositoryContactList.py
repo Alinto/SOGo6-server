@@ -22,7 +22,7 @@ _MEMBER_COLS: tuple[str, ...] = (tbl.COL_LM_LIST_KEY.name, tbl.COL_LM_CONTACT_KE
 
 
 class RepositoryContactList:
-    """Handles all DB reads and writes for sogo_contacts_lists and its sogo_contacts_list_members join.
+    """Handles all DB reads and writes for sogo6_contacts_lists and its sogo6_contacts_list_members join.
 
     The list row and its membership are two separate concerns: row CRUD never touches the join,
     member management is exposed through the dedicated member methods. The module orchestrates both.
@@ -249,7 +249,7 @@ class RepositoryContactList:
         return {row[0] for row in rows}
 
     #
-    # Membership (sogo_contacts_list_members join)
+    # Membership (sogo6_contacts_list_members join)
     #
     def find_member_keys(self, list_key: str) -> list[str]:
         """Return the contact keys of a list's members, in insertion order."""

@@ -23,7 +23,7 @@ _INSERT_COLS: tuple[str, ...] = tuple(col.name for col in tbl.ALL_AB_COL if col.
 
 
 class RepositoryAddressBook:
-    """Handles all DB reads and writes for sogo_contacts_addressbooks."""
+    """Handles all DB reads and writes for sogo6_contacts_addressbooks."""
 
     def __init__(self, db: ClientSQL) -> None:
         """Bind the repository to a SQL client."""

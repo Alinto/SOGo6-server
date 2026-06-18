@@ -368,7 +368,7 @@ class ModuleContact:  # pylint: disable=too-many-public-methods
             raise RequestException(error=err.ERROR_CONTACT_LIST_NOT_FOUND)
         self._validate_members(source, list_update.members)
         # Identity columns are not mutable through an update: a list cannot be moved to another book
-        # nor have its uid/key reassigned by the request body.
+        # nor have its uid/key reassigned by the caller.
         list_update.id = existing.id
         list_update.key = existing.key
         list_update.uid = existing.uid
@@ -404,9 +404,7 @@ class ModuleContact:  # pylint: disable=too-many-public-methods
     #
     # Export
     #
-    # TODO: export (and the upcoming import) of a whole book run inline and hold the entire document in
-    # memory. For large books this should be offloaded to the Agent as a background task whose result is
-    # delivered asynchronously (and streamed), instead of blocking the request thread.
+    # TODO: Make the process async with Agent
     def get_list_for_export(
         self, user: User, addressbook_key: str, key: str,
         user_sources: dict[str, UserSourceSettingsObj] | None = None,

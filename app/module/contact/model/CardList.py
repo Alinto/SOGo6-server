@@ -15,8 +15,8 @@ class CardList:  # pylint: disable=too-many-instance-attributes
     """Format-agnostic representation of a distribution list (vCard KIND:group, RFC 6350 §6.1.4).
 
     A list belongs to one address book and groups member contacts by reference: members are
-    contact keys held in the sogo_contacts_list_members join table, not embedded data, so editing
-    a member contact propagates to every list it belongs to. Maps to sogo_contacts_lists.
+    contact keys held in the sogo6_contacts_list_members join table, not embedded data, so editing
+    a member contact propagates to every list it belongs to. Maps to sogo6_contacts_lists.
 
     Members are restricted to contacts of the list's own address book (enforced by the service
     layer). A foreign MEMBER URI that RFC 6350 6.6.5 allows but that does not resolve to a contact
@@ -34,13 +34,13 @@ class CardList:  # pylint: disable=too-many-instance-attributes
     id: int | None = None
     # Internal - opaque token exposed in the API
     key: str | None = None
-    # Key of the owning address book (sogo_contacts_addressbooks.key)
+    # Key of the owning address book (sogo6_contacts_addressbooks.key)
     addressbook_key: str | None = None
     # vCard UID (RFC 6350 §6.7.6) - stable identity carried in the .vcf, dormant until the KIND:group serializer
     uid: str | None = None
     # NOTE (RFC 6350 §6.7.2) - the conventional carrier for a free-text list description
     description: str | None = None
-    # MEMBER (RFC 6350 §6.6.5) - member contact keys (references into sogo_contacts_contacts.key),
+    # MEMBER (RFC 6350 §6.6.5) - member contact keys (references into sogo6_contacts_contacts.key),
     # valid only on a KIND:group card; loaded from the join table
     members: list[str] = field(default_factory=list)
     # Transient - originating address book name, stamped at fetch time for display (autocomplete

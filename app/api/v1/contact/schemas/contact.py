@@ -4,11 +4,11 @@ from marshmallow import Schema, ValidationError, fields, validate
 
 from app.api.v1.contact.schemas.components import (
     AddressBookRefSchema,
-    CardAddressSchema,
-    CardEmailSchema,
-    CardImppSchema,
-    CardPhoneSchema,
-    CardUrlSchema,
+    ContactAddressSchema,
+    ContactEmailSchema,
+    ContactImppSchema,
+    ContactPhoneSchema,
+    ContactUrlSchema,
 )
 from app.module.contact.model.enums.CardKind import CardKind
 from app.utils.api.ApiBaseResponse import ApiBaseResponse
@@ -42,11 +42,11 @@ class ContactWriteSchema(Schema):
     department    = fields.String(allow_none=True)
     job_title     = fields.String(allow_none=True)
     role          = fields.String(allow_none=True)
-    emails        = fields.List(fields.Nested(CardEmailSchema), load_default=list)
-    phones        = fields.List(fields.Nested(CardPhoneSchema), load_default=list)
-    addresses     = fields.List(fields.Nested(CardAddressSchema), load_default=list)
-    urls          = fields.List(fields.Nested(CardUrlSchema), load_default=list)
-    impp          = fields.List(fields.Nested(CardImppSchema), load_default=list)
+    emails        = fields.List(fields.Nested(ContactEmailSchema), load_default=list)
+    phones        = fields.List(fields.Nested(ContactPhoneSchema), load_default=list)
+    addresses     = fields.List(fields.Nested(ContactAddressSchema), load_default=list)
+    urls          = fields.List(fields.Nested(ContactUrlSchema), load_default=list)
+    impp          = fields.List(fields.Nested(ContactImppSchema), load_default=list)
     photos        = fields.List(fields.String(), load_default=list, metadata={"description": "Photo URIs."})
     categories    = fields.List(fields.String(), load_default=list)
     birthday      = fields.String(allow_none=True, metadata={"description": "Date YYYY-MM-DD, or year-less --MM-DD."})
@@ -73,17 +73,17 @@ class ContactPatchSchema(ContactWriteSchema):
     """
 
     kind             = fields.String(validate=validate.OneOf(_KIND_VALUES))
-    emails           = fields.List(fields.Nested(CardEmailSchema))
-    phones           = fields.List(fields.Nested(CardPhoneSchema))
-    addresses        = fields.List(fields.Nested(CardAddressSchema))
-    urls             = fields.List(fields.Nested(CardUrlSchema))
-    impp             = fields.List(fields.Nested(CardImppSchema))
+    emails           = fields.List(fields.Nested(ContactEmailSchema))
+    phones           = fields.List(fields.Nested(ContactPhoneSchema))
+    addresses        = fields.List(fields.Nested(ContactAddressSchema))
+    urls             = fields.List(fields.Nested(ContactUrlSchema))
+    impp             = fields.List(fields.Nested(ContactImppSchema))
     photos           = fields.List(fields.String())
     categories       = fields.List(fields.String())
     extra_properties = fields.Dict(keys=fields.String(), values=fields.String())
 
 
-class CardContactSchema(Schema):
+class ContactSchema(Schema):
     """Representation of a contact in API responses (vCard, RFC 6350)."""
 
     key            = fields.String()
@@ -102,11 +102,11 @@ class CardContactSchema(Schema):
     department     = fields.String(allow_none=True)
     job_title      = fields.String(allow_none=True)
     role           = fields.String(allow_none=True)
-    emails         = fields.List(fields.Nested(CardEmailSchema))
-    phones         = fields.List(fields.Nested(CardPhoneSchema))
-    addresses      = fields.List(fields.Nested(CardAddressSchema))
-    urls           = fields.List(fields.Nested(CardUrlSchema))
-    impp           = fields.List(fields.Nested(CardImppSchema))
+    emails         = fields.List(fields.Nested(ContactEmailSchema))
+    phones         = fields.List(fields.Nested(ContactPhoneSchema))
+    addresses      = fields.List(fields.Nested(ContactAddressSchema))
+    urls           = fields.List(fields.Nested(ContactUrlSchema))
+    impp           = fields.List(fields.Nested(ContactImppSchema))
     photos         = fields.List(fields.String())
     categories     = fields.List(fields.String())
     birthday       = fields.String(allow_none=True)
@@ -133,7 +133,7 @@ class ContactSearchQueryArgsSchema(Schema):
 class ContactListDataSchema(Schema):
     """Data payload for the contact list response. The total count is in the X-Pagination header."""
 
-    contacts = fields.List(fields.Nested(CardContactSchema))
+    contacts = fields.List(fields.Nested(ContactSchema))
 
 
 class ContactListResponseSchema(ApiBaseResponse):
@@ -145,7 +145,7 @@ class ContactListResponseSchema(ApiBaseResponse):
 class ContactResponseSchema(ApiBaseResponse):
     """Response schema for a single contact."""
 
-    data = fields.Nested(CardContactSchema, allow_none=True)
+    data = fields.Nested(ContactSchema, allow_none=True)
 
 
 class ContactAutocompleteQueryArgsSchema(Schema):

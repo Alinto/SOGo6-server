@@ -25,7 +25,7 @@ class ListPatchSchema(Schema):
                               metadata={"description": "Full replacement of the member contact keys."})
 
 
-class CardListSchema(Schema):
+class DistributionListSchema(Schema):
     """Representation of a distribution list in API responses (vCard KIND:group, RFC 6350)."""
 
     key          = fields.String()
@@ -48,7 +48,7 @@ class ListSearchQueryArgsSchema(Schema):
 class ListCollectionDataSchema(Schema):
     """Data payload for the list collection response. The total count is in the X-Pagination header."""
 
-    lists = fields.List(fields.Nested(CardListSchema))
+    lists = fields.List(fields.Nested(DistributionListSchema))
 
 
 class ListCollectionResponseSchema(ApiBaseResponse):
@@ -60,4 +60,4 @@ class ListCollectionResponseSchema(ApiBaseResponse):
 class ListResponseSchema(ApiBaseResponse):
     """Response schema for a single distribution list."""
 
-    data = fields.Nested(CardListSchema, allow_none=True)
+    data = fields.Nested(DistributionListSchema, allow_none=True)

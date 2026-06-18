@@ -387,3 +387,33 @@ def test_import_list_upserts_into_existing_book():
     result = module.import_list(_user(), "ab-k", [CardList(name="Team", uid="l1", member_contacts=members)])
     assert (result.lists_inserted, result.skipped) == (1, 0)
     assert source.insert_list.call_args.args[0].members == ["key-m1", "key-m2"]
+
+
+def test_import_list_updates_when_uid_already_exists():
+    module = _build_module()
+    source = _import_source()
+    existing = CardList(id=9, key="existing-key", uid="l1", addressbook_key="ab-k", name="Old")
+    source.get_list_by_uid.side_effect = lambda uid: existing if uid == "l1" else None
+    module._get_writable_addressbook = lambda *a, **k: source
+    result = module.import_list(_user(), "ab-k", [CardList(name="New", uid="l1")])
+    assert (result.lists_inserted, result.lists_updated) == (0, 1)
+    source.update_list.assert_called_once()
+    source.insert_list.assert_not_called()
+    persisted = source.update_list.call_args.args[0]
+    assert (persisted.id, persisted.key, persisted.uid) == (9, "existing-key", "l1")  # identity from existing, not document
+
+
+def test_import_list_skips_a_failing_entry_without_aborting():
+    module = _build_module()
+    source = _import_source()
+
+    def _insert(card_list):
+        if card_list.uid == "bad":
+            raise RequestException(error=err.ERROR_CONTACT_LIST_INSERT_FAILED)
+        return card_list
+
+    source.insert_list.side_effect = _insert
+    module._get_writable_addressbook = lambda *a, **k: source
+    result = module.import_list(
+        _user(), "ab-k", [CardList(name="Ok", uid="l1"), CardList(name="Bad", uid="bad")])
+    assert (result.lists_inserted, result.skipped) == (1, 1)

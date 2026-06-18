@@ -13,7 +13,7 @@ class CardAddressBook:  # pylint: disable=too-many-instance-attributes
     """Format-agnostic representation of an address book (RFC 6352 addressbook collection).
 
     The address book is the top-level container and the unit of sharing: a contact belongs to
-    exactly one book. Maps to sogo_contacts_addressbooks. id is the internal integer PK; key is
+    exactly one book. Maps to sogo6_contacts_addressbooks. id is the internal integer PK; key is
     the opaque public identifier exposed in the API (prevents row enumeration).
 
     source_type drives the source dispatch: 'local' (DB-backed, full CRUD) or 'carddav'
@@ -44,7 +44,7 @@ class CardAddressBook:  # pylint: disable=too-many-instance-attributes
     updated_at: datetime | None = None
 
     # sync_config is deliberately excluded: external CardDAV sync metadata (incl. credentials) is
-    # written by the sync engine, never through a user PATCH.
+    # written by the sync engine, never through a user update.
     MUTABLE_FIELDS: ClassVar[frozenset[str]] = frozenset({"name", "description", "is_default"})
 
     @property

@@ -1,4 +1,4 @@
-"""Unit tests for DbFileStorage (binary blob store over sogo_file_storage)."""
+"""Unit tests for DbFileStorage (binary blob store over sogo6_file_storage)."""
 import hashlib
 from unittest.mock import MagicMock
 
