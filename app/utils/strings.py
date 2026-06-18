@@ -48,10 +48,14 @@ def get_domain_from_contact(string_input: str) -> str|None:
     "Foo Bar <foo@bar.nu>"
     """
     mail = string_input.strip()
-    if idx := mail.index("<"):
-        mail = mail[idx:-1] #removing the last '>'
-        if '<' in mail or '>' in mail:
-            raise ValueError(f"Contact is not confromed to 'CN <mail>': '{string_input}'")
+    if "<" in mail:
+        try:
+            idx = mail.index("<")
+            mail = mail[idx+1:-1]  # extracting mail between < and >
+            if '<' in mail or '>' in mail:
+                raise ValueError(f"Contact is not conformed to 'CN <mail>': '{string_input}'")
+        except (ValueError, IndexError) as e:
+            raise ValueError(f"Contact is not conformed to 'CN <mail>': '{string_input}'") from e
     return get_domain_from_mail(mail)
 
 

@@ -17,6 +17,9 @@ class SaveDraftSchema(Schema):
     cc = fields.List(fields.Email(), required=False, load_default=[])
     bcc = fields.List(fields.Email(), required=False, load_default=[])
     return_receipt = fields.Boolean(required=False, allow_none=True, load_default=None)
+    priority = fields.Integer(required=False, allow_none=True, load_default=None, validate=validate.OneOf([1, 2, 3, 4, 5]), metadata={"description": "Email priority (1=highest, 5=lowest)"})
+    is_html = fields.Boolean(required=False, load_default=False, metadata={"description": "If true, create multipart/alternative with both text/plain and text/html; if false, only text/plain"})
+    reply_to = fields.String(required=False, allow_none=True, load_default=None, metadata={"description": "Reply-To email address or 'Name <email>' format"})
 
     @classmethod
     def example(cls) -> dict:
@@ -31,7 +34,10 @@ class SaveDraftSchema(Schema):
             "subject": "Draft subject",
             "body": "Draft body content",
             "cc": [],
-            "bcc": []
+            "bcc": [],
+            "priority": 3,
+            "is_html": True,
+            "reply_to": "jdoe@example.com"
         }
 
 
@@ -116,6 +122,9 @@ class SendMailSchema(Schema):
     cc = fields.List(fields.Email(), required=False, load_default=[])
     bcc = fields.List(fields.Email(), required=False, load_default=[])
     return_receipt = fields.Boolean(required=False, allow_none=True, load_default=None)
+    priority = fields.Integer(required=False, allow_none=True, load_default=None, validate=validate.OneOf([1, 2, 3, 4, 5]), metadata={"description": "Email priority (1=highest, 5=lowest)"})
+    is_html = fields.Boolean(required=False, load_default=False, metadata={"description": "If true, create multipart/alternative with both text/plain and text/html; if false, only text/plain"})
+    reply_to = fields.String(required=False, allow_none=True, load_default=None, metadata={"description": "Reply-To email address or 'Name <email>' format"})
 
     @classmethod
     def example(cls) -> dict:
@@ -129,7 +138,10 @@ class SendMailSchema(Schema):
             "body": "Hello world! commment ça va ?",
             "cc": [],
             "bcc": [],
-            "return_receipt": None
+            "return_receipt": None,
+            "priority": 3,
+            "is_html": True,
+            "reply_to": None
         }
 
 
