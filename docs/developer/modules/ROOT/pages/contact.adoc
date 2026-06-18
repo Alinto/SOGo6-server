@@ -1,7 +1,7 @@
 = Contact Module
 
 The contact module manages address books and contacts (vCard, RFC 6350) stored in the database.
-It is built around two domain objects — `CardAddressBook` and `CardContact` — that flow through sources, repositories, and serializers without any format leaking across layers.
+It is built around two domain objects — `CardAddressBook` and `CardContact` - that flow through sources, repositories, and serializers without any format leaking across layers.
 
 == Architecture overview
 
@@ -13,7 +13,7 @@ It is built around two domain objects — `CardAddressBook` and `CardContact` �
        │  CardContact     │                      │
        └─────────────────►│  CardContact         │
                           │─────────────────────►│
-                          │                      ├── ContactSourceDb ──► SQL (sogo_contacts_*)
+                          │                      ├── ContactSourceDb ──► SQL (sogo6_contacts_*)
                           │                      └── ContactSourceDirectory ─► user source (SQL/LDAP), read-only
                           │
                           └── ContactAclEngine (permission resolution + enforcement)
@@ -42,7 +42,7 @@ Fields are either *relational* — dedicated columns for filtering and sorting: 
 
 `addressbook_name` is a transient field: it is stamped at fetch time from the originating book (for display, e.g. autocompletion provenance) and is never persisted.
 
-`CardAddressBook` maps to `sogo_contacts_addressbooks`. `ctag` (CardDAV `CS:getctag`, RFC 6352) is incremented on every contact or distribution-list mutation by `ContactSourceDb`, so clients detect changes without fetching the full contact list. A user has one default ("personal") address book, provisioned at first login (see <<Provisioning>>).
+`CardAddressBook` maps to `sogo6_contacts_addressbooks`. `ctag` (CardDAV `CS:getctag`, RFC 6352) is incremented on every contact or distribution-list mutation by `ContactSourceDb`, so clients detect changes without fetching the full contact list. A user has one default ("personal") address book, provisioned at first login (see <<Provisioning>>).
 
 == Contact sources
 
@@ -79,7 +79,7 @@ Errors follow the `S0007xx` range (`app/utils/errors.py`): a missing book / cont
 
 A distribution list is a vCard `KIND:group` (RFC 6350 §6.1.4): a named object that references member contacts. It belongs to one address book exactly like a contact, which is what scopes the `/addressbooks/{key}/lists` endpoints — there is no CardDAV "list" collection, a group card sits in an address book collection next to the individual cards, so book ownership, ACL and `ctag` are all inherited for free.
 
-A list is `CardList` (key, uid, name, description, members) mapped to its own table `sogo_contacts_lists`, *not* stored among the contacts. The serializer abstracts the format, so the internal model stays a dedicated table while the wire format becomes `KIND:group` at the CardDAV jalon. Members live in the join table `sogo_contacts_list_members` and are plain *references* — a member is a contact `key`, never an ad-hoc email — so editing a member contact propagates to every list it belongs to. A member must be a contact of the list's *own* address book: `ModuleContact.create_list` / `update_list` validate every member key against the book (`source.get_contact_by_key`) and reject an unknown, deleted or out-of-book key with `ERROR_CONTACT_LIST_MEMBER_INVALID`. Both ends are referenced by their opaque key, consistent with the rest of the schema (a contact references its book by `addressbook_key`), never by the internal id.
+A list is `CardList` (key, uid, name, description, members) mapped to its own table `sogo6_contacts_lists`, *not* stored among the contacts. The serializer abstracts the format, so the internal model stays a dedicated table while the wire format becomes `KIND:group` at the CardDAV jalon. Members live in the join table `sogo6_contacts_list_members` and are plain *references* — a member is a contact `key`, never an ad-hoc email — so editing a member contact propagates to every list it belongs to. A member must be a contact of the list's *own* address book: `ModuleContact.create_list` / `update_list` validate every member key against the book (`source.get_contact_by_key`) and reject an unknown, deleted or out-of-book key with `ERROR_CONTACT_LIST_MEMBER_INVALID`. Both ends are referenced by their opaque key, consistent with the rest of the schema (a contact references its book by `addressbook_key`), never by the internal id.
 
 `ModuleContact` exposes the same shape as for contacts: `get_all_lists` (book-scoped, paginated), `get_list` (members populated), `create_list` (generates the uid, persists the membership), `update_list` (identity preserved, full membership replacement) and `delete_list`. Writes go through `_get_writable_addressbook`, so the `MODIFY` ACL applies to lists exactly as to contacts. `ContactSourceDb` orchestrates the list row and its membership as two separate concerns and bumps the book `ctag` on every list mutation. The API exposes member contact keys plus a `member_count`; resolving each member to a full contact card is left to the caller.
 
@@ -109,7 +109,7 @@ Below `SOGO_D_AUTOCOMPLETION_MIN_LEN` characters (domain setting, `USER_MODULE_S
 
 == Soft delete
 
-`is_deleted` is a relational column: deletes are soft, never `DELETE FROM` (required for CardDAV sync reports, the same pattern as SOGo v5). Deleting a single contact sets `is_deleted = True` and drops the contact from every list it belonged to (so a deleted contact never lingers as a dangling member nor inflates a list's count); deleting a single list does the same on `sogo_contacts_lists` and clears its membership rows.
+`is_deleted` is a relational column: deletes are soft, never `DELETE FROM` (required for CardDAV sync reports, the same pattern as SOGo v5). Deleting a single contact sets `is_deleted = True` and drops the contact from every list it belonged to (so a deleted contact never lingers as a dangling member nor inflates a list's count); deleting a single list does the same on `sogo6_contacts_lists` and clears its membership rows.
 
 Deleting an address book (`DELETE /addressbooks/{key}`) tombstones its contacts and lists (`is_deleted = True`) and *detaches* them from the book (`addressbook_key = NULL`) before the book row is removed, so the tombstones survive while no longer referencing a gone book; the lists' membership rows are cleared first. A `hard_delete` option on the module method physically removes them instead. The address book table itself has no `is_deleted`, so the book row is removed physically.
 
@@ -141,7 +141,7 @@ A user's personal address book is created at first login. `InterfaceAuthUser.pla
 
 == Repositories
 
-`RepositoryContact`, `RepositoryAddressBook` and `RepositoryContactList` are the only classes that issue SQL. All queries use structured `Condition` objects — no string interpolation. `find_by_addressbook` applies pagination, sorting and the optional full-text filter; `count_by_addressbook` returns the total for pagination. `RepositoryContactList` owns both `sogo_contacts_lists` and the `sogo_contacts_list_members` join: row CRUD never touches the join, membership is handled by the dedicated member methods (`find_member_keys`, `replace_members`, `delete_members`, `remove_contact_from_lists`, `purge_orphan_members`).
+`RepositoryContact`, `RepositoryAddressBook` and `RepositoryContactList` are the only classes that issue SQL. All queries use structured `Condition` objects — no string interpolation. `find_by_addressbook` applies pagination, sorting and the optional full-text filter; `count_by_addressbook` returns the total for pagination. `RepositoryContactList` owns both `sogo6_contacts_lists` and the `sogo6_contacts_list_members` join: row CRUD never touches the join, membership is handled by the dedicated member methods (`find_member_keys`, `replace_members`, `delete_members`, `remove_contact_from_lists`, `purge_orphan_members`).
 
 == Serialization
 
@@ -231,11 +231,11 @@ The serializers do *not* inspect the bytes: they only translate the format synta
 
 `ModuleContact` calls `save_all` on create / update (with the contact's file limits) and `load_all` on every contact it returns, so a client only ever sees `data:` URIs and references never leave the module. `get_contacts` takes a `resolve_images` flag (default True): set it to False for a listing that should not load every photo blob - the managed references are then dropped (external URIs kept) instead of being inlined.
 
-`FileAdapterDatabase` (`app/utils/file/`) is the current backend; it stores blobs in `sogo_file_storage` (key, data, content_type, content_hash, timestamps) through the `DbFileStorage` manager (`app/manager/db/`), which is injected into its constructor (so the utils layer never imports a manager at runtime). The reference scheme is `sogo:file:<key>`; `matches` compares a stored `content_hash` (sha256) without loading the blob, which keeps the update round-trip cheap. A file backend (file share / WebDAV) can be substituted without touching the module - only the key-to-storage mapping differs.
+`FileAdapterDatabase` (`app/utils/file/`) is the current backend; it stores blobs in `sogo6_file_storage` (key, data, content_type, content_hash, timestamps) through the `DbFileStorage` manager (`app/manager/db/`), which is injected into its constructor (so the utils layer never imports a manager at runtime). The reference scheme is `sogo:file:<key>`; `matches` compares a stored `content_hash` (sha256) without loading the blob, which keeps the update round-trip cheap. A file backend (file share / WebDAV) can be substituted without touching the module - only the key-to-storage mapping differs.
 
 *Validation and typing.* `save_all` rejects an inline file larger than `FILE_MAX_SIZE_KB` (`ERROR_FILE_TOO_LARGE`) or whose sniffed type is not in `ALLOWED_FILE_MIME_TYPES` (`ERROR_FILE_TYPE_NOT_ALLOWED`, both generic file errors) - the contact module passes its own limits in - both checked on the bytes (`app/utils/media/MediaType.py`), before anything is stored. The declared label (vCard `TYPE`, `data:` URI mediatype, the `jpegPhoto` name) is never trusted: the type *stored and echoed back* is the sniffed one, so a mislabeled file is corrected from its content, a PNG survives a round-trip through LDIF, and a polyglot (image bytes declared `text/html`) cannot be echoed with an executable content type. SVG is deliberately excluded from the allowlist: it is a script-bearing document and a stored-XSS vector when rendered as anything other than an `<img>` source.
 
-*Lifecycle.* `save_all` itself never deletes - it would otherwise mutate the store before the owning row is committed, stranding the row on missing bytes if the commit then failed. Instead `update_contact` reclaims the blobs a write dropped (a replaced or removed photo) *after* the row commits (`_delete_dropped_files`), so the old `sogo_file_storage` row disappears immediately. A *deleted* contact is soft-deleted and keeps its blobs, like the tombstone itself; those, and any blob a post-commit delete missed, are reclaimed by `ModuleContact.clean()` (`FileAdapter.purge_orphans` drops every row no surviving contact references) - the same backstop sweep that purges tombstones and dangling distribution-list membership.
+*Lifecycle.* `save_all` itself never deletes - it would otherwise mutate the store before the owning row is committed, stranding the row on missing bytes if the commit then failed. Instead `update_contact` reclaims the blobs a write dropped (a replaced or removed photo) *after* the row commits (`_delete_dropped_files`), so the old `sogo6_file_storage` row disappears immediately. A *deleted* contact is soft-deleted and keeps its blobs, like the tombstone itself; those, and any blob a post-commit delete missed, are reclaimed by `ModuleContact.clean()` (`FileAdapter.purge_orphans` drops every row no surviving contact references) - the same backstop sweep that purges tombstones and dangling distribution-list membership.
 
 == Module — ModuleContact
 

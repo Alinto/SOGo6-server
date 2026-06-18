@@ -29,7 +29,7 @@ _deserializer = CardContactDeserializerDict()
 
 
 class RepositoryContact:
-    """Handles all DB reads and writes for sogo_contacts_contacts."""
+    """Handles all DB reads and writes for sogo6_contacts_contacts."""
 
     def __init__(self, db: ClientSQL) -> None:
         """Bind the repository to a SQL client."""

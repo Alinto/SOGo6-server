@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
 
 class DbFileStorage:
-    """Generic binary blob store backed by the sogo_file_storage table (key -> raw bytes + MIME).
+    """Generic binary blob store backed by the sogo6_file_storage table (key -> raw bytes + MIME).
 
     Knows nothing about its callers; the SQL client is injected.
     """

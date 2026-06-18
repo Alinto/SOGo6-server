@@ -294,7 +294,7 @@ TABLE_REMINDER = Table(name=process_config.SOGO_P_TABLE_REMINDERS, columns=ALL_R
                        indexes=[IDX_REM_TRIGGER, IDX_REM_EVENT_KEY])
 
 ####################################
-# Table sogo_contacts_addressbooks #
+# Table sogo6_contacts_addressbooks #
 ####################################
 """
 Stores personal and external address books for each user.
@@ -336,11 +336,11 @@ ALL_AB_COL = [COL_ID,
 
 IDX_AB_USER_UID = Index(name="idx_ab_user_uid", columns=(COL_AB_USER_UID.name,))
 
-TABLE_ADDRESSBOOK = Table(name="sogo_contacts_addressbooks", columns=ALL_AB_COL,
+TABLE_ADDRESSBOOK = Table(name=process_config.SOGO_P_TABLE_ADDRESSBOOKS, columns=ALL_AB_COL,
                           primary_keys=(COL_ID.name, COL_AB_KEY.name), indexes=[IDX_AB_USER_UID])
 
 ###############################
-# Table sogo_contacts_contacts #
+# Table sogo6_contacts_contacts #
 ###############################
 """
 Stores all contacts (vCard, RFC 6350) of an address book.
@@ -348,11 +348,11 @@ Pattern: relational columns only for SQL filtering/sorting; the full vCard fiche
 in the contact_data JSON blob (names, emails, phones, addresses, etc.).
 
 Key queries:
-  SELECT ... FROM sogo_contacts_contacts WHERE addressbook_key = ? AND is_deleted = FALSE ORDER BY last_name, first_name
+  SELECT ... FROM sogo6_contacts_contacts WHERE addressbook_key = ? AND is_deleted = FALSE ORDER BY last_name, first_name
   SELECT ... WHERE addressbook_key = ? AND is_deleted = FALSE AND MATCH(search_vector) ...  (autocompletion / search)
 """
 # key: opaque token exposed in the API instead of id
-# addressbook_key: FK to sogo_contacts_addressbooks.key - present in every WHERE clause
+# addressbook_key: FK to sogo6_contacts_addressbooks.key - present in every WHERE clause
 # uid: vCard UID - expected unique per (addressbook_key, uid), but NOT enforced at the DB level yet
 #   (the REST API generates the uid itself; a real unique constraint is needed once CardDAV clients
 #   own the uid - RFC 6352)
@@ -399,20 +399,20 @@ IDX_CT_SORT = Index(name="idx_ct_sort", columns=(COL_CT_ADDRESSBOOK_KEY.name, CO
 # Dedicated full-text structure: GIN on the tsvector column (PostgreSQL) / FULLTEXT on the TEXT column (MariaDB).
 IDX_CT_SEARCH = Index(name="idx_ct_search_vector", columns=(COL_CT_SEARCH_VECTOR.name,), fulltext=True)
 
-TABLE_CONTACT = Table(name="sogo_contacts_contacts", columns=ALL_CT_COL,
+TABLE_CONTACT = Table(name=process_config.SOGO_P_TABLE_CONTACTS, columns=ALL_CT_COL,
                       primary_keys=(COL_ID.name, COL_CT_KEY.name),
                       indexes=[IDX_CT_ADDRESSBOOK_KEY, IDX_CT_UID, IDX_CT_SORT, IDX_CT_SEARCH])
 
 #############################
-# Table sogo_contacts_lists #
+# Table sogo6_contacts_lists #
 #############################
 """
 Stores distribution lists (vCard KIND:group, RFC 6350 6.1.4). A list belongs to one address book,
 like a contact, and is the object members are attached to. Members themselves live in the join table
-sogo_contacts_list_members and are plain references to contacts (modify-propagates).
+sogo6_contacts_list_members and are plain references to contacts (modify-propagates).
 
 Key queries:
-  SELECT ... FROM sogo_contacts_lists WHERE addressbook_key = ? AND is_deleted = FALSE ORDER BY name
+  SELECT ... FROM sogo6_contacts_lists WHERE addressbook_key = ? AND is_deleted = FALSE ORDER BY name
 """
 # key: opaque token exposed in the API instead of id, like contacts and address books
 # addressbook_key: key of the owning address book - nullable so the row survives the book's deletion
@@ -444,12 +444,12 @@ ALL_LST_COL = [COL_ID,
 IDX_LST_ADDRESSBOOK_KEY = Index(name="idx_lst_addressbook_key", columns=(COL_LST_ADDRESSBOOK_KEY.name,))
 IDX_LST_UID = Index(name="idx_lst_uid", columns=(COL_LST_UID.name,))
 
-TABLE_CONTACT_LIST = Table(name="sogo_contacts_lists", columns=ALL_LST_COL,
+TABLE_CONTACT_LIST = Table(name=process_config.SOGO_P_TABLE_CONTACT_LISTS, columns=ALL_LST_COL,
                            primary_keys=(COL_ID.name, COL_LST_KEY.name),
                            indexes=[IDX_LST_ADDRESSBOOK_KEY, IDX_LST_UID])
 
 ####################################
-# Table sogo_contacts_list_members #
+# Table sogo6_contacts_list_members #
 ####################################
 """
 Join table between a distribution list and its member contacts (N:M). A member is a reference to a
@@ -460,11 +460,11 @@ internal id. A member must be a contact of the list's own address book (enforced
 layer); the join carries no book column.
 
 Key queries:
-  SELECT contact_key FROM sogo_contacts_list_members WHERE list_key = ?            (expand a list)
-  SELECT list_key    FROM sogo_contacts_list_members WHERE contact_key = ?         (lists of a contact)
+  SELECT contact_key FROM sogo6_contacts_list_members WHERE list_key = ?            (expand a list)
+  SELECT list_key    FROM sogo6_contacts_list_members WHERE contact_key = ?         (lists of a contact)
 """
-# list_key: key of the owning list (sogo_contacts_lists.key)
-# contact_key: key of the member contact (sogo_contacts_contacts.key)
+# list_key: key of the owning list (sogo6_contacts_lists.key)
+# contact_key: key of the member contact (sogo6_contacts_contacts.key)
 COL_LM_LIST_KEY           = Column(name="list_key",      data_type="str",                                         extra_args={"max_len": 64})
 COL_LM_CONTACT_KEY        = Column(name="contact_key",   data_type="str",                                         extra_args={"max_len": 64})
 
@@ -473,12 +473,12 @@ ALL_LM_COL = [COL_LM_LIST_KEY,
 
 IDX_LM_CONTACT_KEY = Index(name="idx_lm_contact_key", columns=(COL_LM_CONTACT_KEY.name,))
 
-TABLE_CONTACT_LIST_MEMBER = Table(name="sogo_contacts_list_members", columns=ALL_LM_COL,
+TABLE_CONTACT_LIST_MEMBER = Table(name=process_config.SOGO_P_TABLE_CONTACT_LIST_MEMBERS, columns=ALL_LM_COL,
                                   primary_keys=(COL_LM_LIST_KEY.name, COL_LM_CONTACT_KEY.name),
                                   indexes=[IDX_LM_CONTACT_KEY])
 
 ###########################
-# Table sogo_file_storage #
+# Table sogo6_file_storage #
 ###########################
 """
 Generic binary blob store keyed by an opaque key. Decouples large binary payloads (e.g. contact
@@ -504,7 +504,7 @@ ALL_FS_COL = [COL_FS_KEY,
               COL_FS_CREATED_AT,
               COL_FS_UPDATED_AT]
 
-TABLE_FILE_STORAGE = Table(name="sogo_file_storage", columns=ALL_FS_COL, primary_keys=(COL_FS_KEY.name,))
+TABLE_FILE_STORAGE = Table(name=process_config.SOGO_P_TABLE_FILE_STORAGE, columns=ALL_FS_COL, primary_keys=(COL_FS_KEY.name,))
 
 ##############################
 # Table tmp_draft      #

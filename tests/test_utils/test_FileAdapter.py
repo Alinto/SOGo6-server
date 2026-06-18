@@ -104,6 +104,15 @@ def test_save_all_rejects_non_http_scheme():
     assert exc.value.error == err.ERROR_FILE_TYPE_NOT_ALLOWED
 
 
+def test_save_all_rejects_svg_photo():
+    fa = FakeFileAdapter()
+    svg = DataUri.build("image/png", b'<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"/>')  # sniffs as image/svg+xml
+    with pytest.raises(RequestException) as exc:
+        _save_all(fa, [], [svg])
+    assert exc.value.error == err.ERROR_FILE_TYPE_NOT_ALLOWED  # SVG excluded from the allowlist (stored-XSS vector)
+    assert fa.blobs == {}
+
+
 def test_save_all_allows_http_external_uri():
     fa = FakeFileAdapter()
     assert _save_all(fa, [], ["https://example.com/p.png"]) == ["https://example.com/p.png"]

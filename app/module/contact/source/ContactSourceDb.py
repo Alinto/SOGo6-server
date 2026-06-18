@@ -29,7 +29,7 @@ LIST_SORTABLE_COLUMNS: frozenset[str] = frozenset({
 
 
 class ContactSourceDb(ContactSource):
-    """Contact source backed by the local database (sogo_contacts_addressbooks + sogo_contacts_contacts)."""
+    """Contact source backed by the local database (sogo6_contacts_addressbooks + sogo6_contacts_contacts)."""
 
     def __init__(self, db: ClientSQL, addressbook: CardAddressBook) -> None:
         super().__init__(addressbook)

@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 
 
 class FileAdapterDatabase(FileAdapter):
-    """FileAdapter backed by the database blob store (sogo_file_storage)."""
+    """FileAdapter backed by the database blob store (sogo6_file_storage)."""
 
     def __init__(self, storage: DbFileStorage) -> None:
         self._storage: DbFileStorage = storage
