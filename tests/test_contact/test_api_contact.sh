@@ -140,6 +140,25 @@ check_count() {
     local got; got=$(body | jq -r "$path | length")
     [ "$got" = "$want" ] && ok "$label count=$want" || fail "$label - expected $want, got $got"
 }
+# GET an export with an Accept header; assert 200, the Content-Type and a body marker ("@JSON@" = valid JSON).
+check_export() {
+    local label="$1" path="$2" accept="$3" ctype="$4" marker="$5"
+    local code; code=$(req "$BASE$path" -H "$H_AUTH" -H "Accept: $accept")
+    if [ "$code" != "200" ]; then fail "$label - HTTP $code"; return; fi
+    if ! grep -iq "content-type:.*$ctype" "$HDRFILE"; then fail "$label - Content-Type not $ctype"; return; fi
+    if [ "$marker" = "@JSON@" ]; then
+        body | jq -e . >/dev/null 2>&1 && ok "$label (200, valid JSON)" || fail "$label - invalid JSON"
+    elif body | grep -q "$marker"; then ok "$label (200, $ctype)"; else fail "$label - missing '$marker'"; fi
+}
+# Map an export format token to its Accept header value.
+accept_for() {
+    case "$1" in
+        vcard3) echo "text/vcard; version=3.0" ;;
+        vcard4) echo "text/vcard; version=4.0" ;;
+        ldif)   echo "text/ldif" ;;
+        json)   echo "application/json" ;;
+    esac
+}
 check_prefix() {
     local path="$1" want="$2"
     local got; got=$(body | jq -r "$path // empty")
@@ -463,8 +482,70 @@ CODE=$(req "$BASE/addressbooks/$AB_KEY/lists/does-not-exist" -H "$H_AUTH")
 check_code       "GET /addressbooks/$AB_KEY/lists/does-not-exist" "$CODE" "404"
 check_error_code "unknown list error_code" "S000710"
 
-# 12. CONDITIONAL DELETE
-step "18. Cleanup (DELETE)"
+# 12. EXPORT - all formats x all endpoints
+step "18. Export - every format on book / contact / list endpoints"
+info "Each of the 3 export endpoints x {vcard3, vcard4, ldif, json}; plus the group-card bundling and the 406 path."
+for entry in "book:/addressbooks/$AB_KEY/export" \
+             "contact:/addressbooks/$AB_KEY/contacts/$CT_KEY/export" \
+             "list:/addressbooks/$AB_KEY/lists/$LIST_KEY/export"; do
+    name="${entry%%:*}"; path="${entry#*:}"
+    check_export "$name vCard 3.0" "$path" "$(accept_for vcard3)" "text/vcard"       "VERSION:3.0"
+    check_export "$name vCard 4.0" "$path" "$(accept_for vcard4)" "text/vcard"       "VERSION:4.0"
+    check_export "$name LDIF"      "$path" "$(accept_for ldif)"   "text/ldif"        "objectClass"
+    check_export "$name JSON"      "$path" "$(accept_for json)"   "application/json" "@JSON@"
+done
+# Book export bundles the distribution list as a group card; unsupported Accept is 406.
+req "$BASE/addressbooks/$AB_KEY/export" -H "$H_AUTH" -H "Accept: text/vcard; version=3.0" >/dev/null
+body | grep -q "X-ADDRESSBOOKSERVER-KIND:group" && ok "book export bundles the list as a group card" \
+    || fail "book export is missing the group card"
+CODE=$(req "$BASE/addressbooks/$AB_KEY/export" -H "$H_AUTH" -H "Accept: application/xml")
+check_code "export with unsupported Accept -> 406" "$CODE" "406"
+check_error_code "unsupported export format error_code" "S000715"
+
+# 13. IMPORT - all formats
+step "19. Import - book import (creates a book) for every format + per-entity upsert"
+info "For each format: export the book in that form, import it as a NEW book, verify counters, then drop it."
+for fmt in vcard3 vcard4 ldif json; do
+    EXPORT_FILE=$(mktemp)
+    req "$BASE/addressbooks/$AB_KEY/export" -H "$H_AUTH" -H "Accept: $(accept_for $fmt)" >/dev/null
+    body > "$EXPORT_FILE"
+    CODE=$(req -X POST "$BASE/addressbooks/import?format=$fmt" -H "$H_AUTH" -F "file=@$EXPORT_FILE")
+    check_code "POST /addressbooks/import ($fmt) -> 201" "$CODE" "201"
+    NEWK=$(extract '.data.addressbook_key'); INS=$(extract '.data.contacts_inserted')
+    { [ -n "$INS" ] && [ "$INS" -ge 1 ]; } && ok "book import ($fmt) inserted $INS contacts" \
+        || fail "book import ($fmt) inserted none ($INS)"
+    [ -n "$NEWK" ] && req -X DELETE "$BASE/addressbooks/$NEWK" -H "$H_AUTH" >/dev/null   # drop the transient book
+    rm -f "$EXPORT_FILE"
+done
+# Per-entity import + uid upsert idempotence: vCard contacts into a fresh book, then re-import = updates.
+EXPORT_FILE=$(mktemp)
+req "$BASE/addressbooks/$AB_KEY/export" -H "$H_AUTH" -H "Accept: $(accept_for vcard3)" >/dev/null
+body > "$EXPORT_FILE"
+CODE=$(req -X POST "$BASE/addressbooks/import?format=vcard3" -H "$H_AUTH" -F "file=@$EXPORT_FILE")
+check_code "POST /addressbooks/import (target for upsert) -> 201" "$CODE" "201"
+IMP_KEY=$(extract '.data.addressbook_key')
+CODE=$(req -X POST "$BASE/addressbooks/$IMP_KEY/contacts/import?format=vcard3" -H "$H_AUTH" -F "file=@$EXPORT_FILE")
+check_code "POST .../contacts/import (re-run -> upsert)" "$CODE" "200"
+UPD=$(extract '.data.contacts_updated'); INS2=$(extract '.data.contacts_inserted')
+{ [ -n "$UPD" ] && [ "$UPD" -ge 1 ] && [ "$INS2" = "0" ]; } \
+    && ok "contacts/import upserts by uid (updated=$UPD, inserted=0)" \
+    || fail "contacts/import not idempotent (updated='$UPD' inserted='$INS2')"
+rm -f "$EXPORT_FILE"
+# JSON single-contact round-trip: export one contact as JSON, import it into the book (upsert by uid).
+req "$BASE/addressbooks/$AB_KEY/contacts/$CT_KEY/export" -H "$H_AUTH" -H "Accept: application/json" >/dev/null
+CT_JSON=$(mktemp); body > "$CT_JSON"
+CODE=$(req -X POST "$BASE/addressbooks/$IMP_KEY/contacts/import?format=json" -H "$H_AUTH" -F "file=@$CT_JSON")
+check_code "POST .../contacts/import (JSON single contact)" "$CODE" "200"
+rm -f "$CT_JSON"
+# LDIF list import into the book.
+req "$BASE/addressbooks/$AB_KEY/lists/$LIST_KEY/export" -H "$H_AUTH" -H "Accept: text/ldif" >/dev/null
+LST_LDIF=$(mktemp); body > "$LST_LDIF"
+CODE=$(req -X POST "$BASE/addressbooks/$IMP_KEY/lists/import?format=ldif" -H "$H_AUTH" -F "file=@$LST_LDIF")
+check_code "POST .../lists/import (LDIF list)" "$CODE" "200"
+rm -f "$LST_LDIF"
+
+# 14. CONDITIONAL DELETE
+step "20. Cleanup (DELETE)"
 if $DO_DELETE; then
     CODE=$(req -X DELETE "$BASE/addressbooks/$AB_KEY/lists/$LIST_KEY" -H "$H_AUTH")
     check_code "DELETE /addressbooks/$AB_KEY/lists/$LIST_KEY" "$CODE" "200"
@@ -479,8 +560,10 @@ if $DO_DELETE; then
     # Book is gone: any access scoped to it must 404 (cascade).
     CODE=$(req "$BASE/addressbooks/$AB_KEY/lists" -H "$H_AUTH")
     check_code "GET lists of deleted book -> 404" "$CODE" "404"
+    CODE=$(req -X DELETE "$BASE/addressbooks/$IMP_KEY" -H "$H_AUTH")
+    check_code "DELETE /addressbooks/$IMP_KEY (import target)" "$CODE" "200"
 else
-    skip "DELETE list/$LIST_KEY, contact/$CT_KEY and address book/$AB_KEY"
+    skip "DELETE list/$LIST_KEY, contact/$CT_KEY, address book/$AB_KEY and import target/$IMP_KEY"
 fi
 
 echo ""

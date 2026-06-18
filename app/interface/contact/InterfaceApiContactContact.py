@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING, Any
 
 from app.config.settings.DomainSettings import (
@@ -8,14 +9,19 @@ from app.config.settings.DomainSettings import (
     UserModuleSettings,
     UserModuleSettingsObj,
 )
-from app.module.contact.ContactConst import AUTOCOMPLETE_DEFAULT_LIMIT
+from app.module.contact.ContactConst import AUTOCOMPLETE_DEFAULT_LIMIT, IMPORT_BOOK_NAME_PREFIX
 from app.module.contact.ModuleContact import ModuleContact
 from app.module.contact.model.AddressBookContent import AddressBookContent
 from app.module.contact.model.CardAddressBook import CardAddressBook
 from app.module.contact.model.enums.CardSourceType import CardSourceType
 from app.module.contact.model.enums.ContactExportFormat import ContactExportFormat
+from app.module.contact.serializer.AddressBookContentDeserializerDict import AddressBookContentDeserializerDict
+from app.module.contact.serializer.AddressBookContentDeserializerLdif import AddressBookContentDeserializerLdif
+from app.module.contact.serializer.AddressBookContentDeserializerVcard import AddressBookContentDeserializerVcard
+from app.module.contact.serializer.AddressBookContentSerializerDict import AddressBookContentSerializerDict
 from app.module.contact.serializer.AddressBookContentSerializerLdif import AddressBookContentSerializerLdif
 from app.module.contact.serializer.AddressBookContentSerializerVcard import AddressBookContentSerializerVcard
+from app.module.contact.serializer.ContactImportResultSerializerDict import ContactImportResultSerializerDict
 from app.module.contact.serializer.CardAddressBookSerializerDict import CardAddressBookSerializerDict
 from app.module.contact.serializer.CardAddressBooksSerializerList import CardAddressBooksSerializerList
 from app.module.contact.serializer.CardContactAutocompleteSerializerList import CardContactAutocompleteSerializerList
@@ -32,8 +38,13 @@ from app.module.contact.serializer.CardContactSerializerVcard4 import CardContac
 from app.module.contact.serializer.CardContactsSerializerList import CardContactsSerializerList
 from app.service import sogo_cache
 from app.utils.api.ApiBaseResponse import create_api_base_response
+from app.utils.datetime.DateTimeUtils import today_iso
 from app.utils.db.Condition import Order
-from app.utils.errors import ERROR_CONTACT_EXPORT_FORMAT_UNSUPPORTED, ERROR_CONTACT_JSON_PARSE_FAILED
+from app.utils.errors import (
+    ERROR_CONTACT_EXPORT_FORMAT_UNSUPPORTED,
+    ERROR_CONTACT_IMPORT_PARSE_FAILED,
+    ERROR_CONTACT_JSON_PARSE_FAILED,
+)
 from app.utils.exceptions import RequestException
 from app.auth.User import User
 from app.utils.logger.logger import logger_api
@@ -42,12 +53,14 @@ if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
     from app.module.contact.model.CardContact import CardContact
     from app.module.contact.model.CardList import CardList
+    from app.module.contact.model.ContactImportResult import ContactImportResult
     from app.module.contact.source.ContactSource import ContactSource
+    from collections.abc import Callable
+
     from app.utils.api.paginate_sort_filter import CollectionPaginateArgs, CustomPaginateResponse
-    from app.utils.serializer.Serializer import Serializer
 
 
-class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attributes
+class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attributes,too-many-public-methods
     """Interface for all contact operations (address books and contacts)."""
 
     def __init__(self, process_setting: ProcessSetting, user_domain_settings: dict, user: User) -> None:
@@ -70,15 +83,25 @@ class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attribute
         self._list_serializer: CardListSerializerDict = CardListSerializerDict()
         self._lists_serializer: CardListsSerializerList = CardListsSerializerList()
         self._list_deserializer: CardListDeserializerDict = CardListDeserializerDict()
-        # Single contacts and lists export as one-item documents through these same serializers, so the
-        # LDIF version header and the vCard concatenation rules live in one place (see export_contact/list).
-        self._book_export_serializers: dict[ContactExportFormat, Serializer[AddressBookContent, str]] = {
+        # Export serializers / import deserializers keyed by format - a single contact or list is handled
+        # as a one-item document, like a single vCard is one card. JSON is the framework's native format
+        # (no dedicated serializer class): the AddressBookContent <-> dict mapping is the Dict serializer's
+        # job, the dict <-> JSON string is done inline here (json.dumps / json.loads).
+        self._book_export_serializers: dict[ContactExportFormat, Callable[[AddressBookContent], str]] = {
             ContactExportFormat.VCARD4: AddressBookContentSerializerVcard(
-                CardContactSerializerVcard4(), CardListSerializerVcard4()),
+                CardContactSerializerVcard4(), CardListSerializerVcard4()).serialize,
             ContactExportFormat.VCARD3: AddressBookContentSerializerVcard(
-                CardContactSerializerVcard3(), CardListSerializerVcard3()),
-            ContactExportFormat.LDIF: AddressBookContentSerializerLdif(),
+                CardContactSerializerVcard3(), CardListSerializerVcard3()).serialize,
+            ContactExportFormat.LDIF: AddressBookContentSerializerLdif().serialize,
+            ContactExportFormat.JSON: lambda content: json.dumps(AddressBookContentSerializerDict().serialize(content)),
         }
+        self._import_deserializers: dict[str, Callable[[str], AddressBookContent]] = {
+            "vcard3": AddressBookContentDeserializerVcard().deserialize,
+            "vcard4": AddressBookContentDeserializerVcard().deserialize,
+            "ldif": AddressBookContentDeserializerLdif().deserialize,
+            "json": lambda document: AddressBookContentDeserializerDict().deserialize(json.loads(document)),
+        }
+        self._import_result_serializer: ContactImportResultSerializerDict = ContactImportResultSerializerDict()
 
     #
     # Address books
@@ -320,6 +343,58 @@ class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attribute
             return create_api_base_response(None, ex.error)
 
     #
+    # Import / export
+    #
+    def import_addressbook(self, document: str, fmt: str) -> tuple[dict[str, Any], int]:
+        """Import a document as a NEW address book (created here) holding its contacts and lists.
+
+        :param document: The decoded upload content.
+        :param fmt: Source format ('json' / 'vcard3' / 'vcard4' / 'ldif'), validated by the route schema.
+        :return: API envelope with the created book key/name and the import counters, or a 422 envelope
+            when the document cannot be parsed.
+        """
+        try:
+            content: AddressBookContent = self._import_deserializers[fmt](document)
+            name: str = f"{IMPORT_BOOK_NAME_PREFIX} ({today_iso()})"
+            book, result = self.module.import_addressbook(self.user, content, name)
+            payload: dict[str, Any] = self._import_result_serializer.serialize(result)
+            payload["addressbook_key"] = book.key
+            payload["addressbook_name"] = book.name
+            return create_api_base_response(payload, code=201)
+        except RequestException as ex:
+            logger_api.error("import_addressbook failed for user %s: %s", self.user.uid, ex)
+            return create_api_base_response(None, ex.error)
+        except (ValueError, KeyError) as exc:
+            logger_api.error("Failed to parse import document for user %s: %s", self.user.uid, exc)
+            return create_api_base_response(None, ERROR_CONTACT_IMPORT_PARSE_FAILED)
+
+    def import_contact(self, key: str, document: str, fmt: str) -> tuple[dict[str, Any], int]:
+        """Import contacts from a document into an existing address book (upsert by uid)."""
+        try:
+            contacts: list[CardContact] = self._import_deserializers[fmt](document).contacts
+            result: ContactImportResult = self.module.import_contact(self.user, key, contacts)
+            return create_api_base_response(self._import_result_serializer.serialize(result))
+        except RequestException as ex:
+            logger_api.error("import_contact failed for user %s key %s: %s", self.user.uid, key, ex)
+            return create_api_base_response(None, ex.error)
+        except (ValueError, KeyError) as exc:
+            logger_api.error("Failed to parse contact import for user %s key %s: %s", self.user.uid, key, exc)
+            return create_api_base_response(None, ERROR_CONTACT_IMPORT_PARSE_FAILED)
+
+    def import_list(self, key: str, document: str, fmt: str) -> tuple[dict[str, Any], int]:
+        """Import distribution lists from a document into an existing address book (upsert by uid)."""
+        try:
+            lists: list[CardList] = self._import_deserializers[fmt](document).lists
+            result: ContactImportResult = self.module.import_list(self.user, key, lists)
+            return create_api_base_response(self._import_result_serializer.serialize(result))
+        except RequestException as ex:
+            logger_api.error("import_list failed for user %s key %s: %s", self.user.uid, key, ex)
+            return create_api_base_response(None, ex.error)
+        except (ValueError, KeyError) as exc:
+            logger_api.error("Failed to parse list import for user %s key %s: %s", self.user.uid, key, exc)
+            return create_api_base_response(None, ERROR_CONTACT_IMPORT_PARSE_FAILED)
+
+    #
     # Export
     #
     def export_addressbook(
@@ -337,7 +412,7 @@ class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attribute
             if export_format is None:
                 return create_api_base_response(None, ERROR_CONTACT_EXPORT_FORMAT_UNSUPPORTED)
             content: AddressBookContent = self.module.get_addressbook_content(self.user, key)
-            body: str = self._book_export_serializers[export_format].serialize(content)
+            body: str = self._book_export_serializers[export_format](content)
             return body, 200, self._download_headers(export_format, f"addressbook-{key}")
         except RequestException as ex:
             logger_api.error("export_addressbook failed for user %s key %s: %s", self.user.uid, key, ex)
@@ -352,8 +427,7 @@ class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attribute
             if export_format is None:
                 return create_api_base_response(None, ERROR_CONTACT_EXPORT_FORMAT_UNSUPPORTED)
             contact: CardContact = self.module.get_contact(self.user, addressbook_key, key)
-            content: AddressBookContent = AddressBookContent(contacts=[contact], lists=[])
-            body: str = self._book_export_serializers[export_format].serialize(content)
+            body: str = self._book_export_serializers[export_format](AddressBookContent(contacts=[contact], lists=[]))
             return body, 200, self._download_headers(export_format, f"contact-{key}")
         except RequestException as ex:
             logger_api.error("export_contact failed for user %s book %s key %s: %s",
@@ -369,8 +443,7 @@ class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attribute
             if export_format is None:
                 return create_api_base_response(None, ERROR_CONTACT_EXPORT_FORMAT_UNSUPPORTED)
             card_list: CardList = self.module.get_list_for_export(self.user, addressbook_key, key)
-            content: AddressBookContent = AddressBookContent(contacts=[], lists=[card_list])
-            body: str = self._book_export_serializers[export_format].serialize(content)
+            body: str = self._book_export_serializers[export_format](AddressBookContent(contacts=[], lists=[card_list]))
             return body, 200, self._download_headers(export_format, f"list-{key}")
         except RequestException as ex:
             logger_api.error("export_list failed for user %s book %s key %s: %s",
@@ -382,13 +455,15 @@ class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attribute
         """Resolve the export format from an Accept header value.
 
         Empty or wildcard accepts default to vCard 3.0 - the only dialect Apple / Google / Outlook all
-        import reliably (vCard 4.0 imports blank in Apple Contacts). text/ldif selects LDIF; a text/vcard
-        accept yields 4.0 only when it carries version=4, else 3.0. Any other explicit type yields None so
-        the caller answers 406.
+        import reliably (vCard 4.0 imports blank in Apple Contacts). application/json selects JSON,
+        text/ldif selects LDIF; a text/vcard accept yields 4.0 only when it carries version=4, else 3.0.
+        Any other explicit type yields None so the caller answers 406.
         """
         value: str = accept.lower()
         if not value or "*/*" in value:
             return ContactExportFormat.VCARD3
+        if "application/json" in value:
+            return ContactExportFormat.JSON
         if "text/ldif" in value:
             return ContactExportFormat.LDIF
         if "text/vcard" in value or "text/x-vcard" in value:

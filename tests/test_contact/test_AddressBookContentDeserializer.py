@@ -1,5 +1,7 @@
 """Unit tests for the address book import deserializers (document -> contacts + lists, members linked)."""
 from app.module.contact.model.AddressBookContent import AddressBookContent
+from app.module.contact.serializer.AddressBookContentDeserializerDict import AddressBookContentDeserializerDict
+from app.module.contact.serializer.AddressBookContentSerializerDict import AddressBookContentSerializerDict
 from app.module.contact.serializer.AddressBookContentSerializerLdif import AddressBookContentSerializerLdif
 from app.module.contact.serializer.AddressBookContentSerializerVcard import AddressBookContentSerializerVcard
 from app.module.contact.serializer.AddressBookContentDeserializerLdif import AddressBookContentDeserializerLdif
@@ -53,3 +55,20 @@ def test_ldif_splits_and_links_members_by_cn():
     assert [c.display_name for c in back.contacts] == ["Alice", "Bob"]
     assert len(back.lists) == 1
     assert [c.display_name for c in back.lists[0].member_contacts] == ["Alice"]
+
+
+# ========== JSON (portable Dict pair) ==========
+
+def test_json_book_is_portable_and_round_trips_members_by_uid():
+    book = AddressBookContent(
+        contacts=[CardContact(display_name="Alice", uid="u1", key="k1", addressbook_key="ab"),
+                  CardContact(display_name="Bob", uid="u2", key="k2", addressbook_key="ab")],
+        lists=[CardList(name="Team", uid="l1",
+                        member_contacts=[CardContact(uid="u1"), CardContact(uid="u2")])])
+    payload = AddressBookContentSerializerDict().serialize(book)
+    # Portable: no server-internal handles, membership expressed by uid.
+    assert "key" not in payload["contacts"][0] and "addressbook_key" not in payload["contacts"][0]
+    assert payload["lists"][0]["members"] == ["u1", "u2"]
+    back = AddressBookContentDeserializerDict().deserialize(payload)
+    assert [c.display_name for c in back.contacts] == ["Alice", "Bob"]
+    assert [c.uid for c in back.lists[0].member_contacts] == ["u1", "u2"]  # linked by uid

@@ -7,6 +7,7 @@ from app.manager.db.DbFileStorage import DbFileStorage
 from app.module.contact.acl.ContactAclEngine import ContactAclEngine
 from app.module.contact.model.AddressBookContent import AddressBookContent
 from app.module.contact.model.CardAddressBook import CardAddressBook
+from app.module.contact.model.ContactImportResult import ContactImportResult
 from app.module.contact.model.enums.CardSourceType import CardSourceType
 from app.module.contact.model.enums.ContactShareLevel import ContactShareLevel
 from app.module.contact.repository.RepositoryContact import RepositoryContact
@@ -32,7 +33,7 @@ if TYPE_CHECKING:
     from app.module.contact.source.ContactSource import ContactSource
 
 
-class ModuleContact:
+class ModuleContact:  # pylint: disable=too-many-public-methods
     """Module for address book and contact operations."""
 
     def __init__(self, process_settings: ProcessSetting, cache: ClientRedis | None = None) -> None:
@@ -199,23 +200,51 @@ class ModuleContact:
         contact.photos = self._file.load_all(contact.photos)
         return contact
 
+    def _insert_contact(self, source: ContactSource, contact: CardContact) -> CardContact:
+        """Persist a new contact into an already-resolved writable source (shared by create and import).
+
+        Photos are offloaded to the file layer; the returned contact keeps the stored references (the
+        caller inlines them only when it needs to return them to a client).
+        """
+        contact.apply_defaults()
+        contact.addressbook_key = source.addressbook.require_key
+        contact.validate()
+        contact.photos = self._save_files([], contact.photos)
+        try:
+            return source.insert_contact(contact)
+        except RequestException:
+            raise
+        except Exception as exc:
+            logger_contact.exception(
+                "Unexpected error creating contact in address book %s", source.addressbook.require_key)
+            raise RequestException(error=err.ERROR_CONTACT_INSERT_FAILED) from exc
+
+    def _update_contact(self, source: ContactSource, existing: CardContact, contact_update: CardContact) -> None:
+        """Persist an update onto an existing contact, preserving its identity (shared by update and import)."""
+        # Identity columns are not mutable through an update: a contact cannot be moved to
+        # another book nor have its uid/key reassigned by the incoming data.
+        contact_update.db_id = existing.db_id
+        contact_update.key = existing.key
+        contact_update.uid = existing.uid
+        contact_update.addressbook_key = existing.addressbook_key
+        contact_update.validate()
+        contact_update.photos = self._save_files(existing.photos, contact_update.photos)
+        try:
+            source.update_contact(contact_update)
+        except RequestException:
+            raise
+        except Exception as exc:
+            logger_contact.exception("Unexpected error updating contact %s", existing.key)
+            raise RequestException(error=err.ERROR_CONTACT_UPDATE_FAILED) from exc
+        self._delete_dropped_files(existing.photos, contact_update.photos)
+
     def create_contact(
         self, user: User, addressbook_key: str, contact: CardContact,
         user_sources: dict[str, UserSourceSettingsObj] | None = None,
     ) -> CardContact:
         """Persist a new contact in the address book and return it (uid/display name filled by apply_defaults)."""
         source: ContactSource = self._get_writable_addressbook(user, addressbook_key, user_sources)
-        contact.apply_defaults()
-        contact.addressbook_key = source.addressbook.require_key
-        contact.validate()
-        contact.photos = self._save_files([], contact.photos)
-        try:
-            created: CardContact = source.insert_contact(contact)
-        except RequestException:
-            raise
-        except Exception as exc:
-            logger_contact.exception("Unexpected error creating contact in address book %s", addressbook_key)
-            raise RequestException(error=err.ERROR_CONTACT_INSERT_FAILED) from exc
+        created: CardContact = self._insert_contact(source, contact)
         created.photos = self._file.load_all(created.photos)
         return created
 
@@ -228,22 +257,7 @@ class ModuleContact:
         existing: CardContact | None = source.get_contact_by_key(key)
         if existing is None:
             raise RequestException(error=err.ERROR_CONTACT_NOT_FOUND)
-        # Identity columns are not mutable through an update: a contact cannot be moved to
-        # another book nor have its uid/key reassigned by the request body.
-        contact_update.db_id = existing.db_id
-        contact_update.key = existing.key
-        contact_update.uid = existing.uid
-        contact_update.addressbook_key = existing.addressbook_key
-        contact_update.validate()
-        contact_update.photos = self._save_files(existing.photos, contact_update.photos)
-        try:
-            source.update_contact(contact_update)
-        except RequestException:
-            raise
-        except Exception as exc:
-            logger_contact.exception("Unexpected error updating contact %s", key)
-            raise RequestException(error=err.ERROR_CONTACT_UPDATE_FAILED) from exc
-        self._delete_dropped_files(existing.photos, contact_update.photos)
+        self._update_contact(source, existing, contact_update)
         refetched: CardContact | None = source.get_contact_by_key(key)
         if refetched is None:
             raise BugException(f"Contact key={key} was updated but could not be fetched back")
@@ -435,6 +449,97 @@ class ModuleContact:
         except Exception as exc:
             logger_contact.exception("Unexpected error reading content of book %s", key)
             raise RequestException(error=err.ERROR_UNKOWN) from exc
+
+    def import_addressbook(
+        self, user: User, content: AddressBookContent, name: str,
+        user_sources: dict[str, UserSourceSettingsObj] | None = None,
+    ) -> tuple[CardAddressBook, ContactImportResult]:
+        """Create a new address book and import a document's full content (contacts + lists) into it.
+
+        Symmetric with the whole-book export: the book is created here (the document carries no book
+        identity), then the two internal upserts run. Returns the created book and the counters.
+        """
+        book: CardAddressBook = self.create_addressbook(
+            user, CardAddressBook(user_uid=user.uid, name=name, source_type=CardSourceType.LOCAL), user_sources)
+        source: ContactSource = self._get_writable_addressbook(user, book.require_key, user_sources)
+        result: ContactImportResult = ContactImportResult()
+        self._upsert_contacts(source, content.contacts, result)
+        self._upsert_lists(source, content.lists, result)
+        return book, result
+
+    def import_contact(
+        self, user: User, key: str, contacts: list[CardContact],
+        user_sources: dict[str, UserSourceSettingsObj] | None = None,
+    ) -> ContactImportResult:
+        """Import contacts into an existing address book, upserting by uid (ACL MODIFY)."""
+        source: ContactSource = self._get_writable_addressbook(user, key, user_sources)
+        result: ContactImportResult = ContactImportResult()
+        self._upsert_contacts(source, contacts, result)
+        return result
+
+    def import_list(
+        self, user: User, key: str, lists: list[CardList],
+        user_sources: dict[str, UserSourceSettingsObj] | None = None,
+    ) -> ContactImportResult:
+        """Import distribution lists into an existing address book, upserting by uid (ACL MODIFY).
+
+        A list's members must already exist in the book (its member_contacts were linked by the document
+        deserializer); a member with no resolvable key is dropped.
+        """
+        source: ContactSource = self._get_writable_addressbook(user, key, user_sources)
+        result: ContactImportResult = ContactImportResult()
+        self._upsert_lists(source, lists, result)
+        return result
+
+    def _upsert_contacts(
+        self, source: ContactSource, contacts: list[CardContact], result: ContactImportResult,
+    ) -> None:
+        """Upsert each contact by uid into a resolved source; each persisted object gets its key stamped.
+
+        An entry that fails on its own is counted in skipped and never aborts the import.
+        """
+        for contact in contacts:
+            try:
+                existing: CardContact | None = source.get_contact_by_uid(contact.uid) if contact.uid else None
+                if existing is not None:
+                    self._update_contact(source, existing, contact)
+                    result.contacts_updated += 1
+                else:
+                    self._insert_contact(source, contact)
+                    result.contacts_inserted += 1
+            except RequestException:
+                logger_contact.exception("Skipping a contact during import into book %s", source.addressbook.key)
+                result.skipped += 1
+
+    def _upsert_lists(
+        self, source: ContactSource, lists: list[CardList], result: ContactImportResult,
+    ) -> None:
+        """Upsert each list by uid; members are resolved from the keys of the contacts persisted this import."""
+        for card_list in lists:
+            try:
+                self._upsert_one_list(source, card_list, result)
+            except RequestException:
+                logger_contact.exception("Skipping a list during import into book %s", source.addressbook.key)
+                result.skipped += 1
+
+    def _upsert_one_list(self, source: ContactSource, card_list: CardList, result: ContactImportResult) -> None:
+        """Upsert one parsed list by uid; members come from the keys of the contacts persisted this import."""
+        # Members reference parsed contacts now carrying their persisted key; a member whose contact was
+        # skipped (insert failed) has no key and is dropped.
+        card_list.members = [member.key for member in card_list.member_contacts if member.key]
+        existing: CardList | None = source.get_list_by_uid(card_list.uid) if card_list.uid else None
+        if existing is not None:
+            card_list.id = existing.id
+            card_list.key = existing.key
+            card_list.uid = existing.uid
+            card_list.addressbook_key = existing.addressbook_key
+            source.update_list(card_list)
+            result.lists_updated += 1
+        else:
+            card_list.addressbook_key = source.addressbook.require_key
+            card_list.uid = card_list.uid or generate_uuid()
+            source.insert_list(card_list)
+            result.lists_inserted += 1
 
     def clean(self) -> int:
         """Physically remove soft-deleted rows, dangling membership and orphan media; returns the total reclaimed.

@@ -129,6 +129,13 @@ class ContactSourceDb(ContactSource):
             card_list.members = self._repo_list.find_member_keys(card_list.require_key)
         return card_list
 
+    def get_list_by_uid(self, uid: str) -> CardList | None:
+        """Return a list by its uid within this book with its members populated, or None (import dedup)."""
+        card_list: CardList | None = self._repo_list.find_by_uid(self._addressbook.require_key, uid)
+        if card_list is not None:
+            card_list.members = self._repo_list.find_member_keys(card_list.require_key)
+        return card_list
+
     def insert_list(self, card_list: CardList) -> CardList:
         """Persist a new list and its membership, bump the book ctag, and return it with members populated."""
         members: list[str] = card_list.members

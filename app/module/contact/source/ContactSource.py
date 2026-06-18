@@ -90,6 +90,10 @@ class ContactSource(ABC):
         """Return a distribution list by its opaque key with its members populated, or None."""
 
     @abstractmethod
+    def get_list_by_uid(self, uid: str) -> CardList | None:
+        """Return a distribution list by its uid with its members populated, or None (import dedup)."""
+
+    @abstractmethod
     def insert_list(self, card_list: CardList) -> CardList:
         """Persist a new distribution list and its membership, and return it with id and key populated."""
 

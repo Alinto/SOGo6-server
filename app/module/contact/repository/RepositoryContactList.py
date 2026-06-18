@@ -131,6 +131,25 @@ class RepositoryContactList:
             return None
         return self._row_to_list(rows[0])
 
+    def find_by_uid(self, addressbook_key: str, uid: str) -> CardList | None:
+        """Return a single non-deleted list by uid within the given address book, or None (import dedup)."""
+        condition = AndCondition(
+            AndCondition(
+                EqualCondition(tbl.COL_LST_UID.name, uid),
+                EqualCondition(tbl.COL_LST_ADDRESSBOOK_KEY.name, addressbook_key),
+            ),
+            EqualCondition(tbl.COL_LST_IS_DELETED.name, False),
+        )
+        rows = list(self._db.select_from_table(
+            table_name=tbl.TABLE_CONTACT_LIST.name,
+            column_tuple=_ALL_COLS,
+            condition=condition,
+            limit=1,
+        ))
+        if not rows:
+            return None
+        return self._row_to_list(rows[0])
+
     def find_by_addressbook(
         self,
         addressbook_key: str,
