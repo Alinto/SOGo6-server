@@ -50,3 +50,42 @@ class AddressBookResponseSchema(ApiBaseResponse):
     """Response schema for a single address book."""
 
     data = fields.Nested(AddressBookSchema, allow_none=True)
+
+
+class ContactImportQueryArgsSchema(Schema):
+    """Query arguments for the import endpoints."""
+
+    format = fields.String(load_default="json", validate=validate.OneOf(["json", "vcard3", "vcard4", "ldif"]),
+                           metadata={"description": "Source format of the uploaded document (default json)."})
+
+
+class ContactImportResultDataSchema(Schema):
+    """Counters returned after an import (address book key/name set only on a whole-book import)."""
+
+    contacts_inserted = fields.Integer()
+    contacts_updated  = fields.Integer()
+    lists_inserted    = fields.Integer()
+    lists_updated     = fields.Integer()
+    skipped           = fields.Integer()
+    addressbook_key   = fields.String()
+    addressbook_name  = fields.String()
+
+
+class ContactImportResponseSchema(ApiBaseResponse):
+    """Response schema for an import call."""
+
+    data = fields.Nested(ContactImportResultDataSchema, allow_none=True)
+
+
+class ContactImportUploadSchema(Schema):
+    """Multipart file upload schema for the import endpoint.
+
+    Declares the ``file`` part so Swagger renders an upload widget. The actual binary read happens in
+    the view since Marshmallow does not deserialize the FileStorage object.
+    """
+
+    file = fields.Raw(
+        required=True,
+        metadata={"type": "string", "format": "binary",
+                  "description": "The JSON (.json), vCard (.vcf) or LDIF (.ldif) file to import."},
+    )

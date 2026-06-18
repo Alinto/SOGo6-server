@@ -5,6 +5,7 @@ import pytest
 
 from app.module.contact.ModuleContact import ModuleContact
 from app.module.contact.acl.ContactAclEngine import ContactAclEngine
+from app.module.contact.model.AddressBookContent import AddressBookContent
 from app.module.contact.model.CardAddressBook import CardAddressBook
 from app.module.contact.model.CardContact import CardContact
 from app.module.contact.model.CardList import CardList
@@ -320,3 +321,69 @@ def test_clean_purges_orphan_blobs():
     module._file.purge_orphans.return_value = 3   # three unreferenced blobs reclaimed
     assert module.clean() == 3
     module._file.purge_orphans.assert_called_once()
+
+
+# ========== import (upsert by uid) ==========
+
+def _import_source(book=None):
+    source = _fake_source(book)
+    source.get_contact_by_uid.return_value = None
+    source.get_list_by_uid.return_value = None
+    source.insert_contact.side_effect = lambda contact: setattr(contact, "key", f"key-{contact.uid}") or contact
+    source.insert_list.side_effect = lambda card_list: card_list
+    return source
+
+
+def test_import_addressbook_creates_book_and_imports_content():
+    module = _build_module()
+    source = _import_source()
+    created_book = _book(key="new-ab")
+    module.create_addressbook = lambda user, book, user_sources=None: created_book
+    module._get_writable_addressbook = lambda *a, **k: source
+    c1 = CardContact(display_name="Alice", uid="u1")
+    c2 = CardContact(display_name="Bob", uid="u2")
+    content = AddressBookContent(contacts=[c1, c2], lists=[CardList(name="Team", uid="l1", member_contacts=[c1, c2])])
+    book, result = module.import_addressbook(_user(), content, "Import (2026-06-18)")
+    assert book is created_book
+    assert (result.contacts_inserted, result.lists_inserted, result.skipped) == (2, 1, 0)
+    inserted_list = source.insert_list.call_args.args[0]
+    assert inserted_list.members == ["key-u1", "key-u2"]  # member_contacts resolved to the persisted keys
+
+
+def test_import_contact_updates_when_uid_already_exists():
+    module = _build_module()
+    source = _import_source()
+    existing = CardContact(display_name="Old", uid="u1", key="existing-key", db_id=7)
+    source.get_contact_by_uid.side_effect = lambda uid: existing if uid == "u1" else None
+    module._get_writable_addressbook = lambda *a, **k: source
+    result = module.import_contact(_user(), "ab-k", [CardContact(display_name="New", uid="u1")])
+    assert (result.contacts_inserted, result.contacts_updated) == (0, 1)
+    source.update_contact.assert_called_once()
+    source.insert_contact.assert_not_called()
+
+
+def test_import_contact_skips_a_failing_entry_without_aborting():
+    module = _build_module()
+    source = _import_source()
+
+    def _insert(contact):
+        if contact.uid == "bad":
+            raise RequestException(error=err.ERROR_CONTACT_INSERT_FAILED)
+        contact.key = f"key-{contact.uid}"
+        return contact
+
+    source.insert_contact.side_effect = _insert
+    module._get_writable_addressbook = lambda *a, **k: source
+    result = module.import_contact(
+        _user(), "ab-k", [CardContact(display_name="Ok", uid="u1"), CardContact(display_name="Bad", uid="bad")])
+    assert (result.contacts_inserted, result.skipped) == (1, 1)
+
+
+def test_import_list_upserts_into_existing_book():
+    module = _build_module()
+    source = _import_source()
+    module._get_writable_addressbook = lambda *a, **k: source
+    members = [CardContact(uid="m1", key="key-m1"), CardContact(uid="m2", key="key-m2")]
+    result = module.import_list(_user(), "ab-k", [CardList(name="Team", uid="l1", member_contacts=members)])
+    assert (result.lists_inserted, result.skipped) == (1, 0)
+    assert source.insert_list.call_args.args[0].members == ["key-m1", "key-m2"]

@@ -209,6 +209,9 @@ ERROR_CONTACT_LIST_INSERT_FAILED             = E("S000712", "Failed To Persist D
 ERROR_CONTACT_LIST_UPDATE_FAILED             = E("S000713", "Failed To Update Distribution List", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_CONTACT_LIST_MEMBER_INVALID            = E("S000714", "Distribution List Member Is Not A Contact Of This Address Book", HTTPStatus.UNPROCESSABLE_ENTITY)
 ERROR_CONTACT_EXPORT_FORMAT_UNSUPPORTED      = E("S000715", "Requested Export Format Is Not Supported", HTTPStatus.NOT_ACCEPTABLE)
+ERROR_CONTACT_IMPORT_NO_FILE                 = E("S000716", "No File Provided In The Import Request", HTTPStatus.BAD_REQUEST)
+ERROR_CONTACT_IMPORT_TOO_LARGE               = E("S000717", "Import Payload Exceeds Maximum Allowed Size", HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
+ERROR_CONTACT_IMPORT_PARSE_FAILED            = E("S000718", "Failed To Parse The Import Document", HTTPStatus.UNPROCESSABLE_ENTITY)
 
 #the bugs
 ERROR_UNKOWN = E("S999999", "Undefined Error", HTTPStatus.INTERNAL_SERVER_ERROR)

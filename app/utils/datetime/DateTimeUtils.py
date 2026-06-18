@@ -23,6 +23,11 @@ def to_utc(dt: datetime | date) -> datetime:
     return datetime(dt.year, dt.month, dt.day, tzinfo=timezone.utc)
 
 
+def today_iso() -> str:
+    """Return today's UTC date as an ISO 8601 string (YYYY-MM-DD)."""
+    return datetime.now(timezone.utc).date().isoformat()
+
+
 def resolve_tz(tz_name: str) -> ZoneInfo:
     """Return a ZoneInfo for the given IANA timezone name, falling back to UTC on unknown names."""
     try:

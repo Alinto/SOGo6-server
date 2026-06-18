@@ -92,6 +92,9 @@ class ContactSourceDirectory(ContactSource):  # pylint: disable=unused-argument
     def get_list_by_key(self, key: str) -> CardList | None:
         raise NotImplementedError("TODO: the directory has no distribution lists")
 
+    def get_list_by_uid(self, uid: str) -> CardList | None:
+        raise NotImplementedError("TODO: the directory has no distribution lists")
+
     def insert_list(self, card_list: CardList) -> CardList:
         raise NotImplementedError("TODO: the directory has no distribution lists")
 

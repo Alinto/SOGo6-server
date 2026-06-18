@@ -18,6 +18,13 @@ AUTOCOMPLETE_DEFAULT_LIMIT: int = 25
 # rejects a larger inline payload when saved, before it is offloaded to storage.
 FILE_MAX_SIZE_KB: int = 2048
 
+# Maximum size of an uploaded address book import document (vCard / LDIF), in bytes. The whole request
+# is also capped at the WSGI layer; this bounds the in-memory parse of one import.
+IMPORT_MAX_BYTES: int = 10 * 1024 * 1024
+
+# Display-name prefix for the address book created by a whole-book import (no name in the document).
+IMPORT_BOOK_NAME_PREFIX: str = "Import"
+
 # Media types accepted for an inline contact file. The real type is sniffed from the bytes by the
 # file layer, so a payload whose content is not one of these is rejected when saved. SVG is
 # intentionally excluded: it is a script-bearing document and a stored-XSS vector when a client

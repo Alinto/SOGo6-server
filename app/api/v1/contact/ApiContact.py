@@ -8,14 +8,20 @@ from flask.typing import ResponseReturnValue
 from flask_smorest import Blueprint
 
 from app.interface.contact.InterfaceApiContactContact import InterfaceApiContactContact
+from app.module.contact.ContactConst import IMPORT_MAX_BYTES
 from app.module.contact.source.ContactSourceDb import LIST_SORTABLE_COLUMNS, SORTABLE_COLUMNS
+from app.utils.api.ApiBaseResponse import create_api_base_response
 from app.utils.api.paginate_sort_filter import collection_paginate, CustomPaginateResponse
+from app.utils.errors import ERROR_CONTACT_IMPORT_NO_FILE, ERROR_CONTACT_IMPORT_TOO_LARGE
 from app.utils.logger.logger import logger_api
 from .schemas.addressbook import (
     AddressBookCreateSchema,
     AddressBookUpdateSchema,
     AddressBookListResponseSchema,
     AddressBookResponseSchema,
+    ContactImportQueryArgsSchema,
+    ContactImportResponseSchema,
+    ContactImportUploadSchema,
 )
 from .schemas.contact import (
     ContactCreateSchema,
@@ -35,6 +41,7 @@ from .schemas.list import (
 )
 
 if TYPE_CHECKING:
+    from werkzeug.datastructures import FileStorage
     from app.utils.api.paginate_sort_filter import CollectionPaginateArgs
 
 # collection_paginate types sort_value_set as a mutable set; SORTABLE_COLUMNS stays the immutable
@@ -48,15 +55,16 @@ _EXPORT_OPENAPI: dict = {
     "parameters": [{
         "in": "header", "name": "Accept", "required": False,
         "description": "Export serialization: 'text/vcard; version=3.0' (default, widest client support), "
-                       "'text/vcard; version=4.0' or 'text/ldif'. An unsupported type returns 406.",
+                       "'text/vcard; version=4.0', 'text/ldif' or 'application/json'. An unsupported type returns 406.",
         "schema": {"type": "string", "enum": [
-            "text/vcard; version=4.0", "text/vcard; version=3.0", "text/ldif"]},
+            "text/vcard; version=4.0", "text/vcard; version=3.0", "text/ldif", "application/json"]},
     }],
     "responses": {
         "200": {
-            "description": "The serialized vCard or LDIF document, as a file attachment.",
+            "description": "The serialized vCard / LDIF / JSON document, as a file attachment.",
             "content": {"text/vcard": {"schema": {"type": "string"}},
-                        "text/ldif": {"schema": {"type": "string"}}},
+                        "text/ldif": {"schema": {"type": "string"}},
+                        "application/json": {"schema": {"type": "object"}}},
         },
         "406": {"description": "The requested export format is not supported."},
     },
@@ -197,32 +205,6 @@ class ApiContactDetail(MethodView):
         return interface.delete_contact(key, contact_key)
 
 
-@blp.route("/addressbooks/<string:key>/export")
-class ApiAddressBookExport(MethodView):
-    """API to export a whole address book (contacts and lists) as vCard or LDIF."""
-
-    @blp.doc(**_EXPORT_OPENAPI)
-    def get(self, key: str) -> ResponseReturnValue:
-        """Download the address book; the serialization is negotiated from the Accept header."""
-        logger_api.debug("GET /addressbooks/%s/export user=%s accept=%s",
-                         key, g.user.uid, request.headers.get("Accept"))
-        interface: InterfaceApiContactContact = g.inter
-        return interface.export_addressbook(key, request.headers.get("Accept", ""))
-
-
-@blp.route("/addressbooks/<string:key>/contacts/<string:contact_key>/export")
-class ApiContactExport(MethodView):
-    """API to export a single contact as vCard or LDIF."""
-
-    @blp.doc(**_EXPORT_OPENAPI)
-    def get(self, key: str, contact_key: str) -> ResponseReturnValue:
-        """Download one contact; the serialization is negotiated from the Accept header."""
-        logger_api.debug("GET /addressbooks/%s/contacts/%s/export user=%s",
-                         key, contact_key, g.user.uid)
-        interface: InterfaceApiContactContact = g.inter
-        return interface.export_contact(key, contact_key, request.headers.get("Accept", ""))
-
-
 @blp.route("/addressbooks/<string:key>/lists")
 class ApiListCollection(MethodView):
     """API to list (paginated) and create distribution lists within one address book."""
@@ -272,9 +254,118 @@ class ApiListDetail(MethodView):
         return interface.delete_list(key, list_key)
 
 
+#
+# Import (grouped together in Swagger, followed by the symmetric export block)
+#
+def _read_import_upload(files: dict) -> str | tuple[dict, int]:
+    """Read and decode the uploaded import ``file`` part.
+
+    Shared by the three import routes: returns the decoded document on success, or an error envelope
+    tuple when no file is present or the payload exceeds IMPORT_MAX_BYTES (the caller forwards it).
+    """
+    upload: FileStorage | None = files.get("file")
+    if upload is None:
+        return create_api_base_response(None, ERROR_CONTACT_IMPORT_NO_FILE)
+    raw: bytes = upload.stream.read()
+    if len(raw) > IMPORT_MAX_BYTES:
+        return create_api_base_response(None, ERROR_CONTACT_IMPORT_TOO_LARGE)
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return raw.decode("latin-1")
+
+
+@blp.route("/addressbooks/import")
+class ApiAddressBookImport(MethodView):
+    """API to import a document as a NEW address book (created server-side) holding its contacts and lists."""
+
+    accepted_content_types: set[str] = {"multipart/form-data"}
+
+    @blp.arguments(ContactImportUploadSchema, location="files")
+    @blp.arguments(ContactImportQueryArgsSchema, location="query", arg_name="query_args")
+    @blp.response(201, ContactImportResponseSchema)
+    def post(self, files: dict, query_args: dict) -> ResponseReturnValue:
+        """Create a new address book from the uploaded document (upsert by uid)."""
+        logger_api.debug("POST /addressbooks/import user=%s format=%s", g.user.uid, query_args.get("format"))
+        document = _read_import_upload(files)
+        if not isinstance(document, str):
+            return document
+        interface: InterfaceApiContactContact = g.inter
+        return interface.import_addressbook(document, query_args["format"])
+
+
+@blp.route("/addressbooks/<string:key>/contacts/import")
+class ApiContactImport(MethodView):
+    """API to import contacts from a document into an existing address book (upsert by uid)."""
+
+    accepted_content_types: set[str] = {"multipart/form-data"}
+
+    @blp.arguments(ContactImportUploadSchema, location="files")
+    @blp.arguments(ContactImportQueryArgsSchema, location="query", arg_name="query_args")
+    @blp.response(200, ContactImportResponseSchema)
+    def post(self, files: dict, query_args: dict, key: str) -> ResponseReturnValue:
+        """Import the uploaded contacts into the address book."""
+        logger_api.debug("POST /addressbooks/%s/contacts/import user=%s format=%s",
+                         key, g.user.uid, query_args.get("format"))
+        document = _read_import_upload(files)
+        if not isinstance(document, str):
+            return document
+        interface: InterfaceApiContactContact = g.inter
+        return interface.import_contact(key, document, query_args["format"])
+
+
+@blp.route("/addressbooks/<string:key>/lists/import")
+class ApiListImport(MethodView):
+    """API to import distribution lists from a document into an existing address book (upsert by uid)."""
+
+    accepted_content_types: set[str] = {"multipart/form-data"}
+
+    @blp.arguments(ContactImportUploadSchema, location="files")
+    @blp.arguments(ContactImportQueryArgsSchema, location="query", arg_name="query_args")
+    @blp.response(200, ContactImportResponseSchema)
+    def post(self, files: dict, query_args: dict, key: str) -> ResponseReturnValue:
+        """Import the uploaded distribution lists into the address book."""
+        logger_api.debug("POST /addressbooks/%s/lists/import user=%s format=%s",
+                         key, g.user.uid, query_args.get("format"))
+        document = _read_import_upload(files)
+        if not isinstance(document, str):
+            return document
+        interface: InterfaceApiContactContact = g.inter
+        return interface.import_list(key, document, query_args["format"])
+
+
+#
+# Export (mirrors the import block above)
+#
+@blp.route("/addressbooks/<string:key>/export")
+class ApiAddressBookExport(MethodView):
+    """API to export a whole address book (contacts and lists) as vCard, LDIF or JSON."""
+
+    @blp.doc(**_EXPORT_OPENAPI)
+    def get(self, key: str) -> ResponseReturnValue:
+        """Download the address book; the serialization is negotiated from the Accept header."""
+        logger_api.debug("GET /addressbooks/%s/export user=%s accept=%s",
+                         key, g.user.uid, request.headers.get("Accept"))
+        interface: InterfaceApiContactContact = g.inter
+        return interface.export_addressbook(key, request.headers.get("Accept", ""))
+
+
+@blp.route("/addressbooks/<string:key>/contacts/<string:contact_key>/export")
+class ApiContactExport(MethodView):
+    """API to export a single contact as vCard, LDIF or JSON."""
+
+    @blp.doc(**_EXPORT_OPENAPI)
+    def get(self, key: str, contact_key: str) -> ResponseReturnValue:
+        """Download one contact; the serialization is negotiated from the Accept header."""
+        logger_api.debug("GET /addressbooks/%s/contacts/%s/export user=%s",
+                         key, contact_key, g.user.uid)
+        interface: InterfaceApiContactContact = g.inter
+        return interface.export_contact(key, contact_key, request.headers.get("Accept", ""))
+
+
 @blp.route("/addressbooks/<string:key>/lists/<string:list_key>/export")
 class ApiListExport(MethodView):
-    """API to export a single distribution list as a vCard group card or LDIF groupOfNames."""
+    """API to export a single distribution list as a vCard group card, LDIF groupOfNames or JSON."""
 
     @blp.doc(**_EXPORT_OPENAPI)
     def get(self, key: str, list_key: str) -> ResponseReturnValue:
