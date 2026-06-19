@@ -69,7 +69,7 @@ class ImipProcessor:
 
         Parses the raw iCal bytes, finds the event by UID in the user's calendars (the organizer),
         locates the attendee matching from_email, updates their PARTSTAT, and persists.
-        Does not increment SEQUENCE — a REPLY does not alter event content (RFC 5545 §3.8.7.4).
+        Does not increment SEQUENCE - a REPLY does not alter event content (RFC 5545 §3.8.7.4).
 
         :param user: The calendar owner receiving the reply (the organizer).
         :param ical_bytes: Raw iCalendar bytes from the iMIP email body.
@@ -77,7 +77,7 @@ class ImipProcessor:
         :return: The updated event.
         """
         message: ImipMessage = self._parse_and_validate(ical_bytes, ImipMethod.REPLY)
-        source, event = self._find_writable_source_by_uid(user, message.event.uid)
+        source, event = self._find_writable_source_by_uid(user, message.event.require_uid)
 
         reply_by_email: dict[str, CalAttendee] = {a.email: a for a in message.event.attendees}
         for attendee in event.attendees:
@@ -107,7 +107,7 @@ class ImipProcessor:
         :return: The created or updated event.
         """
         message: ImipMessage = self._parse_and_validate(ical_bytes, ImipMethod.REQUEST)
-        result: tuple[CalendarSource, CalEvent] | None = self._sources.find_by_uid(user.uid, message.event.uid)
+        result: tuple[CalendarSource, CalEvent] | None = self._sources.find_by_uid(user.uid, message.event.require_uid)
 
         if result is not None:
             source, existing = result
@@ -116,7 +116,7 @@ class ImipProcessor:
             # Reject stale updates (RFC 5546 §3.2.2): ignore if the incoming SEQUENCE is lower
             if message.event.sequence < existing.sequence:
                 logger_calendar.info(
-                    "Stale iMIP REQUEST for uid=%s (local seq=%d > incoming seq=%d) — ignored",
+                    "Stale iMIP REQUEST for uid=%s (local seq=%d > incoming seq=%d) - ignored",
                     message.event.uid, existing.sequence, message.event.sequence,
                 )
                 return existing
@@ -134,7 +134,7 @@ class ImipProcessor:
                 )
                 raise RequestException(error=err.ERROR_CALENDAR_EVENT_UPDATE_FAILED) from exc
 
-        # Event not in user's calendars — insert into the default calendar
+        # Event not in user's calendars - insert into the default calendar
         default_source: CalendarSource | None = self._sources.get_default(user.uid)
         if default_source is None:
             raise RequestException(error=err.ERROR_CALENDAR_NOT_FOUND)
@@ -164,11 +164,11 @@ class ImipProcessor:
         :param from_email: Email of the organizer (From: header, for logging).
         """
         message: ImipMessage = self._parse_and_validate(ical_bytes, ImipMethod.CANCEL)
-        result: tuple[CalendarSource, CalEvent] | None = self._sources.find_by_uid(user.uid, message.event.uid)
+        result: tuple[CalendarSource, CalEvent] | None = self._sources.find_by_uid(user.uid, message.event.require_uid)
 
         if result is None:
             logger_calendar.info(
-                "iMIP CANCEL for unknown event uid=%s from=%s — ignored", message.event.uid, from_email
+                "iMIP CANCEL for unknown event uid=%s from=%s - ignored", message.event.uid, from_email
             )
             return
 
@@ -183,7 +183,7 @@ class ImipProcessor:
                     master.recurrence_exceptions = list(master.recurrence_exceptions or []) + [message.event.recurrence_id]
                     source.update_event(master)
             else:
-                source.delete_event(master.uid)
+                source.delete_event(master.require_uid)
         except RequestException:
             raise
         except Exception as exc:

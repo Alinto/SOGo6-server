@@ -1,0 +1,18 @@
+from __future__ import annotations
+
+from app.module.contact.serializer.CardListSerializerVcard import CardListSerializerVcard
+from app.module.contact.format.vcard import VcardConst as vc
+from app.module.contact.format.ContentLine import ContentLine
+
+
+class CardListSerializerVcard3(CardListSerializerVcard):
+    """Serialize a CardList to a vCard 3.0 group card (Apple X-ADDRESSBOOKSERVER-* convention)."""
+
+    def version(self) -> str:
+        return vc.VCARD_VERSION_3
+
+    def _kind_line(self) -> ContentLine:
+        return ContentLine(name=vc.PROP_X_ABS_KIND, value=vc.KIND_GROUP)
+
+    def _member_line(self, member_uid: str) -> ContentLine:
+        return ContentLine(name=vc.PROP_X_ABS_MEMBER, value=vc.UID_URN_PREFIX + member_uid)

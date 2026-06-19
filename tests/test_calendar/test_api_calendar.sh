@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SOGo 6 Calendar API — functional test script
+# SOGo 6 Calendar API - functional test script
 #
 # Usage:
 #   ./test_api_calendar.sh [OPTIONS] [base_url] [username] [password]
@@ -44,56 +44,56 @@ TEST COVERAGE:
    4  All-day event
    5  Event with attendees and reminders
    6  Recurring events (daily COUNT, weekly BYDAY+UNTIL, monthly BYMONTHDAY)
-   7  RRULE expansion — GET with date range returns expanded occurrences
+   7  RRULE expansion - GET with date range returns expanded occurrences
    8  Full-text search
    9  Detached occurrence lifecycle:
-        a. POST occurrence with recurrence_id → separate DB row
+        a. POST occurrence with recurrence_id -> separate DB row
         b. GET /events returns the override in expansion (not the original slot)
-        c. DELETE occurrence → slot cancelled via EXDATE, master survives
+        c. DELETE occurrence -> slot cancelled via EXDATE, master survives
         d. GET /events no longer returns the cancelled slot
   10  EXDATE via PATCH (recurrence_exceptions added directly to master)
   11  Task CRUD (create, get, patch title / percent_complete, list)
-  12  Isolation — tasks absent from GET /events, events absent from GET /tasks
-  13  Cross-calendar — GET /events and GET /tasks without calendar key return
+  12  Isolation - tasks absent from GET /events, events absent from GET /tasks
+  13  Cross-calendar - GET /events and GET /tasks without calendar key return
       data from all calendars and contain no leaked component type
   14  Error paths (unknown event key, unknown calendar key, override on
       non-recurring event)
   15  FreeBusy:
-        a. Setup — LOGIN_2 (America/New_York) and LOGIN_3 (Asia/Tokyo) each create
+        a. Setup - LOGIN_2 (America/New_York) and LOGIN_3 (Asia/Tokyo) each create
            a calendar and an event; LOGIN_1 creates 2 events on 2026-06-15
         b. Multi-user JSON: LOGIN_3 queries LOGIN_1 + LOGIN_2 in one call
-        c. Cross-user JSON query: LOGIN_3 → LOGIN_1 (2 busy periods)
-        d. Common slot: LOGIN_3 → LOGIN_2, confirms LOGIN_2 busy at same 14:00 UTC
+        c. Cross-user JSON query: LOGIN_3 -> LOGIN_1 (2 busy periods)
+        d. Common slot: LOGIN_3 -> LOGIN_2, confirms LOGIN_2 busy at same 14:00 UTC
            slot as LOGIN_1 (scheduling conflict)
-        e. No overlap: LOGIN_1 → LOGIN_3 during 14:00 window → 0 periods (free)
-        f. Cross-tz: LOGIN_1 → LOGIN_3 at 22:00 UTC → BUSY (Asia/Tokyo event)
+        e. No overlap: LOGIN_1 -> LOGIN_3 during 14:00 window -> 0 periods (free)
+        f. Cross-tz: LOGIN_1 -> LOGIN_3 at 22:00 UTC -> BUSY (Asia/Tokyo event)
         g. Self-query: LOGIN_2 queries own free/busy
-        h. Error — range > 90 days → S000614
+        h. Error - range > 90 days -> S000614
   16  Invitation flow (cross-account):
         a. LOGIN_1 creates an event with LOGIN_2 as attendee
         b. LOGIN_2 immediately sees the event in their own /events list (propagated copy)
         c. LOGIN_2 accepts the invitation via POST /events/{key}/attendance
         d. LOGIN_1 sees ACCEPTED status on their organizer copy
-        e. LOGIN_2 declines a second invitation — LOGIN_1 sees DECLINED
+        e. LOGIN_2 declines a second invitation - LOGIN_1 sees DECLINED
   18  Recurrence scope (THISANDFUTURE + single occurrence):
-        a. Edit single occurrence — PATCH with recurrence_id → detached override
-        b. THISANDFUTURE split with updates — PATCH with recurrence_id + THISANDFUTURE
-           → original truncated, new master created with correct title
+        a. Edit single occurrence - PATCH with recurrence_id -> detached override
+        b. THISANDFUTURE split with updates - PATCH with recurrence_id + THISANDFUTURE
+           -> original truncated, new master created with correct title
         c. Verify original series truncated: absent from split point, new series present
-        d. THISANDFUTURE truncate-only (no updates) → series truncated, no new master
-        e. THISANDFUTURE on COUNT-based series → new series has UNTIL, not COUNT
+        d. THISANDFUTURE truncate-only (no updates) -> series truncated, no new master
+        e. THISANDFUTURE on COUNT-based series -> new series has UNTIL, not COUNT
         f. Edit occurrence then GET verifies modified title in expansion
         g. Split series then GET verifies new series expands
-        h. THISANDFUTURE on non-recurring event → rejected
-        i. DELETE master recurring event → all occurrences removed
-        j. EXDATE on slot without detached override → slot vanishes from expansion
-  19  Conditional DELETE (only when -d is passed, steps 62–64)
+        h. THISANDFUTURE on non-recurring event -> rejected
+        i. DELETE master recurring event -> all occurrences removed
+        j. EXDATE on slot without detached override -> slot vanishes from expansion
+  19  Conditional DELETE (only when -d is passed, steps 62-64)
   21  External calendars (ICS subscriptions):
         a. Create ICS subscription (POST /external-calendars)
         b. List subscriptions
         c. Get detail, update name/color
-        d. Trigger sync (POST /sync) — fetches real Google ICS feed
-        e. Verify sync status (GET /sync → completed)
+        d. Trigger sync (POST /sync) - fetches real Google ICS feed
+        e. Verify sync status (GET /sync -> completed)
         f. Synced events visible in GET /events
         g. Write rejected on ICS mirror (read-only)
         h. Delete external calendar
@@ -103,7 +103,7 @@ TEST COVERAGE:
         c. GET /reminders?method=popup filters by method
         d. GET /reminders?lookahead=30 extends window
         e. Future event reminder not active
-        f. Delete event → reminders disappear
+        f. Delete event -> reminders disappear
 EOF
     exit 0
 }
@@ -146,22 +146,22 @@ PASS_COUNT=0; FAIL_COUNT=0
 ok()   { echo -e "${GREEN}  [PASS]${RESET} $1"; PASS_COUNT=$((PASS_COUNT+1)); }
 fail() { echo -e "${RED}  [FAIL]${RESET} $1"; FAIL_COUNT=$((FAIL_COUNT+1)); }
 step() {
-    echo -e "\n${CYAN}━━ $1 ━━${RESET}"
+    echo -e "\n${CYAN}== $1 ==${RESET}"
     if $INTERACTIVE; then
         echo -e "${YELLOW}  Press SPACE to run this section, Q to quit...${RESET}"
         while IFS= read -r -s -n1 key; do
             if [[ "$key" == " " ]]; then break; fi
             if [[ "$key" == "q" || "$key" == "Q" ]]; then
                 echo -e "\n${YELLOW}Interrupted.${RESET}"
-                echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+                echo -e "${CYAN}==================================================${RESET}"
                 echo -e "  Results : ${GREEN}$PASS_COUNT passed${RESET}  ${RED}$FAIL_COUNT failed${RESET}"
-                echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+                echo -e "${CYAN}==================================================${RESET}"
                 exit 0
             fi
         done
     fi
 }
-info() { echo -e "${YELLOW}  →${RESET} $1"; }
+info() { echo -e "${YELLOW}  ->${RESET} $1"; }
 skip() { echo -e "${YELLOW}  [SKIP]${RESET} $1 (run with -d to execute)"; }
 
 TMPFILE=$(mktemp)
@@ -175,17 +175,17 @@ extract() { body | jq -r "${1} // empty"; }
 
 check_code() {
     local label="$1" got="$2" want="$3"
-    [ "$got" = "$want" ] && ok "$label (HTTP $got)" || fail "$label — expected HTTP $want, got $got"
+    [ "$got" = "$want" ] && ok "$label (HTTP $got)" || fail "$label - expected HTTP $want, got $got"
 }
 check_error() {
     local label="$1"
     local code; code=$(body | jq -r '.error_code // empty')
-    [ "$code" = "S000000" ] && ok "$label (S000000)" || fail "$label — error_code='$code'"
+    [ "$code" = "S000000" ] && ok "$label (S000000)" || fail "$label - error_code='$code'"
 }
 check_field() {
     local path="$1" want="$2"
     local got; got=$(body | jq -r "$path // empty")
-    [ "$got" = "$want" ] && ok "$path = '$want'" || fail "$path — expected '$want', got '$got'"
+    [ "$got" = "$want" ] && ok "$path = '$want'" || fail "$path - expected '$want', got '$got'"
 }
 check_not_empty() {
     local path="$1"
@@ -195,7 +195,7 @@ check_not_empty() {
 check_count() {
     local label="$1" path="$2" want="$3"
     local got; got=$(body | jq -r "$path | length")
-    [ "$got" = "$want" ] && ok "$label count=$want" || fail "$label — expected $want, got $got"
+    [ "$got" = "$want" ] && ok "$label count=$want" || fail "$label - expected $want, got $got"
 }
 
 if ! command -v jq &>/dev/null; then
@@ -203,13 +203,13 @@ if ! command -v jq &>/dev/null; then
 fi
 
 echo ""
-echo -e "${CYAN}SOGo 6 Calendar API — functional tests${RESET}"
+echo -e "${CYAN}SOGo 6 Calendar API - functional tests${RESET}"
 echo -e "  Base URL : $BASE"
 echo -e "  User     : $USER"
 echo -e "  Deletes  : $(${DO_DELETE} && echo 'enabled (-d)' || echo 'disabled (omit -d to inspect DB)')"
 echo -e "  Mode     : $(${INTERACTIVE} && echo 'interactive (-i)' || echo 'batch')"
 
-# ── 1. LOGIN ──────────────────────────────────────────────────────────────────
+# -- 1. LOGIN ------------------------------------------------------------------
 
 step "1. Authentication"
 info "Logs in as LOGIN_1 and extracts the JWT token used by all subsequent requests."
@@ -229,9 +229,9 @@ info "Token: ${TOKEN:0:40}..."
 H_AUTH="Authorization: Bearer $TOKEN"
 H_JSON="Content-Type: application/json"
 
-# ── 2. CALENDAR CRUD ─────────────────────────────────────────────────────────
+# -- 2. CALENDAR CRUD ---------------------------------------------------------
 
-step "2. Calendar — create"
+step "2. Calendar - create"
 info "Creates a fresh calendar that will hold all events created during this test run."
 
 CODE=$(req -X POST "$BASE/calendars" \
@@ -248,7 +248,7 @@ check_field ".data.name" "Test Calendar"
 CAL_KEY=$(extract '.data.key')
 info "Calendar key: $CAL_KEY"
 
-step "3. Calendar — list"
+step "3. Calendar - list"
 info "Verifies GET /calendars returns at least the newly created calendar (total_count >= 1)."
 
 CODE=$(req "$BASE/calendars" -H "$H_AUTH")
@@ -258,14 +258,14 @@ TOTAL=$(extract '.data.total_count')
 info "Total calendars: $TOTAL"
 [ "$TOTAL" -ge 1 ] 2>/dev/null && ok "total_count >= 1" || fail "total_count=$TOTAL"
 
-step "4. Calendar — get by key"
+step "4. Calendar - get by key"
 info "Fetches the calendar by its key and verifies the name is returned correctly."
 
 CODE=$(req "$BASE/calendars/$CAL_KEY" -H "$H_AUTH")
 check_code  "GET /calendars/$CAL_KEY" "$CODE" "200"
 check_field ".data.name" "Test Calendar"
 
-step "5. Calendar — patch"
+step "5. Calendar - patch"
 info "Renames the calendar and changes its color. Verifies both fields are updated in the response."
 
 CODE=$(req -X PATCH "$BASE/calendars/$CAL_KEY" \
@@ -275,9 +275,9 @@ check_code  "PATCH /calendars/$CAL_KEY" "$CODE" "200"
 check_field ".data.name"  "Test Calendar (renamed)"
 check_field ".data.color" "#EF4444"
 
-# ── 3. SIMPLE EVENT CRUD ─────────────────────────────────────────────────────
+# -- 3. SIMPLE EVENT CRUD -----------------------------------------------------
 
-step "6. Event — create simple"
+step "6. Event - create simple"
 info "A regular timed event with categories. Verifies basic CRUD and field round-trip."
 
 CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
@@ -301,14 +301,14 @@ check_field ".data.location" "Room A"
 EVT_KEY=$(extract '.data.key')
 info "Event key: $EVT_KEY"
 
-step "7. Event — get by key"
+step "7. Event - get by key"
 info "Fetches the event directly by its key. Verifies the title round-trips correctly."
 
 CODE=$(req "$BASE/events/$EVT_KEY" -H "$H_AUTH")
 check_code  "GET /events/$EVT_KEY" "$CODE" "200"
 check_field ".data.title" "Team Meeting"
 
-step "8. Event — patch title and location"
+step "8. Event - patch title and location"
 info "Partially updates an existing event. Only title and location are sent; other fields must be untouched."
 
 CODE=$(req -X PATCH "$BASE/events/$EVT_KEY" \
@@ -318,7 +318,7 @@ check_code  "PATCH /events title+location" "$CODE" "200"
 check_field ".data.title"    "Team Meeting (updated)"
 check_field ".data.location" "Room B"
 
-step "9. Event — patch categories"
+step "9. Event - patch categories"
 info "Replaces the categories array on an existing event. Verifies the new array length is 3."
 
 CODE=$(req -X PATCH "$BASE/events/$EVT_KEY" \
@@ -327,9 +327,9 @@ CODE=$(req -X PATCH "$BASE/events/$EVT_KEY" \
 check_code "PATCH /events categories" "$CODE" "200"
 check_count "categories" ".data.categories" "3"
 
-# ── 4. ALL-DAY + COMPLEX EVENTS ──────────────────────────────────────────────
+# -- 4. ALL-DAY + COMPLEX EVENTS ----------------------------------------------
 
-step "10. Event — create all-day"
+step "10. Event - create all-day"
 info "An all-day event. Verifies that all_day=true is stored and returned correctly."
 
 CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
@@ -345,7 +345,7 @@ check_code  "POST /events all-day" "$CODE" "201"
 check_field ".data.all_day" "true"
 ALLDAY_KEY=$(extract '.data.key')
 
-step "11. Event — create with attendees and reminders"
+step "11. Event - create with attendees and reminders"
 info "Event with organizer, two attendees (required/optional) and two reminders (popup/email)."
 
 CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
@@ -373,9 +373,9 @@ check_count "attendees" ".data.attendees" "2"
 check_count "reminders" ".data.reminders" "2"
 COMPLEX_KEY=$(extract '.data.key')
 
-# ── 5. RECURRING EVENTS ───────────────────────────────────────────────────────
+# -- 5. RECURRING EVENTS -------------------------------------------------------
 
-step "12. Event — recurring daily (COUNT=5)"
+step "12. Event - recurring daily (COUNT=5)"
 info "Creates a VEVENT with RRULE:FREQ=DAILY;COUNT=5. Verifies the rule is stored correctly."
 
 CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
@@ -394,7 +394,7 @@ DAILY_KEY=$(extract '.data.key')
 DAILY_UID=$(extract '.data.uid')
 info "Daily event key: $DAILY_KEY  uid: $DAILY_UID"
 
-step "13. Event — recurring weekly MO/WE/FR with UNTIL"
+step "13. Event - recurring weekly MO/WE/FR with UNTIL"
 info "RRULE:FREQ=WEEKLY;BYDAY=MO,WE,FR;UNTIL=... Verifies by_day array length."
 
 CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
@@ -415,7 +415,7 @@ check_code  "POST /events weekly MO/WE/FR" "$CODE" "201"
 check_count "by_day" ".data.recurrence_rule.by_day" "3"
 WEEKLY_KEY=$(extract '.data.key')
 
-step "14. Event — recurring monthly BYMONTHDAY=1"
+step "14. Event - recurring monthly BYMONTHDAY=1"
 info "RRULE:FREQ=MONTHLY;BYMONTHDAY=1;COUNT=6"
 
 CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
@@ -436,9 +436,9 @@ check_code  "POST /events monthly" "$CODE" "201"
 check_field ".data.recurrence_rule.frequency" "monthly"
 MONTHLY_KEY=$(extract '.data.key')
 
-# ── 6. RRULE EXPANSION ────────────────────────────────────────────────────────
+# -- 6. RRULE EXPANSION --------------------------------------------------------
 
-step "15. RRULE expansion — daily event over its full range"
+step "15. RRULE expansion - daily event over its full range"
 info "The daily event has COUNT=5 starting 2026-06-01. A GET over June 1-5 should expand it
   into 5 occurrences. We verify total_count >= 5 and that 'Daily Standup' appears 5 times."
 
@@ -462,7 +462,7 @@ FIRST_OCC_RECID=$(body | jq -r '[.data.events[] | select(.title == "Daily Standu
     && ok "expanded occurrence has recurrence_id set ($FIRST_OCC_RECID)" \
     || fail "expanded occurrence has no recurrence_id"
 
-step "16. RRULE expansion — weekly event over two months"
+step "16. RRULE expansion - weekly event over two months"
 info "The weekly MO/WE/FR event runs from 2026-06-01 to 2026-07-31. June has ~13 occurrences.
   We verify >= 10 for the June window."
 
@@ -473,7 +473,7 @@ FOUND=$(body | jq -r '[.data.events[] | select(.title == "Cardio Session")] | le
 info "Cardio Session occurrences in June: $FOUND"
 [ "$FOUND" -ge 10 ] 2>/dev/null && ok "Cardio Session appears >= 10 times in June" || fail "Cardio Session appears $FOUND times (expected >= 10)"
 
-step "17. RRULE expansion — monthly event UNTIL count boundary"
+step "17. RRULE expansion - monthly event UNTIL count boundary"
 info "Monthly event starts 2026-06-01 with COUNT=6. July 1 is the second occurrence.
   We check that it appears in a July 1 query."
 
@@ -483,7 +483,7 @@ check_code  "GET /events July 1 (monthly expansion)" "$CODE" "200"
 FOUND=$(body | jq -r '[.data.events[] | select(.title == "Monthly Review")] | length')
 [ "$FOUND" -ge 1 ] 2>/dev/null && ok "Monthly Review appears on July 1" || fail "Monthly Review does not appear on July 1 (found $FOUND)"
 
-step "18. RRULE — patch recurrence rule (replace COUNT with UNTIL)"
+step "18. RRULE - patch recurrence rule (replace COUNT with UNTIL)"
 info "Replaces the daily event RRULE to use an UNTIL date instead of COUNT."
 
 CODE=$(req -X PATCH "$BASE/events/$DAILY_KEY" \
@@ -499,9 +499,9 @@ check_code "PATCH /events recurrence_rule" "$CODE" "200"
 UNTIL=$(extract '.data.recurrence_rule.until')
 [ -n "$UNTIL" ] && ok "recurrence_rule.until set ($UNTIL)" || fail "recurrence_rule.until is empty"
 
-# ── 7. DETACHED OCCURRENCE LIFECYCLE ─────────────────────────────────────────
+# -- 7. DETACHED OCCURRENCE LIFECYCLE -----------------------------------------
 
-step "19. Detached occurrence — create override for 2026-06-03"
+step "19. Detached occurrence - create override for 2026-06-03"
 info "POSTs a detached occurrence for the daily event: same uid, recurrence_id=2026-06-03T09:00:00Z.
   This represents 'move/edit only the June 3rd occurrence of Daily Standup'.
   The API stores this as a separate DB row linked to the master via parent_uid."
@@ -522,11 +522,11 @@ check_field ".data.title" "Daily Standup (June 3 override)"
 RECID=$(extract '.data.recurrence_id' | sed 's/\.000Z$/Z/')
 [ "$RECID" = "2026-06-03T09:00:00Z" ] \
     && ok ".data.recurrence_id = '2026-06-03T09:00:00Z'" \
-    || fail ".data.recurrence_id — expected '2026-06-03T09:00:00Z', got '$RECID'"
+    || fail ".data.recurrence_id - expected '2026-06-03T09:00:00Z', got '$RECID'"
 OCCURRENCE_KEY=$(extract '.data.key')
 info "Occurrence key: $OCCURRENCE_KEY"
 
-step "20. Detached occurrence — GET expansion shows override, not original slot"
+step "20. Detached occurrence - GET expansion shows override, not original slot"
 info "When expanding over June 3, the response must include the overridden occurrence
   (10:00-10:30, '...June 3 override') instead of the original 09:00 slot."
 
@@ -543,7 +543,7 @@ ORIGINAL_COUNT=$(body | jq -r '[.data.events[] | select(.title == "Daily Standup
     && ok "Original slot not duplicated (count=$ORIGINAL_COUNT)" \
     || fail "Original slot still visible alongside override (count=$ORIGINAL_COUNT)"
 
-step "21. Detached occurrence — DELETE cancels the slot (EXDATE)"
+step "21. Detached occurrence - DELETE cancels the slot (EXDATE)"
 info "Deleting a detached occurrence must:
   1. Soft-delete only the detached row (not the master)
   2. Add the recurrence_id to the master's recurrence_exceptions (EXDATE)
@@ -576,9 +576,9 @@ else
     info "Keys to inspect: occurrence=$OCCURRENCE_KEY  master=$DAILY_KEY  uid=$DAILY_UID"
 fi
 
-# ── 8. EXDATE VIA PATCH ───────────────────────────────────────────────────────
+# -- 8. EXDATE VIA PATCH -------------------------------------------------------
 
-step "22. EXDATE via PATCH — cancel a specific date on the weekly event"
+step "22. EXDATE via PATCH - cancel a specific date on the weekly event"
 info "PATCHes the weekly MO/WE/FR event to add 2026-06-03T07:00:00Z to recurrence_exceptions.
   A subsequent GET for that slot must not return the weekly event."
 
@@ -599,9 +599,9 @@ CARDIO_COUNT=$(body | jq -r '[.data.events[] | select(.title == "Cardio Session"
     && ok "Cardio Session absent for the EXDATEd slot" \
     || fail "Cardio Session still visible for EXDATEd slot (count=$CARDIO_COUNT)"
 
-# ── 9. LIST AND SEARCH ────────────────────────────────────────────────────────
+# -- 9. LIST AND SEARCH --------------------------------------------------------
 
-step "23. Events — list over June date range (no tasks)"
+step "23. Events - list over June date range (no tasks)"
 info "Only VEVENT components must appear; tasks created later must be absent."
 
 CODE=$(req "$BASE/calendars/$CAL_KEY/events?start_date_time=2026-06-01T00:00:00Z&end_date_time=2026-06-30T23:59:59Z" \
@@ -612,26 +612,74 @@ TOTAL=$(extract '.data.total_count')
 info "Events in June: $TOTAL"
 [ "$TOTAL" -ge 1 ] 2>/dev/null && ok "total_count >= 1" || fail "total_count=$TOTAL"
 
-step "24. Events — full-text search"
+step "24. Events - full-text search"
 info "Searches events by title keyword 'Standup'. The daily recurring event must appear; at least 1 result expected."
 
 CODE=$(req "$BASE/calendars/$CAL_KEY/events?search=Standup" -H "$H_AUTH")
 check_code  "GET /events?search=Standup" "$CODE" "200"
 check_error "GET /events search error_code"
 TOTAL=$(extract '.data.total_count')
-info "Search 'Standup' → $TOTAL result(s)"
+info "Search 'Standup' -> $TOTAL result(s)"
 [ "$TOTAL" -ge 1 ] 2>/dev/null && ok "search returned >= 1 result" || fail "search returned $TOTAL results"
 
-step "25. Events — no params (defaults to today)"
+step "24b. Events - search behaviors (prefix, accents, no-match, hostile input)"
+info "Creates an accented event, then verifies prefix matching (as-you-type), accent-insensitive
+      search in both directions, an empty result on a no-match query, and that hostile input is
+      sanitized (200, zero result, table intact)."
+
+CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d '{
+        "title": "Réunion Café",
+        "location": "Hôtel Joël",
+        "date_start": "2026-06-12T14:00:00Z",
+        "date_end":   "2026-06-12T15:00:00Z"
+    }')
+check_code "POST /events accented" "$CODE" "201"
+
+CODE=$(req "$BASE/calendars/$CAL_KEY/events?search=Standu" -H "$H_AUTH")
+check_code "GET /events?search=Standu (prefix)" "$CODE" "200"
+TOTAL=$(extract '.data.total_count')
+[ "$TOTAL" -ge 1 ] 2>/dev/null && ok "prefix 'Standu' matches 'Standup'" || fail "prefix 'Standu' returned $TOTAL result(s)"
+
+CODE=$(req "$BASE/calendars/$CAL_KEY/events?search=reunion" -H "$H_AUTH")
+check_code "GET /events?search=reunion (unaccented query)" "$CODE" "200"
+TOTAL=$(extract '.data.total_count')
+[ "$TOTAL" -ge 1 ] 2>/dev/null && ok "'reunion' matches 'Réunion'" || fail "'reunion' returned $TOTAL result(s)"
+
+# Accented query against accented data ("Joël" lives in the event location)
+CODE=$(req "$BASE/calendars/$CAL_KEY/events?search=Jo%C3%ABl" -H "$H_AUTH")
+check_code "GET /events?search=Joël (accented query)" "$CODE" "200"
+TOTAL=$(extract '.data.total_count')
+[ "$TOTAL" -ge 1 ] 2>/dev/null && ok "'Joël' matches event location" || fail "'Joël' returned $TOTAL result(s)"
+
+CODE=$(req "$BASE/calendars/$CAL_KEY/events?search=zzzqqqxx" -H "$H_AUTH")
+check_code "GET /events?search=zzzqqqxx (no match)" "$CODE" "200"
+TOTAL=$(extract '.data.total_count')
+[ "$TOTAL" = "0" ] && ok "no-match query returns 0 result" || fail "no-match query returned $TOTAL result(s)"
+
+# Hostile input: must be reduced to harmless search words (200, no result, no SQL error)
+INJ="%27%3B%20DROP%20TABLE%20sogo_calendar_events%3B%20--"
+CODE=$(req "$BASE/calendars/$CAL_KEY/events?search=$INJ" -H "$H_AUTH")
+check_code "GET /events?search=<sql injection>" "$CODE" "200"
+TOTAL=$(extract '.data.total_count')
+[ "$TOTAL" = "0" ] && ok "hostile input returns 0 result" || fail "hostile input returned $TOTAL result(s)"
+
+CODE=$(req "$BASE/calendars/$CAL_KEY/events?search=Standup" -H "$H_AUTH")
+check_code "GET /events after hostile input (table intact)" "$CODE" "200"
+TOTAL=$(extract '.data.total_count')
+[ "$TOTAL" -ge 1 ] 2>/dev/null && ok "events table still answers after hostile input" || fail "events table broken after hostile input"
+
+step "25. Events - no params (defaults to today)"
 info "Without query params and no search, the API defaults to today's date range."
 
 CODE=$(req "$BASE/calendars/$CAL_KEY/events" -H "$H_AUTH")
 check_code  "GET /events (no params)" "$CODE" "200"
 check_error "GET /events (no params) error_code"
 
-# ── 10. TASK CRUD ─────────────────────────────────────────────────────────────
+# -- 10. TASK CRUD -------------------------------------------------------------
 
-step "26. Task — create"
+step "26. Task - create"
 info "Creates a VTODO with a due date and percent_complete. Verifies component_type=task."
 
 CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/tasks" \
@@ -639,7 +687,7 @@ CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/tasks" \
     -d '{
         "title": "Write release notes",
         "description": "Document all changes for v1.0",
-        "due": "2026-06-30T17:00:00Z",
+        "date_due": "2026-06-30T17:00:00Z",
         "percent_complete": 0,
         "categories": ["Dev", "Docs"]
     }')
@@ -647,10 +695,15 @@ check_code  "POST /tasks create" "$CODE" "201"
 check_error "POST /tasks create error_code"
 check_field ".data.title"          "Write release notes"
 check_field ".data.component_type" "task"
+# 'date_due' must be returned under the 'date_due' key (mapped back from the internal date_end),
+# and date_end must NOT leak into the task response.
+DUE_OUT=$(body | jq -r '.data.date_due // empty')
+echo "$DUE_OUT" | grep -q "2026-06-30T17:00:00" && ok "task 'date_due' returned (not 'date_end')" || fail "task date_due wrong/missing: '$DUE_OUT'"
+[ "$(body | jq -r '.data.date_end // "ABSENT"')" = "ABSENT" ] && ok "task response has no 'date_end'" || fail "task response still exposes 'date_end'"
 TASK_KEY=$(extract '.data.key')
 info "Task key: $TASK_KEY"
 
-step "27. Task — get by key"
+step "27. Task - get by key"
 info "Fetches the task by its key. Verifies component_type=task and title round-trip."
 
 CODE=$(req "$BASE/tasks/$TASK_KEY" -H "$H_AUTH")
@@ -658,8 +711,23 @@ check_code  "GET /tasks/$TASK_KEY" "$CODE" "200"
 check_error "GET /tasks get error_code"
 check_field ".data.title"          "Write release notes"
 check_field ".data.component_type" "task"
+DUE_GET=$(body | jq -r '.data.date_due // empty')
+echo "$DUE_GET" | grep -q "2026-06-30T17:00:00" && ok "task 'date_due' round-trips on GET" || fail "task date_due on GET: '$DUE_GET'"
 
-step "28. Task — patch title and percent_complete"
+
+step "27b. Task - create without due returns null due"
+info "A VTODO created without a due date must return due=null."
+
+CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/tasks" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d '{"title": "Task without a due date"}')
+check_code  "POST /tasks (no due)" "$CODE" "201"
+NODUE=$(body | jq -r '.data.date_due')
+[ "$NODUE" = "null" ] && ok "task without due -> date_due is null" || fail "task without due -> date_due='$NODUE' (expected null)"
+[ "$(body | jq -r '.data.date_end // "ABSENT"')" = "ABSENT" ] && ok "no-due task has no 'date_end'" || fail "no-due task exposes 'date_end'"
+
+
+step "28. Task - patch title and percent_complete"
 info "Marks the task as 100% complete and renames it. Verifies both fields in the response."
 
 CODE=$(req -X PATCH "$BASE/tasks/$TASK_KEY" \
@@ -669,21 +737,21 @@ check_code  "PATCH /tasks title+percent_complete" "$CODE" "200"
 check_field ".data.title"            "Write release notes (done)"
 check_field ".data.percent_complete" "100"
 
-step "29. Task — create a second task for list/isolation checks"
+step "29. Task - create a second task for list/isolation checks"
 info "Creates a second task so the list endpoint and isolation tests have at least 2 tasks to assert against."
 
 CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/tasks" \
     -H "$H_JSON" -H "$H_AUTH" \
     -d '{
         "title": "Review PR #42",
-        "due": "2026-06-20T12:00:00Z",
+        "date_due": "2026-06-20T12:00:00Z",
         "percent_complete": 50
     }')
 check_code  "POST /tasks second task" "$CODE" "201"
 TASK_KEY2=$(extract '.data.key')
 info "Second task key: $TASK_KEY2"
 
-step "30. Task — list (GET /calendars/{key}/tasks)"
+step "30. Task - list (GET /calendars/{key}/tasks)"
 info "Lists tasks for the calendar. Both tasks must appear; no events."
 
 CODE=$(req "$BASE/calendars/$CAL_KEY/tasks?start_date_time=2026-06-01T00:00:00Z&end_date_time=2026-06-30T23:59:59Z" \
@@ -698,9 +766,9 @@ COMPONENT_TYPES=$(body | jq -r '[.data.tasks[].component_type] | unique | .[]')
     && ok "all items in task list have component_type=task" \
     || fail "unexpected component_type(s) in task list: $COMPONENT_TYPES"
 
-# ── 11. ISOLATION — tasks/events do not bleed across endpoints ────────────────
+# -- 11. ISOLATION - tasks/events do not bleed across endpoints ----------------
 
-step "31. Isolation — tasks absent from GET /events"
+step "31. Isolation - tasks absent from GET /events"
 info "The two tasks just created must not appear in the event list."
 
 CODE=$(req "$BASE/calendars/$CAL_KEY/events?start_date_time=2026-06-01T00:00:00Z&end_date_time=2026-06-30T23:59:59Z" \
@@ -709,9 +777,9 @@ check_code "GET /events (isolation check)" "$CODE" "200"
 TASK_IN_EVENTS=$(body | jq -r '[.data.events[] | select(.component_type == "task")] | length')
 [ "$TASK_IN_EVENTS" -eq 0 ] 2>/dev/null \
     && ok "no task found in GET /events (isolation OK)" \
-    || fail "GET /events returned $TASK_IN_EVENTS task(s) — isolation broken"
+    || fail "GET /events returned $TASK_IN_EVENTS task(s) - isolation broken"
 
-step "32. Isolation — events absent from GET /tasks"
+step "32. Isolation - events absent from GET /tasks"
 info "The events created earlier must not appear in the task list."
 
 CODE=$(req "$BASE/calendars/$CAL_KEY/tasks?start_date_time=2026-06-01T00:00:00Z&end_date_time=2026-06-30T23:59:59Z" \
@@ -720,11 +788,11 @@ check_code "GET /tasks (isolation check)" "$CODE" "200"
 EVENT_IN_TASKS=$(body | jq -r '[.data.tasks[] | select(.component_type == "event" or .component_type == null)] | length')
 [ "$EVENT_IN_TASKS" -eq 0 ] 2>/dev/null \
     && ok "no event found in GET /tasks (isolation OK)" \
-    || fail "GET /tasks returned $EVENT_IN_TASKS event(s) — isolation broken"
+    || fail "GET /tasks returned $EVENT_IN_TASKS event(s) - isolation broken"
 
-# ── 12. CROSS-CALENDAR (no calendar key) ─────────────────────────────────────
+# -- 12. CROSS-CALENDAR (no calendar key) -------------------------------------
 
-step "33. GET /events — all calendars (no calendar key)"
+step "33. GET /events - all calendars (no calendar key)"
 info "GET /events without a calendar key must return events from all user calendars.
   The test calendar already has several events; the response must include at least one."
 
@@ -742,7 +810,7 @@ TASK_LEAK=$(body | jq -r '[.data.events[] | select(.component_type == "task")] |
     && ok "GET /events contains no tasks" \
     || fail "GET /events leaked $TASK_LEAK task(s)"
 
-step "34. GET /tasks — all calendars (no calendar key)"
+step "34. GET /tasks - all calendars (no calendar key)"
 info "GET /tasks without a calendar key must return tasks from all user calendars."
 
 CODE=$(req "$BASE/tasks?start_date_time=2026-06-01T00:00:00Z&end_date_time=2026-06-30T23:59:59Z" \
@@ -759,22 +827,22 @@ EVENT_LEAK=$(body | jq -r '[.data.tasks[] | select(.component_type == "event")] 
     && ok "GET /tasks contains no events" \
     || fail "GET /tasks leaked $EVENT_LEAK event(s)"
 
-# ── 13. ERROR PATHS ───────────────────────────────────────────────────────────
+# -- 13. ERROR PATHS -----------------------------------------------------------
 
-step "35. Error paths — unknown keys"
+step "35. Error paths - unknown keys"
 info "GET on a non-existent event key must return 404 + S000605. GET on a non-existent calendar key must return 404 + S000602."
 
 CODE=$(req "$BASE/events/nonexistent-key-xyz" -H "$H_AUTH")
 check_code "GET /events/nonexistent" "$CODE" "404"
 ERR=$(extract '.error_code')
-[ "$ERR" = "S000605" ] && ok "unknown event key → S000605" || fail "unknown event key → $ERR (expected S000605)"
+[ "$ERR" = "S000605" ] && ok "unknown event key -> S000605" || fail "unknown event key -> $ERR (expected S000605)"
 
 CODE=$(req "$BASE/calendars/nonexistent-cal-xyz" -H "$H_AUTH")
 check_code "GET /calendars/nonexistent" "$CODE" "404"
 ERR=$(extract '.error_code')
-[ "$ERR" = "S000602" ] && ok "unknown calendar key → S000602" || fail "unknown calendar key → $ERR (expected S000602)"
+[ "$ERR" = "S000602" ] && ok "unknown calendar key -> S000602" || fail "unknown calendar key -> $ERR (expected S000602)"
 
-step "36. Error paths — detached occurrence on non-recurring event"
+step "36. Error paths - detached occurrence on non-recurring event"
 info "Posting a recurrence_id against a non-recurring event must be rejected (not 201)."
 
 EVT_UID=$(curl -s "$BASE/events/$EVT_KEY" -H "$H_AUTH" | jq -r '.data.uid // empty')
@@ -791,22 +859,22 @@ CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
     && ok "non-recurring override rejected (HTTP $CODE)" \
     || fail "non-recurring override incorrectly accepted (HTTP 201)"
 
-# ── 15. FREEBUSY ──────────────────────────────────────────────────────────────
+# -- 15. FREEBUSY --------------------------------------------------------------
 #
 # Timeline for 2026-06-15 (UTC):
-#   LOGIN_1 (Europe/Paris)    : BUSY 09:00–10:00, BUSY 14:00–15:00
-#   LOGIN_2 (America/New_York): BUSY 14:00–15:00           ← common slot with LOGIN_1
-#   LOGIN_3 (Asia/Tokyo)      : BUSY 22:00–23:00           ← no overlap with LOGIN_1/LOGIN_2
+#   LOGIN_1 (Europe/Paris)    : BUSY 09:00-10:00, BUSY 14:00-15:00
+#   LOGIN_2 (America/New_York): BUSY 14:00-15:00           <- common slot with LOGIN_1
+#   LOGIN_3 (Asia/Tokyo)      : BUSY 22:00-23:00           <- no overlap with LOGIN_1/LOGIN_2
 #
 # Tests:
-#   - cross-user query (LOGIN_3 → LOGIN_1, LOGIN_3 → LOGIN_2)
+#   - cross-user query (LOGIN_3 -> LOGIN_1, LOGIN_3 -> LOGIN_2)
 #   - common busy slot confirmed on both sides
 #   - slot where one is free while the other is busy
 #   - self-query
 #   - .ifb endpoint
 #   - range-too-large error
 
-step "37. FreeBusy setup — authenticate LOGIN_2 and LOGIN_3"
+step "37. FreeBusy setup - authenticate LOGIN_2 and LOGIN_3"
 info "Obtains JWT tokens for LOGIN_2 (America/New_York) and LOGIN_3 (Asia/Tokyo) used in all FreeBusy queries below."
 
 CODE=$(req -X POST "$BASE/auth/login" \
@@ -825,8 +893,8 @@ TOKEN_3=$(extract '.data.jwt_token')
 [ -n "$TOKEN_3" ] && ok "LOGIN_3 token obtained" || { fail "Could not extract LOGIN_3 token"; exit 1; }
 H_AUTH_3="Authorization: Bearer $TOKEN_3"
 
-step "38. FreeBusy setup — LOGIN_1 adds 2 events on 2026-06-15 (Europe/Paris)"
-info "09:00–10:00 UTC and 14:00–15:00 UTC. The 14:00 slot will be the common slot with LOGIN_2."
+step "38. FreeBusy setup - LOGIN_1 adds 2 events on 2026-06-15 (Europe/Paris)"
+info "09:00-10:00 UTC and 14:00-15:00 UTC. The 14:00 slot will be the common slot with LOGIN_2."
 
 CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
     -H "$H_JSON" -H "$H_AUTH" \
@@ -852,7 +920,7 @@ CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
 check_code "POST /events FB Afternoon L1" "$CODE" "201"
 FB_L1_AFTERNOON=$(extract '.data.key')
 
-step "39. FreeBusy setup — LOGIN_2 creates calendar (America/New_York) + event at 14:00 UTC"
+step "39. FreeBusy setup - LOGIN_2 creates calendar (America/New_York) + event at 14:00 UTC"
 info "14:00 UTC = 10:00 New_York. Common slot with LOGIN_1."
 
 CODE=$(req -X POST "$BASE/calendars" \
@@ -877,7 +945,7 @@ CODE=$(req -X POST "$BASE/calendars/$CAL_KEY_2/events" \
 check_code "POST /events FB Standup L2" "$CODE" "201"
 FB_L2_EVT=$(extract '.data.key')
 
-step "40. FreeBusy setup — LOGIN_3 creates calendar (Asia/Tokyo) + event at 22:00 UTC"
+step "40. FreeBusy setup - LOGIN_3 creates calendar (Asia/Tokyo) + event at 22:00 UTC"
 info "22:00 UTC = 07:00+9 Tokyo. No overlap with LOGIN_1 or LOGIN_2."
 
 CODE=$(req -X POST "$BASE/calendars" \
@@ -902,7 +970,7 @@ CODE=$(req -X POST "$BASE/calendars/$CAL_KEY_3/events" \
 check_code "POST /events FB Evening L3" "$CODE" "201"
 FB_L3_EVT=$(extract '.data.key')
 
-step "41. FreeBusy — multi-user JSON: LOGIN_3 queries LOGIN_1 + LOGIN_2 in one call"
+step "41. FreeBusy - multi-user JSON: LOGIN_3 queries LOGIN_1 + LOGIN_2 in one call"
 info "Both attendees must appear in response. LOGIN_1 has 2 events, LOGIN_2 has 1."
 
 CODE=$(req -X POST "$BASE/freebusy" \
@@ -923,7 +991,7 @@ FB_MULTI_L2=$(body | jq -r --arg uid "$LOGIN_2" '.data.attendees[$uid].periods |
     && ok "multi-user: LOGIN_2 has >= 1 period" \
     || fail "multi-user: LOGIN_2 has $FB_MULTI_L2 period(s) (expected >= 1)"
 
-step "42. FreeBusy — cross-user JSON: LOGIN_3 queries LOGIN_1 on 2026-06-15"
+step "42. FreeBusy - cross-user JSON: LOGIN_3 queries LOGIN_1 on 2026-06-15"
 info "LOGIN_1 has 2 events (09:00 and 14:00). Both must appear as BUSY."
 
 CODE=$(req -X POST "$BASE/freebusy" \
@@ -933,8 +1001,8 @@ CODE=$(req -X POST "$BASE/freebusy" \
         \"start\": \"2026-06-15T00:00:00Z\",
         \"end\":   \"2026-06-15T23:59:59Z\"
     }")
-check_code  "POST /freebusy L3→L1 (JSON)" "$CODE" "200"
-check_error "POST /freebusy L3→L1 error_code"
+check_code  "POST /freebusy L3->L1 (JSON)" "$CODE" "200"
+check_error "POST /freebusy L3->L1 error_code"
 FB_L1_COUNT=$(body | jq -r --arg uid "$LOGIN_1" '.data.attendees[$uid].periods | length')
 info "LOGIN_1 busy periods on 2026-06-15: $FB_L1_COUNT"
 [ "$FB_L1_COUNT" -ge 2 ] 2>/dev/null \
@@ -945,8 +1013,8 @@ FB_L1_TYPES=$(body | jq -r --arg uid "$LOGIN_1" '[.data.attendees[$uid].periods[
     && ok "all LOGIN_1 periods are type=busy" \
     || fail "unexpected period types for LOGIN_1: $FB_L1_TYPES"
 
-step "43. FreeBusy — common slot: LOGIN_3 queries LOGIN_2 on 2026-06-15"
-info "LOGIN_2 has the 14:00 event — same UTC slot as LOGIN_1's afternoon event."
+step "43. FreeBusy - common slot: LOGIN_3 queries LOGIN_2 on 2026-06-15"
+info "LOGIN_2 has the 14:00 event - same UTC slot as LOGIN_1's afternoon event."
 
 CODE=$(req -X POST "$BASE/freebusy" \
     -H "$H_JSON" -H "$H_AUTH_3" \
@@ -955,8 +1023,8 @@ CODE=$(req -X POST "$BASE/freebusy" \
         \"start\": \"2026-06-15T00:00:00Z\",
         \"end\":   \"2026-06-15T23:59:59Z\"
     }")
-check_code  "POST /freebusy L3→L2 (JSON)" "$CODE" "200"
-check_error "POST /freebusy L3→L2 error_code"
+check_code  "POST /freebusy L3->L2 (JSON)" "$CODE" "200"
+check_error "POST /freebusy L3->L2 error_code"
 FB_L2_COUNT=$(body | jq -r --arg uid "$LOGIN_2" '.data.attendees[$uid].periods | length')
 info "LOGIN_2 busy periods on 2026-06-15: $FB_L2_COUNT"
 [ "$FB_L2_COUNT" -ge 1 ] 2>/dev/null \
@@ -967,8 +1035,8 @@ FB_L2_SLOT=$(body | jq -r --arg uid "$LOGIN_2" '[.data.attendees[$uid].periods[]
     && ok "LOGIN_2 is busy at 14:00 UTC (common slot with LOGIN_1 confirmed)" \
     || fail "LOGIN_2 is not busy at 14:00 UTC (expected common slot with LOGIN_1)"
 
-step "44. FreeBusy — no overlap: LOGIN_1 queries LOGIN_3 on 14:00–15:00 UTC"
-info "LOGIN_3 has no event at 14:00 UTC — must return 0 busy periods in that window."
+step "44. FreeBusy - no overlap: LOGIN_1 queries LOGIN_3 on 14:00-15:00 UTC"
+info "LOGIN_3 has no event at 14:00 UTC - must return 0 busy periods in that window."
 
 CODE=$(req -X POST "$BASE/freebusy" \
     -H "$H_JSON" -H "$H_AUTH" \
@@ -977,14 +1045,14 @@ CODE=$(req -X POST "$BASE/freebusy" \
         \"start\": \"2026-06-15T14:00:00Z\",
         \"end\":   \"2026-06-15T15:00:00Z\"
     }")
-check_code  "POST /freebusy L1→L3 14:00 window" "$CODE" "200"
-check_error "POST /freebusy L1→L3 14:00 error_code"
+check_code  "POST /freebusy L1->L3 14:00 window" "$CODE" "200"
+check_error "POST /freebusy L1->L3 14:00 error_code"
 FB_L3_AT14=$(body | jq -r --arg uid "$LOGIN_3" '.data.attendees[$uid].periods | length')
 [ "$FB_L3_AT14" -eq 0 ] 2>/dev/null \
-    && ok "LOGIN_3 is free at 14:00 UTC — no overlap with LOGIN_1/LOGIN_2" \
+    && ok "LOGIN_3 is free at 14:00 UTC - no overlap with LOGIN_1/LOGIN_2" \
     || fail "LOGIN_3 has $FB_L3_AT14 period(s) at 14:00 UTC (expected 0)"
 
-step "45. FreeBusy — cross-tz: LOGIN_1 queries LOGIN_3 on 22:00–23:00 UTC"
+step "45. FreeBusy - cross-tz: LOGIN_1 queries LOGIN_3 on 22:00-23:00 UTC"
 info "LOGIN_3 has event at 22:00 UTC (Asia/Tokyo 07:00+9). Must appear BUSY."
 
 CODE=$(req -X POST "$BASE/freebusy" \
@@ -994,14 +1062,14 @@ CODE=$(req -X POST "$BASE/freebusy" \
         \"start\": \"2026-06-15T22:00:00Z\",
         \"end\":   \"2026-06-15T23:59:59Z\"
     }")
-check_code  "POST /freebusy L1→L3 22:00 window" "$CODE" "200"
-check_error "POST /freebusy L1→L3 22:00 error_code"
+check_code  "POST /freebusy L1->L3 22:00 window" "$CODE" "200"
+check_error "POST /freebusy L1->L3 22:00 error_code"
 FB_L3_AT22=$(body | jq -r --arg uid "$LOGIN_3" '.data.attendees[$uid].periods | length')
 [ "$FB_L3_AT22" -ge 1 ] 2>/dev/null \
     && ok "LOGIN_3 is busy at 22:00 UTC (cross-tz confirmed)" \
     || fail "LOGIN_3 has $FB_L3_AT22 period(s) at 22:00 UTC (expected >= 1)"
 
-step "46. FreeBusy — self-query: LOGIN_2 queries own free/busy"
+step "46. FreeBusy - self-query: LOGIN_2 queries own free/busy"
 info "A user querying their own UID must see their own events. Verifies the server-side ownership check does not block self-access."
 
 CODE=$(req -X POST "$BASE/freebusy" \
@@ -1018,7 +1086,7 @@ FB_SELF=$(body | jq -r --arg uid "$LOGIN_2" '.data.attendees[$uid].periods | len
     && ok "self freebusy returned >= 1 period" \
     || fail "self freebusy returned $FB_SELF periods (expected >= 1)"
 
-step "47. FreeBusy — error: date range > 90 days → S000614"
+step "47. FreeBusy - error: date range > 90 days -> S000614"
 info "Queries spanning more than 90 days must be rejected with HTTP 400 + S000614 to prevent expensive server-side scans."
 
 CODE=$(req -X POST "$BASE/freebusy" \
@@ -1031,11 +1099,11 @@ CODE=$(req -X POST "$BASE/freebusy" \
 check_code "POST /freebusy range too large" "$CODE" "400"
 ERR=$(extract '.error_code')
 [ "$ERR" = "S000614" ] \
-    && ok "range too large → S000614" \
-    || fail "range too large → $ERR (expected S000614)"
+    && ok "range too large -> S000614" \
+    || fail "range too large -> $ERR (expected S000614)"
 
-step "48. FreeBusy — show_as tentative → type tentative"
-info "LOGIN_1 creates a TENTATIVE event on 2026-06-16 10:00–11:00 UTC."
+step "48. FreeBusy - show_as tentative -> type tentative"
+info "LOGIN_1 creates a TENTATIVE event on 2026-06-16 10:00-11:00 UTC."
 
 CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
     -H "$H_JSON" -H "$H_AUTH" \
@@ -1058,11 +1126,11 @@ CODE=$(req -X POST "$BASE/freebusy" \
 check_code  "POST /freebusy tentative window" "$CODE" "200"
 FB_TENT_TYPE=$(body | jq -r --arg uid "$LOGIN_1" '.data.attendees[$uid].periods[0].type')
 [ "$FB_TENT_TYPE" = "tentative" ] \
-    && ok "tentative event → type=tentative in freebusy" \
-    || fail "tentative event → type=$FB_TENT_TYPE (expected tentative)"
+    && ok "tentative event -> type=tentative in freebusy" \
+    || fail "tentative event -> type=$FB_TENT_TYPE (expected tentative)"
 
-step "49. FreeBusy — show_as free → excluded"
-info "LOGIN_1 creates a FREE event on 2026-06-16 12:00–13:00 UTC. Must not appear in freebusy."
+step "49. FreeBusy - show_as free -> excluded"
+info "LOGIN_1 creates a FREE event on 2026-06-16 12:00-13:00 UTC. Must not appear in freebusy."
 
 CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
     -H "$H_JSON" -H "$H_AUTH" \
@@ -1088,8 +1156,8 @@ FB_FREE_COUNT=$(body | jq -r --arg uid "$LOGIN_1" '.data.attendees[$uid].periods
     && ok "show_as=free event excluded from freebusy" \
     || fail "show_as=free returned $FB_FREE_COUNT period(s) (expected 0)"
 
-step "50. FreeBusy — status cancelled → excluded"
-info "LOGIN_1 creates a CANCELLED event on 2026-06-16 14:00–15:00 UTC. Must not appear."
+step "50. FreeBusy - status cancelled -> excluded"
+info "LOGIN_1 creates a CANCELLED event on 2026-06-16 14:00-15:00 UTC. Must not appear."
 
 CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
     -H "$H_JSON" -H "$H_AUTH" \
@@ -1116,8 +1184,8 @@ FB_CANC_COUNT=$(body | jq -r --arg uid "$LOGIN_1" '.data.attendees[$uid].periods
     && ok "status=cancelled event excluded from freebusy" \
     || fail "status=cancelled returned $FB_CANC_COUNT period(s) (expected 0)"
 
-step "51. FreeBusy — title: public event exposes title, private event hides it"
-info "PUBLIC event → title in response. PRIVATE event → no title key."
+step "51. FreeBusy - title: public event exposes title, private event hides it"
+info "PUBLIC event -> title in response. PRIVATE event -> no title key."
 
 CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
     -H "$H_JSON" -H "$H_AUTH" \
@@ -1169,9 +1237,9 @@ FB_PRIV_HAS_TITLE=$(body | jq -r --arg uid "$LOGIN_1" '.data.attendees[$uid].per
     && ok "PRIVATE event title hidden in freebusy" \
     || fail "PRIVATE event title key present in freebusy (expected absent)"
 
-# ── 16. INVITATION FLOW ───────────────────────────────────────────────────────
+# -- 16. INVITATION FLOW -------------------------------------------------------
 
-step "47. Invitation — LOGIN_1 creates event with LOGIN_2 as attendee"
+step "47. Invitation - LOGIN_1 creates event with LOGIN_2 as attendee"
 info "Creates an event where LOGIN_2 is invited. The server must immediately propagate a copy to LOGIN_2's default calendar."
 
 CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
@@ -1193,7 +1261,7 @@ INVITE_KEY_L1=$(extract '.data.key')
 INVITE_UID=$(extract '.data.uid')
 info "Organizer event key (LOGIN_1): $INVITE_KEY_L1  uid: $INVITE_UID"
 
-step "48. Invitation — LOGIN_2 sees the propagated copy in their /events"
+step "48. Invitation - LOGIN_2 sees the propagated copy in their /events"
 info "Without any iMIP mail exchange, LOGIN_2's default calendar should already hold a copy of the event."
 
 CODE=$(req "$BASE/events?start_date_time=2026-07-01T00:00:00Z&end_date_time=2026-07-01T23:59:59Z" -H "$H_AUTH_2")
@@ -1206,7 +1274,7 @@ INVITE_COUNT_L2=$(body | jq --arg uid "$INVITE_UID" '[.data.events[] | select(.u
 INVITE_KEY_L2=$(body | jq -r --arg uid "$INVITE_UID" '[.data.events[] | select(.uid == $uid)][0].key // empty')
 info "Attendee event key (LOGIN_2): $INVITE_KEY_L2"
 
-step "49. Invitation — verify attendee status is needs-action on LOGIN_2's copy"
+step "49. Invitation - verify attendee status is needs-action on LOGIN_2's copy"
 info "Before any response, LOGIN_2's own attendee record should be needs-action."
 
 CODE=$(req "$BASE/events/$INVITE_KEY_L2" -H "$H_AUTH_2")
@@ -1216,7 +1284,7 @@ L2_STATUS=$(body | jq -r --arg email "$LOGIN_2" '.data.attendees[] | select(.ema
     && ok "LOGIN_2 attendee status = needs-action" \
     || fail "LOGIN_2 attendee status = '$L2_STATUS' (expected needs-action)"
 
-step "50. Invitation — LOGIN_2 accepts"
+step "50. Invitation - LOGIN_2 accepts"
 info "POST /events/{key}/attendance with status=accepted. LOGIN_1's organizer copy must reflect ACCEPTED."
 
 CODE=$(req -X POST "$BASE/events/$INVITE_KEY_L2/attendance" \
@@ -1229,7 +1297,7 @@ L2_NEW_STATUS=$(body | jq -r --arg email "$LOGIN_2" '.data.attendees[] | select(
     && ok "response shows LOGIN_2 status = accepted" \
     || fail "response status = '$L2_NEW_STATUS' (expected accepted)"
 
-step "51. Invitation — LOGIN_1 sees ACCEPTED on the organizer copy"
+step "51. Invitation - LOGIN_1 sees ACCEPTED on the organizer copy"
 info "After LOGIN_2 accepts, propagate_partstat_to_copies must have updated the organizer's copy."
 
 CODE=$(req "$BASE/events/$INVITE_KEY_L1" -H "$H_AUTH")
@@ -1239,9 +1307,9 @@ L2_STATUS_ON_L1=$(body | jq -r --arg email "$LOGIN_2" '.data.attendees[] | selec
     && ok "LOGIN_1 organizer copy shows LOGIN_2 = accepted" \
     || fail "LOGIN_1 organizer copy shows LOGIN_2 = '$L2_STATUS_ON_L1' (expected accepted)"
 
-# ── 17b. SINGLE-OCCURRENCE ATTENDANCE ────────────────────────────────────────
+# -- 17b. SINGLE-OCCURRENCE ATTENDANCE ----------------------------------------
 
-step "51b. Invitation — LOGIN_1 creates recurring event with LOGIN_2 as attendee"
+step "51b. Invitation - LOGIN_1 creates recurring event with LOGIN_2 as attendee"
 info "Creates a recurring event where LOGIN_2 is invited. Then LOGIN_2 declines a single occurrence."
 
 CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
@@ -1269,7 +1337,7 @@ check_code "GET /events (LOGIN_2) for recurring invite" "$CODE" "200"
 REC_INVITE_KEY_L2=$(body | jq -r --arg uid "$REC_INVITE_UID" '[.data.events[] | select(.uid == $uid)][0].key // empty')
 info "Recurring invite attendee key (LOGIN_2): $REC_INVITE_KEY_L2"
 
-step "51c. Invitation — LOGIN_2 declines single occurrence of recurring event"
+step "51c. Invitation - LOGIN_2 declines single occurrence of recurring event"
 info "POST /events/{key}/attendance with status=declined and recurrence_id targeting 2026-07-13."
 
 CODE=$(req -X POST "$BASE/events/$REC_INVITE_KEY_L2/attendance" \
@@ -1288,9 +1356,9 @@ OCC_L2_STATUS=$(body | jq -r --arg email "$LOGIN_2" '.data.attendees[] | select(
     || fail "occurrence attendee status = '$OCC_L2_STATUS' (expected declined)"
 info "Occurrence key: $OCC_ATT_KEY"
 
-# ── 18. RECURRENCE SCOPE (THISANDFUTURE + SINGLE OCCURRENCE) ─────────────────
+# -- 18. RECURRENCE SCOPE (THISANDFUTURE + SINGLE OCCURRENCE) -----------------
 
-step "52. Recurrence scope — edit single occurrence (PATCH with recurrence_id, no range)"
+step "52. Recurrence scope - edit single occurrence (PATCH with recurrence_id, no range)"
 info "PATCH the weekly Cardio Session event with recurrence_id=2026-06-08T07:00:00Z (a Monday).
   Expected: a detached occurrence row is created; recurrence_id is set on the response."
 
@@ -1315,7 +1383,7 @@ RECID=$(extract '.data.recurrence_id' | sed 's/\.000Z$/Z/')
 OCCURRENCE_EDIT_KEY=$(extract '.data.key')
 info "Detached occurrence key: $OCCURRENCE_EDIT_KEY"
 
-step "53. Recurrence scope — THISANDFUTURE split with updates (PATCH + recurrence_range)"
+step "53. Recurrence scope - THISANDFUTURE split with updates (PATCH + recurrence_range)"
 info "PATCH weekly Cardio Session with recurrence_id=2026-06-15T07:00:00Z and
   recurrence_range=THISANDFUTURE. Expected:
   - Original series is truncated at 2026-06-14T23:59:59Z
@@ -1325,7 +1393,7 @@ info "PATCH weekly Cardio Session with recurrence_id=2026-06-15T07:00:00Z and
 CODE=$(req -X PATCH "$BASE/events/$WEEKLY_KEY" \
     -H "$H_JSON" -H "$H_AUTH" \
     -d '{
-        "title": "Cardio Session — New Series",
+        "title": "Cardio Session - New Series",
         "recurrence_id": "2026-06-15T07:00:00Z",
         "recurrence_range": "THISANDFUTURE"
     }')
@@ -1338,12 +1406,12 @@ SPLIT_RECID=$(extract '.data.recurrence_id // empty')
     && ok "new master has no recurrence_id (it is a master, not a detached occurrence)" \
     || fail "new master should have no recurrence_id, got '$SPLIT_RECID'"
 SPLIT_TITLE=$(extract '.data.title')
-[ "$SPLIT_TITLE" = "Cardio Session — New Series" ] \
-    && ok "new master title = 'Cardio Session — New Series'" \
+[ "$SPLIT_TITLE" = "Cardio Session - New Series" ] \
+    && ok "new master title = 'Cardio Session - New Series'" \
     || fail "new master title '$SPLIT_TITLE' != expected"
 info "Split master key: $SPLIT_KEY  uid: $SPLIT_UID"
 
-step "54. Recurrence scope — verify original series is truncated after split"
+step "54. Recurrence scope - verify original series is truncated after split"
 info "GET the original weekly event and verify its recurrence_rule.until is set to a date
   before 2026-06-15 (the split point). The series should no longer expand past that point."
 
@@ -1352,7 +1420,7 @@ check_code "GET /events/$WEEKLY_KEY (truncated original)" "$CODE" "200"
 UNTIL=$(extract '.data.recurrence_rule.until // empty')
 [ -n "$UNTIL" ] \
     && ok "original series has until set after split ($UNTIL)" \
-    || fail "original series until is empty — series not truncated"
+    || fail "original series until is empty - series not truncated"
 
 CODE=$(req "$BASE/calendars/$CAL_KEY/events?start_date_time=2026-06-15T00:00:00Z&end_date_time=2026-06-15T23:59:59Z" \
     -H "$H_AUTH")
@@ -1366,7 +1434,7 @@ CARDIO_SPLIT=$(body | jq --arg uid "$SPLIT_UID" '[.data.events[] | select(.uid =
     && ok "new split series appears on 2026-06-15 (count=$CARDIO_SPLIT)" \
     || fail "new split series absent from 2026-06-15 (count=$CARDIO_SPLIT)"
 
-step "55. Recurrence scope — THISANDFUTURE truncate only (no updates = delete this and following)"
+step "55. Recurrence scope - THISANDFUTURE truncate only (no updates = delete this and following)"
 info "PATCH a recurring event with recurrence_id + recurrence_range=THISANDFUTURE but no
   content updates (empty updates dict). Expected: the series is truncated at that point
   but no new master is created. Response returns the (now-truncated) original master."
@@ -1388,7 +1456,7 @@ TRUNC_UID=$(extract '.data.uid')
     && ok "response is still the same master (no new event created)" \
     || fail "unexpected uid change: got '$TRUNC_UID', expected '$SPLIT_UID'"
 
-step "56. Recurrence scope — THISANDFUTURE on COUNT-based series converts to UNTIL"
+step "56. Recurrence scope - THISANDFUTURE on COUNT-based series converts to UNTIL"
 info "PATCH the monthly COUNT=6 event with THISANDFUTURE at 2026-09-01 (4th occurrence).
   Expected: new series has UNTIL instead of COUNT, and COUNT is null."
 
@@ -1399,7 +1467,7 @@ MONTHLY_UID=$(extract '.data.uid')
 CODE=$(req -X PATCH "$BASE/events/$MONTHLY_KEY" \
     -H "$H_JSON" -H "$H_AUTH" \
     -d '{
-        "title": "Monthly Review — New Series",
+        "title": "Monthly Review - New Series",
         "recurrence_id": "2026-09-01T10:00:00Z",
         "recurrence_range": "THISANDFUTURE"
     }')
@@ -1413,10 +1481,10 @@ SPLIT_MONTHLY_UNTIL=$(extract '.data.recurrence_rule.until // empty')
     || fail "new series still has COUNT=$SPLIT_MONTHLY_COUNT"
 [ -n "$SPLIT_MONTHLY_UNTIL" ] \
     && ok "new series has UNTIL set ($SPLIT_MONTHLY_UNTIL)" \
-    || fail "new series UNTIL is empty — COUNT was not converted"
+    || fail "new series UNTIL is empty - COUNT was not converted"
 info "Split monthly key: $SPLIT_MONTHLY_KEY  until: $SPLIT_MONTHLY_UNTIL"
 
-step "57. Recurrence scope — edit occurrence then verify via GET expansion"
+step "57. Recurrence scope - edit occurrence then verify via GET expansion"
 info "After step 52 created a detached occurrence for the weekly event on 2026-06-08,
   GET over that date range must show the modified title, not the original."
 
@@ -1432,8 +1500,8 @@ ORIGINAL_SLOT=$(body | jq -r '[.data.events[] | select(.title == "Cardio Session
     && ok "original slot replaced by override" \
     || fail "original slot still present alongside override (count=$ORIGINAL_SLOT)"
 
-step "58. Recurrence scope — split series then verify new series expands"
-info "After step 53 created a new series 'Cardio Session — New Series' starting 2026-06-15,
+step "58. Recurrence scope - split series then verify new series expands"
+info "After step 53 created a new series 'Cardio Session - New Series' starting 2026-06-15,
   GET over 2026-06-15 to 2026-06-22 must show occurrences from the new series."
 
 CODE=$(req "$BASE/calendars/$CAL_KEY/events?start_date_time=2026-06-15T00:00:00Z&end_date_time=2026-06-22T23:59:59Z" \
@@ -1444,7 +1512,7 @@ SPLIT_OCCURRENCES=$(body | jq --arg uid "$SPLIT_UID" '[.data.events[] | select(.
     && ok "new split series expands correctly ($SPLIT_OCCURRENCES occurrences)" \
     || fail "new split series has 0 occurrences in June 15-22"
 
-step "59. Error — THISANDFUTURE on non-recurring event"
+step "59. Error - THISANDFUTURE on non-recurring event"
 info "PATCH a non-recurring event with recurrence_id + THISANDFUTURE must fail."
 
 CODE=$(req -X PATCH "$BASE/events/$EVT_KEY" \
@@ -1487,7 +1555,7 @@ REMAINING=$(body | jq --arg uid "$TEMP_REC_UID" '[.data.events[] | select(.uid =
 
 step "61. EXDATE on slot without detached override"
 info "PATCH the daily event to add 2026-06-04T09:00:00Z to recurrence_exceptions.
-  That slot has no detached override — it is a pure RRULE-generated slot.
+  That slot has no detached override - it is a pure RRULE-generated slot.
   After the EXDATE, that slot must vanish from expansion."
 
 CODE=$(req -X PATCH "$BASE/events/$DAILY_KEY" \
@@ -1555,7 +1623,7 @@ OCC_COLOR=$(extract '.data.color')
 
 step "63. Detached occurrence edit does not break attendee master"
 info "LOGIN_1 creates a weekly recurring event with LOGIN_2 as attendee.
-  LOGIN_1 edits one occurrence (color change → detached occurrence).
+  LOGIN_1 edits one occurrence (color change -> detached occurrence).
   LOGIN_1 moves the detached occurrence. LOGIN_2's master must survive."
 
 # Create recurring event with attendee
@@ -1574,7 +1642,7 @@ PROP_KEY=$(extract '.data.key')
 PROP_UID=$(extract '.data.uid')
 info "Propagation test key: $PROP_KEY  uid: $PROP_UID"
 
-# Edit single occurrence (change color) → creates detached occurrence
+# Edit single occurrence (change color) -> creates detached occurrence
 CODE=$(req -X PATCH "$BASE/events/$PROP_KEY" \
     -H "$H_JSON" -H "$H_AUTH" \
     -d '{"color": "#ff0000", "recurrence_id": "2026-07-02T10:00:00Z"}')
@@ -1601,11 +1669,11 @@ L2_MASTER_RRULE=$(body | jq -r --arg uid "$PROP_UID" '[.data.events[] | select(.
     && ok "LOGIN_2 master recurrence_rule intact (weekly)" \
     || fail "LOGIN_2 master recurrence_rule='$L2_MASTER_RRULE' (expected weekly)"
 
-# ── 17. CONDITIONAL DELETES ───────────────────────────────────────────────────
+# -- 17. CONDITIONAL DELETES ---------------------------------------------------
 
-step "64. Error — attendee cannot modify event content"
+step "64. Error - attendee cannot modify event content"
 info "LOGIN_2 tries to PATCH the invitation event created by LOGIN_1 in step 47.
-  Only the organizer can modify content — attendee must get 403 / S000618."
+  Only the organizer can modify content - attendee must get 403 / S000618."
 
 # Use the propagated copy key from step 48 (LOGIN_2's copy of the invite)
 if [ -n "$INVITE_KEY_L2" ]; then
@@ -1651,7 +1719,7 @@ L2_E2E_COUNT=$(body | jq --arg uid "$E2E_UID" '[.data.events[] | select(.uid == 
     && ok "LOGIN_2 sees $L2_E2E_COUNT occurrences in first 2 weeks" \
     || fail "LOGIN_2 sees $L2_E2E_COUNT occurrences (expected >= 4)"
 
-# 3. Edit second occurrence: change color, title, shift +1h → creates detached occurrence
+# 3. Edit second occurrence: change color, title, shift +1h -> creates detached occurrence
 # Second occurrence is Thursday July 9 at 12:00
 CODE=$(req -X PATCH "$BASE/events/$E2E_KEY" \
     -H "$H_JSON" -H "$H_AUTH" \
@@ -1679,7 +1747,7 @@ L2_OCC_TITLE=$(body | jq -r --arg uid "$E2E_UID" '[.data.events[] | select(.uid 
     && ok "LOGIN_2 sees detached occurrence 'Foo Modified'" \
     || fail "LOGIN_2 does not see 'Foo Modified' (got '$L2_OCC_TITLE')"
 
-# 5. Move all events: shift master +1h (12:00 → 13:00)
+# 5. Move all events: shift master +1h (12:00 -> 13:00)
 CODE=$(req -X PATCH "$BASE/events/$E2E_KEY" \
     -H "$H_JSON" -H "$H_AUTH" \
     -d '{"date_start": "2026-07-06T13:00:00Z", "date_end": "2026-07-06T14:00:00Z"}')
@@ -1729,9 +1797,9 @@ L2_REMAINING=$(body | jq --arg uid "$E2E_UID" '[.data.events[] | select(.uid == 
     && ok "LOGIN_2: no events remain after delete" \
     || fail "LOGIN_2: $L2_REMAINING events still present"
 
-# ── 17. CONDITIONAL DELETES ───────────────────────────────────────────────────
+# -- 17. CONDITIONAL DELETES ---------------------------------------------------
 
-step "66. Delete — LOGIN_1 freebusy events, tasks, and main test events"
+step "66. Delete - LOGIN_1 freebusy events, tasks, and main test events"
 info "Deletes all events and tasks created by LOGIN_1 during this run. Skipped without -d."
 
 if $DO_DELETE; then
@@ -1756,8 +1824,8 @@ if $DO_DELETE; then
         if [ -n "$key" ]; then
             CODE=$(req -X DELETE "$BASE/events/$key" -H "$H_AUTH")
             [ "$CODE" = "200" ] || [ "$CODE" = "404" ] \
-                && ok "DELETE /events/$key (scope artifact) — HTTP $CODE" \
-                || fail "DELETE /events/$key (scope artifact) — expected 200 or 404, got $CODE"
+                && ok "DELETE /events/$key (scope artifact) - HTTP $CODE" \
+                || fail "DELETE /events/$key (scope artifact) - expected 200 or 404, got $CODE"
         fi
     done
     for key in "$TASK_KEY" "$TASK_KEY2"; do
@@ -1767,18 +1835,18 @@ if $DO_DELETE; then
         GONE=$(req "$BASE/tasks/$key" -H "$H_AUTH")
         [ "$GONE" = "404" ] && ok "$key gone after delete (404)" || fail "$key still accessible (HTTP $GONE)"
     done
-    # Delete attendee copy before organizer copy — organizer delete cascades via delete_all_by_uid
+    # Delete attendee copy before organizer copy - organizer delete cascades via delete_all_by_uid
     CODE=$(req -X DELETE "$BASE/events/$INVITE_KEY_L2" -H "$H_AUTH_2")
     check_code "DELETE /events/$INVITE_KEY_L2 (invite attendee copy)" "$CODE" "200"
     CODE=$(req -X DELETE "$BASE/events/$INVITE_KEY_L1" -H "$H_AUTH")
     check_code "DELETE /events/$INVITE_KEY_L1 (invite organizer copy)" "$CODE" "200"
-    # Recurring invite — occurrence first, then attendee copy, then organizer copy
+    # Recurring invite - occurrence first, then attendee copy, then organizer copy
     for key in "$OCC_ATT_KEY"; do
         if [ -n "$key" ]; then
             CODE=$(req -X DELETE "$BASE/events/$key" -H "$H_AUTH_2")
             [ "$CODE" = "200" ] || [ "$CODE" = "404" ] \
-                && ok "DELETE /events/$key (recurring invite occ) — HTTP $CODE" \
-                || fail "DELETE /events/$key (recurring invite occ) — expected 200 or 404, got $CODE"
+                && ok "DELETE /events/$key (recurring invite occ) - HTTP $CODE" \
+                || fail "DELETE /events/$key (recurring invite occ) - expected 200 or 404, got $CODE"
         fi
     done
     CODE=$(req -X DELETE "$BASE/events/$REC_INVITE_KEY_L2" -H "$H_AUTH_2")
@@ -1799,11 +1867,11 @@ else
     info "Recurring invite: organizer=$REC_INVITE_KEY_L1  attendee_copy=$REC_INVITE_KEY_L2  occ=$OCC_ATT_KEY"
 fi
 
-# ── 20. REMINDERS ────────────────────────────────────────────────────────────
+# -- 20. REMINDERS ------------------------------------------------------------
 
-step "69. Reminders — create event with reminder in active window"
+step "69. Reminders - create event with reminder in active window"
 info "Creates an event whose date_start is 5 min ago and date_end is 1 hour ahead,"
-info "with a 10-min-before popup reminder. trigger_at = date_start - 10min = 15 min ago → active now."
+info "with a 10-min-before popup reminder. trigger_at = date_start - 10min = 15 min ago -> active now."
 
 NOW_ISO=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 START_5M_AGO=$(date -u -v-5M +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u -d "-5 minutes" +"%Y-%m-%dT%H:%M:%SZ")
@@ -1826,10 +1894,10 @@ REM_EVT_KEY=$(extract '.data.key')
 info "reminder event key=$REM_EVT_KEY"
 
 
-step "70. Reminders — GET /reminders returns active reminders"
+step "70. Reminders - GET /reminders returns active reminders"
 info "Both popup (10 min before) and email (30 min before) should be active:"
-info "  popup  trigger_at = start - 10min = 15 min ago → active (now < date_end)"
-info "  email  trigger_at = start - 30min = 35 min ago → active (now < date_end)"
+info "  popup  trigger_at = start - 10min = 15 min ago -> active (now < date_end)"
+info "  email  trigger_at = start - 30min = 35 min ago -> active (now < date_end)"
 
 CODE=$(req "$BASE/reminders" -H "$H_AUTH")
 check_code  "GET /reminders" "$CODE" "200"
@@ -1849,7 +1917,7 @@ REM_HAS_MIN=$(body | jq '[.data.reminders[] | select(.minutes_before == 10)] | l
 [ "$REM_HAS_MIN" -ge 1 ] && ok "minutes_before=10 present" || fail "minutes_before=10 not found"
 
 
-step "71. Reminders — GET /reminders?method=popup filters by method"
+step "71. Reminders - GET /reminders?method=popup filters by method"
 info "Only popup reminders should be returned."
 
 CODE=$(req "$BASE/reminders?method=popup" -H "$H_AUTH")
@@ -1859,7 +1927,7 @@ REM_ONLY_POPUP=$(body | jq '[.data.reminders[] | select(.method != "popup")] | l
 [ "$REM_ONLY_POPUP" -eq 0 ] && ok "only popup reminders returned" || fail "non-popup reminders present ($REM_ONLY_POPUP)"
 
 
-step "72. Reminders — GET /reminders?lookahead=30 extends window"
+step "72. Reminders - GET /reminders?lookahead=30 extends window"
 info "Lookahead parameter accepted, response is valid."
 
 CODE=$(req "$BASE/reminders?lookahead=30" -H "$H_AUTH")
@@ -1867,8 +1935,8 @@ check_code  "GET /reminders?lookahead=30" "$CODE" "200"
 check_error "GET /reminders?lookahead=30 error_code"
 
 
-step "73. Reminders — no active reminders for event in the far future"
-info "Creates an event 1 year ahead with a 15-min reminder. trigger_at is in the future → not active."
+step "73. Reminders - no active reminders for event in the far future"
+info "Creates an event 1 year ahead with a 15-min reminder. trigger_at is in the future -> not active."
 
 FUTURE_START=$(date -u -v+1y +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u -d "+1 year" +"%Y-%m-%dT%H:%M:%SZ")
 FUTURE_END=$(date -u -v+1y -v+1H +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u -d "+1 year +1 hour" +"%Y-%m-%dT%H:%M:%SZ")
@@ -1890,7 +1958,7 @@ REM_FUTURE_MATCH=$(body | jq "[.data.reminders[] | select(.title == \"Future Eve
 [ "$REM_FUTURE_MATCH" -eq 0 ] && ok "future event reminder not active" || fail "future event reminder unexpectedly active"
 
 
-step "74. Reminders — delete reminder event, then GET /reminders excludes it"
+step "74. Reminders - delete reminder event, then GET /reminders excludes it"
 info "Deletes the reminder test event. Its reminders should no longer appear."
 
 if $DO_DELETE; then
@@ -1910,11 +1978,11 @@ else
 fi
 
 
-# ── 21. EXTERNAL CALENDARS ───────────────────────────────────────────────────
+# -- 21. EXTERNAL CALENDARS ---------------------------------------------------
 
 ICS_URL="https://calendar.google.com/calendar/ical/8f0aaf825b126f8f3f8ae5799c3c8699bcf04b115bfee085467e19f71ba084ba%40group.calendar.google.com/private-5e54ad70f6be3e5a740648483b0469dd/basic.ics"
 
-step "75. External calendar — create ICS subscription"
+step "75. External calendar - create ICS subscription"
 info "Creates an external ICS calendar pointing to a public Google Calendar feed."
 
 CODE=$(req -X POST "$BASE/external-calendars" \
@@ -1932,7 +2000,7 @@ EXT_CAL_KEY=$(extract '.data.key')
 info "external calendar key=$EXT_CAL_KEY"
 
 
-step "76. External calendar — list subscriptions"
+step "76. External calendar - list subscriptions"
 info "Verifies GET /external-calendars returns at least the newly created subscription."
 
 CODE=$(req "$BASE/external-calendars" -H "$H_AUTH")
@@ -1942,7 +2010,7 @@ EXT_COUNT=$(extract '.data.total_count')
 [ "$EXT_COUNT" -ge 1 ] && ok "external calendar count >= 1 (got $EXT_COUNT)" || fail "expected >= 1, got $EXT_COUNT"
 
 
-step "77. External calendar — get detail"
+step "77. External calendar - get detail"
 info "Fetches the external calendar by key."
 
 CODE=$(req "$BASE/external-calendars/$EXT_CAL_KEY" -H "$H_AUTH")
@@ -1950,7 +2018,7 @@ check_code  "GET /external-calendars/$EXT_CAL_KEY" "$CODE" "200"
 check_field ".data.name" "Google Public ICS"
 
 
-step "78. External calendar — update name and color"
+step "78. External calendar - update name and color"
 info "Renames the external calendar and changes its color."
 
 CODE=$(req -X PUT "$BASE/external-calendars/$EXT_CAL_KEY" \
@@ -1961,7 +2029,7 @@ check_field ".data.name" "Renamed ICS Feed"
 check_field ".data.color" "#EF4444"
 
 
-step "79. External calendar — sync"
+step "79. External calendar - sync"
 info "Triggers a sync and verifies it completes. This fetches the real ICS feed."
 
 CODE=$(req -X POST "$BASE/external-calendars/$EXT_CAL_KEY/sync" -H "$H_JSON" -H "$H_AUTH" -d '{}')
@@ -1973,7 +2041,7 @@ info "sync result: inserted=$SYNC_INSERTED total=$SYNC_TOTAL"
 [ "$SYNC_TOTAL" -ge 0 ] && ok "sync completed (total=$SYNC_TOTAL)" || fail "sync failed"
 
 
-step "80. External calendar — sync status"
+step "80. External calendar - sync status"
 info "Verifies GET /sync returns completed status after a successful sync."
 
 CODE=$(req "$BASE/external-calendars/$EXT_CAL_KEY/sync" -H "$H_AUTH")
@@ -1981,7 +2049,7 @@ check_code  "GET /external-calendars/$EXT_CAL_KEY/sync" "$CODE" "200"
 check_field ".data.sync_status" "completed"
 
 
-step "81. External calendar — events visible after sync"
+step "81. External calendar - events visible after sync"
 info "Verifies that synced events appear in GET /events for the ICS calendar."
 
 NOW_DATE=$(date -u +"%Y-%m-%dT00:00:00Z")
@@ -1993,7 +2061,7 @@ info "events in ICS calendar: $EXT_EVT_COUNT"
 [ "$EXT_EVT_COUNT" -ge 0 ] && ok "events accessible (count=$EXT_EVT_COUNT)" || fail "events not accessible"
 
 
-step "82. External calendar — write rejected on ICS mirror"
+step "82. External calendar - write rejected on ICS mirror"
 info "Verifies that creating an event on an ICS calendar is rejected (read-only mirror)."
 
 CODE=$(req -X POST "$BASE/calendars/$EXT_CAL_KEY/events" \
@@ -2006,7 +2074,7 @@ CODE=$(req -X POST "$BASE/calendars/$EXT_CAL_KEY/events" \
 [ "$CODE" != "201" ] && ok "write rejected on ICS mirror (HTTP $CODE)" || fail "write should have been rejected, got HTTP $CODE"
 
 
-step "83. External calendar — delete"
+step "83. External calendar - delete"
 info "Deletes the external calendar. Skipped without -d."
 
 if $DO_DELETE; then
@@ -2017,9 +2085,9 @@ else
 fi
 
 
-# ── 22. EXPORT / IMPORT ───────────────────────────────────────────────────────
+# -- 22. EXPORT / IMPORT -------------------------------------------------------
 
-step "84. Export/Import — create dedicated calendar"
+step "84. Export/Import - create dedicated calendar"
 info "Creates a fresh calendar used only by the export/import round-trip."
 
 CODE=$(req -X POST "$BASE/calendars" \
@@ -2030,7 +2098,7 @@ EXP_CAL_KEY=$(extract '.data.key')
 check_not_empty '.data.key'
 
 
-step "85. Export/Import — populate with simple, all-day and recurring events"
+step "85. Export/Import - populate with simple, all-day and recurring events"
 info "Creates three distinct events whose UIDs we will later look for in the export."
 
 EXP_UID_SIMPLE="exp-simple-$RANDOM@example.com"
@@ -2072,13 +2140,13 @@ check_code "POST recurring event" "$CODE" "201"
 EXP_KEY_RRULE=$(extract '.data.key')
 
 
-step "86. Export/Import — run the async export job and verify content"
+step "86. Export/Import - run the async export job and verify content"
 info "GET /export enqueues an Agent job; poll GET /jobs/<id> until success, then download the result."
 
 EXP_ICS_FILE=$(mktemp)
 trap 'rm -f "$EXP_ICS_FILE"' EXIT
 
-# 1. Enqueue the export — returns a job_id (202), not the ICS.
+# 1. Enqueue the export - returns a job_id (202), not the ICS.
 CODE=$(req "$BASE/calendars/$EXP_CAL_KEY/export" -H "$H_AUTH")
 check_code "GET /calendars/$EXP_CAL_KEY/export (enqueue)" "$CODE" "202"
 EXP_JOB_ID=$(extract '.data.job_id')
@@ -2118,7 +2186,7 @@ echo "$DL_HEADERS" | grep -qi "Content-Disposition: attachment" \
     || fail "download=true should add Content-Disposition: attachment"
 
 
-step "87. Export/Import — delete every event of the calendar"
+step "87. Export/Import - delete every event of the calendar"
 info "Removes the three events so the calendar is empty before importing back."
 
 CODE=$(req -X DELETE "$BASE/events/$EXP_KEY_SIMPLE" -H "$H_AUTH")
@@ -2134,10 +2202,10 @@ EXP_REMAINING=$(body | jq -r '.data.events | length')
 [ "$EXP_REMAINING" = "0" ] && ok "calendar empty after deletes" || fail "calendar still has $EXP_REMAINING event(s) after deletes"
 
 
-step "88. Export/Import — re-import the .ics file (async job)"
+step "88. Export/Import - re-import the .ics file (async job)"
 info "POST /import enqueues an Agent job; poll GET /jobs/<id> until success, then read the counters from the result."
 
-# 1. Enqueue the import — multipart upload returns a job_id (202), not the counters.
+# 1. Enqueue the import - multipart upload returns a job_id (202), not the counters.
 CODE=$(req -X POST "$BASE/calendars/$EXP_CAL_KEY/import" \
     -H "$H_AUTH" \
     -F "file=@$EXP_ICS_FILE;type=text/calendar")
@@ -2164,7 +2232,7 @@ IMP_DELETED=$(extract '.data.result.deleted')
 [ "$IMP_DELETED" = "0" ] && ok "import did not delete anything" || fail "import unexpectedly deleted $IMP_DELETED row(s)"
 
 
-step "88b. Export/Import — a malformed .ics makes the import job fail"
+step "88b. Export/Import - a malformed .ics makes the import job fail"
 info "Content is not validated synchronously, so the upload is accepted (202); the worker job must then end in 'failure' (parse error), exercising the Agent failure path end-to-end and leaving the calendar untouched."
 
 BAD_ICS_FILE=$(mktemp)
@@ -2205,7 +2273,7 @@ BAD_AFTER=$(body | jq -r '.data.events | length')
 rm -f "$BAD_ICS_FILE"
 
 
-step "89. Export/Import — verify the three events are back"
+step "89. Export/Import - verify the three events are back"
 info "Re-fetches the calendar events and checks each original UID is present."
 
 CODE=$(req "$BASE/calendars/$EXP_CAL_KEY/events?start_date_time=2026-07-01T00:00:00Z&end_date_time=2026-07-31T00:00:00Z" -H "$H_AUTH")
@@ -2220,14 +2288,14 @@ ALLDAY_BACK=$(body  | jq -r --arg uid "$EXP_UID_ALLDAY" '[.data.events[] | selec
 RRULE_BACK=$(body   | jq -r --arg uid "$EXP_UID_RRULE"  '[.data.events[] | select(.uid == $uid)] | length')
 [ "$SIMPLE_BACK" -ge 1 ] && ok "simple event is back"     || fail "simple event missing after import"
 [ "$ALLDAY_BACK" -ge 1 ] && ok "all-day event is back"    || fail "all-day event missing after import"
-[ "$RRULE_BACK"  -ge 1 ] && ok "recurring event is back"  || fail "recurring event missing after import (expected ≥ 1 occurrence)"
+[ "$RRULE_BACK"  -ge 1 ] && ok "recurring event is back"  || fail "recurring event missing after import (expected >= 1 occurrence)"
 
 # The re-imported event becomes owned by the importing user (IMPORT_REWRITES_OWNERSHIP=True)
 NEW_ORGANIZER=$(body | jq -r --arg uid "$EXP_UID_SIMPLE" '[.data.events[] | select(.uid == $uid)][0].organizer.email // empty')
-[ "$NEW_ORGANIZER" = "$USER" ] && ok "importer is the new organizer ($USER)" || fail "organizer rewrite — expected $USER, got '$NEW_ORGANIZER'"
+[ "$NEW_ORGANIZER" = "$USER" ] && ok "importer is the new organizer ($USER)" || fail "organizer rewrite - expected $USER, got '$NEW_ORGANIZER'"
 
 
-step "90. Export/Import — cleanup roundtrip calendar"
+step "90. Export/Import - cleanup roundtrip calendar"
 info "Deletes the dedicated calendar. Skipped without -d."
 
 if $DO_DELETE; then
@@ -2238,7 +2306,7 @@ else
 fi
 
 
-step "91. Public subscription — create a calendar with one event"
+step "91. Public subscription - create a calendar with one event"
 info "Sets up a dedicated calendar to activate a public .ics subscription URL on."
 
 CODE=$(req -X POST "$BASE/calendars" \
@@ -2259,7 +2327,7 @@ CODE=$(req -X POST "$BASE/calendars/$SUB_CAL_KEY/events" \
 check_code "POST event (subscription)" "$CODE" "201"
 
 
-step "92. Public subscription — enable and capture the public URL"
+step "92. Public subscription - enable and capture the public URL"
 info "POST /calendars/.../subscription generates a unique token and returns the public URL."
 
 CODE=$(req -X POST "$BASE/calendars/$SUB_CAL_KEY/subscription" -H "$H_JSON" -H "$H_AUTH" -d '{}')
@@ -2272,7 +2340,7 @@ SUB_URL=$(extract '.data.public_url')
 [ -n "$SUB_URL" ] && ok "public_url returned: $SUB_URL" || fail "public_url missing"
 
 
-step "93. Public subscription — GET calendar exposes the public URL"
+step "93. Public subscription - GET calendar exposes the public URL"
 info "Confirms the active subscription URL is reflected on the calendar resource."
 
 CODE=$(req "$BASE/calendars/$SUB_CAL_KEY" -H "$H_AUTH")
@@ -2281,7 +2349,7 @@ GET_URL=$(extract '.data.public_url')
 [ "$GET_URL" = "$SUB_URL" ] && ok "GET calendar returns the same public_url" || fail "public_url mismatch (got '$GET_URL')"
 
 
-step "94. Public subscription — fetch the public URL anonymously"
+step "94. Public subscription - fetch the public URL anonymously"
 info "Calls the public URL with NO Authorization header. Must return text/calendar with the event."
 
 PUB_BODY=$(mktemp)
@@ -2296,7 +2364,7 @@ grep -qF "$SUB_UID"        "$PUB_BODY" && ok "public ICS contains the event UID"
 rm -f "$PUB_BODY"
 
 
-step "95. Public subscription — unknown token returns 404"
+step "95. Public subscription - unknown token returns 404"
 info "A random/expired token must not leak any data."
 
 BAD_URL="${SUB_URL%/*}/deadbeefdeadbeefdeadbeefdeadbeef"
@@ -2304,7 +2372,7 @@ BAD_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$BAD_URL")
 check_code "GET public URL (unknown token)" "$BAD_CODE" "404"
 
 
-step "96. Public subscription — disable and verify the URL stops working"
+step "96. Public subscription - disable and verify the URL stops working"
 info "DELETE /calendars/.../subscription clears the token; the old URL must 404 afterwards."
 
 CODE=$(req -X DELETE "$BASE/calendars/$SUB_CAL_KEY/subscription" -H "$H_AUTH")
@@ -2317,7 +2385,7 @@ GONE_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$SUB_URL")
 check_code "GET old public URL after disable" "$GONE_CODE" "404"
 
 
-step "97. Public subscription — cleanup calendar"
+step "97. Public subscription - cleanup calendar"
 info "Deletes the dedicated subscription calendar. Skipped without -d."
 
 if $DO_DELETE; then
@@ -2328,7 +2396,110 @@ else
 fi
 
 
-step "67. Delete — LOGIN_2 and LOGIN_3 freebusy events and calendars"
+step "98. Calendar defaults - create calendar with new-event preferences"
+info "include_in_freebusy=false plus default duration/alarm/type. All four must round-trip in the response."
+
+CODE=$(req -X POST "$BASE/calendars" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d '{
+        "name": "Defaults Calendar",
+        "timezone": "Europe/Paris",
+        "include_in_freebusy": false,
+        "default_event_duration_min": 45,
+        "default_alarm_duration_min": 25,
+        "default_type": "private"
+    }')
+check_code  "POST /calendars (defaults)" "$CODE" "201"
+check_error "POST /calendars (defaults) error_code"
+# jq's `//` (used by check_field) treats false like null, so assert booleans with a raw read.
+INC_FB=$(body | jq -r '.data.include_in_freebusy')
+[ "$INC_FB" = "false" ] && ok ".data.include_in_freebusy = 'false'" || fail ".data.include_in_freebusy - expected 'false', got '$INC_FB'"
+check_field ".data.default_event_duration_min" "45"
+check_field ".data.default_alarm_duration_min" "25"
+check_field ".data.default_type"               "private"
+DEF_CAL_KEY=$(extract '.data.key')
+info "Defaults calendar key: $DEF_CAL_KEY"
+
+
+step "99. Calendar defaults - new event inherits duration, type and alarm offset"
+info "Event sent without date_end, without visibility, with an alarm lacking minutes_before. The server fills all three from the calendar defaults."
+
+CODE=$(req -X POST "$BASE/calendars/$DEF_CAL_KEY/events" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d '{
+        "title": "Inherits Defaults",
+        "date_start": "2027-01-15T09:00:00Z",
+        "reminders": [{"method": "popup"}]
+    }')
+check_code  "POST /events (defaults applied)" "$CODE" "201"
+check_error "POST /events (defaults applied) error_code"
+DEND=$(extract '.data.date_end')
+case "$DEND" in
+    2027-01-15T09:45:00*) ok "date_end derived from default duration ($DEND)" ;;
+    *) fail "date_end not derived from default duration - got '$DEND' (expected 2027-01-15T09:45:00*)" ;;
+esac
+check_field ".data.visibility"                  "private"
+check_field ".data.reminders[0].minutes_before" "25"
+DEF_EVT_KEY=$(extract '.data.key')
+info "Defaults event key: $DEF_EVT_KEY"
+
+
+step "100. Calendar defaults - free/busy excludes an include_in_freebusy=false calendar"
+info "LOGIN_1 self free/busy on 2027-01-15 must be empty: the only event that day lives in the excluded calendar."
+
+CODE=$(req -X POST "$BASE/freebusy" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d "{
+        \"target_uids\": [\"$LOGIN_1\"],
+        \"start\": \"2027-01-15T00:00:00Z\",
+        \"end\":   \"2027-01-15T23:59:59Z\"
+    }")
+check_code  "POST /freebusy (exclusion)" "$CODE" "200"
+check_error "POST /freebusy (exclusion) error_code"
+FB_EXCL=$(body | jq -r --arg uid "$LOGIN_1" '.data.attendees[$uid].periods | length')
+[ "$FB_EXCL" = "0" ] && ok "excluded calendar contributes no busy period (count=0)" || fail "excluded calendar leaked $FB_EXCL period(s) into free/busy"
+
+
+step "101. Calendar defaults - free/busy still reflects an included calendar"
+info "An event the same day in the main (included) calendar must appear, proving the exclusion is per-calendar."
+
+CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d '{
+        "title": "Counts In FreeBusy",
+        "date_start": "2027-01-15T11:00:00Z",
+        "date_end":   "2027-01-15T12:00:00Z",
+        "show_as": "busy"
+    }')
+check_code "POST /events (included calendar)" "$CODE" "201"
+INCL_EVT_KEY=$(extract '.data.key')
+
+CODE=$(req -X POST "$BASE/freebusy" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d "{
+        \"target_uids\": [\"$LOGIN_1\"],
+        \"start\": \"2027-01-15T00:00:00Z\",
+        \"end\":   \"2027-01-15T23:59:59Z\"
+    }")
+check_code "POST /freebusy (inclusion)" "$CODE" "200"
+FB_INCL=$(body | jq -r --arg uid "$LOGIN_1" '.data.attendees[$uid].periods | length')
+[ "$FB_INCL" = "1" ] && ok "only the included calendar's event appears (count=1)" || fail "expected exactly 1 busy period (included only), got $FB_INCL"
+
+
+step "102. Calendar defaults - cleanup"
+info "Deletes the defaults calendar (cascades its event) and the included-calendar event. Skipped without -d."
+
+if $DO_DELETE; then
+    CODE=$(req -X DELETE "$BASE/events/$INCL_EVT_KEY" -H "$H_AUTH")
+    check_code "DELETE /events/$INCL_EVT_KEY (included)" "$CODE" "200"
+    CODE=$(req -X DELETE "$BASE/calendars/$DEF_CAL_KEY" -H "$H_AUTH")
+    check_code "DELETE /calendars/$DEF_CAL_KEY (defaults)" "$CODE" "200"
+else
+    skip "DELETE defaults calendar $DEF_CAL_KEY and included event $INCL_EVT_KEY"
+fi
+
+
+step "67. Delete - LOGIN_2 and LOGIN_3 freebusy events and calendars"
 info "Removes the freebusy test events and calendars created by LOGIN_2 and LOGIN_3. Skipped without -d."
 
 if $DO_DELETE; then
@@ -2347,7 +2518,7 @@ else
     info "L3: event=$FB_L3_EVT  calendar=$CAL_KEY_3"
 fi
 
-step "68. Calendar — delete (LOGIN_1 main calendar)"
+step "68. Calendar - delete (LOGIN_1 main calendar)"
 info "Deletes the test calendar created in step 2. Verifies it returns 404 afterwards. Skipped without -d."
 
 if $DO_DELETE; then
@@ -2360,13 +2531,13 @@ else
     skip "DELETE calendar $CAL_KEY"
 fi
 
-# ── SUMMARY ───────────────────────────────────────────────────────────────────
+# -- SUMMARY -------------------------------------------------------------------
 
 echo ""
-echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+echo -e "${CYAN}==================================================${RESET}"
 echo -e "  Results : ${GREEN}$PASS_COUNT passed${RESET}  ${RED}$FAIL_COUNT failed${RESET}"
 if ! $DO_DELETE; then
     echo -e "  ${YELLOW}(run with -d to also execute delete operations)${RESET}"
 fi
-echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+echo -e "${CYAN}==================================================${RESET}"
 [ "$FAIL_COUNT" -eq 0 ] && exit 0 || exit 1

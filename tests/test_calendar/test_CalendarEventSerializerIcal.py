@@ -1,5 +1,5 @@
 """
-Tests unitaires pour CalendarEventSerializerIcal.
+Tests unitaires pour CalEventSerializerIcal.
 Verifie la conformite RFC 5545 des proprietes, de l'encodage TEXT et du folding.
 """
 import re
@@ -22,8 +22,8 @@ from app.module.calendar.model.enums.RecurrenceFrequency import RecurrenceFreque
 from app.module.calendar.model.enums.ReminderMethod import ReminderMethod
 from app.module.calendar.model.enums.ShowAs import ShowAs
 from app.module.calendar.model.enums.ComponentType import ComponentType
-from app.module.calendar.serializer.CalendarEventSerializerIcal import CalendarEventSerializerIcal
-from app.module.calendar.serializer.CalendarEventsSerializerIcal import CalendarEventsSerializerIcal
+from app.module.calendar.serializer.CalEventSerializerIcal import CalEventSerializerIcal
+from app.module.calendar.serializer.CalEventsSerializerIcal import CalEventsSerializerIcal
 
 
 def _unfolded_lines(ical_text: str) -> list[str]:
@@ -41,7 +41,7 @@ def _has_line(ical_text: str, line: str) -> bool:
 @pytest.fixture
 def serializer():
     """Fournit une instance fraiche du serialiseur."""
-    return CalendarEventSerializerIcal()
+    return CalEventSerializerIcal()
 
 
 @pytest.fixture
@@ -85,7 +85,7 @@ def test_required_vevent_properties(serializer, minimal_event):
     assert _has_line(output, "SUMMARY:Test Event")
     assert _has_line(output, "DTSTART:20240315T090000Z")
     assert _has_line(output, "DTEND:20240315T100000Z")
-    # DTSTAMP est obligatoire (RFC 5545 §3.6.1) — presence suffisante, valeur dynamique
+    # DTSTAMP est obligatoire (RFC 5545 §3.6.1) - presence suffisante, valeur dynamique
     lines = _unfolded_lines(output)
     assert any(ln.startswith("DTSTAMP:") for ln in lines)
 
@@ -204,7 +204,7 @@ def test_text_escape_newline_in_description(serializer):
 
 
 # ==========================================================================
-# Folding (RFC 5545 §3.1 — 75 octets max)
+# Folding (RFC 5545 §3.1 - 75 octets max)
 # ==========================================================================
 
 def test_long_line_is_folded(serializer):
@@ -529,16 +529,16 @@ def test_attach_binary(serializer):
     )
     output = serializer.serialize(event)
     lines = _unfolded_lines(output)
-    # icalendar trie les params alphabetiquement — on verifie chaque param independamment
+    # icalendar trie les params alphabetiquement - on verifie chaque param independamment
     assert any("ATTACH" in ln and "ENCODING=BASE64" in ln and "VALUE=BINARY" in ln and "FMTTYPE=text/plain" in ln for ln in lines)
 
 
 # ==========================================================================
-# CalendarEventsSerializerIcal — body components
+# CalEventsSerializerIcal - body components
 # ==========================================================================
 
 def test_events_serializer_dispatches_vtodo_and_vevent():
-    s = CalendarEventsSerializerIcal(CalendarEventSerializerIcal())
+    s = CalEventsSerializerIcal(CalEventSerializerIcal())
     event = CalEvent(
         uid="e@e.com", title="E",
         date_start=datetime(2026, 1, 1, tzinfo=timezone.utc),
@@ -555,7 +555,7 @@ def test_events_serializer_dispatches_vtodo_and_vevent():
 
 
 def test_events_serializer_empty_list():
-    s = CalendarEventsSerializerIcal(CalendarEventSerializerIcal())
+    s = CalEventsSerializerIcal(CalEventSerializerIcal())
     assert s.serialize([]) == []
 
 
@@ -569,7 +569,7 @@ def test_priority_emitted_when_set(serializer, minimal_event):
 
 
 def test_priority_omitted_when_undefined(serializer, minimal_event):
-    # priority=0 means undefined per RFC 5545 §3.8.1.9 — must not be emitted.
+    # priority=0 means undefined per RFC 5545 §3.8.1.9 - must not be emitted.
     assert "PRIORITY" not in serializer.serialize(minimal_event)
 
 

@@ -5,13 +5,13 @@ from typing import TYPE_CHECKING
 
 from app.module.calendar.imip.ImipMessage import ImipMessage
 from app.module.calendar.imip.ImipMethod import ImipMethod
-from app.module.calendar.serializer.CalendarEventSerializerIcal import CalendarEventSerializerIcal
+from app.module.calendar.serializer.CalEventSerializerIcal import CalEventSerializerIcal
 
 if TYPE_CHECKING:
     from app.auth.User import User
     from app.module.calendar.model.CalEvent import CalEvent
 
-_serializer: CalendarEventSerializerIcal = CalendarEventSerializerIcal()
+_serializer: CalEventSerializerIcal = CalEventSerializerIcal()
 
 
 class ImipBuilder:

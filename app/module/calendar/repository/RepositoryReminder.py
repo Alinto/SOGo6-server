@@ -6,8 +6,9 @@ from typing import TYPE_CHECKING
 from app.config.db import tables as tbl
 from app.module.calendar.model.CalEventReminder import CalEventReminder
 from app.module.calendar.model.enums.ReminderMethod import ReminderMethod
-from app.utils.calendar.DateTimeUtils import to_utc
-from app.utils.db.Condition import AndCondition, EqualCondition, GreaterOrEqualCondition, JoinClause, LessOrEqualCondition
+from app.utils.datetime.DateTimeUtils import to_utc
+from app.utils.db.Condition import (AndCondition, Condition, EqualCondition, GreaterOrEqualCondition, JoinClause,
+                                     LessOrEqualCondition)
 
 if TYPE_CHECKING:
     from app.manager.db.ClientSQL import ClientSQL
@@ -24,19 +25,19 @@ class RepositoryReminder:
 
     def upsert(self, event: CalEvent) -> None:
         """Delete existing reminders for this event then insert fresh rows from event.reminders."""
-        self.delete(event.key)
+        self.delete(event.require_key)
         if not event.reminders or event.date_start is None:
             return
         now: datetime = datetime.now(timezone.utc)
         for reminder in event.reminders:
-            trigger_at: datetime = event.date_start - timedelta(minutes=reminder.minutes_before)
+            trigger_at: datetime = event.date_start - timedelta(minutes=reminder.require_minutes_before)
             self._db.insert_in_table(
                 table_name=tbl.TABLE_REMINDER.name,
                 column_tuple=_INSERT_COLS,
                 values_tuple=[[
                     event.key,
                     reminder.method.value,
-                    reminder.minutes_before,
+                    reminder.require_minutes_before,
                     trigger_at,
                     False,
                     now,
@@ -55,7 +56,7 @@ class RepositoryReminder:
 
     def purge_deleted(self, event_key: str | None = None) -> int:
         """Physically remove soft-deleted reminder rows."""
-        condition = EqualCondition(tbl.COL_REM_IS_DELETED.name, True)
+        condition: Condition = EqualCondition(tbl.COL_REM_IS_DELETED.name, True)
         if event_key is not None:
             condition = AndCondition(condition, EqualCondition(tbl.COL_REM_EVENT_KEY.name, event_key))
         return self._db.delete_row_in_table(
@@ -75,7 +76,7 @@ class RepositoryReminder:
         Uses INNER JOIN on sogo_events and sogo_calendars to filter by user
         and exclude soft-deleted events in a single SQL query.
         Returned CalEventReminder objects have title, location, timezone and
-        calendar_timezone set to None — the caller enriches them from the full CalEvent.
+        calendar_timezone set to None - the caller enriches them from the full CalEvent.
         """
         rem: str = tbl.TABLE_REMINDER.name
         evt: str = tbl.TABLE_EVENT.name
@@ -136,5 +137,5 @@ class RepositoryReminder:
             calendar_timezone=None,
             method=ReminderMethod(row[1]),
             minutes_before=row[2],
-            trigger_at=to_utc(row[3]) if row[3] is not None else None,
+            trigger_at=to_utc(row[3]),
         )

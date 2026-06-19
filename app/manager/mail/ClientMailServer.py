@@ -1,5 +1,6 @@
 from abc import ABCMeta, abstractmethod
 from typing import Any, Iterator
+from email.message import EmailMessage
 
 class ClientMailServer(metaclass=ABCMeta):
     """
@@ -277,6 +278,48 @@ class ClientMailServer(metaclass=ABCMeta):
     @abstractmethod
     def logout(self) -> None:
         """Logout from the mail server."""
+
+
+    @abstractmethod
+    def save_mail_to_folder(self, message: EmailMessage, folder_type: str, flags: str = r'(\Seen)') -> None:
+        """Append an email message to a folder identified by its type.
+
+        :param message: The email message to append.
+        :type message: EmailMessage
+        :param folder_type: The folder type constant (e.g. cs.MAIL_FOLDER_SENT).
+        :type folder_type: str
+        :param flags: IMAP flags to set on the appended message.
+        :type flags: str
+        :raises RequestException: If the operation fails.
+        """
+
+    @abstractmethod
+    def delete_mail_permanently_from_folder_type(self, folder_type: str, mail_uid: str) -> None:
+        """Permanently delete a mail (without moving to Trash) from a folder identified by its type.
+
+        :param folder_type: The folder type constant (e.g. cs.MAIL_FOLDER_DRAFT).
+        :type folder_type: str
+        :param mail_uid: The UID of the mail to delete.
+        :type mail_uid: str
+        :raises RequestException: If the operation fails.
+        """
+
+    @abstractmethod
+    def save_draft(self, message: EmailMessage, uid: str | None = None) -> dict[str, Any]:
+        """Append a raw RFC-2822 message as a draft in the account's Drafts folder.
+
+        The Drafts folder is resolved from the server's folder map.
+        If uid is provided and the mail exists, the existing draft is deleted first.
+        If uid is not provided, a new draft is created.
+
+        :param raw_bytes: Raw RFC-2822 message bytes to store.
+        :type raw_bytes: bytes
+        :param uid: Optional UID of an existing draft to replace.
+        :type uid: str | None
+        :return: Dict representing the saved draft (same structure as fetch_mail).
+        :rtype: dict[str, Any]
+        :raises RequestException: If the operation fails.
+        """
 
     @abstractmethod
     def get_quota(self) -> dict[str, Any] | None:

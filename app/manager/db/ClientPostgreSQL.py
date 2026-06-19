@@ -6,19 +6,43 @@ from urllib.parse import quote_plus
 
 import psycopg
 from psycopg.errors import Error, OperationalError, DuplicateTable, UniqueViolation
-from psycopg.sql import SQL, Literal, Placeholder, Identifier, Composed
+from psycopg.sql import SQL, Literal, Placeholder, Identifier, Composed, Composable
 from psycopg.types.json import Jsonb
 
 from app.utils.db.Table import Table, REX_VALID_NAMES
 from app.utils.db.Condition import (Condition, EqualCondition, NotEqualCondition, AndCondition, OrCondition,
                                     TrueCondition, LessOrEqualCondition, GreaterOrEqualCondition,
-                                    IsNullCondition, IsNotNullCondition, LikeCondition, JoinClause, Order)
+                                    IsNullCondition, IsNotNullCondition, LikeCondition, FullTextCondition,
+                                    JoinClause, Order)
+from app.utils.db.FullTextValue import FullTextValue
 from app.utils import errors as err
 from app.utils.exceptions import RequestException, BugException
 from app.utils.logger.logger import logger, logger_sql
 from .ClientSQL import ClientSQL
 
 
+# Text search configuration used to convert full-text values to tsvector at write time and to
+# parse queries; writes and queries must use the same config so stored and searched tokens match.
+# "simple" tokenizes and lowercases without language-specific stemming or stopwords, which keeps
+# matching predictable when the indexed text mixes languages. Any other entry of pg_ts_config
+# ("english", "french", ...) is valid and adds the stemming/stopwords of that language; see
+# https://www.postgresql.org/docs/current/textsearch-dictionaries.html and
+# "SELECT cfgname FROM pg_ts_config" for the exhaustive list shipped with the server.
+POSTGRES_TEXT_SEARCH_CONFIG = "simple"
+
+
+def _fulltext_to_tsvector() -> Composable:
+    """Build the to_tsvector(...) wrapper used to write a full-text value.
+
+    Postgres' parser keeps compound strings such as emails and URLs as a single token (type
+    "email"/"host"/"url"), so their interior parts (an email's local-part words, its domain) are
+    not searchable on their own. Replacing runs of non-alphanumeric characters with spaces before
+    to_tsvector makes the stored tokenization match the query side (which splits terms on word
+    boundaries) and MariaDB's FULLTEXT, so a row can be found by part of an email or URL, not only
+    by the whole string.
+    """
+    return SQL("to_tsvector({cfg}, regexp_replace({ph}, '[^[:alnum:]_]+', ' ', 'g'))").format(
+        cfg=Literal(POSTGRES_TEXT_SEARCH_CONFIG), ph=Placeholder())
 
 def str_to_varchar(max_len: int = 0) -> str:
     """
@@ -55,6 +79,8 @@ data_type_sogo_to_postgre: dict[str, Any] = {
     "datetime": "timestamp",
     "int":      "integer",  # FK to serial (4-byte integer) in PostgreSQL
     "text":     "text",
+    "tsvector": "tsvector",
+    "bytes":    "bytea",
 }
 
 data_type_postgre_to_sogo: dict[str, Any] = {
@@ -69,6 +95,8 @@ data_type_postgre_to_sogo: dict[str, Any] = {
     "integer":                     "int",
     "bigint":                      "int",
     "text":                        "text",
+    "tsvector":                    "tsvector",  # search_vector full-text column
+    "bytea":                       "bytes",
 }
 
 def table_to_query(table: Table) -> Composed:
@@ -122,7 +150,13 @@ def _col_ref(name: str) -> Composed:
     return Composed([Identifier(name)])
 
 
-def condition_to_query(condition: Condition, add_where : bool = False) -> Composed:
+def _prefix_tsquery(terms: list[str]) -> Composed:
+    """Build a to_tsquery matching each term as a prefix (joe -> joe:*), all terms ANDed."""
+    expr = " & ".join(f"{term}:*" for term in terms)
+    return SQL("to_tsquery({cfg}, {q})").format(cfg=Literal(POSTGRES_TEXT_SEARCH_CONFIG), q=Literal(expr))
+
+
+def condition_to_query(condition: Condition, add_where : bool = False) -> Composed:  # pylint: disable=too-many-branches
     """
     Return the WHERE part of the sql_query
     """
@@ -149,6 +183,16 @@ def condition_to_query(condition: Condition, add_where : bool = False) -> Compos
         sql_condition = SQL("{param} IS NOT NULL").format(param=_col_ref(condition.param_name))
     elif isinstance(condition, LikeCondition):
         sql_condition = SQL("{param} ILIKE {value}").format(param=_col_ref(condition.param_name), value=Literal(condition.pattern))
+    elif isinstance(condition, FullTextCondition):
+        # The column is a tsvector; each query word is matched as a prefix ("joe" matches "joel").
+        terms = condition.terms()
+        if not terms:
+            sql_condition = Composed([SQL("FALSE")])
+        else:
+            sql_condition = SQL("{param} @@ {tsq}").format(
+                param=_col_ref(condition.param_name),
+                tsq=_prefix_tsquery(terms),
+            )
     elif isinstance(condition, TrueCondition):
         sql_condition = Composed([SQL("1 = 1")])
     else:
@@ -251,14 +295,22 @@ class ClientPostgreSQL(ClientSQL):
         if self.db_conn and self.db_conn.closed:
             self.connect()
         for idx in table.index:
-            unique_kw = SQL("UNIQUE ") if idx.unique else SQL("")
-            cols = SQL(", ").join(Identifier(c) for c in idx.columns)
-            sql_query = SQL("CREATE {unique}INDEX IF NOT EXISTS {name} ON {table} ({cols})").format(
-                unique=unique_kw,
-                name=Identifier(idx.name),
-                table=Identifier(table.name),
-                cols=cols,
-            )
+            if idx.fulltext:
+                # Full-text: GIN index directly on the tsvector column.
+                sql_query = SQL("CREATE INDEX IF NOT EXISTS {name} ON {table} USING GIN ({col})").format(
+                    name=Identifier(idx.name),
+                    table=Identifier(table.name),
+                    col=Identifier(idx.columns[0]),
+                )
+            else:
+                unique_kw = SQL("UNIQUE ") if idx.unique else SQL("")
+                cols = SQL(", ").join(Identifier(c) for c in idx.columns)
+                sql_query = SQL("CREATE {unique}INDEX IF NOT EXISTS {name} ON {table} ({cols})").format(
+                    unique=unique_kw,
+                    name=Identifier(idx.name),
+                    table=Identifier(table.name),
+                    cols=cols,
+                )
             logger_sql.info("QUERY INDEX: %s", sql_query.as_string())
             if self.db_conn is not None:
                 try:
@@ -279,7 +331,7 @@ class ClientPostgreSQL(ClientSQL):
             self.create_table(table)
             self.create_indexes(table)
 
-    def insert_in_table(self, table_name: str, column_tuple: tuple[str, ...], values_tuple: list[list[Any]]) -> int:
+    def insert_in_table(self, table_name: str, column_tuple: tuple[str, ...], values_tuple: list[list[Any]]) -> int:  # pylint: disable=too-many-locals,too-many-branches
         """
         Insert one or more row into a table
 
@@ -297,11 +349,17 @@ class ClientPostgreSQL(ClientSQL):
             if (value_len := len(values)) != insert_len:
                 logger_sql.error("Try to insert more or less data than the columns. Column size: %s, data_size: %s", insert_len, value_len)
                 raise BugException(f"Try to insert more or less data than the columns. Column size: {insert_len}, data_size: {value_len}")
-            sql_all_placeholder.append(SQL("({})").format(SQL(', ').join(Placeholder() * insert_len)))
+            row_placeholders: list[Composable] = []
             for idx, value in enumerate(values):
-                if isinstance(value, dict):
+                if isinstance(value, FullTextValue):
+                    row_placeholders.append(_fulltext_to_tsvector())
+                    values[idx] = value.text
+                elif isinstance(value, dict):
+                    row_placeholders.append(Placeholder())
                     values[idx] = Jsonb(value)
-
+                else:
+                    row_placeholders.append(Placeholder())
+            sql_all_placeholder.append(SQL("({})").format(SQL(', ').join(row_placeholders)))
             sql_all_values.extend(values)
 
         sql_query = SQL("INSERT INTO {table_name} ({columns}) VALUES {values}").format(
@@ -343,11 +401,18 @@ class ClientPostgreSQL(ClientSQL):
             logger_sql.error("Try to update more or less data than the specified columns. Column size: %s, data_size: %s", insert_len, value_len)
             raise BugException(f"Try to update more or less data than the specified columns. Column size: {insert_len}, data_size: {value_len}")
 
-        #Prepare placeholders and convert dict to Jsonb
-        sql_all_placeholder = [SQL("({})").format(SQL(', ').join(Placeholder() * insert_len))]
+        #Prepare placeholders, wrap full-text values in to_tsvector and convert dict to Jsonb
+        row_placeholders: list[Composable] = []
         for idx, value in enumerate(values_list):
-            if isinstance(value, dict):
+            if isinstance(value, FullTextValue):
+                row_placeholders.append(_fulltext_to_tsvector())
+                values_list[idx] = value.text
+            elif isinstance(value, dict):
+                row_placeholders.append(Placeholder())
                 values_list[idx] = Jsonb(value)
+            else:
+                row_placeholders.append(Placeholder())
+        sql_all_placeholder = [SQL("({})").format(SQL(', ').join(row_placeholders))]
 
         #Create and execute the query
         sql_query = SQL("UPDATE {table_name} SET ({columns}) = ROW{values} {conditions}").format(
@@ -373,9 +438,10 @@ class ClientPostgreSQL(ClientSQL):
 
         return ret
 
-    def select_from_table(self, table_name: str, column_tuple: tuple[str, ...], condition: Condition,
+    def select_from_table(self, table_name: str, column_tuple: tuple[str, ...], condition: Condition,  # pylint: disable=too-many-branches,too-many-locals
                           offset: int = 0, limit: int = 0,
-                          sort_by: str | None = None, order: Order = Order.ASC) -> Generator[tuple[Any, ...]]:
+                          sort_by: str | None = None, order: Order = Order.ASC,
+                          rank_by: FullTextCondition | None = None) -> Generator[tuple[Any, ...]]:
         """
         Select values from a table under conditions
 
@@ -408,13 +474,23 @@ class ClientPostgreSQL(ClientSQL):
         else:
             limit_query = Composed([Literal(limit)])
 
-        # Build ORDER BY clause
+        # Build ORDER BY clause. rank_by (full-text relevance) takes precedence; sort_by is
+        # kept as a secondary, stable tiebreaker. Relevance uses ts_rank on the tsvector column.
+        order_terms = []
+        if rank_by is not None:
+            rank_terms = rank_by.terms()
+            if rank_terms:
+                order_terms.append(SQL("ts_rank({col}, {tsq}) DESC").format(
+                    col=_col_ref(rank_by.param_name),
+                    tsq=_prefix_tsquery(rank_terms),
+                ))
         if sort_by:
-            order_direction = SQL("ASC") if order == Order.ASC else SQL("DESC")
-            order_clause = SQL("ORDER BY {col} {dir}").format(
+            order_terms.append(SQL("{col} {dir}").format(
                 col=Identifier(sort_by),
-                dir=order_direction,
-            )
+                dir=SQL("ASC") if order == Order.ASC else SQL("DESC"),
+            ))
+        if order_terms:
+            order_clause = SQL("ORDER BY {terms}").format(terms=SQL(", ").join(order_terms))
         else:
             order_clause = Composed([SQL("")])
 

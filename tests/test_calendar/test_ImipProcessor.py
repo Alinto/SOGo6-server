@@ -18,13 +18,13 @@ from app.module.calendar.model.CalOrganizer import CalOrganizer
 from app.module.calendar.model.CalReminder import CalReminder
 from app.module.calendar.model.enums.AttendeeStatus import AttendeeStatus
 from app.module.calendar.model.enums.ReminderMethod import ReminderMethod
-from app.module.calendar.serializer.CalendarEventSerializerIcal import CalendarEventSerializerIcal
+from app.module.calendar.serializer.CalEventSerializerIcal import CalEventSerializerIcal
 from app.module.calendar.source.CalendarSource import CalendarSource
 from app.utils import errors as err
 from app.utils.exceptions import RequestException
 
 _UTC = timezone.utc
-_serializer = CalendarEventSerializerIcal()
+_serializer = CalEventSerializerIcal()
 
 
 # ---------------------------------------------------------------------------
@@ -348,7 +348,7 @@ def test_cancel_partial_idempotent():
 
     module.process_imip_cancel(_fake_user(), raw, "organizer@example.com")
 
-    # Already in EXDATE — should not update
+    # Already in EXDATE - should not update
     assert len(source.updated) == 0
 
 

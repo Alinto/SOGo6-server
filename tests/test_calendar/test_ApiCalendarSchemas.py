@@ -1,4 +1,4 @@
-"""Unit tests for calendar API Marshmallow schemas — applicative behaviour only.
+"""Unit tests for calendar API Marshmallow schemas - applicative behaviour only.
 
 Standard Marshmallow validation (required, length, type) is not retested here; only the
 schema's own logic is covered: applicative defaults, the custom color regex, and the

@@ -105,6 +105,7 @@ class UserProfileGetRetSchema(ApiBaseResponse):
             "SOGO_D_MAIL_MAX_RECIPIENT": 0,
             "SOGO_D_MAIL_PURGE_ALLOW": True,
             "SOGO_D_MAIL_PURGE_MIN_DATE": 0,
+            "SOGO_D_MAIL_DRAFT_AUTOSAVE": 5,
             "SOGO_D_MODULE_ACCESS": [
                 "mail",
                 "calendar",

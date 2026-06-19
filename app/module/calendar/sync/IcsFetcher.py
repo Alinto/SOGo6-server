@@ -8,6 +8,7 @@ import ssl
 import urllib.error
 import urllib.parse
 import urllib.request
+from typing import Any, cast
 
 from app.module.calendar.CalendarConst import FETCH_TIMEOUT_SECONDS, MAX_ICS_BYTES, MAX_ICS_REDIRECTS
 from app.utils.errors import ERROR_CALENDAR_ICS_FETCH_FAILED, ERROR_CALENDAR_ICS_PARSE_FAILED
@@ -27,7 +28,9 @@ class _ValidatingRedirectHandler(urllib.request.HTTPRedirectHandler):
         self._max = max_redirects
         self._count = 0
 
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
+    def redirect_request(
+        self, req: urllib.request.Request, fp: Any, code: int, msg: Any, headers: Any, newurl: str,
+    ) -> urllib.request.Request | None:
         self._count += 1
         if self._count > self._max:
             logger_calendar.error("ICS feed exceeded max redirects (%d)", self._max)
@@ -36,7 +39,7 @@ class _ValidatingRedirectHandler(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
-# DNS rebinding protection — why these two classes exist:
+# DNS rebinding protection - why these two classes exist:
 #
 # _validate_url() resolves the hostname once and checks that every returned IP is public.
 # A naive follow-up call to urllib.request.urlopen() would re-resolve the same hostname
@@ -57,27 +60,28 @@ class _PinnedHTTPSConnection(http.client.HTTPSConnection):
 
     The hostname passed as `host` is kept for two purposes that must not change after
     DNS validation:
-      * TLS SNI (`server_hostname=` in wrap_socket) — lets the remote serve the right
+      * TLS SNI (`server_hostname=` in wrap_socket) - lets the remote serve the right
         certificate when multiple sites share an IP.
-      * Certificate validation — the CN/SAN is matched against the hostname, not the IP,
+      * Certificate validation - the CN/SAN is matched against the hostname, not the IP,
         so plugging the IP here would break verification for any real HTTPS endpoint.
     Only the address used by `socket.create_connection` is swapped for the pinned IP.
     """
 
-    def __init__(self, host: str, pinned_ip: str, **kwargs) -> None:
+    def __init__(self, host: str, pinned_ip: str, **kwargs: Any) -> None:
         super().__init__(host, **kwargs)
         self._pinned_ip = pinned_ip
 
     def connect(self) -> None:
         sock = socket.create_connection((self._pinned_ip, self.port), timeout=self.timeout)
-        self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
+        # _context is set by http.client.HTTPSConnection but absent from typeshed stubs.
+        self.sock = self._context.wrap_socket(sock, server_hostname=self.host)  # type: ignore[attr-defined]
 
 
 class _PinnedHTTPSHandler(urllib.request.HTTPSHandler):
     """urllib HTTPS handler that routes every request through _PinnedHTTPSConnection.
 
     Installed in the opener so that urlopen() never falls back to the stdlib default
-    HTTPSHandler — which would resolve the hostname again and undo the IP pinning.
+    HTTPSHandler - which would resolve the hostname again and undo the IP pinning.
     Forwards the SSLContext so certificate verification stays enabled.
     """
 
@@ -86,7 +90,7 @@ class _PinnedHTTPSHandler(urllib.request.HTTPSHandler):
         self._pinned_ip = pinned_ip
         self._context = context
 
-    def https_open(self, req):
+    def https_open(self, req: urllib.request.Request) -> Any:
         return self.do_open(
             lambda host, **kw: _PinnedHTTPSConnection(host, self._pinned_ip, **kw),
             req,
@@ -165,7 +169,7 @@ class IcsFetcher:
     def _validate_url(url: str) -> str:
         """Reject URLs that could enable SSRF attacks and return the validated IP to pin.
 
-        Only the https scheme is allowed (plain HTTP is refused — ICS feeds without TLS have
+        Only the https scheme is allowed (plain HTTP is refused - ICS feeds without TLS have
         no business being subscribed to in 2026). The hostname must resolve to a public IP:
         private, loopback, link-local, reserved and multicast ranges are all rejected (covers
         RFC 1918, ::1, 169.254.x.x, etc.). All resolved addresses must be public; otherwise
@@ -194,7 +198,7 @@ class IcsFetcher:
 
         pinned_ip: str | None = None
         for info in resolved:
-            ip_str: str = info[4][0].split("%")[0]
+            ip_str: str = cast(str, info[4][0]).split("%")[0]
             try:
                 addr = ipaddress.ip_address(ip_str)
             except ValueError:

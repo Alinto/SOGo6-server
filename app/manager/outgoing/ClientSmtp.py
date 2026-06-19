@@ -5,6 +5,7 @@ from email.message import Message
 from socket import timeout as sock_timeout, gaierror
 from ssl import SSLError
 import base64
+from logging import WARNING
 
 from app.manager.outgoing.ClientOutgoing import ClientOutgoing
 from app.utils.exceptions import BugException, RequestException
@@ -45,13 +46,14 @@ class ClientSmtp(ClientOutgoing):
                 self.connection = smtplib.SMTP(self.server, self.port)
                 self.connection.starttls()
             elif self.encryption == cs.SOCKET_ENC_IMPLICIT_TLS:
-                self.connection = smtplib.SMTP_SSL(self.server, self.port) # TODO check
+                self.connection = smtplib.SMTP_SSL(self.server, self.port) #TODO check
             else:
                 raise BugException(f"Unknown encryption given: {self.encryption}")
 
             if self.connection:
-                self.connection.set_debuglevel(1) #TODO: Link that to a admin debug settings
-                self.connection.ehlo() #TODO: retirer ça?
+                if logger_mail_outgoing.level < WARNING:
+                    self.connection.set_debuglevel(1) #Add smtplib log only if the logger is below warning
+                self.connection.ehlo()
                 logger_mail_outgoing.info(self.connection.esmtp_features)
 
             self.connected = True
@@ -89,15 +91,12 @@ class ClientSmtp(ClientOutgoing):
                 # No authentication required
                 pass
 
-            elif self.auth_mech == "login":
-                self.connection.login(username, password)
-
             elif self.auth_mech == "plain":
                 authcid = authname if authname else username
                 credentials = base64.b64encode(
                     f"{username}\x00{authcid}\x00{password}".encode()
                 ).decode()
-                self.connection.docmd("AUTH", f"PLAIN {credentials}")
+                self.connection.docmd("AUTH", f"PLAIN {credentials}") #TODO add SecretString (in ldap branche) to protect crendetials to be logged
 
             elif self.auth_mech == "xoauth2":
                 auth_string = f"user={username}\x01auth=Bearer {password}\x01\x01"

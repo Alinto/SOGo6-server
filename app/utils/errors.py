@@ -46,6 +46,10 @@ ERROR_TABLE_SYSTEM_NOT_UNIQUE = E("S000007", "Sogo Table For System Settings Is 
 #General Error
 ERROR_CONFIG_ERROR = E("S000020", "A configuration Problem prevent SOGo to work properly", HTTPStatus.INTERNAL_SERVER_ERROR)
 
+#FILE (generic inline file storage)
+ERROR_FILE_TOO_LARGE        = E("S000040", "File Exceeds The Maximum Allowed Size", HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
+ERROR_FILE_TYPE_NOT_ALLOWED = E("S000041", "File Media Type Is Not Allowed", HTTPStatus.UNSUPPORTED_MEDIA_TYPE)
+
 #CACHE
 ERROR_CACHE_DATA_NOT_JSON  = E("S000100", "Cache Server Data Is Not A Json", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_CACHE_TTL_BELOW_0    = E("S000101", "Cache Server Data TTL Is Below 1", HTTPStatus.INTERNAL_SERVER_ERROR)
@@ -94,10 +98,26 @@ ERROR_IMAP_UNKNWON_AUTH_MECH = E("S001303", "IMAP Auth Mechanism Unknown", HTTPS
 ERROR_IMAP_NOT_ASCII         = E("S001304", "Name for imap command is not ascii", HTTPStatus.BAD_REQUEST)
 ERROR_IMAP_READONLY          = E("S001305", "Writting Command to a readonly folder", HTTPStatus.INTERNAL_SERVER_ERROR)
 
-ERRRIR_MAIL_DELETION         = E("S001313", "Mail Deletion Error", HTTPStatus.BAD_REQUEST)
 ERROR_MAIL_DOWNLOAD_FAILED   = E("S000360", "Mail Download Failed", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_MAIL_ZIP_FAILED        = E("S000361", "Mail Zip Archive Creation Failed", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_MAIL_EDIT_FAILED       = E("S000366", "Failed To Open Mail For Editing", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_INVALID_ENCRYPTED_DATA = E("S000362", "Encrypted Password Is Not Valid Base64 Data", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_MAIL_SAVE_DRAFT_FAILED = E("S000365", "Mail Draft Save Failed", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_MAIL_SAVE_SENT_FAILED  = E("S000363", "Saving Sent Mail To Folder Failed", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_MAIL_DELETE_DRAFT_FAILED = E("S000364", "Deleting Draft Mail After Sending Failed", HTTPStatus.INTERNAL_SERVER_ERROR)
+
+# tmp_draft
+ERROR_TMP_DRAFT_NOT_FOUND       = E("S000370", "Tmp Draft Not Found", HTTPStatus.NOT_FOUND)
+ERROR_TMP_DRAFT_LOCKED          = E("S000371", "Tmp Draft Is Locked By Another Operation", HTTPStatus.CONFLICT)
+ERROR_TMP_DRAFT_OWNER_MISMATCH  = E("S000372", "Tmp Draft Does Not Belong To This User", HTTPStatus.UNAUTHORIZED)
+ERROR_TMP_DRAFT_INSERT_FAILED   = E("S000373", "Failed To Insert Tmp Draft", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_TMP_DRAFT_UPDATE_FAILED   = E("S000374", "Failed To Update Tmp Draft", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_TMP_DRAFT_DELETE_FAILED   = E("S000375", "Failed To Delete Tmp Draft", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_TMP_DRAFT_UPLOAD_NO_FILE  = E("S000376", "No File Provided In The Upload Request", HTTPStatus.BAD_REQUEST)
+ERROR_TMP_DRAFT_ATTACHMENT_FAILED = E("S000377", "Failed To Add Attachment To Draft", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_TMP_DRAFT_ATTACHMENT_NOT_FOUND = E("S000378", "Attachment Not Found In Draft", HTTPStatus.NOT_FOUND)
+ERROR_TMP_DRAFT_DELETE_ATTACHMENT_FAILED = E("S000379", "Failed To Delete Attachment From Draft", HTTPStatus.INTERNAL_SERVER_ERROR)
+
 
 #User Profile
 ERROR_USER_PROFILE_DUPLICATE         = E("S000314", "Multiple User Profiles Found For Same UID", HTTPStatus.INTERNAL_SERVER_ERROR)
@@ -105,7 +125,7 @@ ERROR_USER_PROFILE_CREATION_FAILED   = E("S000315", "User Profile Creation Faile
 ERROR_USER_PROFILE_INSERT_MISMATCH   = E("S000316", "User Profile Insert Row Count Mismatch", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_USER_PROFILE_NOT_FOUND         = E("S000317", "User Profile Not Found", HTTPStatus.NOT_FOUND)
 ERROR_USER_PROFILE_UPDATE_FAILED     = E("S000318", "User Profile Update Failed", HTTPStatus.INTERNAL_SERVER_ERROR)
-ERROR_USER_PROFILE_NO_IDENTITY       = E("S000319", "Account must have at least one identity", HTTPStatus.BAD_REQUEST)
+ERROR_USER_PROFILE_NO_IDENTITY       = E("S000319", "Account must have at least wone identity", HTTPStatus.BAD_REQUEST)
 ERROR_USER_PROFILE_MISMATCH_CLASS_DB = E("S000326", "User profile colums differentiate from UserProfile class attributes", HTTPStatus.INTERNAL_SERVER_ERROR)
 
 #External Accounts
@@ -185,13 +205,36 @@ ERROR_CALENDAR_EVENT_DURATION_TOO_LONG       = E("S000619", "Event Duration Exce
 ERROR_CALENDAR_ACCESS_DENIED                 = E("S000620", "Access Denied To This Calendar", HTTPStatus.FORBIDDEN)
 ERROR_CALENDAR_IMPORT_NO_FILE                = E("S000621", "No File Provided In The Import Request", HTTPStatus.BAD_REQUEST)
 ERROR_CALENDAR_IMPORT_TOO_LARGE              = E("S000622", "Import Payload Exceeds Maximum Allowed Size", HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
+ERROR_CALENDAR_PUBLIC_LINK_DISABLED          = E("S000623", "Public Calendar Link Is Disabled For This Domain", HTTPStatus.FORBIDDEN)
+ERROR_CALENDAR_EXPORT_FORMAT_UNSUPPORTED     = E("S000624", "Requested Export Format Is Not Supported", HTTPStatus.NOT_ACCEPTABLE)
+
+#the contacts
+ERROR_CONTACT_JSON_PARSE_FAILED              = E("S000700", "Failed To Parse Contact JSON Content", HTTPStatus.UNPROCESSABLE_ENTITY)
+ERROR_CONTACT_ADDRESSBOOK_NOT_FOUND          = E("S000701", "Address Book Not Found", HTTPStatus.NOT_FOUND)
+ERROR_CONTACT_ADDRESSBOOK_DUPLICATE          = E("S000702", "Address Book Already Exists", HTTPStatus.CONFLICT)
+ERROR_CONTACT_NOT_FOUND                      = E("S000703", "Contact Not Found", HTTPStatus.NOT_FOUND)
+ERROR_CONTACT_DUPLICATE                      = E("S000704", "Contact Already Exists", HTTPStatus.CONFLICT)
+ERROR_CONTACT_INSERT_FAILED                  = E("S000705", "Failed To Persist Contact", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_CONTACT_UPDATE_FAILED                  = E("S000706", "Failed To Update Contact", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_CONTACT_ADDRESSBOOK_NOT_SUPPORTED      = E("S000707", "Operation Not Supported On This Address Book Source", HTTPStatus.METHOD_NOT_ALLOWED)
+ERROR_CONTACT_ADDRESSBOOK_READ_ONLY          = E("S000708", "Address Book Is Read-Only", HTTPStatus.FORBIDDEN)
+ERROR_CONTACT_ACCESS_DENIED                  = E("S000709", "Access Denied To This Address Book", HTTPStatus.FORBIDDEN)
+ERROR_CONTACT_LIST_NOT_FOUND                 = E("S000710", "Distribution List Not Found", HTTPStatus.NOT_FOUND)
+ERROR_CONTACT_LIST_DUPLICATE                 = E("S000711", "Distribution List Already Exists", HTTPStatus.CONFLICT)
+ERROR_CONTACT_LIST_INSERT_FAILED             = E("S000712", "Failed To Persist Distribution List", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_CONTACT_LIST_UPDATE_FAILED             = E("S000713", "Failed To Update Distribution List", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_CONTACT_LIST_MEMBER_INVALID            = E("S000714", "Distribution List Member Is Not A Contact Of This Address Book", HTTPStatus.UNPROCESSABLE_ENTITY)
+ERROR_CONTACT_EXPORT_FORMAT_UNSUPPORTED      = E("S000715", "Requested Export Format Is Not Supported", HTTPStatus.NOT_ACCEPTABLE)
+ERROR_CONTACT_IMPORT_NO_FILE                 = E("S000716", "No File Provided In The Import Request", HTTPStatus.BAD_REQUEST)
+ERROR_CONTACT_IMPORT_TOO_LARGE               = E("S000717", "Import Payload Exceeds Maximum Allowed Size", HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
+ERROR_CONTACT_IMPORT_PARSE_FAILED            = E("S000718", "Failed To Parse The Import Document", HTTPStatus.UNPROCESSABLE_ENTITY)
 
 #AGENT / TASK
-ERROR_JOB_NOT_FOUND        = E("S000700", "Job Not Found", HTTPStatus.NOT_FOUND)
-ERROR_JOB_FORBIDDEN        = E("S000701", "Job Does Not Belong To Current User", HTTPStatus.FORBIDDEN)
-ERROR_JOB_NOT_READY        = E("S000702", "Job Has Not Completed Yet", HTTPStatus.CONFLICT)
-ERROR_JOB_NO_RESULT        = E("S000703", "Job Has No Downloadable Result", HTTPStatus.GONE)
-ERROR_JOB_CONCURRENT_LIMIT = E("S000704", "Concurrent Job Limit Reached", HTTPStatus.CONFLICT)
+ERROR_JOB_NOT_FOUND        = E("S000800", "Job Not Found", HTTPStatus.NOT_FOUND)
+ERROR_JOB_FORBIDDEN        = E("S000801", "Job Does Not Belong To Current User", HTTPStatus.FORBIDDEN)
+ERROR_JOB_NOT_READY        = E("S000802", "Job Has Not Completed Yet", HTTPStatus.CONFLICT)
+ERROR_JOB_NO_RESULT        = E("S000803", "Job Has No Downloadable Result", HTTPStatus.GONE)
+ERROR_JOB_CONCURRENT_LIMIT = E("S000804", "Concurrent Job Limit Reached", HTTPStatus.CONFLICT)
 
 #the bugs
 ERROR_UNKOWN = E("S999999", "Undefined Error", HTTPStatus.INTERNAL_SERVER_ERROR)

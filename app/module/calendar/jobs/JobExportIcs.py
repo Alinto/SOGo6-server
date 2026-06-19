@@ -15,7 +15,7 @@ from app.agent.jobs.job_large_store.JobLargeRef import JobLargeRef
 from app.config.settings.ProcessSetting import process_config
 from app.interface.calendar.InterfaceAgentCalendar import InterfaceAgentCalendar
 from app.module.calendar.jobs.JobRequestExportIcs import JobRequestExportIcs
-from app.utils.calendar.DateTimeUtils import parse_iso
+from app.utils.datetime.DateTimeUtils import parse_iso
 
 
 @agent_job

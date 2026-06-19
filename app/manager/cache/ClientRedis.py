@@ -104,7 +104,7 @@ class ClientRedis():
             raise BugException(f"TTL for redis is below 1: {ttl}", err.ERROR_CACHE_TTL_BELOW_0)
 
         try:
-            result = self.redis.set(name=key, value=value, ex=ttl, nx=nx if nx else None)
+            result = self.redis.set(name=key, value=value, ex=ttl, nx=nx)
         except rexc.ResponseError as e:
             logger_cache.error("Error when setting data in redis: %s", e)
             raise BugException("Error when setting data in redis", err.ERROR_CACHE_RESPONSE_ERROR) from e
