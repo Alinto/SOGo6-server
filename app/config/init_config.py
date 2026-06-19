@@ -114,8 +114,6 @@ def init_infra() -> tuple[ClientRedis, JobPersistency]:
     persistency = JobPersistency(
         cache_client, ttl_seconds=process_config.SOGO_P_AGENT_JOB_STATE_TTL_SECONDS,
     )
-    # The agent's large store needs the cache, which only exists now - register it.
-    agent.register_large_store(cache_client)
     init_jobs()
     return cache_client, persistency
 
@@ -128,7 +126,8 @@ def init_sogo() -> tuple[int, ClientRedis, ClientAgent]:
     """
     cache_client, persistency = init_infra()
     agent_client = ClientAgent(
-        agent, persistency, JobCanceller(agent, persistency), cache_client, agent.get_large_store(),
+        agent, persistency, JobCanceller(agent, persistency), cache_client,
+        agent.get_large_store(),
     )
 
     sogo_state = cs.SOGO_NOT_INIT

@@ -12,17 +12,18 @@ from celery.signals import task_failure, task_postrun, task_prerun, task_retry, 
 from app.agent.jobs.Job import collected_agent_class_jobs
 from app.agent.jobs.JobState import JobState
 from app.agent.jobs.JobStatus import JobStatus
-from app.agent.jobs.job_large_store.JobLargeStoreBuilder import JobLargeStoreBuilder
 from app.config.settings.ProcessSetting import ProcessSetting, process_config
 from app.utils.exceptions import AggravatedException
+from app.utils.file.FileAdapterDatabase import FileAdapterDatabase
+from app.utils.file.FileAdapterSource import FileAdapterSource
 from app.utils.logger.logger import logger_agent
 
 if TYPE_CHECKING:
     from app.agent.jobs.Job import Job
     from app.agent.jobs.JobPersistency import JobPersistency
     from app.agent.jobs.JobRequest import JobRequest
-    from app.agent.jobs.job_large_store.JobLargeStore import JobLargeStore
     from app.manager.cache.ClientRedis import ClientRedis
+    from app.utils.file.FileAdapter import FileAdapter
 
 
 class Agent:
@@ -31,9 +32,9 @@ class Agent:
     def __init__(self, process_setting: ProcessSetting) -> None:
         self._process_setting: ProcessSetting = process_setting
         self._job_handlers: dict[str, Job] = {}
-        # Registered at boot by ``register_large_store`` (the cache it needs does not
-        # exist when this import-time singleton is built).
-        self._large_store: JobLargeStore | None = None
+        # Holds no live connection: FileAdapterDatabase opens one per operation (db=None),
+        # so this singleton built at import never leaks a connection across the worker fork.
+        self._large_store: FileAdapter = FileAdapterDatabase(process_setting, FileAdapterSource.AGENT)
         self._celery: Celery = Celery(
             "sogo_agent",
             broker=process_setting.SOGO_P_REDIS_URL,
@@ -57,23 +58,8 @@ class Agent:
             enable_utc=True,
         )
 
-    def register_large_store(self, cache: ClientRedis) -> None:
-        """Build the large-blob store with ``cache`` injected. Called once at boot.
-
-        :param cache: Redis client passed to the in-memory backend.
-        :type cache: ClientRedis
-        """
-        self._large_store = JobLargeStoreBuilder.build(self._process_setting, cache)
-
-    def get_large_store(self) -> JobLargeStore:
-        """Return the large-blob store, raising if it was never registered.
-
-        :return: the process-wide store.
-        :rtype: JobLargeStore
-        :raises AggravatedException: ``register_large_store`` was not called at boot.
-        """
-        if self._large_store is None:
-            raise AggravatedException("Large store not registered; call register_large_store at boot")
+    def get_large_store(self) -> FileAdapter:
+        """Return the store that persists a task's large result until the user fetches it."""
         return self._large_store
 
     def create_job(

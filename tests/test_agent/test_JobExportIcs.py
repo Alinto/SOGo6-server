@@ -6,8 +6,6 @@ import pytest
 from app.module.calendar.jobs.JobExportIcs import JobExportIcs
 from app.module.calendar.jobs.JobRequestExportIcs import JobRequestExportIcs
 
-from app.agent.jobs.job_large_store.JobLargeRef import JobLargeRef
-
 _JOB_MODULE = "app.module.calendar.jobs.JobExportIcs"
 # InterfaceAgentCalendar and the agent singleton are imported at the top of the job module.
 _INTERFACE = f"{_JOB_MODULE}.InterfaceAgentCalendar"
@@ -54,12 +52,12 @@ def test_process_serialises_and_offloads_result():
     job = JobExportIcs()
     inter = MagicMock()
     inter.export_calendar.return_value = "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n"
-    ref = JobLargeRef(content_type="text/calendar", locator="joblarge:abc")
+    ref = "sogo:file:abc"
     agent, store = _save_agent(ref)
     with patch(_INTERFACE, return_value=inter), patch(_AGENT, agent):
         result = job.process(_payload(calendar_key="cal-9"), user_uid="alice", job_id="j-1")
 
-    assert result["large_result"] == ref.to_dict()
+    assert result["large_result"] == ref
     assert result["filename"] == "cal-9.ics"
     assert result["size_bytes"] == len("BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n".encode("utf-8"))
     # The ICS bytes are what gets offloaded, tagged as a calendar.
@@ -73,7 +71,7 @@ def test_process_forwards_date_bounds_to_interface():
     job = JobExportIcs()
     inter = MagicMock()
     inter.export_calendar.return_value = "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n"
-    agent, _ = _save_agent(JobLargeRef("text/calendar", "k"))
+    agent, _ = _save_agent("sogo:file:k")
     with patch(_INTERFACE, return_value=inter), patch(_AGENT, agent):
         job.process(
             _payload(date_start="2026-01-01T00:00:00Z", date_end="2026-12-31T23:59:59Z"),

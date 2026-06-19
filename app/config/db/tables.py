@@ -491,6 +491,7 @@ keeps only the key; the bytes and their MIME type are fetched on demand.
 # content_hash: sha256 hex of the bytes, to compare content without loading the blob
 # created_at / updated_at: UTC timestamps
 COL_FS_KEY                = Column(name="key",          data_type="str",   is_unique=True,  extra_args={"max_len": 64})
+COL_FS_SOURCE             = Column(name="source",       data_type="str",                    extra_args={"max_len": 32})
 COL_FS_DATA               = Column(name="data",         data_type="bytes")
 COL_FS_CONTENT_TYPE       = Column(name="content_type", data_type="str",                    extra_args={"max_len": 128})
 COL_FS_CONTENT_HASH       = Column(name="content_hash", data_type="str",                    extra_args={"max_len": 64})
@@ -498,6 +499,7 @@ COL_FS_CREATED_AT         = Column(name="created_at",   data_type="datetime")
 COL_FS_UPDATED_AT         = Column(name="updated_at",   data_type="datetime")
 
 ALL_FS_COL = [COL_FS_KEY,
+              COL_FS_SOURCE,
               COL_FS_DATA,
               COL_FS_CONTENT_TYPE,
               COL_FS_CONTENT_HASH,

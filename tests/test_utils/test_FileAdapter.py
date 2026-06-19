@@ -2,6 +2,7 @@
 import pytest
 
 from app.utils.file.FileAdapter import FileAdapter
+from app.utils.file.FileAdapterSource import FileAdapterSource
 from app.utils import errors as err
 from app.utils.exceptions import RequestException
 from app.utils.uri.DataUri import DataUri
@@ -18,6 +19,7 @@ class FakeFileAdapter(FileAdapter):
     """In-memory FileAdapter tracking stored blobs and deletions."""
 
     def __init__(self):
+        super().__init__(FileAdapterSource.CONTACT)
         self.blobs = {}
         self.deleted = []
         self._counter = 0
@@ -44,6 +46,9 @@ class FakeFileAdapter(FileAdapter):
 
     def _all_references(self):
         return {self._make_reference(key) for key in self.blobs}
+
+    def purge_older_than(self, max_age_seconds):
+        return 0
 
 
 def _save_all(fa, previous, incoming):

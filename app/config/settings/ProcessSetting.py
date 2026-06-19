@@ -118,22 +118,12 @@ class ProcessSetting(FlaskConfig):
     SOGO_P_AGENT_WORKER_PREFETCH_MULTIPLIER: int = 1
     # How long a JobState stays in cache after the job is completed (post-mortem window).
     SOGO_P_AGENT_JOB_STATE_TTL_SECONDS: int = 3 * 24 * 3600
-    # Backend for large job blobs (exports, uploaded imports). "file" = filesystem under
-    # SOGO_P_TMP_PATH (any size, needs a shared volume across instances); "in_memory" = Redis
-    # (works everywhere, a few MB max per blob). Read by the Agent at startup.
-    SOGO_P_AGENT_LARGE_STORE: str = "file"
-    # Age beyond which a FILE-backend large blob is purged by the daily cleanup job.
+    # Age beyond which an agent job blob is purged from the file storage by the cleanup job.
     SOGO_P_AGENT_LARGE_STORE_MAX_AGE_SECONDS: int = 24 * 3600
     # Celery Beat schedule state file (last_run_at per entry). Its directory must be
     # writable by the agent user - provisioned in the image (see the agent Dockerfile,
     # which installs /var/celery owned by the application user). Run a single beat instance.
     SOGO_P_AGENT_BEAT_SCHEDULE_PATH: str = "/var/celery/celerybeat-schedule"
-    # Directory for transient files (ICS exports, attachments, agent job outputs, etc.).
-    # When the agent runs in multiple instances (workers spread across hosts or containers)
-    # and SOGO_P_AGENT_LARGE_STORE is "file", this path must point to a shared volume
-    # mounted on every agent instance and on the Flask API process. Otherwise a result
-    # written by one worker is unreachable from the API or from another worker.
-    SOGO_P_TMP_PATH: str = "/tmp"
 
     # --- Table names ---
     SOGO_P_TABLE_SETTINGS:   str = "sogo6_sogo_settings"

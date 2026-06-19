@@ -18,12 +18,6 @@ JOB_RECOVERY_LOCK_TTL_SECONDS: int = 60
 BEAT_LOCK_KEY: str = "agent:beat:lock"
 BEAT_LOCK_TTL_SECONDS: int = 60
 
-# Redis key prefix for in-memory large blobs. The backend choice itself is a
-# process setting (SOGO_P_AGENT_LARGE_STORE), read by the Agent at startup.
-JOB_LARGE_KEY_PREFIX: str = "joblarge:"
-# Filename prefix for FILE-backend large blobs (used to identify them when purging).
-JOB_LARGE_FILE_PREFIX: str = "joblarge-"
-
 # Prefix of the lock that serialises enqueues of the same job for the same scope.
 # The key itself is built by ``JobState.concurrency_lock_key``. TTL is set per-job
 # at acquisition time so a worker crash doesn't leave the slot blocked forever.

@@ -1,9 +1,9 @@
-"""Periodic job purging stale large-store blobs (triggered by Celery Beat).
+"""Periodic job purging stale agent blobs from the file storage (triggered by Celery Beat).
 
-Targets the FILE backend, whose blobs do not expire on their own (the in-memory
-backend relies on the Redis TTL). The request DTO and the worker live in the same
-file: this job is enqueued only by the beat schedule, so there is no enqueue-side
-module dependency that would force a cycle-breaking split.
+Agent job blobs have no expiry of their own, so this sweep deletes those older than the
+configured max age. The request DTO and the worker live in the same file: this job is
+enqueued only by the beat schedule, so there is no enqueue-side module dependency that
+would force a cycle-breaking split.
 """
 from __future__ import annotations
 
@@ -52,5 +52,5 @@ class JobCleanupLargeStore(Job):
         :rtype: dict[str, Any]
         """
         max_age: int = process_config.SOGO_P_AGENT_LARGE_STORE_MAX_AGE_SECONDS
-        removed: int = agent.get_large_store().purge(max_age)
+        removed: int = agent.get_large_store().purge_older_than(max_age)
         return {"removed": removed}

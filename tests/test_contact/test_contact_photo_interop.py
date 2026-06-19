@@ -1,5 +1,6 @@
 """PHOTO interop across formats (vCard 3.0/4.0, LDIF) and the inline -> storage -> inline chain."""
 from app.utils.file.FileAdapter import FileAdapter
+from app.utils.file.FileAdapterSource import FileAdapterSource
 from app.module.contact.model.CardContact import CardContact
 from app.module.contact.serializer.CardContactDeserializerLdif import CardContactDeserializerLdif
 from app.module.contact.serializer.CardContactDeserializerVcard3 import CardContactDeserializerVcard3
@@ -22,6 +23,7 @@ class FakeFileAdapter(FileAdapter):
     """In-memory FileAdapter for the storage round-trip."""
 
     def __init__(self):
+        super().__init__(FileAdapterSource.CONTACT)
         self.blobs = {}
         self._counter = 0
 
@@ -44,6 +46,9 @@ class FakeFileAdapter(FileAdapter):
 
     def _all_references(self):
         return {self._make_reference(key) for key in self.blobs}
+
+    def purge_older_than(self, max_age_seconds):
+        return 0
 
 
 def _photo_contact():

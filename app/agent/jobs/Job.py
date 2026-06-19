@@ -71,7 +71,7 @@ class Job(ABC):
         Subclasses must override this. The returned dict is stored under
         ``JobState.result`` after Celery's ``task_postrun`` signal fires -
         keep it small. For sizeable outputs (ICS exports, blobs), persist them
-        via ``JobLargeStore`` and return only the reference here.
+        via the agent blob store and return only the reference here.
 
         :param payload: dict produced by ``JobRequest.payload`` on the caller side.
             Concrete jobs usually rehydrate the matching Request via

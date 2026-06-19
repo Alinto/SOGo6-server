@@ -1,6 +1,6 @@
 """Worker-side Agent job exporting a calendar as a VCALENDAR result.
 
-The serialised ICS is offloaded to ``JobLargeStore`` because it can be
+The serialised ICS is offloaded to the agent blob store because it can be
 sizeable (thousands of events). ``JobState.result`` only carries the storage
 reference plus light metadata. The companion request DTO lives in
 ``JobRequestExportIcs`` (separate file to keep the enqueue side cycle-free).
@@ -11,7 +11,6 @@ from typing import Any
 
 from app.agent.Agent import agent
 from app.agent.jobs.Job import Job, agent_job
-from app.agent.jobs.job_large_store.JobLargeRef import JobLargeRef
 from app.config.settings.ProcessSetting import process_config
 from app.interface.calendar.InterfaceAgentCalendar import InterfaceAgentCalendar
 from app.module.calendar.jobs.JobRequestExportIcs import JobRequestExportIcs
@@ -38,9 +37,8 @@ class JobExportIcs(Job):
         :param job_id: Celery-provided id of the running job. Unused here but kept
             by contract for future per-job tracing.
         :type job_id: str
-        :return: ``{"large_result": <ref dict>, "filename": "<key>.ics", "size_bytes": int}``
-            where ``large_result`` is the reference dict produced by the configured
-            ``JobLargeStore`` backend.
+        :return: ``{"large_result": "<ref>", "filename": "<key>.ics", "size_bytes": int}``
+            where ``large_result`` is the blob store reference string.
         :rtype: dict[str, Any]
         :raises ValueError: ``user_uid`` is ``None``.
         """
@@ -54,9 +52,9 @@ class JobExportIcs(Job):
             date_end=parse_iso(req.date_end),
         )
         encoded: bytes = ics.encode("utf-8")
-        ref: JobLargeRef = agent.get_large_store().save(encoded, "text/calendar")
+        ref: str = agent.get_large_store().save(encoded, "text/calendar")
         return {
-            "large_result": ref.to_dict(),
+            "large_result": ref,
             "filename": f"{req.calendar_key}.ics",
             "size_bytes": len(encoded),
         }
