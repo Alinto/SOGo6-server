@@ -8,12 +8,12 @@ import pytest
 from app.module.calendar.imip.ImipMethod import ImipMethod
 from app.module.calendar.imip.ImipParser import ImipParser
 from app.module.calendar.model.CalEvent import CalEvent
-from app.module.calendar.serializer.CalendarEventSerializerIcal import CalendarEventSerializerIcal
+from app.module.calendar.serializer.CalEventSerializerIcal import CalEventSerializerIcal
 from app.utils.errors import ERROR_CALENDAR_ICS_PARSE_FAILED, ERROR_CALENDAR_IMIP_INVALID_REQUEST
 from app.utils.exceptions import RequestException
 
 
-_serializer = CalendarEventSerializerIcal()
+_serializer = CalEventSerializerIcal()
 
 
 def _make_event():
@@ -128,3 +128,27 @@ def test_parse_stores_ical_content():
     result = ImipParser.parse(raw)
     assert "METHOD:REQUEST" in result.ical_content
     assert "BEGIN:VCALENDAR" in result.ical_content
+
+
+# ========== Tests for ImipParser.detect_method (non-raising) ==========
+
+def test_detect_method_request():
+    ical = _serializer.build_imip(_make_event(), "REQUEST")
+    assert ImipParser.detect_method(ical.encode("utf-8")) == ImipMethod.REQUEST
+
+
+def test_detect_method_reply_and_cancel():
+    reply = _serializer.build_imip(_make_event(), "REPLY")
+    cancel = _serializer.build_imip(_make_event(), "CANCEL")
+    assert ImipParser.detect_method(reply.encode("utf-8")) == ImipMethod.REPLY
+    assert ImipParser.detect_method(cancel.encode("utf-8")) == ImipMethod.CANCEL
+
+
+def test_detect_method_none_when_no_method():
+    plain = _serializer.serialize(_make_event())  # a VEVENT export, no METHOD property
+    assert ImipParser.detect_method(plain.encode("utf-8")) is None
+
+
+def test_detect_method_none_when_unsupported():
+    ical = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nMETHOD:PUBLISH\r\nEND:VCALENDAR\r\n"
+    assert ImipParser.detect_method(ical.encode("utf-8")) is None

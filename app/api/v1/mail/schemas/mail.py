@@ -312,7 +312,62 @@ class MailRawResponseSchema(ApiBaseResponse):
         }
 
 
-# ===== Deprecated/Legacy Schemas =====
+class MailEditResponseSchema(ApiBaseResponse):
+    """
+    Schema for GET /mailboxes/<account_id>/folders/<path:folder_name>/mails/<mail_uid>/edit response.
+
+    Returns the full mail content along with the newly created tmp_draft ``key`` so the
+    caller can subsequently use the draft API to modify and send the mail.
+    """
+    data = fields.Dict(required=False, allow_none=True)
+
+    @classmethod
+    def example(cls) -> dict:
+        """Example response for opening a mail for editing.
+
+        :return: Example mail-edit response
+        :rtype: dict
+        """
+        return {
+            "error_code": 0,
+            "error_msg": "",
+            "data": {
+                "key": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
+                "uid": "42",
+                "subject": "Important Meeting Tomorrow",
+                "from": {"name": "Alice Smith", "email": "alice@example.com"},
+                "to": [{"name": "Bob Jones", "email": "bob@example.com"}],
+                "cc": [],
+                "contents": [
+                    {"content": "Hello,\n\nBest regards,\nAlice", "contentType": "text/plain", "shouldDisplayAttachment": False}
+                ],
+                "has_attachment": False,
+                "attachments": []
+            }
+        }
+
+
+class MailReplyResponseSchema(MailDetailResponseSchema):
+    """Response schema for the reply endpoint.
+
+    Extends MailDetailResponseSchema with reply-specific fields:
+    - key: the tmp_draft key for the new reply draft
+    - to: single contact dict (the original sender, overrides the list from MailDetailResponseSchema)
+    - cc: list of contacts (original mail's Cc, only present when all=true)
+    """
+
+    key = fields.Str(
+        required=True,
+        metadata={"description": "The tmp_draft key for the new reply draft"},
+    )
+
+    @classmethod
+    def example(cls) -> dict:
+        base = MailDetailResponseSchema.example()
+        base["key"] = "abc123def456"
+        base["cc"] = [{"email": "cc@example.com", "name": "CC Person"}]
+        return base
+
 
 class MailListQuerySchema(Schema):
     """Schema for mail list query parameters."""

@@ -2,209 +2,409 @@
 
 Here is explained how SOGo 6 handles mail sending.
 
-== Draft and mail writing: Preambule
+== Draft and mail writing: Preamble
 
 Even if sending a mail could be as easy as a single endpoint, SOGo 6 has mechanisms to support
 mail writing by user. It means that no user will just "send" a mail. A user will open a composer, take their
 time to write the mail, correct it, add attachments that could be heavy...
 
-SOGo 6 has several endpoints to both support mail being written and sent by a human and scritps (or robots).
+SOGo 6 has several endpoints to both support mail being written and sent by a human and scripts (or robots).
 
-From the point of view of a script, sending a mail should be straightforward: Uploading the attachments and send the content.
+From the point of view of a script, sending a mail should be straightforward: uploading the attachments and sending the content.
 
 [NOTE]
 ====
-The send endpoint is respectfull of our Rest APi rules. Technically, it is possible to make only on endpoint
+The send endpoint is respectful of our REST API rules. Technically, it is possible to make only one endpoint
 to send a mail with attachments. However, an attachment can be heavy, thus SOGo 6 has an endpoint to upload the attachment first,
- with proper http method for it, before sending.
+with the proper HTTP method for it, before sending.
 ====
 
-But, from the point of view of a human, sending a mail takes time: The user writes its mail, modifies it, wants it to be saved,
-will add attachment, will check the attachment, maybe remove it and so on. And they do no want to loose anything in progress.
+But, from the point of view of a human, sending a mail takes time: The user writes their mail, modifies it, wants it to be saved,
+will add an attachment, will check the attachment, maybe remove it and so on. And they do not want to lose anything in progress.
 That's why SOGo 6 has ways to make this action as smooth as possible.
 
 Just saving the mail in the Draft folder is not enough.
 
 == Draft vs mail in progress
 
-When Draft is mentioned, it represents the actual mail file being stores in the mail server. The "mail in progress" represents
-the mail composer where it is currently written. To make the link between the thwo of them, SOGo6 is using a database table
+When Draft is mentioned, it represents the actual mail file being stored in the mail server. The "mail in progress" represents
+the mail composer where it is currently written. To make the link between the two of them, SOGo 6 uses a database table
 to store info until the mail is sent, deleted or is paused by the user.
 
 [NOTE]
 ====
-The last state `paused` means that the user had ended their "mail editing" session. They will retreive their mail in the Draft folder from now on.
+The `paused` state means that the user has ended their "mail editing" session. They will retrieve their mail in the Draft folder from that point on.
 ====
 
-With SOGo6 there is database table thand manages the "mail in progress" state and making the link between what the user
-is doing and the current draft stored. To be sure that table is cleaned, any user/robot has a limited number of "mail in progress"
-that they can have. The limits is set to avoid scripts that will purposely make "mail in progress" and overloads the database. The limit
-does not limit any real human as they will naturally write and send or delete their emails in progress.
+With SOGo 6 there is a database table that manages the "mail in progress" state, making the link between what the user
+is doing and the current draft stored on the mail server. To be sure that table is kept clean, any user or robot has a limited number of "mail in progress"
+that they can have at once. The limit is set to avoid scripts that would purposely create "mail in progress" entries and overload the database. The limit
+does not affect real human usage, as users will naturally write and then send or delete their emails in progress.
 
 == tmp_draft
 
-This is the table that represent "mail in progress". It contains:
+`tmp_draft` is the database table that represents "mail in progress". It contains the following columns:
 
-* a key: a unique hash
-* the owner: the user's uid (indexed)
-* the mail server's uid: the uid which is used to find the Draft of the mail on the mail server
-* the lock state: A lock state at True means that a request is currently changing the Draft and others operations cannot be done
+[cols="1,1,3"]
+|===
+| Column | Type | Description
 
-A user can have several tmp_draft until the limit is reached. In that case it will have to either send, delete or pause a "mail in progress".
+| `key`
+| string (unique)
+| A unique hex hash that identifies this tmp_draft entry. Used as the key in all related API endpoints.
 
-This table is indexed on the key and user because the WHERE condition will be either on the key, to get the tmp_draft or
-on the user to get all the tmp_draft.
+| `owner`
+| string (indexed)
+| The UID of the user who owns this entry. Every operation checks this against the authenticated user.
 
+| `mail_server_uid`
+| string
+| The IMAP UID of the draft stored in the mail server's Drafts folder. Empty string when no IMAP draft has been saved yet (e.g. a brand-new locked row before the first save).
 
-== Endpoints
+| `lock_state`
+| boolean
+| `True` means a request is currently modifying the draft. Other requests must wait or return 409.
 
-Each endpoint has only the `account_id` in the url.
+| `headers`
+| dict (nullable)
+| Optional RFC 5322 headers to inject at send time. Used by the reply and edit flows to carry threading headers such as `In-Reply-To` and `References`.
 
+| `last_updated`
+| integer (nullable)
+| Unix timestamp of the last modification of this row.
+|===
 
-* /save: save the mail as Draft
-* /upload: add an attachment
-* /send: send the mail +
- -
-* /download/<filename>?key=X: download/preview one attachment +
- -
-* /delete?key=X: Delete the draft and tmp_draft (the mail will be lost)
-* /close?key=X: Delete tmp_draft (the mail will still be in Draft folder) +
- -
-* /current: List all the current tmp_draft and their data.
 
-=== tmp_draft key
+The table uses a composite primary key on `id` and `key`, and has an index on `owner` because the WHERE clause will be either on `key` (to get a specific tmp_draft) or on `owner` (to list all tmp_drafts for a user).
 
-Each endpoint has an optionnal query parameters `key`. This parameter is used to tell if a request is made
-on an already existing "mail in progress". If key is empty, SOGo6 will make a new "mail in progress".
+=== Lock mechanism
 
-At interface level, the key is checked and return 404 if invalid.
+The lock ensures that two concurrent requests (e.g. a save and an upload) do not corrupt the IMAP draft simultaneously.
 
-If no key is given, SOGo checks if the user can create another tmp_draft, if not 403.
+The `TmpDraftManager` class (`app/module/mail/model/TmpDraftManager.py`) centralises all tmp_draft database operations and exposes a `locked()` context manager that automatically unlocks the row on error.
 
-=== Owner
+* **Immediate fail (save, delete):** If the row is locked, return 409 immediately.
+* **Wait-and-retry (upload):** Poll every 100 ms for up to 2 s. If still locked after the timeout, return 409.
 
-For each endpoints, authenticated user's uid will be check against dratf_state owner to make sure the user has the rights on it. This check
-happens in the interface before doing any operations
+=== Threading headers
 
-At interface level, the owner is checked and return 401 if invalid.
+The `headers` column stores a JSON dict of RFC 5322 headers that must be injected when the mail is finally sent. This is populated by the reply and edit workflows:
 
+* `reply` stores `{"In-Reply-To": "<original-message-id>", "References": "..."}`.
+* `edit` does not need threading headers (it copies the original mail as-is).
 
-=== /save
+At send time (`/send`), the interface layer reads these headers from the tmp_draft row and passes them to `ModuleMailOutgoing.send_mail()` as `extra_headers`. They are injected only if the header is not already present in the message, and they can never overwrite `From`, `To`, `Subject`, `Message-ID` or `Date`.
 
-If there is no key given in the query, it creates a new tmp_draft
 
-This endpoint save the "mail in progress" in the Draft folder of the mail server.
+== Mail send API endpoints
 
-In the module, before the call to the manager, it checks if the tmp_draft is locked. If yes, returns 409. If no:
+The base URL prefix for all mail compose/send endpoints is:
 
-* Lock the tmp_draft
-* Call the manager
-* Update tmp_draft
-* Unlock tmp_draft
+----
+/mailboxes/<account_id>/mail
+----
 
-=== /upload
+`account_id` is `"0"` for the user's main account, or the hash identifier of an external account.
 
-If there is no key given in the query, it creates a new tmp_draft
+The `key` (when present) is always part of the **URL path**, not a query parameter.
 
-This endpoint add an attachment to the "mail in progress" in the Draft folder of the mail server.
+=== Endpoint overview
 
-In the module, before the call to the manager, it checks if the tmp_draft is locked. If yes:
+[cols="1,1,3"]
+|===
+| Method & URL | HTTP method | Description
 
-* Wait a short timeout (2s)
-* Check regurarly (every 100ms) if the file is still lock
-* If unlocked, proceed as below
-* If timeout: 409
+| `POST /mailboxes/<account_id>/mail/send`
+| POST
+| Send a mail immediately (no existing tmp_draft).
 
-If no:
+| `POST /mailboxes/<account_id>/mail/<key>/send`
+| POST
+| Send a mail linked to an existing tmp_draft. Attachments stored in the IMAP draft and threading headers are injected automatically before sending.
 
-* Lock the tmp_draft
-* Call the manager
-* Update tmp_draft
-* Unlock tmp_draft
+| `POST /mailboxes/<account_id>/mail/save`
+| POST
+| Create a new tmp_draft and save the mail as a draft in the Drafts folder.
 
+| `PUT /mailboxes/<account_id>/mail/<key>/save`
+| PUT
+| Update an existing draft. Accepts an optional `?close=true` query parameter to delete the tmp_draft row after saving (the IMAP draft is kept).
 
+| `POST /mailboxes/<account_id>/mail/attachments`
+| POST
+| Upload an attachment, creating a new tmp_draft entry.
 
-=== /send
+| `POST /mailboxes/<account_id>/mail/<key>/attachments`
+| POST
+| Upload an attachment to an existing tmp_draft.
 
+| `GET /mailboxes/<account_id>/mail/<key>/attachments/<filename>`
+| GET
+| Download an attachment from an existing tmp_draft.
 
-This endpoint send the mail. If successfull, it also remove it from the **Draft** folder if it exists, remove the tmp_draft and copy it in the **Sent** folder.
+| `DELETE /mailboxes/<account_id>/mail/<key>/attachments/<filename>`
+| DELETE
+| Delete an attachment from an existing tmp_draft.
 
-In the module, before the call to the manager, it checks if the tmp_draft is locked. If yes, return 409. If no, proceed:
+| `DELETE /mailboxes/<account_id>/mail/<key>`
+| DELETE
+| Delete the IMAP draft **and** the tmp_draft row (the mail is permanently lost).
 
-=== /download/<filename>?key=X
+| `GET /mailboxes/<account_id>/mail/current`
+| GET
+| List all tmp_draft entries currently owned by the authenticated user.
+|===
 
-The query parameter key is mandatory.
+=== Key in the path
 
-Will dowload the attachment if the key exist and if the filename match one of the attachment.
+When a `<key>` segment is present in the URL, the request targets an already-existing "mail in progress".
+If no `<key>` is given (e.g. `POST /save`, `POST /attachments`, `POST /send`), SOGo 6 creates a new tmp_draft (after checking the per-user limit; 429 if the limit is reached).
 
-=== /delete?key=X
+The key is validated at interface level:
 
-key parameter is mandatory.
+* 404 if the key does not exist.
+* 401 if the authenticated user is not the owner of the tmp_draft.
+* 409 if the row is locked (behaviour depends on the endpoint, see below).
 
-Will delete the mail in the **Draft** folder and the tmp_draft. If the tmp_draft is lock return 409 as the uid is not sure anymore.
+=== POST /mailboxes/<account_id>/mail/send
 
-=== /close?key=X
+Send a mail without any pre-existing tmp_draft.
 
-key parameter is mandatory.
+. Build the `EmailMessage` from the request body.
+. Call `ModuleMailOutgoing.send_mail()`.
+. Save a copy to the **Sent** folder via IMAP APPEND.
 
-Simply delete the tmp_draft
+No tmp_draft is created or consumed.
 
-=== /current
+=== POST /mailboxes/<account_id>/mail/<key>/send
 
-Return all the tmp_draft key and the mail data. 
+Send a mail linked to an existing tmp_draft.
 
-== Flow example
+. Validate the key (404 / 401 / 409).
+. Retrieve threading headers from the tmp_draft row (e.g. `In-Reply-To`, `References`).
+. Retrieve attachments stored in the IMAP draft and merge them with any attachments sent in the request body.
+. Call `ModuleMailOutgoing.send_mail()` with the merged attachments and threading headers.
+. Save a copy to the **Sent** folder.
+. Delete the tmp_draft row (and the associated IMAP draft) on success.
 
-=== Sending a mail without attachment
+=== POST /mailboxes/<account_id>/mail/save
 
-```
-POST /send
-```
+Create a new tmp_draft and save the mail body as a draft in the Drafts folder.
 
-=== Sending a mail with attachment
+. Check the per-user limit (429 if reached).
+. Insert a new locked tmp_draft row with an empty `mail_server_uid`.
+. Build the `EmailMessage` from the request body and call IMAP APPEND (save_draft).
+. Update the tmp_draft row with the new IMAP UID and unlock it.
+. Return the tmp_draft `key` and the parsed draft data.
 
-```
-POST /upload
-```
+If the row is locked when the request arrives, return 409 immediately (no wait).
 
-return the key for tmp_draft
+=== PUT /mailboxes/<account_id>/mail/<key>/save
 
-```
-POST /send?key=X
-```
+Update an existing draft identified by `<key>`.
 
-=== A user writes a mail and close it to finish it later
+The existing IMAP draft is fetched first so that any attachments already uploaded are **preserved**. Only the text body and the RFC 5322 headers (From, To, Subject, Cc, Bcc, …) are updated.
 
-```
-POST /save
-```
+The optional query parameter `close=true` can be passed to delete the tmp_draft row after saving. The IMAP draft in the Drafts folder is kept, and the user can resume from the Draft folder later.
 
-return the key, the user add an attachment
+If the row is locked when the request arrives, return 409 immediately.
 
-```
-POST /upload?key=X
-```
+=== POST /mailboxes/<account_id>/mail/attachments
 
-The user resumes to wrtting
+Upload an attachment without an existing tmp_draft.
 
-```
-POST /save?=key
-```
+. Check the per-user limit (429 if reached).
+. Insert a new locked tmp_draft row.
+. Create a new `EmailMessage`, attach the uploaded file, and call IMAP APPEND.
+. Update the tmp_draft row and unlock it.
+. Return the `key` and the resolved `filename`.
 
-The user decides to continue later and close the composer.
+The file must be sent as `multipart/form-data` with a field named `file`.
+If a file with the same name already exists in the draft, the filename is automatically suffixed with `(n)` before the extension to avoid collisions.
 
-```
-POST /close?key=X
-```
+=== POST /mailboxes/<account_id>/mail/<key>/attachments
 
-=== A user writes an email and decide to cancel it
+Upload an attachment to an existing draft.
 
-```
-POST /save
-```
+Behaviour is the same as the create variant above except:
 
-return the key, the user add an attachment
+* The existing IMAP draft is fetched first to **preserve** already-uploaded attachments and the current mail body.
+* If the row is locked, the request **waits** up to 2 s (polling every 100 ms) before returning 409. This allows concurrent save + upload operations to resolve gracefully.
 
-```
-POST /delete?key=X
-```
+=== GET /mailboxes/<account_id>/mail/<key>/attachments/<filename>
+
+Download (or preview) an attachment from the draft identified by `<key>`.
+
+. Validate the key (404 / 401).
+. Fetch the raw EML from the Drafts folder.
+. Walk the MIME tree and return the first part whose filename matches `<filename>`.
+. Return 200 with the file content and the correct `Content-Type`, or 404 if the attachment is not found.
+
+The file is returned as an attachment (`Content-Disposition: attachment`).
+
+=== DELETE /mailboxes/<account_id>/mail/<key>/attachments/<filename>
+
+Delete an attachment from the draft identified by `<key>`.
+
+. Validate the key (404 / 401 / 409 if locked).
+. Fetch the raw EML from the Drafts folder.
+. Remove the first MIME part whose filename matches `<filename>` from the MIME tree (in-place, preserving all other parts).
+. Save the modified message back to Drafts (IMAP REPLACE).
+. Update the tmp_draft row with the new IMAP UID and unlock it.
+. Return 204 on success, 404 if the attachment is not found.
+
+=== DELETE /mailboxes/<account_id>/mail/<key>
+
+Delete the IMAP draft **and** the tmp_draft row. The mail is permanently lost.
+
+. Validate the key (404 / 401).
+. If the row is locked, return 409 immediately.
+. Permanently delete the IMAP draft from the Drafts folder (if a `mail_server_uid` is present).
+. Delete the tmp_draft row.
+. Return 204.
+
+=== GET /mailboxes/<account_id>/mail/current
+
+Return all tmp_draft entries owned by the authenticated user.
+
+Returns a list of objects, each with:
+
+* `key`: the tmp_draft key
+* `mail_server_uid`: the IMAP UID of the linked draft (may be empty for brand-new rows)
+* `locked`: boolean lock state
+* `last_updated`: Unix timestamp of the last modification
+
+
+== Mail compose entry points (edit & reply)
+
+These two endpoints live under the mail folder API (`/mailboxes/<account_id>/folders/<folder_name>/mails`) and serve as entry points into the compose workflow. They create a tmp_draft entry so the user can continue using the standard compose endpoints afterward.
+
+=== GET /mailboxes/<account_id>/folders/<folder_name>/mails/<mail_uid>/edit
+
+Open an existing mail for editing.
+
+. Check the per-user tmp_draft limit (429 if reached).
+. Fetch the raw EML of `<mail_uid>` from `<folder_name>`.
+. IMAP APPEND the raw EML to the Drafts folder (creating a new draft copy).
+. Insert a new tmp_draft row linking to the new IMAP draft UID.
+. **Permanently delete** the original mail from `<folder_name>` (best-effort; failure is logged but does not abort the operation).
+. Return the parsed draft data augmented with the `key` field.
+
+The client should use the returned `key` to continue editing via the compose endpoints (`PUT /<key>/save`, `POST /<key>/attachments`, etc.).
+
+=== GET /mailboxes/<account_id>/folders/<folder_name>/mails/<mail_uid>/reply
+
+Prepare a reply draft for the mail identified by `<mail_uid>`.
+
+. Check the per-user tmp_draft limit (429 if reached).
+. Fetch the raw EML of `<mail_uid>` and extract `Message-ID` and `References` headers.
+. Compute threading headers according to RFC 5322:
+  * `In-Reply-To` = the original mail's `Message-ID`.
+  * `References` = the original `References` + the original `Message-ID` (or just the `Message-ID` if there were no prior references).
+. Create a new **empty** draft in the Drafts folder via IMAP APPEND.
+. Insert a new tmp_draft row with `mail_server_uid` pointing to the empty draft and `headers` set to the computed threading headers.
+. Return the parsed empty-draft data augmented with `key` and `headers` fields.
+
+When the user later calls `POST /<key>/send`, the threading headers stored in the tmp_draft row are automatically injected into the outgoing message.
+
+
+== Flow examples
+
+=== Sending a mail without attachment (script / robot)
+
+[source]
+----
+POST /mailboxes/<account_id>/mail/send
+----
+
+=== Sending a mail with an attachment (script / robot)
+
+[source]
+----
+POST /mailboxes/<account_id>/mail/attachments
+----
+
+Returns the `key` for the new tmp_draft.
+
+[source]
+----
+POST /mailboxes/<account_id>/mail/<key>/send
+----
+
+=== A user writes a mail and pauses to finish it later
+
+[source]
+----
+POST /mailboxes/<account_id>/mail/save
+----
+
+Returns the `key`. The user adds an attachment:
+
+[source]
+----
+POST /mailboxes/<account_id>/mail/<key>/attachments
+----
+
+The user resumes writing and saves again:
+
+[source]
+----
+PUT /mailboxes/<account_id>/mail/<key>/save
+----
+
+The user decides to continue later and closes the composer. The tmp_draft row is deleted but the IMAP draft is kept:
+
+[source]
+----
+PUT /mailboxes/<account_id>/mail/<key>/save?close=true
+----
+
+=== A user writes an email and decides to cancel it
+
+[source]
+----
+POST /mailboxes/<account_id>/mail/save
+----
+
+Returns the `key`. The user cancels — the IMAP draft and the tmp_draft row are both deleted:
+
+[source]
+----
+DELETE /mailboxes/<account_id>/mail/<key>
+----
+
+=== A user replies to a mail
+
+[source]
+----
+GET /mailboxes/<account_id>/folders/INBOX/mails/<mail_uid>/reply
+----
+
+Returns the `key` and pre-filled threading headers. The user writes the reply body:
+
+[source]
+----
+PUT /mailboxes/<account_id>/mail/<key>/save
+----
+
+The user sends the reply. Threading headers are injected automatically:
+
+[source]
+----
+POST /mailboxes/<account_id>/mail/<key>/send
+----
+
+=== A user edits a sent or draft mail
+
+[source]
+----
+GET /mailboxes/<account_id>/folders/Sent/mails/<mail_uid>/edit
+----
+
+Returns the `key`. The original mail is moved to Drafts. The user edits and sends:
+
+[source]
+----
+PUT /mailboxes/<account_id>/mail/<key>/save
+POST /mailboxes/<account_id>/mail/<key>/send
+----

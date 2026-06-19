@@ -218,6 +218,7 @@ class MailOutgoingUpdateSchema(Schema):
             "type": "smtp"
         }
 
+
 class QuotaSchema(Schema):
     """
     Schema for mailbox quota information
@@ -602,3 +603,4 @@ class MailboxPurgeResponseSchema(ApiBaseResponse):
                 "mails_deleted": 42
             }
         }
+

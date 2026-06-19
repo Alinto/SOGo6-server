@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 from app.config.db import tables as tbl
 from app.module.calendar.model.CalCalendar import CalCalendar
 from app.module.calendar.model.enums.CalendarSourceType import CalendarSourceType
+from app.module.calendar.model.enums.EventVisibility import EventVisibility
 from app.utils import errors as err
 from app.utils.db.Condition import AndCondition, EqualCondition, NotEqualCondition
 from app.utils.exceptions import BugException, RequestException
@@ -15,10 +16,10 @@ if TYPE_CHECKING:
     from app.manager.db.ClientSQL import ClientSQL
 
 
-# All column names in ALL_CAL_COL order — used for SELECT and row mapping
+# All column names in ALL_CAL_COL order - used for SELECT and row mapping
 _ALL_COLS: tuple[str, ...] = tuple(col.name for col in tbl.ALL_CAL_COL)
 
-# Columns for INSERT — id is serial, omitted
+# Columns for INSERT - id is serial, omitted
 _INSERT_COLS: tuple[str, ...] = tuple(col.name for col in tbl.ALL_CAL_COL if col.name != tbl.COL_ID.name)
 
 
@@ -32,6 +33,8 @@ class RepositoryCalendar:
     def _row_to_calendar(row: tuple) -> CalCalendar:
         """Map a DB row (ordered per ALL_CAL_COL) to a CalCalendar."""
         d = dict(zip(_ALL_COLS, row))
+        prefs: dict = d["preferences"] or {}
+        default_type_raw = prefs.get("default_type")
         return CalCalendar(
             id=d["id"],
             key=d["key"],
@@ -45,9 +48,25 @@ class RepositoryCalendar:
             share_token=d["share_token"],
             ctag=d["ctag"],
             sync_config=d["sync_config"],
+            include_in_freebusy=bool(d["include_in_freebusy"]),
+            default_event_duration_min=prefs.get("default_event_duration_min"),
+            default_alarm_duration_min=prefs.get("default_alarm_duration_min"),
+            default_type=EventVisibility(default_type_raw) if default_type_raw else None,
             created_at=d["created_at"],
             updated_at=d["updated_at"],
         )
+
+    @staticmethod
+    def _pack_preferences(cal: CalCalendar) -> dict | None:
+        """Group the calendar's new-event UI defaults into the preferences JSON column, or None when all unset."""
+        prefs: dict[str, object] = {}
+        if cal.default_event_duration_min is not None:
+            prefs["default_event_duration_min"] = cal.default_event_duration_min
+        if cal.default_alarm_duration_min is not None:
+            prefs["default_alarm_duration_min"] = cal.default_alarm_duration_min
+        if cal.default_type is not None:
+            prefs["default_type"] = cal.default_type.value
+        return prefs or None
 
     def insert(self, cal: CalCalendar) -> CalCalendar:
         """Persist a new calendar and return it with id populated."""
@@ -66,6 +85,8 @@ class RepositoryCalendar:
             cal.share_token,
             cal.ctag,
             cal.sync_config,
+            cal.include_in_freebusy,
+            self._pack_preferences(cal),
             cal.created_at,
             cal.updated_at,
         ]]
@@ -84,7 +105,7 @@ class RepositoryCalendar:
             logger_calendar.error("Calendar insert affected %s rows instead of 1 (key=%s)", inserted, cal.key)
             raise BugException("Calendar insert did not affect exactly 1 row")
 
-        fetched = self.find_by_key(cal.user_uid, cal.key)
+        fetched = self.find_by_key(cal.user_uid, cal.require_key)
         if fetched is None:
             raise BugException(f"Calendar key={cal.key} was inserted but could not be fetched back")
         return fetched
@@ -167,6 +188,8 @@ class RepositoryCalendar:
             tbl.COL_CAL_CTAG.name,
             tbl.COL_CAL_SYNC_CONFIG.name,
             tbl.COL_CAL_SHARE_TOKEN.name,
+            tbl.COL_CAL_INCLUDE_IN_FB.name,
+            tbl.COL_CAL_PREFERENCES.name,
             tbl.COL_CAL_UPDATED_AT.name,
         )
         values = [
@@ -178,6 +201,8 @@ class RepositoryCalendar:
             cal.ctag,
             cal.sync_config,
             cal.share_token,
+            cal.include_in_freebusy,
+            self._pack_preferences(cal),
             cal.updated_at,
         ]
 

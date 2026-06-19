@@ -1,3 +1,4 @@
+import re
 from unittest import mock
 
 import pytest
@@ -13,7 +14,7 @@ from app.manager.db.ClientMySQL import (
     condition_to_query,
 )
 from app.utils.exceptions import RequestException, BugException
-from app.utils.db.Condition import EqualCondition, NotEqualCondition, AndCondition, OrCondition, TrueCondition, JoinClause
+from app.utils.db.Condition import EqualCondition, NotEqualCondition, AndCondition, OrCondition, TrueCondition, FullTextCondition, JoinClause
 from app.utils.db.Table import Table, Column, Index
 
 
@@ -60,6 +61,12 @@ def test_table_to_query():
         "PRIMARY KEY (`test1`, `test2`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
     )
     assert " ".join(sql.split()) == " ".join(expected.split())
+
+
+def test_table_to_query_tsvector():
+    """A tsvector column degrades to TEXT on MariaDB (no tsvector type)."""
+    table = Table(name="test", columns=[Column(name="search_vector", data_type="tsvector")])
+    assert "`search_vector` MEDIUMTEXT" in table_to_query(table)
 
 
 def test_condition_to_query():
@@ -111,6 +118,32 @@ def test_condition_to_query():
     sql9, _ = condition_to_query(a9, add_where=True)
     assert "`reminders`.`is_deleted`" in sql9
     assert "`calendars`.`user_uid`" in sql9
+
+    a10 = FullTextCondition("search_vector", "team meeting")
+    sql10, params10 = condition_to_query(a10)
+    assert sql10 == "MATCH (`search_vector`) AGAINST (%s IN BOOLEAN MODE)"
+    assert params10 == ["+team* +meeting*"]
+
+
+def test_condition_to_query_fulltext_injection():
+    """Hostile search input is reduced to word terms and bound as a parameter."""
+    payloads = [
+        "'; DROP TABLE sogo_calendar_events; --",
+        "joe' UNION SELECT password FROM users --",
+        '" OR 1=1 --',
+        "joe:* & !x | (y)",
+        "+secret* -hidden* @8",
+    ]
+    for payload in payloads:
+        sql, params = condition_to_query(FullTextCondition("search_vector", payload))
+        assert sql == "MATCH (`search_vector`) AGAINST (%s IN BOOLEAN MODE)"
+        assert len(params) == 1
+        assert re.fullmatch(r"\+\w+\*( \+\w+\*)*", params[0])
+
+    # No word characters at all: always-false condition, nothing bound
+    sql, params = condition_to_query(FullTextCondition("search_vector", "!!! ;; ()"))
+    assert sql == "1 = 0"
+    assert params == []
 
 
 class FakeMySQLCursor:
@@ -334,7 +367,8 @@ def test_client_create_indexes(mock_db: MockerFixture):
     idx1 = Index(name="idx_trigger", columns=("trigger_at",))
     idx2 = Index(name="idx_composite", columns=("trigger_at", "event_key"))
     idx3 = Index(name="idx_unique", columns=("event_key",), unique=True)
-    table = Table(name="test", columns=[col1, col2], indexes=[idx1, idx2, idx3])
+    idx4 = Index(name="idx_fts", columns=("event_key",), fulltext=True)
+    table = Table(name="test", columns=[col1, col2], indexes=[idx1, idx2, idx3, idx4])
     client.create_indexes(table)
 
     # No indexes: should do nothing
@@ -399,6 +433,13 @@ def test_insert_update_select(mock_db: MockerFixture):
     # Test select with offset
     results_offset = list(client.select_from_table("test_select", ("id", "name"), cond_all, offset=1))
     assert len(results_offset) == 2
+
+    # Test select ordered by full-text relevance (rank_by builds a MATCH ... AGAINST ORDER BY)
+    results_rank = list(client.select_from_table(
+        "test_select", ("id", "name"), cond_all,
+        sort_by="date_start", rank_by=FullTextCondition("search_vector", "budget"),
+    ))
+    assert len(results_rank) == 2
 
 
 def test_client_select_from_several_table(mock_db: MockerFixture):

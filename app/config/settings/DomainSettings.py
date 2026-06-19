@@ -484,7 +484,7 @@ class MailSettings(SogoSchema):
     is_needed_by_ui = {"SOGO_D_MAIL_PURGE_ALLOW", "SOGO_D_MAIL_PURGE_MIN_DATE",
                        "SOGO_D_MAIL_FILTERING_ENABLED", "SOGO_D_VACATION_ENABLED",
                        "SOGO_D_VACATION_ALLOW_RESPONSE_ALWAYS", "SOGO_D_FORWARD_ENABLED",
-                       "SOGO_D_NOTIFY_ENABLED", "SOGO_D_MAIL_MAX_RECIPIENT"}
+                       "SOGO_D_NOTIFY_ENABLED", "SOGO_D_MAIL_MAX_RECIPIENT", "SOGO_D_MAIL_DRAFT_AUTOSAVE"}
 
     SOGO_D_MAIL_SERVER_TYPE = fields.String(load_default="imap", dump_default="imap", validate=validate.OneOf(('imap',))) #Could be jmap in the future...
     SOGO_D_IMAP_SERVER = fields.String() #Hostname or ip of the imap server
@@ -499,6 +499,7 @@ class MailSettings(SogoSchema):
     SOGO_D_SOFT_EMAIL_QUOTA = fields.Integer(load_default=10000, dump_default=10000, validate=validate.Range(min=1, max=10000)) #Percentage multiplier of the true quota as an integer between 1 (0.01%) and 10000 (100%)
     SOGO_D_MAIL_PURGE_ALLOW     = fields.Boolean(load_default=True, dump_default=True) #Allow user to purger their folder (delete all before a date)
     SOGO_D_MAIL_PURGE_MIN_DATE  = fields.Integer(load_default=0, dump_default=0) #Minimum age in days that a user can purge their mail (0 means they can purge everything)
+    SOGO_D_MAIL_DRAFT_AUTOSAVE = fields.Integer(load_default=5, dump_default=5, validate=validate.Range(min=5)) #Time in seconds between 2 autosave of a draft.
 
     SOGO_D_MAIL_FILTERING_ENABLED = fields.Boolean(load_default=True, dump_default=True) #Allow users to set autoreply sieve rule
     SOGO_D_MAIL_FILTERING_TYPE = fields.String(load_default="sieve", dump_default="sieve", validate=validate.OneOf(('sieve',))) #For sendmail, look at SOGO_S_SENDMAIL
@@ -531,7 +532,7 @@ class MailSettings(SogoSchema):
     SOGO_D_SMTP_PORT = fields.Integer(load_default=587, dump_default=584, validate=validate.Range(min=1, max=65535))
     SOGO_D_SMTP_ENCRYPTION = fields.String(load_default="None", dump_default="None", validate=validate.OneOf(cs.SOCK_ENC_LIST))
 
-    SOGO_D_SMTP_AUTH_MECH =  fields.String(load_default="None", dump_default="None", validate=validate.OneOf(('None', 'login', 'plain', 'xoauth2', 'oauthbearer')))
+    SOGO_D_SMTP_AUTH_MECH =  fields.String(load_default="None", dump_default="None", validate=validate.OneOf(('None', 'plain', 'xoauth2', 'oauthbearer')))
 
     SOGO_D_SMTP_MASTER_ENABLED = fields.Boolean(load_default=False, dump_default=False) #Use a master account for system message (notif, event) instead of using the user account
     SOGO_D_SMTP_MASTER_FROM = fields.Email() #Custom from used for system message (password recovery for now)
@@ -567,6 +568,7 @@ class MailSettingsObj(SettingsObj):
     SOGO_D_MAIL_JUNK: str = "Junk"
     SOGO_D_MAIL_PURGE_ALLOW: bool = True
     SOGO_D_MAIL_PURGE_MIN_DATE: int = 0
+    SOGO_D_MAIL_DRAFT_AUTOSAVE: int = 5
     SOGO_D_MAIL_FILTERING_ENABLED: bool = True
     SOGO_D_MAIL_FILTERING_TYPE: str = "sieve"
     SOGO_D_SIEVE_SERVER: str = ""
@@ -650,7 +652,7 @@ class CalendarContactSettings(SogoSchema):
     is_needed_by_ui = {"SOGO_D_CALDAV_ENABLED", "SOGO_D_CALDAV_PUBLIC_ACCESS_ENABLE",
                        "SOGO_D_CARDAV_ENABLED", "SOGO_D_CARDAV_PUBLIC_ACCESS_ENABLE",
                        "SOGO_D_JITSI_LINK_ENABLED", "SOGO_D_JITSI_BASE_URL",
-                       "SOGO_D_REMINDER_ALLOW_MAIL"}
+                       "SOGO_D_REMINDER_ALLOW_MAIL", "SOGO_D_CALENDAR_PUBLIC_LINK_ENABLED"}
 
     SOGO_D_CALDAV_ENABLED = fields.Boolean(load_default=True, dump_default=True)
     SOGO_D_CALDAV_PUBLIC_ACCESS_ENABLE = fields.Boolean(load_default=False, dump_default=False) #Enable or not public caldav access
@@ -665,6 +667,8 @@ class CalendarContactSettings(SogoSchema):
 
     SOGO_D_REMINDER_ALLOW_MAIL = fields.Boolean(load_default=True, dump_default=True) #Allow user to set reminder sent by email for events/tasks
 
+    SOGO_D_CALENDAR_PUBLIC_LINK_ENABLED = fields.Boolean(load_default=True, dump_default=True) #Allow users to expose a calendar through a public .ics subscription URL
+
 class CalendarContactSettingsObj(SettingsObj):
     """
     Obj with the fields of schema CalendarContactSettings as attributes with the proper type.
@@ -677,4 +681,5 @@ class CalendarContactSettingsObj(SettingsObj):
     SOGO_D_CARDAV_PUBLIC_ACCESS_ENABLE: bool = False
     SOGO_D_JITSI_LINK_ENABLED: bool = True
     SOGO_D_JITSI_BASE_URL: str = ""
+    SOGO_D_CALENDAR_PUBLIC_LINK_ENABLED: bool = True
     SOGO_D_REMINDER_ALLOW_MAIL: bool = True

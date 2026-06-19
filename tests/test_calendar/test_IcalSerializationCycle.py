@@ -29,8 +29,8 @@ from app.module.calendar.model.CalReminder import CalReminder
 from app.module.calendar.model.enums.ComponentType import ComponentType
 from app.module.calendar.model.enums.RecurrenceFrequency import RecurrenceFrequency
 from app.module.calendar.model.enums.ReminderMethod import ReminderMethod
-from app.module.calendar.serializer.CalendarEventDeserializerIcal import CalendarEventDeserializerIcal
-from app.module.calendar.serializer.CalendarEventSerializerIcal import CalendarEventSerializerIcal
+from app.module.calendar.serializer.CalEventDeserializerIcal import CalEventDeserializerIcal
+from app.module.calendar.serializer.CalEventSerializerIcal import CalEventSerializerIcal
 from app.utils.exceptions import RequestException
 from tests.test_calendar.ical_examples import (
     ICAL_EXAMPLE_1,
@@ -108,16 +108,16 @@ def _compare_events(a: CalEvent, b: CalEvent) -> None:
 
 @pytest.fixture
 def deserializer():
-    return CalendarEventDeserializerIcal()
+    return CalEventDeserializerIcal()
 
 
 @pytest.fixture
 def serializer():
-    return CalendarEventSerializerIcal()
+    return CalEventSerializerIcal()
 
 
 # ==========================================================================
-# Roundtrip CalEvent — comparaison champs (fiable)
+# Roundtrip CalEvent - comparaison champs (fiable)
 # ==========================================================================
 
 def test_roundtrip_example1_fields(deserializer, serializer):
@@ -142,7 +142,7 @@ def test_roundtrip_example3_fields(deserializer, serializer):
 
 
 # ==========================================================================
-# Roundtrip string — les properties VEVENT de l'input doivent etre presentes
+# Roundtrip string - les properties VEVENT de l'input doivent etre presentes
 # dans l'output (hors DTSTAMP et ATTENDEE dont les params peuvent differer)
 # ==========================================================================
 
@@ -162,7 +162,7 @@ def test_roundtrip_example2_string(deserializer, serializer):
     reserialized = serializer.serialize(event_a)
 
     # Pour example 2, DTSTART/DTEND sont convertis en UTC apres parsing
-    # → on compare seulement les properties independantes du timezone
+    # -> on compare seulement les properties independantes du timezone
     original = _vevent_lines(ICAL_EXAMPLE_2, exclude=frozenset({
         "DTSTAMP", "ATTENDEE", "DTSTART", "DTEND",
     }))
@@ -191,7 +191,7 @@ def test_roundtrip_example3_string(deserializer, serializer):
 
 
 # ==========================================================================
-# Exemples non-VEVENT (VJOURNAL, VFREEBUSY) — pas de crash
+# Exemples non-VEVENT (VJOURNAL, VFREEBUSY) - pas de crash
 # Ces composants ne sont pas supportes ; on verifie uniquement l'absence
 # d'exception lors du cycle deserialise->serialise.
 # ==========================================================================

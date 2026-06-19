@@ -1,0 +1,35 @@
+from __future__ import annotations
+
+from app.module.contact.format.ldif import LdifConst as ld
+from app.module.contact.format.ldif.FormatEngineLdif import FormatEngineLdif
+from app.module.contact.model.CardList import CardList
+from app.module.contact.serializer.CardListDeserializer import CardListDeserializer
+
+
+class CardListDeserializerLdif(CardListDeserializer[str]):
+    """Parse the first LDIF groupOfNames record of a document into a CardList.
+
+    name <- cn, description <- description. members holds the raw member DN references (e.g.
+    "cn=John Doe,ou=contacts"), NOT contact keys: the import orchestration resolves each DN to a
+    contact of the target book.
+    """
+
+    def deserialize(self, data: str) -> CardList:
+        records: list[list[tuple[str, str]]] = FormatEngineLdif.parse_records(data)
+        return self.list_from_pairs(records[0] if records else [])
+
+    @staticmethod
+    def list_from_pairs(pairs: list[tuple[str, str]]) -> CardList:
+        """Build a CardList from one groupOfNames record's (attribute, value) pairs (members kept as raw DNs)."""
+        card_list: CardList = CardList(name="")
+        members: list[str] = []
+        for attr, value in pairs:
+            name: str = attr.lower()
+            if name == ld.ATTR_CN.lower():
+                card_list.name = value
+            elif name == ld.ATTR_DESCRIPTION.lower():
+                card_list.description = value
+            elif name == ld.ATTR_MEMBER.lower():
+                members.append(value)
+        card_list.members = members
+        return card_list

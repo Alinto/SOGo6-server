@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from app.module.calendar.model.CalAttendee import CalAttendee
 from app.module.calendar.model.CalCalendar import CalCalendar
 from app.module.calendar.model.CalEvent import CalEvent
 from app.module.calendar.model.CalEventSyncMeta import CalEventSyncMeta
@@ -98,7 +99,7 @@ def test_sync_recurrence_id_naive_vs_aware():
     local_meta = CalEventSyncMeta(db_id=1, key="k1", uid="recur@test",
                                   recurrence_id=naive_rid, sequence=0, updated_at=None)
     # After to_utc normalization in find_sync_metadata, both should match
-    from app.utils.calendar.DateTimeUtils import to_utc
+    from app.utils.datetime.DateTimeUtils import to_utc
     normalized = to_utc(naive_rid)
     assert normalized == aware_rid
 
@@ -334,3 +335,27 @@ def test_apply_ics_without_rewrite_keeps_organizer():
     engine.apply_ics(_make_calendar(), "ics", delete_missing=False)
 
     assert inserted[0].sequence == 7  # untouched when no rewrite requested
+
+
+def test_apply_ics_remove_attendees_clears_guest_list():
+    engine, sources, _ = _build_engine()
+    inserted = _capture_inserted_events(engine, sources)
+    event = _make_event("e1", attendees=[CalAttendee(email="guest@example.com")])
+    engine._deserializer = MagicMock()
+    engine._deserializer.deserialize.return_value.events = [event]
+
+    engine.apply_ics(_make_calendar(), "ics", delete_missing=False, remove_attendees=True)
+
+    assert inserted[0].attendees == []
+
+
+def test_apply_ics_keeps_attendees_by_default():
+    engine, sources, _ = _build_engine()
+    inserted = _capture_inserted_events(engine, sources)
+    event = _make_event("e1", attendees=[CalAttendee(email="guest@example.com")])
+    engine._deserializer = MagicMock()
+    engine._deserializer.deserialize.return_value.events = [event]
+
+    engine.apply_ics(_make_calendar(), "ics", delete_missing=False)
+
+    assert len(inserted[0].attendees) == 1

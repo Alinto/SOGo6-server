@@ -264,7 +264,19 @@ def test_update_event_attendee_cannot_modify():
     assert exc_info.value.error == err.ERROR_CALENDAR_NOT_ORGANIZER
 
 
-# ========== update_event — detached occurrence shift ==========
+def test_update_event_acting_user_organizer_in_shared_calendar():
+    """A user organizing an event hosted in someone else's calendar can edit its content."""
+    organizer = CalOrganizer(email="bob@example.com")
+    event = _make_event(key="evt-key", organizer=organizer)
+    source = _make_source(events=[event])
+    module = _build_module({"cal-key": source})
+    bob = MagicMock(uid="bob@example.com", mail="bob@example.com")
+    alice = MagicMock(uid="alice@example.com", mail="alice@example.com")
+    updated = module.update_event(CalendarUser(user=bob, owner=alice), "evt-key", _merge(event, title="Mine"), organizer)
+    assert updated.title == "Mine"
+
+
+# ========== update_event - detached occurrence shift ==========
 
 def test_update_event_realigns_detached_when_start_changes():
     """When 'All events' moves date_start, detached occurrences must be realigned."""
@@ -341,7 +353,7 @@ def test_delete_event_acl_denied():
     assert exc_info.value.error == err.ERROR_CALENDAR_ACCESS_DENIED
 
 
-# ========== delete_event — recurrence handling ==========
+# ========== delete_event - recurrence handling ==========
 
 def test_delete_event_occurrence_routes_to_delete_detached():
     """delete_event on a detached occurrence (recurrence_id set) must call
@@ -421,7 +433,7 @@ def test_clean_no_args_returns_zero():
     assert module.clean() == 0
 
 
-# ========== delete_event — organizer vs attendee ==========
+# ========== delete_event - organizer vs attendee ==========
 
 def test_delete_event_organizer_deletes_own_copy():
     """When the organizer deletes, their own copy is deleted via delete_event(uid)."""
@@ -445,7 +457,7 @@ def test_delete_event_attendee_deletes_own_copy():
     assert "organizer:evt@example.com" not in source.deleted_uids
 
 
-# ========== update_event — sequence ==========
+# ========== update_event - sequence ==========
 
 def test_update_event_increments_sequence():
     """update_event must always increment SEQUENCE (RFC 5545 §3.8.7.4)."""
@@ -456,11 +468,11 @@ def test_update_event_increments_sequence():
     assert result.sequence == 3
 
 
-# ========== create_event — auto organizer ==========
+# ========== create_event - auto organizer ==========
 
 def test_create_event_auto_sets_organizer_when_attendees_present():
     """When creating an event with attendees but no organizer, the organizer must be set
-    to the creating user (RFC 5545 §3.8.4.3 — ORGANIZER is required when ATTENDEE is present)."""
+    to the creating user (RFC 5545 §3.8.4.3 - ORGANIZER is required when ATTENDEE is present)."""
     source = _make_source("cal-key")
     module = _build_module({"cal-key": source})
     attendee = CalAttendee(email="guest@example.com")
@@ -482,16 +494,9 @@ def test_create_event_preserves_explicit_organizer():
 
 
 # ========== all-day normalization (RFC 5545 §3.6.1) ==========
-
-def test_create_allday_normalizes_zero_duration():
-    """create_event must set date_end = date_start + 1 day when all_day=True and date_end <= date_start."""
-    source = _make_source("cal-key")
-    module = _build_module({"cal-key": source})
-    start = _dt(2026, 4, 28)
-    event = _make_event(all_day=True, date_start=start, date_end=start)
-    result = module.create_event(_fake_user(), "cal-key", event, CalOrganizer(email="user@example.com"))
-    assert result.date_end == _dt(2026, 4, 29)
-
+# Create-path normalization now lives at the persistence boundary (CalendarSourceDb) and on the
+# model (CalEvent.normalize_all_day); see test_CalendarSourceDb and test_CalEvent. The update path
+# is still exercised here because it runs through RecurrenceScopeProcessor before the source.
 
 def test_update_allday_normalizes_zero_duration():
     """update_event must normalize date_end when the patch produces date_end <= date_start."""

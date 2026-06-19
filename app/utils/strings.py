@@ -1,17 +1,63 @@
+import re
+import unicodedata
+
 from yarl import URL
+
+# Unicode names of atomic latin letters carry their ASCII base: "LATIN SMALL LETTER O WITH
+# STROKE" -> "o", "LATIN SMALL LIGATURE OE" -> "oe". Bases longer than 2 letters (THORN, ETH)
+# have no ASCII equivalent and are kept as-is.
+_REX_LATIN_BASE = re.compile(r"^LATIN (?:SMALL|CAPITAL) (?:LETTER|LIGATURE) ([A-Z]{1,2})(?: WITH [A-Z ]+)?$")
+
+
+def _fold_latin_letter(char: str) -> str:
+    """Reduce an atomic latin letter to its ASCII base; other characters are returned unchanged."""
+    matched = _REX_LATIN_BASE.match(unicodedata.name(char, ""))
+    if not matched:
+        return char
+    base: str = matched.group(1)
+    return base if " CAPITAL " in unicodedata.name(char) else base.lower()
+
+
+def strip_accents(text: str) -> str:
+    """Lowercase and remove accents so two spellings of the same word compare equal.
+
+    Strips combining diacritics (NFKD), casefolds (also turns eszett into "ss"), then folds the
+    remaining atomic latin letters (o-stroke, l-stroke, ae/oe ligatures...) to their ASCII base
+    through their Unicode name. Non-latin scripts (cyrillic, greek, CJK...) are left untouched.
+    """
+    decomposed: str = unicodedata.normalize("NFKD", text)
+    no_accents: str = "".join(c for c in decomposed if not unicodedata.combining(c))
+    folded: str = no_accents.casefold()
+    return "".join(_fold_latin_letter(c) if ord(c) > 127 else c for c in folded)
+
 
 def get_domain_from_mail(string_input: str) -> str|None:
     """
     Get a mail string and return the domain if there is one.
     Domain in mail pov so domain for user@domain
     """
-    if not isinstance(string_input, str):
-        raise ValueError(f"Method get_domain_from_mail expects a str and got {type(string_input)} instead")
     if '@' in string_input:
         tmp : list[str] = string_input.split('@')
         if len(tmp) == 2:
             return tmp[1]
     return None
+
+def get_domain_from_contact(string_input: str) -> str|None:
+    """
+    A contact is either directly a mail "foo@bar.nu" or a full name
+    "Foo Bar <foo@bar.nu>"
+    """
+    mail = string_input.strip()
+    if "<" in mail:
+        try:
+            idx = mail.index("<")
+            mail = mail[idx+1:-1]  # extracting mail between < and >
+            if '<' in mail or '>' in mail:
+                raise ValueError(f"Contact is not conformed to 'CN <mail>': '{string_input}'")
+        except (ValueError, IndexError) as e:
+            raise ValueError(f"Contact is not conformed to 'CN <mail>': '{string_input}'") from e
+    return get_domain_from_mail(mail)
+
 
 def get_imap_config_from_url(imap_str: str) -> dict:
     """

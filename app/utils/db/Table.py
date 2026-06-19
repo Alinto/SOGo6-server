@@ -7,7 +7,7 @@ from app.utils import errors as err
 
 REX_VALID_NAMES = r"^[A-Za-z_0-9]+$" #We force the fact that tables and columns' name must be alphanumerical with underscore only
 
-SOGO_DB_DATA_TYPE = {"dict", "str", "list", "serial", "json", "int8", "bool", "datetime", "int", "text"}
+SOGO_DB_DATA_TYPE = {"dict", "str", "list", "serial", "json", "int8", "bool", "datetime", "int", "text", "tsvector", "bytes"}
 SOGO_DB_DATA_TYPE_VALIDATION = {
     "dict":     {"dict", "json"},
     "str":      {"str"},
@@ -19,6 +19,10 @@ SOGO_DB_DATA_TYPE_VALIDATION = {
     "datetime": {"datetime", "timestamp"},
     "int":      {"int", "number", "integer", "bigint"},
     "text":     {"str", "text"},
+    # tsvector is a real tsvector column on PostgreSQL but a plain TEXT column on MariaDB
+    "tsvector": {"tsvector", "text"},
+    # raw binary: bytea on PostgreSQL, LONGBLOB on MariaDB
+    "bytes":    {"bytes", "bytea", "blob", "longblob", "mediumblob"},
 }
 
 class Column:
@@ -59,23 +63,30 @@ class Index:
     """Agnostic database index representation.
 
     Each database manager converts this to their proper CREATE INDEX syntax.
-    Supports single-column and composite indexes, with optional uniqueness.
+    Supports single-column and composite indexes, with optional uniqueness, plus full-text
+    indexes (fulltext=True) for word/token search on a text column.
     """
 
-    def __init__(self, name: str, columns: tuple[str, ...], unique: bool = False) -> None:
+    def __init__(self, name: str, columns: tuple[str, ...], unique: bool = False, fulltext: bool = False) -> None:
         """
         :param name: Index name. Must match REX_VALID_NAMES.
         :param columns: Column names included in the index, in order.
         :param unique: Whether the index enforces uniqueness.
+        :param fulltext: Build a full-text index instead of a regular btree index: a GIN index on
+            the tsvector column on PostgreSQL, a FULLTEXT index on the TEXT column on MariaDB.
+            Single-column only; mutually exclusive with unique.
         """
         if not re.match(REX_VALID_NAMES, name):
             logger.error("Try to instantiate Index with an invalid name: %s", name)
         for col in columns:
             if not re.match(REX_VALID_NAMES, col):
                 logger.error("Try to instantiate Index with an invalid column name: %s", col)
+        if fulltext and len(columns) != 1:
+            logger.error("Try to instantiate a full-text Index that is not single-column: %s", name)
         self.name = name
         self.columns = columns
         self.unique = unique
+        self.fulltext = fulltext
 
 class Table:
     """

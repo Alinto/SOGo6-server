@@ -1,0 +1,62 @@
+"""Unit tests for DbFileStorage (binary blob store over sogo6_file_storage)."""
+import hashlib
+from unittest.mock import MagicMock
+
+from app.config.db import tables as tbl
+from app.manager.db.DbFileStorage import DbFileStorage
+
+
+def test_write_inserts_key_data_content_type_and_hash():
+    db = MagicMock()
+    DbFileStorage(db).write("k1", b"\xff\xd8\xff", "image/jpeg")
+    kwargs = db.insert_in_table.call_args.kwargs
+    cols, values = kwargs["column_tuple"], kwargs["values_tuple"][0]
+    assert values[cols.index(tbl.COL_FS_KEY.name)] == "k1"
+    assert values[cols.index(tbl.COL_FS_DATA.name)] == b"\xff\xd8\xff"
+    assert values[cols.index(tbl.COL_FS_CONTENT_TYPE.name)] == "image/jpeg"
+    assert values[cols.index(tbl.COL_FS_CONTENT_HASH.name)] == hashlib.sha256(b"\xff\xd8\xff").hexdigest()
+
+
+def test_is_equal_true_on_matching_content():
+    db = MagicMock()
+    db.select_from_table.return_value = iter([(hashlib.sha256(b"png").hexdigest(),)])
+    assert DbFileStorage(db).is_equal("k1", b"png") is True
+
+
+def test_is_equal_false_on_different_content():
+    db = MagicMock()
+    db.select_from_table.return_value = iter([(hashlib.sha256(b"png").hexdigest(),)])
+    assert DbFileStorage(db).is_equal("k1", b"other") is False
+
+
+def test_is_equal_false_when_absent():
+    db = MagicMock()
+    db.select_from_table.return_value = iter([])
+    assert DbFileStorage(db).is_equal("missing", b"png") is False
+
+
+def test_read_returns_bytes_and_content_type():
+    db = MagicMock()
+    db.select_from_table.return_value = iter([(memoryview(b"png-bytes"), "image/png")])
+    data, content_type = DbFileStorage(db).read("k1")
+    assert data == b"png-bytes" and isinstance(data, bytes)  # memoryview coerced to bytes
+    assert content_type == "image/png"
+
+
+def test_read_returns_none_when_absent():
+    db = MagicMock()
+    db.select_from_table.return_value = iter([])
+    assert DbFileStorage(db).read("missing") is None
+
+
+def test_delete_targets_the_key():
+    db = MagicMock()
+    DbFileStorage(db).delete("k1")
+    condition = db.delete_row_in_table.call_args.kwargs["condition"]
+    assert condition.param_name == tbl.COL_FS_KEY.name and condition.param_value == "k1"
+
+
+def test_all_keys_returns_every_stored_key():
+    db = MagicMock()
+    db.select_from_table.return_value = iter([("k1",), ("k2",)])
+    assert DbFileStorage(db).all_keys() == {"k1", "k2"}

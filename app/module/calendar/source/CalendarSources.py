@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 class CalendarSources:
     """Factory and lookup for CalendarSource instances.
 
-    Single entry point for all calendar access — ModuleCalendar never touches
+    Single entry point for all calendar access - ModuleCalendar never touches
     RepositoryCalendar directly.
     """
 
@@ -35,7 +35,7 @@ class CalendarSources:
         """Return the appropriate CalendarSource for the given calendar.
 
         Both local and ICS calendars are backed by the database. ICS calendars
-        are read-only mirrors — their events are populated by the sync engine,
+        are read-only mirrors - their events are populated by the sync engine,
         not by direct CRUD operations.
         """
         if calendar.source_type == CalendarSourceType.LOCAL:
@@ -76,7 +76,7 @@ class CalendarSources:
     def get_by_share_token(self, share_token: str) -> CalendarSource | None:
         """Return the source for the calendar exposed by this public subscription token.
 
-        Not scoped to a user — the token is the capability granting access to the feed.
+        Not scoped to a user - the token is the capability granting access to the feed.
         """
         cal = self._repo_calendar.find_by_share_token(share_token)
         return self.get(cal) if cal is not None else None
@@ -102,7 +102,26 @@ class CalendarSources:
         events: list[CalEvent] = []
         for source in self.get_all(user_uid):
             events.extend(source.get_events(start, end, search))
-        events.sort(key=lambda e: e.date_start)
+        events.sort(key=lambda e: e.require_date_start)
+        return events
+
+    def get_freebusy_events(
+        self,
+        user_uid: str,
+        start: datetime | None = None,
+        end: datetime | None = None,
+    ) -> list[CalEvent]:
+        """Return events from every calendar that participates in free/busy.
+
+        Calendars flagged include_in_freebusy=False are skipped entirely, so their events
+        never contribute to the owner's busy slots.
+        """
+        events: list[CalEvent] = []
+        for source in self.get_all(user_uid):
+            if not source.calendar.include_in_freebusy:
+                continue
+            events.extend(source.get_events(start, end))
+        events.sort(key=lambda e: e.require_date_start)
         return events
 
     def get_tasks(
@@ -126,7 +145,7 @@ class CalendarSources:
         tasks: list[CalEvent] = []
         for source in self.get_all(user_uid):
             tasks.extend(source.get_tasks(start, end, search))
-        tasks.sort(key=lambda e: e.date_start)
+        tasks.sort(key=lambda e: e.require_date_start)
         return tasks
 
     def update_sync_config(self, calendar: CalCalendar) -> None:
@@ -169,7 +188,7 @@ class CalendarSources:
             if scope_result.realign_from is not None and scope_result.realign_to is not None:
                 try:
                     att_source.realign_detached_occurrences(
-                        uid=event.uid, old_start=scope_result.realign_from, new_start=scope_result.realign_to,
+                        uid=event.require_uid, old_start=scope_result.realign_from, new_start=scope_result.realign_to,
                     )
                 except Exception as exc:  # pylint: disable=broad-except
                     logger_calendar.warning(
@@ -189,18 +208,18 @@ class CalendarSources:
             self._update_attendee_copy(att_source, evt)
         elif action == EventAction.DELETE:
             if evt.recurrence_id is not None:
-                att_copy: CalEvent | None = att_source.get_event_by_recurrence_id(evt.uid, evt.recurrence_id)
+                att_copy: CalEvent | None = att_source.get_event_by_recurrence_id(evt.require_uid, evt.recurrence_id)
                 if att_copy is not None:
                     att_source.delete_detached_occurrence(att_copy)
             else:
-                att_source.delete_event(evt.uid)
+                att_source.delete_event(evt.require_uid)
 
     def _update_attendee_copy(self, att_source: CalendarSource, event: CalEvent) -> None:
         """Find the attendee's copy and update propagatable fields."""
         if event.recurrence_id is not None:
-            copy: CalEvent | None = att_source.get_event_by_recurrence_id(event.uid, event.recurrence_id)
+            copy: CalEvent | None = att_source.get_event_by_recurrence_id(event.require_uid, event.recurrence_id)
         else:
-            copy = att_source.get_master_event_by_uid(event.uid)
+            copy = att_source.get_master_event_by_uid(event.require_uid)
         if copy is None:
             return
         for field_name in CalEvent.PROPAGATABLE_FIELDS:
@@ -215,9 +234,9 @@ class CalendarSources:
         - Attendee added (in updated but not in original): create a copy in their calendar.
         - Attendee removed (in original but not in updated): delete their copy.
 
-        Existing attendee copies are NOT updated here — content propagation is handled
+        Existing attendee copies are NOT updated here - content propagation is handled
         separately by propagate().
-        External attendees (no local account) are silently skipped — the iMIP agent handles them.
+        External attendees (no local account) are silently skipped - the iMIP agent handles them.
         """
         if not updated.organizer:
             return
@@ -244,7 +263,7 @@ class CalendarSources:
             if source is None:
                 continue
             try:
-                source.delete_event(updated.uid)
+                source.delete_event(updated.require_uid)
                 logger_calendar.info("Removed event uid=%s from local attendee %s", updated.uid, email)
             except Exception as exc:  # pylint: disable=broad-except
                 logger_calendar.warning("Could not remove event uid=%s from attendee %s: %s", updated.uid, email, exc)

@@ -41,7 +41,7 @@ class CalendarSourceDb(CalendarSource):
         """
         self._calendar = self._repo_calendar.insert(calendar)
         if self._calendar.is_default:
-            self._repo_calendar.clear_default(self._calendar.user_uid, self._calendar.id)
+            self._repo_calendar.clear_default(self._calendar.user_uid, self._calendar.require_id)
         return self._calendar
 
     def update_calendar(self, calendar: CalCalendar) -> None:
@@ -50,59 +50,59 @@ class CalendarSourceDb(CalendarSource):
         If is_default=True, all other calendars of the same user are cleared.
         """
         if calendar.is_default:
-            self._repo_calendar.clear_default(calendar.user_uid, calendar.id)
+            self._repo_calendar.clear_default(calendar.user_uid, calendar.require_id)
         self._repo_calendar.update(calendar)
         self._calendar = calendar
 
     def delete_calendar(self) -> None:
         """Soft-delete all events and their reminders, then hard-delete the calendar row."""
-        event_keys: list[str] = self._repo_event.find_keys(self._calendar.key)
+        event_keys: list[str] = self._repo_event.find_keys(self._calendar.require_key)
         for key in event_keys:
             self._repo_reminder.delete(key)
-        self._repo_event.delete_all(self._calendar.key)
-        self._repo_calendar.delete(self._calendar.id)
+        self._repo_event.delete_all(self._calendar.require_key)
+        self._repo_calendar.delete(self._calendar.require_id)
 
     def _fetch_events(self, start: datetime, end: datetime, search: str | None = None) -> list[CalEvent]:
         """Query non-deleted VEVENT components overlapping [start, end]."""
-        return self._repo_event.find_by_calendar(self._calendar.key, start, end, search)
+        return self._repo_event.find_by_calendar(self._calendar.require_key, start, end, search)
 
     def _fetch_tasks(self, start: datetime, end: datetime, search: str | None = None) -> list[CalEvent]:
         """Query non-deleted VTODO components overlapping [start, end]."""
         return self._repo_event.find_by_calendar(
-            self._calendar.key, start, end, search, component_type=ComponentType.TASK
+            self._calendar.require_key, start, end, search, component_type=ComponentType.TASK
         )
 
     def get_sync_metadata(self) -> list:
         """Return lightweight CalEventSyncMeta for all non-deleted events (for sync diff)."""
-        return self._repo_event.find_sync_metadata(self._calendar.key)
+        return self._repo_event.find_sync_metadata(self._calendar.require_key)
 
     def get_event(self, event_key: str) -> CalEvent | None:
         """Return a single event by its opaque key, or None if not found."""
-        event = self._repo_event.find_by_key(self._calendar.key, event_key)
+        event = self._repo_event.find_by_key(self._calendar.require_key, event_key)
         if event is not None and self._calendar.timezone:
             event.calendar_timezone = self._calendar.timezone
         return event
 
     def get_master_event_by_uid(self, uid: str) -> CalEvent | None:
         """Return the master event (recurrence_id IS NULL) matching the given UID within this calendar, or None."""
-        event: CalEvent | None = self._repo_event.find_master_by_uid(self._calendar.key, uid)
+        event: CalEvent | None = self._repo_event.find_master_by_uid(self._calendar.require_key, uid)
         if event is not None and self._calendar.timezone:
             event.calendar_timezone = self._calendar.timezone
         return event
 
     def get_event_by_recurrence_id(self, uid: str, recurrence_id: datetime) -> CalEvent | None:
         """Return the detached occurrence matching uid + recurrence_id within this calendar, or None."""
-        event: CalEvent | None = self._repo_event.find_by_recurrence_id(self._calendar.key, uid, recurrence_id)
+        event: CalEvent | None = self._repo_event.find_by_recurrence_id(self._calendar.require_key, uid, recurrence_id)
         if event is not None and self._calendar.timezone:
             event.calendar_timezone = self._calendar.timezone
         return event
 
     def get_or_create_occurrence(self, master: CalEvent, recurrence_id: datetime) -> CalEvent:
         """Return the detached occurrence for recurrence_id, creating it if needed."""
-        existing: CalEvent | None = self.get_event_by_recurrence_id(master.uid, recurrence_id)
+        existing: CalEvent | None = self.get_event_by_recurrence_id(master.require_uid, recurrence_id)
         if existing is not None:
             return existing
-        duration: timedelta = master.date_end - master.date_start
+        duration: timedelta = master.duration
         occurrence: CalEvent = dataclasses.replace(
             master,
             key=None,
@@ -111,7 +111,7 @@ class CalendarSourceDb(CalendarSource):
             recurrence_rule=None,
             recurrence_range=None,
             date_start=recurrence_id,
-            date_end=recurrence_id + duration,
+            date_end=recurrence_id + duration if master.date_end is not None else None,
             sequence=0,
         )
         return self.insert_event(occurrence)
@@ -132,7 +132,7 @@ class CalendarSourceDb(CalendarSource):
         rows so the upsert remains idempotent.
         """
         if event.date_start is None:
-            self._repo_reminder.delete(event.key)
+            self._repo_reminder.delete(event.require_key)
             return
         now: datetime = datetime.now(timezone.utc)
         if event.recurrence_rule is None:
@@ -142,7 +142,7 @@ class CalendarSourceDb(CalendarSource):
             # Unbounded series (max_end is None) always have a future occurrence.
             has_future = max_end is None or max_end >= now
         if not has_future:
-            self._repo_reminder.delete(event.key)
+            self._repo_reminder.delete(event.require_key)
             return
         self._repo_reminder.upsert(event)
 
@@ -155,12 +155,23 @@ class CalendarSourceDb(CalendarSource):
         self._calendar.ctag = (self._calendar.ctag or 0) + 1
         self._repo_calendar.update(self._calendar)
 
+    def _prepare_for_persistence(self, event: CalEvent) -> None:
+        """Normalize the event and resolve calendar-default reminder offsets before any write.
+
+        Single preparation chokepoint for every persisted event (create, update, task,
+        attendee copies, recurrence splits): the all-day DTEND invariant and the reminder
+        offsets are guaranteed here, so callers never have to remember to apply them.
+        """
+        event.normalize_all_day()
+        event.resolve_reminder_offsets(self._calendar.default_alarm_duration_min)
+
     def insert_event(self, event: CalEvent) -> CalEvent:
         """Persist a new event row, bump ctag, and return the event with id and key populated.
 
         If the event has recurrence_id set, it is treated as a detached occurrence:
         the master event is located by uid to validate it is recurring and to populate parent_uid.
         """
+        self._prepare_for_persistence(event)
         if event.recurrence_id is not None:
             created: CalEvent = self._insert_detached_occurrence(event)
         else:
@@ -178,7 +189,7 @@ class CalendarSourceDb(CalendarSource):
         compatibility. The RruleEngine prioritizes overrides over EXDATE, so the
         detached occurrence will still appear in expansion.
         """
-        master = self._repo_event.find_master_by_uid(self._calendar.key, event.uid)
+        master = self._repo_event.find_master_by_uid(self._calendar.require_key, event.require_uid)
         if master is None:
             raise RequestException(error=err.ERROR_CALENDAR_EVENT_NOT_FOUND)
         if master.recurrence_rule is None:
@@ -195,6 +206,7 @@ class CalendarSourceDb(CalendarSource):
 
     def update_event(self, event: CalEvent) -> None:
         """Persist changes to an existing event row and bump the calendar ctag."""
+        self._prepare_for_persistence(event)
         self._repo_event.update(event, self._date_end_recurrence(event))
         self._upsert_reminder_if_relevant(event)
         self._bump_ctag()
@@ -208,7 +220,7 @@ class CalendarSourceDb(CalendarSource):
         Returns a list of (CalEvent, EventAction.UPDATE) for each realigned occurrence.
         """
         delta: timedelta = new_start - old_start
-        detached: list[CalEvent] = self._repo_event.find_detached_occurrences(self._calendar.key, uid)
+        detached: list[CalEvent] = self._repo_event.find_detached_occurrences(self._calendar.require_key, uid)
         touched: list[tuple[CalEvent, EventAction]] = []
         for occ in detached:
             if occ.recurrence_id is not None:
@@ -227,7 +239,7 @@ class CalendarSourceDb(CalendarSource):
         attendees see the updated status immediately, without waiting for an iMIP REPLY.
         """
         other_copies: list[CalEvent] = self._repo_event.find_all_by_uid(
-            event.uid, exclude_organizer_calendar_key=self._calendar.key
+            event.require_uid, exclude_organizer_calendar_key=self._calendar.require_key
         )
         for copy in other_copies:
             for attendee in copy.attendees:
@@ -251,7 +263,7 @@ class CalendarSourceDb(CalendarSource):
         Returns a list of (CalEvent, EventAction) for every row modified or deleted:
         the master (UPDATE) followed by each soft-deleted detached occurrence (DELETE).
         """
-        master: CalEvent | None = self._repo_event.find_master_by_uid(self._calendar.key, uid)
+        master: CalEvent | None = self._repo_event.find_master_by_uid(self._calendar.require_key, uid)
         if master is None or master.recurrence_rule is None:
             return []
         master.recurrence_rule.until = until
@@ -260,11 +272,11 @@ class CalendarSourceDb(CalendarSource):
         self._upsert_reminder_if_relevant(master)
         touched: list[tuple[CalEvent, EventAction]] = [(master, EventAction.UPDATE)]
 
-        detached: list[CalEvent] = self._repo_event.find_detached_occurrences(self._calendar.key, uid)
+        detached: list[CalEvent] = self._repo_event.find_detached_occurrences(self._calendar.require_key, uid)
         for occ in detached:
             if occ.recurrence_id is not None and occ.recurrence_id >= from_dt:
-                self._repo_event.delete_by_key(self._calendar.key, occ.key)
-                self._repo_reminder.delete(occ.key)
+                self._repo_event.delete_by_key(self._calendar.require_key, occ.require_key)
+                self._repo_reminder.delete(occ.require_key)
                 touched.append((occ, EventAction.DELETE))
         if len(touched) > 1:
             logger_calendar.debug("Soft-deleted %d future detached occurrence(s) for uid=%s", len(touched) - 1, uid)
@@ -278,7 +290,7 @@ class CalendarSourceDb(CalendarSource):
         when an occurrence is cancelled.
         RFC 5545 §3.8.5.1: EXDATE lists datetime values excluded from RRULE expansion.
         """
-        master: CalEvent | None = self._repo_event.find_master_by_uid(self._calendar.key, uid)
+        master: CalEvent | None = self._repo_event.find_master_by_uid(self._calendar.require_key, uid)
         if master is None:
             return
         if dt not in (master.recurrence_exceptions or []):
@@ -293,13 +305,13 @@ class CalendarSourceDb(CalendarSource):
         Reminders are not cleaned up here because soft-deleted events are filtered
         out by find_pending callers. Hard-delete via purge_deleted handles full cleanup.
         """
-        self._repo_event.delete(self._calendar.key, uid)
+        self._repo_event.delete(self._calendar.require_key, uid)
         self._bump_ctag()
 
 
     def delete_by_key(self, key: str) -> None:
         """Soft-delete a single event row by its opaque key and bump ctag."""
-        self._repo_event.delete_by_key(self._calendar.key, key)
+        self._repo_event.delete_by_key(self._calendar.require_key, key)
         self._repo_reminder.delete(key)
         self._bump_ctag()
 
@@ -309,10 +321,10 @@ class CalendarSourceDb(CalendarSource):
         Adding to EXDATE prevents the original slot from reappearing in RRULE expansion
         after the detached row is gone.
         """
-        master: CalEvent | None = self._repo_event.find_master_by_uid(self._calendar.key, occurrence.uid)
-        if master is not None and occurrence.recurrence_id not in (master.recurrence_exceptions or []):
-            master.recurrence_exceptions = list(master.recurrence_exceptions or []) + [occurrence.recurrence_id]
+        master: CalEvent | None = self._repo_event.find_master_by_uid(self._calendar.require_key, occurrence.require_uid)
+        if master is not None and occurrence.require_recurrence_id not in (master.recurrence_exceptions or []):
+            master.recurrence_exceptions = list(master.recurrence_exceptions or []) + [occurrence.require_recurrence_id]
             self._repo_event.update(master, self._date_end_recurrence(master))
-        self._repo_event.delete_by_key(self._calendar.key, occurrence.key)
-        self._repo_reminder.delete(occurrence.key)
+        self._repo_event.delete_by_key(self._calendar.require_key, occurrence.require_key)
+        self._repo_reminder.delete(occurrence.require_key)
         self._bump_ctag()

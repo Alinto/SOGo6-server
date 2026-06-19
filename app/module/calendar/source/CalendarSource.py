@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from app.module.calendar.rrule.RecurrenceScopeProcessor import EventAction
 from app.module.calendar.rrule.RruleEngine import RruleEngine
 from app.utils import errors as err
+from app.utils.datetime.DateTimeUtils import to_utc
 from app.utils.exceptions import RequestException
 
 if TYPE_CHECKING:
@@ -48,9 +49,9 @@ class CalendarSource(ABC):  # pylint: disable=too-many-public-methods
     ) -> list[CalEvent]:
         """Return events overlapping [start, end], sorted by date_start ASC.
 
-        With ``expand=True`` (default): resolve bounds → fetch → expand recurring → filter.
+        With ``expand=True`` (default): resolve bounds -> fetch -> expand recurring -> filter.
         With ``expand=False`` (export): recurring masters keep their RRULE and are returned
-        as-is — no expansion, no Python date filter (the SQL fetch already bounds the range)
+        as-is - no expansion, no Python date filter (the SQL fetch already bounds the range)
         so the recipient calendar can rebuild the series. The upper bound also defaults to
         ``9999-12-31`` in that mode to capture future occurrences.
 
@@ -99,10 +100,8 @@ class CalendarSource(ABC):  # pylint: disable=too-many-public-methods
         else:
             resolved_end = datetime.now(timezone.utc)
 
-        if resolved_start.tzinfo is None:
-            resolved_start = resolved_start.replace(tzinfo=timezone.utc)
-        if resolved_end.tzinfo is None:
-            resolved_end = resolved_end.replace(tzinfo=timezone.utc)
+        resolved_start = to_utc(resolved_start)
+        resolved_end = to_utc(resolved_end)
 
         raw: list[CalEvent] = fetch(resolved_start, resolved_end, search)
         if expand:
@@ -129,7 +128,7 @@ class CalendarSource(ABC):  # pylint: disable=too-many-public-methods
 
         for event in events:
             if event.recurrence_id is not None:
-                overrides_by_uid.setdefault(event.uid, []).append(event)
+                overrides_by_uid.setdefault(event.require_uid, []).append(event)
             elif event.recurrence_rule is not None:
                 masters.append(event)
             else:
@@ -139,7 +138,7 @@ class CalendarSource(ABC):  # pylint: disable=too-many-public-methods
         for master in masters:
             result.extend(
                 self._rrule_engine.expand(
-                    master, start, end, overrides_by_uid.get(master.uid)
+                    master, start, end, overrides_by_uid.get(master.require_uid)
                 )
             )
         return result
@@ -165,17 +164,20 @@ class CalendarSource(ABC):  # pylint: disable=too-many-public-methods
         return result
 
     def _filter_date_start(self, events: list[CalEvent], start: datetime) -> list[CalEvent]:
-        """Keep events that end at or after start (not already finished)."""
-        return [e for e in events if e.date_end >= start]
+        """Keep events that end at or after start (not already finished).
+
+        A task with no due date has no end, so it never counts as finished and is kept.
+        """
+        return [e for e in events if e.date_end is None or e.date_end >= start]
 
     def _filter_date_end(self, events: list[CalEvent], end: datetime) -> list[CalEvent]:
         """Keep events that start at or before end (not in the future)."""
-        return [e for e in events if e.date_start <= end]
+        return [e for e in events if e.require_date_start <= end]
 
     def search(self, events: list[CalEvent], query: str) -> list[CalEvent]:
         """Keep events matching query in title, description or location.
 
-        Matching is case-insensitive and accent-insensitive: "etape" matches "Étape".
+        Matching is case-insensitive and accent-insensitive: "etape" matches an accented "Etape".
         """
         needle: str = self._fold(query)
         return [
@@ -228,20 +230,25 @@ class CalendarSource(ABC):  # pylint: disable=too-many-public-methods
         """Return the detached occurrence matching uid + recurrence_id, or None."""
         return None
 
+    def get_sync_metadata(self) -> list:
+        """Return lightweight sync metadata for every event. Empty on sources without sync support."""
+        return []
+
     @staticmethod
     def _compute_realigned_dates(
         occ: CalEvent, delta: timedelta,
-    ) -> tuple[datetime, datetime, datetime]:
+    ) -> tuple[datetime, datetime, datetime | None]:
         """Compute the realigned recurrence_id, date_start and date_end for a detached occurrence.
 
         Shifts recurrence_id by the master delta while preserving the individual time offset
         the user may have applied to this occurrence. Returns (new_recurrence_id, new_start, new_end).
+        A task occurrence with no due date keeps new_end at None.
         """
-        occ_duration: timedelta = occ.date_end - occ.date_start
-        new_recurrence_id: datetime = occ.recurrence_id + delta
-        time_offset: timedelta = occ.date_start - occ.recurrence_id
+        occ_duration: timedelta = occ.duration
+        new_recurrence_id: datetime = occ.require_recurrence_id + delta
+        time_offset: timedelta = occ.require_date_start - occ.require_recurrence_id
         new_start: datetime = new_recurrence_id + time_offset
-        new_end: datetime = new_start + occ_duration
+        new_end: datetime | None = new_start + occ_duration if occ.date_end is not None else None
         return new_recurrence_id, new_start, new_end
 
     def realign_detached_occurrences(self, uid: str, old_start: datetime, new_start: datetime) -> list[tuple[CalEvent, EventAction]]:
@@ -270,6 +277,9 @@ class CalendarSource(ABC):  # pylint: disable=too-many-public-methods
         """Soft-delete an event by uid. Raises NOT_SUPPORTED on read-only sources."""
         raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
 
+    def delete_by_key(self, key: str) -> None:
+        """Soft-delete a single event by its opaque key. Raises NOT_SUPPORTED on read-only sources."""
+        raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
 
     def delete_detached_occurrence(self, occurrence: CalEvent) -> None:
         """Soft-delete a detached occurrence and add its recurrence_id to the master EXDATE.
@@ -283,7 +293,7 @@ class CalendarSource(ABC):  # pylint: disable=too-many-public-methods
         """Truncate a recurring series at `until` and soft-delete future detached occurrences.
 
         Called on the organizer's and each attendee's source as part of a THISANDFUTURE split.
-        No-op on read-only sources — only DB-backed sources hold mutable recurring events.
+        No-op on read-only sources - only DB-backed sources hold mutable recurring events.
         Returns a list of (CalEvent, EventAction) for every row touched.
         """
         return []

@@ -1,0 +1,91 @@
+"""Unit tests for RepositoryContact pure helpers (search vector + row mapping)."""
+from unittest.mock import MagicMock
+
+from app.config.db import tables as tbl
+from app.module.contact.model.CardContact import CardContact
+from app.module.contact.model.CardEmail import CardEmail
+from app.module.contact.model.enums.CardKind import CardKind
+from app.module.contact.repository.RepositoryContact import RepositoryContact
+from app.module.contact.serializer.CardContactSerializerDict import CardContactSerializerDict
+
+_COLS = tuple(col.name for col in tbl.ALL_CT_COL)
+_serializer = CardContactSerializerDict()
+
+
+def _row(blob, **overrides):
+    base = {name: None for name in _COLS}
+    base.update(id=1, key="ct-k", addressbook_key="ab-k", uid="u1", kind="individual",
+                last_name="Doe", first_name="John", organization=None, display_name="John Doe",
+                is_deleted=False, search_vector="", contact_data=blob)
+    base.update(overrides)
+    return tuple(base[name] for name in _COLS)
+
+
+# ========== _build_search_vector ==========
+
+def test_build_search_vector_includes_names_org_and_emails():
+    contact = CardContact(display_name="Joel Foo", organization="Acme", nickname="Jojo",
+                          emails=[CardEmail(value="joel@acme.com")])
+    vector = RepositoryContact._build_search_vector(contact)
+    for token in ("joel", "foo", "acme", "jojo", "joel@acme.com"):
+        assert token in vector
+
+
+def test_build_search_vector_strips_accents():
+    vector = RepositoryContact._build_search_vector(CardContact(display_name="Joël"))
+    assert "joel" in vector
+
+
+# ========== _row_to_contact ==========
+
+def test_row_to_contact_rebuilds_from_blob_and_overrides_relational():
+    blob = _serializer.serialize(CardContact(
+        uid="u1", display_name="John Doe", first_name="John", last_name="Doe",
+        kind=CardKind.INDIVIDUAL, emails=[CardEmail(value="john@x.com", types=["work"])],
+    ))
+    contact = RepositoryContact._row_to_contact(_row(blob, key="ct-k", last_name="Override"))
+    # Content fields come from the blob...
+    assert contact.emails == [CardEmail(value="john@x.com", types=["work"])]
+    # ...relational columns are authoritative.
+    assert contact.key == "ct-k"
+    assert contact.db_id == 1
+    assert contact.addressbook_key == "ab-k"
+    assert contact.last_name == "Override"
+
+
+# ========== delete_all ==========
+
+def test_delete_all_soft_tombstones_and_detaches():
+    db = MagicMock()
+    RepositoryContact(db).delete_all("ab-k", hard_delete=False)
+    db.delete_row_in_table.assert_not_called()
+    kwargs = db.update_in_table.call_args.kwargs
+    cols, vals = kwargs["column_tuple"], kwargs["values_list"]
+    assert vals[cols.index(tbl.COL_CT_IS_DELETED.name)] is True
+    assert vals[cols.index(tbl.COL_CT_ADDRESSBOOK_KEY.name)] is None  # detached from the deleted book
+
+
+def test_delete_all_hard_physically_removes():
+    db = MagicMock()
+    RepositoryContact(db).delete_all("ab-k", hard_delete=True)
+    db.delete_row_in_table.assert_called_once()
+    db.update_in_table.assert_not_called()
+
+
+# ========== transverse listing (find/count_by_addressbooks) ==========
+
+def test_find_by_addressbooks_empty_keys_skips_query():
+    db = MagicMock()
+    repo = RepositoryContact(db)
+    assert repo.find_by_addressbooks([]) == []
+    assert repo.count_by_addressbooks([]) == 0
+    db.select_from_table.assert_not_called()  # no SQL for a user with no books
+
+
+def test_find_by_addressbooks_queries_once_paginated():
+    db = MagicMock()
+    db.select_from_table.return_value = iter([])
+    RepositoryContact(db).find_by_addressbooks(["a", "b", "c"], search="x", offset=5, limit=10)
+    kwargs = db.select_from_table.call_args.kwargs
+    assert kwargs["offset"] == 5 and kwargs["limit"] == 10  # DB-level pagination, single query
+    db.select_from_table.assert_called_once()
