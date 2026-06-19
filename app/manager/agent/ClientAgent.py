@@ -17,8 +17,8 @@ if TYPE_CHECKING:
     from app.agent.jobs.JobCanceller import JobCanceller
     from app.agent.jobs.JobPersistency import JobPersistency
     from app.agent.jobs.JobRequest import JobRequest
-    from app.agent.jobs.job_large_store.JobLargeStore import JobLargeStore
     from app.manager.cache.ClientRedis import ClientRedis
+    from app.utils.file.FileAdapter import FileAdapter
 
 
 class ClientAgent:
@@ -26,17 +26,17 @@ class ClientAgent:
 
     def __init__(
         self, agent: Agent, persistency: JobPersistency, canceller: JobCanceller,
-        cache: ClientRedis, large_store: JobLargeStore,
+        cache: ClientRedis, file: FileAdapter,
     ) -> None:
         self._agent: Agent = agent
         self._persistency: JobPersistency = persistency
         self._canceller: JobCanceller = canceller
         self._cache: ClientRedis = cache
-        self._large_store: JobLargeStore = large_store
+        self._file: FileAdapter = file
 
-    def get_large_store(self) -> JobLargeStore:
-        """The process-wide large-blob store, injected at wiring."""
-        return self._large_store
+    def get_large_store(self) -> FileAdapter:
+        """Return the store that persists a task's large result until the user fetches it."""
+        return self._file
 
     def enqueue(
         self, request: JobRequest, *,

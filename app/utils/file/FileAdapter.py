@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING
 
 from app.utils import errors as err
 from app.utils.exceptions import RequestException
 from app.utils.media.MediaType import MediaType
 from app.utils.uri.DataUri import DataUri
+
+if TYPE_CHECKING:
+    from app.utils.file.FileAdapterSource import FileAdapterSource
 
 
 class FileAdapter(ABC):
@@ -14,9 +18,13 @@ class FileAdapter(ABC):
     The shared list-level policy (save_all/load_all/purge_orphans) offloads inline data URIs,
     deduplicates by content and reclaims orphans; subclasses implement the per-item primitives
     (save/load/matches/delete) over a concrete backend (database now, file share or WebDAV later).
+    Each instance is scoped to one owner source so co-located uses of the same store stay isolated.
     """
 
     REFERENCE_PREFIX: str = "sogo:file:"
+
+    def __init__(self, source: FileAdapterSource) -> None:
+        self._source: FileAdapterSource = source
 
     @staticmethod
     def is_reference(value: str) -> bool:
@@ -116,6 +124,10 @@ class FileAdapter(ABC):
         for reference in orphans:
             self.delete(reference)
         return len(orphans)
+
+    @abstractmethod
+    def purge_older_than(self, max_age_seconds: int) -> int:
+        """Delete this owner's blobs older than `max_age_seconds`; returns the count removed."""
 
     @abstractmethod
     def save(self, data: bytes, content_type: str) -> str:

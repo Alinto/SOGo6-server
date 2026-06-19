@@ -19,7 +19,8 @@ def _build():
     canceller = MagicMock()
     cache = MagicMock()
     cache.set.return_value = True
-    client = ClientAgent(agent, persistency, canceller, cache, MagicMock())
+    file = MagicMock()
+    client = ClientAgent(agent, persistency, canceller, cache, file)
     return client, agent, persistency, canceller, cache
 
 

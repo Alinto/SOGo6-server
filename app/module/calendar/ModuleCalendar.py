@@ -34,7 +34,6 @@ from app.module.calendar.repository.RepositoryReminder import RepositoryReminder
 from app.module.calendar.sync.SyncEngine import SyncEngine
 from app.module.calendar.model.CalEvent import CalEvent
 from app.module.calendar.rrule.RecurrenceScopeProcessor import EventAction, RecurrenceScopeProcessor, ScopeResult
-from app.agent.jobs.job_large_store.JobLargeRef import JobLargeRef
 from app.module.calendar.jobs.JobRequestExportIcs import JobRequestExportIcs
 from app.module.calendar.jobs.JobRequestImportIcs import JobRequestImportIcs
 from app.module.calendar.source.CalendarSources import CalendarSources
@@ -630,7 +629,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         self._acl.check_permission(source.calendar.permissions, CalendarPermissionAction.CREATE)
         if not source.is_writable():
             raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
-        ref: JobLargeRef = self._agent.get_large_store().save(ics_bytes, "text/calendar")
+        ref: str = self._agent.get_large_store().save(ics_bytes, "text/calendar")
         try:
             request: JobRequestImportIcs = JobRequestImportIcs(calendar_key=key, source_ref=ref)
             return self._agent.enqueue(request, user_uid=user.uid)

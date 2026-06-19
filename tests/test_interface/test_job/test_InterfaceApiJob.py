@@ -152,29 +152,25 @@ def test_cancel_job_forbids_system_job():
 
 # ========== get_result ==========
 
-def _ref(content_type="text/calendar", locator="x"):
-    return {"content_type": content_type, "locator": locator}
-
-
 def test_get_result_streams_blob_with_native_content_type():
     inter = InterfaceApiJob(user=_user("alice"))
-    state = _state(result={"large_result": _ref("text/calendar"), "filename": "cal.ics"})
+    state = _state(result={"large_result": "sogo:file:x", "filename": "cal.ics"})
     with patch("app.interface.job.InterfaceApiJob.sogo_agent") as agent:
         agent.return_value.get.return_value = state
-        agent.return_value.get_large_store.return_value.load.return_value = b"BEGIN:VCALENDAR\r\n"
+        agent.return_value.get_large_store.return_value.load.return_value = (b"BEGIN:VCALENDAR\r\n", "text/calendar")
         body, status, headers = inter.get_result("job-1")
     assert status == 200
     assert body.startswith(b"BEGIN:VCALENDAR")
-    assert headers["Content-Type"] == "text/calendar"   # from the ref, not the blob
+    assert headers["Content-Type"] == "text/calendar"   # from the stored blob's content type
     assert "Content-Disposition" not in headers
 
 
 def test_get_result_adds_attachment_header_when_download_true():
     inter = InterfaceApiJob(user=_user("alice"))
-    state = _state(result={"large_result": _ref(), "filename": "cal.ics"})
+    state = _state(result={"large_result": "sogo:file:x", "filename": "cal.ics"})
     with patch("app.interface.job.InterfaceApiJob.sogo_agent") as agent:
         agent.return_value.get.return_value = state
-        agent.return_value.get_large_store.return_value.load.return_value = b"x"
+        agent.return_value.get_large_store.return_value.load.return_value = (b"x", "text/calendar")
         _, _, headers = inter.get_result("job-1", download=True)
     assert "attachment" in headers["Content-Disposition"]
     assert "cal.ics" in headers["Content-Disposition"]
@@ -182,10 +178,10 @@ def test_get_result_adds_attachment_header_when_download_true():
 
 def test_get_result_falls_back_to_job_id_filename_when_missing():
     inter = InterfaceApiJob(user=_user("alice"))
-    state = _state(result={"large_result": _ref("application/octet-stream")})  # no filename
+    state = _state(result={"large_result": "sogo:file:x"})  # no filename
     with patch("app.interface.job.InterfaceApiJob.sogo_agent") as agent:
         agent.return_value.get.return_value = state
-        agent.return_value.get_large_store.return_value.load.return_value = b"x"
+        agent.return_value.get_large_store.return_value.load.return_value = (b"x", "application/octet-stream")
         _, _, headers = inter.get_result("job-1", download=True)
     assert "job-1.bin" in headers["Content-Disposition"]
 
@@ -243,10 +239,10 @@ def test_get_result_returns_no_result_when_state_result_is_none():
     assert body["error_code"] == err.ERROR_JOB_NO_RESULT.c
 
 
-@pytest.mark.parametrize("exc", [FileNotFoundError("gone"), ValueError("bad ref"), OSError("io")])
+@pytest.mark.parametrize("exc", [ValueError("bad ref"), KeyError("k"), OSError("io")])
 def test_get_result_never_500s_when_store_raises(exc):
     inter = InterfaceApiJob(user=_user("alice"))
-    state = _state(result={"large_result": _ref(locator="/x")})
+    state = _state(result={"large_result": "sogo:file:x"})
     with patch("app.interface.job.InterfaceApiJob.sogo_agent") as agent:
         agent.return_value.get.return_value = state
         agent.return_value.get_large_store.return_value.load.side_effect = exc
@@ -256,12 +252,23 @@ def test_get_result_never_500s_when_store_raises(exc):
     assert body["data"] is None
 
 
-def test_get_result_returns_no_result_on_malformed_ref():
-    # A stored large_result missing a key -> JobLargeRef.from_dict raises KeyError ->
-    # must surface a clean 410, never a 500.
+def test_get_result_returns_no_result_on_stale_non_string_ref():
+    # A result stored by an older wire format (a ref dict) must degrade to a clean 410, never a 500.
     inter = InterfaceApiJob(user=_user("alice"))
-    state = _state(result={"large_result": {"locator": "/x"}})  # no content_type
+    state = _state(result={"large_result": {"content_type": "text/calendar", "locator": "x"}})
     with patch("app.interface.job.InterfaceApiJob.sogo_agent") as agent:
         agent.return_value.get.return_value = state
+        body, _ = inter.get_result("job-1")
+    assert body["error_code"] == err.ERROR_JOB_NO_RESULT.c
+
+
+def test_get_result_returns_no_result_when_blob_missing():
+    # The ref points at a blob that no longer exists (expired / cleaned up): load returns
+    # None -> a clean 410, never a 500.
+    inter = InterfaceApiJob(user=_user("alice"))
+    state = _state(result={"large_result": "sogo:file:gone"})
+    with patch("app.interface.job.InterfaceApiJob.sogo_agent") as agent:
+        agent.return_value.get.return_value = state
+        agent.return_value.get_large_store.return_value.load.return_value = None
         body, _ = inter.get_result("job-1")
     assert body["error_code"] == err.ERROR_JOB_NO_RESULT.c

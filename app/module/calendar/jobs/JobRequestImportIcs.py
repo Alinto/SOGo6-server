@@ -9,16 +9,14 @@ from dataclasses import dataclass
 from typing import Any, ClassVar
 
 from app.agent.jobs.JobRequest import JobRequest
-from app.agent.jobs.job_large_store.JobLargeRef import JobLargeRef
 
 
 @dataclass
 class JobRequestImportIcs(JobRequest):
     """Inputs for an ICS import job.
 
-    The uploaded file is offloaded to the large store before enqueue; only its
-    reference (``source_ref``) travels in the payload, not the bytes. The reference
-    is serialised to a JSON-safe dict for the broker and rebuilt worker-side.
+    The uploaded file is offloaded to the blob store before enqueue; only its
+    reference string (``source_ref``) travels in the payload, not the bytes.
     """
 
     name: ClassVar[str] = "calendar.import.ics"
@@ -27,11 +25,11 @@ class JobRequestImportIcs(JobRequest):
     resume: ClassVar[bool] = False
 
     calendar_key: str = ""
-    source_ref: JobLargeRef | None = None
+    source_ref: str | None = None
 
     def payload(self) -> dict[str, Any]:
         """Serialise dataclass fields into the dict sent through the broker."""
         return {
             "calendar_key": self.calendar_key,
-            "source_ref": self.source_ref.to_dict() if self.source_ref is not None else None,
+            "source_ref": self.source_ref,
         }

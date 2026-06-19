@@ -9,7 +9,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from app.agent.jobs.JobStatus import JobStatus
-from app.agent.jobs.job_large_store.JobLargeRef import JobLargeRef
 from app.agent.jobs.serializer.JobStateSerializerDict import JobStateSerializerDict
 from app.service import sogo_agent
 from app.utils.api.ApiBaseResponse import create_api_base_response
@@ -128,24 +127,24 @@ class InterfaceApiJob:
             if state.status != JobStatus.SUCCESS:
                 raise RequestException(error=ERROR_JOB_NOT_READY)
             result: dict[str, Any] = state.result or {}
-            raw_ref: dict[str, Any] | None = result.get("large_result")
-            if not raw_ref:
+            raw_ref: Any = result.get("large_result")
+            if not isinstance(raw_ref, str) or not raw_ref:
+                # No offloaded result, or a stale reference from a previous wire format.
                 raise RequestException(error=ERROR_JOB_NO_RESULT)
             try:
-                # TODO streaming: load() pulls the whole blob into memory. The client
-                # favours the FILE backend, where serving via send_file(path) would
-                # stream by chunks instead - worth it for large calendars under
-                # concurrent downloads. Keep bytes for now (size-bounded payloads).
-                ref: JobLargeRef = JobLargeRef.from_dict(raw_ref)
-                payload: bytes = sogo_agent().get_large_store().load(ref)
-            except (FileNotFoundError, ValueError, KeyError, OSError) as exc:
-                # The result has expired, been cleaned up, or is unreachable (e.g. a
-                # FILE backend whose directory is not shared with this process).
-                logger_api.error(
-                    "get_result: large result unreadable for job %s: %s", job_id, exc,
-                )
+                # TODO streaming: load() pulls the whole blob into memory. Serving via a
+                # streamed response would be better for large calendars under concurrent
+                # downloads. Keep bytes for now (size-bounded payloads).
+                loaded: tuple[bytes, str] | None = sogo_agent().get_large_store().load(raw_ref)
+            except (ValueError, KeyError, OSError) as exc:
+                logger_api.error("get_result: large result unreadable for job %s: %s", job_id, exc)
                 raise RequestException(error=ERROR_JOB_NO_RESULT) from exc
-            headers: dict[str, str] = {"Content-Type": ref.content_type}
+            if loaded is None:
+                # The result has expired or been cleaned up.
+                logger_api.error("get_result: large result missing/expired for job %s", job_id)
+                raise RequestException(error=ERROR_JOB_NO_RESULT)
+            payload, content_type = loaded
+            headers: dict[str, str] = {"Content-Type": content_type}
             if download:
                 filename: str = result.get("filename") or f"{job_id}.bin"
                 headers["Content-Disposition"] = f'attachment; filename="{filename}"'
