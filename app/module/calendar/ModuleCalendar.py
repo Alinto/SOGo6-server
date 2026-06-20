@@ -29,6 +29,7 @@ from app.module.calendar.model.CalSyncStatus import CalSyncStatus
 from app.module.calendar.model.enums.ReminderMethod import ReminderMethod
 from app.module.calendar.model.enums.CalendarSyncStatus import CalendarSyncStatus
 from app.module.calendar.reminder.ReminderEngine import ReminderEngine
+from app.module.calendar.repository.RepositoryCalendar import RepositoryCalendar
 from app.module.calendar.repository.RepositoryEvent import RepositoryEvent
 from app.module.calendar.repository.RepositoryReminder import RepositoryReminder
 from app.module.calendar.sync.SyncEngine import SyncEngine
@@ -36,8 +37,10 @@ from app.module.calendar.model.CalEvent import CalEvent
 from app.module.calendar.rrule.RecurrenceScopeProcessor import EventAction, RecurrenceScopeProcessor, ScopeResult
 from app.module.calendar.jobs.JobRequestExportIcs import JobRequestExportIcs
 from app.module.calendar.jobs.JobRequestImportIcs import JobRequestImportIcs
+from app.module.calendar.jobs.JobRequestSyncExternalManual import JobRequestSyncExternalManual
 from app.module.calendar.source.CalendarSources import CalendarSources
 from app.utils import errors as err
+from app.utils.datetime.DateTimeUtils import parse_iso, to_utc
 from app.utils.exceptions import BugException, RequestException
 from app.utils.logger.logger import logger_calendar
 from app.utils.maths.sogo_hash import generate_uuid, get_unique_token
@@ -755,9 +758,28 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
     #
     # External calendar sync
     #
+    def enqueue_sync(self, user: User, key: str) -> str:
+        """Enqueue a manual sync of an external ICS calendar and return the job id.
+
+        ACL/existence and source-type checks run synchronously so the caller sees errors immediately
+        (404 / 403 / unsupported). The fetch + mirror itself runs in the worker.
+
+        :param user: The user triggering the sync.
+        :param key: Opaque calendar key.
+        :return: id of the enqueued Agent job.
+        :raises RequestException: ERROR_CALENDAR_NOT_FOUND, ERROR_CALENDAR_ACCESS_DENIED,
+            ERROR_CALENDAR_NOT_SUPPORTED, or ERROR_JOB_CONCURRENT_LIMIT.
+        """
+        if self._agent is None:
+            raise RuntimeError("ModuleCalendar.enqueue_sync requires a ClientAgent")
+        source: CalendarSource = self.get_calendar(user, key)
+        if source.calendar.source_type != CalendarSourceType.ICS:
+            raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
+        request: JobRequestSyncExternalManual = JobRequestSyncExternalManual(calendar_key=key)
+        return self._agent.enqueue(request, user_uid=user.uid)
+
     def sync_external_calendar(self, user: User, key: str) -> CalSyncResult:
-        """Run a synchronous sync for an external ICS calendar."""
-        # TODO: dispatch as Celery task instead of synchronous call
+        """Run the sync of an external ICS calendar (worker-side counterpart of the manual enqueue)."""
         source: CalendarSource = self.get_calendar(user, key)
         if source.calendar.source_type != CalendarSourceType.ICS:
             raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
@@ -765,6 +787,49 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
             raise BugException("ModuleCalendar requires a cache for calendar sync")
         engine: SyncEngine = SyncEngine(sources=self._sources, cache=self._cache)
         return engine.sync(source.calendar)
+
+    def sync_all_due_external(self) -> dict[str, int]:
+        """Sync every external ICS calendar whose interval has elapsed. System-wide (no user scope).
+
+        Used by the periodic auto-sync job. Each calendar is synced independently: a failure is counted
+        and never aborts the batch. A calendar already RUNNING, or not yet due, is skipped.
+
+        :return: aggregate counts ``{"total", "synced", "failed", "skipped"}``.
+        """
+        if self._cache is None:
+            raise BugException("ModuleCalendar requires a cache for calendar sync")
+        calendars: list[CalCalendar] = RepositoryCalendar(self._db).find_all_external()
+        engine: SyncEngine = SyncEngine(sources=self._sources, cache=self._cache)
+        now: datetime = datetime.now(timezone.utc)
+        counts: dict[str, int] = {"total": 0, "synced": 0, "failed": 0, "skipped": 0}
+        for calendar in calendars:
+            counts["total"] += 1
+            if not self._is_sync_due(calendar, now):
+                counts["skipped"] += 1
+                continue
+            try:
+                engine.sync(calendar)
+                counts["synced"] += 1
+            except Exception:  # pylint: disable=broad-exception-caught
+                # One calendar (bad URL, unreachable host, parse error) must not abort the whole sweep.
+                logger_calendar.exception("Auto-sync failed for calendar %s", calendar.key)
+                counts["failed"] += 1
+        return counts
+
+    @staticmethod
+    def _is_sync_due(calendar: CalCalendar, now: datetime) -> bool:
+        """Return True when an external calendar is due for an auto-sync (interval elapsed, not running)."""
+        config: dict = calendar.sync_config or {}
+        if config.get("sync_status") == CalendarSyncStatus.RUNNING.value:
+            return False
+        last_sync_raw: str | None = config.get("last_sync")
+        if not last_sync_raw:
+            return True  # never synced yet
+        last_sync: datetime | None = parse_iso(last_sync_raw)
+        if last_sync is None:
+            return True
+        interval_minutes: int = int(config.get("sync_interval_minutes") or 60)
+        return (now - to_utc(last_sync)) >= timedelta(minutes=interval_minutes)
 
     def get_sync_status(self, user: User, key: str) -> CalSyncStatus:
         """Return the sync status for an external calendar."""

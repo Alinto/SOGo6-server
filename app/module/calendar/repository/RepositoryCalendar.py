@@ -173,6 +173,19 @@ class RepositoryCalendar:
         )
         return [self._row_to_calendar(row) for row in rows]
 
+    def find_all_external(self) -> list[CalCalendar]:
+        """Return every external ICS calendar across all users, ordered by id.
+
+        System-wide (no user filter): used by the periodic auto-sync sweep, which has no user context.
+        """
+        rows = self._db.select_from_table(
+            table_name=tbl.TABLE_CALENDAR.name,
+            column_tuple=_ALL_COLS,
+            condition=EqualCondition(tbl.COL_CAL_SOURCE_TYPE.name, CalendarSourceType.ICS.value),
+            sort_by=tbl.COL_ID.name,
+        )
+        return [self._row_to_calendar(row) for row in rows]
+
     def update(self, cal: CalCalendar) -> None:
         """Update all mutable columns of an existing calendar. cal.id must be set."""
         if cal.id is None:

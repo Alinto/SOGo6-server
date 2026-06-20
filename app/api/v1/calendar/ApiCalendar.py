@@ -420,9 +420,9 @@ class ApiExternalCalendarSync(MethodView):
         interface: InterfaceApiCalendarCalendar = g.inter
         return interface.get_sync_status(key)
 
-    @blp.response(200, SyncTriggerResponseSchema)
+    @blp.response(202, SyncTriggerResponseSchema)
     def post(self, key: str) -> ResponseReturnValue:
-        """Trigger an immediate sync for an external calendar."""
+        """Enqueue a manual sync for an external calendar (returns a job_id)."""
         logger_api.debug("POST /external-calendars/%s/sync user=%s", key, g.user.uid)
         interface: InterfaceApiCalendarCalendar = g.inter
         return interface.sync_external_calendar(key)

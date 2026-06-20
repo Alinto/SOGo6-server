@@ -28,7 +28,6 @@ from app.module.calendar.serializer.CalCalendarSerializerDict import CalCalendar
 from app.module.calendar.serializer.CalCalendarsSerializerList import CalCalendarsSerializerList
 from app.module.calendar.serializer.CalEventReminderSerializerDict import CalEventReminderSerializerDict
 from app.module.calendar.serializer.CalFreeBusyResultSerializerDict import CalFreeBusyResultSerializerDict
-from app.module.calendar.serializer.CalSyncResultSerializerDict import CalSyncResultSerializerDict
 from app.module.calendar.serializer.CalSyncStatusSerializerDict import CalSyncStatusSerializerDict
 from app.module.user.ModuleUserProfile import ModuleUserProfile
 from app.service import sogo_agent, sogo_cache
@@ -72,7 +71,6 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         self._calendars_serializer: CalCalendarsSerializerList = CalCalendarsSerializerList()
         self._freebusy_serializer: CalFreeBusyResultSerializerDict = CalFreeBusyResultSerializerDict()
         self._reminder_serializer: CalEventReminderSerializerDict = CalEventReminderSerializerDict()
-        self._sync_result_serializer: CalSyncResultSerializerDict = CalSyncResultSerializerDict()
         self._sync_status_serializer: CalSyncStatusSerializerDict = CalSyncStatusSerializerDict()
 
     def _calendar_user_for(self, calendar_key: str) -> CalendarUser:
@@ -438,10 +436,14 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
             return create_api_base_response(None, ex.error)
 
     def sync_external_calendar(self, key: str) -> tuple[dict[str, Any], int]:
-        """Trigger a sync for an external ICS calendar."""
+        """Enqueue a manual sync of an external ICS calendar and return its ``job_id`` (202).
+
+        The sync runs in the background; the caller polls ``GET /jobs/<job_id>`` for the counters,
+        or ``GET /external-calendars/<key>/sync`` for the durable sync status.
+        """
         try:
-            result = self.module.sync_external_calendar(self.user, key)
-            return create_api_base_response(self._sync_result_serializer.serialize(result))
+            job_id: str = self.module.enqueue_sync(self.user, key)
+            return create_api_base_response({"job_id": job_id}, code=202)
         except RequestException as ex:
             logger_api.error("sync_external_calendar failed for user %s key %s: %s", self.user.uid, key, ex)
             return create_api_base_response(None, ex.error)
