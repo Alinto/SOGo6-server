@@ -19,9 +19,9 @@ def _payload(kind="addressbook", addressbook_key=None, source_ref=_UNSET, fmt="v
 
 
 def _store_agent(content=b"BEGIN:VCARD\r\nEND:VCARD\r\n"):
-    """An agent whose get_large_store().load returns (bytes, content_type); returns (agent, store)."""
+    """An agent whose get_large_store().load_text returns the decoded document; returns (agent, store)."""
     store = MagicMock()
-    store.load.return_value = (content, "text/plain")
+    store.load_text.return_value = content.decode("utf-8")
     agent = MagicMock()
     agent.get_large_store.return_value = store
     return agent, store
@@ -61,7 +61,7 @@ def test_process_loads_imports_and_deletes_the_blob():
             _payload(kind="contact", addressbook_key="k9", fmt="ldif"), user_uid="alice", job_id="j-1")
 
     assert result == {"contacts_inserted": 1, "lists_inserted": 0, "skipped": 0}
-    store.load.assert_called_once_with(_REF)
+    store.load_text.assert_called_once_with(_REF)
     inter.import_document.assert_called_once_with("contact", "k9", "BEGIN:VCARD\r\nEND:VCARD\r\n", "ldif")
     store.delete.assert_called_once_with(_REF)
 

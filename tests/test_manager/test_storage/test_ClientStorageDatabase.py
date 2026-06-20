@@ -36,7 +36,7 @@ def test_load_reads_by_key():
     with patch(f"{_MOD}.DbFileStorage", return_value=storage):
         result = _shared(storage).load(f"{_PREFIX}abc")
     assert result == (b"png", "image/png")
-    assert storage.read.call_args.args == ("abc",)
+    assert storage.read.call_args.args == ("abc", StorageSource.CONTACT)
 
 
 def test_load_ignores_plain_uri():
@@ -51,7 +51,7 @@ def test_matches_delegates_to_storage_is_equal():
     storage.is_equal.return_value = True
     with patch(f"{_MOD}.DbFileStorage", return_value=storage):
         assert _shared(storage).matches(f"{_PREFIX}abc", b"png") is True
-    assert storage.is_equal.call_args.args == ("abc", b"png")
+    assert storage.is_equal.call_args.args == ("abc", b"png", StorageSource.CONTACT)
 
 
 def test_matches_false_on_plain_uri():
@@ -65,7 +65,7 @@ def test_delete_targets_the_key():
     storage = MagicMock()
     with patch(f"{_MOD}.DbFileStorage", return_value=storage):
         _shared(storage).delete(f"{_PREFIX}abc")
-    assert storage.delete.call_args.args == ("abc",)
+    assert storage.delete.call_args.args == ("abc", StorageSource.CONTACT)
 
 
 def test_purge_older_than_delegates_with_source():

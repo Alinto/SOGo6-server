@@ -125,6 +125,27 @@ class ClientStorage(ABC):
             self.delete(reference)
         return len(orphans)
 
+    def save_text(self, text: str, content_type: str, encoding: str = "utf-8") -> str:
+        """Encode text and store it, returning its managed reference.
+
+        Writer pair of ``load_text``: callers offload a text document (an upload read back later by a
+        worker job) without dealing with bytes themselves. The upload's tolerant decoding happens once,
+        at the API read; everything stored here is written with a known ``encoding`` (utf-8 by default).
+        """
+        return self.save(text.encode(encoding), content_type)
+
+    def load_text(self, ref: str, encoding: str = "utf-8") -> str:
+        """Load a stored blob and decode it as text. Reader pair of ``save_text``.
+
+        No charset guessing: the blob was written with a known encoding (``save_text``, utf-8 by default).
+
+        :raises FileNotFoundError: the reference no longer resolves (blob purged or expired).
+        """
+        loaded: tuple[bytes, str] | None = self.load(ref)
+        if loaded is None:
+            raise FileNotFoundError(f"Blob missing or expired: {ref!r}")
+        return loaded[0].decode(encoding)
+
     @abstractmethod
     def purge_older_than(self, max_age_seconds: int) -> int:
         """Delete this owner's blobs older than `max_age_seconds`; returns the count removed."""

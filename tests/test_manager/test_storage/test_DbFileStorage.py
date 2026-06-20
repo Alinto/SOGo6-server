@@ -21,25 +21,25 @@ def test_write_inserts_key_source_data_content_type_and_hash():
 def test_is_equal_true_on_matching_content():
     db = MagicMock()
     db.select_from_table.return_value = iter([(hashlib.sha256(b"png").hexdigest(),)])
-    assert DbFileStorage(db).is_equal("k1", b"png") is True
+    assert DbFileStorage(db).is_equal("k1", b"png", "contact") is True
 
 
 def test_is_equal_false_on_different_content():
     db = MagicMock()
     db.select_from_table.return_value = iter([(hashlib.sha256(b"png").hexdigest(),)])
-    assert DbFileStorage(db).is_equal("k1", b"other") is False
+    assert DbFileStorage(db).is_equal("k1", b"other", "contact") is False
 
 
 def test_is_equal_false_when_absent():
     db = MagicMock()
     db.select_from_table.return_value = iter([])
-    assert DbFileStorage(db).is_equal("missing", b"png") is False
+    assert DbFileStorage(db).is_equal("missing", b"png", "contact") is False
 
 
 def test_read_returns_bytes_and_content_type():
     db = MagicMock()
     db.select_from_table.return_value = iter([(memoryview(b"png-bytes"), "image/png")])
-    data, content_type = DbFileStorage(db).read("k1")
+    data, content_type = DbFileStorage(db).read("k1", "contact")
     assert data == b"png-bytes" and isinstance(data, bytes)  # memoryview coerced to bytes
     assert content_type == "image/png"
 
@@ -47,14 +47,24 @@ def test_read_returns_bytes_and_content_type():
 def test_read_returns_none_when_absent():
     db = MagicMock()
     db.select_from_table.return_value = iter([])
-    assert DbFileStorage(db).read("missing") is None
+    assert DbFileStorage(db).read("missing", "contact") is None
 
 
-def test_delete_targets_the_key():
+def test_read_is_scoped_by_key_and_source():
     db = MagicMock()
-    DbFileStorage(db).delete("k1")
-    condition = db.delete_row_in_table.call_args.kwargs["condition"]
-    assert condition.param_name == tbl.COL_FS_KEY.name and condition.param_value == "k1"
+    db.select_from_table.return_value = iter([(memoryview(b"x"), "image/png")])
+    DbFileStorage(db).read("k1", "agent")
+    cond = db.select_from_table.call_args.kwargs["condition"]
+    assert cond.condition1.param_name == tbl.COL_FS_KEY.name and cond.condition1.param_value == "k1"
+    assert cond.condition2.param_name == tbl.COL_FS_SOURCE.name and cond.condition2.param_value == "agent"
+
+
+def test_delete_targets_the_key_within_its_source():
+    db = MagicMock()
+    DbFileStorage(db).delete("k1", "contact")
+    cond = db.delete_row_in_table.call_args.kwargs["condition"]
+    assert cond.condition1.param_name == tbl.COL_FS_KEY.name and cond.condition1.param_value == "k1"
+    assert cond.condition2.param_name == tbl.COL_FS_SOURCE.name and cond.condition2.param_value == "contact"
 
 
 def test_all_keys_returns_every_stored_key_of_the_source():

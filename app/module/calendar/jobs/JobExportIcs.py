@@ -45,8 +45,8 @@ class JobExportIcs(Job):
         if user_uid is None:
             raise ValueError("JobExportIcs requires a user_uid")
         req: JobRequestExportIcs = JobRequestExportIcs(**payload)
-        inter: InterfaceAgentCalendar = InterfaceAgentCalendar(process_config, user_uid)
-        ics: str = inter.export_calendar(
+        interface: InterfaceAgentCalendar = InterfaceAgentCalendar(process_config, user_uid)
+        ics: str = interface.export_calendar(
             req.calendar_key,
             date_start=parse_iso(req.date_start),
             date_end=parse_iso(req.date_end),

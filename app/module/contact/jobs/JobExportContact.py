@@ -35,8 +35,8 @@ class JobExportContact(Job):
         if user_uid is None:
             raise ValueError("JobExportContact requires a user_uid")
         req: JobRequestExportContact = JobRequestExportContact(**payload)
-        inter: InterfaceAgentContact = InterfaceAgentContact(process_config, user_uid)
-        document, filename, media_type = inter.export_document(
+        interface: InterfaceAgentContact = InterfaceAgentContact(process_config, user_uid)
+        document, filename, media_type = interface.export_document(
             req.kind, req.addressbook_key, req.item_key, req.fmt,
         )
         encoded: bytes = document.encode("utf-8")

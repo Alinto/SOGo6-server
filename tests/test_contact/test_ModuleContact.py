@@ -432,10 +432,10 @@ def _agent_module():
 
 def test_enqueue_import_addressbook_offloads_and_enqueues():
     module = _agent_module()
-    module._agent.get_large_store.return_value.save.return_value = "sogo:file:abc"
-    job_id = module.enqueue_import(_user(), ContactJobKind.ADDRESSBOOK, None, b"BEGIN:VCARD", "vcard4")
+    module._agent.get_large_store.return_value.save_text.return_value = "sogo:file:abc"
+    job_id = module.enqueue_import(_user(), ContactJobKind.ADDRESSBOOK, None, "BEGIN:VCARD", "vcard4")
     assert job_id == "job-1"
-    module._agent.get_large_store.return_value.save.assert_called_once_with(b"BEGIN:VCARD", "text/plain")
+    module._agent.get_large_store.return_value.save_text.assert_called_once_with("BEGIN:VCARD", "text/plain")
     req = module._agent.enqueue.call_args.args[0]
     assert req.kind == "addressbook" and req.source_ref == "sogo:file:abc" and req.fmt == "vcard4"
     module._sources.get_by_key.assert_not_called()  # new book: no existing-book ACL check
@@ -444,7 +444,7 @@ def test_enqueue_import_addressbook_offloads_and_enqueues():
 def test_enqueue_import_too_large_raises():
     module = _agent_module()
     with pytest.raises(RequestException) as ex:
-        module.enqueue_import(_user(), ContactJobKind.ADDRESSBOOK, None, b"x" * (10 * 1024 * 1024 + 1), "json")
+        module.enqueue_import(_user(), ContactJobKind.ADDRESSBOOK, None, "x" * (10 * 1024 * 1024 + 1), "json")
     assert ex.value.error == err.ERROR_CONTACT_IMPORT_TOO_LARGE
     module._agent.enqueue.assert_not_called()
 
@@ -452,8 +452,8 @@ def test_enqueue_import_too_large_raises():
 def test_enqueue_import_contact_checks_writable_book():
     module = _agent_module()
     module._sources.get_by_key.return_value = _fake_source(_book(key="k1"))
-    module._agent.get_large_store.return_value.save.return_value = "sogo:file:abc"
-    module.enqueue_import(_user(), ContactJobKind.CONTACT, "k1", b"x", "ldif")
+    module._agent.get_large_store.return_value.save_text.return_value = "sogo:file:abc"
+    module.enqueue_import(_user(), ContactJobKind.CONTACT, "k1", "x", "ldif")
     assert module._agent.enqueue.call_args.args[0].kind == "contact"
 
 
@@ -461,18 +461,18 @@ def test_enqueue_import_contact_unknown_book_raises_before_offload():
     module = _agent_module()
     module._sources.get_by_key.return_value = None
     with pytest.raises(RequestException) as ex:
-        module.enqueue_import(_user(), ContactJobKind.CONTACT, "missing", b"x", "ldif")
+        module.enqueue_import(_user(), ContactJobKind.CONTACT, "missing", "x", "ldif")
     assert ex.value.error == err.ERROR_CONTACT_ADDRESSBOOK_NOT_FOUND
-    module._agent.get_large_store.return_value.save.assert_not_called()
+    module._agent.get_large_store.return_value.save_text.assert_not_called()
 
 
 def test_enqueue_import_deletes_blob_when_enqueue_fails():
     module = _agent_module()
     store = module._agent.get_large_store.return_value
-    store.save.return_value = "sogo:file:abc"
+    store.save_text.return_value = "sogo:file:abc"
     module._agent.enqueue.side_effect = RuntimeError("broker down")
     with pytest.raises(RuntimeError):
-        module.enqueue_import(_user(), ContactJobKind.ADDRESSBOOK, None, b"x", "json")
+        module.enqueue_import(_user(), ContactJobKind.ADDRESSBOOK, None, "x", "json")
     store.delete.assert_called_once_with("sogo:file:abc")
 
 

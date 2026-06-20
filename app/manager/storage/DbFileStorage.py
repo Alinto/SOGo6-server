@@ -44,26 +44,27 @@ class DbFileStorage:
             values_tuple=[[key, source, data, content_type, self._hash(data), now, now]],
         )
 
-    def is_equal(self, key: str, data: bytes) -> bool:
-        """Return True when the payload stored under key has the same content as data.
+    def is_equal(self, key: str, data: bytes, source: str) -> bool:
+        """Return True when the payload stored under (key, source) has the same content as data.
 
         Compares the stored sha256 against the hash of data, reading only the hash column - the
-        blob itself is never loaded. False when the key is absent.
+        blob itself is never loaded. False when the key is absent. Scoped to `source` so one owner
+        can never probe another owner's blob.
         """
         rows = list(self._db.select_from_table(
             table_name=TABLE_FILE_STORAGE.name,
             column_tuple=(COL_FS_CONTENT_HASH.name,),
-            condition=EqualCondition(COL_FS_KEY.name, key),
+            condition=self._key_in_source(key, source),
             limit=1,
         ))
         return bool(rows) and rows[0][0] == self._hash(data)
 
-    def read(self, key: str) -> tuple[bytes, str] | None:
-        """Return the (bytes, content_type) stored under key, or None when absent."""
+    def read(self, key: str, source: str) -> tuple[bytes, str] | None:
+        """Return the (bytes, content_type) stored under (key, source), or None when absent."""
         rows = list(self._db.select_from_table(
             table_name=TABLE_FILE_STORAGE.name,
             column_tuple=(COL_FS_DATA.name, COL_FS_CONTENT_TYPE.name),
-            condition=EqualCondition(COL_FS_KEY.name, key),
+            condition=self._key_in_source(key, source),
             limit=1,
         ))
         if not rows:
@@ -71,11 +72,19 @@ class DbFileStorage:
         data, content_type = rows[0]
         return bytes(data), content_type  # coerce a memoryview (PostgreSQL bytea) to bytes
 
-    def delete(self, key: str) -> None:
-        """Remove the payload stored under key (no-op when absent)."""
+    def delete(self, key: str, source: str) -> None:
+        """Remove the payload stored under (key, source) (no-op when absent)."""
         self._db.delete_row_in_table(
             table_name=TABLE_FILE_STORAGE.name,
-            condition=EqualCondition(COL_FS_KEY.name, key),
+            condition=self._key_in_source(key, source),
+        )
+
+    @staticmethod
+    def _key_in_source(key: str, source: str) -> AndCondition:
+        """Condition matching a single blob by key AND owner source (keeps point access source-scoped)."""
+        return AndCondition(
+            EqualCondition(COL_FS_KEY.name, key),
+            EqualCondition(COL_FS_SOURCE.name, source),
         )
 
     def all_keys(self, source: str) -> set[str]:

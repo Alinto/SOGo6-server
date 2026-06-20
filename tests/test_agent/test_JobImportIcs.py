@@ -22,9 +22,9 @@ def _payload(calendar_key="cal-1", source_ref=_UNSET):
 
 
 def _store_agent(content=b"BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n"):
-    """An agent whose get_large_store().load returns (bytes, content_type); returns (agent, store)."""
+    """An agent whose get_large_store().load_text returns the decoded ICS; returns (agent, store)."""
     store = MagicMock()
-    store.load.return_value = (content, "text/calendar")
+    store.load_text.return_value = content.decode("utf-8")
     agent = MagicMock()
     agent.get_large_store.return_value = store
     return agent, store
@@ -65,7 +65,7 @@ def test_process_loads_imports_and_deletes_the_blob():
         result = JobImportIcs().process(_payload(calendar_key="cal-9"), user_uid="alice", job_id="j-1")
 
     assert result == {"inserted": 3, "updated": 1, "deleted": 0, "total": 4, "skipped": 2}
-    store.load.assert_called_once_with(_REF)
+    store.load_text.assert_called_once_with(_REF)
     inter.import_calendar.assert_called_once_with("cal-9", "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n")
     # The input blob is consumed: it must be deleted.
     store.delete.assert_called_once_with(_REF)

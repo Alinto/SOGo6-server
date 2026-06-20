@@ -219,7 +219,7 @@ Access: worker jobs use `agent.get_large_store()`; Flask code uses `ClientAgent.
 The store is *bidirectional*:
 
 * *Output* (large result: ICS, PDF...) — the worker `agent.get_large_store().save(content, content_type) -> "sogo:file:<key>"`, and stores that string under `large_result` plus light metadata. Fetched via `GET /jobs/<id>/result`.
-* *Input* (large upload: ICS import) — the module `save()` s the upload *before* enqueue (the worker no longer has the HTTP request) and puts the reference string in the request (`source_ref`). The worker `load()` s it, then `delete()` s it once consumed (an input blob is single-use). If enqueue fails, the module `delete()` s the ref so no blob dangles.
+* *Input* (large upload: ICS import, contact import) — the upload is decoded to text at the API read, then the module `save_text()` s it *before* enqueue (the worker no longer has the HTTP request) and puts the reference string in the request (`source_ref`). The worker reads it back with `load_text()`, then `delete()` s it once consumed (an input blob is single-use). If enqueue fails, the module `delete()` s the ref so no blob dangles.
 
 A *small* result (JSON, e.g. import counters) is returned directly from `process()` and stored inline in `JobState.result`, readable via `GET /jobs/<id>`.
 

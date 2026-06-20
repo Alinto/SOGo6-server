@@ -280,10 +280,10 @@ def test_import_addressbook_enqueues_new_book_job():
     inter.module.enqueue_import.return_value = "job-1"
     data, code = inter.import_addressbook("BEGIN:VCARD", "vcard4")
     assert code == 202 and data["data"]["job_id"] == "job-1"
-    # enqueue_import(user, kind, addressbook_key, document_bytes, fmt)
+    # enqueue_import(user, kind, addressbook_key, document, fmt)
     args = inter.module.enqueue_import.call_args.args
     assert args[1] is ContactJobKind.ADDRESSBOOK and args[2] is None
-    assert args[3] == b"BEGIN:VCARD" and args[4] == "vcard4"
+    assert args[3] == "BEGIN:VCARD" and args[4] == "vcard4"
 
 
 def test_import_contact_enqueues_into_existing_book():
@@ -293,7 +293,7 @@ def test_import_contact_enqueues_into_existing_book():
     assert code == 202 and data["data"]["job_id"] == "job-2"
     args = inter.module.enqueue_import.call_args.args
     assert args[1] is ContactJobKind.CONTACT and args[2] == "k1"
-    assert args[3] == b"dn: cn=Alice\n" and args[4] == "ldif"
+    assert args[3] == "dn: cn=Alice\n" and args[4] == "ldif"
 
 
 def test_import_list_enqueues_into_existing_book():

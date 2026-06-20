@@ -484,7 +484,7 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
             logger_api.error("export_calendar failed for user %s key %s: %s", self.user.uid, key, ex)
             return create_api_base_response(None, ex.error)
 
-    def import_calendar(self, key: str, ics_bytes: bytes) -> tuple[dict[str, Any], int]:
+    def import_calendar(self, key: str, ics_text: str) -> tuple[dict[str, Any], int]:
         """Enqueue an ICS import as an Agent job and return its ``job_id``.
 
         The import always runs in the background: the response carries a ``job_id``
@@ -492,12 +492,12 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         counters are then available in the job's ``result``.
 
         :param key: Opaque calendar key.
-        :param ics_bytes: Raw uploaded VCALENDAR bytes.
+        :param ics_text: Decoded VCALENDAR text.
         :return: API envelope with ``{"job_id": "..."}`` and status 202, or the
             standard error envelope on failure.
         """
         try:
-            job_id: str = self.module.import_calendar(self.user, key, ics_bytes)
+            job_id: str = self.module.import_calendar(self.user, key, ics_text)
             return create_api_base_response({"job_id": job_id}, code=202)
         except RequestException as ex:
             logger_api.error("import_calendar failed for user %s key %s: %s", self.user.uid, key, ex)
