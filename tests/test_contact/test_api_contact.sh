@@ -140,15 +140,24 @@ check_count() {
     local got; got=$(body | jq -r "$path | length")
     [ "$got" = "$want" ] && ok "$label count=$want" || fail "$label - expected $want, got $got"
 }
-# GET an export with an Accept header; assert 200, the Content-Type and a body marker ("@JSON@" = valid JSON).
+# Export runs as an Agent job: enqueue (202 + job_id), poll, download the result, then assert the
+# Content-Type and a body marker ("@JSON@" = valid JSON). Requires a running worker.
 check_export() {
     local label="$1" path="$2" accept="$3" ctype="$4" marker="$5"
     local code; code=$(req "$BASE$path" -H "$H_AUTH" -H "Accept: $accept")
-    if [ "$code" != "200" ]; then fail "$label - HTTP $code"; return; fi
-    if ! grep -iq "content-type:.*$ctype" "$HDRFILE"; then fail "$label - Content-Type not $ctype"; return; fi
+    if [ "$code" != "202" ]; then fail "$label - enqueue HTTP $code"; return; fi
+    local job_id; job_id=$(extract '.data.job_id')
+    if [ -z "$job_id" ]; then fail "$label - no job_id"; return; fi
+    local status; status=$(poll_job "$job_id")
+    if [ "$status" != "success" ]; then fail "$label - job status='$status'"; return; fi
+    local rfile; rfile=$(mktemp)
+    code=$(curl -s -D "$HDRFILE" -o "$rfile" -w "%{http_code}" "$BASE/jobs/$job_id/result" -H "$H_AUTH")
+    if [ "$code" != "200" ]; then fail "$label - result HTTP $code"; rm -f "$rfile"; return; fi
+    if ! grep -iq "content-type:.*$ctype" "$HDRFILE"; then fail "$label - Content-Type not $ctype"; rm -f "$rfile"; return; fi
     if [ "$marker" = "@JSON@" ]; then
-        body | jq -e . >/dev/null 2>&1 && ok "$label (200, valid JSON)" || fail "$label - invalid JSON"
-    elif body | grep -q "$marker"; then ok "$label (200, $ctype)"; else fail "$label - missing '$marker'"; fi
+        jq -e . "$rfile" >/dev/null 2>&1 && ok "$label (async, valid JSON)" || fail "$label - invalid JSON"
+    elif grep -q "$marker" "$rfile"; then ok "$label (async, $ctype)"; else fail "$label - missing '$marker'"; fi
+    rm -f "$rfile"
 }
 # Map an export format token to its Accept header value.
 accept_for() {
@@ -158,6 +167,42 @@ accept_for() {
         ldif)   echo "text/ldif" ;;
         json)   echo "application/json" ;;
     esac
+}
+# Poll GET /jobs/<id> until terminal; echoes the final status (success/failure/canceled). Worker must run.
+# Leaves the final job state in TMPFILE, so a caller can read .data.result right after.
+poll_job() {
+    local job_id="$1" status=""
+    for _ in $(seq 1 60); do
+        req "$BASE/jobs/$job_id" -H "$H_AUTH" >/dev/null
+        status=$(extract '.data.status')
+        { [ "$status" = "success" ] || [ "$status" = "failure" ] || [ "$status" = "canceled" ]; } && break
+        sleep 1
+    done
+    echo "$status"
+}
+# Enqueue an export (Accept negotiates the format), poll, download the result document into $3.
+# Returns non-zero (with a reason on stderr) on any failure.
+export_to_file() {
+    local path="$1" accept="$2" outfile="$3"
+    local code; code=$(req "$BASE$path" -H "$H_AUTH" -H "Accept: $accept")
+    [ "$code" = "202" ] || { echo "enqueue HTTP $code" >&2; return 1; }
+    local job_id; job_id=$(extract '.data.job_id')
+    [ -n "$job_id" ] || { echo "no job_id" >&2; return 1; }
+    local status; status=$(poll_job "$job_id")
+    [ "$status" = "success" ] || { echo "job status=$status" >&2; return 1; }
+    code=$(curl -s -o "$outfile" -w "%{http_code}" "$BASE/jobs/$job_id/result" -H "$H_AUTH")
+    [ "$code" = "200" ] || { echo "result HTTP $code" >&2; return 1; }
+    return 0
+}
+# Enqueue an import (multipart upload), poll to a terminal state, echo the status.
+# Leaves the final job state in TMPFILE so the caller can read .data.result counters.
+import_and_wait() {
+    local url="$1" file="$2"
+    local code; code=$(req -X POST "$url" -H "$H_AUTH" -F "file=@$file")
+    [ "$code" = "202" ] || { echo "enqueue:$code"; return; }
+    local job_id; job_id=$(extract '.data.job_id')
+    [ -n "$job_id" ] || { echo "nojob"; return; }
+    poll_job "$job_id"
 }
 check_prefix() {
     local path="$1" want="$2"
@@ -503,24 +548,31 @@ for entry in "book:/addressbooks/$AB_KEY/export" \
     check_export "$name LDIF"      "$path" "$(accept_for ldif)"   "text/ldif"        "objectClass"
     check_export "$name JSON"      "$path" "$(accept_for json)"   "application/json" "@JSON@"
 done
-# Book export bundles the distribution list as a group card; unsupported Accept is 406.
-req "$BASE/addressbooks/$AB_KEY/export" -H "$H_AUTH" -H "Accept: text/vcard; version=3.0" >/dev/null
-body | grep -q "X-ADDRESSBOOKSERVER-KIND:group" && ok "book export bundles the list as a group card" \
-    || fail "book export is missing the group card"
+# Book export bundles the distribution list as a group card; unsupported Accept is 406 (synchronous, at enqueue).
+GROUP_FILE=$(mktemp)
+if export_to_file "/addressbooks/$AB_KEY/export" "text/vcard; version=3.0" "$GROUP_FILE"; then
+    grep -q "X-ADDRESSBOOKSERVER-KIND:group" "$GROUP_FILE" && ok "book export bundles the list as a group card" \
+        || fail "book export is missing the group card"
+else
+    fail "book export (group card) did not complete"
+fi
+rm -f "$GROUP_FILE"
 CODE=$(req "$BASE/addressbooks/$AB_KEY/export" -H "$H_AUTH" -H "Accept: application/xml")
 check_code "export with unsupported Accept -> 406" "$CODE" "406"
 check_error_code "unsupported export format error_code" "S000715"
 
 # 13. IMPORT - all formats
 step "19. Import - book import (creates a book) for every format + per-entity upsert"
-info "For each format: export the book in that form, import it as a NEW book, verify counters, then drop it."
+info "Import / export are async Agent jobs (202 + job_id): for each format, export the book, import it as a NEW book, read the counters from the job result, then drop it. Requires a running worker."
 for fmt in vcard3 vcard4 ldif json; do
     EXPORT_FILE=$(mktemp)
-    req "$BASE/addressbooks/$AB_KEY/export" -H "$H_AUTH" -H "Accept: $(accept_for $fmt)" >/dev/null
-    body > "$EXPORT_FILE"
-    CODE=$(req -X POST "$BASE/addressbooks/import?format=$fmt" -H "$H_AUTH" -F "file=@$EXPORT_FILE")
-    check_code "POST /addressbooks/import ($fmt) -> 201" "$CODE" "201"
-    NEWK=$(extract '.data.addressbook_key'); INS=$(extract '.data.contacts_inserted')
+    if ! export_to_file "/addressbooks/$AB_KEY/export" "$(accept_for $fmt)" "$EXPORT_FILE"; then
+        fail "book export ($fmt) did not complete"; rm -f "$EXPORT_FILE"; continue
+    fi
+    STATUS=$(import_and_wait "$BASE/addressbooks/import?format=$fmt" "$EXPORT_FILE")
+    if [ "$STATUS" != "success" ]; then fail "book import ($fmt) job status='$STATUS'"; rm -f "$EXPORT_FILE"; continue; fi
+    ok "book import ($fmt) job completed"
+    NEWK=$(extract '.data.result.addressbook_key'); INS=$(extract '.data.result.contacts_inserted')
     { [ -n "$INS" ] && [ "$INS" -ge 1 ]; } && ok "book import ($fmt) inserted $INS contacts" \
         || fail "book import ($fmt) inserted none ($INS)"
     [ -n "$NEWK" ] && req -X DELETE "$BASE/addressbooks/$NEWK" -H "$H_AUTH" >/dev/null   # drop the transient book
@@ -528,29 +580,32 @@ for fmt in vcard3 vcard4 ldif json; do
 done
 # Per-entity import + uid upsert idempotence: vCard contacts into a fresh book, then re-import = updates.
 EXPORT_FILE=$(mktemp)
-req "$BASE/addressbooks/$AB_KEY/export" -H "$H_AUTH" -H "Accept: $(accept_for vcard3)" >/dev/null
-body > "$EXPORT_FILE"
-CODE=$(req -X POST "$BASE/addressbooks/import?format=vcard3" -H "$H_AUTH" -F "file=@$EXPORT_FILE")
-check_code "POST /addressbooks/import (target for upsert) -> 201" "$CODE" "201"
-IMP_KEY=$(extract '.data.addressbook_key')
-CODE=$(req -X POST "$BASE/addressbooks/$IMP_KEY/contacts/import?format=vcard3" -H "$H_AUTH" -F "file=@$EXPORT_FILE")
-check_code "POST .../contacts/import (re-run -> upsert)" "$CODE" "200"
-UPD=$(extract '.data.contacts_updated'); INS2=$(extract '.data.contacts_inserted')
+export_to_file "/addressbooks/$AB_KEY/export" "$(accept_for vcard3)" "$EXPORT_FILE" || fail "export (upsert target) did not complete"
+STATUS=$(import_and_wait "$BASE/addressbooks/import?format=vcard3" "$EXPORT_FILE")
+[ "$STATUS" = "success" ] && ok "POST /addressbooks/import (target for upsert) job completed" \
+    || fail "import (upsert target) job status='$STATUS'"
+IMP_KEY=$(extract '.data.result.addressbook_key')
+STATUS=$(import_and_wait "$BASE/addressbooks/$IMP_KEY/contacts/import?format=vcard3" "$EXPORT_FILE")
+[ "$STATUS" = "success" ] && ok "POST .../contacts/import (re-run -> upsert) job completed" \
+    || fail "contacts/import (upsert) job status='$STATUS'"
+UPD=$(extract '.data.result.contacts_updated'); INS2=$(extract '.data.result.contacts_inserted')
 { [ -n "$UPD" ] && [ "$UPD" -ge 1 ] && [ "$INS2" = "0" ]; } \
     && ok "contacts/import upserts by uid (updated=$UPD, inserted=0)" \
     || fail "contacts/import not idempotent (updated='$UPD' inserted='$INS2')"
 rm -f "$EXPORT_FILE"
 # JSON single-contact round-trip: export one contact as JSON, import it into the book (upsert by uid).
-req "$BASE/addressbooks/$AB_KEY/contacts/$CT_KEY/export" -H "$H_AUTH" -H "Accept: application/json" >/dev/null
-CT_JSON=$(mktemp); body > "$CT_JSON"
-CODE=$(req -X POST "$BASE/addressbooks/$IMP_KEY/contacts/import?format=json" -H "$H_AUTH" -F "file=@$CT_JSON")
-check_code "POST .../contacts/import (JSON single contact)" "$CODE" "200"
+CT_JSON=$(mktemp)
+export_to_file "/addressbooks/$AB_KEY/contacts/$CT_KEY/export" "application/json" "$CT_JSON" || fail "single-contact export did not complete"
+STATUS=$(import_and_wait "$BASE/addressbooks/$IMP_KEY/contacts/import?format=json" "$CT_JSON")
+[ "$STATUS" = "success" ] && ok "POST .../contacts/import (JSON single contact) job completed" \
+    || fail "contacts/import (JSON single) job status='$STATUS'"
 rm -f "$CT_JSON"
 # LDIF list import into the book.
-req "$BASE/addressbooks/$AB_KEY/lists/$LIST_KEY/export" -H "$H_AUTH" -H "Accept: text/ldif" >/dev/null
-LST_LDIF=$(mktemp); body > "$LST_LDIF"
-CODE=$(req -X POST "$BASE/addressbooks/$IMP_KEY/lists/import?format=ldif" -H "$H_AUTH" -F "file=@$LST_LDIF")
-check_code "POST .../lists/import (LDIF list)" "$CODE" "200"
+LST_LDIF=$(mktemp)
+export_to_file "/addressbooks/$AB_KEY/lists/$LIST_KEY/export" "text/ldif" "$LST_LDIF" || fail "single-list export did not complete"
+STATUS=$(import_and_wait "$BASE/addressbooks/$IMP_KEY/lists/import?format=ldif" "$LST_LDIF")
+[ "$STATUS" = "success" ] && ok "POST .../lists/import (LDIF list) job completed" \
+    || fail "lists/import (LDIF) job status='$STATUS'"
 rm -f "$LST_LDIF"
 
 step "19b. Import - error paths"
@@ -565,11 +620,21 @@ ANY_DOC=$(mktemp); echo '{"contacts":[],"lists":[]}' > "$ANY_DOC"
 CODE=$(req -X POST "$BASE/addressbooks/import?format=xml" -H "$H_AUTH" -F "file=@$ANY_DOC")
 check_code "POST /addressbooks/import (bad ?format) -> 422" "$CODE" "422"
 
-# Unparseable document for a declared format -> 422 (S000718). JSON makes the failure deterministic.
+# Unparseable document: parsing happens worker-side, so the upload is accepted (202) and the job then
+# ends in 'failure'. JSON makes the failure deterministic.
 BAD_DOC=$(mktemp); printf 'not json at all {{{' > "$BAD_DOC"
 CODE=$(req -X POST "$BASE/addressbooks/import?format=json" -H "$H_AUTH" -F "file=@$BAD_DOC")
-check_code       "POST /addressbooks/import (corrupt json) -> 422" "$CODE" "422"
-check_error_code "import parse-failed error_code" "S000718"
+check_code "POST /addressbooks/import (corrupt json, enqueue) -> 202" "$CODE" "202"
+BAD_IMP_JOB=$(extract '.data.job_id')
+if [ -n "$BAD_IMP_JOB" ]; then
+    STATUS=$(poll_job "$BAD_IMP_JOB")
+    [ "$STATUS" = "failure" ] && ok "corrupt-json import job failed as expected" \
+        || fail "corrupt-json import status='$STATUS' (expected failure)"
+    BAD_IMP_ERR=$(extract '.data.error')
+    [ -n "$BAD_IMP_ERR" ] && ok "failed import job exposes an error message" || fail "failed import job has no error message"
+else
+    fail "corrupt-json import returned no job_id"
+fi
 
 # Oversized payload (> IMPORT_MAX_BYTES / the WSGI cap) -> 413.
 BIG_DOC=$(mktemp); head -c $((11 * 1024 * 1024)) /dev/zero > "$BIG_DOC"

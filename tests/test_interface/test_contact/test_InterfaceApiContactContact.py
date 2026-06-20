@@ -1,5 +1,4 @@
 """Unit tests for InterfaceApiContactContact - address book and contact CRUD."""
-import json
 from unittest.mock import MagicMock
 
 from app.interface.contact.InterfaceApiContactContact import InterfaceApiContactContact
@@ -7,24 +6,11 @@ from app.module.contact.model.CardAddressBook import CardAddressBook
 from app.module.contact.ContactConst import AUTOCOMPLETE_DEFAULT_LIMIT
 from app.module.contact.model.CardContact import CardContact
 from app.module.contact.model.CardEmail import CardEmail
-from app.module.contact.model.AddressBookContent import AddressBookContent
-from app.module.contact.model.ContactImportResult import ContactImportResult
 from app.module.contact.model.enums.CardSourceType import CardSourceType
-from app.module.contact.serializer.AddressBookContentSerializerDict import AddressBookContentSerializerDict
-from app.module.contact.serializer.AddressBookContentSerializerLdif import AddressBookContentSerializerLdif
-from app.module.contact.serializer.AddressBookContentDeserializerDict import AddressBookContentDeserializerDict
-from app.module.contact.serializer.AddressBookContentDeserializerLdif import AddressBookContentDeserializerLdif
-from app.module.contact.serializer.AddressBookContentDeserializerVcard import AddressBookContentDeserializerVcard
-from app.module.contact.serializer.AddressBookContentSerializerVcard import AddressBookContentSerializerVcard
-from app.module.contact.serializer.ContactImportResultSerializerDict import ContactImportResultSerializerDict
+from app.module.contact.jobs.ContactJobKind import ContactJobKind
 from app.module.contact.serializer.CardAddressBookSerializerDict import CardAddressBookSerializerDict
 from app.module.contact.serializer.CardAddressBooksSerializerList import CardAddressBooksSerializerList
 from app.module.contact.model.enums.ContactExportFormat import ContactExportFormat
-from app.module.contact.model.enums.ContactImportFormat import ContactImportFormat
-from app.module.contact.serializer.CardListSerializerVcard3 import CardListSerializerVcard3
-from app.module.contact.serializer.CardListSerializerVcard4 import CardListSerializerVcard4
-from app.module.contact.serializer.CardContactSerializerVcard3 import CardContactSerializerVcard3
-from app.module.contact.serializer.CardContactSerializerVcard4 import CardContactSerializerVcard4
 from app.module.contact.model.CardList import CardList
 from app.module.contact.serializer.CardContactAutocompleteSerializerList import CardContactAutocompleteSerializerList
 from app.module.contact.serializer.CardListAutocompleteSerializerList import CardListAutocompleteSerializerList
@@ -56,24 +42,6 @@ def _build_interface():
     inter._lists_serializer = CardListsSerializerList()
     inter._list_deserializer = CardListDeserializerDict()
     inter._user_module_settings = MagicMock(SOGO_D_AUTOCOMPLETION_MIN_LEN=2)
-    _vcard_deserializer = AddressBookContentDeserializerVcard()
-    inter._book_dict_serializer = AddressBookContentSerializerDict()
-    inter._book_dict_deserializer = AddressBookContentDeserializerDict()
-    inter._book_export_serializers = {
-        ContactExportFormat.VCARD4: AddressBookContentSerializerVcard(
-            CardContactSerializerVcard4(), CardListSerializerVcard4()).serialize,
-        ContactExportFormat.VCARD3: AddressBookContentSerializerVcard(
-            CardContactSerializerVcard3(), CardListSerializerVcard3()).serialize,
-        ContactExportFormat.LDIF: AddressBookContentSerializerLdif().serialize,
-        ContactExportFormat.JSON: lambda content: json.dumps(inter._book_dict_serializer.serialize(content)),
-    }
-    inter._import_deserializers = {
-        "vcard3": _vcard_deserializer.deserialize,
-        "vcard4": _vcard_deserializer.deserialize,
-        "ldif": AddressBookContentDeserializerLdif().deserialize,
-        "json": lambda document: inter._book_dict_deserializer.deserialize(json.loads(document)),
-    }
-    inter._import_result_serializer = ContactImportResultSerializerDict()
     return inter
 
 
@@ -258,39 +226,24 @@ def test_autocomplete_below_min_length_returns_empty_without_querying():
     inter.module.search_all_lists.assert_not_called()
 
 
-# ========== Export ==========
+# ========== Export (async enqueue) ==========
 
-def _book_content():
-    return AddressBookContent(
-        contacts=[CardContact(display_name="Alice", uid="u1"), CardContact(display_name="Bob", uid="u2")],
-        lists=[CardList(name="Team", uid="l1", members=[])],
-    )
-
-
-def test_export_addressbook_defaults_to_vcard3():
+def test_export_addressbook_enqueues_with_negotiated_format():
     inter = _build_interface()
-    inter.module.get_addressbook_content.return_value = _book_content()
-    body, code, headers = inter.export_addressbook("k1", "")
-    assert code == 200
-    assert body.count("BEGIN:VCARD") == 3 and "VERSION:3.0" in body
-    assert headers["Content-Type"] == "text/vcard; charset=utf-8; version=3.0"
-    assert headers["Content-Disposition"] == 'attachment; filename="addressbook-k1.vcf"'
+    inter.module.enqueue_export.return_value = "job-1"
+    data, code = inter.export_addressbook("k1", "text/vcard; version=4.0")
+    assert code == 202 and data["data"]["job_id"] == "job-1"
+    # enqueue_export(user, kind, addressbook_key, item_key, fmt)
+    args = inter.module.enqueue_export.call_args.args
+    assert args[1] is ContactJobKind.ADDRESSBOOK and args[2] == "k1" and args[3] is None
+    assert args[4] == ContactExportFormat.VCARD4.name
 
 
-def test_export_addressbook_vcard4_when_requested():
+def test_export_addressbook_default_accept_is_vcard3():
     inter = _build_interface()
-    inter.module.get_addressbook_content.return_value = _book_content()
-    body, code, _ = inter.export_addressbook("k1", "text/vcard; version=4.0")
-    assert code == 200 and "VERSION:4.0" in body
-
-
-def test_export_addressbook_ldif_from_accept():
-    inter = _build_interface()
-    inter.module.get_addressbook_content.return_value = _book_content()
-    body, code, headers = inter.export_addressbook("k1", "text/ldif")
-    assert code == 200 and body.startswith("version: 1")
-    assert headers["Content-Type"] == "text/ldif; charset=utf-8"
-    assert headers["Content-Disposition"].endswith('.ldif"')
+    inter.module.enqueue_export.return_value = "job-1"
+    inter.export_addressbook("k1", "")
+    assert inter.module.enqueue_export.call_args.args[4] == ContactExportFormat.VCARD3.name
 
 
 def test_export_addressbook_unsupported_accept_returns_406():
@@ -298,93 +251,61 @@ def test_export_addressbook_unsupported_accept_returns_406():
     data, code = inter.export_addressbook("k1", "application/xml")
     assert code == err.ERROR_CONTACT_EXPORT_FORMAT_UNSUPPORTED.h
     assert data["error_code"] == err.ERROR_CONTACT_EXPORT_FORMAT_UNSUPPORTED.c
-    inter.module.get_addressbook_content.assert_not_called()
+    inter.module.enqueue_export.assert_not_called()
 
 
-def test_export_addressbook_json_from_accept():
+def test_export_contact_enqueues_item_job():
     inter = _build_interface()
-    inter.module.get_addressbook_content.return_value = _book_content()
-    body, code, headers = inter.export_addressbook("k1", "application/json")
-    assert code == 200
-    assert headers["Content-Type"] == "application/json; charset=utf-8"
-    parsed = json.loads(body)
-    assert [c["display_name"] for c in parsed["contacts"]] == ["Alice", "Bob"]
-    assert [l["name"] for l in parsed["lists"]] == ["Team"]
-    assert "key" not in parsed["contacts"][0] and "addressbook_key" not in parsed["contacts"][0]  # portable
+    inter.module.enqueue_export.return_value = "job-2"
+    data, code = inter.export_contact("k1", "u1", "application/json")
+    assert code == 202 and data["data"]["job_id"] == "job-2"
+    args = inter.module.enqueue_export.call_args.args
+    assert args[1] is ContactJobKind.CONTACT and args[2] == "k1" and args[3] == "u1"
+    assert args[4] == ContactExportFormat.JSON.name
 
 
-def test_export_contact_vcard3_from_accept():
+def test_export_list_enqueues_item_job():
     inter = _build_interface()
-    inter.module.get_contact.return_value = CardContact(display_name="Alice", uid="u1")
-    body, code, headers = inter.export_contact("k1", "u1", "text/vcard; version=3.0")
-    assert code == 200 and "VERSION:3.0" in body
-    assert headers["Content-Disposition"] == 'attachment; filename="contact-u1.vcf"'
+    inter.module.enqueue_export.return_value = "job-3"
+    data, code = inter.export_list("k1", "l1", "")
+    assert code == 202 and data["data"]["job_id"] == "job-3"
+    args = inter.module.enqueue_export.call_args.args
+    assert args[1] is ContactJobKind.LIST and args[2] == "k1" and args[3] == "l1"
 
 
-def test_export_contact_json_is_a_one_item_document():
+# ========== Import (async enqueue) ==========
+
+def test_import_addressbook_enqueues_new_book_job():
     inter = _build_interface()
-    inter.module.get_contact.return_value = CardContact(display_name="Alice", uid="u1")
-    body, code, headers = inter.export_contact("k1", "u1", "application/json")
-    assert code == 200 and headers["Content-Disposition"] == 'attachment; filename="contact-u1.json"'
-    parsed = json.loads(body)
-    assert [c["display_name"] for c in parsed["contacts"]] == ["Alice"]  # one-item book document, like vCard
-    assert "key" not in parsed["contacts"][0] and "addressbook_key" not in parsed["contacts"][0]  # portable
+    inter.module.enqueue_import.return_value = "job-1"
+    data, code = inter.import_addressbook("BEGIN:VCARD", "vcard4")
+    assert code == 202 and data["data"]["job_id"] == "job-1"
+    # enqueue_import(user, kind, addressbook_key, document_bytes, fmt)
+    args = inter.module.enqueue_import.call_args.args
+    assert args[1] is ContactJobKind.ADDRESSBOOK and args[2] is None
+    assert args[3] == b"BEGIN:VCARD" and args[4] == "vcard4"
 
 
-def test_export_list_as_group_card():
+def test_import_contact_enqueues_into_existing_book():
     inter = _build_interface()
-    inter.module.get_list_for_export.return_value = CardList(
-        name="Team", uid="l1", member_contacts=[CardContact(uid="m1")])
-    body, code, headers = inter.export_list("k1", "l1", "")
-    assert code == 200 and "KIND:group" in body and "MEMBER:urn:uuid:m1" in body
-    assert headers["Content-Disposition"] == 'attachment; filename="list-l1.vcf"'
+    inter.module.enqueue_import.return_value = "job-2"
+    data, code = inter.import_contact("k1", "dn: cn=Alice\n", "ldif")
+    assert code == 202 and data["data"]["job_id"] == "job-2"
+    args = inter.module.enqueue_import.call_args.args
+    assert args[1] is ContactJobKind.CONTACT and args[2] == "k1"
+    assert args[3] == b"dn: cn=Alice\n" and args[4] == "ldif"
 
 
-# ========== Import ==========
-
-def test_import_addressbook_creates_book_parses_content_and_returns_201():
+def test_import_list_enqueues_into_existing_book():
     inter = _build_interface()
-    book = CardAddressBook(user_uid="alice", name="Import (today)", key="new-ab", source_type=CardSourceType.LOCAL)
-    inter.module.import_addressbook.return_value = (book, ContactImportResult(contacts_inserted=1, lists_inserted=1))
-    document = ("BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Alice\r\nUID:u1\r\nEND:VCARD\r\n"
-                "BEGIN:VCARD\r\nVERSION:4.0\r\nKIND:group\r\nFN:Team\r\nUID:l1\r\nMEMBER:urn:uuid:u1\r\nEND:VCARD\r\n")
-    data, code = inter.import_addressbook(document, "vcard4")
-    assert code == 201
-    assert data["data"]["contacts_inserted"] == 1 and data["data"]["lists_inserted"] == 1
-    assert data["data"]["addressbook_key"] == "new-ab"
-    content = inter.module.import_addressbook.call_args.args[1]  # the parsed AddressBookContent
-    assert [c.display_name for c in content.contacts] == ["Alice"]
-    assert [c.uid for c in content.lists[0].member_contacts] == ["u1"]  # member linked
+    inter.module.enqueue_import.return_value = "job-3"
+    data, code = inter.import_list("k1", "{}", "json")
+    assert code == 202 and data["data"]["job_id"] == "job-3"
+    assert inter.module.enqueue_import.call_args.args[1] is ContactJobKind.LIST
 
 
-def test_import_contact_ldif():
+def test_import_enqueue_error_surfaces_envelope():
     inter = _build_interface()
-    inter.module.import_contact.return_value = ContactImportResult(contacts_inserted=1)
-    document = "dn: cn=Alice,ou=contacts\nobjectClass: inetOrgPerson\ncn: Alice\nsn: A\n"
-    inter.import_contact("k1", document, "ldif")
-    contacts = inter.module.import_contact.call_args.args[2]
-    assert [c.display_name for c in contacts] == ["Alice"]
-
-
-def test_import_contact_json():
-    inter = _build_interface()
-    inter.module.import_contact.return_value = ContactImportResult(contacts_inserted=2)
-    document = '{"contacts": [{"display_name": "Alice"}, {"display_name": "Bob"}], "lists": []}'
-    data, _ = inter.import_contact("k1", document, "json")
-    assert data["data"]["contacts_inserted"] == 2
-    contacts = inter.module.import_contact.call_args.args[2]
-    assert [c.display_name for c in contacts] == ["Alice", "Bob"]
-
-
-def test_import_contact_json_forces_undefined_provenance():
-    inter = _build_interface()
-    inter.module.import_contact.return_value = ContactImportResult(contacts_inserted=1)
-    inter.import_contact("k1", '{"contacts": [{"display_name": "Eve", "import_format": "vcard4"}]}', "json")
-    contacts = inter.module.import_contact.call_args.args[2]
-    assert contacts[0].import_format is ContactImportFormat.UNDEFINED  # client value dropped, server-set
-
-
-def test_import_malformed_json_returns_422():
-    inter = _build_interface()
-    data, _ = inter.import_addressbook('{"contacts": [oops', "json")
-    assert data["error_code"] == err.ERROR_CONTACT_IMPORT_PARSE_FAILED.c
+    inter.module.enqueue_import.side_effect = RequestException(error=err.ERROR_CONTACT_IMPORT_TOO_LARGE)
+    data, _ = inter.import_addressbook("x", "json")
+    assert data["error_code"] == err.ERROR_CONTACT_IMPORT_TOO_LARGE.c

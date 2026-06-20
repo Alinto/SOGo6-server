@@ -5,6 +5,7 @@ import pytest
 
 from app.module.contact.ModuleContact import ModuleContact
 from app.module.contact.acl.ContactAclEngine import ContactAclEngine
+from app.module.contact.jobs.ContactJobKind import ContactJobKind
 from app.module.contact.model.AddressBookContent import AddressBookContent
 from app.module.contact.model.CardAddressBook import CardAddressBook
 from app.module.contact.model.CardContact import CardContact
@@ -417,3 +418,85 @@ def test_import_list_skips_a_failing_entry_without_aborting():
     result = module.import_list(
         _user(), "ab-k", [CardList(name="Ok", uid="l1"), CardList(name="Bad", uid="bad")])
     assert (result.lists_inserted, result.skipped) == (1, 1)
+
+
+# ========== Async enqueue (import / export) ==========
+
+def _agent_module():
+    module = _build_module()
+    module._agent = MagicMock()
+    module._agent.get_large_store.return_value = MagicMock()
+    module._agent.enqueue.return_value = "job-1"
+    return module
+
+
+def test_enqueue_import_addressbook_offloads_and_enqueues():
+    module = _agent_module()
+    module._agent.get_large_store.return_value.save.return_value = "sogo:file:abc"
+    job_id = module.enqueue_import(_user(), ContactJobKind.ADDRESSBOOK, None, b"BEGIN:VCARD", "vcard4")
+    assert job_id == "job-1"
+    module._agent.get_large_store.return_value.save.assert_called_once_with(b"BEGIN:VCARD", "text/plain")
+    req = module._agent.enqueue.call_args.args[0]
+    assert req.kind == "addressbook" and req.source_ref == "sogo:file:abc" and req.fmt == "vcard4"
+    module._sources.get_by_key.assert_not_called()  # new book: no existing-book ACL check
+
+
+def test_enqueue_import_too_large_raises():
+    module = _agent_module()
+    with pytest.raises(RequestException) as ex:
+        module.enqueue_import(_user(), ContactJobKind.ADDRESSBOOK, None, b"x" * (10 * 1024 * 1024 + 1), "json")
+    assert ex.value.error == err.ERROR_CONTACT_IMPORT_TOO_LARGE
+    module._agent.enqueue.assert_not_called()
+
+
+def test_enqueue_import_contact_checks_writable_book():
+    module = _agent_module()
+    module._sources.get_by_key.return_value = _fake_source(_book(key="k1"))
+    module._agent.get_large_store.return_value.save.return_value = "sogo:file:abc"
+    module.enqueue_import(_user(), ContactJobKind.CONTACT, "k1", b"x", "ldif")
+    assert module._agent.enqueue.call_args.args[0].kind == "contact"
+
+
+def test_enqueue_import_contact_unknown_book_raises_before_offload():
+    module = _agent_module()
+    module._sources.get_by_key.return_value = None
+    with pytest.raises(RequestException) as ex:
+        module.enqueue_import(_user(), ContactJobKind.CONTACT, "missing", b"x", "ldif")
+    assert ex.value.error == err.ERROR_CONTACT_ADDRESSBOOK_NOT_FOUND
+    module._agent.get_large_store.return_value.save.assert_not_called()
+
+
+def test_enqueue_import_deletes_blob_when_enqueue_fails():
+    module = _agent_module()
+    store = module._agent.get_large_store.return_value
+    store.save.return_value = "sogo:file:abc"
+    module._agent.enqueue.side_effect = RuntimeError("broker down")
+    with pytest.raises(RuntimeError):
+        module.enqueue_import(_user(), ContactJobKind.ADDRESSBOOK, None, b"x", "json")
+    store.delete.assert_called_once_with("sogo:file:abc")
+
+
+def test_enqueue_export_checks_book_and_enqueues():
+    module = _agent_module()
+    module._sources.get_by_key.return_value = _fake_source(_book(key="k1"))
+    job_id = module.enqueue_export(_user(), ContactJobKind.ADDRESSBOOK, "k1", None, "VCARD3")
+    assert job_id == "job-1"
+    req = module._agent.enqueue.call_args.args[0]
+    assert req.kind == "addressbook" and req.addressbook_key == "k1" and req.item_key is None and req.fmt == "VCARD3"
+
+
+def test_enqueue_export_unknown_book_raises():
+    module = _agent_module()
+    module._sources.get_by_key.return_value = None
+    with pytest.raises(RequestException) as ex:
+        module.enqueue_export(_user(), ContactJobKind.ADDRESSBOOK, "missing", None, "VCARD3")
+    assert ex.value.error == err.ERROR_CONTACT_ADDRESSBOOK_NOT_FOUND
+
+
+def test_enqueue_requires_an_agent():
+    module = _build_module()
+    module._agent = None
+    with pytest.raises(RuntimeError):
+        module.enqueue_import(_user(), ContactJobKind.ADDRESSBOOK, None, b"x", "json")
+    with pytest.raises(RuntimeError):
+        module.enqueue_export(_user(), ContactJobKind.ADDRESSBOOK, "k1", None, "VCARD3")

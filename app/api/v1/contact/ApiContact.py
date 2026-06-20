@@ -20,8 +20,8 @@ from .schemas.addressbook import (
     AddressBookListResponseSchema,
     AddressBookResponseSchema,
     ContactImportQueryArgsSchema,
-    ContactImportResponseSchema,
     ContactImportUploadSchema,
+    ContactJobResponseSchema,
 )
 from .schemas.contact import (
     ContactCreateSchema,
@@ -49,8 +49,9 @@ if TYPE_CHECKING:
 _SORT_VALUES: set[str] = set(SORTABLE_COLUMNS)
 _LIST_SORT_VALUES: set[str] = set(LIST_SORTABLE_COLUMNS)
 
-# OpenAPI for the export routes: the serialization is content-negotiated from the Accept header, and the
-# body is a vCard / LDIF document, not the usual JSON envelope - declared here so Swagger shows it.
+# OpenAPI for the export routes: the export runs asynchronously (202 + job_id), but the serialization
+# is still content-negotiated from the Accept header at enqueue time - declared here so Swagger shows it.
+# The serialized document is fetched from GET /jobs/<job_id>/result once the job succeeds.
 _EXPORT_OPENAPI: dict = {
     "parameters": [{
         "in": "header", "name": "Accept", "required": False,
@@ -59,15 +60,6 @@ _EXPORT_OPENAPI: dict = {
         "schema": {"type": "string", "enum": [
             "text/vcard; version=4.0", "text/vcard; version=3.0", "text/ldif", "application/json"]},
     }],
-    "responses": {
-        "200": {
-            "description": "The serialized vCard / LDIF / JSON document, as a file attachment.",
-            "content": {"text/vcard": {"schema": {"type": "string"}},
-                        "text/ldif": {"schema": {"type": "string"}},
-                        "application/json": {"schema": {"type": "object"}}},
-        },
-        "406": {"description": "The requested export format is not supported."},
-    },
 }
 
 blp = Blueprint("Contact", __name__, url_prefix="")
@@ -283,9 +275,9 @@ class ApiAddressBookImport(MethodView):
 
     @blp.arguments(ContactImportUploadSchema, location="files")
     @blp.arguments(ContactImportQueryArgsSchema, location="query", arg_name="query_args")
-    @blp.response(201, ContactImportResponseSchema)
+    @blp.response(202, ContactJobResponseSchema)
     def post(self, files: dict, query_args: dict) -> ResponseReturnValue:
-        """Create a new address book from the uploaded document (upsert by uid)."""
+        """Enqueue an import of the uploaded document as a new address book (returns a job_id)."""
         logger_api.debug("POST /addressbooks/import user=%s format=%s", g.user.uid, query_args.get("format"))
         document = _read_import_upload(files)
         if not isinstance(document, str):
@@ -302,9 +294,9 @@ class ApiContactImport(MethodView):
 
     @blp.arguments(ContactImportUploadSchema, location="files")
     @blp.arguments(ContactImportQueryArgsSchema, location="query", arg_name="query_args")
-    @blp.response(200, ContactImportResponseSchema)
+    @blp.response(202, ContactJobResponseSchema)
     def post(self, files: dict, query_args: dict, key: str) -> ResponseReturnValue:
-        """Import the uploaded contacts into the address book."""
+        """Enqueue an import of the uploaded contacts into the address book (returns a job_id)."""
         logger_api.debug("POST /addressbooks/%s/contacts/import user=%s format=%s",
                          key, g.user.uid, query_args.get("format"))
         document = _read_import_upload(files)
@@ -322,9 +314,9 @@ class ApiListImport(MethodView):
 
     @blp.arguments(ContactImportUploadSchema, location="files")
     @blp.arguments(ContactImportQueryArgsSchema, location="query", arg_name="query_args")
-    @blp.response(200, ContactImportResponseSchema)
+    @blp.response(202, ContactJobResponseSchema)
     def post(self, files: dict, query_args: dict, key: str) -> ResponseReturnValue:
-        """Import the uploaded distribution lists into the address book."""
+        """Enqueue an import of the uploaded distribution lists into the address book (returns a job_id)."""
         logger_api.debug("POST /addressbooks/%s/lists/import user=%s format=%s",
                          key, g.user.uid, query_args.get("format"))
         document = _read_import_upload(files)
@@ -342,8 +334,9 @@ class ApiAddressBookExport(MethodView):
     """API to export a whole address book (contacts and lists) as vCard, LDIF or JSON."""
 
     @blp.doc(**_EXPORT_OPENAPI)
+    @blp.response(202, ContactJobResponseSchema)
     def get(self, key: str) -> ResponseReturnValue:
-        """Download the address book; the serialization is negotiated from the Accept header."""
+        """Enqueue a whole-book export; the serialization is negotiated from the Accept header (returns a job_id)."""
         logger_api.debug("GET /addressbooks/%s/export user=%s accept=%s",
                          key, g.user.uid, request.headers.get("Accept"))
         interface: InterfaceApiContactContact = g.inter
@@ -355,8 +348,9 @@ class ApiContactExport(MethodView):
     """API to export a single contact as vCard, LDIF or JSON."""
 
     @blp.doc(**_EXPORT_OPENAPI)
+    @blp.response(202, ContactJobResponseSchema)
     def get(self, key: str, contact_key: str) -> ResponseReturnValue:
-        """Download one contact; the serialization is negotiated from the Accept header."""
+        """Enqueue a single-contact export; the serialization is negotiated from the Accept header (returns a job_id)."""
         logger_api.debug("GET /addressbooks/%s/contacts/%s/export user=%s",
                          key, contact_key, g.user.uid)
         interface: InterfaceApiContactContact = g.inter
@@ -368,8 +362,9 @@ class ApiListExport(MethodView):
     """API to export a single distribution list as a vCard group card, LDIF groupOfNames or JSON."""
 
     @blp.doc(**_EXPORT_OPENAPI)
+    @blp.response(202, ContactJobResponseSchema)
     def get(self, key: str, list_key: str) -> ResponseReturnValue:
-        """Download one list; the serialization is negotiated from the Accept header."""
+        """Enqueue a single-list export; the serialization is negotiated from the Accept header (returns a job_id)."""
         logger_api.debug("GET /addressbooks/%s/lists/%s/export user=%s", key, list_key, g.user.uid)
         interface: InterfaceApiContactContact = g.inter
         return interface.export_list(key, list_key, request.headers.get("Accept", ""))

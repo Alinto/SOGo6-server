@@ -4,8 +4,13 @@ from typing import TYPE_CHECKING
 
 from app.manager.storage.ClientStorage import ClientStorage
 from app.manager.storage.StorageSource import StorageSource
-from app.module.contact.ContactConst import ALLOWED_FILE_MIME_TYPES, DEFAULT_ADDRESSBOOK_NAME, FILE_MAX_SIZE_KB
+from app.module.contact.ContactConst import (
+    ALLOWED_FILE_MIME_TYPES, DEFAULT_ADDRESSBOOK_NAME, FILE_MAX_SIZE_KB, IMPORT_MAX_BYTES,
+)
 from app.module.contact.acl.ContactAclEngine import ContactAclEngine
+from app.module.contact.jobs.ContactJobKind import ContactJobKind
+from app.module.contact.jobs.JobRequestExportContact import JobRequestExportContact
+from app.module.contact.jobs.JobRequestImportContact import JobRequestImportContact
 from app.module.contact.model.AddressBookContent import AddressBookContent
 from app.module.contact.model.CardAddressBook import CardAddressBook
 from app.module.contact.model.ContactImportResult import ContactImportResult
@@ -25,6 +30,7 @@ if TYPE_CHECKING:
     from app.auth.User import User
     from app.config.settings.DomainSettings import UserSourceSettingsObj
     from app.config.settings.ProcessSetting import ProcessSetting
+    from app.manager.agent.ClientAgent import ClientAgent
     from app.manager.cache.ClientRedis import ClientRedis
     from app.manager.db.ClientSQL import ClientSQL
     from app.module.contact.model.CardContact import CardContact
@@ -35,7 +41,10 @@ if TYPE_CHECKING:
 class ModuleContact:  # pylint: disable=too-many-public-methods
     """Module for address book and contact operations."""
 
-    def __init__(self, process_settings: ProcessSetting, cache: ClientRedis | None = None) -> None:
+    def __init__(
+        self, process_settings: ProcessSetting,
+        cache: ClientRedis | None = None, agent: ClientAgent | None = None,
+    ) -> None:
         sogo_db_type: str = f"Client{process_settings.SOGO_P_DB_TYPE}"
         self._db: ClientSQL = import_and_instantiate_manager(
             module_path="app.manager.db",
@@ -44,6 +53,7 @@ class ModuleContact:  # pylint: disable=too-many-public-methods
         )
         self._db.connect()
         self._cache: ClientRedis | None = cache
+        self._agent: ClientAgent | None = agent
         self._sources: ContactSources = ContactSources(self._db)
         self._acl: ContactAclEngine = ContactAclEngine()
         self._file: ClientStorage = import_and_instantiate_manager(
@@ -405,9 +415,78 @@ class ModuleContact:  # pylint: disable=too-many-public-methods
             raise RequestException(error=err.ERROR_UNKOWN) from exc
 
     #
+    # Async import / export (enqueue)
+    #
+    def enqueue_import(
+        self, user: User, kind: ContactJobKind, addressbook_key: str | None, document: bytes, fmt: str,
+    ) -> str:
+        """Enqueue a contact import as an Agent job and return the job id.
+
+        Size and ACL checks run synchronously so the caller sees errors immediately. The uploaded
+        document is offloaded to the blob store and only its reference travels in the job payload;
+        the worker reads it back, deserialises and applies it, then deletes the blob.
+
+        :param user: The user importing the document.
+        :param kind: Target scope (whole book / contacts / lists).
+        :param addressbook_key: Destination book key for CONTACT/LIST; ``None`` for a new book.
+        :param document: Raw uploaded bytes.
+        :param fmt: Source format token (``vcard3`` / ``vcard4`` / ``ldif`` / ``json``).
+        :return: id of the enqueued Agent job.
+        :raises RequestException: ERROR_CONTACT_IMPORT_TOO_LARGE, ERROR_CONTACT_ADDRESSBOOK_NOT_FOUND,
+            or ERROR_JOB_CONCURRENT_LIMIT.
+        """
+        if self._agent is None:
+            raise RuntimeError("ModuleContact.enqueue_import requires a ClientAgent")
+        if len(document) > IMPORT_MAX_BYTES:
+            raise RequestException(error=err.ERROR_CONTACT_IMPORT_TOO_LARGE)
+        if kind is not ContactJobKind.ADDRESSBOOK:
+            # CONTACT / LIST target an existing book: fail fast on missing book or no write access.
+            self._get_writable_addressbook(user, self._require_key(addressbook_key))
+        ref: str = self._agent.get_large_store().save(document, "text/plain")
+        try:
+            request: JobRequestImportContact = JobRequestImportContact(
+                kind=kind.value, addressbook_key=addressbook_key, source_ref=ref, fmt=fmt,
+            )
+            return self._agent.enqueue(request, user_uid=user.uid)
+        except Exception:
+            # If we couldn't queue the job, the uploaded blob would dangle - drop it.
+            self._agent.get_large_store().delete(ref)
+            raise
+
+    def enqueue_export(
+        self, user: User, kind: ContactJobKind, addressbook_key: str, item_key: str | None, fmt: str,
+    ) -> str:
+        """Enqueue a contact export as an Agent job and return the job id.
+
+        ACL/existence check on the book runs synchronously (fail fast on 404/403); the worker
+        serialises the requested scope and offloads the result to the blob store.
+
+        :param user: The user exporting.
+        :param kind: Source scope (whole book / one contact / one list).
+        :param addressbook_key: The book key.
+        :param item_key: The contact or list key; ``None`` for a whole book.
+        :param fmt: Export format token (a ``ContactExportFormat`` member name).
+        :return: id of the enqueued Agent job.
+        :raises RequestException: ERROR_CONTACT_ADDRESSBOOK_NOT_FOUND or ERROR_JOB_CONCURRENT_LIMIT.
+        """
+        if self._agent is None:
+            raise RuntimeError("ModuleContact.enqueue_export requires a ClientAgent")
+        self._get_readable_addressbook(user, addressbook_key)  # existence + ACL VIEW
+        request: JobRequestExportContact = JobRequestExportContact(
+            kind=kind.value, addressbook_key=addressbook_key, item_key=item_key, fmt=fmt,
+        )
+        return self._agent.enqueue(request, user_uid=user.uid)
+
+    @staticmethod
+    def _require_key(key: str | None) -> str:
+        """Return a non-empty key or raise ADDRESSBOOK_NOT_FOUND; an item import needs a destination book."""
+        if not key:
+            raise RequestException(error=err.ERROR_CONTACT_ADDRESSBOOK_NOT_FOUND)
+        return key
+
+    #
     # Export
     #
-    # TODO: Make the process async with Agent
     def get_list_for_export(
         self, user: User, addressbook_key: str, key: str,
         user_sources: dict[str, UserSourceSettingsObj] | None = None,
