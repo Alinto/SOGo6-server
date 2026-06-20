@@ -23,13 +23,16 @@ Four layers, isolated by injection. Only `Agent.py` imports `celery`; the busine
        (wrap Celery)        (Redis CRUD)
             |
             v
-          Redis  <----  broker / backend / index / lock / blobs
+          Redis  <----  broker / backend / index / lock
+
+Large blobs do not live in Redis: they are offloaded to the SQL file store
+(`sogo6_file_storage`) through a `ClientStorage`, see "Large blobs" below.
 ----
 
 *Components:*
 
-* *Agent* (`app/agent/Agent.py`) — the only file importing `celery`. Wraps the Celery calls (`send_task`, `revoke`, signal hooks) and exposes a domain API (`create_job`, `cancel`, `register_job_handler`, `register_all_job_handlers`, `register_lifecycle_hooks`, `start_worker`). It also owns the large-blob store: `register_large_store(cache)` builds it (via `JobLargeStoreBuilder`) at boot, `get_large_store()` returns it (and raises if never registered). Worker jobs reach it via `agent.get_large_store()`.
-* *ClientAgent* (`app/manager/agent/ClientAgent.py`) — the single facade used by Flask. Composes Agent + persistency + canceller + cache; owns enqueue, the concurrency gate and `JobState` reads. Receives the store *injected* at construction and exposes it via `get_large_store()`. The worker does NOT build a ClientAgent (jobs use `agent.get_large_store()` directly) - only Flask does.
+* *Agent* (`app/agent/Agent.py`) — the only file importing `celery`. Wraps the Celery calls (`send_task`, `revoke`, signal hooks) and exposes a domain API (`create_job`, `cancel`, `register_job_handler`, `register_all_job_handlers`, `register_lifecycle_hooks`, `start_worker`). It also holds the large-blob store: it builds a `ClientStorage` scoped to the agent at construction and `get_large_store()` returns it. Worker jobs reach it via `agent.get_large_store()`.
+* *ClientAgent* (`app/manager/agent/ClientAgent.py`) — the single facade used by Flask. Composes Agent + persistency + canceller + cache; owns enqueue, the concurrency gate and `JobState` reads. Receives the store *injected* at construction (`agent.get_large_store()`) and re-exposes it via its own `get_large_store()`. The worker does NOT build a ClientAgent (jobs use `agent.get_large_store()` directly) - only Flask does.
 * *JobPersistency* (`app/agent/jobs/JobPersistency.py`) — Redis CRUD on `JobState`, with three secondary indexes (per user / pending / schedule).
 * *JobCanceller* (`app/agent/jobs/JobCanceller.py`) — two-phase cancellation (SIGTERM -> poll -> SIGKILL).
 * *JobRecovery* (`app/agent/jobs/JobRecovery.py`) — at boot, replays non-terminal jobs according to `request.resume`.
@@ -53,8 +56,12 @@ The Flask process and the Celery worker are two distinct processes. They communi
                                             v                           |                                         v
                               +========================================== REDIS ===========================================+
                               |  broker queue   |  jobstate:<id> (+ index user/pending) |  agent:concurrency lock          |
-                              |                 |                                       |  joblarge:<uuid> (blob FILE/RAM) |
                               +============================================================================================+
+
+                              Large blobs go to the SQL file store, not Redis:
+                              +===================== POSTGRES / MARIADB ======================+
+                              |  sogo6_file_storage : sogo:file:<key> (source='agent')       |
+                              +==============================================================+
 ----
 
 === Pushing a job (Flask side)
@@ -87,8 +94,8 @@ The Flask process and the Celery worker are two distinct processes. They communi
   Job.process(payload, *, user_uid, job_id)
     |  InterfaceAgentCalendar -> ModuleCalendar   # same module, no HTTP context
     |  ... heavy work ...
-    | (5) large output? large_store.save -------> joblarge:<uuid>   (JobLargeRef.to_dict() in result)
-    |     return { "large_result": ref, ... }     # or a small inline dict (counters, ...)
+    | (5) large output? large_store.save -------> sogo6_file_storage   (returns "sogo:file:<key>")
+    |     return { "large_result": ref, ... }     # ref is the opaque string; or a small inline dict
     v
   task_postrun / failure / retry / revoked hook
     | (6) JobState = SUCCESS|FAILURE|... + result -> jobstate:<id>
@@ -103,7 +110,7 @@ The Flask process and the Celery worker are two distinct processes. They communi
   GET  /jobs/<id>          -> InterfaceApiJob.get_job
                               JobStateSerializerDict(state)   # status + redacted result
   GET  /jobs/<id>/result   -> InterfaceApiJob.get_result
-                          (7) large_store.load(JobLargeRef.from_dict(ref)) <- joblarge:<uuid>
+                          (7) large_store.load("sogo:file:<key>") <- sogo6_file_storage
                               HTTP 200 binary (native Content-Type; ?download=true => attachment)
   POST /jobs/<id>/cancel   -> JobCanceller: SIGTERM -> poll -> SIGKILL; task_revoked => CANCELED
 ----
@@ -192,28 +199,36 @@ This is *not* a de-duplication mechanism. It bounds *simultaneity*, not total th
 
 When the lock is held: `RequestException(ERROR_JOB_CONCURRENT_LIMIT)` -> HTTP 409.
 
-== Large blobs (JobLargeStore)
+== Large blobs (ClientStorage)
 
-A broker must not carry large binaries (message bloat, Redis memory). Blobs too big for a payload/result are offloaded to the *large store*. Two pieces:
+A broker must not carry large binaries (message bloat, Redis memory). Blobs too big for a payload/result are offloaded to the *large store*. This is not an agent-specific mechanism: the store is the same swappable file layer the contact module uses for photos (`ClientStorage`, `app/manager/storage/`), the agent is just another owner.
 
-* `JobLargeStore` (ABC, impls `JobLargeStoreFile` / `JobLargeStoreInMemory`) — a *stateless storage service*: `save(content, content_type) -> JobLargeRef`, `load(ref) -> bytes`, `delete(ref)`.
-* `JobLargeRef` — the typed reference (`content_type` + `locator`). It is what travels around (typed, not a raw dict) and serialises itself to the wire via `to_dict()` / `from_dict()`.
+* `ClientStorage` (ABC) — the storage contract: `save(data, content_type) -> str`, `load(ref) -> (bytes, content_type) | None`, `delete(ref)`, `purge_older_than(max_age_seconds) -> int`. References are opaque strings of the form `sogo:file:<key>` (`ClientStorage.is_reference`); the caller never parses them.
+* `ClientStorageDatabase` (`app/manager/storage/`) — the DB-backed implementation. It writes blobs to `sogo6_file_storage` (key, raw bytes, MIME, content hash, `source`).
+* `StorageSource` — the owner tag stamped on every row (`agent`, `contact`, ...). Each store instance is scoped to one source, so per-owner enumeration and purge never reach another owner's blobs (a contact orphan sweep cannot touch an agent result, and vice-versa).
 
-The backend is *process-wide*, built once by `JobLargeStoreBuilder.build(process_setting, cache)` (it reads `SOGO_P_AGENT_LARGE_STORE`: `file` = filesystem, `in_memory` = Redis, and injects the cache into the in-memory backend). The `Agent` import-time singleton starts with no store; `init_infra` calls `agent.register_large_store(cache)` once the cache exists. Access: worker jobs use `agent.get_large_store()` (which raises a controlled `AggravatedException` if it was never registered); Flask code uses `ClientAgent.get_large_store()` (the store injected into the ClientAgent at wiring) or `sogo_agent().get_large_store()`. No per-job or per-ref backend dispatch - the reference only says *where* a blob is, not *how* to reach it.
+*Backend selection by config.* The concrete class is chosen at construction through `import_and_instantiate_manager(module_path="app.manager.storage", module_and_class_name=f"ClientStorage{SOGO_P_STORAGE_TYPE.capitalize()}", ...)` - the same pattern as the DB client (`Client{SOGO_P_DB_TYPE}`). `SOGO_P_STORAGE_TYPE` defaults to `database`. Adding a `local` or `webdav` backend is a new `ClientStorage<Type>` file plus a config value; the consumers (Agent, ModuleContact) do not change.
+
+*Connection lifetime.* `ClientStorageDatabase(process_setting, source, db=None)` runs in two modes:
+
+* a *live* `db` is passed -> it reuses that connection and never closes it (the owner does). The contact module uses this, sharing its module connection, so a bulk photo import does not open one connection per blob.
+* no `db` -> it opens a short-lived connection for each operation and closes it right after. The `Agent` import-time singleton builds its store this way (`db=None`), so it holds *no* live connection. That matters under Celery's prefork model: a connection opened in the master would be inherited - and corrupted - across the worker fork; opening per operation means the connection is always created in the process that uses it.
+
+Access: worker jobs use `agent.get_large_store()`; Flask code uses `ClientAgent.get_large_store()` (the store injected into the ClientAgent at wiring) or `sogo_agent().get_large_store()`. Both return a `ClientStorage` - callers depend on the abstraction, never the concrete backend.
 
 The store is *bidirectional*:
 
-* *Output* (large result: ICS, PDF...) — the worker `agent.get_large_store().save(content, content_type) -> JobLargeRef`, and stores `ref.to_dict()` under `large_result` plus light metadata. Fetched via `GET /jobs/<id>/result`.
-* *Input* (large upload: ICS import) — the module `save()` s the upload *before* enqueue (the worker no longer has the HTTP request) and puts `ref.to_dict()` in the request (`source_ref`). The worker rebuilds it with `JobLargeRef.from_dict(...)`, `load()` s it, then `delete()` s it once consumed (an input blob is single-use). If enqueue fails, the module `delete()` s the ref so no blob dangles.
+* *Output* (large result: ICS, PDF...) — the worker `agent.get_large_store().save(content, content_type) -> "sogo:file:<key>"`, and stores that string under `large_result` plus light metadata. Fetched via `GET /jobs/<id>/result`.
+* *Input* (large upload: ICS import) — the module `save()` s the upload *before* enqueue (the worker no longer has the HTTP request) and puts the reference string in the request (`source_ref`). The worker `load()` s it, then `delete()` s it once consumed (an input blob is single-use). If enqueue fails, the module `delete()` s the ref so no blob dangles.
 
 A *small* result (JSON, e.g. import counters) is returned directly from `process()` and stored inline in `JobState.result`, readable via `GET /jobs/<id>`.
 
-Wire vs typing boundary: `JobState.result` and the broker payload stay JSON (Redis). The typing lives at the Python surfaces (`JobLargeRef`); `to_dict()` / `from_dict()` apply only at the two serialization edges.
+`JobState.result` and the broker payload stay JSON (Redis); the large result is just the opaque reference string, so nothing about the storage backend leaks onto the wire.
 
-Trade-off of the singleton: `load`/`delete` use the configured backend, so changing `SOGO_P_AGENT_LARGE_STORE` while blobs still exist makes the old ones unreadable - but *gracefully* (`load` raises `FileNotFoundError` / `ValueError`, surfaced as a clean 410, never a 500). Acceptable for a TTL-bounded result store where the backend does not vary.
+A reference that no longer loads (blob expired/cleaned, or a stale reference from a previous wire format) is surfaced as a clean 410, never a 500: `get_result` treats a non-string or missing `large_result` as "no result".
 
-// TODO streaming: get_result loads the whole blob into memory. The client favours the FILE backend, where serving via send_file(path) would stream by chunks - worth it for large calendars under concurrent downloads. Deferred: payloads are size-bounded today.
-FILE-backend blobs are purged by the daily `admin.cleanup.large_store` beat job (see the Periodic jobs section); IN_MEMORY expires via the Redis TTL.
+// TODO streaming: get_result loads the whole blob into memory. Serving via a streamed response would be better for large calendars under concurrent downloads. Deferred: payloads are size-bounded today.
+Agent blobs are purged by the daily `admin.cleanup.large_store` beat job (see the Periodic jobs section), which deletes rows older than `SOGO_P_AGENT_LARGE_STORE_MAX_AGE_SECONDS` for the agent source only.
 
 == Payload exposure (security)
 
@@ -227,10 +242,10 @@ The public view of a `JobState` is built by `JobStateSerializerDict` (`app/agent
 
 Two distinct serialization layers, not to be confused:
 
-* *Internal transport* (Redis / broker wire) — `to_dict` / `from_dict` / `payload` methods directly on the object: `JobState`, `JobRequest`, and `JobLargeRef` (a pure value object that serialises itself - no backend logic, so no dispatch and no cycle).
+* *Internal transport* (Redis / broker wire) — `to_dict` / `from_dict` / `payload` methods directly on the object: `JobState`, `JobRequest`. The large result needs no such object: it is a plain `sogo:file:<key>` string, carried as-is in `JobState.result`.
 * *API boundary* (interface -> response) — a dedicated `Serializer`: `JobStateSerializerDict` produces the public view (payload redaction + `large_result` strip).
 
-The serializer/deserializer contract targets model-to-external-format conversion exposed at the API, not internal transport. `JobLargeRef.to_dict` is never exposed to a client, so it stays a method (consistent with its `JobState` / `JobRequest` neighbours) rather than a serializer. The `Serializer` / `Deserializer` base classes live in `app/utils/serializer/` (shared, domain-agnostic).
+The serializer/deserializer contract targets model-to-external-format conversion exposed at the API, not internal transport. The `Serializer` / `Deserializer` base classes live in `app/utils/serializer/` (shared, domain-agnostic).
 
 == Endpoints
 
@@ -257,13 +272,14 @@ A third entrypoint runs the scheduler: `poetry run agent-beat` (`app/agent/run.p
 
 *One beat, many workers.* Workers scale horizontally. Beat must run as a *single active instance* - two beats would each fire the schedule and enqueue duplicates. The entrypoint guards this with a Redis lock (`agent:beat:lock`, TTL `BEAT_LOCK_TTL_SECONDS`) refreshed by a heartbeat thread while beat runs; if another beat holds it, the process exits. The lock auto-expires if the holder crashes, so a replacement can take over. (No `celery-redbeat`: it is not actively maintained; the schedule is defined in code, so plain beat + our own lock is enough.)
 
-*A job declares its own schedule.* The `cron` lives on the `JobRequest`, next to the other execution metadata (`max_try`, `soft_timeout_seconds`, `resume`, `max_concurrent`): a standard 5-field expression, e.g. `"0 2 * * *"` = daily at 02:00; a Request without one runs only on demand. At startup `Agent.start_beat` scans every registered job and builds one beat entry per Request that declares a `cron` - keyed by the job name, enqueued with the Request's default payload and a `schedule_name` tag. Adding or rescheduling a periodic job is a one-line change on the Request, not an edit to a central schedule. The last-run state file is `SOGO_P_AGENT_BEAT_SCHEDULE_PATH` (default `/var/celery/celerybeat-schedule`; its directory is provisioned writable by the application user in the agent Dockerfile - `start_beat` raises a clear error if it is missing/not writable). Current periodic job: `admin.cleanup.large_store` (`app/module/admin/jobs/`), on the cadence declared by its Request's `cron`, which calls `agent.get_large_store().purge(SOGO_P_AGENT_LARGE_STORE_MAX_AGE_SECONDS)` to delete FILE-backend blobs older than 48h (the in-memory backend expires via Redis TTL; `purge` is a no-op there).
+*A job declares its own schedule.* The `cron` lives on the `JobRequest`, next to the other execution metadata (`max_try`, `soft_timeout_seconds`, `resume`, `max_concurrent`): a standard 5-field expression, e.g. `"0 2 * * *"` = daily at 02:00; a Request without one runs only on demand. At startup `Agent.start_beat` scans every registered job and builds one beat entry per Request that declares a `cron` - keyed by the job name, enqueued with the Request's default payload and a `schedule_name` tag. Adding or rescheduling a periodic job is a one-line change on the Request, not an edit to a central schedule. The last-run state file is `SOGO_P_AGENT_BEAT_SCHEDULE_PATH` (default `/var/celery/celerybeat-schedule`; its directory is provisioned writable by the application user in the agent Dockerfile - `start_beat` raises a clear error if it is missing/not writable). Current periodic job: `admin.cleanup.large_store` (`app/module/admin/jobs/`), on the cadence declared by its Request's `cron`, which calls `agent.get_large_store().purge_older_than(SOGO_P_AGENT_LARGE_STORE_MAX_AGE_SECONDS)` to delete agent-source blobs older than that age from `sogo6_file_storage`.
 
 *Tracking beat jobs.* A beat task goes straight to the broker (it does not pass through `ClientAgent.enqueue`, so no PENDING `JobState` is persisted). The `task_prerun` hook therefore *creates* the `JobState` when none exists, tagged with the schedule name (`schedule_name`, carried in the task kwargs) - so periodic runs show up in `GET /jobs/<id>` and `list_by_schedule` like any other job.
 
 == Testing
 
-* `tests/test_agent/` — infrastructure layer (Agent wrapper, Job* classes, lifecycle hooks, JobLargeStore backends + JobLargeRef, JobStateSerializerDict).
+* `tests/test_agent/` — infrastructure layer (Agent wrapper, Job* classes, lifecycle hooks, JobStateSerializerDict).
+* `tests/test_manager/test_storage/` — the storage layer (`ClientStorage` policy, `ClientStorageDatabase` including its two connection modes, `DbFileStorage`).
 * `tests/test_manager/test_agent/test_ClientAgent.py` — the ClientAgent facade plus concurrency tests (lock acquire/release).
 * `tests/test_interface/test_job/test_InterfaceApiJob.py` — the user-facing interface (get_job + get_result + errors).
 
