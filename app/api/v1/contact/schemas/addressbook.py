@@ -59,22 +59,16 @@ class ContactImportQueryArgsSchema(Schema):
                            metadata={"description": "Source format of the uploaded document (default json)."})
 
 
-class ContactImportResultDataSchema(Schema):
-    """Counters returned after an import (address book key/name set only on a whole-book import)."""
+class ContactJobDataSchema(Schema):
+    """Payload returned when an import or export is enqueued as an Agent job."""
 
-    contacts_inserted = fields.Integer()
-    contacts_updated  = fields.Integer()
-    lists_inserted    = fields.Integer()
-    lists_updated     = fields.Integer()
-    skipped           = fields.Integer()
-    addressbook_key   = fields.String()
-    addressbook_name  = fields.String()
+    job_id = fields.String(required=True, metadata={"description": "Id of the enqueued Agent job. Poll GET /jobs/<job_id> until SUCCESS; import counters are in the job result, export document via GET /jobs/<job_id>/result."})
 
 
-class ContactImportResponseSchema(ApiBaseResponse):
-    """Response schema for an import call."""
+class ContactJobResponseSchema(ApiBaseResponse):
+    """Response schema for the async import/export endpoints (returns a job_id)."""
 
-    data = fields.Nested(ContactImportResultDataSchema, allow_none=True)
+    data = fields.Nested(ContactJobDataSchema, allow_none=True)
 
 
 class ContactImportUploadSchema(Schema):
