@@ -3,7 +3,7 @@ import hashlib
 from unittest.mock import MagicMock
 
 from app.config.db import tables as tbl
-from app.manager.db.DbFileStorage import DbFileStorage
+from app.manager.storage.DbFileStorage import DbFileStorage
 
 
 def test_write_inserts_key_source_data_content_type_and_hash():

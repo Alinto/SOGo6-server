@@ -1,8 +1,8 @@
-"""Unit tests for FileAdapter: save_all (validate + offload), load_all, purge_orphans."""
+"""Unit tests for ClientStorage: save_all (validate + offload), load_all, purge_orphans."""
 import pytest
 
-from app.utils.file.FileAdapter import FileAdapter
-from app.utils.file.FileAdapterSource import FileAdapterSource
+from app.manager.storage.ClientStorage import ClientStorage
+from app.manager.storage.StorageSource import StorageSource
 from app.utils import errors as err
 from app.utils.exceptions import RequestException
 from app.utils.uri.DataUri import DataUri
@@ -15,11 +15,11 @@ def _png(suffix=b""):
     return b"\x89PNG\r\n\x1a\n" + suffix
 
 
-class FakeFileAdapter(FileAdapter):
-    """In-memory FileAdapter tracking stored blobs and deletions."""
+class FakeClientStorage(ClientStorage):
+    """In-memory ClientStorage tracking stored blobs and deletions."""
 
     def __init__(self):
-        super().__init__(FileAdapterSource.CONTACT)
+        super().__init__(StorageSource.CONTACT)
         self.blobs = {}
         self.deleted = []
         self._counter = 0
@@ -58,21 +58,21 @@ def _save_all(fa, previous, incoming):
 # ========== load_all ==========
 
 def test_load_all_turns_reference_into_data_uri():
-    fa = FakeFileAdapter()
+    fa = FakeClientStorage()
     ref = fa.save(b"\xff\xd8\xff", "image/jpeg")
     result = fa.load_all([ref, "https://example.com/p.png"])
     assert result == [DataUri.build("image/jpeg", b"\xff\xd8\xff"), "https://example.com/p.png"]
 
 
 def test_load_all_drops_dangling_reference():
-    fa = FakeFileAdapter()
-    assert fa.load_all([f"{FileAdapter.REFERENCE_PREFIX}ghost"]) == []
+    fa = FakeClientStorage()
+    assert fa.load_all([f"{ClientStorage.REFERENCE_PREFIX}ghost"]) == []
 
 
 # ========== save_all: validation ==========
 
 def test_save_all_rejects_oversized_payload():
-    fa = FakeFileAdapter()
+    fa = FakeClientStorage()
     big = DataUri.build("image/png", _png(b"\x00" * _MAX))
     with pytest.raises(RequestException) as exc:
         _save_all(fa, [], [big])
@@ -81,7 +81,7 @@ def test_save_all_rejects_oversized_payload():
 
 
 def test_save_all_rejects_disallowed_type():
-    fa = FakeFileAdapter()
+    fa = FakeClientStorage()
     pdf = DataUri.build("image/png", b"%PDF-1.7\nbody")  # sniffs as application/pdf
     with pytest.raises(RequestException) as exc:
         _save_all(fa, [], [pdf])
@@ -89,28 +89,28 @@ def test_save_all_rejects_disallowed_type():
 
 
 def test_save_all_rejects_unrecognised_bytes():
-    fa = FakeFileAdapter()
+    fa = FakeClientStorage()
     with pytest.raises(RequestException) as exc:
         _save_all(fa, [], [DataUri.build("image/png", b"not an image")])
     assert exc.value.error == err.ERROR_FILE_TYPE_NOT_ALLOWED
 
 
 def test_save_all_rejects_non_base64_data_uri():
-    fa = FakeFileAdapter()
+    fa = FakeClientStorage()
     with pytest.raises(RequestException) as exc:
         _save_all(fa, [], ["data:text/html,<script>alert(1)</script>"])  # no ;base64 -> never stored
     assert exc.value.error == err.ERROR_FILE_TYPE_NOT_ALLOWED
 
 
 def test_save_all_rejects_non_http_scheme():
-    fa = FakeFileAdapter()
+    fa = FakeClientStorage()
     with pytest.raises(RequestException) as exc:
         _save_all(fa, [], ["javascript:alert(1)"])
     assert exc.value.error == err.ERROR_FILE_TYPE_NOT_ALLOWED
 
 
 def test_save_all_rejects_svg_photo():
-    fa = FakeFileAdapter()
+    fa = FakeClientStorage()
     svg = DataUri.build("image/png", b'<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"/>')  # sniffs as image/svg+xml
     with pytest.raises(RequestException) as exc:
         _save_all(fa, [], [svg])
@@ -119,7 +119,7 @@ def test_save_all_rejects_svg_photo():
 
 
 def test_save_all_allows_http_external_uri():
-    fa = FakeFileAdapter()
+    fa = FakeClientStorage()
     assert _save_all(fa, [], ["https://example.com/p.png"]) == ["https://example.com/p.png"]
 
 
@@ -127,14 +127,14 @@ def test_save_all_allows_http_external_uri():
 
 def test_save_all_stores_sniffed_type_not_declared_one():
     # A polyglot: GIF bytes declared text/html are accepted (gif is allowed) and stored as image/gif.
-    fa = FakeFileAdapter()
+    fa = FakeClientStorage()
     _save_all(fa, [], [DataUri.build("text/html", b"GIF89a<script>alert(1)</script>")])
     (_, content_type), = fa.blobs.values()
     assert content_type == "image/gif"
 
 
 def test_save_all_corrects_mislabeled_type():
-    fa = FakeFileAdapter()
+    fa = FakeClientStorage()
     _save_all(fa, [], [DataUri.build("image/png", b"\xff\xd8\xff jpeg bytes")])  # declared png, really jpeg
     (_, content_type), = fa.blobs.values()
     assert content_type == "image/jpeg"
@@ -143,15 +143,15 @@ def test_save_all_corrects_mislabeled_type():
 # ========== save_all: offload / dedup / orphans ==========
 
 def test_save_all_first_write_offloads_inline_and_keeps_uri():
-    fa = FakeFileAdapter()
+    fa = FakeClientStorage()
     result = _save_all(fa, [], [DataUri.build("image/png", _png()), "https://example.com/p.png"])
     assert len(fa.blobs) == 1
-    assert FileAdapter.is_reference(result[0])
+    assert ClientStorage.is_reference(result[0])
     assert result[1] == "https://example.com/p.png"
 
 
 def test_save_all_roundtrip_reuses_blob():
-    fa = FakeFileAdapter()
+    fa = FakeClientStorage()
     ref = fa.save(_png(b"a"), "image/png")
     result = _save_all(fa, [ref], [DataUri.build("image/png", _png(b"a"))])  # same bytes round-tripped
     assert result == [ref]
@@ -160,16 +160,16 @@ def test_save_all_roundtrip_reuses_blob():
 
 def test_save_all_replace_leaves_old_blob_as_orphan():
     # save_all never deletes: the replaced blob is left for the orphan sweep, not removed in-place.
-    fa = FakeFileAdapter()
+    fa = FakeClientStorage()
     ref = fa.save(_png(b"old"), "image/png")
     result = _save_all(fa, [ref], [DataUri.build("image/png", _png(b"new"))])
-    assert FileAdapter.is_reference(result[0]) and result[0] != ref
+    assert ClientStorage.is_reference(result[0]) and result[0] != ref
     assert ref not in fa.deleted
     assert fa.purge_orphans(set(result)) == 1  # reclaimed later by clean()/purge_orphans
 
 
 def test_save_all_removal_leaves_old_blob_as_orphan():
-    fa = FakeFileAdapter()
+    fa = FakeClientStorage()
     ref = fa.save(_png(), "image/png")
     assert _save_all(fa, [ref], []) == []
     assert ref not in fa.deleted
@@ -177,22 +177,22 @@ def test_save_all_removal_leaves_old_blob_as_orphan():
 
 
 def test_save_all_keeps_own_reference_passthrough():
-    fa = FakeFileAdapter()
+    fa = FakeClientStorage()
     ref = fa.save(_png(), "image/png")
     result = _save_all(fa, [ref], [ref])  # raw reference (e.g. a PATCH merge from the stored form)
     assert result == [ref] and ref not in fa.deleted
 
 
 def test_save_all_drops_foreign_reference():
-    fa = FakeFileAdapter()
-    result = _save_all(fa, [], [f"{FileAdapter.REFERENCE_PREFIX}foreign"])  # a reference never owned
+    fa = FakeClientStorage()
+    result = _save_all(fa, [], [f"{ClientStorage.REFERENCE_PREFIX}foreign"])  # a reference never owned
     assert result == [] and fa.deleted == []
 
 
 # ========== purge_orphans ==========
 
 def test_purge_orphans_deletes_unreferenced_blobs():
-    fa = FakeFileAdapter()
+    fa = FakeClientStorage()
     kept = fa.save(b"keep", "image/png")
     orphan = fa.save(b"drop", "image/png")
     removed = fa.purge_orphans({kept})
@@ -202,6 +202,6 @@ def test_purge_orphans_deletes_unreferenced_blobs():
 
 
 def test_purge_orphans_keeps_everything_when_all_referenced():
-    fa = FakeFileAdapter()
+    fa = FakeClientStorage()
     refs = {fa.save(b"a", "image/png"), fa.save(b"b", "image/png")}
     assert fa.purge_orphans(refs) == 0 and fa.deleted == []

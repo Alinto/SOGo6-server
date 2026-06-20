@@ -2,21 +2,21 @@ from __future__ import annotations
 
 from typing import Callable, TypeVar, TYPE_CHECKING
 
-from app.manager.db.DbFileStorage import DbFileStorage
-from app.utils.file.FileAdapter import FileAdapter
+from app.manager.storage.ClientStorage import ClientStorage
+from app.manager.storage.DbFileStorage import DbFileStorage
 from app.utils.maths.sogo_hash import generate_uuid
 from app.utils.module.importManager import import_and_instantiate_manager
 
 if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
     from app.manager.db.ClientSQL import ClientSQL
-    from app.utils.file.FileAdapterSource import FileAdapterSource
+    from app.manager.storage.StorageSource import StorageSource
 
 T = TypeVar("T")
 
 
-class FileAdapterDatabase(FileAdapter):
-    """FileAdapter backed by the database blob store (sogo6_file_storage), scoped to one owner source.
+class ClientStorageDatabase(ClientStorage):
+    """ClientStorage backed by the database blob store (sogo6_file_storage), scoped to one owner source.
 
     Connection handling depends on how it is built:
     - given a live ``db``, it reuses that connection and never closes it (the owner does);
@@ -26,7 +26,7 @@ class FileAdapterDatabase(FileAdapter):
     """
 
     def __init__(
-        self, process_setting: ProcessSetting, source: FileAdapterSource, db: ClientSQL | None = None,
+        self, process_setting: ProcessSetting, source: StorageSource, db: ClientSQL | None = None,
     ) -> None:
         super().__init__(source)
         self._process_setting: ProcessSetting = process_setting

@@ -13,17 +13,17 @@ from app.agent.jobs.Job import collected_agent_class_jobs
 from app.agent.jobs.JobState import JobState
 from app.agent.jobs.JobStatus import JobStatus
 from app.config.settings.ProcessSetting import ProcessSetting, process_config
+from app.manager.storage.StorageSource import StorageSource
 from app.utils.exceptions import AggravatedException
-from app.utils.file.FileAdapterDatabase import FileAdapterDatabase
-from app.utils.file.FileAdapterSource import FileAdapterSource
 from app.utils.logger.logger import logger_agent
+from app.utils.module.importManager import import_and_instantiate_manager
 
 if TYPE_CHECKING:
     from app.agent.jobs.Job import Job
     from app.agent.jobs.JobPersistency import JobPersistency
     from app.agent.jobs.JobRequest import JobRequest
     from app.manager.cache.ClientRedis import ClientRedis
-    from app.utils.file.FileAdapter import FileAdapter
+    from app.manager.storage.ClientStorage import ClientStorage
 
 
 class Agent:
@@ -32,9 +32,13 @@ class Agent:
     def __init__(self, process_setting: ProcessSetting) -> None:
         self._process_setting: ProcessSetting = process_setting
         self._job_handlers: dict[str, Job] = {}
-        # Holds no live connection: FileAdapterDatabase opens one per operation (db=None),
+        # Holds no live connection: the DB-backed store opens one per operation (db=None),
         # so this singleton built at import never leaks a connection across the worker fork.
-        self._large_store: FileAdapter = FileAdapterDatabase(process_setting, FileAdapterSource.AGENT)
+        self._large_store: ClientStorage = import_and_instantiate_manager(
+            module_path="app.manager.storage",
+            module_and_class_name=f"ClientStorage{process_setting.SOGO_P_STORAGE_TYPE.capitalize()}",
+            module_args={"process_setting": process_setting, "source": StorageSource.AGENT},
+        )
         self._celery: Celery = Celery(
             "sogo_agent",
             broker=process_setting.SOGO_P_REDIS_URL,
@@ -58,7 +62,7 @@ class Agent:
             enable_utc=True,
         )
 
-    def get_large_store(self) -> FileAdapter:
+    def get_large_store(self) -> ClientStorage:
         """Return the store that persists a task's large result until the user fetches it."""
         return self._large_store
 

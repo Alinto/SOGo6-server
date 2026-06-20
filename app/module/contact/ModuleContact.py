@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from app.manager.storage.ClientStorage import ClientStorage
+from app.manager.storage.StorageSource import StorageSource
 from app.module.contact.ContactConst import ALLOWED_FILE_MIME_TYPES, DEFAULT_ADDRESSBOOK_NAME, FILE_MAX_SIZE_KB
 from app.module.contact.acl.ContactAclEngine import ContactAclEngine
 from app.module.contact.model.AddressBookContent import AddressBookContent
@@ -15,9 +17,6 @@ from app.module.contact.source.ContactSources import ContactSources
 from app.utils import errors as err
 from app.utils.db.Condition import Order
 from app.utils.exceptions import BugException, RequestException
-from app.utils.file.FileAdapter import FileAdapter
-from app.utils.file.FileAdapterDatabase import FileAdapterDatabase
-from app.utils.file.FileAdapterSource import FileAdapterSource
 from app.utils.logger.logger import logger_contact
 from app.utils.maths.sogo_hash import generate_uuid
 from app.utils.module.importManager import import_and_instantiate_manager
@@ -47,7 +46,11 @@ class ModuleContact:  # pylint: disable=too-many-public-methods
         self._cache: ClientRedis | None = cache
         self._sources: ContactSources = ContactSources(self._db)
         self._acl: ContactAclEngine = ContactAclEngine()
-        self._file: FileAdapter = FileAdapterDatabase(process_settings, FileAdapterSource.CONTACT, db=self._db)
+        self._file: ClientStorage = import_and_instantiate_manager(
+            module_path="app.manager.storage",
+            module_and_class_name=f"ClientStorage{process_settings.SOGO_P_STORAGE_TYPE.capitalize()}",
+            module_args={"process_setting": process_settings, "source": StorageSource.CONTACT, "db": self._db},
+        )
 
     def __del__(self) -> None:
         if hasattr(self, "_db"):
@@ -147,7 +150,7 @@ class ModuleContact:  # pylint: disable=too-many-public-methods
         first would strand the row on missing bytes if the commit then failed. clean() is the backstop.
         """
         for reference in previous:
-            if FileAdapter.is_reference(reference) and reference not in current:
+            if ClientStorage.is_reference(reference) and reference not in current:
                 self._file.delete(reference)
 
     def get_contacts(
@@ -180,7 +183,7 @@ class ModuleContact:  # pylint: disable=too-many-public-methods
                 if resolve_images:
                     contact.photos = self._file.load_all(contact.photos)
                 else:
-                    contact.photos = [photo for photo in contact.photos if not FileAdapter.is_reference(photo)]
+                    contact.photos = [photo for photo in contact.photos if not ClientStorage.is_reference(photo)]
             return contacts, total
         except RequestException:
             raise
@@ -550,6 +553,6 @@ class ModuleContact:  # pylint: disable=too-many-public-methods
         list_repo: RepositoryContactList = RepositoryContactList(self._db)
         purged: int = contact_repo.purge_deleted() + list_repo.purge_deleted()
         purged += list_repo.purge_orphan_members(list_repo.all_keys(), contact_repo.all_keys())
-        referenced: set[str] = {value for value in contact_repo.all_photo_values() if FileAdapter.is_reference(value)}
+        referenced: set[str] = {value for value in contact_repo.all_photo_values() if ClientStorage.is_reference(value)}
         purged += self._file.purge_orphans(referenced)
         return purged

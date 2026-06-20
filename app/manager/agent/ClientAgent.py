@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from app.agent.jobs.JobPersistency import JobPersistency
     from app.agent.jobs.JobRequest import JobRequest
     from app.manager.cache.ClientRedis import ClientRedis
-    from app.utils.file.FileAdapter import FileAdapter
+    from app.manager.storage.ClientStorage import ClientStorage
 
 
 class ClientAgent:
@@ -26,15 +26,15 @@ class ClientAgent:
 
     def __init__(
         self, agent: Agent, persistency: JobPersistency, canceller: JobCanceller,
-        cache: ClientRedis, file: FileAdapter,
+        cache: ClientRedis, file: ClientStorage,
     ) -> None:
         self._agent: Agent = agent
         self._persistency: JobPersistency = persistency
         self._canceller: JobCanceller = canceller
         self._cache: ClientRedis = cache
-        self._file: FileAdapter = file
+        self._file: ClientStorage = file
 
-    def get_large_store(self) -> FileAdapter:
+    def get_large_store(self) -> ClientStorage:
         """Return the store that persists a task's large result until the user fetches it."""
         return self._file
 
