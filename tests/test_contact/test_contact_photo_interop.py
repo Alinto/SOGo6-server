@@ -1,6 +1,6 @@
 """PHOTO interop across formats (vCard 3.0/4.0, LDIF) and the inline -> storage -> inline chain."""
-from app.utils.file.FileAdapter import FileAdapter
-from app.utils.file.FileAdapterSource import FileAdapterSource
+from app.manager.storage.ClientStorage import ClientStorage
+from app.manager.storage.StorageSource import StorageSource
 from app.module.contact.model.CardContact import CardContact
 from app.module.contact.serializer.CardContactDeserializerLdif import CardContactDeserializerLdif
 from app.module.contact.serializer.CardContactDeserializerVcard3 import CardContactDeserializerVcard3
@@ -19,11 +19,11 @@ _MAX = 10 * 1024 * 1024
 _ALLOWED = frozenset({"image/jpeg", "image/png"})
 
 
-class FakeFileAdapter(FileAdapter):
-    """In-memory FileAdapter for the storage round-trip."""
+class FakeClientStorage(ClientStorage):
+    """In-memory ClientStorage for the storage round-trip."""
 
     def __init__(self):
-        super().__init__(FileAdapterSource.CONTACT)
+        super().__init__(StorageSource.CONTACT)
         self.blobs = {}
         self._counter = 0
 
@@ -106,7 +106,7 @@ def test_ldif_png_type_recovered_when_saved():
     # LDIF jpegPhoto carries no type; the file layer recovers image/png from the bytes when saved.
     record = CardContactSerializerLdif().serialize(CardContact(display_name="X", photos=[_PNG_URI]))
     imported = CardContactDeserializerLdif().deserialize(record)
-    adapter = FakeFileAdapter()
+    adapter = FakeClientStorage()
     imported.photos = adapter.save_all([], imported.photos, _MAX, _ALLOWED)
     assert adapter.load_all(imported.photos) == [_PNG_URI]
 
@@ -127,10 +127,10 @@ def test_ldif_inline_survives_storage_roundtrip():
 
 def _assert_storage_roundtrip(serializer, deserialize):
     """Import an inline photo, offload it to storage, resolve it back, and re-export it inline."""
-    adapter = FakeFileAdapter()
+    adapter = FakeClientStorage()
     imported = deserialize(serializer.serialize(_photo_contact()))
     imported.photos = adapter.save_all([], imported.photos, _MAX, _ALLOWED)   # validate + offload
-    assert FileAdapter.is_reference(imported.photos[0])             # stored as a reference
+    assert ClientStorage.is_reference(imported.photos[0])             # stored as a reference
     assert len(adapter.blobs) == 1
     imported.photos = adapter.load_all(imported.photos)          # back to inline for export
     assert imported.photos == [_JPEG_URI]

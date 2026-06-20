@@ -1,4 +1,4 @@
-"""Unit tests for FileAdapterDatabase (managed media references over DbFileStorage).
+"""Unit tests for ClientStorageDatabase (managed media references over DbFileStorage).
 
 The adapter builds its DbFileStorage internally, so the tests patch it with a mock and assert
 delegation. They also cover the two connection modes: a provided (shared) db is reused and never
@@ -6,28 +6,28 @@ closed; without one, each operation opens and closes its own connection.
 """
 from unittest.mock import MagicMock, patch
 
-from app.utils.file.FileAdapter import FileAdapter
-from app.utils.file.FileAdapterDatabase import FileAdapterDatabase
-from app.utils.file.FileAdapterSource import FileAdapterSource
+from app.manager.storage.ClientStorage import ClientStorage
+from app.manager.storage.ClientStorageDatabase import ClientStorageDatabase
+from app.manager.storage.StorageSource import StorageSource
 
-_MOD = "app.utils.file.FileAdapterDatabase"
-_PREFIX = FileAdapter.REFERENCE_PREFIX
+_MOD = "app.manager.storage.ClientStorageDatabase"
+_PREFIX = ClientStorage.REFERENCE_PREFIX
 
 
-def _shared(storage, source=FileAdapterSource.CONTACT):
+def _shared(storage, source=StorageSource.CONTACT):
     """Adapter reusing a provided (shared) connection; its internal DbFileStorage is `storage`."""
-    return FileAdapterDatabase(MagicMock(), source, db=MagicMock())
+    return ClientStorageDatabase(MagicMock(), source, db=MagicMock())
 
 
 def test_save_writes_and_returns_managed_reference():
     storage = MagicMock()
     with patch(f"{_MOD}.DbFileStorage", return_value=storage):
         ref = _shared(storage).save(b"\xff\xd8\xff", "image/jpeg")
-    assert FileAdapter.is_reference(ref)
+    assert ClientStorage.is_reference(ref)
     key, data, content_type, source = storage.write.call_args.args
     assert ref == f"{_PREFIX}{key}"
     assert data == b"\xff\xd8\xff" and content_type == "image/jpeg"
-    assert source == FileAdapterSource.CONTACT
+    assert source == StorageSource.CONTACT
 
 
 def test_load_reads_by_key():
@@ -72,9 +72,9 @@ def test_purge_older_than_delegates_with_source():
     storage = MagicMock()
     storage.purge_older_than.return_value = 4
     with patch(f"{_MOD}.DbFileStorage", return_value=storage):
-        removed = _shared(storage, FileAdapterSource.AGENT).purge_older_than(3600)
+        removed = _shared(storage, StorageSource.AGENT).purge_older_than(3600)
     assert removed == 4
-    assert storage.purge_older_than.call_args.args == (3600, FileAdapterSource.AGENT)
+    assert storage.purge_older_than.call_args.args == (3600, StorageSource.AGENT)
 
 
 # ========== Connection modes ==========
@@ -84,7 +84,7 @@ def test_shared_db_is_reused_and_never_closed():
     db = MagicMock()
     with patch(f"{_MOD}.DbFileStorage", return_value=storage) as build_storage, \
          patch(f"{_MOD}.import_and_instantiate_manager") as connect:
-        FileAdapterDatabase(MagicMock(), FileAdapterSource.CONTACT, db=db).delete(f"{_PREFIX}abc")
+        ClientStorageDatabase(MagicMock(), StorageSource.CONTACT, db=db).delete(f"{_PREFIX}abc")
     connect.assert_not_called()        # no new connection opened
     db.close.assert_not_called()       # the owner closes it, not the adapter
     assert build_storage.call_args.args == (db,)
@@ -96,7 +96,7 @@ def test_without_db_each_operation_opens_and_closes_its_own_connection():
     opened = MagicMock()
     with patch(f"{_MOD}.DbFileStorage", return_value=storage), \
          patch(f"{_MOD}.import_and_instantiate_manager", return_value=opened) as connect:
-        adapter = FileAdapterDatabase(MagicMock(), FileAdapterSource.AGENT)  # db=None
+        adapter = ClientStorageDatabase(MagicMock(), StorageSource.AGENT)  # db=None
         result = adapter.load(f"{_PREFIX}abc")
     assert result == (b"png", "image/png")
     connect.assert_called_once()

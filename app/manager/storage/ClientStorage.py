@@ -9,10 +9,10 @@ from app.utils.media.MediaType import MediaType
 from app.utils.uri.DataUri import DataUri
 
 if TYPE_CHECKING:
-    from app.utils.file.FileAdapterSource import FileAdapterSource
+    from app.manager.storage.StorageSource import StorageSource
 
 
-class FileAdapter(ABC):
+class ClientStorage(ABC):
     """Swappable store for inline binary files, kept behind opaque sogo:file:<key> references.
 
     The shared list-level policy (save_all/load_all/purge_orphans) offloads inline data URIs,
@@ -23,13 +23,13 @@ class FileAdapter(ABC):
 
     REFERENCE_PREFIX: str = "sogo:file:"
 
-    def __init__(self, source: FileAdapterSource) -> None:
-        self._source: FileAdapterSource = source
+    def __init__(self, source: StorageSource) -> None:
+        self._source: StorageSource = source
 
     @staticmethod
     def is_reference(value: str) -> bool:
         """Return True when value is a managed reference rather than an external URI."""
-        return value.startswith(FileAdapter.REFERENCE_PREFIX)
+        return value.startswith(ClientStorage.REFERENCE_PREFIX)
 
     @classmethod
     def _make_reference(cls, key: str) -> str:
@@ -85,7 +85,7 @@ class FileAdapter(ABC):
         """
         decoded: dict[int, tuple[bytes, str]] = {}
         for index, value in enumerate(values):
-            if FileAdapter.is_reference(value):
+            if ClientStorage.is_reference(value):
                 continue
             parsed: tuple[str, bytes] | None = DataUri.parse(value)
             if parsed is None:

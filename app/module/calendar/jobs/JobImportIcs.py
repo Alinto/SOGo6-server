@@ -16,8 +16,8 @@ from app.interface.calendar.InterfaceAgentCalendar import InterfaceAgentCalendar
 from app.module.calendar.jobs.JobRequestImportIcs import JobRequestImportIcs
 
 if TYPE_CHECKING:
+    from app.manager.storage.ClientStorage import ClientStorage
     from app.module.calendar.model.CalSyncResult import CalSyncResult
-    from app.utils.file.FileAdapter import FileAdapter
 
 
 @agent_job
@@ -55,7 +55,7 @@ class JobImportIcs(Job):
         source_ref: str | None = payload.get("source_ref")
         if not source_ref:
             raise ValueError("JobImportIcs requires a source_ref")
-        store: FileAdapter = agent.get_large_store()
+        store: ClientStorage = agent.get_large_store()
         try:
             # An input blob is single-use: once we hold its ref, any failure below
             # (including a missing user_uid) must still drop it - hence inside the try.

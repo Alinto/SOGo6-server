@@ -92,6 +92,9 @@ class ProcessSetting(FlaskConfig):
     SOGO_P_DB_SSL: bool = False
     SOGO_P_DB_ENC: str  = "utf8" #encoding, needed or autodetected ?
 
+    # Backend selecting the ClientStorage implementation (ClientStorage<Type>): database, local, webdav...
+    SOGO_P_STORAGE_TYPE: str = "database"
+
     SOGO_LOG_PATH: str = "/var/log/sogo/sogo.log"
 
     SOGO_INIT_SYSTEM_SETTINGS_PATH: str = ""
