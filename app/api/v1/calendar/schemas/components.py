@@ -145,13 +145,3 @@ class SyncConfigUpdateSchema(Schema):
         validate=validate.Range(min=5, max=1440),
         metadata={"description": "Sync interval in minutes (min 5, max 1440)."},
     )
-
-
-class SyncResultSchema(Schema):
-    """Counters returned after an external-calendar sync."""
-
-    inserted = fields.Integer()
-    updated = fields.Integer()
-    deleted = fields.Integer()
-    total = fields.Integer()
-    skipped = fields.Integer()

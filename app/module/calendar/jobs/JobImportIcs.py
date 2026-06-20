@@ -72,12 +72,6 @@ class JobImportIcs(Job):
                 ics_text = content.decode("latin-1")
             inter: InterfaceAgentCalendar = InterfaceAgentCalendar(process_config, user_uid)
             result: CalSyncResult = inter.import_calendar(calendar_key, ics_text)
-            return {
-                "inserted": result.inserted,
-                "updated": result.updated,
-                "deleted": result.deleted,
-                "total": result.total,
-                "skipped": result.skipped,
-            }
+            return result.to_dict()
         finally:
             store.delete(source_ref)

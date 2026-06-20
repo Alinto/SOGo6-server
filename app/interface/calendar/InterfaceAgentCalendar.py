@@ -68,6 +68,16 @@ class InterfaceAgentCalendar:
         """
         return self.module.apply_import(self.user, calendar_key, ics_text)
 
+    def sync_external_calendar(self, calendar_key: str) -> CalSyncResult:
+        """Fetch and mirror an external ICS calendar, returning the sync counters.
+
+        :param calendar_key: key of the external calendar to sync.
+        :type calendar_key: str
+        :return: the sync counters.
+        :rtype: CalSyncResult
+        """
+        return self.module.sync_external_calendar(self.user, calendar_key)
+
     @staticmethod
     def _load_user(process_setting: ProcessSetting, user_uid: str) -> User:
         """Rehydrate a User from its uid. Same shape as the Flask before_request gives."""

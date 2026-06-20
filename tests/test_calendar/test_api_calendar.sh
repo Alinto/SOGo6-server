@@ -2029,16 +2029,28 @@ check_field ".data.name" "Renamed ICS Feed"
 check_field ".data.color" "#EF4444"
 
 
-step "79. External calendar - sync"
-info "Triggers a sync and verifies it completes. This fetches the real ICS feed."
+step "79. External calendar - sync (async job)"
+info "POST /sync enqueues an Agent job (202); poll GET /jobs/<id> until success, then read the counters from the result. Fetches the real ICS feed."
 
 CODE=$(req -X POST "$BASE/external-calendars/$EXT_CAL_KEY/sync" -H "$H_JSON" -H "$H_AUTH" -d '{}')
-check_code  "POST /external-calendars/$EXT_CAL_KEY/sync" "$CODE" "200"
+check_code  "POST /external-calendars/$EXT_CAL_KEY/sync (enqueue)" "$CODE" "202"
 check_error "POST sync error_code"
-SYNC_INSERTED=$(extract '.data.inserted')
-SYNC_TOTAL=$(extract '.data.total')
+SYNC_JOB_ID=$(extract '.data.job_id')
+[ -n "$SYNC_JOB_ID" ] && ok "sync returned a job_id" || fail "sync returned no job_id"
+
+JOB_STATUS=""
+for _ in $(seq 1 60); do
+    CODE=$(req "$BASE/jobs/$SYNC_JOB_ID" -H "$H_AUTH")
+    JOB_STATUS=$(extract '.data.status')
+    [ "$JOB_STATUS" = "success" ] && break
+    { [ "$JOB_STATUS" = "failure" ] || [ "$JOB_STATUS" = "canceled" ]; } && break
+    sleep 1
+done
+[ "$JOB_STATUS" = "success" ] && ok "sync job completed" || fail "sync job did not succeed (status='$JOB_STATUS')"
+SYNC_INSERTED=$(extract '.data.result.inserted')
+SYNC_TOTAL=$(extract '.data.result.total')
 info "sync result: inserted=$SYNC_INSERTED total=$SYNC_TOTAL"
-[ "$SYNC_TOTAL" -ge 0 ] && ok "sync completed (total=$SYNC_TOTAL)" || fail "sync failed"
+{ [ -n "$SYNC_TOTAL" ] && [ "$SYNC_TOTAL" -ge 0 ]; } && ok "sync completed (total=$SYNC_TOTAL)" || fail "sync failed (total='$SYNC_TOTAL')"
 
 
 step "80. External calendar - sync status"
