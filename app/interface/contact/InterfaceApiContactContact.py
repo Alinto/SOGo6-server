@@ -337,7 +337,7 @@ class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attribute
         """Offload the document and enqueue an import job; shared by the three import endpoints."""
         try:
             job_id: str = self.module.enqueue_import(
-                self.user, kind, addressbook_key, document.encode("utf-8"), fmt,
+                self.user, kind, addressbook_key, document, fmt,
             )
             return create_api_base_response({"job_id": job_id}, code=202)
         except RequestException as ex:

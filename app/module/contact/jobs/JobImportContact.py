@@ -48,16 +48,9 @@ class JobImportContact(Job):
             # (including a missing user_uid) must still drop it - hence inside the try.
             if user_uid is None:
                 raise ValueError("JobImportContact requires a user_uid")
-            loaded: tuple[bytes, str] | None = store.load(source_ref)
-            if loaded is None:
-                raise FileNotFoundError(f"Import blob missing or expired: {source_ref!r}")
-            content: bytes = loaded[0]
-            try:
-                document: str = content.decode("utf-8")
-            except UnicodeDecodeError:
-                document = content.decode("latin-1")
-            inter: InterfaceAgentContact = InterfaceAgentContact(process_config, user_uid)
-            return inter.import_document(
+            document: str = store.load_text(source_ref)
+            interface: InterfaceAgentContact = InterfaceAgentContact(process_config, user_uid)
+            return interface.import_document(
                 payload["kind"], payload.get("addressbook_key"), document, payload["fmt"],
             )
         finally:

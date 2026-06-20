@@ -40,16 +40,16 @@ class ClientStorageDatabase(ClientStorage):
     def load(self, ref: str) -> tuple[bytes, str] | None:
         if not self.is_reference(ref):
             return None
-        return self._run(lambda storage: storage.read(self._reference_key(ref)))
+        return self._run(lambda storage: storage.read(self._reference_key(ref), self._source))
 
     def matches(self, ref: str, data: bytes) -> bool:
         return self.is_reference(ref) and self._run(
-            lambda storage: storage.is_equal(self._reference_key(ref), data),
+            lambda storage: storage.is_equal(self._reference_key(ref), data, self._source),
         )
 
     def delete(self, ref: str) -> None:
         if self.is_reference(ref):
-            self._run(lambda storage: storage.delete(self._reference_key(ref)))
+            self._run(lambda storage: storage.delete(self._reference_key(ref), self._source))
 
     def _all_references(self) -> set[str]:
         keys: set[str] = self._run(lambda storage: storage.all_keys(self._source))

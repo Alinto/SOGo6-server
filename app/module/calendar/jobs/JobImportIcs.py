@@ -62,16 +62,9 @@ class JobImportIcs(Job):
             if user_uid is None:
                 raise ValueError("JobImportIcs requires a user_uid")
             calendar_key: str = payload["calendar_key"]
-            loaded: tuple[bytes, str] | None = store.load(source_ref)
-            if loaded is None:
-                raise FileNotFoundError(f"Import blob missing or expired: {source_ref!r}")
-            content: bytes = loaded[0]
-            try:
-                ics_text: str = content.decode("utf-8")
-            except UnicodeDecodeError:
-                ics_text = content.decode("latin-1")
-            inter: InterfaceAgentCalendar = InterfaceAgentCalendar(process_config, user_uid)
-            result: CalSyncResult = inter.import_calendar(calendar_key, ics_text)
+            ics_text: str = store.load_text(source_ref)
+            interface: InterfaceAgentCalendar = InterfaceAgentCalendar(process_config, user_uid)
+            result: CalSyncResult = interface.import_calendar(calendar_key, ics_text)
             return result.to_dict()
         finally:
             store.delete(source_ref)

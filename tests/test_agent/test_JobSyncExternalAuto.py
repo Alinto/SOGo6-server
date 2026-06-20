@@ -13,10 +13,12 @@ def test_request_metadata():
     assert JobRequestSyncExternalAuto().payload() == {}
 
 
-def test_process_delegates_to_the_module_sweep():
-    module = MagicMock()
-    module.sync_all_due_external.return_value = {"total": 3, "synced": 2, "failed": 1, "skipped": 0}
-    with patch(f"{_JOB_MODULE}.ModuleCalendar", return_value=module), patch(f"{_JOB_MODULE}.sogo_cache"):
+def test_process_delegates_to_the_interface_sweep():
+    inter = MagicMock()
+    inter.sync_all_due_external.return_value = {"total": 3, "synced": 2, "failed": 1, "skipped": 0}
+    with patch(f"{_JOB_MODULE}.InterfaceAgentCalendar", return_value=inter) as inter_cls:
         result = JobSyncExternalAuto().process({}, user_uid=None, job_id="j-1")
-    module.sync_all_due_external.assert_called_once()
+    # Built like every other job - interface(process_setting, user_uid), here system (user_uid=None).
+    assert inter_cls.call_args.args[1] is None
+    inter.sync_all_due_external.assert_called_once()
     assert result == {"total": 3, "synced": 2, "failed": 1, "skipped": 0}

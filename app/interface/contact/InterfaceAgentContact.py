@@ -31,6 +31,8 @@ from app.module.contact.ModuleContact import ModuleContact
 from app.module.user.ModuleUserProfile import ModuleUserProfile
 from app.service import sogo_cache
 from app.utils.datetime.DateTimeUtils import today_iso
+from app.utils.errors import ERROR_CONTACT_IMPORT_PARSE_FAILED
+from app.utils.exceptions import RequestException
 
 if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
@@ -79,10 +81,20 @@ class InterfaceAgentContact:
         :param document: the decoded upload content.
         :param fmt: source format token (``vcard3`` / ``vcard4`` / ``ldif`` / ``json``).
         :return: the serialised counters; for a whole-book import, also the created book key and name.
+        :raises RequestException: ERROR_CONTACT_IMPORT_PARSE_FAILED when the document is malformed or
+            yields nothing importable (so the job fails with a clear error instead of reporting 0 imported).
         :raises ValueError: unknown ``kind`` or ``fmt``.
         """
-        content: AddressBookContent = self._import_deserializers[fmt](document)
         job_kind: ContactJobKind = ContactJobKind(kind)
+        try:
+            content: AddressBookContent = self._import_deserializers[fmt](document)
+        except (ValueError, KeyError) as exc:
+            # Malformed payload (e.g. invalid JSON) - surface a parse error, not a silent 0 import.
+            raise RequestException(error=ERROR_CONTACT_IMPORT_PARSE_FAILED) from exc
+        if not self._has_importable(job_kind, content):
+            # A document that parses to nothing importable (garbage a lenient vCard/LDIF reader reduced to
+            # empty) is a malformed file, not an empty import - fail with a parse error rather than 0 imported.
+            raise RequestException(error=ERROR_CONTACT_IMPORT_PARSE_FAILED)
         if job_kind is ContactJobKind.ADDRESSBOOK:
             name: str = f"{IMPORT_BOOK_NAME_PREFIX} ({today_iso()})"
             book, result = self.module.import_addressbook(self.user, content, name)
@@ -126,6 +138,15 @@ class InterfaceAgentContact:
         return body, f"{basename}.{export_format.extension}", export_format.media_type
 
     @staticmethod
+    def _has_importable(job_kind: ContactJobKind, content: AddressBookContent) -> bool:
+        """Return True when the parsed document holds something the target scope can import."""
+        if job_kind is ContactJobKind.CONTACT:
+            return bool(content.contacts)
+        if job_kind is ContactJobKind.LIST:
+            return bool(content.lists)
+        return bool(content.contacts or content.lists)
+
+    @staticmethod
     def _require_key(key: str | None) -> str:
         """Return a non-empty key or raise; an item job without its key is a malformed payload."""
         if not key:
@@ -134,6 +155,7 @@ class InterfaceAgentContact:
 
     @staticmethod
     def _load_user(process_setting: ProcessSetting, user_uid: str) -> User:
+        # pylint: disable=duplicate-code
         """Rehydrate a User from its uid. Same shape as the Flask before_request gives."""
         user: User = User(uid=user_uid)
         user.mail = user_uid

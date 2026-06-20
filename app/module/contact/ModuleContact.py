@@ -418,7 +418,7 @@ class ModuleContact:  # pylint: disable=too-many-public-methods
     # Async import / export (enqueue)
     #
     def enqueue_import(
-        self, user: User, kind: ContactJobKind, addressbook_key: str | None, document: bytes, fmt: str,
+        self, user: User, kind: ContactJobKind, addressbook_key: str | None, document: str, fmt: str,
     ) -> str:
         """Enqueue a contact import as an Agent job and return the job id.
 
@@ -429,7 +429,7 @@ class ModuleContact:  # pylint: disable=too-many-public-methods
         :param user: The user importing the document.
         :param kind: Target scope (whole book / contacts / lists).
         :param addressbook_key: Destination book key for CONTACT/LIST; ``None`` for a new book.
-        :param document: Raw uploaded bytes.
+        :param document: Decoded upload content (the byte-accurate size cap is enforced at the API read).
         :param fmt: Source format token (``vcard3`` / ``vcard4`` / ``ldif`` / ``json``).
         :return: id of the enqueued Agent job.
         :raises RequestException: ERROR_CONTACT_IMPORT_TOO_LARGE, ERROR_CONTACT_ADDRESSBOOK_NOT_FOUND,
@@ -442,7 +442,7 @@ class ModuleContact:  # pylint: disable=too-many-public-methods
         if kind is not ContactJobKind.ADDRESSBOOK:
             # CONTACT / LIST target an existing book: fail fast on missing book or no write access.
             self._get_writable_addressbook(user, self._require_key(addressbook_key))
-        ref: str = self._agent.get_large_store().save(document, "text/plain")
+        ref: str = self._agent.get_large_store().save_text(document, "text/plain")
         try:
             request: JobRequestImportContact = JobRequestImportContact(
                 kind=kind.value, addressbook_key=addressbook_key, source_ref=ref, fmt=fmt,

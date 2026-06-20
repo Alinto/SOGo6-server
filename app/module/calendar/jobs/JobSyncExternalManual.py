@@ -36,6 +36,6 @@ class JobSyncExternalManual(Job):
         """
         if user_uid is None:
             raise ValueError("JobSyncExternalManual requires a user_uid")
-        inter: InterfaceAgentCalendar = InterfaceAgentCalendar(process_config, user_uid)
-        result: CalSyncResult = inter.sync_external_calendar(payload["calendar_key"])
+        interface: InterfaceAgentCalendar = InterfaceAgentCalendar(process_config, user_uid)
+        result: CalSyncResult = interface.sync_external_calendar(payload["calendar_key"])
         return result.to_dict()

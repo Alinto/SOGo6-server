@@ -190,15 +190,21 @@ class ApiCalendarImport(MethodView):
         """Enqueue the import of the uploaded .ics file and return the ``job_id``.
 
         The total request size is already capped at the WSGI layer (MAX_CONTENT_LENGTH),
-        and the module enforces the per-import size limit; this view only reads the raw part
-        and hands the bytes to the interface (decoding happens worker-side).
+        and the module enforces the per-import size limit. The raw part is decoded to text here
+        (utf-8, latin-1 fallback) - the single place the upload's charset is guessed - then handed
+        to the interface as a string.
         """
         logger_api.debug("POST /calendars/%s/import user=%s", key, g.user.uid)
         interface: InterfaceApiCalendarCalendar = g.inter
         upload: FileStorage | None = files.get("file")
         if upload is None:
             return create_api_base_response(None, ERROR_CALENDAR_IMPORT_NO_FILE)
-        return interface.import_calendar(key, upload.stream.read())
+        raw: bytes = upload.stream.read()
+        try:
+            ics_text: str = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            ics_text = raw.decode("latin-1")
+        return interface.import_calendar(key, ics_text)
 
 
 @blp.route("/calendars/<string:key>/events")

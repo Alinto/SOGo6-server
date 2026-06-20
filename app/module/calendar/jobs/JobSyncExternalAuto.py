@@ -14,8 +14,7 @@ from typing import Any, ClassVar
 from app.agent.jobs.Job import Job, agent_job
 from app.agent.jobs.JobRequest import JobRequest
 from app.config.settings.ProcessSetting import process_config
-from app.module.calendar.ModuleCalendar import ModuleCalendar
-from app.service import sogo_cache
+from app.interface.calendar.InterfaceAgentCalendar import InterfaceAgentCalendar
 
 
 @dataclass
@@ -49,5 +48,5 @@ class JobSyncExternalAuto(Job):
         :param job_id: Celery-provided id of the running job. Unused here.
         :return: ``{"total": int, "synced": int, "failed": int, "skipped": int}``.
         """
-        module: ModuleCalendar = ModuleCalendar(process_config, cache=sogo_cache())
-        return module.sync_all_due_external()
+        interface: InterfaceAgentCalendar = InterfaceAgentCalendar(process_config, user_uid)
+        return interface.sync_all_due_external()

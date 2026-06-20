@@ -205,3 +205,23 @@ def test_purge_orphans_keeps_everything_when_all_referenced():
     fa = FakeClientStorage()
     refs = {fa.save(b"a", "image/png"), fa.save(b"b", "image/png")}
     assert fa.purge_orphans(refs) == 0 and fa.deleted == []
+
+
+# ========== save_text / load_text ==========
+
+def test_save_text_load_text_roundtrip():
+    fa = FakeClientStorage()
+    ref = fa.save_text("héllo", "text/plain")
+    assert fa.load_text(ref) == "héllo"
+
+
+def test_load_text_decodes_what_save_text_wrote():
+    fa = FakeClientStorage()
+    ref = fa.save("héllo".encode("utf-8"), "text/plain")
+    assert fa.load_text(ref) == "héllo"
+
+
+def test_load_text_raises_when_ref_is_gone():
+    fa = FakeClientStorage()
+    with pytest.raises(FileNotFoundError):
+        fa.load_text("sogo:file:missing")

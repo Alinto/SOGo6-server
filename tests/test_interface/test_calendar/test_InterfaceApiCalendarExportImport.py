@@ -56,25 +56,25 @@ def test_import_enqueues_job_and_returns_job_id():
     module = MagicMock()
     module.import_calendar.return_value = "job-456"
     inter = _build_interface(module)
-    body, status = inter.import_calendar("cal-key", b"BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n")
+    body, status = inter.import_calendar("cal-key", "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n")
     assert status == 202
     assert body["data"]["job_id"] == "job-456"
 
 
-def test_import_forwards_raw_bytes_to_module():
+def test_import_forwards_text_to_module():
     module = MagicMock()
     module.import_calendar.return_value = "job-1"
     inter = _build_interface(module)
-    raw = b"BEGIN:VCALENDAR\r\nFOO:bar\r\nEND:VCALENDAR\r\n"
-    inter.import_calendar("cal-key", raw)
-    # The interface hands the raw bytes through; decoding happens worker-side.
-    module.import_calendar.assert_called_once_with(inter.user, "cal-key", raw)
+    ics_text = "BEGIN:VCALENDAR\r\nFOO:bar\r\nEND:VCALENDAR\r\n"
+    inter.import_calendar("cal-key", ics_text)
+    # The route already decoded the upload; the interface hands the text through.
+    module.import_calendar.assert_called_once_with(inter.user, "cal-key", ics_text)
 
 
 def test_import_translates_request_exception_to_error_envelope():
     module = MagicMock()
     module.import_calendar.side_effect = RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
     inter = _build_interface(module)
-    response, _ = inter.import_calendar("cal-key", b"BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n")
+    response, _ = inter.import_calendar("cal-key", "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n")
     assert response["error_code"] == err.ERROR_CALENDAR_NOT_SUPPORTED.c
     assert response["data"] is None

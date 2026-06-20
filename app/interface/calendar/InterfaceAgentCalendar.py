@@ -13,6 +13,7 @@ from app.config.init_config import init_get_user_domain_settings
 from app.module.calendar.ModuleCalendar import ModuleCalendar
 from app.module.user.ModuleUserProfile import ModuleUserProfile
 from app.service import sogo_cache
+from app.utils.exceptions import BugException
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -23,14 +24,14 @@ if TYPE_CHECKING:
 class InterfaceAgentCalendar:
     """Calendar interface used by Agent tasks.
 
-    Takes a ``user_uid`` (the only identity the broker carries) and resolves the
-    full ``User`` plus the user-scoped domain settings before instantiating
-    ``ModuleCalendar``.
+    Takes a ``user_uid`` (the only identity the broker carries) and resolves the full ``User`` plus
+    the user-scoped domain settings before instantiating ``ModuleCalendar``. ``user_uid`` is ``None``
+    for a system job (the periodic auto-sync sweep): no user is loaded and only the system-wide
+    methods may be called.
     """
 
-    def __init__(self, process_setting: ProcessSetting, user_uid: str) -> None:
-        self._process_setting: ProcessSetting = process_setting
-        self.user: User = self._load_user(process_setting, user_uid)
+    def __init__(self, process_setting: ProcessSetting, user_uid: str | None) -> None:
+        self.user: User | None = self._load_user(process_setting, user_uid) if user_uid else None
         self.module: ModuleCalendar = ModuleCalendar(process_setting, cache=sogo_cache())
 
     def export_calendar(
@@ -53,7 +54,7 @@ class InterfaceAgentCalendar:
         :rtype: str
         """
         return self.module.serialize_to_ics(
-            self.user, calendar_key, date_start=date_start, date_end=date_end,
+            self._require_user(), calendar_key, date_start=date_start, date_end=date_end,
         )
 
     def import_calendar(self, calendar_key: str, ics_text: str) -> CalSyncResult:
@@ -66,7 +67,7 @@ class InterfaceAgentCalendar:
         :return: the import counters.
         :rtype: CalSyncResult
         """
-        return self.module.apply_import(self.user, calendar_key, ics_text)
+        return self.module.apply_import(self._require_user(), calendar_key, ics_text)
 
     def sync_external_calendar(self, calendar_key: str) -> CalSyncResult:
         """Fetch and mirror an external ICS calendar, returning the sync counters.
@@ -76,10 +77,28 @@ class InterfaceAgentCalendar:
         :return: the sync counters.
         :rtype: CalSyncResult
         """
-        return self.module.sync_external_calendar(self.user, calendar_key)
+        return self.module.sync_external_calendar(self._require_user(), calendar_key)
+
+    def sync_all_due_external(self) -> dict[str, int]:
+        """System-wide auto-sync sweep (no user scope): sync every external calendar whose interval elapsed.
+
+        Used by the periodic auto-sync job, which builds this interface with ``user_uid=None``; the sweep
+        reads each calendar's owner from its row, so no acting user is needed.
+
+        :return: aggregate counts ``{"total", "synced", "failed", "skipped"}``.
+        :rtype: dict[str, int]
+        """
+        return self.module.sync_all_due_external()
+
+    def _require_user(self) -> User:
+        """Return the acting user, or raise if this interface was built for a system job (no user)."""
+        if self.user is None:
+            raise BugException("InterfaceAgentCalendar was built without a user (system mode)")
+        return self.user
 
     @staticmethod
     def _load_user(process_setting: ProcessSetting, user_uid: str) -> User:
+        # pylint: disable=duplicate-code
         """Rehydrate a User from its uid. Same shape as the Flask before_request gives."""
         user: User = User(uid=user_uid)
         user.mail = user_uid

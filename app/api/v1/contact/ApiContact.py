@@ -60,6 +60,7 @@ _EXPORT_OPENAPI: dict = {
         "schema": {"type": "string", "enum": [
             "text/vcard; version=4.0", "text/vcard; version=3.0", "text/ldif", "application/json"]},
     }],
+    "responses": {"406": {"description": "The requested export format is not supported (ERROR_CONTACT_EXPORT_FORMAT_UNSUPPORTED)."}},
 }
 
 blp = Blueprint("Contact", __name__, url_prefix="")

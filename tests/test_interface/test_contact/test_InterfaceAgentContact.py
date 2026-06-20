@@ -6,6 +6,8 @@ import pytest
 
 from app.interface.contact.InterfaceAgentContact import InterfaceAgentContact
 from app.module.contact.jobs.ContactJobKind import ContactJobKind
+from app.utils import errors as err
+from app.utils.exceptions import RequestException
 from app.module.contact.model.CardAddressBook import CardAddressBook
 from app.module.contact.model.CardContact import CardContact
 from app.module.contact.model.CardList import CardList
@@ -103,16 +105,33 @@ def test_import_list_into_existing_book():
     assert [l.name for l in inter.module.import_list.call_args.args[2]] == ["Team"]
 
 
-def test_import_malformed_json_raises():
+def test_import_malformed_json_raises_parse_failed():
     inter = _build_agent()
-    with pytest.raises(json.JSONDecodeError):
+    with pytest.raises(RequestException) as ex:
         inter.import_document(ContactJobKind.ADDRESSBOOK, None, '{"contacts": [oops', "json")
+    assert ex.value.error == err.ERROR_CONTACT_IMPORT_PARSE_FAILED
+
+
+def test_import_document_that_parses_to_nothing_raises_parse_failed():
+    # A non-empty file a lenient reader reduces to zero items must fail, not silently report 0 imported.
+    inter = _build_agent()
+    with pytest.raises(RequestException) as ex:
+        inter.import_document(ContactJobKind.ADDRESSBOOK, None, '{"contacts": [], "lists": []}', "json")
+    assert ex.value.error == err.ERROR_CONTACT_IMPORT_PARSE_FAILED
+
+
+def test_import_contact_wrong_file_kind_raises_parse_failed():
+    # A list-only document sent to the contacts endpoint yields zero contacts -> parse failed.
+    inter = _build_agent()
+    with pytest.raises(RequestException) as ex:
+        inter.import_document(ContactJobKind.CONTACT, "k1", '{"contacts": [], "lists": [{"name": "T", "uid": "l1"}]}', "json")
+    assert ex.value.error == err.ERROR_CONTACT_IMPORT_PARSE_FAILED
 
 
 def test_import_item_without_key_raises():
     inter = _build_agent()
     with pytest.raises(ValueError):
-        inter.import_document(ContactJobKind.CONTACT, None, '{"contacts": []}', "json")
+        inter.import_document(ContactJobKind.CONTACT, None, '{"contacts": [{"display_name": "X"}]}', "json")
 
 
 # ========== Export ==========
