@@ -211,10 +211,6 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
             self._sources.propagate(scope_result=ScopeResult(
                 result=created, touched=[(created, EventAction.INSERT)],
             ))
-            imip_msg: ImipMessage | None = ImipBuilder.build_request(created)
-            if imip_msg:
-                logger_calendar.info("iMIP REQUEST built for event %s to %s", created.uid, imip_msg.to_emails)
-                # TODO: dispatch imip_msg via agent transport (Celery + SMTP) once the agent is in place
             return created
         except RequestException:
             raise

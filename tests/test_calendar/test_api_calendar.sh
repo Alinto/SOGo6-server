@@ -1307,6 +1307,63 @@ L2_STATUS_ON_L1=$(body | jq -r --arg email "$LOGIN_2" '.data.attendees[] | selec
     && ok "LOGIN_1 organizer copy shows LOGIN_2 = accepted" \
     || fail "LOGIN_1 organizer copy shows LOGIN_2 = '$L2_STATUS_ON_L1' (expected accepted)"
 
+step "51a. iMIP - LOGIN_2 receives the invitation email"
+info "Creating an event with attendees sends an iMIP REQUEST (RFC 6047) to each attendee. We create an
+  event with a unique title, then poll LOGIN_2's INBOX through the Mail Account API to confirm delivery."
+
+IMIP_NONCE=$(date +%s)
+IMIP_TITLE="iMIP Invite $IMIP_NONCE"
+IMIP_SUBJECT="Invitation: $IMIP_TITLE"
+
+CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d "{
+        \"title\": \"$IMIP_TITLE\",
+        \"date_start\": \"2026-07-02T09:00:00Z\",
+        \"date_end\":   \"2026-07-02T10:00:00Z\",
+        \"timezone\": \"Europe/Paris\",
+        \"attendees\": [
+            {\"email\": \"$LOGIN_2\", \"name\": \"User Two\", \"status\": \"needs-action\"}
+        ]
+    }")
+check_code  "POST /events iMIP invite" "$CODE" "201"
+IMIP_EVT_KEY=$(extract '.data.key')
+
+info "Polling LOGIN_2 INBOX for subject: $IMIP_SUBJECT"
+IMIP_MAIL_UID=""
+for _ in $(seq 1 15); do
+    CODE=$(req "$BASE/mailboxes/0/folders/INBOX/mails?sort_by=date&sort_order=desc&fields=contents&fields_action=exclude" \
+        -H "$H_AUTH_2")
+    if [ "$CODE" = "200" ]; then
+        IMIP_MAIL_UID=$(body | jq -r --arg subj "$IMIP_SUBJECT" '[.data[] | select(.subject == $subj)][0].uid // empty')
+        [ -n "$IMIP_MAIL_UID" ] && break
+    fi
+    sleep 1
+done
+
+if [ -n "$IMIP_MAIL_UID" ]; then
+    ok "LOGIN_2 received the iMIP invitation (mail uid=$IMIP_MAIL_UID)"
+
+    CODE=$(req "$BASE/mailboxes/0/folders/INBOX/mails/$IMIP_MAIL_UID/raw" -H "$H_AUTH_2")
+    check_code "GET raw iMIP mail" "$CODE" "200"
+    IMIP_RAW=$(body | jq -r '.data.raw // empty')
+    echo "$IMIP_RAW" | grep -q "BEGIN:VCALENDAR" \
+        && ok "iMIP mail carries an iCalendar payload (BEGIN:VCALENDAR)" \
+        || fail "iMIP mail has no VCALENDAR payload"
+    echo "$IMIP_RAW" | grep -qi "METHOD:REQUEST" \
+        && ok "iMIP mail iTIP method is REQUEST" \
+        || fail "iMIP mail is missing METHOD:REQUEST"
+else
+    fail "LOGIN_2 did NOT receive the iMIP invitation (subject '$IMIP_SUBJECT' not found after polling)"
+fi
+
+if $DO_DELETE; then
+    CODE=$(req -X DELETE "$BASE/events/$IMIP_EVT_KEY" -H "$H_AUTH")
+    check_code "DELETE /events iMIP invite" "$CODE" "200"
+else
+    skip "DELETE iMIP invite event $IMIP_EVT_KEY"
+fi
+
 # -- 17b. SINGLE-OCCURRENCE ATTENDANCE ----------------------------------------
 
 step "51b. Invitation - LOGIN_1 creates recurring event with LOGIN_2 as attendee"
