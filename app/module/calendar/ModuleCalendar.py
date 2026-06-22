@@ -247,9 +247,6 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
             # Propagate changes to attendeees
             self._sources.propagate(scope_result=scope_result, original=event)
 
-            imip_msg: ImipMessage | None = ImipBuilder.build_request(scope_result.result)
-            if imip_msg:
-                logger_calendar.info("iMIP REQUEST built for updated event %s to %s", scope_result.result.uid, imip_msg.to_emails)
             return scope_result.result
         except RequestException:
             raise
@@ -257,13 +254,16 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
             logger_calendar.exception("Unexpected error updating event %s", event_key)
             raise RequestException(error=err.ERROR_CALENDAR_EVENT_UPDATE_FAILED) from exc
 
-    def delete_event(self, calendar_user: CalendarUser, event_key: str) -> None:
+    def delete_event(self, calendar_user: CalendarUser, event_key: str) -> CalEvent | None:
         """Soft-delete an event by key and propagate the deletion to attendees.
 
         If the event is a detached occurrence, only that row is deleted and its
         recurrence_id is added to the master's EXDATE.
         If the user is the organizer, the deletion is propagated to all attendees.
         If the user is an attendee, only their own copy is deleted.
+
+        Returns the deleted event when the acting user is its organizer, so the caller can announce
+        the cancellation to attendees (iMIP CANCEL); returns None otherwise (nothing to announce).
         """
         source, event = self._find_source_for_event(calendar_user, event_key)
         self._acl.check_permission(
@@ -280,10 +280,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
                 self._sources.propagate(scope_result=ScopeResult(
                     result=event, touched=[(event, EventAction.DELETE)],
                 ))
-            imip_msg: ImipMessage | None = ImipBuilder.build_cancel(event)
-            if imip_msg:
-                logger_calendar.info("iMIP CANCEL built for event %s to %s", event.uid, imip_msg.to_emails)
-                # TODO: dispatch imip_msg via agent transport (Celery + SMTP) once the agent is in place
+            return event if is_organizer else None
         except RequestException:
             raise
         except Exception as exc:

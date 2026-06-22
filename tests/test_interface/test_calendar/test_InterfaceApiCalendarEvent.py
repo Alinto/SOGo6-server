@@ -148,15 +148,38 @@ def test_patch_event_not_found_returns_error():
     assert response["error_code"] == err.ERROR_CALENDAR_EVENT_NOT_FOUND.c
 
 
+def test_patch_event_sends_imip_request_to_attendees():
+    module = MagicMock()
+    module.get_event.return_value = _make_event()
+    module.update_event.return_value = _make_event(title="Updated")
+    inter = _build_interface(module)
+    with patch(_BUILD_REQUEST, return_value=_imip_message(recipients=("a@example.com", "b@example.com"))):
+        response, _ = inter.patch_event("evt-key", {"title": "Updated"})
+    assert response["error_code"] == "S000000"
+    assert inter._mail_outgoing.send_raw_message.call_count == 2
+
+
 # ========== delete_event ==========
 
 def test_delete_event_success():
     module = MagicMock()
+    module.delete_event.return_value = None
     inter = _build_interface(module)
     response, _ = inter.delete_event("evt-key")
     assert response["error_code"] == "S000000"
     assert response["data"] is None
     module.delete_event.assert_called_once_with(CalendarUser(user=inter.user, owner=inter.user), "evt-key")
+    inter._mail_outgoing.send_raw_message.assert_not_called()
+
+
+def test_delete_event_organizer_sends_cancel():
+    module = MagicMock()
+    module.delete_event.return_value = _make_event()
+    inter = _build_interface(module)
+    with patch(_BUILD_CANCEL, return_value=_imip_message(recipients=("a@example.com", "b@example.com"))):
+        response, _ = inter.delete_event("evt-key")
+    assert response["error_code"] == "S000000"
+    assert inter._mail_outgoing.send_raw_message.call_count == 2
 
 
 def test_delete_event_not_found_returns_error():
@@ -216,6 +239,7 @@ def test_get_events_error_returns_error():
 # ========== iMIP send on create_event ==========
 
 _BUILD_REQUEST = "app.interface.calendar.InterfaceApiCalendarCalendar.ImipBuilder.build_request"
+_BUILD_CANCEL = "app.interface.calendar.InterfaceApiCalendarCalendar.ImipBuilder.build_cancel"
 _BODY = {"title": "T", "date_start": "2026-03-01T09:00:00.000Z", "date_end": "2026-03-01T10:00:00.000Z"}
 
 

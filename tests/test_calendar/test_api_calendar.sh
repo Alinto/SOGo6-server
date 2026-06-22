@@ -1357,11 +1357,66 @@ else
     fail "LOGIN_2 did NOT receive the iMIP invitation (subject '$IMIP_SUBJECT' not found after polling)"
 fi
 
-if $DO_DELETE; then
-    CODE=$(req -X DELETE "$BASE/events/$IMIP_EVT_KEY" -H "$H_AUTH")
-    check_code "DELETE /events iMIP invite" "$CODE" "200"
+step "51a (cont.) - iMIP REQUEST re-sent to LOGIN_2 on PATCH"
+info "Modifying an organizer's event with attendees must re-send an iMIP REQUEST. We PATCH the title
+  and poll LOGIN_2's INBOX for an invitation carrying the new subject."
+
+IMIP_TITLE_UPD="iMIP Update $IMIP_NONCE"
+IMIP_SUBJECT_UPD="Invitation: $IMIP_TITLE_UPD"
+
+CODE=$(req -X PATCH "$BASE/events/$IMIP_EVT_KEY" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d "{\"title\": \"$IMIP_TITLE_UPD\"}")
+check_code "PATCH /events iMIP invite (title)" "$CODE" "200"
+
+info "Polling LOGIN_2 INBOX for subject: $IMIP_SUBJECT_UPD"
+IMIP_UPD_UID=""
+for _ in $(seq 1 15); do
+    CODE=$(req "$BASE/mailboxes/0/folders/INBOX/mails?sort_by=date&sort_order=desc&fields=contents&fields_action=exclude" \
+        -H "$H_AUTH_2")
+    if [ "$CODE" = "200" ]; then
+        IMIP_UPD_UID=$(body | jq -r --arg subj "$IMIP_SUBJECT_UPD" '[.data[] | select(.subject == $subj)][0].uid // empty')
+        [ -n "$IMIP_UPD_UID" ] && break
+    fi
+    sleep 1
+done
+
+[ -n "$IMIP_UPD_UID" ] \
+    && ok "LOGIN_2 received the updated iMIP REQUEST (mail uid=$IMIP_UPD_UID)" \
+    || fail "LOGIN_2 did NOT receive the updated iMIP REQUEST (subject '$IMIP_SUBJECT_UPD' not found)"
+
+step "51a (cont.) - iMIP CANCEL sent to LOGIN_2 on delete"
+info "When the organizer deletes an event with attendees, an iMIP CANCEL (RFC 6047) must reach each
+  attendee. Deleting the event here also doubles as cleanup for this section."
+
+IMIP_SUBJECT_CANCEL="Cancelled: $IMIP_TITLE_UPD"
+
+CODE=$(req -X DELETE "$BASE/events/$IMIP_EVT_KEY" -H "$H_AUTH")
+check_code "DELETE /events iMIP invite" "$CODE" "200"
+
+info "Polling LOGIN_2 INBOX for subject: $IMIP_SUBJECT_CANCEL"
+IMIP_CANCEL_UID=""
+for _ in $(seq 1 15); do
+    CODE=$(req "$BASE/mailboxes/0/folders/INBOX/mails?sort_by=date&sort_order=desc&fields=contents&fields_action=exclude" \
+        -H "$H_AUTH_2")
+    if [ "$CODE" = "200" ]; then
+        IMIP_CANCEL_UID=$(body | jq -r --arg subj "$IMIP_SUBJECT_CANCEL" '[.data[] | select(.subject == $subj)][0].uid // empty')
+        [ -n "$IMIP_CANCEL_UID" ] && break
+    fi
+    sleep 1
+done
+
+if [ -n "$IMIP_CANCEL_UID" ]; then
+    ok "LOGIN_2 received the iMIP cancellation (mail uid=$IMIP_CANCEL_UID)"
+
+    CODE=$(req "$BASE/mailboxes/0/folders/INBOX/mails/$IMIP_CANCEL_UID/raw" -H "$H_AUTH_2")
+    check_code "GET raw iMIP cancel mail" "$CODE" "200"
+    IMIP_CANCEL_RAW=$(body | jq -r '.data.raw // empty')
+    echo "$IMIP_CANCEL_RAW" | grep -qi "METHOD:CANCEL" \
+        && ok "iMIP cancel mail iTIP method is CANCEL" \
+        || fail "iMIP cancel mail is missing METHOD:CANCEL"
 else
-    skip "DELETE iMIP invite event $IMIP_EVT_KEY"
+    fail "LOGIN_2 did NOT receive the iMIP cancellation (subject '$IMIP_SUBJECT_CANCEL' not found)"
 fi
 
 # -- 17b. SINGLE-OCCURRENCE ATTENDANCE ----------------------------------------
