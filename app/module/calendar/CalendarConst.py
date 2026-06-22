@@ -70,3 +70,16 @@ SHARE_TOKEN_LENGTH: int = 64
 # Suggested resync period advertised in a public subscription feed (REFRESH-INTERVAL /
 # X-PUBLISHED-TTL). Twice a day is a sensible default for a personal calendar.
 PUBLIC_SUBSCRIPTION_REFRESH: timedelta = timedelta(hours=12)
+
+# Subject-line words prepended to outgoing iMIP emails (RFC 6047), one per iTIP method. The
+# invitation itself travels in the text/calendar part; these words are only the human-facing
+# hint in the Subject header.
+#
+# TODO: these strings MUST be translated. They are the only user-facing text left in an iMIP
+# email (the body is now language-neutral text/calendar) and are currently hard-coded English.
+# There is no i18n backend yet: the SOGO_U_LANGUAGE user preference exists but is never read
+# server-side. When a translation mechanism lands, resolve these per recipient locale instead
+# of using the constants below.
+IMIP_SUBJECT_PREFIX_REQUEST: str = "Invitation"
+IMIP_SUBJECT_PREFIX_REPLY: str = "Re"
+IMIP_SUBJECT_PREFIX_CANCEL: str = "Cancelled"

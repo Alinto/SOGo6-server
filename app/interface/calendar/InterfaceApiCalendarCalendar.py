@@ -1,15 +1,21 @@
 from __future__ import annotations
 
 import calendar
+from dataclasses import replace
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 from app.utils.api.external_url import build_external_url
 
-from app.config.settings.DomainSettings import CalendarContactSettings, CalendarContactSettingsObj
+from app.config.settings.DomainSettings import (
+    CalendarContactSettings, CalendarContactSettingsObj, MailSettings, MailSettingsObj,
+)
 from app.config.settings.UserSettings import UserCalendarGeneralSettings, UserGeneralSettings
 from app.module.admin.ModuleAdminConfig import ModuleAdminConfig
 from app.module.calendar.ModuleCalendar import ModuleCalendar
+from app.module.calendar.imip.ImipBuilder import ImipBuilder
+from app.module.calendar.imip.ImipEmailBuilder import ImipEmailBuilder
+from app.module.mail.ModuleMailOutgoing import ModuleMailOutgoing
 from app.module.calendar.freebusy.FreeBusyEngine import FreeBusyPrefs
 from app.module.calendar.model.CalCalendar import CalCalendar
 from app.module.calendar.model.CalendarUser import CalendarUser
@@ -37,9 +43,13 @@ from app.utils.exceptions import RequestException
 from app.utils.strings import get_domain_from_mail
 from app.auth.User import User
 from app.utils.logger.logger import logger_api
+from app.utils import constants as cs
 
 if TYPE_CHECKING:
+    from email.message import EmailMessage
+
     from app.config.settings.ProcessSetting import ProcessSetting
+    from app.module.calendar.imip.ImipMessage import ImipMessage
     from app.module.calendar.model.CalEvent import CalEvent
     from app.module.calendar.source.CalendarSource import CalendarSource
 
@@ -63,6 +73,10 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         self._process_setting: ProcessSetting = process_setting
         self.settings: CalendarContactSettingsObj = CalendarContactSettingsObj(user_domain_settings[CalendarContactSettings.subparent])
         self.module: ModuleCalendar = ModuleCalendar(process_setting, cache=sogo_cache(), agent=sogo_agent())
+        # iMIP is sent through the mail module: cross-module collaboration lives in the interface.
+        self._mail_outgoing: ModuleMailOutgoing = ModuleMailOutgoing(
+            user, MailSettingsObj(user_domain_settings[MailSettings.subparent]),
+        )
         self._user_module: ModuleUserProfile = ModuleUserProfile(process_setting, user_domain_settings)
         self._events_serializer: CalEventsSerializerDict = CalEventsSerializerDict()
         self._event_serializer: CalEventSerializerDict = CalEventSerializerDict()
@@ -174,11 +188,14 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
     # Events
     #
     def create_event(self, calendar_key: str, body: dict[str, Any]) -> tuple[dict[str, Any], int]:
-        """Create a new event in the given calendar."""
+        """Create a new event in the given calendar, sending an iMIP invitation when it has attendees."""
         try:
             event: CalEvent = self._event_deserializer.deserialize(body)
             organizer: CalOrganizer = CalOrganizer(email=self.user.mail)
             created: CalEvent = self.module.create_event(CalendarUser(user=self.user, owner=self.user), calendar_key, event, organizer)
+            imip_msg: ImipMessage | None = ImipBuilder.build_request(created)
+            if imip_msg is not None:
+                self._send_imip(imip_msg)
             return create_api_base_response(self._event_serializer.serialize(created), code=201)
         except RequestException as ex:
             logger_api.error("create_event failed for user %s calendar %s: %s", self.user.uid, calendar_key, ex)
@@ -186,6 +203,26 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         except (ValueError, KeyError) as exc:
             logger_api.error("Failed to parse event body for user %s calendar %s: %s", self.user.uid, calendar_key, exc)
             return create_api_base_response(None, ERROR_CALENDAR_JSON_PARSE_FAILED)
+
+    def _send_imip(self, imip_msg: ImipMessage) -> None:
+        """Send an iMIP message to each attendee individually, best-effort.
+
+        iTIP delivers one copy per recipient: the To header then matches the actual recipient and a
+        single unreachable address cannot sink the whole batch. The iCalendar payload still lists
+        every attendee, as the standard requires. A delivery failure must never break the calendar
+        operation that produced it - the event is already persisted, the invitation is a side effect.
+        Errors are logged and swallowed per recipient.
+        """
+        for recipient in imip_msg.to_emails:
+            try:
+                single: ImipMessage = replace(imip_msg, to_emails=[recipient])
+                email_message: EmailMessage = ImipEmailBuilder.build_email(single)
+                self._mail_outgoing.send_raw_message(cs.DEFAULT_IDENTITY_KEY_VALUE, email_message)
+            except Exception:  # pylint: disable=broad-exception-caught
+                logger_api.exception(
+                    "iMIP %s send failed for event %s to %s",
+                    imip_msg.method.value, imip_msg.event.uid, recipient,
+                )
 
     def get_event(self, event_key: str) -> tuple[dict[str, Any], int]:
         """Get a single event by key."""
