@@ -240,6 +240,9 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
             event_update: CalEvent = self._event_deserializer.deserialize_with_update(existing, body)
             organizer: CalOrganizer = CalOrganizer(email=self.user.mail)
             updated: CalEvent = self.module.update_event(CalendarUser(user=self.user, owner=self.user), event_key, event_update, organizer)
+            imip_msg: ImipMessage | None = ImipBuilder.build_request(updated)
+            if imip_msg is not None:
+                self._send_imip(imip_msg)
             return create_api_base_response(self._event_serializer.serialize(updated))
         except RequestException as ex:
             logger_api.error("patch_event failed for user %s event %s: %s", self.user.uid, event_key, ex)
@@ -268,9 +271,13 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
             return create_api_base_response(None, ERROR_CALENDAR_JSON_PARSE_FAILED)
 
     def delete_event(self, event_key: str) -> tuple[dict[str, Any], int]:
-        """Delete an event."""
+        """Delete an event, sending an iMIP cancellation to attendees when the organizer deletes it."""
         try:
-            self.module.delete_event(CalendarUser(user=self.user, owner=self.user), event_key)
+            cancelled: CalEvent | None = self.module.delete_event(CalendarUser(user=self.user, owner=self.user), event_key)
+            if cancelled is not None:
+                imip_msg: ImipMessage | None = ImipBuilder.build_cancel(cancelled)
+                if imip_msg is not None:
+                    self._send_imip(imip_msg)
             return create_api_base_response(None)
         except RequestException as ex:
             logger_api.error("delete_event failed for user %s event %s: %s", self.user.uid, event_key, ex)
