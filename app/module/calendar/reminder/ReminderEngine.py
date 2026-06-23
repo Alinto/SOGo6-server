@@ -78,6 +78,7 @@ class ReminderEngine:
                     method=reminder.method,
                     minutes_before=reminder.minutes_before,
                     trigger_at=occ_trigger,
+                    user_uid=reminder.user_uid,
                 ))
         return results
 

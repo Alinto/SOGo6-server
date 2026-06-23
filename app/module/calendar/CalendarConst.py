@@ -71,6 +71,16 @@ SHARE_TOKEN_LENGTH: int = 64
 # X-PUBLISHED-TTL). Twice a day is a sensible default for a personal calendar.
 PUBLIC_SUBSCRIPTION_REFRESH: timedelta = timedelta(hours=12)
 
+# Redis key holding the last time the periodic email-reminder sweep ran (its dedup watermark).
+REMINDER_EMAIL_LAST_RUN_KEY: str = "calendar:reminder:email:last_run"
+# Window looked back on the very first run, when no watermark exists yet (matches the cron tick).
+REMINDER_EMAIL_DEFAULT_WINDOW_MINUTES: int = 1
+# TTL of the watermark key - far longer than the cron interval so it never lapses between ticks.
+REMINDER_EMAIL_LAST_RUN_TTL_SECONDS: int = 24 * 3600
+# Margin (>= one cron tick) that keeps a reminder eligible after its event ends, so a reminder due in
+# the firing window is not dropped just because a short event already finished by the time we sweep.
+REMINDER_EMAIL_LOOKAHEAD_MINUTES: int = 5
+
 # Subject-line words prepended to outgoing iMIP emails (RFC 6047), one per iTIP method. The
 # invitation itself travels in the text/calendar part; these words are only the human-facing
 # hint in the Subject header.
@@ -83,3 +93,15 @@ PUBLIC_SUBSCRIPTION_REFRESH: timedelta = timedelta(hours=12)
 IMIP_SUBJECT_PREFIX_REQUEST: str = "Invitation"
 IMIP_SUBJECT_PREFIX_REPLY: str = "Re"
 IMIP_SUBJECT_PREFIX_CANCEL: str = "Cancelled"
+
+# User-facing words of the email reminder message (subject prefix + body labels).
+#
+# TODO: these strings MUST be translated, exactly like the iMIP subject prefixes above. They are the
+# only user-facing text in a reminder email and are currently hard-coded English. There is no i18n
+# backend yet (SOGO_U_LANGUAGE is never read server-side); when a translation mechanism lands, resolve
+# them per recipient locale instead of using the constants below. Handle them together with the iMIP
+# prefixes.
+REMINDER_EMAIL_SUBJECT_PREFIX: str = "Reminder"
+REMINDER_EMAIL_WHEN_LABEL: str = "When"
+REMINDER_EMAIL_WHERE_LABEL: str = "Where"
+REMINDER_EMAIL_DEFAULT_TITLE: str = "Event"  # fallback when the event has no title
