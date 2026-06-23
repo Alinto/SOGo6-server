@@ -46,9 +46,9 @@ from app.utils.exceptions import BugException, RequestException
 from app.utils.logger.logger import logger_calendar
 from app.utils.maths.sogo_hash import generate_uuid, get_unique_token
 from app.utils.module.importManager import import_and_instantiate_manager
+from app.auth.User import User
 
 if TYPE_CHECKING:
-    from app.auth.User import User
     from app.config.settings.DomainSettings import CalendarContactSettingsObj
     from app.config.settings.ProcessSetting import ProcessSetting
     from app.manager.agent.ClientAgent import ClientAgent
@@ -525,19 +525,18 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
     #
     def get_reminders(
         self,
-        calendar_user: CalendarUser,
+        calendar_user: CalendarUser | None,
         method: ReminderMethod | None = None,
         lookahead_minutes: int = 0,
     ) -> list[CalEventReminder]:
-        """Return currently active reminders for the user.
+        """Return currently active reminders.
 
-        A reminder is active from trigger_at (= date_start - minutes_before)
-        until event.date_end + lookahead_minutes. For recurring events, occurrences
-        are expanded and each is checked independently.
+        A reminder is active from trigger_at (= date_start - minutes_before) until event.date_end +
+        lookahead_minutes. For recurring events, occurrences are expanded and each is checked
+        independently. When ``calendar_user`` is None this sweeps every user's reminders (system mode,
+        used by the periodic email-reminder job); each event is then loaded under its own owner.
 
-        User filtering is done in SQL via JOIN (reminders -> events -> calendars).
-
-        :param user: The user whose reminders to fetch.
+        :param calendar_user: The acting user/owner, or None for the cross-user system sweep.
         :param method: Optional method filter (popup / email).
         :param lookahead_minutes: Extra minutes after event end before the reminder expires (default 0).
         """
@@ -545,20 +544,25 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         repo_reminder: RepositoryReminder = RepositoryReminder(self._db)
 
         past_bound: datetime = now - timedelta(days=MAX_EVENT_FETCH_DAYS)
+        owner_uid: str | None = calendar_user.owner.uid if calendar_user is not None else None
         reminders: list[CalEventReminder] = repo_reminder.find_pending(
-            start=past_bound, end=now, user_uid=calendar_user.owner.uid, method=method,
+            start=past_bound, end=now, user_uid=owner_uid, method=method,
         )
 
-        # Batch-load full CalEvent objects to enrich reminders with title/location/timezone
-        # and to provide RRULE expansion for recurring events.
+        # Batch-load full CalEvent objects to enrich reminders with title/location/timezone and to
+        # provide RRULE expansion. In system mode each event is resolved under its own calendar owner.
         events_by_key: dict[str, CalEvent] = {}
         for reminder in reminders:
-            if reminder.event_key not in events_by_key:
-                try:
-                    _, found_event = self._find_source_for_event(calendar_user, reminder.event_key)
-                    events_by_key[reminder.event_key] = found_event
-                except RequestException:
-                    continue
+            if reminder.event_key in events_by_key:
+                continue
+            target: CalendarUser | None = calendar_user or self._owner_calendar_user(reminder.user_uid)
+            if target is None:
+                continue
+            try:
+                _, found_event = self._find_source_for_event(target, reminder.event_key)
+                events_by_key[reminder.event_key] = found_event
+            except RequestException:
+                continue
 
         # Enrich reminders with event context from the blob
         for reminder in reminders:
@@ -575,6 +579,14 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
             now=now,
             lookahead_minutes=lookahead_minutes,
         )
+
+    @staticmethod
+    def _owner_calendar_user(user_uid: str | None) -> CalendarUser | None:
+        """Build a self-acting CalendarUser for a calendar owner uid, used by the system reminder sweep."""
+        if not user_uid:
+            return None
+        owner: User = User(uid=user_uid)
+        return CalendarUser(user=owner, owner=owner)
 
     #
     # Import / Export
