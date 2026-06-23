@@ -1,0 +1,26 @@
+runtime:
+  cache_dir: ./.cache/antora
+  log:
+    failure_level: warn
+site:
+  title: SOGo 6 docs
+  start_page: SOGo6-Home::index.adoc
+  robots: allow
+content:
+  sources:
+  - url: .
+    branches: HEAD
+    start_path: docs/developer
+  - url: .
+    branches: HEAD
+    start_path: docs/admin
+  - url: .
+    branches: HEAD
+    start_path: docs/landing
+ui:
+  bundle:
+    url: https://gitlab.com/antora/antora-ui-default/-/jobs/artifacts/HEAD/raw/build/ui-bundle.zip?job=bundle-stable
+    snapshot: true
+  supplemental_files: docs/supplemental-ui
+output:
+  dir: docs/build
