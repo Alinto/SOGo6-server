@@ -48,7 +48,15 @@ class CalendarSources:
         raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
 
     def get_all(self, user_uid: str) -> list[CalendarSource]:
-        """Return a source for every calendar owned by user_uid."""
+        """Return a source for every calendar owned by user_uid.
+
+        TODO(ACL module): this is the single scope chokepoint for resolution, operations and
+        listings. Today it returns only calendars OWNED by user_uid. When calendar sharing lands,
+        it must also surface calendars SHARED WITH user_uid (own + shared, read from
+        sogo_calendar_shares) - that one change activates delegated access everywhere downstream
+        (owner resolution, event lookups, get_events/get_tasks), with per-calendar permissions then
+        enforced by CalendarAclEngine.
+        """
         return [self.get(cal) for cal in self._repo_calendar.find_all(user_uid)]
 
     def get_default(self, user_uid: str) -> CalendarSource | None:

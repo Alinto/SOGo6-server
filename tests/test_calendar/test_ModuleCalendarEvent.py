@@ -99,6 +99,7 @@ def _build_module(sources: dict):
     module._db = MagicMock()
     module._cache = MagicMock()
     module._acl = MagicMock()
+    module._acl.sanitize_events.side_effect = lambda items, permissions: items
     sources_mock = MagicMock()
     sources_mock.get_all.return_value = list(sources.values())
     sources_mock.get_by_key.side_effect = lambda uid, key: sources.get(key)
@@ -151,6 +152,15 @@ def test_get_event_searches_all_sources():
     module = _build_module({"cal-1": source1, "cal-2": source2})
     result = module.get_event(_fake_user(), "evt-key")
     assert result.uid == "evt@example.com"
+
+
+def test_get_event_calendar_returns_parent_calendar():
+    event = _make_event(key="evt-key")
+    source = _make_source("cal-key", events=[event])
+    module = _build_module({"cal-key": source})
+    calendar = module.get_event_calendar(_fake_user().user, "evt-key")
+    assert calendar.key == "cal-key"
+    assert calendar.user_uid == "user@example.com"
 
 
 # ========== create_event ==========
@@ -403,6 +413,15 @@ def test_get_events_no_key_merges_all_calendars():
 def test_get_events_no_key_unknown_calendar_not_raised():
     module = _build_module({})
     results = module.get_events(_fake_user(), None, None, None)
+    assert results == []
+
+
+def test_get_events_applies_acl_masking():
+    event = _make_event(key="evt-key")
+    source = _make_source("cal-key", events=[event])
+    module = _build_module({"cal-key": source})
+    module._acl.sanitize_events.side_effect = lambda items, permissions: []  # ACL hides everything
+    results = module.get_events(_fake_user(), None, None, None, "cal-key")
     assert results == []
 
 

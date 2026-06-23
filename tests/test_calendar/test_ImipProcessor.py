@@ -1,7 +1,5 @@
 """Unit tests for ImipProcessor (REQUEST, REPLY, CANCEL flows)."""
 from datetime import datetime, timezone
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 from unittest.mock import MagicMock
 
 from app.module.calendar.model.CalendarUser import CalendarUser
@@ -56,12 +54,7 @@ def _make_event(**kwargs):
 
 
 def _build_imip_bytes(event: CalEvent, method: str) -> bytes:
-    ical = _serializer.build_imip(event, method)
-    msg = MIMEMultipart()
-    msg["From"] = "sender@example.com"
-    msg["To"] = "recipient@example.com"
-    msg.attach(MIMEText(ical, "calendar", "utf-8"))
-    return msg.as_bytes()
+    return _serializer.build_imip(event, method).encode("utf-8")
 
 
 def _fake_user(uid="organizer@example.com"):
@@ -372,3 +365,49 @@ def test_cancel_wrong_method_raises():
     with pytest.raises(RequestException) as exc_info:
         module.process_imip_cancel(_fake_user(), raw, "x@example.com")
     assert exc_info.value.error == err.ERROR_CALENDAR_IMIP_INVALID_REQUEST
+
+
+# ========== Tests for process_imip (method dispatch facade) ==========
+
+def test_process_imip_dispatches_reply():
+    org_event = _make_event(
+        organizer=_organizer(),
+        attendees=[_attendee("attendee@example.com", AttendeeStatus.NEEDS_ACTION)],
+    )
+    source = _make_source(events=[org_event])
+    module = _build_module({"cal-key": source})
+    reply_event = _make_event(
+        organizer=_organizer(),
+        attendees=[_attendee("attendee@example.com", AttendeeStatus.ACCEPTED)],
+    )
+    raw = _build_imip_bytes(reply_event, "REPLY")
+
+    result = module.process_imip(_fake_user(), raw, "attendee@example.com")
+
+    assert result is not None
+    assert result.attendees[0].status == AttendeeStatus.ACCEPTED
+
+
+def test_process_imip_dispatches_cancel():
+    event = _make_event(organizer=_organizer(), attendees=[_attendee()])
+    source = _make_source(events=[event])
+    module = _build_module({"cal-key": source})
+    raw = _build_imip_bytes(event, "CANCEL")
+
+    result = module.process_imip(_fake_user(), raw, "organizer@example.com")
+
+    assert result is None
+    assert source.deleted_uids == [event.uid]
+
+
+def test_process_imip_unknown_method_is_noop():
+    source = _make_source(events=[])
+    module = _build_module({"cal-key": source})
+    raw = b"BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:x\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+
+    result = module.process_imip(_fake_user(), raw, "someone@example.com")
+
+    assert result is None
+    assert source.updated == []
+    assert source.deleted_uids == []
+    assert source.inserted == []

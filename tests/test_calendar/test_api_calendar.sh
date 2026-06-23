@@ -1419,6 +1419,88 @@ else
     fail "LOGIN_2 did NOT receive the iMIP cancellation (subject '$IMIP_SUBJECT_CANCEL' not found)"
 fi
 
+step "51a (cont.) - iMIP REPLY sent to organizer when LOGIN_2 responds"
+info "When an attendee sets their attendance, an iMIP REPLY (RFC 6047) must reach the organizer. LOGIN_1
+  invites LOGIN_2, LOGIN_2 accepts, and we poll LOGIN_1's INBOX for the reply. Opening that reply through
+  the Mail Account detail endpoint also exercises the inbound iMIP hook (it must not break mail display)."
+
+REPLY_NONCE=$(date +%s)
+REPLY_TITLE="iMIP Reply $REPLY_NONCE"
+REPLY_SUBJECT="Re: $REPLY_TITLE"
+
+CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d "{
+        \"title\": \"$REPLY_TITLE\",
+        \"date_start\": \"2026-07-03T09:00:00Z\",
+        \"date_end\":   \"2026-07-03T10:00:00Z\",
+        \"timezone\": \"Europe/Paris\",
+        \"attendees\": [ {\"email\": \"$LOGIN_2\", \"name\": \"User Two\", \"status\": \"needs-action\"} ]
+    }")
+check_code "POST /events iMIP reply-source" "$CODE" "201"
+REPLY_UID=$(extract '.data.uid')
+REPLY_EVT_KEY=$(extract '.data.key')
+
+CODE=$(req "$BASE/events?start_date_time=2026-07-03T00:00:00Z&end_date_time=2026-07-03T23:59:59Z" -H "$H_AUTH_2")
+REPLY_KEY_L2=$(body | jq -r --arg uid "$REPLY_UID" '[.data.events[] | select(.uid == $uid)][0].key // empty')
+[ -n "$REPLY_KEY_L2" ] \
+    && ok "LOGIN_2 sees the invitation copy (key=$REPLY_KEY_L2)" \
+    || fail "LOGIN_2 does not see the invitation copy for uid=$REPLY_UID"
+
+CODE=$(req -X POST "$BASE/events/$REPLY_KEY_L2/attendance" -H "$H_JSON" -H "$H_AUTH_2" -d '{"status": "accepted"}')
+check_code "POST /events/$REPLY_KEY_L2/attendance accepted" "$CODE" "200"
+
+info "Polling LOGIN_1 INBOX for subject: $REPLY_SUBJECT"
+REPLY_MAIL_UID=""
+for _ in $(seq 1 15); do
+    CODE=$(req "$BASE/mailboxes/0/folders/INBOX/mails?sort_by=date&sort_order=desc&fields=contents&fields_action=exclude" \
+        -H "$H_AUTH")
+    if [ "$CODE" = "200" ]; then
+        REPLY_MAIL_UID=$(body | jq -r --arg subj "$REPLY_SUBJECT" '[.data[] | select(.subject == $subj)][0].uid // empty')
+        [ -n "$REPLY_MAIL_UID" ] && break
+    fi
+    sleep 1
+done
+
+if [ -n "$REPLY_MAIL_UID" ]; then
+    ok "Organizer LOGIN_1 received the iMIP reply (mail uid=$REPLY_MAIL_UID)"
+
+    CODE=$(req "$BASE/mailboxes/0/folders/INBOX/mails/$REPLY_MAIL_UID/raw" -H "$H_AUTH")
+    REPLY_RAW=$(body | jq -r '.data.raw // empty')
+    echo "$REPLY_RAW" | grep -qi "METHOD:REPLY" \
+        && ok "iMIP reply mail iTIP method is REPLY" \
+        || fail "iMIP reply mail is missing METHOD:REPLY"
+
+    # Inbound hook - real assertion. Same-server propagation already set the organizer copy to
+    # accepted when LOGIN_2 responded, so we first reset it to needs-action; opening the reply mail
+    # via the detail endpoint must then re-apply the REPLY and flip it back to accepted.
+    CODE=$(req -X PATCH "$BASE/events/$REPLY_EVT_KEY" -H "$H_JSON" -H "$H_AUTH" \
+        -d "{\"attendees\": [{\"email\": \"$LOGIN_2\", \"name\": \"User Two\", \"status\": \"needs-action\"}]}")
+    check_code "PATCH reset organizer copy to needs-action" "$CODE" "200"
+
+    CODE=$(req "$BASE/events/$REPLY_EVT_KEY" -H "$H_AUTH")
+    PRE_STATUS=$(body | jq -r --arg e "$LOGIN_2" '.data.attendees[] | select(.email == $e) | .status // empty')
+    [ "$PRE_STATUS" = "needs-action" ] \
+        && ok "organizer copy reset to needs-action" \
+        || fail "could not reset organizer copy (status='$PRE_STATUS')"
+
+    CODE=$(req "$BASE/mailboxes/0/folders/INBOX/mails/$REPLY_MAIL_UID" -H "$H_AUTH")
+    check_code "GET mail detail of the iMIP reply (inbound hook)" "$CODE" "200"
+
+    CODE=$(req "$BASE/events/$REPLY_EVT_KEY" -H "$H_AUTH")
+    POST_STATUS=$(body | jq -r --arg e "$LOGIN_2" '.data.attendees[] | select(.email == $e) | .status // empty')
+    [ "$POST_STATUS" = "accepted" ] \
+        && ok "opening the reply applied the response (LOGIN_2 -> accepted via inbound iMIP)" \
+        || fail "inbound iMIP did not update the event (status='$POST_STATUS', expected accepted)"
+else
+    fail "Organizer LOGIN_1 did NOT receive the iMIP reply (subject '$REPLY_SUBJECT' not found)"
+fi
+
+if $DO_DELETE; then
+    CODE=$(req -X DELETE "$BASE/events/$REPLY_EVT_KEY" -H "$H_AUTH")
+    info "Cleanup reply-source event (key=$REPLY_EVT_KEY): HTTP $CODE"
+fi
+
 # -- 17b. SINGLE-OCCURRENCE ATTENDANCE ----------------------------------------
 
 step "51b. Invitation - LOGIN_1 creates recurring event with LOGIN_2 as attendee"

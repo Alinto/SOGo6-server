@@ -4,13 +4,16 @@ import email as email_lib
 import re
 from email.message import Message
 from email.utils import getaddresses, parseaddr
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from app.module.calendar.imip.ImipMessage import ImipMessage
 from app.module.calendar.imip.ImipMethod import ImipMethod
 from app.module.calendar.serializer.CalEventDeserializerIcal import CalEventDeserializerIcal
 from app.utils import errors as err
 from app.utils.exceptions import RequestException
+
+if TYPE_CHECKING:
+    from app.module.calendar.model.CalEvent import CalEvent
 
 _deserializer: CalEventDeserializerIcal = CalEventDeserializerIcal()
 
@@ -52,6 +55,30 @@ class ImipParser:
             event=event,
             from_email=from_email,
             to_emails=to_emails,
+            ical_content=ical_content,
+        )
+
+    @staticmethod
+    def parse_calendar(ical_bytes: bytes, from_email: str = "") -> ImipMessage:
+        """Parse a raw text/calendar payload (no MIME envelope) into an ImipMessage.
+
+        Counterpart of :meth:`parse` for callers that already hold the calendar object itself - e.g.
+        the mail interface, which gets the extracted text/calendar part from an opened mail. The
+        sender is not part of the payload, so it is supplied separately (empty by default).
+
+        :param ical_bytes: Raw iCalendar (VCALENDAR) bytes.
+        :param from_email: Sender address, when known by the caller.
+        :return: The parsed message (method, event, sender, ical_content); to_emails stays empty.
+        :raises RequestException: If the METHOD is missing/unsupported or the iCalendar cannot be read.
+        """
+        ical_content: str = ical_bytes.decode("utf-8", errors="replace")
+        method: ImipMethod = ImipParser._extract_method(ical_content)
+        event: CalEvent = _deserializer.deserialize(ical_content)
+        return ImipMessage(
+            method=method,
+            event=event,
+            from_email=from_email,
+            to_emails=[],
             ical_content=ical_content,
         )
 
