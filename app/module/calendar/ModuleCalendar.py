@@ -12,7 +12,8 @@ from app.module.calendar.serializer.CalEventSerializerIcal import CalEventSerial
 from app.module.calendar.serializer.CalEventsSerializerIcal import CalEventsSerializerIcal
 from app.module.calendar.serializer.CalCalendarSerializerIcal import CalCalendarSerializerIcal
 from app.module.calendar.freebusy.FreeBusyEngine import FreeBusyEngine, FreeBusyPrefs
-from app.module.calendar.imip.ImipBuilder import ImipBuilder
+from app.module.calendar.imip.ImipMethod import ImipMethod
+from app.module.calendar.imip.ImipParser import ImipParser
 from app.module.calendar.imip.ImipProcessor import ImipProcessor
 from app.module.calendar.acl.CalendarAclEngine import CalendarAclEngine
 from app.module.calendar.model.CalCalendar import CalCalendar
@@ -54,7 +55,6 @@ if TYPE_CHECKING:
     from app.manager.cache.ClientRedis import ClientRedis
     from app.manager.db.ClientSQL import ClientSQL
 
-    from app.module.calendar.imip.ImipMessage import ImipMessage
     from app.module.calendar.model.CalFreeBusyPeriod import CalFreeBusyPeriod
     from app.module.calendar.source.CalendarSource import CalendarSource
 
@@ -138,6 +138,15 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
             raise RequestException(error=err.ERROR_CALENDAR_NOT_FOUND)
         source.calendar.permissions = self._acl.get_permissions(source.calendar, calendar_user)
         return source
+
+    def get_event_calendar(self, user: User, event_key: str) -> CalCalendar:
+        """Return the calendar that holds the given event or task, or raise NOT_FOUND.
+
+        Lets a caller learn which calendar (and therefore which owner) an event belongs to from its
+        opaque key alone, without loading the full event for any other purpose.
+        """
+        source, _ = self._find_source_for_event(CalendarUser(user=user, owner=user), event_key)
+        return source.calendar
 
     def create_calendar(self, user: User, cal: CalCalendar) -> CalCalendar:
         """Persist a new calendar. Generates key and ctag."""
@@ -287,6 +296,35 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
             logger_calendar.exception("Unexpected error deleting event %s", event_key)
             raise RequestException(error=err.ERROR_UNKOWN) from exc
 
+    def _mask_listing(self, calendar_user: CalendarUser, items: list[CalEvent]) -> list[CalEvent]:
+        """Apply per-calendar ACL masking to a flat, date-sorted list of events or tasks.
+
+        Resolves each source calendar's permissions for the acting user and runs the ACL
+        sanitizer, which hides or masks entries the user may only partially see (a shared calendar
+        granting VIEW_DATETIME only, etc.). A no-op for the user's own calendars (full
+        permissions); it becomes meaningful once shared calendars are accessible. Input order is
+        preserved (sanitize is applied per item so the date sort is kept).
+        """
+        if not items:
+            return items
+        calendars: dict[str, CalCalendar] = {
+            source.calendar.key: source.calendar
+            for source in self._sources.get_all(calendar_user.owner.uid)
+            if source.calendar.key is not None
+        }
+        permissions_cache: dict[str, CalendarPermissions] = {}
+        result: list[CalEvent] = []
+        for item in items:
+            calendar_key: str | None = item.calendar_key
+            calendar: CalCalendar | None = calendars.get(calendar_key) if calendar_key else None
+            if calendar is None or calendar_key is None:
+                result.append(item)
+                continue
+            if calendar_key not in permissions_cache:
+                permissions_cache[calendar_key] = self._acl.get_permissions(calendar, calendar_user)
+            result.extend(self._acl.sanitize_events([item], permissions_cache[calendar_key]))
+        return result
+
     def get_events(
         self,
         calendar_user: CalendarUser,
@@ -306,7 +344,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         try:
             events: list[CalEvent] = self._sources.get_events(calendar_user.owner.uid, start, end, search, key)
             logger_calendar.debug("returned %d events (calendar=%s)", len(events), key or "all")
-            return events
+            return self._mask_listing(calendar_user, events)
         except RequestException:
             raise
         except Exception as exc:
@@ -348,10 +386,6 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         try:
             source.update_event(event)
             source.propagate_partstat_to_copies(event, calendar_user.owner.mail, status)
-            imip_msg: ImipMessage | None = ImipBuilder.build_reply(event, calendar_user.user)
-            if imip_msg:
-                logger_calendar.info("iMIP REPLY built for event %s to %s", event.uid, imip_msg.to_emails)
-                # TODO: dispatch imip_msg via agent transport (Celery + SMTP) once the agent is in place
             return event
         except RequestException:
             raise
@@ -363,18 +397,35 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
     #
     # iMIP - thin wrappers delegating to ImipProcessor
     #
+    def process_imip(self, calendar_user: CalendarUser, ical_bytes: bytes, from_email: str) -> CalEvent | None:
+        """Process an incoming iMIP message, dispatching on its iTIP method.
+
+        Reads METHOD from the iCalendar payload and routes to the matching handler: REQUEST adds or
+        updates the event, REPLY records an attendee's response, CANCEL removes it. Returns the
+        affected event for REQUEST and REPLY, None for CANCEL or when the payload is not a recognized
+        iMIP message (so the caller can safely hand any opened mail's calendar part here).
+        """
+        method: ImipMethod | None = ImipParser.detect_method(ical_bytes)
+        if method == ImipMethod.REQUEST:
+            return self.process_imip_request(calendar_user, ical_bytes, from_email)
+        if method == ImipMethod.REPLY:
+            return self.process_imip_reply(calendar_user, ical_bytes, from_email)
+        if method == ImipMethod.CANCEL:
+            self.process_imip_cancel(calendar_user, ical_bytes, from_email)
+        return None
+
     def process_imip_reply(self, calendar_user: CalendarUser, ical_bytes: bytes, from_email: str) -> CalEvent:
-        """Process an incoming iMIP REPLY. Delegates to ImipProcessor."""
-        return self._imip.process_reply(calendar_user.user, ical_bytes, from_email)
+        """Process an incoming iMIP REPLY. Delegates to ImipProcessor (acts on the calendar owner)."""
+        return self._imip.process_reply(calendar_user.owner, ical_bytes, from_email)
 
     def process_imip_request(self, calendar_user: CalendarUser, ical_bytes: bytes, from_email: str) -> CalEvent:
-        """Process an incoming iMIP REQUEST. Delegates to ImipProcessor."""
+        """Process an incoming iMIP REQUEST. Delegates to ImipProcessor (acts on the calendar owner)."""
         #TODO : If no calendar provided, use default one
-        return self._imip.process_request(calendar_user.user, ical_bytes, from_email)
+        return self._imip.process_request(calendar_user.owner, ical_bytes, from_email)
 
     def process_imip_cancel(self, calendar_user: CalendarUser, ical_bytes: bytes, from_email: str) -> None:
-        """Process an incoming iMIP CANCEL. Delegates to ImipProcessor."""
-        self._imip.process_cancel(calendar_user.user, ical_bytes, from_email)
+        """Process an incoming iMIP CANCEL. Delegates to ImipProcessor (acts on the calendar owner)."""
+        self._imip.process_cancel(calendar_user.owner, ical_bytes, from_email)
 
     #
     # Tasks
@@ -462,7 +513,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         try:
             tasks: list[CalEvent] = self._sources.get_tasks(calendar_user.owner.uid, start, end, search, key)
             logger_calendar.debug("returned %d tasks (calendar=%s)", len(tasks), key or "all")
-            return tasks
+            return self._mask_listing(calendar_user, tasks)
         except RequestException:
             raise
         except Exception as exc:

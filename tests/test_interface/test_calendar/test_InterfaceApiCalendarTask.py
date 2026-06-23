@@ -41,6 +41,9 @@ def _build_interface(module=None):
     inter.user = MagicMock()
     inter.user.uid = "user@example.com"
     inter.module = module if module is not None else MagicMock()
+    # Owner resolvers short-circuit to owner == acting user (no shared calendars today).
+    inter.module.get_calendar.return_value.calendar.user_uid = inter.user.uid
+    inter.module.get_event_calendar.return_value.user_uid = inter.user.uid
     inter._event_serializer = CalEventSerializerDict()
     inter._events_serializer = CalEventsSerializerDict()
     inter._event_deserializer = CalEventDeserializerDict()

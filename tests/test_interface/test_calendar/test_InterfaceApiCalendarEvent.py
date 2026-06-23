@@ -41,6 +41,9 @@ def _build_interface(module=None):
     inter.user = MagicMock()
     inter.user.uid = "user@example.com"
     inter.module = module if module is not None else MagicMock()
+    # Owner resolvers short-circuit to owner == acting user (no shared calendars today).
+    inter.module.get_calendar.return_value.calendar.user_uid = inter.user.uid
+    inter.module.get_event_calendar.return_value.user_uid = inter.user.uid
     inter._mail_outgoing = MagicMock()
     inter._event_serializer = CalEventSerializerDict()
     inter._event_deserializer = CalEventDeserializerDict()
@@ -240,6 +243,7 @@ def test_get_events_error_returns_error():
 
 _BUILD_REQUEST = "app.interface.calendar.InterfaceApiCalendarCalendar.ImipBuilder.build_request"
 _BUILD_CANCEL = "app.interface.calendar.InterfaceApiCalendarCalendar.ImipBuilder.build_cancel"
+_BUILD_REPLY = "app.interface.calendar.InterfaceApiCalendarCalendar.ImipBuilder.build_reply"
 _BODY = {"title": "T", "date_start": "2026-03-01T09:00:00.000Z", "date_end": "2026-03-01T10:00:00.000Z"}
 
 
@@ -285,6 +289,16 @@ def test_create_event_without_attendees_does_not_send():
     with patch(_BUILD_REQUEST, return_value=None):
         inter.create_event("cal-key", _BODY)
     inter._mail_outgoing.send_raw_message.assert_not_called()
+
+
+def test_set_attendance_status_sends_reply_to_organizer():
+    module = MagicMock()
+    module.set_attendance_status.return_value = _make_event()
+    inter = _build_interface(module)
+    with patch(_BUILD_REPLY, return_value=_imip_message(recipients=("organizer@example.com",))):
+        response, _ = inter.set_attendance_status("evt-key", {"status": "accepted"})
+    assert response["error_code"] == "S000000"
+    inter._mail_outgoing.send_raw_message.assert_called_once()
 
 
 def test_create_event_one_failed_recipient_does_not_block_others():

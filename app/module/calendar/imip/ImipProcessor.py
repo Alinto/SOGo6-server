@@ -34,29 +34,33 @@ class ImipProcessor:
 
     @staticmethod
     def _parse_and_validate(ical_bytes: bytes, expected_method: ImipMethod) -> ImipMessage:
-        """Parse raw iCal bytes and validate the METHOD field.
+        """Parse a raw text/calendar payload and validate its METHOD.
+
+        The bytes are the iCalendar object itself, not a full MIME email: unwrapping the email is the
+        caller's job (the agent uses ImipParser.parse on the raw mail; the mail interface already holds
+        the extracted text/calendar part). The sender address is supplied separately by the caller.
 
         :raises RequestException: ERROR_CALENDAR_ICS_PARSE_FAILED on parse failure.
         :raises RequestException: ERROR_CALENDAR_IMIP_INVALID_REQUEST if the METHOD does not match.
         """
         try:
-            message: ImipMessage = ImipParser.parse(ical_bytes)
+            message: ImipMessage = ImipParser.parse_calendar(ical_bytes)
         except RequestException:
             raise
         except Exception as exc:
-            logger_calendar.exception("Failed to parse iMIP bytes")
+            logger_calendar.exception("Failed to parse iMIP iCalendar payload")
             raise RequestException(error=err.ERROR_CALENDAR_ICS_PARSE_FAILED) from exc
         if message.method != expected_method:
             raise RequestException(error=err.ERROR_CALENDAR_IMIP_INVALID_REQUEST)
         return message
 
-    def _find_writable_source_by_uid(self, user: User, uid: str) -> tuple[CalendarSource, CalEvent]:
-        """Return the source and master event for uid in user's calendars, ensuring writability.
+    def _find_writable_source_by_uid(self, owner: User, uid: str) -> tuple[CalendarSource, CalEvent]:
+        """Return the source and master event for uid in the owner's calendars, ensuring writability.
 
         :raises RequestException: ERROR_CALENDAR_EVENT_NOT_FOUND if no matching event exists.
         :raises RequestException: ERROR_CALENDAR_NOT_SUPPORTED if the source is read-only.
         """
-        result: tuple[CalendarSource, CalEvent] | None = self._sources.find_by_uid(user.uid, uid)
+        result: tuple[CalendarSource, CalEvent] | None = self._sources.find_by_uid(owner.uid, uid)
         if result is None:
             raise RequestException(error=err.ERROR_CALENDAR_EVENT_NOT_FOUND)
         source, event = result
@@ -64,20 +68,20 @@ class ImipProcessor:
             raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
         return source, event
 
-    def process_reply(self, user: User, ical_bytes: bytes, from_email: str) -> CalEvent:
+    def process_reply(self, owner: User, ical_bytes: bytes, from_email: str) -> CalEvent:
         """Process an incoming iMIP REPLY by updating the attendee status on the local event.
 
-        Parses the raw iCal bytes, finds the event by UID in the user's calendars (the organizer),
+        Parses the raw iCal bytes, finds the event by UID in the owner's calendars (the organizer),
         locates the attendee matching from_email, updates their PARTSTAT, and persists.
         Does not increment SEQUENCE - a REPLY does not alter event content (RFC 5545 §3.8.7.4).
 
-        :param user: The calendar owner receiving the reply (the organizer).
+        :param owner: The calendar owner receiving the reply (the organizer).
         :param ical_bytes: Raw iCalendar bytes from the iMIP email body.
         :param from_email: Email of the replying attendee (From: header of the iMIP message).
         :return: The updated event.
         """
         message: ImipMessage = self._parse_and_validate(ical_bytes, ImipMethod.REPLY)
-        source, event = self._find_writable_source_by_uid(user, message.event.require_uid)
+        source, event = self._find_writable_source_by_uid(owner, message.event.require_uid)
 
         reply_by_email: dict[str, CalAttendee] = {a.email: a for a in message.event.attendees}
         for attendee in event.attendees:
@@ -94,20 +98,20 @@ class ImipProcessor:
             logger_calendar.exception("Unexpected error processing iMIP reply for event %s", message.event.uid)
             raise RequestException(error=err.ERROR_CALENDAR_EVENT_UPDATE_FAILED) from exc
 
-    def process_request(self, user: User, ical_bytes: bytes, from_email: str) -> CalEvent:
-        """Process an incoming iMIP REQUEST, adding or updating the event in the user's calendar.
+    def process_request(self, owner: User, ical_bytes: bytes, from_email: str) -> CalEvent:
+        """Process an incoming iMIP REQUEST, adding or updating the event in the owner's calendar.
 
         When the event already exists (matched by UID), its mutable content fields are updated.
-        When it does not exist, it is inserted into the user's default calendar.
+        When it does not exist, it is inserted into the owner's default calendar.
         Called when an attendee's mailbox receives an invitation or update.
 
-        :param user: The attendee receiving the invitation.
+        :param owner: The attendee (calendar owner) receiving the invitation.
         :param ical_bytes: Raw iCalendar bytes from the iMIP email body.
         :param from_email: Email of the organizer (From: header, for logging).
         :return: The created or updated event.
         """
         message: ImipMessage = self._parse_and_validate(ical_bytes, ImipMethod.REQUEST)
-        result: tuple[CalendarSource, CalEvent] | None = self._sources.find_by_uid(user.uid, message.event.require_uid)
+        result: tuple[CalendarSource, CalEvent] | None = self._sources.find_by_uid(owner.uid, message.event.require_uid)
 
         if result is not None:
             source, existing = result
@@ -134,8 +138,8 @@ class ImipProcessor:
                 )
                 raise RequestException(error=err.ERROR_CALENDAR_EVENT_UPDATE_FAILED) from exc
 
-        # Event not in user's calendars - insert into the default calendar
-        default_source: CalendarSource | None = self._sources.get_default(user.uid)
+        # Event not in the owner's calendars - insert into the default calendar
+        default_source: CalendarSource | None = self._sources.get_default(owner.uid)
         if default_source is None:
             raise RequestException(error=err.ERROR_CALENDAR_NOT_FOUND)
         try:
@@ -151,20 +155,20 @@ class ImipProcessor:
             )
             raise RequestException(error=err.ERROR_CALENDAR_EVENT_INSERT_FAILED) from exc
 
-    def process_cancel(self, user: User, ical_bytes: bytes, from_email: str) -> None:
-        """Process an incoming iMIP CANCEL, removing the event from the user's calendar.
+    def process_cancel(self, owner: User, ical_bytes: bytes, from_email: str) -> None:
+        """Process an incoming iMIP CANCEL, removing the event from the owner's calendar.
 
         For a full cancellation (no RECURRENCE-ID), soft-deletes the event series.
         For a partial cancellation (RECURRENCE-ID present), adds the date to EXDATE on the
         master event rather than looking for a detached occurrence row that may not exist.
-        Silently ignores CANCELs for events not found in the user's calendars.
+        Silently ignores CANCELs for events not found in the owner's calendars.
 
-        :param user: The attendee receiving the cancellation.
+        :param owner: The attendee (calendar owner) receiving the cancellation.
         :param ical_bytes: Raw iCalendar bytes from the iMIP email body.
         :param from_email: Email of the organizer (From: header, for logging).
         """
         message: ImipMessage = self._parse_and_validate(ical_bytes, ImipMethod.CANCEL)
-        result: tuple[CalendarSource, CalEvent] | None = self._sources.find_by_uid(user.uid, message.event.require_uid)
+        result: tuple[CalendarSource, CalEvent] | None = self._sources.find_by_uid(owner.uid, message.event.require_uid)
 
         if result is None:
             logger_calendar.info(

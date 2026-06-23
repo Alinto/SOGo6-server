@@ -87,16 +87,44 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         self._reminder_serializer: CalEventReminderSerializerDict = CalEventReminderSerializerDict()
         self._sync_status_serializer: CalSyncStatusSerializerDict = CalSyncStatusSerializerDict()
 
-    def _calendar_user_for(self, calendar_key: str) -> CalendarUser:
-        """Build a CalendarUser by resolving the owner from the calendar's user_uid."""
-        source: CalendarSource = self.module.get_calendar(self.user, calendar_key)
-        owner_uid: str = source.calendar.user_uid
+    def _calendar_user_from_owner_uid(self, owner_uid: str) -> CalendarUser:
+        """Build the (acting user, owner) pair from a calendar owner uid, loading the owner profile.
+
+        We need the owner's email. The uid is not necessarily the email - it has to be resolved
+        through the user module (ModuleUserProfile). The architecture rule forbids a module calling
+        another module, so this resolution cannot live in ModuleCalendar; it stays here in the
+        interface, which is why the caller pays a second lookup (the calendar module looks the
+        calendar/event up again to operate on it). When the owner is the acting user (personal
+        calendar) we skip the profile fetch entirely - it would be pointless.
+        """
         if owner_uid == self.user.uid:
             return CalendarUser(user=self.user, owner=self.user)
         owner: User = User(uid=owner_uid)
         owner.mail = owner_uid
         self._user_module.get_user_profile(owner)
         return CalendarUser(user=self.user, owner=owner)
+
+    def _calendar_user_for(self, calendar_key: str) -> CalendarUser:
+        """Resolve the (acting user, owner) pair for a calendar identified by its key.
+
+        We need the owner's email. The uid is not necessarily the email - it has to be resolved
+        through the user module (ModuleUserProfile). The architecture rule forbids a module calling
+        another module, so this resolution stays in the interface, not in ModuleCalendar - hence the
+        unavoidable second lookup (the calendar module looks the calendar up again to operate on it).
+        """
+        owner_uid: str = self.module.get_calendar(self.user, calendar_key).calendar.user_uid
+        return self._calendar_user_from_owner_uid(owner_uid)
+
+    def _event_user_for(self, event_key: str) -> CalendarUser:
+        """Resolve the (acting user, owner) pair for an event or task identified by its key.
+
+        We need the owner's email. The uid is not necessarily the email - it has to be resolved
+        through the user module (ModuleUserProfile). The architecture rule forbids a module calling
+        another module, so this resolution stays in the interface, not in ModuleCalendar - hence the
+        unavoidable second lookup (the calendar module looks the event up again to operate on it).
+        """
+        owner_uid: str = self.module.get_event_calendar(self.user, event_key).user_uid
+        return self._calendar_user_from_owner_uid(owner_uid)
 
     def _public_url(self, share_token: str | None) -> str | None:
         """Build the absolute public subscription URL for a calendar, or None when inactive."""
@@ -190,9 +218,10 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
     def create_event(self, calendar_key: str, body: dict[str, Any]) -> tuple[dict[str, Any], int]:
         """Create a new event in the given calendar, sending an iMIP invitation when it has attendees."""
         try:
+            calendar_user: CalendarUser = self._calendar_user_for(calendar_key)
             event: CalEvent = self._event_deserializer.deserialize(body)
-            organizer: CalOrganizer = CalOrganizer(email=self.user.mail)
-            created: CalEvent = self.module.create_event(CalendarUser(user=self.user, owner=self.user), calendar_key, event, organizer)
+            organizer: CalOrganizer = CalOrganizer(email=calendar_user.owner.mail)
+            created: CalEvent = self.module.create_event(calendar_user, calendar_key, event, organizer)
             imip_msg: ImipMessage | None = ImipBuilder.build_request(created)
             if imip_msg is not None:
                 self._send_imip(imip_msg)
@@ -227,7 +256,7 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
     def get_event(self, event_key: str) -> tuple[dict[str, Any], int]:
         """Get a single event by key."""
         try:
-            event: CalEvent = self.module.get_event(CalendarUser(user=self.user, owner=self.user), event_key)
+            event: CalEvent = self.module.get_event(self._event_user_for(event_key), event_key)
             return create_api_base_response(self._event_serializer.serialize(event))
         except RequestException as ex:
             logger_api.error("get_event failed for user %s event %s: %s", self.user.uid, event_key, ex)
@@ -236,10 +265,11 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
     def patch_event(self, event_key: str, body: dict[str, Any]) -> tuple[dict[str, Any], int]:
         """Apply partial updates to an event."""
         try:
-            existing: CalEvent = self.module.get_event(CalendarUser(user=self.user, owner=self.user), event_key)
+            calendar_user: CalendarUser = self._event_user_for(event_key)
+            existing: CalEvent = self.module.get_event(calendar_user, event_key)
             event_update: CalEvent = self._event_deserializer.deserialize_with_update(existing, body)
-            organizer: CalOrganizer = CalOrganizer(email=self.user.mail)
-            updated: CalEvent = self.module.update_event(CalendarUser(user=self.user, owner=self.user), event_key, event_update, organizer)
+            organizer: CalOrganizer = CalOrganizer(email=calendar_user.owner.mail)
+            updated: CalEvent = self.module.update_event(calendar_user, event_key, event_update, organizer)
             imip_msg: ImipMessage | None = ImipBuilder.build_request(updated)
             if imip_msg is not None:
                 self._send_imip(imip_msg)
@@ -261,7 +291,11 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         try:
             attendance: AttendeeStatus = AttendeeStatus(body["status"])
             recurrence_id: datetime | None = body.get("recurrence_id")
-            updated: CalEvent = self.module.set_attendance_status(CalendarUser(user=self.user, owner=self.user), event_key, attendance, recurrence_id)
+            calendar_user: CalendarUser = self._event_user_for(event_key)
+            updated: CalEvent = self.module.set_attendance_status(calendar_user, event_key, attendance, recurrence_id)
+            imip_msg: ImipMessage | None = ImipBuilder.build_reply(updated, calendar_user)
+            if imip_msg is not None:
+                self._send_imip(imip_msg)
             return create_api_base_response(self._event_serializer.serialize(updated))
         except RequestException as ex:
             logger_api.error("set_attendance_status failed for user %s event %s: %s", self.user.uid, event_key, ex)
@@ -273,7 +307,7 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
     def delete_event(self, event_key: str) -> tuple[dict[str, Any], int]:
         """Delete an event, sending an iMIP cancellation to attendees when the organizer deletes it."""
         try:
-            cancelled: CalEvent | None = self.module.delete_event(CalendarUser(user=self.user, owner=self.user), event_key)
+            cancelled: CalEvent | None = self.module.delete_event(self._event_user_for(event_key), event_key)
             if cancelled is not None:
                 imip_msg: ImipMessage | None = ImipBuilder.build_cancel(cancelled)
                 if imip_msg is not None:
@@ -300,7 +334,8 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
                 today = datetime.now(timezone.utc).date()
                 start = datetime(today.year, today.month, today.day, 0, 0, 0, tzinfo=timezone.utc)
                 end = datetime(today.year, today.month, today.day, 23, 59, 59, tzinfo=timezone.utc)
-            events: list[CalEvent] = self.module.get_events(CalendarUser(user=self.user, owner=self.user), start, end, search, key)
+            calendar_user: CalendarUser = self._calendar_user_for(key) if key else CalendarUser(user=self.user, owner=self.user)
+            events: list[CalEvent] = self.module.get_events(calendar_user, start, end, search, key)
             event_list: list[dict[str, Any]] = self._events_serializer.serialize(events)
             return create_api_base_response({"events": event_list, "total_count": len(event_list)})
         except RequestException as ex:
@@ -327,7 +362,8 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
             start: datetime = query_args.get("start_date_time") or self._add_months(now, -3)
             end: datetime = query_args.get("end_date_time") or self._add_months(now, 9)
             search: str | None = query_args.get("search")
-            tasks: list[CalEvent] = self.module.get_tasks(CalendarUser(user=self.user, owner=self.user), start, end, search, key)
+            calendar_user: CalendarUser = self._calendar_user_for(key) if key else CalendarUser(user=self.user, owner=self.user)
+            tasks: list[CalEvent] = self.module.get_tasks(calendar_user, start, end, search, key)
             task_list: list[dict[str, Any]] = [self._serialize_task(t) for t in tasks]
             return create_api_base_response({"tasks": task_list, "total_count": len(task_list)})
         except RequestException as ex:
@@ -339,7 +375,7 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         try:
             task_body: dict[str, Any] = self._normalize_task_body(body)
             task: CalEvent = self._event_deserializer.deserialize(task_body)
-            created: CalEvent = self.module.create_task(CalendarUser(user=self.user, owner=self.user), calendar_key, task)
+            created: CalEvent = self.module.create_task(self._calendar_user_for(calendar_key), calendar_key, task)
             return create_api_base_response(self._serialize_task(created), code=201)
         except RequestException as ex:
             logger_api.error("create_task failed for user %s calendar %s: %s", self.user.uid, calendar_key, ex)
@@ -351,7 +387,7 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
     def get_task(self, task_key: str) -> tuple[dict[str, Any], int]:
         """Get a single VTODO by key."""
         try:
-            task: CalEvent = self.module.get_task(CalendarUser(user=self.user, owner=self.user), task_key)
+            task: CalEvent = self.module.get_task(self._event_user_for(task_key), task_key)
             return create_api_base_response(self._serialize_task(task))
         except RequestException as ex:
             logger_api.error("get_task failed for user %s task %s: %s", self.user.uid, task_key, ex)
@@ -363,9 +399,10 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
             if "date_due" in body:
                 body = dict(body)
                 body["date_end"] = body.pop("date_due")
-            existing: CalEvent = self.module.get_task(CalendarUser(user=self.user, owner=self.user), task_key)
+            calendar_user: CalendarUser = self._event_user_for(task_key)
+            existing: CalEvent = self.module.get_task(calendar_user, task_key)
             task_update: CalEvent = self._event_deserializer.deserialize_with_update(existing, body)
-            updated: CalEvent = self.module.update_task(CalendarUser(user=self.user, owner=self.user), task_key, task_update)
+            updated: CalEvent = self.module.update_task(calendar_user, task_key, task_update)
             return create_api_base_response(self._serialize_task(updated))
         except RequestException as ex:
             logger_api.error("patch_task failed for user %s task %s: %s", self.user.uid, task_key, ex)
@@ -377,7 +414,7 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
     def delete_task(self, task_key: str) -> tuple[dict[str, Any], int]:
         """Delete a VTODO."""
         try:
-            self.module.delete_task(CalendarUser(user=self.user, owner=self.user), task_key)
+            self.module.delete_task(self._event_user_for(task_key), task_key)
             return create_api_base_response(None)
         except RequestException as ex:
             logger_api.error("delete_task failed for user %s task %s: %s", self.user.uid, task_key, ex)

@@ -91,6 +91,7 @@ def _build_module(sources: dict):
     module._db = MagicMock()
     module._cache = MagicMock()
     module._acl = MagicMock()
+    module._acl.sanitize_events.side_effect = lambda items, permissions: items
     sources_mock = MagicMock()
     sources_mock.get_all.return_value = list(sources.values())
     sources_mock.get_by_key.side_effect = lambda uid, key: sources.get(key)
