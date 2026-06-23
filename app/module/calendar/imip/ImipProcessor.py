@@ -54,6 +54,18 @@ class ImipProcessor:
             raise RequestException(error=err.ERROR_CALENDAR_IMIP_INVALID_REQUEST)
         return message
 
+    @staticmethod
+    def _require_sender_is_organizer(event: CalEvent, from_email: str) -> None:
+        """Reject an iMIP REQUEST/CANCEL whose sender is not the event's organizer.
+
+        Only the organizer may create, update or cancel an event for an attendee (RFC 5546 §3.2 /
+        RFC 6047 security considerations). For an existing event the LOCAL organizer is checked - the
+        incoming message's organizer is attacker-controlled - so a forged mail opened by the victim
+        cannot overwrite or delete their event by reusing its UID.
+        """
+        if not event.is_organized_by(from_email):
+            raise RequestException(error=err.ERROR_CALENDAR_IMIP_SENDER_MISMATCH)
+
     def _find_writable_source_by_uid(self, owner: User, uid: str) -> tuple[CalendarSource, CalEvent]:
         """Return the source and master event for uid in the owner's calendars, ensuring writability.
 
@@ -107,7 +119,7 @@ class ImipProcessor:
 
         :param owner: The attendee (calendar owner) receiving the invitation.
         :param ical_bytes: Raw iCalendar bytes from the iMIP email body.
-        :param from_email: Email of the organizer (From: header, for logging).
+        :param from_email: Sender (From: header); must match the event organizer or the message is rejected.
         :return: The created or updated event.
         """
         message: ImipMessage = self._parse_and_validate(ical_bytes, ImipMethod.REQUEST)
@@ -117,6 +129,8 @@ class ImipProcessor:
             source, existing = result
             if not source.is_writable():
                 raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
+            # Only the existing event's organizer may update it (the incoming organizer is untrusted).
+            self._require_sender_is_organizer(existing, from_email)
             # Reject stale updates (RFC 5546 §3.2.2): ignore if the incoming SEQUENCE is lower
             if message.event.sequence < existing.sequence:
                 logger_calendar.info(
@@ -138,6 +152,8 @@ class ImipProcessor:
                 )
                 raise RequestException(error=err.ERROR_CALENDAR_EVENT_UPDATE_FAILED) from exc
 
+        # New invitation: the sender must be the organizer it claims in the payload.
+        self._require_sender_is_organizer(message.event, from_email)
         # Event not in the owner's calendars - insert into the default calendar
         default_source: CalendarSource | None = self._sources.get_default(owner.uid)
         if default_source is None:
@@ -165,7 +181,7 @@ class ImipProcessor:
 
         :param owner: The attendee (calendar owner) receiving the cancellation.
         :param ical_bytes: Raw iCalendar bytes from the iMIP email body.
-        :param from_email: Email of the organizer (From: header, for logging).
+        :param from_email: Sender (From: header); must match the event organizer or the message is rejected.
         """
         message: ImipMessage = self._parse_and_validate(ical_bytes, ImipMethod.CANCEL)
         result: tuple[CalendarSource, CalEvent] | None = self._sources.find_by_uid(owner.uid, message.event.require_uid)
@@ -179,6 +195,8 @@ class ImipProcessor:
         source, master = result
         if not source.is_writable():
             raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
+        # Only the existing event's organizer may cancel it (the incoming organizer is untrusted).
+        self._require_sender_is_organizer(master, from_email)
 
         try:
             if message.event.recurrence_id is not None:
