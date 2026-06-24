@@ -2852,6 +2852,26 @@ else
 fi
 
 
+step "106. Attendee reminder PATCH - minimal vs full-body on a recurring event"
+info "A full body whose date_start echoes an occurrence (not the master) reads as a content change -> 403.
+  The same reminder change sent as a MINIMAL patch (only the changed field) is accepted -> 200. This is
+  why the test UI sends only the changed fields (REJECT_ATTENDEE_CONTENT_CHANGE stays strict)."
+
+if [ -n "$REC_KEY_L2" ]; then
+    # Full body carrying a divergent date_start (master is 2026-08-03) - looks like a move -> 403.
+    CODE=$(req -X PATCH "$BASE/events/$REC_KEY_L2" -H "$H_JSON" -H "$H_AUTH_2" \
+        -d '{"date_start": "2026-08-06T09:00:00Z", "date_end": "2026-08-06T10:00:00Z", "reminders": [{"method": "popup", "minutes_before": 5}]}')
+    check_code "full-body divergent date rejected" "$CODE" "403"
+
+    # Minimal patch - only the changed field - is accepted.
+    CODE=$(req -X PATCH "$BASE/events/$REC_KEY_L2" -H "$H_JSON" -H "$H_AUTH_2" \
+        -d '{"reminders": [{"method": "popup", "minutes_before": 5}]}')
+    check_code "minimal reminder patch accepted" "$CODE" "200"
+else
+    skip "minimal patch test (no LOGIN_2 copy)"
+fi
+
+
 step "67. Delete - LOGIN_2 and LOGIN_3 freebusy events and calendars"
 info "Removes the freebusy test events and calendars created by LOGIN_2 and LOGIN_3. Skipped without -d."
 
