@@ -1461,6 +1461,24 @@ class ModuleMail:
         else:
             raise RequestException(f"Invalid action: {action}", err.ERROR_INVALID_ACTION)
 
+    def download_attachment(self, account_id: str, folder_name: str, mail_uid: str, filename: str) -> tuple[bytes, str]:
+        """Download a specific attachment from a mail.
+
+        :param account_id: The account identifier.
+        :type account_id: str
+        :param folder_name: The name of the folder containing the mail.
+        :type folder_name: str
+        :param mail_uid: The UID of the mail.
+        :type mail_uid: str
+        :param filename: The filename of the attachment to retrieve.
+        :type filename: str
+        :return: A tuple of (attachment bytes, content_type).
+        :rtype: tuple[bytes, str]
+        :raises RequestException: If the mail or attachment is not found, or the operation fails.
+        """
+        client = self._open_client_for(account_id)
+        return client.fetch_attachment(folder_name, mail_uid, filename)
+
     def download_mail(self, account_id: str, folder_name: str, mail_uid: str, download_format: str) -> BytesIO:
         """Download a specific mail as .eml or .zip.
 

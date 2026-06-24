@@ -1,6 +1,8 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
+from io import BytesIO
+
 from flask import g, send_file
 from flask.views import MethodView
 from flask.typing import ResponseReturnValue
@@ -371,3 +373,43 @@ class ApiMailDetailRaw(MethodView):
         logger_api.debug("Calling ApiMailDetailRaw.get for account_id: %s, folder_name: %s, mail_uid: %s", account_id, folder_name, mail_uid)
         interface: InterfaceApiMailMail = g.inter
         return interface.get_mail_raw(account_id, folder_name, mail_uid)
+
+
+@blp.route("/<string:mail_uid>/attachments/<path:filename>")
+class ApiMailDetailAttachmentDownload(MethodView):
+    """API to download a specific attachment from a mail."""
+
+    def get(self, account_id: str, folder_name: str, mail_uid: str, filename: str) -> ResponseReturnValue:
+        """Download a specific attachment from a mail.
+
+        :param account_id: The account identifier.
+        :type account_id: str
+        :param folder_name: The folder containing the mail.
+        :type folder_name: str
+        :param mail_uid: The unique identifier of the mail.
+        :type mail_uid: str
+        :param filename: The filename of the attachment to download.
+        :type filename: str
+        :return: The attachment file as a download response, or an error response.
+        :rtype: ResponseReturnValue
+        """
+        logger_api.debug(
+            "Calling ApiMailDetailAttachmentDownload.get for account_id: %s, folder_name: %s, mail_uid: %s, filename: %s",
+            account_id,
+            folder_name,
+            mail_uid,
+            filename,
+        )
+        interface: InterfaceApiMailMail = g.inter
+        result = interface.download_attachment(account_id, folder_name, mail_uid, filename)
+
+        if isinstance(result, tuple) and not isinstance(result[0], bytes):
+            return result
+
+        attachment_bytes, content_type = result
+        return send_file(
+            BytesIO(attachment_bytes),
+            mimetype=content_type,
+            as_attachment=True,
+            download_name=filename,
+        )
