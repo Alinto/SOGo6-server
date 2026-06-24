@@ -178,6 +178,26 @@ class InterfaceApiMailMail:
             logger_api.error("Request exception in download_mail: %s", str(ex))
             return create_api_base_response(None, ex.error)
 
+    def download_attachment(self, account_id: str, folder_name: str, mail_uid: str, filename: str) -> tuple[bytes, str] | tuple[dict[str, Any], int]:
+        """Download a specific attachment from a mail.
+
+        :param account_id: The ID of the account
+        :type account_id: str
+        :param folder_name: The ID of the folder
+        :type folder_name: str
+        :param mail_uid: The unique identifier of the mail
+        :type mail_uid: str
+        :param filename: The filename of the attachment to retrieve
+        :type filename: str
+        :return: A tuple of (attachment bytes, content_type), or an error response tuple
+        :rtype: tuple[bytes, str] | tuple[dict[str, Any], int]
+        """
+        try:
+            return self.mail_module.download_attachment(account_id, folder_name, mail_uid, filename)
+        except RequestException as ex:
+            logger_api.error("Request exception in download_attachment: %s", str(ex))
+            return create_api_base_response(None, ex.error)
+
     def open_mail_for_edit(self, account_id: str, folder_name: str, mail_uid: str) -> tuple[dict[str, Any], int]:
         """Open an existing mail for editing by copying it into a new tmp_draft entry.
 

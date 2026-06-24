@@ -215,6 +215,21 @@ class ClientMailServer(metaclass=ABCMeta):
         """Fetch a the raw mail (eml) by UID from a mailbox."""
 
     @abstractmethod
+    def fetch_attachment(self, folder_path: str, mail_uid: str, filename: str) -> tuple[bytes, str]:
+        """Fetch a specific attachment from a mail by filename.
+
+        :param folder_path: The folder containing the mail.
+        :type folder_path: str
+        :param mail_uid: The UID of the mail.
+        :type mail_uid: str
+        :param filename: The filename of the attachment to retrieve.
+        :type filename: str
+        :return: A tuple of (attachment bytes, content_type).
+        :rtype: tuple[bytes, str]
+        :raises RequestException: If the mail or attachment is not found, or the operation fails.
+        """
+
+    @abstractmethod
     def delete_mails_by_uid(self, folder_path: str, mail_uid: str|list[str], move_to_trash: bool = True, permanently: bool = True) -> None:
         """Delete a specific mail by UID according to the requested behaviour.
 
