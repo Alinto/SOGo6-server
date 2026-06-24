@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import TYPE_CHECKING
 
+from app.module.calendar.CalendarConst import REJECT_ATTENDEE_CONTENT_CHANGE
 from app.module.calendar.model.CalEvent import CalEvent
 from app.module.calendar.rrule.RruleEngine import RruleEngine
 from app.utils import errors as err
@@ -127,7 +128,7 @@ class RecurrenceScopeProcessor:
             baseline = dataclasses.replace(
                 original, date_start=event_update.recurrence_id, date_end=event_update.recurrence_id + duration,
             )
-        if baseline.has_organizer_content_changes(event_update):
+        if REJECT_ATTENDEE_CONTENT_CHANGE and baseline.has_organizer_content_changes(event_update):
             raise RequestException(error=err.ERROR_CALENDAR_NOT_ORGANIZER)
         original.apply_personal_fields(event_update)
         return source.update_event_or_fail(original, "applying attendee personal update")

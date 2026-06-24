@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 
 import pytest
 
@@ -124,6 +125,16 @@ def test_process_attendee_edit_rejects_content_change():
     update = _merge_update(master, title="Hacked", reminders=[_reminder()])
     with pytest.raises(RequestException):
         RecurrenceScopeProcessor.process_attendee_edit(FakeSource(), master, update)
+
+
+def test_process_attendee_edit_lenient_ignores_content_when_flag_off():
+    """With REJECT_ATTENDEE_CONTENT_CHANGE off, content drift is ignored (no 403), only personal applied."""
+    master = _make_event(recurrence_rule=_daily_rule(), organizer=CalOrganizer(email="boss@example.com"))
+    update = _merge_update(master, title="Hacked", reminders=[_reminder()])
+    with patch("app.module.calendar.rrule.RecurrenceScopeProcessor.REJECT_ATTENDEE_CONTENT_CHANGE", False):
+        result = RecurrenceScopeProcessor.process_attendee_edit(FakeSource(), master, update)
+    assert result.reminders == update.reminders   # personal field applied
+    assert result.title != "Hacked"               # organizer content ignored, not applied
 
 
 # ========== process - dispatch ==========
