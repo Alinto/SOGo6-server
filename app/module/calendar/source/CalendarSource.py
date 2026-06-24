@@ -11,6 +11,7 @@ from app.module.calendar.rrule.RruleEngine import RruleEngine
 from app.utils import errors as err
 from app.utils.datetime.DateTimeUtils import to_utc
 from app.utils.exceptions import RequestException
+from app.utils.logger.logger import logger_calendar
 
 if TYPE_CHECKING:
     from app.module.calendar.model.CalCalendar import CalCalendar
@@ -273,6 +274,21 @@ class CalendarSource(ABC):  # pylint: disable=too-many-public-methods
         """Update an existing event. Raises NOT_SUPPORTED on read-only sources."""
         raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
 
+    def update_event_or_fail(self, event: CalEvent, context: str) -> CalEvent:
+        """Persist an event update and return it, re-wrapping unexpected errors.
+
+        `context` is a short present-participle phrase used in the failure log
+        (e.g. "updating personal fields", "processing iMIP reply").
+        """
+        try:
+            self.update_event(event)
+            return event
+        except RequestException:
+            raise
+        except Exception as exc:
+            logger_calendar.exception("Unexpected error %s for event %s", context, event.key)
+            raise RequestException(error=err.ERROR_CALENDAR_EVENT_UPDATE_FAILED) from exc
+
     def delete_event(self, uid: str) -> None:
         """Soft-delete an event by uid. Raises NOT_SUPPORTED on read-only sources."""
         raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
@@ -281,7 +297,7 @@ class CalendarSource(ABC):  # pylint: disable=too-many-public-methods
         """Soft-delete a single event by its opaque key. Raises NOT_SUPPORTED on read-only sources."""
         raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
 
-    def delete_detached_occurrence(self, occurrence: CalEvent) -> None:
+    def delete_occurrence(self, occurrence: CalEvent) -> None:
         """Soft-delete a detached occurrence and add its recurrence_id to the master EXDATE.
 
         Called instead of delete_event when the event being deleted has recurrence_id set.

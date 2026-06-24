@@ -81,27 +81,27 @@ def test_enqueue_sync_requires_agent():
         module.enqueue_sync(_user(), "cal-1")
 
 
-# ========== _is_sync_due ==========
+# ========== is_sync_due ==========
 
 def test_is_sync_due_never_synced():
-    assert ModuleCalendar._is_sync_due(_ics_cal(sync_config={"url": "x"}), datetime.now(_UTC)) is True
+    assert _ics_cal(sync_config={"url": "x"}).is_sync_due(datetime.now(_UTC)) is True
 
 
 def test_is_sync_due_running_is_skipped():
     cal = _ics_cal(sync_config={"sync_status": CalendarSyncStatus.RUNNING.value, "last_sync": None})
-    assert ModuleCalendar._is_sync_due(cal, datetime.now(_UTC)) is False
+    assert cal.is_sync_due(datetime.now(_UTC)) is False
 
 
 def test_is_sync_due_interval_elapsed():
     now = datetime(2026, 6, 20, 12, 0, tzinfo=_UTC)
     cal = _ics_cal(sync_config={"last_sync": (now - timedelta(minutes=61)).isoformat(), "sync_interval_minutes": 60})
-    assert ModuleCalendar._is_sync_due(cal, now) is True
+    assert cal.is_sync_due(now) is True
 
 
 def test_is_sync_due_interval_not_elapsed():
     now = datetime(2026, 6, 20, 12, 0, tzinfo=_UTC)
     cal = _ics_cal(sync_config={"last_sync": (now - timedelta(minutes=10)).isoformat(), "sync_interval_minutes": 60})
-    assert ModuleCalendar._is_sync_due(cal, now) is False
+    assert cal.is_sync_due(now) is False
 
 
 # ========== sync_all_due_external (auto sweep) ==========

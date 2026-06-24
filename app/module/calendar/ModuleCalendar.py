@@ -41,7 +41,6 @@ from app.module.calendar.jobs.JobRequestImportIcs import JobRequestImportIcs
 from app.module.calendar.jobs.JobRequestSyncExternalManual import JobRequestSyncExternalManual
 from app.module.calendar.source.CalendarSources import CalendarSources
 from app.utils import errors as err
-from app.utils.datetime.DateTimeUtils import parse_iso, to_utc
 from app.utils.exceptions import BugException, RequestException
 from app.utils.logger.logger import logger_calendar
 from app.utils.maths.sogo_hash import generate_uuid, get_unique_token
@@ -145,7 +144,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         Lets a caller learn which calendar (and therefore which owner) an event belongs to from its
         opaque key alone, without loading the full event for any other purpose.
         """
-        source, _ = self._find_source_for_event(CalendarUser(user=user, owner=user), event_key)
+        source, _ = self._sources.require_event(user.uid, event_key)
         return source.calendar
 
     def create_calendar(self, user: User, cal: CalCalendar) -> CalCalendar:
@@ -168,33 +167,6 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         """Delete a calendar and all its events."""
         source: CalendarSource = self.get_calendar(user, key)
         source.delete_calendar()
-
-    #
-    # Events - internal helpers
-    #
-    def _find_source_for_event(self, calendar_user: CalendarUser, event_key: str) -> tuple[CalendarSource, CalEvent]:
-        """Find the source and event by event_key (opaque UUID stored in the key column of sogo_events, not the uid)."""
-        for source in self._sources.get_all(calendar_user.owner.uid):
-            event: CalEvent | None = source.get_event(event_key)
-            if event is not None:
-                return source, event
-        raise RequestException(error=err.ERROR_CALENDAR_EVENT_NOT_FOUND)
-
-    def _find_source_for_event_by_uid(self, calendar_user: CalendarUser, uid: str) -> tuple[CalendarSource, CalEvent]:
-        """Find the source and master event by RFC 5545 UID (semantic identifier) across user's calendars."""
-        result: tuple[CalendarSource, CalEvent] | None = self._sources.find_by_uid(calendar_user.owner.uid, uid)
-        if result is None:
-            raise RequestException(error=err.ERROR_CALENDAR_EVENT_NOT_FOUND)
-
-        return result
-
-    def _find_default_source(self, calendar_user: CalendarUser) -> CalendarSource:
-        """Return the user's default writable calendar source, or raise NOT_FOUND."""
-        source: CalendarSource | None = self._sources.get_default(calendar_user.owner.uid)
-        if source is None:
-            raise RequestException(error=err.ERROR_CALENDAR_NOT_FOUND)
-
-        return source
 
     #
     # Events - CRUD
@@ -229,23 +201,29 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
 
     def get_event(self, calendar_user: CalendarUser, event_key: str) -> CalEvent:
         """Return a single event by key across the user's calendars, or raise NOT_FOUND."""
-        _, event = self._find_source_for_event(calendar_user, event_key)
+        _, event = self._sources.require_event(calendar_user.owner.uid, event_key)
         return event
 
     def update_event(self, calendar_user: CalendarUser, event_key: str, event_update: CalEvent, organizer: CalOrganizer) -> CalEvent:
         """Update an event, handling recurrence scope and attendee propagation."""
-        source, event = self._find_source_for_event(calendar_user, event_key)
+        source, event = self._sources.require_event(calendar_user.owner.uid, event_key)
         perms: CalendarPermissions = self._acl.get_permissions(source.calendar, calendar_user)
         self._acl.check_permission(perms, CalendarPermissionAction.MODIFY, event=event, calendar_user=calendar_user)
-        # Event content can only be modified by its organizer: an attendee must not change the
-        # organizer-controlled properties of an event (RFC 6638 §3.2.1; iTIP RFC 5546). The
-        # organizer must be either the calendar owner (delegated edit on the owner's own events)
-        # or the acting user (their own events in a calendar shared with them, the MODIFY_IF_ORG
-        # case). An event organized by a third party (received invitation) stays content read-only.
-        if event.organizer and not (event.is_organized_by(calendar_user.owner.mail)
-                                     or event.is_organized_by(calendar_user.user.mail)):
-            raise RequestException(error=err.ERROR_CALENDAR_NOT_ORGANIZER)
         event_update.validate()
+
+        # Organizer-controlled content is editable only by the organizer - either the calendar owner
+        # (delegated edit on the owner's own events) or the acting user (MODIFY_IF_ORG on a shared
+        # calendar). An attendee on a received invitation cannot touch those (RFC 6638 §3.2.1; iTIP
+        # RFC 5546) but still owns their personal fields (their VALARM/reminders, conference data) on
+        # their own copy, applied here without any propagation.
+        is_organizer: bool = (not event.organizer
+                              or event.is_organized_by(calendar_user.owner.mail)
+                              or event.is_organized_by(calendar_user.user.mail))
+        if not is_organizer:
+            # An attendee edits only their personal fields, on the row they target (master or an
+            # existing detached occurrence). Organizer-content changes are rejected; scope handling
+            # lives in the processor, not here.
+            return RecurrenceScopeProcessor.process_attendee_edit(source=source, original=event, event_update=event_update)
 
         try:
             scope_result: ScopeResult = RecurrenceScopeProcessor.process(source=source, original=event, event_update=event_update)
@@ -274,13 +252,13 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         Returns the deleted event when the acting user is its organizer, so the caller can announce
         the cancellation to attendees (iMIP CANCEL); returns None otherwise (nothing to announce).
         """
-        source, event = self._find_source_for_event(calendar_user, event_key)
+        source, event = self._sources.require_event(calendar_user.owner.uid, event_key)
         self._acl.check_permission(
             self._acl.get_permissions(source.calendar, calendar_user), CalendarPermissionAction.DELETE,
         )
         try:
             if event.recurrence_id is not None:
-                source.delete_detached_occurrence(event)
+                source.delete_occurrence(event)
             else:
                 source.delete_event(event.require_uid)
             # Propagate deletion to attendees if the user is the organizer
@@ -296,15 +274,8 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
             logger_calendar.exception("Unexpected error deleting event %s", event_key)
             raise RequestException(error=err.ERROR_UNKOWN) from exc
 
-    def _mask_listing(self, calendar_user: CalendarUser, items: list[CalEvent]) -> list[CalEvent]:
-        """Apply per-calendar ACL masking to a flat, date-sorted list of events or tasks.
-
-        Resolves each source calendar's permissions for the acting user and runs the ACL
-        sanitizer, which hides or masks entries the user may only partially see (a shared calendar
-        granting VIEW_DATETIME only, etc.). A no-op for the user's own calendars (full
-        permissions); it becomes meaningful once shared calendars are accessible. Input order is
-        preserved (sanitize is applied per item so the date sort is kept).
-        """
+    def _sanitize_listing(self, calendar_user: CalendarUser, items: list[CalEvent]) -> list[CalEvent]:
+        """Resolve the user's calendars and delegate per-calendar ACL masking to the ACL engine."""
         if not items:
             return items
         calendars: dict[str, CalCalendar] = {
@@ -312,18 +283,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
             for source in self._sources.get_all(calendar_user.owner.uid)
             if source.calendar.key is not None
         }
-        permissions_cache: dict[str, CalendarPermissions] = {}
-        result: list[CalEvent] = []
-        for item in items:
-            calendar_key: str | None = item.calendar_key
-            calendar: CalCalendar | None = calendars.get(calendar_key) if calendar_key else None
-            if calendar is None or calendar_key is None:
-                result.append(item)
-                continue
-            if calendar_key not in permissions_cache:
-                permissions_cache[calendar_key] = self._acl.get_permissions(calendar, calendar_user)
-            result.extend(self._acl.sanitize_events([item], permissions_cache[calendar_key]))
-        return result
+        return self._acl.sanitize_listing(calendar_user, items, calendars)
 
     def get_events(
         self,
@@ -344,7 +304,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         try:
             events: list[CalEvent] = self._sources.get_events(calendar_user.owner.uid, start, end, search, key)
             logger_calendar.debug("returned %d events (calendar=%s)", len(events), key or "all")
-            return self._mask_listing(calendar_user, events)
+            return self._sanitize_listing(calendar_user, events)
         except RequestException:
             raise
         except Exception as exc:
@@ -370,7 +330,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         :param recurrence_id: When set, target a single occurrence instead of the whole event.
         :return: The updated event or occurrence.
         """
-        source, event = self._find_source_for_event(calendar_user, event_key)
+        source, event = self._sources.require_event(calendar_user.owner.uid, event_key)
         self._acl.check_permission(
             self._acl.get_permissions(source.calendar, calendar_user), CalendarPermissionAction.RESPOND,
         )
@@ -455,14 +415,14 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
 
     def get_task(self, calendar_user: CalendarUser, task_key: str) -> CalEvent:
         """Return a single VTODO by key, or raise TASK_NOT_FOUND."""
-        _, task = self._find_source_for_event(calendar_user, task_key)
+        _, task = self._sources.require_event(calendar_user.owner.uid, task_key)
         if task.component_type != ComponentType.TASK:
             raise RequestException(error=err.ERROR_CALENDAR_TASK_NOT_FOUND)
         return task
 
     def update_task(self, calendar_user: CalendarUser, task_key: str, task_update: CalEvent) -> CalEvent:
         """Persist an already-merged VTODO update."""
-        source, task = self._find_source_for_event(calendar_user, task_key)
+        source, task = self._sources.require_event(calendar_user.owner.uid, task_key)
         if task.component_type != ComponentType.TASK:
             raise RequestException(error=err.ERROR_CALENDAR_TASK_NOT_FOUND)
         self._acl.check_permission(
@@ -480,7 +440,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
 
     def delete_task(self, calendar_user: CalendarUser, task_key: str) -> None:
         """Soft-delete a VTODO by key."""
-        source, task = self._find_source_for_event(calendar_user, task_key)
+        source, task = self._sources.require_event(calendar_user.owner.uid, task_key)
         if task.component_type != ComponentType.TASK:
             raise RequestException(error=err.ERROR_CALENDAR_TASK_NOT_FOUND)
         self._acl.check_permission(
@@ -513,7 +473,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         try:
             tasks: list[CalEvent] = self._sources.get_tasks(calendar_user.owner.uid, start, end, search, key)
             logger_calendar.debug("returned %d tasks (calendar=%s)", len(tasks), key or "all")
-            return self._mask_listing(calendar_user, tasks)
+            return self._sanitize_listing(calendar_user, tasks)
         except RequestException:
             raise
         except Exception as exc:
@@ -555,11 +515,11 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         for reminder in reminders:
             if reminder.event_key in events_by_key:
                 continue
-            target: CalendarUser | None = calendar_user or self._owner_calendar_user(reminder.user_uid)
+            target: CalendarUser | None = calendar_user or CalendarUser.for_owner_uid(reminder.user_uid)
             if target is None:
                 continue
             try:
-                _, found_event = self._find_source_for_event(target, reminder.event_key)
+                _, found_event = self._sources.require_event(target.owner.uid, reminder.event_key)
                 events_by_key[reminder.event_key] = found_event
             except RequestException:
                 continue
@@ -579,14 +539,6 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
             now=now,
             lookahead_minutes=lookahead_minutes,
         )
-
-    @staticmethod
-    def _owner_calendar_user(user_uid: str | None) -> CalendarUser | None:
-        """Build a self-acting CalendarUser for a calendar owner uid, used by the system reminder sweep."""
-        if not user_uid:
-            return None
-        owner: User = User(uid=user_uid)
-        return CalendarUser(user=owner, owner=owner)
 
     #
     # Import / Export
@@ -860,7 +812,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         counts: dict[str, int] = {"total": 0, "synced": 0, "failed": 0, "skipped": 0}
         for calendar in calendars:
             counts["total"] += 1
-            if not self._is_sync_due(calendar, now):
+            if not calendar.is_sync_due(now):
                 counts["skipped"] += 1
                 continue
             try:
@@ -871,21 +823,6 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
                 logger_calendar.exception("Auto-sync failed for calendar %s", calendar.key)
                 counts["failed"] += 1
         return counts
-
-    @staticmethod
-    def _is_sync_due(calendar: CalCalendar, now: datetime) -> bool:
-        """Return True when an external calendar is due for an auto-sync (interval elapsed, not running)."""
-        config: dict = calendar.sync_config or {}
-        if config.get("sync_status") == CalendarSyncStatus.RUNNING.value:
-            return False
-        last_sync_raw: str | None = config.get("last_sync")
-        if not last_sync_raw:
-            return True  # never synced yet
-        last_sync: datetime | None = parse_iso(last_sync_raw)
-        if last_sync is None:
-            return True
-        interval_minutes: int = int(config.get("sync_interval_minutes") or 60)
-        return (now - to_utc(last_sync)) >= timedelta(minutes=interval_minutes)
 
     def get_sync_status(self, user: User, key: str) -> CalSyncStatus:
         """Return the sync status for an external calendar."""

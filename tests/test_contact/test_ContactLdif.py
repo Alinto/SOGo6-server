@@ -11,7 +11,7 @@ from app.module.contact.serializer.CardContactDeserializerLdif import CardContac
 from app.module.contact.serializer.CardListDeserializerLdif import CardListDeserializerLdif
 from app.module.contact.serializer.CardListSerializerLdif import CardListSerializerLdif
 from app.module.contact.serializer.CardContactSerializerLdif import CardContactSerializerLdif
-from app.module.contact.serializer.CardContactsDeserializerLdif import CardContactsDeserializerLdif
+from app.module.contact.serializer.AddressBookContentDeserializerLdif import AddressBookContentDeserializerLdif
 
 
 # ========== FormatEngineLdif ==========
@@ -63,7 +63,7 @@ def test_list_serialize_groupofnames_and_skip_in_contacts():
     assert "objectClass: groupOfNames" in text
     assert "member: cn=Alice+uid=m1,ou=contacts" in text  # uid in the member RDN keeps the DN unique
     # A groupOfNames record must not be read back as a contact.
-    assert CardContactsDeserializerLdif().deserialize(text) == []
+    assert AddressBookContentDeserializerLdif().deserialize(text).contacts == []
     back = CardListDeserializerLdif().deserialize(text)
     assert back.name == "Team" and back.description == "The team"
     assert back.members == ["cn=Alice+uid=m1,ou=contacts"]  # member DNs, resolved at import time

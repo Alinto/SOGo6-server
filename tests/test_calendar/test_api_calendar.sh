@@ -504,7 +504,7 @@ UNTIL=$(extract '.data.recurrence_rule.until')
 step "19. Detached occurrence - create override for 2026-06-03"
 info "POSTs a detached occurrence for the daily event: same uid, recurrence_id=2026-06-03T09:00:00Z.
   This represents 'move/edit only the June 3rd occurrence of Daily Standup'.
-  The API stores this as a separate DB row linked to the master via parent_uid."
+  The API stores this as a separate DB row sharing the master's uid (RECURRENCE-ID override)."
 
 CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
     -H "$H_JSON" -H "$H_AUTH" \
@@ -1307,6 +1307,27 @@ L2_STATUS_ON_L1=$(body | jq -r --arg email "$LOGIN_2" '.data.attendees[] | selec
     && ok "LOGIN_1 organizer copy shows LOGIN_2 = accepted" \
     || fail "LOGIN_1 organizer copy shows LOGIN_2 = '$L2_STATUS_ON_L1' (expected accepted)"
 
+step "51 (cont.) - Attendee sets a personal reminder on their own copy"
+info "An attendee is not the organizer but still owns their VALARM (RFC 6638): LOGIN_2 must be able to
+  add a reminder on their copy, and it must NOT propagate to the organizer's copy."
+
+CODE=$(req -X PATCH "$BASE/events/$INVITE_KEY_L2" -H "$H_JSON" -H "$H_AUTH_2" \
+    -d '{"reminders": [{"method": "email", "minutes_before": 30}]}')
+check_code  "PATCH attendee personal reminder" "$CODE" "200"
+check_error "PATCH attendee personal reminder error_code"
+
+CODE=$(req "$BASE/events/$INVITE_KEY_L2" -H "$H_AUTH_2")
+REM_COUNT_L2=$(body | jq -r '.data.reminders | length')
+[ "$REM_COUNT_L2" = "1" ] \
+    && ok "LOGIN_2 copy now carries the personal reminder" \
+    || fail "LOGIN_2 reminder count=$REM_COUNT_L2 (expected 1)"
+
+CODE=$(req "$BASE/events/$INVITE_KEY_L1" -H "$H_AUTH")
+REM_COUNT_L1=$(body | jq -r '.data.reminders | length')
+[ "$REM_COUNT_L1" = "0" ] \
+    && ok "organizer copy unaffected (personal reminders do not propagate)" \
+    || fail "organizer copy reminder count=$REM_COUNT_L1 (expected 0)"
+
 step "51a. iMIP - LOGIN_2 receives the invitation email"
 info "Creating an event with attendees sends an iMIP REQUEST (RFC 6047) to each attendee. We create an
   event with a unique title, then poll LOGIN_2's INBOX through the Mail Account API to confirm delivery."
@@ -1865,22 +1886,29 @@ L2_MASTER_RRULE=$(body | jq -r --arg uid "$PROP_UID" '[.data.events[] | select(.
 
 # -- 17. CONDITIONAL DELETES ---------------------------------------------------
 
-step "64. Error - attendee cannot modify event content"
-info "LOGIN_2 tries to PATCH the invitation event created by LOGIN_1 in step 47.
-  Only the organizer can modify content - attendee must get 403 / S000618."
+step "64. Error - attendee cannot move (reschedule) the organizer's event"
+info "LOGIN_2 tries to move their copy of the invitation from step 47 (new date_start/date_end).
+  Rescheduling is organizer-only content (RFC 6638): the attendee must be rejected with 403 / S000618
+  and the request must change nothing - personal-only edits are covered by step 51 (cont.)."
 
 # Use the propagated copy key from step 48 (LOGIN_2's copy of the invite)
 if [ -n "$INVITE_KEY_L2" ]; then
     CODE=$(req -X PATCH "$BASE/events/$INVITE_KEY_L2" \
         -H "$H_JSON" -H "$H_AUTH_2" \
-        -d '{"title": "Hacked by attendee"}')
-    [ "$CODE" = "403" ] \
-        && ok "attendee PATCH rejected (HTTP 403)" \
-        || fail "attendee PATCH should be rejected, got HTTP $CODE"
+        -d '{"date_start": "2026-07-02T18:00:00Z", "date_end": "2026-07-02T19:00:00Z"}')
+    check_code "attendee reschedule rejected" "$CODE" "403"
     ERR_CODE=$(body | jq -r '.error_code // empty')
     [ "$ERR_CODE" = "S000618" ] \
         && ok "error code = S000618 (not organizer)" \
         || fail "error code = '$ERR_CODE' (expected S000618)"
+
+    # The move must not have been persisted on the attendee copy (still on 2026-07-01).
+    CODE=$(req "$BASE/events/$INVITE_KEY_L2" -H "$H_AUTH_2")
+    NEW_START=$(body | jq -r '.data.date_start // empty')
+    case "$NEW_START" in
+        2026-07-01*) ok "event not moved (date_start still $NEW_START)" ;;
+        *)           fail "attendee moved the event (date_start=$NEW_START)" ;;
+    esac
 else
     skip "attendee modify test (no INVITE_KEY_L2 from step 48)"
 fi
@@ -2029,7 +2057,7 @@ if $DO_DELETE; then
         GONE=$(req "$BASE/tasks/$key" -H "$H_AUTH")
         [ "$GONE" = "404" ] && ok "$key gone after delete (404)" || fail "$key still accessible (HTTP $GONE)"
     done
-    # Delete attendee copy before organizer copy - organizer delete cascades via delete_all_by_uid
+    # Delete attendee copy before organizer copy - the organizer delete propagates per-attendee
     CODE=$(req -X DELETE "$BASE/events/$INVITE_KEY_L2" -H "$H_AUTH_2")
     check_code "DELETE /events/$INVITE_KEY_L2 (invite attendee copy)" "$CODE" "200"
     CODE=$(req -X DELETE "$BASE/events/$INVITE_KEY_L1" -H "$H_AUTH")
@@ -2702,6 +2730,125 @@ if $DO_DELETE; then
     check_code "DELETE /calendars/$DEF_CAL_KEY (defaults)" "$CODE" "200"
 else
     skip "DELETE defaults calendar $DEF_CAL_KEY and included event $INCL_EVT_KEY"
+fi
+
+
+step "103. Recurring invite - accepting one occurrence must not leak to the master PARTSTAT"
+info "LOGIN_1 invites LOGIN_2 to a daily series; LOGIN_2 accepts a SINGLE occurrence (recurrence_id).
+  Regression guard: the organizer's master must keep LOGIN_2 = needs-action (per-occurrence PARTSTAT
+  must not flip the whole series)."
+
+CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d "{
+        \"title\": \"Daily Invite\",
+        \"date_start\": \"2026-08-03T09:00:00Z\",
+        \"date_end\":   \"2026-08-03T10:00:00Z\",
+        \"recurrence_rule\": {\"frequency\": \"daily\", \"count\": 5, \"interval\": 1},
+        \"attendees\": [{\"email\": \"$LOGIN_2\", \"name\": \"User Two\", \"status\": \"needs-action\"}]
+    }")
+check_code  "POST recurring invite" "$CODE" "201"
+REC_KEY_L1=$(extract '.data.key')
+REC_UID=$(extract '.data.uid')
+
+CODE=$(req "$BASE/events?start_date_time=2026-08-01T00:00:00Z&end_date_time=2026-08-10T23:59:59Z" -H "$H_AUTH_2")
+REC_KEY_L2=$(body | jq -r --arg uid "$REC_UID" '[.data.events[] | select(.uid == $uid)][0].key // empty')
+
+if [ -n "$REC_KEY_L2" ]; then
+    CODE=$(req -X POST "$BASE/events/$REC_KEY_L2/attendance" \
+        -H "$H_JSON" -H "$H_AUTH_2" \
+        -d '{"status": "accepted", "recurrence_id": "2026-08-05T09:00:00Z"}')
+    check_code "POST attendance (single occurrence)" "$CODE" "200"
+    OCC_STATUS=$(body | jq -r --arg e "$LOGIN_2" '.data.attendees[] | select(.email == $e) | .status // empty')
+    [ "$OCC_STATUS" = "accepted" ] \
+        && ok "the accepted occurrence shows LOGIN_2 = accepted" \
+        || fail "occurrence status = '$OCC_STATUS' (expected accepted)"
+
+    # The organizer's master must NOT have been flipped to accepted.
+    CODE=$(req "$BASE/events/$REC_KEY_L1" -H "$H_AUTH")
+    MASTER_STATUS=$(body | jq -r --arg e "$LOGIN_2" '.data.attendees[] | select(.email == $e) | .status // empty')
+    [ "$MASTER_STATUS" = "needs-action" ] \
+        && ok "organizer master keeps LOGIN_2 = needs-action (no leak)" \
+        || fail "organizer master shows LOGIN_2 = '$MASTER_STATUS' (expected needs-action)"
+else
+    skip "recurring invite occurrence test (LOGIN_2 copy not found)"
+fi
+
+
+step "104. Recurring invite - attendee adds a reminder scoped to an occurrence (no 403)"
+info "LOGIN_2 (attendee) adds a personal reminder while the UI scopes to a single occurrence
+  (recurrence_id + occurrence date). Regression guard: must be accepted (200, not S000618); the
+  reminder lands on LOGIN_2's series, and the organizer's content is untouched."
+
+if [ -n "$REC_KEY_L2" ]; then
+    CODE=$(req -X PATCH "$BASE/events/$REC_KEY_L2" \
+        -H "$H_JSON" -H "$H_AUTH_2" \
+        -d '{"recurrence_id": "2026-08-04T09:00:00Z", "date_start": "2026-08-04T09:00:00Z", "date_end": "2026-08-04T10:00:00Z", "reminders": [{"method": "popup", "minutes_before": 15}]}')
+    check_code  "attendee reminder on occurrence accepted" "$CODE" "200"
+    check_error "attendee reminder error_code"
+    REM_COUNT=$(body | jq -r '.data.reminders | length')
+    [ "$REM_COUNT" = "1" ] \
+        && ok "reminder applied on LOGIN_2 copy" \
+        || fail "reminder count=$REM_COUNT (expected 1)"
+
+    # The attendee must still be blocked from changing organizer content (e.g. moving the series).
+    CODE=$(req -X PATCH "$BASE/events/$REC_KEY_L2" \
+        -H "$H_JSON" -H "$H_AUTH_2" \
+        -d '{"date_start": "2026-09-01T09:00:00Z", "date_end": "2026-09-01T10:00:00Z"}')
+    check_code "attendee content change still rejected" "$CODE" "403"
+else
+    skip "attendee reminder test (no LOGIN_2 copy)"
+fi
+
+
+step "105. THISANDFUTURE reschedule - reminders carry to the new series (organizer + attendee)"
+info "LOGIN_1 has a daily series with its own reminder and invites LOGIN_2, who adds their own reminder.
+  LOGIN_1 reschedules this-and-following from occ 3. Regression guard: the new series must keep the
+  organizer's reminder AND the attendee's reminder (the split must not drop them)."
+
+CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d "{
+        \"title\": \"TF Reminder Series\",
+        \"date_start\": \"2026-10-01T09:00:00Z\",
+        \"date_end\":   \"2026-10-01T10:00:00Z\",
+        \"recurrence_rule\": {\"frequency\": \"daily\", \"count\": 5, \"interval\": 1},
+        \"reminders\": [{\"method\": \"popup\", \"minutes_before\": 30}],
+        \"attendees\": [{\"email\": \"$LOGIN_2\", \"name\": \"User Two\", \"status\": \"needs-action\"}]
+    }")
+check_code "POST TF series" "$CODE" "201"
+TF_KEY_L1=$(extract '.data.key')
+TF_UID=$(extract '.data.uid')
+
+CODE=$(req "$BASE/events?start_date_time=2026-10-01T00:00:00Z&end_date_time=2026-10-01T23:59:59Z" -H "$H_AUTH_2")
+TF_KEY_L2=$(body | jq -r --arg uid "$TF_UID" '[.data.events[] | select(.uid == $uid)][0].key // empty')
+
+if [ -n "$TF_KEY_L2" ]; then
+    CODE=$(req -X PATCH "$BASE/events/$TF_KEY_L2" -H "$H_JSON" -H "$H_AUTH_2" \
+        -d '{"reminders": [{"method": "popup", "minutes_before": 10}]}')
+    check_code "LOGIN_2 sets own reminder on the series" "$CODE" "200"
+
+    # LOGIN_1 reschedules this-and-following from occ 3 (09:00 -> 11:00). The response is the new
+    # master (new uid), so we track it to query the exact new series and avoid stale runs.
+    CODE=$(req -X PATCH "$BASE/events/$TF_KEY_L1" -H "$H_JSON" -H "$H_AUTH" \
+        -d '{"recurrence_id": "2026-10-03T09:00:00Z", "recurrence_range": "THISANDFUTURE", "date_start": "2026-10-03T11:00:00Z", "date_end": "2026-10-03T12:00:00Z"}')
+    check_code "LOGIN_1 reschedule this-and-following" "$CODE" "200"
+    TF_NEW_UID=$(extract '.data.uid')
+
+    # The organizer's new series keeps the organizer's reminder (read straight from the response).
+    L1_REM=$(body | jq -r '.data.reminders | length')
+    [ "$L1_REM" -ge 1 ] \
+        && ok "organizer new series keeps its reminder" \
+        || fail "organizer new series lost its reminder (count=$L1_REM)"
+
+    # The attendee's copy of the new series (same new uid) keeps the attendee's own reminder.
+    CODE=$(req "$BASE/events?start_date_time=2026-10-03T00:00:00Z&end_date_time=2026-10-06T23:59:59Z" -H "$H_AUTH_2")
+    L2_REM=$(body | jq -r --arg uid "$TF_NEW_UID" '[.data.events[] | select(.uid == $uid)][0].reminders | length // 0')
+    [ "$L2_REM" -ge 1 ] \
+        && ok "attendee new series keeps their reminder" \
+        || fail "attendee new series lost their reminder (count=$L2_REM)"
+else
+    skip "TF reminder series test (LOGIN_2 copy not found)"
 fi
 
 

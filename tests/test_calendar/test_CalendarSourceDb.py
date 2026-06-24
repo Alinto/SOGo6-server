@@ -6,10 +6,13 @@ sogo_calendar_reminders free of triggers that can never fire.
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock
 
+from app.module.calendar.model.CalAttendee import CalAttendee
 from app.module.calendar.model.CalCalendar import CalCalendar
 from app.module.calendar.model.CalEvent import CalEvent
+from app.module.calendar.model.CalOrganizer import CalOrganizer
 from app.module.calendar.model.CalRecurrenceRule import CalRecurrenceRule
 from app.module.calendar.model.CalReminder import CalReminder
+from app.module.calendar.model.enums.AttendeeStatus import AttendeeStatus
 from app.module.calendar.model.enums.RecurrenceFrequency import RecurrenceFrequency
 from app.module.calendar.model.enums.ReminderMethod import ReminderMethod
 from app.module.calendar.source.CalendarSourceDb import CalendarSourceDb
@@ -30,6 +33,47 @@ def _build_source():
 
 def _event(date_start, date_end, **kwargs):
     return CalEvent(uid="e@x", title="T", key="e-k", date_start=date_start, date_end=date_end, **kwargs)
+
+
+# ========== propagate_partstat_to_copies ==========
+
+def test_propagate_partstat_of_occurrence_does_not_touch_master():
+    """Accepting a single occurrence must mirror only to the matching detached occurrence, not masters."""
+    source = _build_source()
+    source._repo_event = MagicMock()
+    source._repo_event.find_all_by_uid.return_value = []
+    occ = _event(_dt(2026, 6, 25, 8), _dt(2026, 6, 25, 9), recurrence_id=_dt(2026, 6, 25, 8),
+                 attendees=[CalAttendee(email="bob@example.com", status=AttendeeStatus.ACCEPTED)])
+    source.propagate_partstat_to_copies(occ, "bob@example.com", AttendeeStatus.ACCEPTED)
+    _, kwargs = source._repo_event.find_all_by_uid.call_args
+    assert kwargs["recurrence_id"] == _dt(2026, 6, 25, 8)
+
+
+def test_propagate_partstat_of_master_targets_masters():
+    """Accepting the whole series targets the master copies (recurrence_id None)."""
+    source = _build_source()
+    source._repo_event = MagicMock()
+    source._repo_event.find_all_by_uid.return_value = []
+    master = _event(_dt(2026, 6, 25, 8), _dt(2026, 6, 25, 9),
+                    attendees=[CalAttendee(email="bob@example.com", status=AttendeeStatus.ACCEPTED)])
+    source.propagate_partstat_to_copies(master, "bob@example.com", AttendeeStatus.ACCEPTED)
+    _, kwargs = source._repo_event.find_all_by_uid.call_args
+    assert kwargs["recurrence_id"] is None
+
+
+# ========== realign_detached_occurrences ==========
+
+def test_realign_detached_occurrences_resets_attendee_responses():
+    source = _build_source()
+    source._repo_event = MagicMock()
+    occ = _event(_dt(2026, 6, 3, 9), _dt(2026, 6, 3, 10),
+                 recurrence_id=_dt(2026, 6, 3, 9),
+                 organizer=CalOrganizer(email="boss@example.com"),
+                 attendees=[CalAttendee(email="bob@example.com", status=AttendeeStatus.ACCEPTED)])
+    source._repo_event.find_detached_occurrences.return_value = [occ]
+    source.realign_detached_occurrences(uid="e@x", old_start=_dt(2026, 6, 1, 9), new_start=_dt(2026, 6, 2, 9))
+    assert occ.attendees[0].status == AttendeeStatus.NEEDS_ACTION
+    source._repo_event.update.assert_called_once()
 
 
 # ========== _prepare_for_persistence - normalization + reminder resolution ==========

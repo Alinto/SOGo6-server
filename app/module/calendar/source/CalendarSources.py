@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from app.module.calendar.model.CalCalendar import CalCalendar
 from app.module.calendar.model.CalEvent import CalEvent
+from app.module.calendar.model.CalReminder import CalReminder
 from app.module.calendar.model.enums.CalendarSourceType import CalendarSourceType
 from app.module.calendar.repository.RepositoryCalendar import RepositoryCalendar
 from app.module.calendar.rrule.RecurrenceScopeProcessor import EventAction, ScopeResult
@@ -75,6 +76,17 @@ class CalendarSources:
             if event is not None:
                 return source, event
         return None
+
+    def require_event(self, user_uid: str, event_key: str) -> tuple[CalendarSource, CalEvent]:
+        """Find the source and event by opaque event_key across user_uid's calendars, or raise EVENT_NOT_FOUND.
+
+        event_key is the UUID stored in the key column of sogo_events, not the RFC 5545 uid.
+        """
+        for source in self.get_all(user_uid):
+            event: CalEvent | None = source.get_event(event_key)
+            if event is not None:
+                return source, event
+        raise RequestException(error=err.ERROR_CALENDAR_EVENT_NOT_FOUND)
 
     def get_by_key(self, user_uid: str, key: str) -> CalendarSource | None:
         """Return the source for a specific calendar, or None if not found."""
@@ -210,7 +222,17 @@ class CalendarSources:
     def _apply_action(self, att_source: CalendarSource, evt: CalEvent, action: EventAction) -> None:
         """Apply a single propagation action on an attendee's calendar."""
         if action == EventAction.INSERT:
-            copy: CalEvent = dataclasses.replace(evt, key=None, calendar_key=att_source.calendar.key, reminders=[])
+            # A split sub-series (uid_parent_split set) carries THIS attendee's own reminders from their
+            # copy of the original series; a plain new event starts empty (attendees never inherit the
+            # organizer's alarms).
+            reminders: list[CalReminder] = []
+            if evt.uid_parent_split is not None:
+                origin: CalEvent | None = att_source.get_master_event_by_uid(evt.uid_parent_split)
+                if origin is not None:
+                    reminders = origin.reminders
+            copy: CalEvent = dataclasses.replace(
+                evt, key=None, calendar_key=att_source.calendar.key, reminders=reminders,
+            )
             att_source.insert_event(copy)
         elif action == EventAction.UPDATE:
             self._update_attendee_copy(att_source, evt)
@@ -218,7 +240,7 @@ class CalendarSources:
             if evt.recurrence_id is not None:
                 att_copy: CalEvent | None = att_source.get_event_by_recurrence_id(evt.require_uid, evt.recurrence_id)
                 if att_copy is not None:
-                    att_source.delete_detached_occurrence(att_copy)
+                    att_source.delete_occurrence(att_copy)
             else:
                 att_source.delete_event(evt.require_uid)
 
@@ -230,8 +252,7 @@ class CalendarSources:
             copy = att_source.get_master_event_by_uid(event.require_uid)
         if copy is None:
             return
-        for field_name in CalEvent.PROPAGATABLE_FIELDS:
-            setattr(copy, field_name, getattr(event, field_name))
+        copy.apply_propagatable_fields(event)
         att_source.update_event(copy)
 
     def _sync_attendee_list(self, original: CalEvent | None, updated: CalEvent) -> None:

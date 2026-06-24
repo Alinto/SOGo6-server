@@ -91,13 +91,22 @@ def _build_module(sources: dict):
     module._db = MagicMock()
     module._cache = MagicMock()
     module._acl = MagicMock()
-    module._acl.sanitize_events.side_effect = lambda items, permissions: items
+    module._acl.sanitize_listing.side_effect = lambda calendar_user, items, calendars: items
     sources_mock = MagicMock()
     sources_mock.get_all.return_value = list(sources.values())
     sources_mock.get_by_key.side_effect = lambda uid, key: sources.get(key)
     sources_mock.get.side_effect = lambda cal: sources.get(cal.key)
     sources_mock.get_default.return_value = None
     sources_mock.find_by_uid.return_value = None
+
+    def _require_event(uid, event_key):
+        for s in sources.values():
+            ev = s.get_event(event_key)
+            if ev is not None:
+                return s, ev
+        raise RequestException(error=err.ERROR_CALENDAR_EVENT_NOT_FOUND)
+
+    sources_mock.require_event.side_effect = _require_event
 
     def _get_tasks(uid, start, end, search, calendar_key=None):
         if calendar_key is not None:

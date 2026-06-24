@@ -335,26 +335,15 @@ def test_conference_data_and_attachment(serializer):
     assert d["attachments"][0]["filename"] == "report.pdf"
 
 
-# ========== Detached occurrences (parent_uid / recurrence_id) ==========
-
-def test_deserializer_parses_parent_uid():
-    data = {
-        "uid": "u@e.com", "title": "T",
-        "date_start": "2026-01-01T00:00:00.000Z",
-        "date_end": "2026-01-01T01:00:00.000Z",
-        "parent_uid": "master@example.com",
-    }
-    assert CalEventDeserializerDict().deserialize(data).parent_uid == "master@example.com"
-
+# ========== Detached occurrences (recurrence_id) ==========
 
 def test_occurrence_deserialize_preserves_recurrence_id():
     rid_str = "2026-03-09T09:00:00.000Z"
     data = {
         "uid": "master@example.com", "title": "Modified",
         "date_start": rid_str, "date_end": "2026-03-09T11:00:00.000Z",
-        "recurrence_id": rid_str, "parent_uid": "master@example.com",
+        "recurrence_id": rid_str,
     }
     restored = CalEventDeserializerDict().deserialize(data)
-    assert restored.parent_uid == "master@example.com"
     assert restored.recurrence_id == datetime(2026, 3, 9, 9, 0, tzinfo=_UTC)
     assert restored.recurrence_rule is None

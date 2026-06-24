@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from app.auth.User import User
+from app.auth.User import User
 
 
 @dataclass
@@ -17,3 +15,15 @@ class CalendarUser:
 
     user: User
     owner: User
+
+    @classmethod
+    def for_owner_uid(cls, user_uid: str | None) -> CalendarUser | None:
+        """Build a self-acting CalendarUser for a calendar owner uid (acting user == owner).
+
+        Used by the system reminder sweep, which has no request-bound acting user. Returns None
+        when user_uid is empty.
+        """
+        if not user_uid:
+            return None
+        owner: User = User(uid=user_uid)
+        return cls(user=owner, owner=owner)

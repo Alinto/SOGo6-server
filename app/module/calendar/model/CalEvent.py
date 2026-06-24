@@ -11,6 +11,7 @@ from app.module.calendar.model.CalEventRelation import CalEventRelation
 from app.module.calendar.model.CalOrganizer import CalOrganizer
 from app.module.calendar.model.CalRecurrenceRule import CalRecurrenceRule
 from app.module.calendar.model.CalReminder import CalReminder
+from app.module.calendar.model.enums.AttendeeStatus import AttendeeStatus
 from app.module.calendar.model.enums.ComponentType import ComponentType
 from app.module.calendar.model.enums.EventStatus import EventStatus
 from app.module.calendar.model.enums.EventVisibility import EventVisibility
@@ -23,7 +24,7 @@ from app.utils.exceptions import BugException, RequestException
 
 
 @dataclass
-class CalEvent:  # pylint: disable=too-many-instance-attributes,invalid-name
+class CalEvent:  # pylint: disable=too-many-instance-attributes,invalid-name,too-many-public-methods
     """
     Format-agnostic representation of a calendar event/task/journal.
     """
@@ -95,8 +96,6 @@ class CalEvent:  # pylint: disable=too-many-instance-attributes,invalid-name
     recurrence_id: datetime | None = None
     # RFC 5545 §3.8.5.3 RANGE=THISANDFUTURE - None or 'THISANDFUTURE'
     recurrence_range: str | None = None
-    # UID of the master recurring event - set on detached occurrences (RECURRENCE-ID rows)
-    parent_uid: str | None = None
     # UID of the original series this event was split from (THISANDFUTURE operation).
     # Set on the new master created during a split so the history is traceable.
     # Never used for business logic - informational only, serialized to iCal as
@@ -116,9 +115,8 @@ class CalEvent:  # pylint: disable=too-many-instance-attributes,invalid-name
     # RFC 5545 §3.8.7.3 (LAST-MODIFIED)
     updated_at: datetime | None = None
 
-    # Fields that can be modified by a partial update. Used by apply_update and
-    # RecurrenceScopeProcessor to determine which fields to merge.
-    MUTABLE_FIELDS: ClassVar[frozenset[str]] = frozenset({
+    # Fields that can be modified by a partial update.
+    _MUTABLE_FIELDS: ClassVar[frozenset[str]] = frozenset({
         "title", "description", "location", "url", "date_start", "date_end",
         "all_day", "timezone", "status", "visibility", "show_as", "color",
         "sequence", "priority", "organizer", "attendees", "reminders", "conference_data",
@@ -127,16 +125,20 @@ class CalEvent:  # pylint: disable=too-many-instance-attributes,invalid-name
     })
 
     # Fields computed at serialization time - never persisted in the DB blob.
-    UNPERSISTED_FIELDS: ClassVar[frozenset[str]] = frozenset({"dates_with_tz"})
+    _UNPERSISTED_FIELDS: ClassVar[frozenset[str]] = frozenset({"dates_with_tz"})
 
     # Fields propagated from the organizer's copy to attendee copies on event update.
     # Excludes reminders and conference_data - each attendee manages their own.
-    PROPAGATABLE_FIELDS: ClassVar[frozenset[str]] = frozenset({
+    _PROPAGATABLE_FIELDS: ClassVar[frozenset[str]] = frozenset({
         "title", "description", "location", "url", "date_start", "date_end",
         "all_day", "timezone", "status", "visibility", "show_as", "color",
         "sequence", "organizer", "attendees", "attachments", "categories",
         "related_to", "extra_properties", "recurrence_rule", "recurrence_exceptions", "priority",
     })
+
+    # Fields each attendee owns on their own copy (their VALARM and conference data). An attendee who
+    # is not the organizer may edit only these; the organizer never propagates them (RFC 6638 §3.2.1).
+    _PERSONAL_FIELDS: ClassVar[frozenset[str]] = frozenset({"reminders", "conference_data"})
 
     def apply_defaults(
         self,
@@ -228,6 +230,23 @@ class CalEvent:  # pylint: disable=too-many-instance-attributes,invalid-name
         """True when this event's ORGANIZER matches the given email (False when no organizer)."""
         return self.organizer is not None and self.organizer.email == email
 
+    def attendance_status_for(self, email: str) -> AttendeeStatus | None:
+        """Return the participation status of the attendee matching email, or None if not an attendee."""
+        for attendee in self.attendees:
+            if attendee.email == email:
+                return attendee.status
+        return None
+
+    def is_attending(self, email: str) -> bool:
+        """True unless email is an attendee who has not committed (declined / needs-action / delegated).
+
+        The organizer and anyone absent from the attendee list (a personal event) count as attending;
+        an attendee counts only once they have accepted or tentatively accepted. Used to decide whether
+        a reminder should fire for this copy's owner.
+        """
+        status: AttendeeStatus | None = self.attendance_status_for(email)
+        return status is None or status in (AttendeeStatus.ACCEPTED, AttendeeStatus.TENTATIVE)
+
     @property
     def require_uid(self) -> str:
         """UID, guaranteed on any persisted or fully-built event (RFC 5545 requires it)."""
@@ -280,5 +299,64 @@ class CalEvent:  # pylint: disable=too-many-instance-attributes,invalid-name
     def apply_update(self, updates: dict[str, Any]) -> None:
         """Apply a partial update dict to this event, ignoring unknown or immutable fields."""
         for field_name, value in updates.items():
-            if field_name in self.MUTABLE_FIELDS:
+            if field_name in self._MUTABLE_FIELDS:
                 setattr(self, field_name, value)
+
+    @staticmethod
+    def is_mutable_field(field_name: str) -> bool:
+        """Return True if the field accepts partial updates."""
+        return field_name in CalEvent._MUTABLE_FIELDS
+
+    @staticmethod
+    def strip_unpersisted_fields(blob: dict[str, Any]) -> None:
+        """Drop fields that are computed at serialization time from a DB blob, in place."""
+        for field_name in CalEvent._UNPERSISTED_FIELDS:
+            blob.pop(field_name, None)
+
+    def _copy_fields(self, source: CalEvent, field_names: frozenset[str]) -> None:
+        for field_name in field_names:
+            setattr(self, field_name, getattr(source, field_name))
+
+    def apply_personal_fields(self, source: CalEvent) -> None:
+        """Copy the attendee-owned fields (VALARM, conference data) from another copy."""
+        self._copy_fields(source, self._PERSONAL_FIELDS)
+
+    def apply_propagatable_fields(self, source: CalEvent) -> None:
+        """Copy the organizer-controlled fields from the master copy onto an attendee copy."""
+        self._copy_fields(source, self._PROPAGATABLE_FIELDS)
+
+    def apply_organizer_content(self, source: CalEvent) -> None:
+        """Copy the shared content fields from an organizer update, leaving personal fields untouched."""
+        self._copy_fields(source, self._MUTABLE_FIELDS - self._PERSONAL_FIELDS)
+
+    def has_content_changes(self, other: CalEvent) -> bool:
+        """Return True if any mutable field differs from the other event."""
+        return any(getattr(self, field_name) != getattr(other, field_name) for field_name in self._MUTABLE_FIELDS)
+
+    def has_organizer_content_changes(self, other: CalEvent) -> bool:
+        """Return True if any organizer-owned content field differs (attendee-personal fields excluded)."""
+        return any(getattr(self, field_name) != getattr(other, field_name)
+                   for field_name in self._MUTABLE_FIELDS - self._PERSONAL_FIELDS)
+
+    def has_scheduling_changes(self, other: CalEvent) -> bool:
+        """Return True if a field that requires attendees to re-confirm differs (RFC 5546 significant change).
+
+        A reschedule of the start/end, all-day flag, timezone or recurrence pattern invalidates prior
+        replies; cosmetic edits (title, description, ...) do not.
+        """
+        scheduling_fields: tuple[str, ...] = (
+            "date_start", "date_end", "all_day", "timezone", "recurrence_rule", "recurrence_exceptions",
+        )
+        return any(getattr(self, field_name) != getattr(other, field_name) for field_name in scheduling_fields)
+
+    def reset_attendee_responses(self) -> None:
+        """Reset every non-organizer attendee's PARTSTAT to NEEDS-ACTION and request a fresh reply.
+
+        Called after a significant change so attendees must re-confirm (RFC 5546 §2.1.4). The
+        organizer's own entry, implicitly accepted, is left untouched.
+        """
+        for attendee in self.attendees:
+            if self.organizer is not None and attendee.email == self.organizer.email:
+                continue
+            attendee.status = AttendeeStatus.NEEDS_ACTION
+            attendee.rsvp = True

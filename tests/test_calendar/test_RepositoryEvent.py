@@ -1,5 +1,4 @@
 """Unit tests for RepositoryEvent."""
-import json
 from datetime import datetime, timezone
 
 import pytest
@@ -13,9 +12,7 @@ from app.module.calendar.model.enums.RecurrenceFrequency import RecurrenceFreque
 from app.module.calendar.model.enums.ShowAs import ShowAs
 from app.module.calendar.repository.RepositoryEvent import RepositoryEvent, _ALL_COLS, _INSERT_COLS
 from app.module.calendar.serializer.CalEventSerializerDict import CalEventSerializerDict
-from app.utils.db.Condition import (AndCondition, Condition, EqualCondition, FullTextCondition,
-                                     GreaterOrEqualCondition, IsNullCondition, LessOrEqualCondition,
-                                     OrCondition)
+from app.utils.db.Condition import AndCondition, Condition, EqualCondition, FullTextCondition, OrCondition
 from app.utils.db.FullTextValue import FullTextValue
 
 _UTC = timezone.utc
@@ -407,7 +404,7 @@ def test_find_detached_occurrences_returns_rows():
         uid=master.uid, title="Modified",
         date_start=rid, date_end=rid.replace(hour=11),
         calendar_key=master.calendar_key,
-        recurrence_id=rid, parent_uid=master.uid,
+        recurrence_id=rid,
     )
     occ.key = "occ-key"
     db = FakeDB()
@@ -417,21 +414,12 @@ def test_find_detached_occurrences_returns_rows():
     assert result[0].recurrence_id == rid
 
 
-# ========== delete_by_key / delete_occurrence ==========
+# ========== delete_by_key ==========
 
 def test_delete_by_key_sends_update():
     db = FakeDB()
     RepositoryEvent(db).delete_by_key("cal-key", "some-event-key")
     assert len(db.updated_rows) == 1
-    update = db.updated_rows[0]
-    is_deleted_idx = list(update["cols"]).index("is_deleted")
-    assert update["vals"][is_deleted_idx] is True
-
-
-def test_delete_occurrence_sends_update():
-    db = FakeDB()
-    rid = datetime(2026, 3, 9, 9, 0, tzinfo=_UTC)
-    RepositoryEvent(db).delete_occurrence("cal-key", "master@example.com", rid)
     update = db.updated_rows[0]
     is_deleted_idx = list(update["cols"]).index("is_deleted")
     assert update["vals"][is_deleted_idx] is True

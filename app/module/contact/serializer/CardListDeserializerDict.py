@@ -29,7 +29,7 @@ class CardListDeserializerDict(CardListDeserializer[dict]):
     def deserialize_with_update(self, origin: CardList, update: dict | CardList) -> CardList:
         """Apply a partial update to an existing CardList and return the result.
 
-        When update is a dict, only keys present in CardList.MUTABLE_FIELDS (name, description,
+        When update is a dict, only mutable keys (name, description,
         members) are applied to a copy of origin; identity fields are ignored here and re-asserted by
         ModuleContact.update_list. When update is a CardList, return it directly.
         """
@@ -38,6 +38,6 @@ class CardListDeserializerDict(CardListDeserializer[dict]):
 
         merged: CardList = dataclasses.replace(origin)
         for key, value in update.items():
-            if key in CardList.MUTABLE_FIELDS:
+            if CardList.is_mutable_field(key):
                 setattr(merged, key, list(value) if key == "members" else value)
         return merged

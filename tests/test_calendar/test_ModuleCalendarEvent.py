@@ -13,6 +13,9 @@ from app.module.calendar.model.CalAttendee import CalAttendee
 from app.module.calendar.model.CalCalendar import CalCalendar
 from app.module.calendar.model.CalEvent import CalEvent
 from app.module.calendar.model.CalOrganizer import CalOrganizer
+from app.module.calendar.model.CalReminder import CalReminder
+from app.module.calendar.model.enums.AttendeeStatus import AttendeeStatus
+from app.module.calendar.model.enums.ReminderMethod import ReminderMethod
 from app.module.calendar.rrule.RecurrenceScopeProcessor import EventAction
 from app.module.calendar.source.CalendarSource import CalendarSource
 from app.utils import errors as err
@@ -77,7 +80,7 @@ class FakeCalendarSource(CalendarSource):
         self.deleted_uids.append(uid)
         self._calendar.ctag = (self._calendar.ctag or 0) + 1
 
-    def delete_detached_occurrence(self, occurrence):
+    def delete_occurrence(self, occurrence):
         self.deleted_occurrence_keys.append(occurrence.key)
         self._calendar.ctag = (self._calendar.ctag or 0) + 1
 
@@ -99,13 +102,22 @@ def _build_module(sources: dict):
     module._db = MagicMock()
     module._cache = MagicMock()
     module._acl = MagicMock()
-    module._acl.sanitize_events.side_effect = lambda items, permissions: items
+    module._acl.sanitize_listing.side_effect = lambda calendar_user, items, calendars: items
     sources_mock = MagicMock()
     sources_mock.get_all.return_value = list(sources.values())
     sources_mock.get_by_key.side_effect = lambda uid, key: sources.get(key)
     sources_mock.get.side_effect = lambda cal: sources.get(cal.key)
     sources_mock.get_default.return_value = None
     sources_mock.find_by_uid.return_value = None
+
+    def _require_event(uid, event_key):
+        for s in sources.values():
+            ev = s.get_event(event_key)
+            if ev is not None:
+                return s, ev
+        raise RequestException(error=err.ERROR_CALENDAR_EVENT_NOT_FOUND)
+
+    sources_mock.require_event.side_effect = _require_event
 
     def _get_events(uid, start, end, search, calendar_key=None):
         if calendar_key is not None:
@@ -263,15 +275,61 @@ def test_update_event_acl_denied():
     assert exc_info.value.error == err.ERROR_CALENDAR_ACCESS_DENIED
 
 
-def test_update_event_attendee_cannot_modify():
-    """An attendee (not the organizer) must not be able to modify event content."""
+def test_update_event_attendee_personal_fields_only():
+    """A non-organizer attendee may set their own reminders without touching organizer content."""
     organizer = CalOrganizer(email="organizer@example.com")
-    event = _make_event(key="evt-key", organizer=organizer)
+    event = _make_event(key="evt-key", title="Original", organizer=organizer)
+    source = _make_source(events=[event])
+    module = _build_module({"cal-key": source})
+    reminder = CalReminder(method=ReminderMethod.EMAIL, minutes_before=10)
+    result = module.update_event(
+        _fake_user("attendee@example.com"), "evt-key",
+        _merge(event, reminders=[reminder]),
+        CalOrganizer(email="attendee@example.com"),
+    )
+    assert result.title == "Original"      # organizer content untouched
+    assert result.reminders == [reminder]  # personal reminder applied
+
+
+def test_update_event_attendee_content_change_rejected():
+    """A non-organizer attendee changing organizer content is rejected, not silently dropped."""
+    organizer = CalOrganizer(email="organizer@example.com")
+    event = _make_event(key="evt-key", title="Original", organizer=organizer)
     source = _make_source(events=[event])
     module = _build_module({"cal-key": source})
     with pytest.raises(RequestException) as exc_info:
-        module.update_event(_fake_user("attendee@example.com"), "evt-key", _merge(event, title="Hacked"), CalOrganizer(email="attendee@example.com"))
+        module.update_event(
+            _fake_user("attendee@example.com"), "evt-key",
+            _merge(event, title="Hacked"),
+            CalOrganizer(email="attendee@example.com"),
+        )
     assert exc_info.value.error == err.ERROR_CALENDAR_NOT_ORGANIZER
+
+
+def test_update_event_reschedule_resets_attendee_responses():
+    """Moving an event resets attendee PARTSTAT to needs-action (RFC 5546)."""
+    organizer = CalOrganizer(email="user@example.com")
+    event = _make_event(key="evt-key", organizer=organizer,
+                        attendees=[CalAttendee(email="bob@example.com", status=AttendeeStatus.ACCEPTED)])
+    source = _make_source(events=[event])
+    module = _build_module({"cal-key": source})
+    moved = _merge(event, date_start=_dt(2026, 5, 1, 14), date_end=_dt(2026, 5, 1, 15),
+                   attendees=[CalAttendee(email="bob@example.com", status=AttendeeStatus.ACCEPTED)])
+    result = module.update_event(_fake_user(), "evt-key", moved, organizer)
+    assert result.attendees[0].status == AttendeeStatus.NEEDS_ACTION
+
+
+def test_update_event_cosmetic_change_keeps_attendee_responses():
+    """A title-only edit must not reset attendee replies."""
+    organizer = CalOrganizer(email="user@example.com")
+    event = _make_event(key="evt-key", organizer=organizer,
+                        attendees=[CalAttendee(email="bob@example.com", status=AttendeeStatus.ACCEPTED)])
+    source = _make_source(events=[event])
+    module = _build_module({"cal-key": source})
+    renamed = _merge(event, title="Renamed",
+                     attendees=[CalAttendee(email="bob@example.com", status=AttendeeStatus.ACCEPTED)])
+    result = module.update_event(_fake_user(), "evt-key", renamed, organizer)
+    assert result.attendees[0].status == AttendeeStatus.ACCEPTED
 
 
 def test_update_event_acting_user_organizer_in_shared_calendar():
@@ -367,7 +425,7 @@ def test_delete_event_acl_denied():
 
 def test_delete_event_occurrence_routes_to_delete_detached():
     """delete_event on a detached occurrence (recurrence_id set) must call
-    delete_detached_occurrence, not delete_event(uid), to avoid deleting the master."""
+    delete_occurrence, not delete_event(uid), to avoid deleting the master."""
     rid = datetime(2026, 3, 9, 9, 0, tzinfo=_UTC)
     occurrence = _make_event(key="occ-key", uid="master@example.com", recurrence_id=rid)
     source = _make_source(events=[occurrence])
@@ -420,7 +478,7 @@ def test_get_events_applies_acl_masking():
     event = _make_event(key="evt-key")
     source = _make_source("cal-key", events=[event])
     module = _build_module({"cal-key": source})
-    module._acl.sanitize_events.side_effect = lambda items, permissions: []  # ACL hides everything
+    module._acl.sanitize_listing.side_effect = lambda calendar_user, items, calendars: []  # ACL hides everything
     results = module.get_events(_fake_user(), None, None, None, "cal-key")
     assert results == []
 

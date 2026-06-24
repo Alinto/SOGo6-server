@@ -42,6 +42,10 @@ class ReminderEngine:
             if event is None:
                 continue
 
+            # An attendee who declined or has not yet responded must not be reminded.
+            if reminder.user_uid and not event.is_attending(reminder.user_uid):
+                continue
+
             if event.recurrence_rule is not None:
                 results.extend(self._expand_recurring(reminder, event, now, lookahead))
             else:

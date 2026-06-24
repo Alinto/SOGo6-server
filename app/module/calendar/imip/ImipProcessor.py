@@ -101,14 +101,7 @@ class ImipProcessor:
                 attendee.status = reply_by_email[attendee.email].status
                 break
 
-        try:
-            source.update_event(event)
-            return event
-        except RequestException:
-            raise
-        except Exception as exc:
-            logger_calendar.exception("Unexpected error processing iMIP reply for event %s", message.event.uid)
-            raise RequestException(error=err.ERROR_CALENDAR_EVENT_UPDATE_FAILED) from exc
+        return source.update_event_or_fail(event, "processing iMIP reply")
 
     def process_request(self, owner: User, ical_bytes: bytes, from_email: str) -> CalEvent:
         """Process an incoming iMIP REQUEST, adding or updating the event in the owner's calendar.
@@ -138,19 +131,9 @@ class ImipProcessor:
                     message.event.uid, existing.sequence, message.event.sequence,
                 )
                 return existing
-            # Exclude attendee-personal fields: each user keeps their own reminders and conference data
-            content_fields: frozenset[str] = message.event.MUTABLE_FIELDS - frozenset({"reminders", "conference_data"})
-            existing.apply_update({f: getattr(message.event, f) for f in content_fields})
-            try:
-                source.update_event(existing)
-                return existing
-            except RequestException:
-                raise
-            except Exception as exc:
-                logger_calendar.exception(
-                    "Unexpected error updating iMIP REQUEST event uid=%s", message.event.uid,
-                )
-                raise RequestException(error=err.ERROR_CALENDAR_EVENT_UPDATE_FAILED) from exc
+            # Apply shared content only: each user keeps their own reminders and conference data
+            existing.apply_organizer_content(message.event)
+            return source.update_event_or_fail(existing, "processing iMIP request")
 
         # New invitation: the sender must be the organizer it claims in the payload.
         self._require_sender_is_organizer(message.event, from_email)
