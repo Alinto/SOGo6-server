@@ -45,7 +45,7 @@ class CardAddressBook:  # pylint: disable=too-many-instance-attributes
 
     # sync_config is deliberately excluded: external CardDAV sync metadata (incl. credentials) is
     # written by the sync engine, never through a user update.
-    MUTABLE_FIELDS: ClassVar[frozenset[str]] = frozenset({"name", "description", "is_default"})
+    _MUTABLE_FIELDS: ClassVar[frozenset[str]] = frozenset({"name", "description", "is_default"})
 
     @property
     def require_id(self) -> int:
@@ -64,5 +64,5 @@ class CardAddressBook:  # pylint: disable=too-many-instance-attributes
     def apply_update(self, updates: dict[str, Any]) -> None:
         """Apply a partial update dict to this address book, ignoring unknown or immutable fields."""
         for field_name, value in updates.items():
-            if field_name in self.MUTABLE_FIELDS:
+            if field_name in self._MUTABLE_FIELDS:
                 setattr(self, field_name, value)

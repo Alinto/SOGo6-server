@@ -71,6 +71,7 @@ class CalEventSerializerDict(CalEventSerializer[dict]):
             "recurrence_exceptions": [fmt_dt(d) for d in data.recurrence_exceptions],
             "recurrence_id": fmt_dt(data.recurrence_id) if data.recurrence_id else None,
             "recurrence_range": data.recurrence_range,
+            "uid_parent_split": data.uid_parent_split,
             "dates_with_tz": self._dates_with_tz(data),
         }
 

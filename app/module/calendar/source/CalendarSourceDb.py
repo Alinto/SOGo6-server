@@ -169,7 +169,7 @@ class CalendarSourceDb(CalendarSource):
         """Persist a new event row, bump ctag, and return the event with id and key populated.
 
         If the event has recurrence_id set, it is treated as a detached occurrence:
-        the master event is located by uid to validate it is recurring and to populate parent_uid.
+        the master event is located by uid to validate it exists and is recurring.
         """
         self._prepare_for_persistence(event)
         if event.recurrence_id is not None:
@@ -194,7 +194,6 @@ class CalendarSourceDb(CalendarSource):
             raise RequestException(error=err.ERROR_CALENDAR_EVENT_NOT_FOUND)
         if master.recurrence_rule is None:
             raise RequestException(error=err.ERROR_CALENDAR_EVENT_NOT_RECURRING)
-        event.parent_uid = master.uid
         event.recurrence_rule = None
         created = self._repo_event.insert(event)
         if self._calendar.timezone:
@@ -215,8 +214,9 @@ class CalendarSourceDb(CalendarSource):
         """Realign all detached occurrences to the new master time.
 
         Shifts the recurrence_id (slot marker) by the master delta while preserving
-        any individual time offset the user applied to this occurrence.
-        Content changes (title, color, etc.) are untouched.
+        any individual time offset the user applied to this occurrence. Content (title,
+        color, etc.) is untouched, but since the occurrence is rescheduled its attendee
+        PARTSTAT is reset so they re-confirm (RFC 5546 2.1.4).
         Returns a list of (CalEvent, EventAction.UPDATE) for each realigned occurrence.
         """
         delta: timedelta = new_start - old_start
@@ -225,6 +225,7 @@ class CalendarSourceDb(CalendarSource):
         for occ in detached:
             if occ.recurrence_id is not None:
                 occ.recurrence_id, occ.date_start, occ.date_end = self._compute_realigned_dates(occ, delta)
+                occ.reset_attendee_responses()
             try:
                 self._repo_event.update(occ, None)
                 touched.append((occ, EventAction.UPDATE))
@@ -233,13 +234,17 @@ class CalendarSourceDb(CalendarSource):
         return touched
 
     def propagate_partstat_to_copies(self, event: CalEvent, attendee_email: str, status: AttendeeStatus) -> None:
-        """Mirror a single attendee's PARTSTAT change to all other local copies of the event.
+        """Mirror a single attendee's PARTSTAT change to the matching local copies of the event.
 
         Called after an attendee updates their status so the organizer and other local
         attendees see the updated status immediately, without waiting for an iMIP REPLY.
+        Scope is respected via the recurrence_id: accepting a single occurrence only touches
+        the matching detached occurrence on other calendars, never the master series.
         """
         other_copies: list[CalEvent] = self._repo_event.find_all_by_uid(
-            event.require_uid, exclude_organizer_calendar_key=self._calendar.require_key
+            event.require_uid,
+            exclude_organizer_calendar_key=self._calendar.require_key,
+            recurrence_id=event.recurrence_id,
         )
         for copy in other_copies:
             for attendee in copy.attendees:
@@ -315,7 +320,7 @@ class CalendarSourceDb(CalendarSource):
         self._repo_reminder.delete(key)
         self._bump_ctag()
 
-    def delete_detached_occurrence(self, occurrence: CalEvent) -> None:
+    def delete_occurrence(self, occurrence: CalEvent) -> None:
         """Soft-delete a detached occurrence, add its recurrence_id to the master EXDATE, and bump ctag.
 
         Adding to EXDATE prevents the original slot from reappearing in RRULE expansion

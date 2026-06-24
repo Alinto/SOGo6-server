@@ -1,9 +1,11 @@
 """Unit tests for ReminderEngine."""
 from datetime import datetime, timedelta, timezone
 
+from app.module.calendar.model.CalAttendee import CalAttendee
 from app.module.calendar.model.CalEvent import CalEvent
 from app.module.calendar.model.CalEventReminder import CalEventReminder
 from app.module.calendar.model.CalRecurrenceRule import CalRecurrenceRule
+from app.module.calendar.model.enums.AttendeeStatus import AttendeeStatus
 from app.module.calendar.model.enums.RecurrenceFrequency import RecurrenceFrequency
 from app.module.calendar.model.enums.ReminderMethod import ReminderMethod
 from app.module.calendar.reminder.ReminderEngine import ReminderEngine
@@ -60,6 +62,26 @@ def test_active_between_trigger_and_event_end():
     assert results[0].title == "Test"
     assert results[0].location == "Room A"
     assert results[0].event_key == "evt-key"
+
+
+def test_skips_reminder_when_owner_has_not_accepted():
+    event = _make_event(attendees=[CalAttendee(email="bob@example.com", status=AttendeeStatus.DECLINED)])
+    reminder = _reminder(trigger_at=_dt(2026, 6, 1, 9, 45))
+    reminder.user_uid = "bob@example.com"
+    results = ReminderEngine().compute_active(
+        reminders=[reminder], events_by_key={"evt-key": event}, now=_dt(2026, 6, 1, 10, 30),
+    )
+    assert results == []
+
+
+def test_keeps_reminder_when_owner_accepted():
+    event = _make_event(attendees=[CalAttendee(email="bob@example.com", status=AttendeeStatus.ACCEPTED)])
+    reminder = _reminder(trigger_at=_dt(2026, 6, 1, 9, 45))
+    reminder.user_uid = "bob@example.com"
+    results = ReminderEngine().compute_active(
+        reminders=[reminder], events_by_key={"evt-key": event}, now=_dt(2026, 6, 1, 10, 30),
+    )
+    assert len(results) == 1
 
 
 def test_not_active_before_trigger():

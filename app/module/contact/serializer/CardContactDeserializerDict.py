@@ -81,7 +81,7 @@ class CardContactDeserializerDict(CardContactDeserializer[dict]):
 
         When update is a dict, parse each key and apply it to a copy of origin; only keys present
         in the dict are modified. Identity fields (uid, key, db_id, addressbook_key) and the
-        server-managed version/rev are not in MUTABLE_FIELDS, so they are skipped here as well as
+        server-managed version/rev are not mutable fields, so they are skipped here as well as
         re-asserted by ModuleContact.update_contact. When update is a CardContact, return it directly.
         """
         if isinstance(update, CardContact):
@@ -113,7 +113,7 @@ class CardContactDeserializerDict(CardContactDeserializer[dict]):
             return [self._url_deserializer.deserialize(u) for u in value]
         if key == "impp":
             return [self._impp_deserializer.deserialize(i) for i in value]
-        if key in CardContact.MUTABLE_FIELDS:
+        if CardContact.is_mutable_field(key):
             return value
         return _SKIP
 

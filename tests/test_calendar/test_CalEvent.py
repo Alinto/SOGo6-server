@@ -6,8 +6,10 @@ import pytest
 from app.module.calendar.CalendarConst import (DEFAULT_REMINDER_MINUTES, MAX_EVENT_ALL_DAY_DURATION_HOURS,
                                                MAX_EVENT_DURATION_HOURS)
 from app.module.calendar.model.CalEvent import CalEvent
+from app.module.calendar.model.CalAttendee import CalAttendee
 from app.module.calendar.model.CalOrganizer import CalOrganizer
 from app.module.calendar.model.CalReminder import CalReminder
+from app.module.calendar.model.enums.AttendeeStatus import AttendeeStatus
 from app.module.calendar.model.enums.ComponentType import ComponentType
 from app.module.calendar.model.enums.EventVisibility import EventVisibility
 from app.module.calendar.model.enums.ReminderMethod import ReminderMethod
@@ -111,6 +113,71 @@ def test_is_organized_by_matches():
 def test_is_organized_by_false_without_organizer():
     event = _make_event(organizer=None)
     assert event.is_organized_by("bob@example.com") is False
+
+
+# ========== is_attending ==========
+
+def _att(email, status):
+    return CalAttendee(email=email, status=status)
+
+
+def test_is_attending_personal_event_without_attendees():
+    event = _make_event()
+    assert event.is_attending("bob@example.com") is True
+
+
+def test_is_attending_accepted_or_tentative():
+    event = _make_event(attendees=[
+        _att("acc@example.com", AttendeeStatus.ACCEPTED),
+        _att("tent@example.com", AttendeeStatus.TENTATIVE),
+    ])
+    assert event.is_attending("acc@example.com") is True
+    assert event.is_attending("tent@example.com") is True
+
+
+def test_is_attending_false_for_declined_or_needs_action():
+    event = _make_event(attendees=[
+        _att("dec@example.com", AttendeeStatus.DECLINED),
+        _att("na@example.com", AttendeeStatus.NEEDS_ACTION),
+    ])
+    assert event.is_attending("dec@example.com") is False
+    assert event.is_attending("na@example.com") is False
+
+
+def test_is_attending_true_for_non_attendee_identity():
+    event = _make_event(attendees=[_att("someone@example.com", AttendeeStatus.DECLINED)])
+    assert event.is_attending("organizer@example.com") is True
+
+
+# ========== has_scheduling_changes ==========
+
+def test_has_scheduling_changes_on_move():
+    event = _make_event()
+    moved = _make_event(date_start=_dt(2026, 6, 2, 9), date_end=_dt(2026, 6, 2, 10))
+    assert event.has_scheduling_changes(moved) is True
+
+
+def test_has_scheduling_changes_false_for_cosmetic_edit():
+    event = _make_event(title="Old")
+    renamed = _make_event(title="New")
+    assert event.has_scheduling_changes(renamed) is False
+
+
+# ========== reset_attendee_responses ==========
+
+def test_reset_attendee_responses_resets_attendees_but_not_organizer():
+    event = _make_event(
+        organizer=CalOrganizer(email="boss@example.com"),
+        attendees=[
+            _att("boss@example.com", AttendeeStatus.ACCEPTED),
+            _att("bob@example.com", AttendeeStatus.ACCEPTED),
+        ],
+    )
+    event.reset_attendee_responses()
+    by_email = {a.email: a for a in event.attendees}
+    assert by_email["bob@example.com"].status == AttendeeStatus.NEEDS_ACTION
+    assert by_email["bob@example.com"].rsvp is True
+    assert by_email["boss@example.com"].status == AttendeeStatus.ACCEPTED
 
 
 # ========== apply_defaults - calendar-level defaults ==========

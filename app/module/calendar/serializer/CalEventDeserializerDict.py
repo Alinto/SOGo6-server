@@ -87,7 +87,6 @@ class CalEventDeserializerDict(CalEventDeserializer[dict]):
             recurrence_exceptions=[self._parse_dt(d) for d in data.get("recurrence_exceptions", [])],
             recurrence_id=self._parse_dt_opt(data.get("recurrence_id")),
             recurrence_range=data.get("recurrence_range"),
-            parent_uid=data.get("parent_uid"),
             uid_parent_split=data.get("uid_parent_split"),
         )
 
@@ -140,7 +139,7 @@ class CalEventDeserializerDict(CalEventDeserializer[dict]):
             return self._parse_enum(ComponentType, value, ComponentType.EVENT)
         if key == "timezone":
             return value or None
-        if key in CalEvent.MUTABLE_FIELDS or key == "recurrence_range":
+        if CalEvent.is_mutable_field(key) or key == "recurrence_range":
             return value
         return _SKIP
 

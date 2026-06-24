@@ -103,15 +103,20 @@ class CardContact:  # pylint: disable=too-many-instance-attributes
     updated_at: datetime | None = None
 
     # Transient - parent address book display name, stamped at fetch time for the response (e.g.
-    # recipient autocompletion provenance). Not persisted, not in MUTABLE_FIELDS.
+    # recipient autocompletion provenance). Not persisted, not a mutable field.
     addressbook_name: str | None = None
 
-    MUTABLE_FIELDS: ClassVar[frozenset[str]] = frozenset({
+    _MUTABLE_FIELDS: ClassVar[frozenset[str]] = frozenset({
         "display_name", "first_name", "last_name", "middle_name", "prefix", "suffix", "nickname",
         "kind", "organization", "department", "job_title", "role",
         "emails", "phones", "addresses", "urls", "impp", "photos", "categories",
         "birthday", "anniversary", "geo", "note", "public_key", "sound", "timezone", "extra_properties",
     })
+
+    @staticmethod
+    def is_mutable_field(field_name: str) -> bool:
+        """Return True if the field accepts partial updates."""
+        return field_name in CardContact._MUTABLE_FIELDS
 
     @property
     def require_uid(self) -> str:

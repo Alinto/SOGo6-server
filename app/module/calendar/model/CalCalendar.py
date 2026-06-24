@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from app.module.calendar.model.enums.CalendarSourceType import CalendarSourceType
+from app.module.calendar.model.enums.CalendarSyncStatus import CalendarSyncStatus
+from app.utils.datetime.DateTimeUtils import parse_iso, to_utc
 from app.utils.exceptions import BugException
 
 if TYPE_CHECKING:
@@ -94,9 +96,9 @@ class CalCalendar:  # pylint: disable=too-many-instance-attributes,invalid-name
     # to or deserializing from a full VCALENDAR. Not persisted: events live in their own table.
     events: list[CalEvent] = field(default_factory=list)
 
-    MUTABLE_FIELDS: frozenset[str] = frozenset({"name", "color", "description", "timezone", "is_default", "sync_config",
-                                                "include_in_freebusy", "default_event_duration_min",
-                                                "default_alarm_duration_min", "default_type"})
+    _MUTABLE_FIELDS: frozenset[str] = frozenset({"name", "color", "description", "timezone", "is_default", "sync_config",
+                                                 "include_in_freebusy", "default_event_duration_min",
+                                                 "default_alarm_duration_min", "default_type"})
 
     @property
     def require_id(self) -> int:
@@ -115,5 +117,19 @@ class CalCalendar:  # pylint: disable=too-many-instance-attributes,invalid-name
     def apply_update(self, updates: dict[str, Any]) -> None:
         """Apply a partial update dict to this calendar, ignoring unknown or immutable fields."""
         for field_name, value in updates.items():
-            if field_name in self.MUTABLE_FIELDS:
+            if field_name in self._MUTABLE_FIELDS:
                 setattr(self, field_name, value)
+
+    def is_sync_due(self, now: datetime) -> bool:
+        """Return True when this external calendar is due for an auto-sync (interval elapsed, not running)."""
+        config: dict = self.sync_config or {}
+        if config.get("sync_status") == CalendarSyncStatus.RUNNING.value:
+            return False
+        last_sync_raw: str | None = config.get("last_sync")
+        if not last_sync_raw:
+            return True  # never synced yet
+        last_sync: datetime | None = parse_iso(last_sync_raw)
+        if last_sync is None:
+            return True
+        interval_minutes: int = int(config.get("sync_interval_minutes") or 60)
+        return (now - to_utc(last_sync)) >= timedelta(minutes=interval_minutes)

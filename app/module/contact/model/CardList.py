@@ -54,7 +54,12 @@ class CardList:  # pylint: disable=too-many-instance-attributes
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
-    MUTABLE_FIELDS: ClassVar[frozenset[str]] = frozenset({"name", "description", "members"})
+    _MUTABLE_FIELDS: ClassVar[frozenset[str]] = frozenset({"name", "description", "members"})
+
+    @staticmethod
+    def is_mutable_field(field_name: str) -> bool:
+        """Return True if the field accepts partial updates."""
+        return field_name in CardList._MUTABLE_FIELDS
 
     @property
     def require_id(self) -> int:
@@ -80,5 +85,5 @@ class CardList:  # pylint: disable=too-many-instance-attributes
     def apply_update(self, updates: dict[str, Any]) -> None:
         """Apply a partial update dict to this list, ignoring unknown or immutable fields."""
         for field_name, value in updates.items():
-            if field_name in self.MUTABLE_FIELDS:
+            if field_name in self._MUTABLE_FIELDS:
                 setattr(self, field_name, value)

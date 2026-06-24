@@ -270,9 +270,12 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
             event_update: CalEvent = self._event_deserializer.deserialize_with_update(existing, body)
             organizer: CalOrganizer = CalOrganizer(email=calendar_user.owner.mail)
             updated: CalEvent = self.module.update_event(calendar_user, event_key, event_update, organizer)
-            imip_msg: ImipMessage | None = ImipBuilder.build_request(updated)
-            if imip_msg is not None:
-                self._send_imip(imip_msg)
+            # Only the organizer notifies attendees: a non-organizer attendee editing their own copy
+            # (e.g. their personal reminders) must not send a REQUEST in the organizer's name.
+            if updated.is_organized_by(calendar_user.owner.mail):
+                imip_msg: ImipMessage | None = ImipBuilder.build_request(updated)
+                if imip_msg is not None:
+                    self._send_imip(imip_msg)
             return create_api_base_response(self._event_serializer.serialize(updated))
         except RequestException as ex:
             logger_api.error("patch_event failed for user %s event %s: %s", self.user.uid, event_key, ex)

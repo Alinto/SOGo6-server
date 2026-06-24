@@ -58,6 +58,29 @@ def _perms(public=CalendarShareLevel.NONE, confidential=CalendarShareLevel.NONE,
     )
 
 
+# ========== sanitize_listing ==========
+
+def test_sanitize_listing_owner_keeps_all():
+    engine = CalendarAclEngine()
+    items = [_make_event(key="e1", calendar_key="cal-key"), _make_event(key="e2", calendar_key="cal-key")]
+    result = engine.sanitize_listing(_make_calendar_user("owner@test"), items, {"cal-key": _make_cal()})
+    assert result == items
+
+
+def test_sanitize_listing_non_owner_hidden():
+    engine = CalendarAclEngine()
+    items = [_make_event(key="e1", calendar_key="cal-key")]
+    result = engine.sanitize_listing(_make_calendar_user("bob@test", owner_uid="owner@test"), items, {"cal-key": _make_cal()})
+    assert result == []
+
+
+def test_sanitize_listing_unknown_calendar_passthrough():
+    engine = CalendarAclEngine()
+    items = [_make_event(key="e1", calendar_key="other-key")]
+    result = engine.sanitize_listing(_make_calendar_user("owner@test"), items, {})
+    assert result == items
+
+
 # ========== get_permissions (stub) ==========
 
 def test_owner_gets_full_permissions():

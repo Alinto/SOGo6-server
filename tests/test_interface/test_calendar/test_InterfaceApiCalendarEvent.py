@@ -10,6 +10,7 @@ from app.interface.calendar.InterfaceApiCalendarCalendar import InterfaceApiCale
 from app.module.calendar.imip.ImipMessage import ImipMessage
 from app.module.calendar.imip.ImipMethod import ImipMethod
 from app.module.calendar.model.CalEvent import CalEvent
+from app.module.calendar.model.CalOrganizer import CalOrganizer
 from app.module.calendar.serializer.CalEventDeserializerDict import CalEventDeserializerDict
 from app.module.calendar.serializer.CalEventSerializerDict import CalEventSerializerDict
 from app.module.calendar.serializer.CalEventsSerializerDict import CalEventsSerializerDict
@@ -40,6 +41,7 @@ def _build_interface(module=None):
     inter = object.__new__(InterfaceApiCalendarCalendar)
     inter.user = MagicMock()
     inter.user.uid = "user@example.com"
+    inter.user.mail = "user@example.com"
     inter.module = module if module is not None else MagicMock()
     # Owner resolvers short-circuit to owner == acting user (no shared calendars today).
     inter.module.get_calendar.return_value.calendar.user_uid = inter.user.uid
@@ -154,12 +156,25 @@ def test_patch_event_not_found_returns_error():
 def test_patch_event_sends_imip_request_to_attendees():
     module = MagicMock()
     module.get_event.return_value = _make_event()
-    module.update_event.return_value = _make_event(title="Updated")
+    # The acting user is the organizer: a content update notifies attendees (REQUEST).
+    module.update_event.return_value = _make_event(title="Updated", organizer=CalOrganizer(email="user@example.com"))
     inter = _build_interface(module)
     with patch(_BUILD_REQUEST, return_value=_imip_message(recipients=("a@example.com", "b@example.com"))):
         response, _ = inter.patch_event("evt-key", {"title": "Updated"})
     assert response["error_code"] == "S000000"
     assert inter._mail_outgoing.send_raw_message.call_count == 2
+
+
+def test_patch_event_attendee_does_not_send_request():
+    # The acting user is NOT the organizer (editing a received invitation): no REQUEST in the org's name.
+    module = MagicMock()
+    module.get_event.return_value = _make_event()
+    module.update_event.return_value = _make_event(organizer=CalOrganizer(email="organizer@example.com"))
+    inter = _build_interface(module)
+    with patch(_BUILD_REQUEST, return_value=_imip_message(recipients=("a@example.com",))):
+        response, _ = inter.patch_event("evt-key", {"reminders": []})
+    assert response["error_code"] == "S000000"
+    inter._mail_outgoing.send_raw_message.assert_not_called()
 
 
 # ========== delete_event ==========

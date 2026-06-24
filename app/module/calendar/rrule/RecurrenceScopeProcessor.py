@@ -86,6 +86,11 @@ class RecurrenceScopeProcessor:
         # Branch 3: "All events" (or standalone/detached event) - standard update
         event_update.normalize_all_day()
         event_update.sequence = (original.sequence or 0) + 1
+        # A reschedule by the organizer invalidates prior replies (RFC 5546 2.1.4): reset attendee
+        # PARTSTAT so the re-sent REQUEST prompts a fresh confirmation. Same-entity comparison here,
+        # so no false positive from the master/occurrence date offset.
+        if original.has_scheduling_changes(event_update):
+            event_update.reset_attendee_responses()
         source.update_event(event_update)
         touched: list[tuple[CalEvent, EventAction]] = [(event_update, EventAction.UPDATE)]
 
@@ -106,6 +111,26 @@ class RecurrenceScopeProcessor:
         return ScopeResult(
             result=event_update, touched=touched, realign_from=realign_from, realign_to=realign_to,
         )
+
+    @staticmethod
+    def process_attendee_edit(source: CalendarSource, original: CalEvent, event_update: CalEvent) -> CalEvent:
+        """Apply a non-organizer attendee's personal-field edit to the row being edited.
+
+        The attendee never creates structure: the personal fields land on the row event_key points to
+        (the master = whole series, or an existing detached occurrence). Any organizer-content change
+        is rejected. When the client scopes to an occurrence of a non-detached series, the row's date
+        is projected onto that slot so the occurrence date is not mistaken for a content change.
+        """
+        baseline: CalEvent = original
+        if event_update.recurrence_id is not None and original.recurrence_id is None:
+            duration: timedelta = original.require_date_end - original.require_date_start
+            baseline = dataclasses.replace(
+                original, date_start=event_update.recurrence_id, date_end=event_update.recurrence_id + duration,
+            )
+        if baseline.has_organizer_content_changes(event_update):
+            raise RequestException(error=err.ERROR_CALENDAR_NOT_ORGANIZER)
+        original.apply_personal_fields(event_update)
+        return source.update_event_or_fail(original, "applying attendee personal update")
 
     @staticmethod
     def split_occurrence(source: CalendarSource, original: CalEvent, event_update: CalEvent) -> CalEvent:
@@ -137,6 +162,11 @@ class RecurrenceScopeProcessor:
             sequence=0,
         )
         occurrence.normalize_all_day()
+        # Moving this occurrence off its slot reschedules it: attendees must re-confirm. Detection is
+        # against the slot (recurrence_id), not the master, to avoid flagging an unmoved occurrence
+        # whose date naturally differs from the series start.
+        if start != recurrence_id:
+            occurrence.reset_attendee_responses()
         return source.insert_event(occurrence)
 
     @staticmethod
@@ -164,25 +194,43 @@ class RecurrenceScopeProcessor:
         """
         from_dt: datetime = event_update.require_recurrence_id
 
-        if not RecurrenceScopeProcessor._has_content_changes(original, event_update):
+        if not original.has_content_changes(event_update):
             return source.get_master_event_by_uid(original.require_uid) or original
 
         duration: timedelta = original.require_date_end - original.require_date_start
+
+        # Anchor the new series at the occurrence date the client provided. When the client omits it,
+        # the merged date_start still equals the master's, so fall back to the split slot - the new
+        # series must not jump to the master's start.
+        client_date_provided: bool = event_update.date_start != original.date_start
+        new_start: datetime = event_update.require_date_start if client_date_provided else from_dt
+        new_end: datetime = event_update.require_date_end if client_date_provided else from_dt + duration
+
         new_master: CalEvent = dataclasses.replace(
             event_update,
             key=None,
             db_id=None,
             uid=generate_uuid(),
-            date_start=from_dt,
-            date_end=from_dt + duration,
+            date_start=new_start,
+            date_end=new_end,
             recurrence_id=None,
             recurrence_range=None,
-            parent_uid=None,
             sequence=0,
             uid_parent_split=original.uid,
-            reminders=[],
         )
         new_master.normalize_all_day()
+
+        # A reschedule (moved off the split slot, or recurrence/timezone/all-day changed) invalidates
+        # prior replies on the affected occurrences (RFC 5546 2.1.4).
+        rescheduled: bool = (
+            new_start != from_dt
+            or event_update.all_day != original.all_day
+            or event_update.timezone != original.timezone
+            or event_update.recurrence_rule != original.recurrence_rule
+            or event_update.recurrence_exceptions != original.recurrence_exceptions
+        )
+        if rescheduled:
+            new_master.reset_attendee_responses()
 
         # Convert COUNT to UNTIL on the new series
         if new_master.recurrence_rule is not None and new_master.recurrence_rule.count is not None:
@@ -194,11 +242,3 @@ class RecurrenceScopeProcessor:
         created: CalEvent = source.insert_event(new_master)
         logger_calendar.info("Split series uid=%s at %s -> new master uid=%s", original.uid, from_dt, created.uid)
         return created
-
-    @staticmethod
-    def _has_content_changes(original: CalEvent, event_update: CalEvent) -> bool:
-        """Return True if any mutable field differs between original and event_update."""
-        for field_name in CalEvent.MUTABLE_FIELDS:
-            if getattr(original, field_name) != getattr(event_update, field_name):
-                return True
-        return False
