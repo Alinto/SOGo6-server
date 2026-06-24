@@ -3,6 +3,7 @@ from typing import Any, Callable, TypeVar, ParamSpec, Iterator, cast
 
 from datetime import datetime
 from email import message_from_bytes
+from email.header import decode_header, make_header
 from email.message import EmailMessage
 import imaplib
 from logging import WARNING
@@ -1549,6 +1550,63 @@ class ClientImap(ClientMailServer):
                 raise RequestException(f"Mail UID {mail_uid} not found in {folder_path}.", err.ERROR_MAIL_UID_NOT_FOUND)
 
             return self._parse_mail_with_content_fetching(datas[0])
+        else:
+            raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
+
+    def fetch_attachment(self, folder_path: str, mail_uid: str, filename: str) -> tuple[bytes, str]:
+        """Fetch a specific attachment from a mail by filename.
+
+        Fetches the full RFC 822 message, walks the MIME tree and returns the first
+        part whose decoded filename matches *filename*.
+
+        :param folder_path: The folder containing the mail.
+        :type folder_path: str
+        :param mail_uid: The UID of the mail.
+        :type mail_uid: str
+        :param filename: The filename of the attachment to retrieve.
+        :type filename: str
+        :return: A tuple of (attachment bytes, content_type).
+        :rtype: tuple[bytes, str]
+        :raises RequestException: If the mail or attachment is not found, or the operation fails.
+        """
+        logger_imap.debug("Fetching attachment '%s' from mail UID '%s' in '%s'", filename, mail_uid, folder_path)
+        if self.connection is not None and self.authenticated:
+            if not folder_path.isascii():
+                raise RequestException(f"Mailbox name is not ascii: {folder_path}", err.ERROR_IMAP_NOT_ASCII)
+            folder_path_quoted = quote(folder_path)
+            self.select_mailbox(folder_path_quoted)
+
+            success, datas = self._exec_imap4_method(self.connection.uid, 'FETCH', mail_uid, '(RFC822)')
+            if not success:
+                raise RequestException(f"Failed to fetch mail {mail_uid} in folder {folder_path}", err.ERROR_IMAP_FAILED)
+            if not datas or not isinstance(datas[0], tuple):
+                raise RequestException(f"Mail UID {mail_uid} not found in {folder_path}.", err.ERROR_MAIL_UID_NOT_FOUND)
+
+            mail_bytes: bytes = datas[0][1]
+            message = message_from_bytes(mail_bytes)
+
+            for part in message.walk():
+                if part.get_content_maintype() == "multipart":
+                    continue
+                part_filename = part.get_filename()
+                if part_filename:
+                    try:
+                        part_filename = str(make_header(decode_header(part_filename)))
+                    except (UnicodeDecodeError, AttributeError):
+                        pass
+                if part_filename == filename:
+                    payload = part.get_payload(decode=True)
+                    if payload is None:
+                        raise RequestException(
+                            f"Attachment '{filename}' has no payload in mail UID {mail_uid}.",
+                            err.ERROR_MAIL_ATTACHMENT_NOT_FOUND,
+                        )
+                    return payload, part.get_content_type()
+
+            raise RequestException(
+                f"Attachment '{filename}' not found in mail UID {mail_uid}.",
+                err.ERROR_MAIL_ATTACHMENT_NOT_FOUND,
+            )
         else:
             raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
 
