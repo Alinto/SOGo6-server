@@ -34,7 +34,7 @@ class CalCalendar:  # pylint: disable=too-many-instance-attributes,invalid-name
     """
     # Internal - owner's uid, FK to sogo_user_profiles.uid
     user_uid: str
-    # RFC 4791 §5.2.1 - display name of the calendar collection (DAV:displayname)
+    # RFC 4918 §15.2 - display name of the calendar collection (DAV:displayname)
     name: str
 
     # Internal - database auto-increment PK
@@ -81,7 +81,7 @@ class CalCalendar:  # pylint: disable=too-many-instance-attributes,invalid-name
     prodid: str | None = None
     # RFC 5545 §3.7.1 CALSCALE - calendar scale, almost always "GREGORIAN"
     calscale: str | None = None
-    # RFC 5546 §2.1.4 METHOD - iTIP method (REQUEST, REPLY, CANCEL...) for iMIP messages
+    # RFC 5546 §1.4 METHOD - iTIP method (REQUEST, REPLY, CANCEL...) for iMIP messages
     method: str | None = None
     # Catch-all for non-standard VCALENDAR-level X-* properties
     extra_properties: dict[str, str] = field(default_factory=dict)

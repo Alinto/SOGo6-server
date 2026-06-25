@@ -1,42 +1,42 @@
 = Contact Module
 
 The contact module manages address books and contacts (vCard, RFC 6350) stored in the database.
-It is built around two domain objects — `CardAddressBook` and `CardContact` - that flow through sources, repositories, and serializers without any format leaking across layers.
+It is built around two domain objects - `CardAddressBook` and `CardContact` - that flow through sources, repositories, and serializers without any format leaking across layers.
 
 == Architecture overview
 
 ----
   Interface (API)        Module              Sources                   Persistence
-  ──────────────         ──────              ───────                   ───────────
+  --------------         ------              -------                   -----------
   InterfaceApi       ModuleContact          ContactSources            RepositoryContact
-       │                  │                      │                     RepositoryAddressBook
-       │  CardContact     │                      │
-       └─────────────────►│  CardContact         │
-                          │─────────────────────►│
-                          │                      ├── ContactSourceDb ──► SQL (sogo6_contacts_*)
-                          │                      └── ContactSourceDirectory ─► user source (SQL/LDAP), read-only
-                          │
-                          └── ContactAclEngine (permission resolution + enforcement)
+       |                  |                      |                     RepositoryAddressBook
+       |  CardContact     |                      |
+       +----------------->|  CardContact         |
+                          |--------------------->|
+                          |                      +-- ContactSourceDb --> SQL (sogo6_contacts_*)
+                          |                      +-- ContactSourceDirectory -> user source (SQL/LDAP), read-only
+                          |
+                          +-- ContactAclEngine (permission resolution + enforcement)
 ----
 
 **Responsibilities:**
 
-* *InterfaceApi* (`InterfaceApiContactContact`) — Dict-to-CardContact conversion (via Deserializer), response formatting, error handling. No business logic.
-* *ModuleContact* — Orchestration: address book and contact CRUD, transverse listing, recipient autocompletion. Resolves the source for a key, enforces ACL on writes.
-* *ContactSources* — Factory for `ContactSource` instances and multi-book aggregator. Single entry point for all address book access; `ModuleContact` never touches the repositories directly. All reads are scoped to a `user_uid`.
-* *ContactSourceDb* — Source backed by the database. Handles address book and contact persistence and bumps the address book `ctag` on every contact mutation.
-* *ContactSourceDirectory* — Read-only source backed by a domain user source (the directory / annuaire, SQL or LDAP). A stub for now; see <<Directory>>.
-* *ContactAclEngine* — Resolves and enforces address book permissions. See <<acl>>.
-* *RepositoryContact / RepositoryAddressBook* — SQL-only persistence. No business logic.
-* *Serializers / Deserializers* — Format conversion: Dict (the JSON blob and the REST API), plus vCard and LDIF for import / export (see <<import-export>>). `deserialize_with_update(origin, update)` merges a dict update onto an existing CardContact.
+* *InterfaceApi* (`InterfaceApiContactContact`) - Dict-to-CardContact conversion (via Deserializer), response formatting, error handling. No business logic.
+* *ModuleContact* - Orchestration: address book and contact CRUD, transverse listing, recipient autocompletion. Resolves the source for a key, enforces ACL on writes.
+* *ContactSources* - Factory for `ContactSource` instances and multi-book aggregator. Single entry point for all address book access; `ModuleContact` never touches the repositories directly. All reads are scoped to a `user_uid`.
+* *ContactSourceDb* - Source backed by the database. Handles address book and contact persistence and bumps the address book `ctag` on every contact mutation.
+* *ContactSourceDirectory* - Read-only source backed by a domain user source (the directory / annuaire, SQL or LDAP). A stub for now; see <<Directory>>.
+* *ContactAclEngine* - Resolves and enforces address book permissions. See <<acl>>.
+* *RepositoryContact / RepositoryAddressBook* - SQL-only persistence. No business logic.
+* *Serializers / Deserializers* - Format conversion: Dict (the JSON blob and the REST API), plus vCard and LDIF for import / export (see <<import-export>>). `deserialize_with_update(origin, update)` merges a dict update onto an existing CardContact.
 
 == Domain model
 
 `CardContact` is the single canonical representation of a contact, a plain Python dataclass aligned with vCard (RFC 6350): structured name (N), formatted name (FN, `display_name`), `kind` (individual / group / org), multi-valued `emails` / `phones` / `addresses` / `urls` / `impp`, `categories`, `birthday` / `anniversary`, `organization`, and a catch-all `extra_properties` for unmapped / X-* properties (best-effort passthrough: a flat name->value map, so property parameters and repeated occurrences are not preserved).
 
-`import_format` records the format a contact was imported from (`undefined` / `vcard3` / `vcard4` / `ldif`), so the dialect of the entries kept in `extra_properties` can be told apart. It is server-set (stamped by the importing deserializer) and read-only — never accepted from the request body.
+`import_format` records the format a contact was imported from (`undefined` / `vcard3` / `vcard4` / `ldif`), so the dialect of the entries kept in `extra_properties` can be told apart. It is server-set (stamped by the importing deserializer) and read-only - never accepted from the request body.
 
-Fields are either *relational* — dedicated columns for filtering and sorting: `key`, `addressbook_key`, `uid`, `kind`, `last_name`, `first_name`, `organization`, `display_name`, `is_deleted`, `created_at`, `updated_at`, and the full-text `search_vector` — or *blob*: everything else, serialized as JSON in the `contact_data` column. The same dict produced by `CardContactSerializerDict` is reused as the blob, so it must carry every field needed to reconstruct the contact; the relational columns are authoritative and override their blob counterparts on read.
+Fields are either *relational* - dedicated columns for filtering and sorting: `key`, `addressbook_key`, `uid`, `kind`, `last_name`, `first_name`, `organization`, `display_name`, `is_deleted`, `created_at`, `updated_at`, and the full-text `search_vector` - or *blob*: everything else, serialized as JSON in the `contact_data` column. The same dict produced by `CardContactSerializerDict` is reused as the blob, so it must carry every field needed to reconstruct the contact; the relational columns are authoritative and override their blob counterparts on read.
 
 `key` is the opaque public identifier exposed in the API (it prevents row enumeration); the internal integer primary key (`db_id`) is never exposed. `uid` is the vCard UID (a stable semantic identifier).
 
@@ -48,8 +48,8 @@ Fields are either *relational* — dedicated columns for filtering and sorting: 
 
 `ContactSource` is an abstract base class: the address book backend. Two implementations:
 
-* `ContactSourceDb` — DB-backed, full CRUD, `is_writable() &#8594; True`.
-* `ContactSourceDirectory` — read-only adapter over a domain user source (see <<Directory>>).
+* `ContactSourceDb` - DB-backed, full CRUD, `is_writable() -> True`.
+* `ContactSourceDirectory` - read-only adapter over a domain user source (see <<Directory>>).
 
 `ContactSources` is the factory and aggregator. `get(book)` dispatches on `book.source_type`; `get_all(user_uid)` and `get_by_key(user_uid, key)` are scoped to the owner. The optional `user_source` argument carries the acting user's source config and is the seam through which the directory source will be surfaced.
 
@@ -71,19 +71,19 @@ Both are addressed by their opaque key, and a contact is always scoped to its ad
 | `/contacts/autocomplete` | GET | Recipient suggestions
 |===
 
-A `PATCH` merges only the provided fields: `CardContactDeserializerDict.deserialize_with_update(existing, body)` parses each key against `CardContact.MUTABLE_FIELDS` and applies it to a copy. Identity columns (`uid`, `key`, `db_id`, `addressbook_key`) are never mutable through an update — they are re-asserted by `ModuleContact.update_contact`. The patch request schema carries no `load_default`, so an omitted field stays absent and the merge leaves the stored value untouched (a partial PATCH never wipes the fields it does not mention).
+A `PATCH` merges only the provided fields: `CardContactDeserializerDict.deserialize_with_update(existing, body)` parses each key against `CardContact.MUTABLE_FIELDS` and applies it to a copy. Identity columns (`uid`, `key`, `db_id`, `addressbook_key`) are never mutable through an update - they are re-asserted by `ModuleContact.update_contact`. The patch request schema carries no `load_default`, so an omitted field stays absent and the merge leaves the stored value untouched (a partial PATCH never wipes the fields it does not mention).
 
 Errors follow the `S0007xx` range (`app/utils/errors.py`): a missing book / contact / list raises `S000701` / `S000703` / `S000710`; a write on a book the user does not own raises `S000709`; a uid or name collision surfaces as a conflict (`S000702` / `S000704` / `S000711`); a list member that is not a contact of the list's own book raises `S000714`; and a mutation targeting a non-writable source raises `S000707` (not supported) / `S000708` (read-only).
 
 == Distribution lists
 
-A distribution list is a vCard `KIND:group` (RFC 6350 §6.1.4): a named object that references member contacts. It belongs to one address book exactly like a contact, which is what scopes the `/addressbooks/{key}/lists` endpoints — there is no CardDAV "list" collection, a group card sits in an address book collection next to the individual cards, so book ownership, ACL and `ctag` are all inherited for free.
+A distribution list is a vCard `KIND:group` (RFC 6350 §6.1.4): a named object that references member contacts. It belongs to one address book exactly like a contact, which is what scopes the `/addressbooks/{key}/lists` endpoints - there is no CardDAV "list" collection, a group card sits in an address book collection next to the individual cards, so book ownership, ACL and `ctag` are all inherited for free.
 
-A list is `CardList` (key, uid, name, description, members) mapped to its own table `sogo6_contacts_lists`, *not* stored among the contacts. The serializer abstracts the format, so the internal model stays a dedicated table while the wire format becomes `KIND:group` at the CardDAV jalon. Members live in the join table `sogo6_contacts_list_members` and are plain *references* — a member is a contact `key`, never an ad-hoc email — so editing a member contact propagates to every list it belongs to. A member must be a contact of the list's *own* address book: `ModuleContact.create_list` / `update_list` validate every member key against the book (`source.get_contact_by_key`) and reject an unknown, deleted or out-of-book key with `ERROR_CONTACT_LIST_MEMBER_INVALID`. Both ends are referenced by their opaque key, consistent with the rest of the schema (a contact references its book by `addressbook_key`), never by the internal id.
+A list is `CardList` (key, uid, name, description, members) mapped to its own table `sogo6_contacts_lists`, *not* stored among the contacts. The serializer abstracts the format, so the internal model stays a dedicated table while the wire format becomes `KIND:group` for the CardDAV server. Members live in the join table `sogo6_contacts_list_members` and are plain *references* - a member is a contact `key`, never an ad-hoc email - so editing a member contact propagates to every list it belongs to. A member must be a contact of the list's *own* address book: `ModuleContact.create_list` / `update_list` validate every member key against the book (`source.get_contact_by_key`) and reject an unknown, deleted or out-of-book key with `ERROR_CONTACT_LIST_MEMBER_INVALID`. Both ends are referenced by their opaque key, consistent with the rest of the schema (a contact references its book by `addressbook_key`), never by the internal id.
 
 `ModuleContact` exposes the same shape as for contacts: `get_all_lists` (book-scoped, paginated), `get_list` (members populated), `create_list` (generates the uid, persists the membership), `update_list` (identity preserved, full membership replacement) and `delete_list`. Writes go through `_get_writable_addressbook`, so the `MODIFY` ACL applies to lists exactly as to contacts. `ContactSourceDb` orchestrates the list row and its membership as two separate concerns and bumps the book `ctag` on every list mutation. The API exposes member contact keys plus a `member_count`; resolving each member to a full contact card is left to the caller.
 
-The REST list response carries the member keys and their count, not the expanded member cards. Membership is maintained at delete time (deleting a list or its address book clears the join rows), so the only orphan rows possible come from a physically purged contact — `clean()` drops those after the tombstone sweep (see <<Soft delete>>). The vCard `KIND:group` / `MEMBER` export serializer is implemented (`CardListSerializerVcard3` / `...Vcard4`, see <<import-export>>): it emits each member as `MEMBER:urn:uuid:<uid>` resolved from the populated `member_contacts`.
+The REST list response carries the member keys and their count, not the expanded member cards. Membership is maintained at delete time (deleting a list or its address book clears the join rows), so the only orphan rows possible come from a physically purged contact - `clean()` drops those after the tombstone sweep (see <<Soft delete>>). The vCard `KIND:group` / `MEMBER` export serializer is implemented (`CardListSerializerVcard3` / `...Vcard4`, see <<import-export>>): it emits each member as `MEMBER:urn:uuid:<uid>` resolved from the populated `member_contacts`.
 
 == Pagination, sorting and search
 
@@ -97,13 +97,13 @@ The two list endpoints use the project-wide `@collection_paginate` decorator (sa
 
 `RepositoryContact._build_search_vector` builds a plain-text, accent-insensitive index (`strip_accents`) from the contact's names, nickname, organization, note, emails and phones. The same normalization is applied to the stored vector and to the query, so matching is independent of the SGBD. The column is `TSVECTOR` (PostgreSQL, GIN index) or `TEXT` (MariaDB, FULLTEXT), abstracted behind `FullTextValue` / `FullTextCondition`. Each query word is matched as a *prefix* (so `joe` matches `joel`).
 
-PostgreSQL's text-search parser keeps a compound string such as an email or a URL as a single token, which would make interior parts (an email's local-part words, its domain) unsearchable. `ClientPostgreSQL._fulltext_to_tsvector` therefore normalizes the text before `to_tsvector` (`regexp_replace([^[:alnum:]_]+ &#8594; space)`), so the stored tokenization matches the query side and MariaDB's FULLTEXT. The behaviour is database-specific and stays in the PostgreSQL client.
+PostgreSQL's text-search parser keeps a compound string such as an email or a URL as a single token, which would make interior parts (an email's local-part words, its domain) unsearchable. `ClientPostgreSQL._fulltext_to_tsvector` therefore normalizes the text before `to_tsvector` (`regexp_replace([^[:alnum:]_]+ -> space)`), so the stored tokenization matches the query side and MariaDB's FULLTEXT. The behaviour is database-specific and stays in the PostgreSQL client.
 
 == Recipient autocompletion
 
-`GET /contacts/autocomplete?q=` returns lightweight recipient suggestions for a mail compose field — distinct from the contact listing. A suggestion is discriminated by a `type` field: a `contact` suggestion is `{type, name, email, contact_key, list_key: null, member_count: null, members: null, address_book}`, *one per email address* (a contact with several emails yields several suggestions; a contact with none yields none); a `list` suggestion is `{type, name, email: null, contact_key: null, list_key, member_count, members, address_book}` — a distribution list surfaces as one result carrying, instead of an email, its `member_count` and the *exhaustive* `members` array (every member resolved to `{contact_key, name, email}`), because it expands to several recipients. The members are resolved within the list's own book; the cap on the number of suggestions does not truncate a list's members. `contact_key`, `list_key` and `address_book` are nullable for future sources (the directory, collected mail addresses) that may not map to a stored object or a real book.
+`GET /contacts/autocomplete?q=` returns lightweight recipient suggestions for a mail compose field - distinct from the contact listing. A suggestion is discriminated by a `type` field: a `contact` suggestion is `{type, name, email, contact_key, list_key: null, member_count: null, members: null, address_book}`, *one per email address* (a contact with several emails yields several suggestions; a contact with none yields none); a `list` suggestion is `{type, name, email: null, contact_key: null, list_key, member_count, members, address_book}` - a distribution list surfaces as one result carrying, instead of an email, its `member_count` and the *exhaustive* `members` array (every member resolved to `{contact_key, name, email}`), because it expands to several recipients. The members are resolved within the list's own book; the cap on the number of suggestions does not truncate a list's members. `contact_key`, `list_key` and `address_book` are nullable for future sources (the directory, collected mail addresses) that may not map to a stored object or a real book.
 
-It reuses the same engines as the listings — `ContactSources.get_contacts(search=q)` for contacts and `ContactSources.search_all_lists(search=q)` for lists (both transverse) — so the directory will contribute automatically once `ContactSourceDirectory` is wired. The originating book name is stamped via a local `{key &#8594; name}` cache built from the already-loaded sources (no extra query, no Redis); the `resolve_ab` flag gates it.
+It reuses the same engines as the listings - `ContactSources.get_contacts(search=q)` for contacts and `ContactSources.search_all_lists(search=q)` for lists (both transverse) - so the directory will contribute automatically once `ContactSourceDirectory` is wired. The originating book name is stamped via a local `{key -> name}` cache built from the already-loaded sources (no extra query, no Redis); the `resolve_ab` flag gates it.
 
 Below `SOGO_D_AUTOCOMPLETION_MIN_LEN` characters (domain setting, `USER_MODULE_SETTINGS`) the result is an empty list rather than an error, the standard autocomplete behaviour. Contacts and lists are each capped at `AUTOCOMPLETE_DEFAULT_LIMIT` (`ContactConst`); the directory will apply its own `US_AUTO_QUERY_LIMIT`. Collected addresses, member expansion (a list resolved to its recipients) and `US_HIDDEN_USER` filtering are deferred (mail-side).
 
@@ -122,8 +122,8 @@ The contact ACL is deliberately simple: a single ordered level `ContactShareLeve
 
 `ContactAclEngine` centralizes permission logic:
 
-* `get_share_level(addressbook, user) &#8594; ContactShareLevel | None` — resolves the acting user's access level, or `None` when denied. The owner gets `MODIFY`; a non-owner is denied (stub) until the centralized ACL module provides shared levels.
-* `check_permission(level, required)` — raises `ERROR_CONTACT_ACCESS_DENIED` when the resolved level is below the required one (a `None` level always denies).
+* `get_share_level(addressbook, user) -> ContactShareLevel | None` - resolves the acting user's access level, or `None` when denied. The owner gets `MODIFY`; a non-owner is denied (stub) until the centralized ACL module provides shared levels.
+* `check_permission(level, required)` - raises `ERROR_CONTACT_ACCESS_DENIED` when the resolved level is below the required one (a `None` level always denies).
 
 `ModuleContact` enforces `MODIFY` on every mutating operation (create / update / delete contact, create / update / delete list, update / delete address book) through `_get_writable_addressbook`, and `VIEW` on every single-book read (get contact / list, list a book, listing scoped to a book) through `_get_readable_addressbook`. Both are no-ops beyond ownership today (`get_by_key(user.uid)` already scopes reads to the owner), but the check is in place so shared-book reads enforce the level the day sharing lands.
 
@@ -132,7 +132,7 @@ Access (who, via ownership / sharing) and source capability (whether the backend
 [#Directory]
 == Directory (annuaire)
 
-`ContactSourceDirectory` is the read-only source that will surface a domain directory (a user source with `US_IS_ADDRESSBOOK`) as a synthetic address book, so its entries contribute to transverse search and recipient autocompletion. The backend is abstracted by the user source layer (`US_TYPE = sql | ldap`) — the contact module never knows whether the directory is SQL or LDAP. This mirrors SOGo's `SOGoContactSourceFolder` (a system source), not an ACL-shared personal book. The class is a stub: the query primitive (owned by the user source layer) and the entry &#8594; `CardContact` mapping remain to be wired.
+`ContactSourceDirectory` is the read-only source that will surface a domain directory (a user source with `US_IS_ADDRESSBOOK`) as a synthetic address book, so its entries contribute to transverse search and recipient autocompletion. The backend is abstracted by the user source layer (`US_TYPE = sql | ldap`) - the contact module never knows whether the directory is SQL or LDAP. This mirrors SOGo's `SOGoContactSourceFolder` (a system source), not an ACL-shared personal book. The class is a stub: the query primitive (owned by the user source layer) and the entry -> `CardContact` mapping remain to be wired.
 
 [#Provisioning]
 == Provisioning
@@ -141,7 +141,7 @@ A user's personal address book is created at first login. `InterfaceAuthUser.pla
 
 == Repositories
 
-`RepositoryContact`, `RepositoryAddressBook` and `RepositoryContactList` are the only classes that issue SQL. All queries use structured `Condition` objects — no string interpolation. `find_by_addressbook` applies pagination, sorting and the optional full-text filter; `count_by_addressbook` returns the total for pagination. `RepositoryContactList` owns both `sogo6_contacts_lists` and the `sogo6_contacts_list_members` join: row CRUD never touches the join, membership is handled by the dedicated member methods (`find_member_keys`, `replace_members`, `delete_members`, `remove_contact_from_lists`, `purge_orphan_members`).
+`RepositoryContact`, `RepositoryAddressBook` and `RepositoryContactList` are the only classes that issue SQL. All queries use structured `Condition` objects - no string interpolation. `find_by_addressbook` applies pagination, sorting and the optional full-text filter; `count_by_addressbook` returns the total for pagination. `RepositoryContactList` owns both `sogo6_contacts_lists` and the `sogo6_contacts_list_members` join: row CRUD never touches the join, membership is handled by the dedicated member methods (`find_member_keys`, `replace_members`, `delete_members`, `remove_contact_from_lists`, `purge_orphan_members`).
 
 == Serialization
 
@@ -239,6 +239,6 @@ The serializers do *not* inspect the bytes: they only translate the format synta
 
 *Lifecycle.* `save_all` itself never deletes - it would otherwise mutate the store before the owning row is committed, stranding the row on missing bytes if the commit then failed. Instead `update_contact` reclaims the blobs a write dropped (a replaced or removed photo) *after* the row commits (`_delete_dropped_files`), so the old `sogo6_file_storage` row disappears immediately. A *deleted* contact is soft-deleted and keeps its blobs, like the tombstone itself; those, and any blob a post-commit delete missed, are reclaimed by `ModuleContact.clean()` (`ClientStorage.purge_orphans` drops every row no surviving contact references) - the same backstop sweep that purges tombstones and dangling distribution-list membership.
 
-== Module — ModuleContact
+== Module - ModuleContact
 
-`ModuleContact` is the single entry point for business logic. The `User` is never stored on the instance — it is passed as the first argument to every public method, so the same module can serve a request and a background worker. The database client is injected via the constructor; the Redis cache is optional (the module must not make login depend on Redis). Permission resolution and enforcement are delegated to `ContactAclEngine`.
+`ModuleContact` is the single entry point for business logic. The `User` is never stored on the instance - it is passed as the first argument to every public method, so the same module can serve a request and a background worker. The database client is injected via the constructor; the Redis cache is optional (the module must not make login depend on Redis). Permission resolution and enforcement are delegated to `ContactAclEngine`.

@@ -211,7 +211,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
 
         # Organizer-controlled content is editable only by the organizer - either the calendar owner
         # (delegated edit on the owner's own events) or the acting user (MODIFY_IF_ORG on a shared
-        # calendar). An attendee on a received invitation cannot touch those (RFC 6638 §3.2.1; iTIP
+        # calendar). An attendee on a received invitation cannot touch those (RFC 6638 §3.2.2.1; iTIP
         # RFC 5546) but still owns their personal fields (their VALARM/reminders, conference data) on
         # their own copy, applied here without any propagation.
         is_organizer: bool = (not event.organizer
