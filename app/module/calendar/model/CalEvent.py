@@ -237,6 +237,14 @@ class CalEvent:  # pylint: disable=too-many-instance-attributes,invalid-name,too
                 return attendee.status
         return None
 
+    def set_attendance(self, email: str, status: AttendeeStatus) -> bool:
+        """Set the PARTSTAT of the attendee matching email. Return True if an attendee was updated."""
+        for attendee in self.attendees:
+            if attendee.email == email:
+                attendee.status = status
+                return True
+        return False
+
     def is_attending(self, email: str) -> bool:
         """True unless email is an attendee who has not committed (declined / needs-action / delegated).
 

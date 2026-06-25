@@ -114,6 +114,20 @@ class RecurrenceScopeProcessor:
         )
 
     @staticmethod
+    def process_delete(source: CalendarSource, event: CalEvent) -> ScopeResult:
+        """Dispatch a recurrence-scoped deletion and return the touched row.
+
+        A detached occurrence is removed alone (its slot is added to the master EXDATE by the
+        source); any other event removes the whole series. Returns a ScopeResult with the deleted
+        event ready for blind replication to attendees - the caller decides whether to propagate.
+        """
+        if event.recurrence_id is not None:
+            source.delete_occurrence(event)
+        else:
+            source.delete_event(event.require_uid)
+        return ScopeResult(result=event, touched=[(event, EventAction.DELETE)])
+
+    @staticmethod
     def process_attendee_edit(source: CalendarSource, original: CalEvent, event_update: CalEvent) -> CalEvent:
         """Apply a non-organizer attendee's personal-field edit to the row being edited.
 

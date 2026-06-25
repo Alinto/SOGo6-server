@@ -155,13 +155,11 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         source: CalendarSource = self._sources.get(cal)
         return source.save_calendar(cal)
 
-    def update_calendar(self, user: User, key: str, updates: dict) -> CalCalendar:
-        """Apply updates to an existing calendar and persist it."""
+    def update_calendar(self, user: User, key: str, calendar: CalCalendar) -> CalCalendar:
+        """Persist an updated calendar. The source lookup also enforces existence."""
         source: CalendarSource = self.get_calendar(user, key)
-        cal: CalCalendar = source.calendar
-        cal.apply_update(updates)
-        source.update_calendar(cal)
-        return cal
+        source.update_calendar(calendar)
+        return calendar
 
     def delete_calendar(self, user: User, key: str) -> None:
         """Delete a calendar and all its events."""
@@ -257,16 +255,11 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
             self._acl.get_permissions(source.calendar, calendar_user), CalendarPermissionAction.DELETE,
         )
         try:
-            if event.recurrence_id is not None:
-                source.delete_occurrence(event)
-            else:
-                source.delete_event(event.require_uid)
+            scope_result: ScopeResult = RecurrenceScopeProcessor.process_delete(source=source, event=event)
             # Propagate deletion to attendees if the user is the organizer
             is_organizer: bool = event.is_organized_by(calendar_user.owner.mail)
             if is_organizer:
-                self._sources.propagate(scope_result=ScopeResult(
-                    result=event, touched=[(event, EventAction.DELETE)],
-                ))
+                self._sources.propagate(scope_result=scope_result)
             return event if is_organizer else None
         except RequestException:
             raise
@@ -285,7 +278,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         }
         return self._acl.sanitize_listing(calendar_user, items, calendars)
 
-    def get_events(
+    def get_all_events(
         self,
         calendar_user: CalendarUser,
         start: datetime | None,
@@ -302,7 +295,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
             if (end - start) > timedelta(days=MAX_EVENT_FETCH_DAYS):
                 raise RequestException(error=err.ERROR_CALENDAR_DATE_RANGE_TOO_LARGE)
         try:
-            events: list[CalEvent] = self._sources.get_events(calendar_user.owner.uid, start, end, search, key)
+            events: list[CalEvent] = self._sources.get_all_events(calendar_user.owner.uid, start, end, search, key)
             logger_calendar.debug("returned %d events (calendar=%s)", len(events), key or "all")
             return self._sanitize_listing(calendar_user, events)
         except RequestException:
@@ -339,10 +332,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         if recurrence_id is not None:
             event = source.get_or_create_occurrence(event, recurrence_id)
 
-        for attendee in event.attendees:
-            if attendee.email == calendar_user.owner.mail:
-                attendee.status = status
-                break
+        event.set_attendance(calendar_user.owner.mail, status)
         try:
             source.update_event(event)
             source.propagate_partstat_to_copies(event, calendar_user.owner.mail, status)
@@ -454,7 +444,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
             logger_calendar.exception("Unexpected error deleting task %s", task_key)
             raise RequestException(error=err.ERROR_UNKOWN) from exc
 
-    def get_tasks(
+    def get_all_tasks(
         self,
         calendar_user: CalendarUser,
         start: datetime | None,
@@ -471,7 +461,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
             if (end - start) > timedelta(days=MAX_TASK_FETCH_DAYS):
                 raise RequestException(error=err.ERROR_CALENDAR_DATE_RANGE_TOO_LARGE)
         try:
-            tasks: list[CalEvent] = self._sources.get_tasks(calendar_user.owner.uid, start, end, search, key)
+            tasks: list[CalEvent] = self._sources.get_all_tasks(calendar_user.owner.uid, start, end, search, key)
             logger_calendar.debug("returned %d tasks (calendar=%s)", len(tasks), key or "all")
             return self._sanitize_listing(calendar_user, tasks)
         except RequestException:
@@ -523,15 +513,6 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
                 events_by_key[reminder.event_key] = found_event
             except RequestException:
                 continue
-
-        # Enrich reminders with event context from the blob
-        for reminder in reminders:
-            event: CalEvent | None = events_by_key.get(reminder.event_key)
-            if event is not None:
-                reminder.title = event.title
-                reminder.location = event.location
-                reminder.timezone = event.timezone
-                reminder.calendar_timezone = getattr(event, "calendar_timezone", None)
 
         return ReminderEngine().compute_active(
             reminders=reminders,
@@ -608,8 +589,8 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         so the output mirrors the stored components rather than flat occurrences.
         ``refresh_interval`` advertises a resync period - set for live subscription feeds only.
         """
-        events: list[CalEvent] = source.get_events(date_start, date_end, expand=False)
-        events.extend(source.get_tasks(date_start, date_end, expand=False))
+        events: list[CalEvent] = source.get_all_events(date_start, date_end, expand=False)
+        events.extend(source.get_all_tasks(date_start, date_end, expand=False))
         source.calendar.events = events
         serializer: CalCalendarSerializerIcal = CalCalendarSerializerIcal(
             CalEventsSerializerIcal(CalEventSerializerIcal()), refresh_interval=refresh_interval,
@@ -620,7 +601,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         """Enqueue an ICS import as an Agent job and return the job id.
 
         Size and ACL checks run synchronously so the caller sees errors immediately
-        (404 / 403 / too large). The uploaded document is offloaded to the large store
+        (not found / access denied / too large). The uploaded document is offloaded to the large store
         and only its reference travels in the job payload; the worker reads it
         back, applies the import via :meth:`apply_import`, then deletes the blob.
 
@@ -770,7 +751,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         """Enqueue a manual sync of an external ICS calendar and return the job id.
 
         ACL/existence and source-type checks run synchronously so the caller sees errors immediately
-        (404 / 403 / unsupported). The fetch + mirror itself runs in the worker.
+        (not found / access denied / unsupported). The fetch + mirror itself runs in the worker.
 
         :param user: The user triggering the sync.
         :param key: Opaque calendar key.

@@ -2,7 +2,7 @@
 Unit tests for CalendarSource base class.
 
 Covers: filter_date_start, filter_date_end, search (case + accent insensitive),
-filter pipeline, get_events UTC normalization and default bounds.
+filter pipeline, get_all_events UTC normalization and default bounds.
 """
 from datetime import datetime, timezone
 
@@ -115,26 +115,26 @@ def test_filter_combines_date_range_and_search(source, three_events):
     assert result[0].uid == "e2"
 
 
-# ========== get_events: UTC normalization and default bounds ==========
+# ========== get_all_events: UTC normalization and default bounds ==========
 
 def test_default_start_includes_past_events():
     past = _event("past", _dt(2000, 1, 1, 9), _dt(2000, 1, 1, 10))
     source = FakeCalendarSource([past])
-    events = source.get_events(start=None, end=_dt(2030, 1, 1))
+    events = source.get_all_events(start=None, end=_dt(2030, 1, 1))
     assert any(e.uid == "past" for e in events)
 
 
 def test_default_end_excludes_far_future():
     future = _event("future", _dt(2099, 1, 1, 9), _dt(2099, 1, 1, 10))
     source = FakeCalendarSource([future])
-    events = source.get_events(start=_DEFAULT_START, end=None)
+    events = source.get_all_events(start=_DEFAULT_START, end=None)
     assert not any(e.uid == "future" for e in events)
 
 
 def test_naive_datetime_treated_as_utc():
     past = _event("past", _dt(2000, 1, 1, 9), _dt(2000, 1, 1, 10))
     source = FakeCalendarSource([past])
-    events = source.get_events(start=datetime(2000, 1, 1), end=datetime(2030, 1, 1))
+    events = source.get_all_events(start=datetime(2000, 1, 1), end=datetime(2030, 1, 1))
     assert any(e.uid == "past" for e in events)
 
 
@@ -151,7 +151,7 @@ def _recurring_master(uid):
 def test_expand_true_explodes_recurring_master():
     master = _recurring_master("daily")
     source = FakeCalendarSource([master])
-    events = source.get_events(start=_dt(2026, 1, 1), end=_dt(2026, 1, 31), expand=True)
+    events = source.get_all_events(start=_dt(2026, 1, 1), end=_dt(2026, 1, 31), expand=True)
     # DAILY count=5 -> five distinct occurrences, each carrying a recurrence_id.
     occurrences = [e for e in events if e.uid == "daily"]
     assert len(occurrences) == 5
@@ -161,7 +161,7 @@ def test_expand_true_explodes_recurring_master():
 def test_expand_false_keeps_single_master_with_rrule():
     master = _recurring_master("daily")
     source = FakeCalendarSource([master])
-    events = source.get_events(start=_dt(2026, 1, 1), end=_dt(2026, 1, 31), expand=False)
+    events = source.get_all_events(start=_dt(2026, 1, 1), end=_dt(2026, 1, 31), expand=False)
     masters = [e for e in events if e.uid == "daily"]
     assert len(masters) == 1
     assert masters[0].recurrence_rule is not None
@@ -173,5 +173,5 @@ def test_expand_false_default_end_captures_future():
     # unlike expand=True which clamps to now.
     future = _event("future", _dt(2099, 1, 1, 9), _dt(2099, 1, 1, 10))
     source = FakeCalendarSource([future])
-    assert any(e.uid == "future" for e in source.get_events(expand=False))
-    assert not any(e.uid == "future" for e in source.get_events(expand=True))
+    assert any(e.uid == "future" for e in source.get_all_events(expand=False))
+    assert not any(e.uid == "future" for e in source.get_all_events(expand=True))

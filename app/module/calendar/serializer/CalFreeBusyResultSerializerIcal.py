@@ -8,7 +8,7 @@ from icalendar import FreeBusy
 from app.module.calendar.model.CalFreeBusyResult import CalFreeBusyResult
 from app.module.calendar.model.enums.FreeBusyType import FreeBusyType
 from app.module.calendar.serializer.CalFreeBusyResultSerializer import CalFreeBusyResultSerializer
-from app.module.calendar.serializer.IcalSerializerUtils import new_vcalendar
+from app.module.calendar.serializer.EnvelopeIcal import EnvelopeIcal
 from app.utils.datetime.DateTimeUtils import to_utc
 from app.utils.maths.sogo_hash import generate_uuid
 
@@ -34,7 +34,7 @@ class CalFreeBusyResultSerializerIcal(CalFreeBusyResultSerializer[str]):
         self._organizer_uid: str = organizer_uid
 
     def serialize(self, data: CalFreeBusyResult) -> str:  # pylint: disable=too-many-locals
-        cal = new_vcalendar(method="REPLY")
+        cal = EnvelopeIcal.new_vcalendar(method="REPLY")
 
         start_utc = to_utc(data.start)
         end_utc = to_utc(data.end)

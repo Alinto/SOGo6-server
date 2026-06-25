@@ -102,23 +102,23 @@ def test_require_event_raises_when_absent():
 def test_get_freebusy_events_excludes_non_participating_calendars():
     sources = _build_sources()
     src_in = MagicMock(calendar=_cal(include_in_freebusy=True))
-    src_in.get_events.return_value = [_event(9)]
+    src_in.get_all_events.return_value = [_event(9)]
     src_out = MagicMock(calendar=_cal(include_in_freebusy=False))
-    src_out.get_events.return_value = [_event(11)]
+    src_out.get_all_events.return_value = [_event(11)]
     sources.get_all = MagicMock(return_value=[src_in, src_out])
 
     events = sources.get_freebusy_events("u")
 
     assert [e.uid for e in events] == ["e9"]
-    src_out.get_events.assert_not_called()
+    src_out.get_all_events.assert_not_called()
 
 
 def test_get_freebusy_events_merges_and_sorts_participating_calendars():
     sources = _build_sources()
     src_a = MagicMock(calendar=_cal())
-    src_a.get_events.return_value = [_event(14)]
+    src_a.get_all_events.return_value = [_event(14)]
     src_b = MagicMock(calendar=_cal())
-    src_b.get_events.return_value = [_event(8)]
+    src_b.get_all_events.return_value = [_event(8)]
     sources.get_all = MagicMock(return_value=[src_a, src_b])
 
     events = sources.get_freebusy_events("u")

@@ -9,7 +9,7 @@ if TYPE_CHECKING:
 
 
 class CardAddressBookSerializerDict(CardAddressBookSerializer[dict]):
-    """Converts a CardAddressBook to a plain dict matching the SOGo6 REST API schema."""
+    """Converts a CardAddressBook to its plain dict representation."""
 
     def serialize(self, data: CardAddressBook) -> dict[str, Any]:
         return {

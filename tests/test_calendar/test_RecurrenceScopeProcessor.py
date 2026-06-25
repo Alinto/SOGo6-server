@@ -57,6 +57,8 @@ class FakeSource(CalendarSource):
         self.inserted = []
         self.updated = []
         self.split_calls = []
+        self.deleted_uids = []
+        self.deleted_occurrences = []
         self._events_by_uid = {}
 
     def _fetch_events(self, start, end, search=None):
@@ -86,6 +88,12 @@ class FakeSource(CalendarSource):
 
     def get_master_event_by_uid(self, uid):
         return self._events_by_uid.get(uid)
+
+    def delete_event(self, uid):
+        self.deleted_uids.append(uid)
+
+    def delete_occurrence(self, occurrence):
+        self.deleted_occurrences.append(occurrence)
 
 
 # ========== process_attendee_edit (attendee personal edits) ==========
@@ -179,6 +187,26 @@ def test_process_dispatches_to_split_series():
     actions = [action for _, action in scope_result.touched]
     assert EventAction.UPDATE in actions
     assert EventAction.INSERT in actions
+
+
+# ========== process_delete - dispatch ==========
+
+def test_process_delete_whole_series():
+    master = _make_event(uid="master@example.com")
+    source = FakeSource()
+    scope_result = RecurrenceScopeProcessor.process_delete(source, master)
+    assert source.deleted_uids == ["master@example.com"]
+    assert source.deleted_occurrences == []
+    assert scope_result.touched == [(master, EventAction.DELETE)]
+
+
+def test_process_delete_detached_occurrence_spares_master():
+    occ = _make_event(uid="master@example.com", recurrence_id=_dt(2026, 6, 3, 9))
+    source = FakeSource()
+    scope_result = RecurrenceScopeProcessor.process_delete(source, occ)
+    assert source.deleted_occurrences == [occ]
+    assert source.deleted_uids == []  # master untouched
+    assert scope_result.touched[0][1] == EventAction.DELETE
 
 
 # ========== split_occurrence ==========

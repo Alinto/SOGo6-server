@@ -134,3 +134,24 @@ def test_get_contacts_transverse_paginates():
     page, total = sources.get_contacts("u", offset=1, limit=2)
     assert total == 4
     assert [c.display_name for c in page] == ["B", "C"]
+
+
+# ========== purge_orphans ==========
+
+def test_purge_orphans_purges_contacts_and_lists():
+    sources = _build()
+    sources._db.delete_row_in_table.return_value = 5  # each purge_deleted reports 5 rows
+    sources._db.select_from_table.return_value = []   # no rows, no orphan members, no photos
+    file_store = MagicMock()
+    file_store.purge_orphans.return_value = 0
+    assert sources.purge_orphans(file_store) == 10    # contacts (5) + lists (5)
+
+
+def test_purge_orphans_reclaims_orphan_blobs():
+    sources = _build()
+    sources._db.delete_row_in_table.return_value = 0
+    sources._db.select_from_table.return_value = []
+    file_store = MagicMock()
+    file_store.purge_orphans.return_value = 3          # three unreferenced blobs reclaimed
+    assert sources.purge_orphans(file_store) == 3
+    file_store.purge_orphans.assert_called_once()

@@ -16,8 +16,6 @@ from app.module.contact.model.CardAddressBook import CardAddressBook
 from app.module.contact.model.ContactImportResult import ContactImportResult
 from app.module.contact.model.enums.CardSourceType import CardSourceType
 from app.module.contact.model.enums.ContactShareLevel import ContactShareLevel
-from app.module.contact.repository.RepositoryContact import RepositoryContact
-from app.module.contact.repository.RepositoryContactList import RepositoryContactList
 from app.module.contact.source.ContactSources import ContactSources
 from app.utils import errors as err
 from app.utils.db.Condition import Order
@@ -172,7 +170,7 @@ class ModuleContact:  # pylint: disable=too-many-public-methods
         """Return a page of contacts plus the total count.
 
         When addressbook_key is None the search spans all the user's address books (transverse,
-        like ModuleCalendar.get_events with calendar_key=None); otherwise it is scoped to one book.
+        like ModuleCalendar.get_all_events with calendar_key=None); otherwise it is scoped to one book.
         sort_by must be validated against an allowlist by the caller (it becomes an ORDER BY column);
         the interface restricts it to the sortable contact fields.
 
@@ -626,12 +624,6 @@ class ModuleContact:  # pylint: disable=too-many-public-methods
 
         Global purge (unlike the calendar's per-calendar/user clean): deleting an address book detaches
         its contacts and lists (addressbook_key NULL), so only an is_deleted sweep reaches those
-        tombstones. Orphan membership rows and blobs no contact references any more are then reclaimed.
+        tombstones. Delegated to the source layer, which owns all data access.
         """
-        contact_repo: RepositoryContact = RepositoryContact(self._db)
-        list_repo: RepositoryContactList = RepositoryContactList(self._db)
-        purged: int = contact_repo.purge_deleted() + list_repo.purge_deleted()
-        purged += list_repo.purge_orphan_members(list_repo.all_keys(), contact_repo.all_keys())
-        referenced: set[str] = {value for value in contact_repo.all_photo_values() if ClientStorage.is_reference(value)}
-        purged += self._file.purge_orphans(referenced)
-        return purged
+        return self._sources.purge_orphans(self._file)

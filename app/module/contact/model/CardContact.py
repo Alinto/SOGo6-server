@@ -160,4 +160,4 @@ class CardContact:  # pylint: disable=too-many-instance-attributes
         here means the caller bypassed it. (Inline files are validated by the file layer, not here.)
         """
         if not self.display_name:
-            raise RequestException(error=err.ERROR_CONTACT_JSON_PARSE_FAILED)
+            raise RequestException(error=err.ERROR_CONTACT_DISPLAY_NAME_REQUIRED)

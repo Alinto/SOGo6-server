@@ -308,20 +308,11 @@ def test_search_all_lists_delegates_transverse():
 
 # ========== clean ==========
 
-def test_clean_purges_contacts_and_lists():
+def test_clean_delegates_to_sources_purge():
     module = _build_module()
-    module._db.delete_row_in_table.return_value = 5  # each purge_deleted reports 5 rows
-    module._db.select_from_table.return_value = []   # no rows, no orphan members
-    assert module.clean() == 10  # contacts (5) + lists (5)
-
-
-def test_clean_purges_orphan_blobs():
-    module = _build_module()
-    module._db.delete_row_in_table.return_value = 0
-    module._db.select_from_table.return_value = []
-    module._file.purge_orphans.return_value = 3   # three unreferenced blobs reclaimed
-    assert module.clean() == 3
-    module._file.purge_orphans.assert_called_once()
+    module._sources.purge_orphans.return_value = 7
+    assert module.clean() == 7
+    module._sources.purge_orphans.assert_called_once_with(module._file)
 
 
 # ========== import (upsert by uid) ==========

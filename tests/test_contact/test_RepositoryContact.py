@@ -89,3 +89,15 @@ def test_find_by_addressbooks_queries_once_paginated():
     kwargs = db.select_from_table.call_args.kwargs
     assert kwargs["offset"] == 5 and kwargs["limit"] == 10  # DB-level pagination, single query
     db.select_from_table.assert_called_once()
+
+
+# ========== all_photo_values ==========
+
+def test_all_photo_values_collects_through_deserializer():
+    db = MagicMock()
+    db.select_from_table.return_value = [
+        (_serializer.serialize(CardContact(display_name="A", photos=["ref1", "ref2"])),),
+        (_serializer.serialize(CardContact(display_name="B", photos=["ref2", "ref3"])),),
+        (None,),  # rows with no blob are skipped
+    ]
+    assert RepositoryContact(db).all_photo_values() == {"ref1", "ref2", "ref3"}

@@ -64,6 +64,18 @@ def test_active_between_trigger_and_event_end():
     assert results[0].event_key == "evt-key"
 
 
+def test_compute_active_enriches_reminder_from_event():
+    """The engine fills the reminder's event context (title/location) from the loaded event."""
+    event = _make_event(title="Enriched", location="Hall B")
+    results = ReminderEngine().compute_active(
+        reminders=[_reminder(trigger_at=_dt(2026, 6, 1, 9, 45))],
+        events_by_key={"evt-key": event},
+        now=_dt(2026, 6, 1, 10, 30),
+    )
+    assert results[0].title == "Enriched"
+    assert results[0].location == "Hall B"
+
+
 def test_skips_reminder_when_owner_has_not_accepted():
     event = _make_event(attendees=[CalAttendee(email="bob@example.com", status=AttendeeStatus.DECLINED)])
     reminder = _reminder(trigger_at=_dt(2026, 6, 1, 9, 45))

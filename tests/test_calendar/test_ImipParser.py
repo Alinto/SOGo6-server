@@ -152,3 +152,8 @@ def test_detect_method_none_when_no_method():
 def test_detect_method_none_when_unsupported():
     ical = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nMETHOD:PUBLISH\r\nEND:VCALENDAR\r\n"
     assert ImipParser.detect_method(ical.encode("utf-8")) is None
+
+
+def test_detect_method_none_on_malformed_payload():
+    # Not a VCALENDAR at all - the lib parse must not raise, just yield None.
+    assert ImipParser.detect_method(b"this is not an icalendar document") is None

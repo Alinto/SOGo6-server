@@ -113,10 +113,10 @@ def _build_module(sources: dict):
             source = sources.get(calendar_key)
             if source is None:
                 raise RequestException(error=err.ERROR_CALENDAR_NOT_FOUND)
-            return source.get_tasks(start, end, search)
-        return [t for s in sources.values() for t in s.get_tasks(start, end, search)]
+            return source.get_all_tasks(start, end, search)
+        return [t for s in sources.values() for t in s.get_all_tasks(start, end, search)]
 
-    sources_mock.get_tasks.side_effect = _get_tasks
+    sources_mock.get_all_tasks.side_effect = _get_tasks
     module._sources = sources_mock
     module._imip = ImipProcessor(sources_mock)
     module._db = MagicMock()
@@ -287,21 +287,21 @@ def test_delete_task_rejects_event_key():
     assert exc_info.value.error == err.ERROR_CALENDAR_TASK_NOT_FOUND
 
 
-# ========== get_tasks ==========
+# ========== get_all_tasks ==========
 
 def test_get_tasks_returns_tasks():
     task1 = _make_task(key="t1", uid="t1@example.com")
     task2 = _make_task(key="t2", uid="t2@example.com")
     source = _make_source(tasks=[task1, task2])
     module = _build_module({"cal-key": source})
-    results = module.get_tasks(_fake_user(), None, None, None, "cal-key")
+    results = module.get_all_tasks(_fake_user(), None, None, None, "cal-key")
     assert len(results) == 2
 
 
 def test_get_tasks_unknown_calendar_raises():
     module = _build_module({})
     with pytest.raises(RequestException) as exc_info:
-        module.get_tasks(_fake_user(), None, None, None, "nonexistent")
+        module.get_all_tasks(_fake_user(), None, None, None, "nonexistent")
     assert exc_info.value.error == err.ERROR_CALENDAR_NOT_FOUND
 
 
@@ -311,7 +311,7 @@ def test_get_tasks_no_key_merges_all_calendars():
     source_a = _make_source("cal-a", tasks=[task1])
     source_b = _make_source("cal-b", tasks=[task2])
     module = _build_module({"cal-a": source_a, "cal-b": source_b})
-    results = module.get_tasks(_fake_user(), None, None, None)
+    results = module.get_all_tasks(_fake_user(), None, None, None)
     assert len(results) == 2
     keys = {t.key for t in results}
     assert keys == {"t1", "t2"}
@@ -319,7 +319,7 @@ def test_get_tasks_no_key_merges_all_calendars():
 
 def test_get_tasks_no_key_empty_when_no_calendars():
     module = _build_module({})
-    assert module.get_tasks(_fake_user(), None, None, None) == []
+    assert module.get_all_tasks(_fake_user(), None, None, None) == []
 
 
 def test_get_tasks_date_range_too_large_raises():
@@ -329,7 +329,7 @@ def test_get_tasks_date_range_too_large_raises():
     end = datetime(2027, 3, 1, tzinfo=_UTC)
     assert (end - start).days > MAX_TASK_FETCH_DAYS
     with pytest.raises(RequestException) as exc_info:
-        module.get_tasks(_fake_user(), start, end, None, "cal-key")
+        module.get_all_tasks(_fake_user(), start, end, None, "cal-key")
     assert exc_info.value.error == err.ERROR_CALENDAR_DATE_RANGE_TOO_LARGE
 
 
@@ -339,5 +339,5 @@ def test_get_tasks_search_bypasses_date_range_limit():
     start = datetime(2026, 1, 1, tzinfo=_UTC)
     end = datetime(2028, 1, 1, tzinfo=_UTC)
     assert (end - start).days > MAX_TASK_FETCH_DAYS
-    results = module.get_tasks(_fake_user(), start, end, "meeting", "cal-key")
+    results = module.get_all_tasks(_fake_user(), start, end, "meeting", "cal-key")
     assert results is not None

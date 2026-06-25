@@ -348,7 +348,8 @@ class RepositoryContact:
     def all_photo_values(self) -> set[str]:
         """Return every photo value referenced across all contacts (used to detect orphan media blobs).
 
-        Photos live in the JSON blob, so this scans contact_data; the caller filters the storage
+        Photos live in the JSON blob, so this scans contact_data and reads each contact's photos
+        through the deserializer rather than the raw blob layout; the caller filters the storage
         references out of the returned set.
         """
         rows = self._db.select_from_table(
@@ -359,5 +360,5 @@ class RepositoryContact:
         values: set[str] = set()
         for (data,) in rows:
             if data:
-                values.update(data.get("photos", []))
+                values.update(_deserializer.deserialize(data).photos)
         return values
