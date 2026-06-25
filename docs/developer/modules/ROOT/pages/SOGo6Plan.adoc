@@ -1,5 +1,5 @@
 = Sogo 6 TODO
-:page-toclevels: 3
+:page-toclevels: 4
 
 *Last update: **2026/06/02***
 
@@ -314,9 +314,7 @@ SOGo 5 already manages that IF the user source is ldap and configured to do so.
 * [ ] 0%: Force user to set a MFA method (on admin action) (plain)
 
 
-=== Mail
-
-==== Accounts
+=== Mail Accounts
 
 * [*] 100%: list accounts (main and external) or get one specific
 * [*] 100%: Get quota, if available on the imap server
@@ -330,7 +328,7 @@ SOGo 5 already manages that IF the user source is ldap and configured to do so.
 
 '''
 
-====Folders
+=== Mail Folders
 
 * [*] 100%: List folders or get one specific
 * [*] 100%: Kind of folder: Inbox, draft, sent, junk, tash, template
@@ -348,7 +346,7 @@ SOGo 5 already manages that IF the user source is ldap and configured to do so.
 
 '''
 
-====Mails reading
+=== Mails reading
 
 * [*] 100%: list mails of get one specific
 * [*] 100%: Mark a mail as read/unread
@@ -372,7 +370,7 @@ SOGo 5 already manages that IF the user source is ldap and configured to do so.
 
 '''
 
-==== Mails sending
+=== Mails sending
 
 [NOTE]
 ====
@@ -381,10 +379,10 @@ A "mail in progress" means that the client/user is currently writting a mail. Th
 state that makes the link between the "mail in progress" and the mail currently stored in the Draft folder.
 ====
 
-**Backend**
+==== Backend
 
-* [*] 90%: Endpoint for sending a mail directly (miss priority, is_html, reply-to)
-* [*] 90%: Endpoint for sending a mail in progress (miss priority, is_html, reply-to)
+* [*] 100%: Endpoint for sending a mail directly
+* [*] 100%: Endpoint for sending a mail in progress
 * [*] 100%: Check for 'to' value:
 *** [*] 100%: required
 *** [*] 100%: is a mail Address
@@ -401,13 +399,13 @@ state that makes the link between the "mail in progress" and the mail currently 
 * [*] 100%: No body  allowed
 * [*] 100%: No subject and no body allowed
 
-//-
+'''
 
 * [*] 100%: Endpoint save a "mail in progress" as Draft
 * [*] 100%: Endpoint close a "mail in progress" (last version saved in Draft)
 * [*] 100%: Endpoint cancel a "mail in progress" (delete Draft)
 
-//-
+'''
 
 * [*] 100%: Endpoint add attachment on new mail (a mail that still don't have a Draft)
 * [*] 100%: Endpoint add attachment on mail in progress (a mail already in Draft)
@@ -415,48 +413,49 @@ state that makes the link between the "mail in progress" and the mail currently 
 * [*] 100%: Endpoint download attachment on mail in progress
 * [*] 100%: if same name for attachment, rename the attachment by adding suffix 1,2,3...
 
-//-
+'''
 
 * [*] 100%: Ask for receipt (add headers "Disposition-Notification-To" and ""Return-Receipt-To")
-* [ ]   0%: Add priority (custom header X-Priority)
+* [*] 100%: Add priority (custom header X-Priority)
 * [*] 100%: Add Message-id (custom id + @<user's domain>)
-* [ ]   0%: Set optional "reply-to" header
+* [*] 100%: Set optional "reply-to" header
 
-//-
+'''
 
 * [ ]  80%: Endpoint edit (missing return_receipt and priority)
 * [*] 100%: Endpoint reply/forward
 
-//-
+'''
 
-* [ ]  10%: Send a html mail (multipart/alternative with text/plain and text/html) -> Only send a text/plain
-* [ ]   0%: Send a text mail (only text/plain)
+* [*] 100%: Send a html mail (multipart/alternative with text/plain and text/html) -> Only send a text/plain
+* [*] 100%: Send a text mail (only text/plain)
 
-//-
+'''
 
 * [ ]  10%: Add limit on Max recipients (parameter exist but not used)
 * [ ]  10%: Add limit mails send: max emails that can be send in X minutes. X block time if exceeded  (parameters exist but not used)
 * [*] 100%: Add lock system to avoid concurrent requests modifying the same email
 
-//-
+'''
 
 * [*] 100%: Client smtp with plain socket
-* [*]  80%: Client smtp with explicit tls (startTLS): *Not Tested*
-* [*]  80%: Client smtp with implicit tls (SSL/TLS): *Not Tested*
+* [ ]  80%: Client smtp with explicit tls (startTLS): *Not Tested*
+* [ ]  80%: Client smtp with implicit tls (SSL/TLS): *Not Tested*
 * [*] 100%: Client smtp with no auth
-* [*]  80%: Client smtp with auth PLAIN (startTLS): *Not Tested*
-* [*]  80%: Client smtp with auth XOAUTH2 (startTLS): *Not Tested*
-* [*]  80%: Client smtp with auth OAUTHBEARER (startTLS): *Not Tested*
+* [ ]  80%: Client smtp with auth PLAIN (startTLS): *Not Tested*
+* [ ]  80%: Client smtp with auth XOAUTH2 (startTLS): *Not Tested*
+* [ ]  80%: Client smtp with auth OAUTHBEARER (startTLS): *Not Tested*
 * [*] 100%: Client smtp send mail with error catching and returning
 
 
-**UI**
+==== UI
+
 * [*] 100%: Open a new message composer
 * [*] 100%: Open several message composer (max 3) 
-* [ ]  80%: Save every X second IF new contents (save directly when opening composer)
-* [ ] 100%: X second defined by admin (SOGO_D_MAIL_DRAFT_AUTOSAVE stored in database) param is used in UI with default to 5s
+* [ ]  80%: Save every X second IF new contents (bug: save directly when opening composer without data)
+* [*] 100%: X seconds defined by admin (SOGO_D_MAIL_DRAFT_AUTOSAVE stored in database) param is used in UI with default to 5s
 * [*] 100%: Check for 'to' value:
-*** [*]  60%: Cannot send if no recipients (UI bug, the pop-up is behind the composer, hence cannot be clicked)
+*** [ ]  60%: Cannot send if no recipients (UI bug, the pop-up is behind the composer, hence cannot be clicked)
 *** [*] 100%: is a mail Address
 *** [ ]   0%: remove doubles (accept it but remove it after -> list to set)
 * [*] 100%: Check for 'cc' value:
@@ -471,19 +470,19 @@ state that makes the link between the "mail in progress" and the mail currently 
 * [*] 100%: No subject allows
 * [ ]   0%: Warning if no subject before sending
 * [*] 100%: No body  allows
-* [ ]   0%: Warning if no subject before sending
+* [ ]   0%: Warning if no body before sending
 * [*] 100%: No subject and no body allows
 * [*] 100%: button do delete a mail in progress (also delete in draft)
 * [*] 100%: button do close the mail composer (keep in draft)
 * [*] 100%: button to add attachment
 * [*] 100%: button to add several attachments as the same time
-* [ ]   0%: drag and frop attachment
+* [ ]   0%: drag and drop attachment
 * [*] 100%: button to remove  attachment
 * [*] 100%: button to download attachment
 * [ ]  80%: button to set priority (not send in body)
 * [*] 100%: button to ask far receipt
 
-//-
+'''
 
 * [*] 100%: Can choose Identity
 * [*] 100%: Can choose Signature
@@ -492,18 +491,18 @@ state that makes the link between the "mail in progress" and the mail currently 
 * [ ]   0%: Can choose alias (not done in backend)
 * [ ]   0%: Autocompletion on to, cc, bcc (not done in backend)
 
-//-
+'''
 
 * [ ] 90% send a mail (miss priority, is_html, reply-to)
 * [ ] 80% Edit a message (missing return_receipt, priority)
 * [ ] 80% Reply a message (missing RE: and reply-to)
-* [ ] 80% Forward a message (missing FWD)
+* [ ] 80% Forward a message (missing FWD:)
 
-//-
+'''
 
-* [*] ??%: Show explicit smtp error to user in some cases
+* [ ] ??%: Show explicit smtp error to user in some cases
 
-//-
+'''
 
 * [ ]   0%: send a receipt when reading a mail asking for one
 

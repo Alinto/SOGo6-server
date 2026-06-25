@@ -55,18 +55,18 @@ Fields are either *relational* - dedicated columns for filtering and sorting: `k
 
 == Address books and contacts
 
-Both are addressed by their opaque key, and a contact is always scoped to its address book: `GET /addressbooks/{key}/contacts/{contact_key}`. `ModuleContact` resolves the book first (`get_addressbook`), then the contact within it (`source.get_contact_by_key`). The transverse `/contacts` listing and `/contacts/autocomplete` are the only cross-book endpoints (they span every book of the user).
+Both are addressed by their opaque key, and a contact is always scoped to its address book: `GET /addressbooks/\{key\}/contacts/\{contact_key\}`. `ModuleContact` resolves the book first (`get_addressbook`), then the contact within it (`source.get_contact_by_key`). The transverse `/contacts` listing and `/contacts/autocomplete` are the only cross-book endpoints (they span every book of the user).
 
 [cols="2,1,3"]
 |===
 | Route | Methods | Operation
 
 | `/addressbooks` | GET, POST | List / create address books
-| `/addressbooks/{key}` | GET, PATCH, DELETE | Get / update / delete one address book
-| `/addressbooks/{key}/contacts` | GET, POST | List (paginated) / create contacts in a book
-| `/addressbooks/{key}/contacts/{contact_key}` | GET, PATCH, DELETE | Get / patch / delete one contact
-| `/addressbooks/{key}/lists` | GET, POST | List (paginated) / create distribution lists in a book
-| `/addressbooks/{key}/lists/{list_key}` | GET, PATCH, DELETE | Get / patch / delete one distribution list
+| `/addressbooks/\{key\}` | GET, PATCH, DELETE | Get / update / delete one address book
+| `/addressbooks/\{key\}/contacts` | GET, POST | List (paginated) / create contacts in a book
+| `/addressbooks/\{key\}/contacts/\{contact_key\}` | GET, PATCH, DELETE | Get / patch / delete one contact
+| `/addressbooks/\{key\}/lists` | GET, POST | List (paginated) / create distribution lists in a book
+| `/addressbooks/\{key\}/lists/\{list_key\}` | GET, PATCH, DELETE | Get / patch / delete one distribution list
 | `/contacts` | GET | List (paginated) contacts across every book (transverse)
 | `/contacts/autocomplete` | GET | Recipient suggestions
 |===
@@ -77,7 +77,7 @@ Errors follow the `S0007xx` range (`app/utils/errors.py`): a missing book / cont
 
 == Distribution lists
 
-A distribution list is a vCard `KIND:group` (RFC 6350 §6.1.4): a named object that references member contacts. It belongs to one address book exactly like a contact, which is what scopes the `/addressbooks/{key}/lists` endpoints - there is no CardDAV "list" collection, a group card sits in an address book collection next to the individual cards, so book ownership, ACL and `ctag` are all inherited for free.
+A distribution list is a vCard `KIND:group` (RFC 6350 §6.1.4): a named object that references member contacts. It belongs to one address book exactly like a contact, which is what scopes the `/addressbooks/\{key\}/lists` endpoints - there is no CardDAV "list" collection, a group card sits in an address book collection next to the individual cards, so book ownership, ACL and `ctag` are all inherited for free.
 
 A list is `CardList` (key, uid, name, description, members) mapped to its own table `sogo6_contacts_lists`, *not* stored among the contacts. The serializer abstracts the format, so the internal model stays a dedicated table while the wire format becomes `KIND:group` for the CardDAV server. Members live in the join table `sogo6_contacts_list_members` and are plain *references* - a member is a contact `key`, never an ad-hoc email - so editing a member contact propagates to every list it belongs to. A member must be a contact of the list's *own* address book: `ModuleContact.create_list` / `update_list` validate every member key against the book (`source.get_contact_by_key`) and reject an unknown, deleted or out-of-book key with `ERROR_CONTACT_LIST_MEMBER_INVALID`. Both ends are referenced by their opaque key, consistent with the rest of the schema (a contact references its book by `addressbook_key`), never by the internal id.
 
@@ -111,7 +111,7 @@ Below `SOGO_D_AUTOCOMPLETION_MIN_LEN` characters (domain setting, `USER_MODULE_S
 
 `is_deleted` is a relational column: deletes are soft, never `DELETE FROM` (required for CardDAV sync reports, the same pattern as SOGo v5). Deleting a single contact sets `is_deleted = True` and drops the contact from every list it belonged to (so a deleted contact never lingers as a dangling member nor inflates a list's count); deleting a single list does the same on `sogo6_contacts_lists` and clears its membership rows.
 
-Deleting an address book (`DELETE /addressbooks/{key}`) tombstones its contacts and lists (`is_deleted = True`) and *detaches* them from the book (`addressbook_key = NULL`) before the book row is removed, so the tombstones survive while no longer referencing a gone book; the lists' membership rows are cleared first. A `hard_delete` option on the module method physically removes them instead. The address book table itself has no `is_deleted`, so the book row is removed physically.
+Deleting an address book (`DELETE /addressbooks/\{key\}`) tombstones its contacts and lists (`is_deleted = True`) and *detaches* them from the book (`addressbook_key = NULL`) before the book row is removed, so the tombstones survive while no longer referencing a gone book; the lists' membership rows are cleared first. A `hard_delete` option on the module method physically removes them instead. The address book table itself has no `is_deleted`, so the book row is removed physically.
 
 `ModuleContact.clean()` is the physical reclaim pass: it purges every `is_deleted` contact and list row, then drops the membership rows left pointing at a vanished contact or list (`purge_orphan_members`). Membership is already cleared when a list or book is deleted, so the only orphans reaching `clean()` are member rows referencing a contact that has just been physically purged.
 
@@ -159,13 +159,13 @@ Three import endpoints mirror the three export ones (book / contact / list):
 
 ----
   POST /addressbooks/import                     <- creates a NEW book from the document (contacts + lists)
-  POST /addressbooks/{key}/contacts/import      <- upsert contacts into an existing book
-  POST /addressbooks/{key}/lists/import         <- upsert lists into an existing book
+  POST /addressbooks/\{key\}/contacts/import      <- upsert contacts into an existing book
+  POST /addressbooks/\{key\}/lists/import         <- upsert lists into an existing book
   ... all multipart/form-data, one "file" part, ?format=json|vcard3|vcard4|ldif (default json)
-  ... all enqueue an Agent job and answer 202 {job_id}; counters live in the job result
+  ... all enqueue an Agent job and answer 202 \{job_id\}; counters live in the job result
 ----
 
-Import runs *asynchronously* as an Agent job (a large book can carry thousands of cards). Each endpoint is a `multipart/form-data` upload with a single `file` part (the `accepted_content_types` attribute lets it past the JSON content-type middleware); the body is capped at `IMPORT_MAX_BYTES`. The route enqueues the job and answers `202 {job_id}`; the caller polls `GET /jobs/{job_id}` until SUCCESS and reads the counters from the job result. The whole-book import has no key: it *creates* a fresh book (the document carries no book identity), named `IMPORT_BOOK_NAME_PREFIX (YYYY-MM-DD)`, whose key/name are returned in the job result alongside the counters. The contact / list imports target an existing book (ACL/existence checked synchronously at enqueue, so a 404/403 is immediate).
+Import runs *asynchronously* as an Agent job (a large book can carry thousands of cards). Each endpoint is a `multipart/form-data` upload with a single `file` part (the `accepted_content_types` attribute lets it past the JSON content-type middleware); the body is capped at `IMPORT_MAX_BYTES`. The route enqueues the job and answers `202 \{job_id\}`; the caller polls `GET /jobs/\{job_id\}` until SUCCESS and reads the counters from the job result. The whole-book import has no key: it *creates* a fresh book (the document carries no book identity), named `IMPORT_BOOK_NAME_PREFIX (YYYY-MM-DD)`, whose key/name are returned in the job result alongside the counters. The contact / list imports target an existing book (ACL/existence checked synchronously at enqueue, so a 404/403 is immediate).
 
 The format is the `?format` query value (`json` default, `vcard3`, `vcard4`, `ldif`), restricted by the route schema's `OneOf` - an invalid value is a plain validation error, not a custom code. The format token travels in the job payload; the *worker-side* interface (`InterfaceAgentContact`) picks the deserializer from it - no content sniffing - so `ModuleContact` stays models-only. `json` parses with the `*Dict` deserializers, `vcard3`/`vcard4` with the vCard document deserializer (the version is still detected per card), `ldif` with the LDIF one. A malformed document - whether it raises (invalid JSON) or a lenient vCard/LDIF reader reduces it to nothing importable - makes the job end in `failure` with `ERROR_CONTACT_IMPORT_PARSE_FAILED` (so the client sees a clear parse error rather than a silent "0 imported").
 
@@ -174,16 +174,16 @@ The format is the `?format` query value (`json` default, `vcard3`, `vcard4`, `ld
 [#export-endpoints]
 === Export endpoints
 
-Three read endpoints enqueue an async export job and answer `202 {job_id}`:
+Three read endpoints enqueue an async export job and answer `202 \{job_id\}`:
 
 ----
-  GET /addressbooks/{key}/export                        <- whole book: contacts + lists
-  GET /addressbooks/{key}/contacts/{contact_key}/export <- one contact
-  GET /addressbooks/{key}/lists/{list_key}/export       <- one distribution list
-  ... 202 {job_id}; fetch the serialized document from GET /jobs/{job_id}/result
+  GET /addressbooks/\{key\}/export                        <- whole book: contacts + lists
+  GET /addressbooks/\{key\}/contacts/\{contact_key\}/export <- one contact
+  GET /addressbooks/\{key\}/lists/\{list_key\}/export       <- one distribution list
+  ... 202 \{job_id\}; fetch the serialized document from GET /jobs/\{job_id\}/result
 ----
 
-Export runs *asynchronously* (a whole book can be large). The serialization is negotiated from the request `Accept` header *at enqueue time* (the worker has no HTTP context): `application/json` selects JSON, `text/ldif` selects LDIF, `text/vcard` selects vCard (3.0 by default, 4.0 when the header carries `version=4`), and an empty or `*/*` accept defaults to vCard 3.0 - the dialect every client (Apple, Google, Outlook) imports reliably, whereas vCard 4.0 imports blank in Apple Contacts. Any other explicit media type is answered `406 Not Acceptable` (`ERROR_CONTACT_EXPORT_FORMAT_UNSUPPORTED`). The resolved format (a `ContactExportFormat` member name) travels in the job payload; once the job succeeds, the caller fetches the document from `GET /jobs/{job_id}/result` (which serves it with its `Content-Type` and, with `?download=true`, a `Content-Disposition: attachment` filename). The JSON form is *portable*: a book - and likewise a single contact or list, as a one-item document, exactly as a single vCard is one card - is `{"contacts": [...], "lists": [...]}`. Like vCard / LDIF it is uid-keyed and carries no server-internal handle - the contact / list `key` and `addressbook_key` are stripped and a list's members are emitted as the member contacts' uids (not keys), so a re-import resolves membership by uid. The `AddressBookContent <-> dict` mapping is the `AddressBookContentSerializerDict` / `...DeserializerDict` job; the `dict <-> JSON string` is done in the worker interface (`json.dumps` wrapping `AddressBookContentSerializerDict` in the per-format dispatch table), since JSON is the framework's native format and there is deliberately no `...SerializerJson` class. `ContactExportFormat` is the single source of truth tying a format to its media type and file extension; the Accept negotiation lives in the API interface (`_negotiate_export_format`), the serialization in the worker interface (`InterfaceAgentContact`). Read access is checked at ACL VIEW level (synchronously at enqueue).
+Export runs *asynchronously* (a whole book can be large). The serialization is negotiated from the request `Accept` header *at enqueue time* (the worker has no HTTP context): `application/json` selects JSON, `text/ldif` selects LDIF, `text/vcard` selects vCard (3.0 by default, 4.0 when the header carries `version=4`), and an empty or `*/*` accept defaults to vCard 3.0 - the dialect every client (Apple, Google, Outlook) imports reliably, whereas vCard 4.0 imports blank in Apple Contacts. Any other explicit media type is answered `406 Not Acceptable` (`ERROR_CONTACT_EXPORT_FORMAT_UNSUPPORTED`). The resolved format (a `ContactExportFormat` member name) travels in the job payload; once the job succeeds, the caller fetches the document from `GET /jobs/\{job_id\}/result` (which serves it with its `Content-Type` and, with `?download=true`, a `Content-Disposition: attachment` filename). The JSON form is *portable*: a book - and likewise a single contact or list, as a one-item document, exactly as a single vCard is one card - is `{"contacts": [...], "lists": [...]}`. Like vCard / LDIF it is uid-keyed and carries no server-internal handle - the contact / list `key` and `addressbook_key` are stripped and a list's members are emitted as the member contacts' uids (not keys), so a re-import resolves membership by uid. The `AddressBookContent <-> dict` mapping is the `AddressBookContentSerializerDict` / `...DeserializerDict` job; the `dict <-> JSON string` is done in the worker interface (`json.dumps` wrapping `AddressBookContentSerializerDict` in the per-format dispatch table), since JSON is the framework's native format and there is deliberately no `...SerializerJson` class. `ContactExportFormat` is the single source of truth tying a format to its media type and file extension; the Accept negotiation lives in the API interface (`_negotiate_export_format`), the serialization in the worker interface (`InterfaceAgentContact`). Read access is checked at ACL VIEW level (synchronously at enqueue).
 
 `ModuleContact.enqueue_export` runs the book ACL/existence check then enqueues a single `contact.export` job carrying a `kind` discriminator. The worker exposes the serialization through `InterfaceAgentContact.export_document`, which calls `get_addressbook_content(user, key) -> AddressBookContent` (a `NamedTuple` of the book's contacts and lists) for the whole book, and `get_list_for_export(user, key, list_key) -> CardList` for a single list, then offloads the serialized document to the agent blob store. Photos are inlined as `data:` URIs so the document is self-contained, and a list's `member_contacts` are resolved from the book's contacts (no extra per-member query for the book export, which already holds them) because the group-card serializers emit members by their contact UID. A whole book is rendered by `AddressBookContentSerializerVcard` / `AddressBookContentSerializerLdif`; a single contact or list directly by the per-entity serializers (`CardContactSerializerVcard3/4` / `CardContactSerializerLdif`, `CardListSerializerVcard3/4` / `CardListSerializerLdif`).
 

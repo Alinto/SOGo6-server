@@ -1,0 +1,12 @@
+/* Change navbar background color */
+.navbar {
+  background-color: #56b04c !important;
+}
+
+.doc ul.checklist i.fa-check-square-o::before {
+  content: "\2705";
+}
+
+.doc ul.checklist i.fa-square-o::before {
+  content: "\2610";
+}

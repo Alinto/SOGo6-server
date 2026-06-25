@@ -1,0 +1,5 @@
+= SOGo6 — Documentation Admin
+
+== Introduction
+
+Hello
