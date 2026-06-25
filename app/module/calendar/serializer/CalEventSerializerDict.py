@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
 class CalEventSerializerDict(CalEventSerializer[dict]):
     """
-    Converts CalEvent objects to plain dicts matching the SOGo6 REST API schema.
+    Converts CalEvent objects to their plain dict representation.
     Datetimes are formatted as ISO 8601 UTC with millisecond precision (e.g. 2026-03-19T09:30:00.000Z).
     Enum values are serialized as their lowercase string representation.
     None values and empty lists are included as null / [] for predictable API responses.
@@ -35,7 +35,7 @@ class CalEventSerializerDict(CalEventSerializer[dict]):
         self._recurrence_rule_serializer = CalRecurrenceRuleSerializerDict()
 
     def serialize(self, data: CalEvent) -> dict[str, Any]:
-        """Convert a CalEvent to a plain dict matching the REST API schema."""
+        """Convert a CalEvent to its plain dict representation."""
         return {
             "key": data.key,
             "calendar_key": data.calendar_key,

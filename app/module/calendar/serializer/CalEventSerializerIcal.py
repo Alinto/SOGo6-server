@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 from icalendar import Alarm, Calendar, Component, Event, Todo, vBinary, vCalAddress, vRecur, vText
 
 from app.module.calendar.model.enums.ComponentType import ComponentType
-from app.module.calendar.serializer.IcalSerializerUtils import new_vcalendar
+from app.module.calendar.serializer.EnvelopeIcal import EnvelopeIcal
 from app.module.calendar.model.CalAttachment import CalAttachment
 from app.module.calendar.model.CalAttendee import CalAttendee
 from app.module.calendar.model.CalOrganizer import CalOrganizer
@@ -116,7 +116,7 @@ class CalEventSerializerIcal(CalEventSerializer[str]):
         The output uses CRLF line endings and 75-octet line folding. Serializing a whole
         calendar collection (with its calendar-level header) is CalCalendarSerializerIcal's job.
         """
-        cal: Calendar = new_vcalendar()
+        cal: Calendar = EnvelopeIcal.new_vcalendar()
         component = self.to_vtodo(event) if event.component_type == ComponentType.TASK else self.to_vevent(event)
         cal.add_component(component)
         return cal.to_ical().decode("utf-8")
@@ -126,7 +126,7 @@ class CalEventSerializerIcal(CalEventSerializer[str]):
 
         method should be one of REQUEST, REPLY, CANCEL, ADD, REFRESH, COUNTER, DECLINECOUNTER.
         """
-        cal: Calendar = new_vcalendar(method=method.upper())
+        cal: Calendar = EnvelopeIcal.new_vcalendar(method=method.upper())
         if event.component_type == ComponentType.TASK:
             cal.add_component(self._build_vtodo(event))
         else:

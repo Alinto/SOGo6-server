@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 
 class CardContactSerializerDict(CardContactSerializer[dict]):
-    """Converts a CardContact to a plain dict matching the SOGo6 REST API schema.
+    """Converts a CardContact to its plain dict representation.
 
     The same dict is reused by RepositoryContact as the persisted JSON blob, so it must carry
     every field needed to reconstruct the contact (the repository overrides the relational
@@ -32,7 +32,7 @@ class CardContactSerializerDict(CardContactSerializer[dict]):
         self._impp_serializer = CardImppSerializerDict()
 
     def serialize(self, data: CardContact) -> dict[str, Any]:
-        """Convert a CardContact to a plain dict matching the REST API schema."""
+        """Convert a CardContact to its plain dict representation."""
         return {
             "key": data.key,
             "addressbook_key": data.addressbook_key,

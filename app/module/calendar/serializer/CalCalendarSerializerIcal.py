@@ -7,7 +7,7 @@ from icalendar import Calendar
 
 from app.module.calendar.serializer.CalCalendarSerializer import CalCalendarSerializer
 from app.module.calendar.serializer.IcalConst import CALSCALE, PRODID
-from app.module.calendar.serializer.IcalSerializerUtils import new_vcalendar
+from app.module.calendar.serializer.EnvelopeIcal import EnvelopeIcal
 
 if TYPE_CHECKING:
     from app.module.calendar.model.CalCalendar import CalCalendar
@@ -32,7 +32,7 @@ class CalCalendarSerializerIcal(CalCalendarSerializer[str]):
 
     def serialize(self, calendar: CalCalendar) -> str:  # pylint: disable=arguments-renamed
         """Wrap the calendar's events in a VCALENDAR with its calendar-level header."""
-        cal: Calendar = new_vcalendar(
+        cal: Calendar = EnvelopeIcal.new_vcalendar(
             prodid=calendar.prodid or PRODID,
             calscale=calendar.calscale or CALSCALE,
             method=calendar.method,

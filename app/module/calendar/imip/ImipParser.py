@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import email as email_lib
-import re
 from email.message import Message
 from email.utils import getaddresses, parseaddr
 from typing import TYPE_CHECKING, cast
@@ -9,6 +8,7 @@ from typing import TYPE_CHECKING, cast
 from app.module.calendar.imip.ImipMessage import ImipMessage
 from app.module.calendar.imip.ImipMethod import ImipMethod
 from app.module.calendar.serializer.CalEventDeserializerIcal import CalEventDeserializerIcal
+from app.module.calendar.serializer.EnvelopeIcal import EnvelopeIcal
 from app.utils import errors as err
 from app.utils.exceptions import RequestException
 
@@ -105,11 +105,11 @@ class ImipParser:
         :return: The detected method, or None when absent or unsupported.
         """
         text: str = ical_bytes.decode("utf-8", errors="replace")
-        match = re.search(r'^METHOD:([A-Z]+)', text, re.MULTILINE)
-        if not match:
+        method: str | None = EnvelopeIcal.read_method(text)
+        if method is None:
             return None
         try:
-            return ImipMethod(match.group(1))
+            return ImipMethod(method)
         except ValueError:
             return None
 

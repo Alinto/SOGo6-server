@@ -2,6 +2,7 @@
 import pytest
 
 from app.module.contact.model.CardContact import CardContact
+from app.utils import errors as err
 from app.utils.exceptions import BugException, RequestException
 
 
@@ -56,8 +57,9 @@ def test_validate_ok():
 
 def test_validate_rejects_missing_display_name():
     contact = _contact()
-    with pytest.raises(RequestException):
+    with pytest.raises(RequestException) as exc_info:
         contact.validate()
+    assert exc_info.value.error == err.ERROR_CONTACT_DISPLAY_NAME_REQUIRED
 
 
 # ========== require_* ==========

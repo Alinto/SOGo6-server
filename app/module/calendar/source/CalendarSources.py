@@ -24,8 +24,10 @@ if TYPE_CHECKING:
 class CalendarSources:
     """Factory and lookup for CalendarSource instances.
 
-    Single entry point for all calendar access - ModuleCalendar never touches
-    RepositoryCalendar directly.
+    Entry point for per-calendar access and attendee propagation: the façade resolves a calendar to
+    a CalendarSource through here rather than wiring repositories itself. System-wide bulk sweeps
+    (reminder activation, external-sync discovery, purge) read their repositories directly, as they
+    operate across calendars rather than on a single resolved source.
     """
 
     def __init__(self, db: ClientSQL) -> None:
@@ -55,7 +57,7 @@ class CalendarSources:
         listings. Today it returns only calendars OWNED by user_uid. When calendar sharing lands,
         it must also surface calendars SHARED WITH user_uid (own + shared, read from
         sogo_calendar_shares) - that one change activates delegated access everywhere downstream
-        (owner resolution, event lookups, get_events/get_tasks), with per-calendar permissions then
+        (owner resolution, event lookups, get_all_events/get_all_tasks), with per-calendar permissions then
         enforced by CalendarAclEngine.
         """
         return [self.get(cal) for cal in self._repo_calendar.find_all(user_uid)]
@@ -101,7 +103,7 @@ class CalendarSources:
         cal = self._repo_calendar.find_by_share_token(share_token)
         return self.get(cal) if cal is not None else None
 
-    def get_events(
+    def get_all_events(
         self,
         user_uid: str,
         start: datetime | None = None,
@@ -118,10 +120,10 @@ class CalendarSources:
             source = self.get_by_key(user_uid, calendar_key)
             if source is None:
                 raise RequestException(error=err.ERROR_CALENDAR_NOT_FOUND)
-            return source.get_events(start, end, search)
+            return source.get_all_events(start, end, search)
         events: list[CalEvent] = []
         for source in self.get_all(user_uid):
-            events.extend(source.get_events(start, end, search))
+            events.extend(source.get_all_events(start, end, search))
         events.sort(key=lambda e: e.require_date_start)
         return events
 
@@ -140,11 +142,11 @@ class CalendarSources:
         for source in self.get_all(user_uid):
             if not source.calendar.include_in_freebusy:
                 continue
-            events.extend(source.get_events(start, end))
+            events.extend(source.get_all_events(start, end))
         events.sort(key=lambda e: e.require_date_start)
         return events
 
-    def get_tasks(
+    def get_all_tasks(
         self,
         user_uid: str,
         start: datetime | None = None,
@@ -161,10 +163,10 @@ class CalendarSources:
             source = self.get_by_key(user_uid, calendar_key)
             if source is None:
                 raise RequestException(error=err.ERROR_CALENDAR_NOT_FOUND)
-            return source.get_tasks(start, end, search)
+            return source.get_all_tasks(start, end, search)
         tasks: list[CalEvent] = []
         for source in self.get_all(user_uid):
-            tasks.extend(source.get_tasks(start, end, search))
+            tasks.extend(source.get_all_tasks(start, end, search))
         tasks.sort(key=lambda e: e.require_date_start)
         return tasks
 

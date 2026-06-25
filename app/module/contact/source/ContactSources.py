@@ -6,6 +6,7 @@ from app.config.db import tables as tbl
 from app.module.contact.model.enums.CardSourceType import CardSourceType
 from app.module.contact.repository.RepositoryAddressBook import RepositoryAddressBook
 from app.module.contact.repository.RepositoryContact import RepositoryContact
+from app.module.contact.repository.RepositoryContactList import RepositoryContactList
 from app.module.contact.source.ContactSourceDb import SORTABLE_COLUMNS, ContactSourceDb
 from app.utils import errors as err
 from app.utils.db.Condition import Order
@@ -15,6 +16,7 @@ from app.utils.logger.logger import logger_contact
 if TYPE_CHECKING:
     from app.config.settings.DomainSettings import UserSourceSettingsObj
     from app.manager.db.ClientSQL import ClientSQL
+    from app.manager.storage.ClientStorage import ClientStorage
     from app.module.contact.model.CardAddressBook import CardAddressBook
     from app.module.contact.model.CardContact import CardContact
     from app.module.contact.model.CardList import CardList
@@ -36,6 +38,21 @@ class ContactSources:
     def __init__(self, db: ClientSQL) -> None:
         self._db = db
         self._repo_addressbook = RepositoryAddressBook(db)
+
+    def purge_orphans(self, file_store: ClientStorage) -> int:
+        """Physically remove soft-deleted rows, dangling list memberships and orphan media; return total reclaimed.
+
+        Global sweep (not scoped to one book): deleting an address book detaches its contacts and lists
+        (addressbook_key NULL), so only an is_deleted purge reaches those tombstones. Orphan membership
+        rows and blobs no contact references any more are then reclaimed.
+        """
+        contact_repo: RepositoryContact = RepositoryContact(self._db)
+        list_repo: RepositoryContactList = RepositoryContactList(self._db)
+        purged: int = contact_repo.purge_deleted() + list_repo.purge_deleted()
+        purged += list_repo.purge_orphan_members(list_repo.all_keys(), contact_repo.all_keys())
+        referenced: set[str] = {value for value in contact_repo.all_photo_values() if file_store.is_reference(value)}
+        purged += file_store.purge_orphans(referenced)
+        return purged
 
     def get(self, addressbook: CardAddressBook, user_sources: dict[str, UserSourceSettingsObj] | None = None) -> ContactSource:
         """Return the appropriate ContactSource for the given address book.

@@ -4,6 +4,7 @@ from __future__ import annotations
 # short common patterns (e.g. "if not rows: return None") in unrelated files
 # can trigger the similarity checker against this module.
 import re
+from calendar import monthrange
 from datetime import date, datetime, time, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -66,6 +67,15 @@ def fmt_dt(dt: datetime) -> str:
         dt = dt.astimezone(timezone.utc)
     ms = dt.microsecond // 1000
     return dt.strftime("%Y-%m-%dT%H:%M:%S.") + f"{ms:03d}Z"
+
+
+def add_months(dt: datetime, months: int) -> datetime:
+    """Return dt shifted by the given number of months, clamping to the last day of the target month."""
+    total = dt.month - 1 + months
+    year = dt.year + total // 12
+    month = total % 12 + 1
+    day = min(dt.day, monthrange(year, month)[1])
+    return dt.replace(year=year, month=month, day=day)
 
 
 def apply_tz(dt: datetime, tz_name: str) -> str | None:

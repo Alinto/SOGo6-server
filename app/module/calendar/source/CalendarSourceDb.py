@@ -247,10 +247,7 @@ class CalendarSourceDb(CalendarSource):
             recurrence_id=event.recurrence_id,
         )
         for copy in other_copies:
-            for attendee in copy.attendees:
-                if attendee.email == attendee_email:
-                    attendee.status = status
-                    break
+            copy.set_attendance(attendee_email, status)
             try:
                 self._repo_event.update(copy, self._date_end_recurrence(copy))
             except RequestException:

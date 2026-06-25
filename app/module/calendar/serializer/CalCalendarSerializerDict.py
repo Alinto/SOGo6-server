@@ -8,7 +8,7 @@ from app.module.calendar.serializer.CalCalendarSerializer import CalCalendarSeri
 
 
 class CalCalendarSerializerDict(CalCalendarSerializer[dict]):
-    """Converts a CalCalendar to a plain dict matching the SOGo6 REST API schema."""
+    """Converts a CalCalendar to its plain dict representation."""
 
     def __init__(self) -> None:
         self._permissions_serializer = CalendarPermissionsSerializerDict()

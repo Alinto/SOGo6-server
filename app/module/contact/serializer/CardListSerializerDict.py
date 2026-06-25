@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 
 
 class CardListSerializerDict(CardListSerializer[dict]):
-    """Converts a CardList to a plain dict matching the SOGo6 REST API schema.
+    """Converts a CardList to its plain dict representation.
 
     Members are exposed as the list of member contact keys (references), with member_count for a
     cheap size readout; resolving each member to a full contact is the caller's concern. Timestamps

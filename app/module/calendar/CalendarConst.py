@@ -106,13 +106,13 @@ REMINDER_EMAIL_WHEN_LABEL: str = "When"
 REMINDER_EMAIL_WHERE_LABEL: str = "Where"
 REMINDER_EMAIL_DEFAULT_TITLE: str = "Event"  # fallback when the event has no title
 
-# When a non-organizer attendee PATCHes an event they received, the server compares the body to the
-# stored copy and rejects (403 / S000618) any change to organizer-owned content. This is only correct
-# if the client sends a faithful/minimal body: a full-body client that echoes an occurrence's date or
-# drops EXDATE will trigger a FALSE rejection. The proper fix is a minimal PATCH on the client (only
-# the changed fields), so this flag stays True.
+# When a non-organizer attendee modifies an event they received, the server compares the submitted
+# event to the stored copy and rejects (ERROR_CALENDAR_NOT_ORGANIZER) any change to organizer-owned
+# content. This is only correct when the submission carries just the changed fields: an update that
+# re-states the whole event (echoing an occurrence's date, or dropping EXDATE) triggers a FALSE
+# rejection. The intended usage is a minimal update (only the changed fields), so this flag stays True.
 # Set to False to instead silently keep only the attendee's personal fields (reminders, conference
-# data) and ignore any organizer-content drift - lenient toward full-body clients, but a genuine
+# data) and ignore any organizer-content drift - lenient toward whole-event submissions, but a genuine
 # content change by an attendee is then dropped with no feedback. This flag is the server-side safety
 # net for the tolerant behavior.
 REJECT_ATTENDEE_CONTENT_CHANGE: bool = True

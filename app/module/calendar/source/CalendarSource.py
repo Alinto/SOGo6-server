@@ -41,7 +41,7 @@ class CalendarSource(ABC):  # pylint: disable=too-many-public-methods
         """The calendar associated with this source."""
         return self._calendar
 
-    def get_events(
+    def get_all_events(
         self,
         start: datetime | None = None,
         end: datetime | None = None,
@@ -70,7 +70,7 @@ class CalendarSource(ABC):  # pylint: disable=too-many-public-methods
         """
         raise NotImplementedError
 
-    def get_tasks(
+    def get_all_tasks(
         self,
         start: datetime | None = None,
         end: datetime | None = None,
@@ -79,7 +79,7 @@ class CalendarSource(ABC):  # pylint: disable=too-many-public-methods
     ) -> list[CalEvent]:
         """Return tasks (VTODO) overlapping [start, end], sorted by date_start ASC.
 
-        Same resolution and filtering pipeline as :meth:`get_events`, applied to VTODO
+        Same resolution and filtering pipeline as :meth:`get_all_events`, applied to VTODO
         components. ``expand`` has the same meaning.
         """
         return self._collect(self._fetch_tasks, start, end, search, expand)
@@ -92,7 +92,7 @@ class CalendarSource(ABC):  # pylint: disable=too-many-public-methods
         search: str | None,
         expand: bool,
     ) -> list[CalEvent]:
-        """Shared pipeline for get_events / get_tasks: resolve bounds, fetch, optionally expand, filter, sort."""
+        """Shared pipeline for the listing getters: resolve bounds, fetch, optionally expand, filter, sort."""
         resolved_start: datetime = start if start is not None else _DEFAULT_START
         if end is not None:
             resolved_end: datetime = end

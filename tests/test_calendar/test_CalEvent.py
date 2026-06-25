@@ -149,6 +149,20 @@ def test_is_attending_true_for_non_attendee_identity():
     assert event.is_attending("organizer@example.com") is True
 
 
+# ========== set_attendance ==========
+
+def test_set_attendance_updates_matching_attendee():
+    event = _make_event(attendees=[_att("bob@example.com", AttendeeStatus.NEEDS_ACTION)])
+    assert event.set_attendance("bob@example.com", AttendeeStatus.ACCEPTED) is True
+    assert event.attendees[0].status == AttendeeStatus.ACCEPTED
+
+
+def test_set_attendance_returns_false_when_not_an_attendee():
+    event = _make_event(attendees=[_att("bob@example.com", AttendeeStatus.NEEDS_ACTION)])
+    assert event.set_attendance("someone@example.com", AttendeeStatus.ACCEPTED) is False
+    assert event.attendees[0].status == AttendeeStatus.NEEDS_ACTION
+
+
 # ========== has_scheduling_changes ==========
 
 def test_has_scheduling_changes_on_move():

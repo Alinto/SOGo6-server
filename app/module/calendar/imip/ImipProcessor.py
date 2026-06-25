@@ -96,10 +96,8 @@ class ImipProcessor:
         source, event = self._find_writable_source_by_uid(owner, message.event.require_uid)
 
         reply_by_email: dict[str, CalAttendee] = {a.email: a for a in message.event.attendees}
-        for attendee in event.attendees:
-            if attendee.email == from_email and attendee.email in reply_by_email:
-                attendee.status = reply_by_email[attendee.email].status
-                break
+        if from_email in reply_by_email:
+            event.set_attendance(from_email, reply_by_email[from_email].status)
 
         return source.update_event_or_fail(event, "processing iMIP reply")
 

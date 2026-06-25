@@ -3,6 +3,7 @@ from datetime import date, datetime, time, timezone
 from zoneinfo import ZoneInfo
 
 from app.utils.datetime.DateTimeUtils import (
+    add_months,
     anchor_to_utc,
     combine_in_tz_to_utc,
     normalize_partial_date,
@@ -71,3 +72,13 @@ def test_combine_in_tz_to_utc_applies_offset():
 def test_combine_in_tz_to_utc_with_utc_zone():
     result = combine_in_tz_to_utc(date(2026, 6, 1), time(23, 59, 59), ZoneInfo("UTC"))
     assert result == datetime(2026, 6, 1, 23, 59, 59, tzinfo=_UTC)
+
+
+def test_add_months_forward_and_back():
+    assert add_months(datetime(2026, 6, 15, 9, tzinfo=_UTC), 9) == datetime(2027, 3, 15, 9, tzinfo=_UTC)
+    assert add_months(datetime(2026, 6, 15, 9, tzinfo=_UTC), -3) == datetime(2026, 3, 15, 9, tzinfo=_UTC)
+
+
+def test_add_months_clamps_to_last_day():
+    # Jan 31 + 1 month -> Feb 28 (2026 is not a leap year), not an invalid Feb 31.
+    assert add_months(datetime(2026, 1, 31, tzinfo=_UTC), 1) == datetime(2026, 2, 28, tzinfo=_UTC)

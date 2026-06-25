@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import calendar
 from dataclasses import replace
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
@@ -24,12 +23,14 @@ from app.module.calendar.model.CalOrganizer import CalOrganizer
 from app.module.calendar.model.enums.AttendeeStatus import AttendeeStatus
 from app.module.calendar.model.enums.CalendarSourceType import CalendarSourceType
 from app.module.calendar.model.enums.CalendarSyncStatus import CalendarSyncStatus
-from app.module.calendar.model.enums.EventVisibility import EventVisibility
 from app.module.calendar.model.enums.ReminderMethod import ReminderMethod
 from app.module.calendar.model.CalFreeBusyResult import CalFreeBusyResult
+from app.module.calendar.serializer.CalCalendarDeserializerDict import CalCalendarDeserializerDict
 from app.module.calendar.serializer.CalEventDeserializerDict import CalEventDeserializerDict
 from app.module.calendar.serializer.CalEventSerializerDict import CalEventSerializerDict
 from app.module.calendar.serializer.CalEventsSerializerDict import CalEventsSerializerDict
+from app.module.calendar.serializer.CalTaskDeserializerDict import CalTaskDeserializerDict
+from app.module.calendar.serializer.CalTaskSerializerDict import CalTaskSerializerDict
 from app.module.calendar.serializer.CalCalendarSerializerDict import CalCalendarSerializerDict
 from app.module.calendar.serializer.CalCalendarsSerializerList import CalCalendarsSerializerList
 from app.module.calendar.serializer.CalEventReminderSerializerDict import CalEventReminderSerializerDict
@@ -38,6 +39,7 @@ from app.module.calendar.serializer.CalSyncStatusSerializerDict import CalSyncSt
 from app.module.user.ModuleUserProfile import ModuleUserProfile
 from app.service import sogo_agent, sogo_cache
 from app.utils.api.ApiBaseResponse import create_api_base_response
+from app.utils.datetime.DateTimeUtils import add_months
 from app.utils.errors import ERROR_CALENDAR_JSON_PARSE_FAILED
 from app.utils.exceptions import RequestException
 from app.utils.strings import get_domain_from_mail
@@ -59,15 +61,6 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
 
     _PUBLIC_SUBSCRIPTION_ENDPOINT: str = "user#Calendar.v1_Calendar.Calendar.ApiCalendarPublicSubscription"
 
-    @staticmethod
-    def _add_months(dt: datetime, months: int) -> datetime:
-        """Return dt shifted by the given number of months, clamping to the last day if needed."""
-        total = dt.month - 1 + months
-        year = dt.year + total // 12
-        month = total % 12 + 1
-        day = min(dt.day, calendar.monthrange(year, month)[1])
-        return dt.replace(year=year, month=month, day=day)
-
     def __init__(self, process_setting: ProcessSetting, user_domain_settings: dict, user: User) -> None:
         self.user: User = user
         self._process_setting: ProcessSetting = process_setting
@@ -81,6 +74,9 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         self._events_serializer: CalEventsSerializerDict = CalEventsSerializerDict()
         self._event_serializer: CalEventSerializerDict = CalEventSerializerDict()
         self._event_deserializer: CalEventDeserializerDict = CalEventDeserializerDict()
+        self._task_serializer: CalTaskSerializerDict = CalTaskSerializerDict()
+        self._task_deserializer: CalTaskDeserializerDict = CalTaskDeserializerDict()
+        self._calendar_deserializer: CalCalendarDeserializerDict = CalCalendarDeserializerDict()
         self._calendar_serializer: CalCalendarSerializerDict = CalCalendarSerializerDict()
         self._calendars_serializer: CalCalendarsSerializerList = CalCalendarsSerializerList()
         self._freebusy_serializer: CalFreeBusyResultSerializerDict = CalFreeBusyResultSerializerDict()
@@ -174,19 +170,10 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         anchor for floating-time events imported later.
         """
         try:
-            default_type_raw: str | None = body.get("default_type")
-            cal: CalCalendar = CalCalendar(
-                user_uid=self.user.uid,
-                name=body["name"],
-                color=body.get("color"),
-                description=body.get("description"),
-                timezone=body.get("timezone") or self._user_timezone(self.user.uid),
-                source_type=CalendarSourceType.LOCAL,
-                include_in_freebusy=body.get("include_in_freebusy", True),
-                default_event_duration_min=body.get("default_event_duration_min"),
-                default_alarm_duration_min=body.get("default_alarm_duration_min"),
-                default_type=EventVisibility(default_type_raw) if default_type_raw else None,
-            )
+            cal: CalCalendar = self._calendar_deserializer.deserialize(body)
+            cal.source_type = CalendarSourceType.LOCAL
+            if not body.get("timezone"):
+                cal.timezone = self._user_timezone(self.user.uid)
             created: CalCalendar = self.module.create_calendar(self.user, cal)
             return create_api_base_response(self._calendar_serializer.serialize(created), code=201)
         except RequestException as ex:
@@ -196,8 +183,9 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
     def update_calendar(self, key: str, body: dict[str, Any]) -> tuple[dict[str, Any], int]:
         """Update an existing calendar."""
         try:
-            updates: dict[str, Any] = self._normalize_calendar_updates(body)
-            updated: CalCalendar = self.module.update_calendar(self.user, key, updates)
+            source: CalendarSource = self.module.get_calendar(self.user, key)
+            merged: CalCalendar = self._calendar_deserializer.deserialize_with_update(source.calendar, body)
+            updated: CalCalendar = self.module.update_calendar(self.user, key, merged)
             return create_api_base_response(self._calendar_serializer.serialize(updated))
         except RequestException as ex:
             logger_api.error("update_calendar failed for user %s key %s: %s", self.user.uid, key, ex)
@@ -338,7 +326,7 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
                 start = datetime(today.year, today.month, today.day, 0, 0, 0, tzinfo=timezone.utc)
                 end = datetime(today.year, today.month, today.day, 23, 59, 59, tzinfo=timezone.utc)
             calendar_user: CalendarUser = self._calendar_user_for(key) if key else CalendarUser(user=self.user, owner=self.user)
-            events: list[CalEvent] = self.module.get_events(calendar_user, start, end, search, key)
+            events: list[CalEvent] = self.module.get_all_events(calendar_user, start, end, search, key)
             event_list: list[dict[str, Any]] = self._events_serializer.serialize(events)
             return create_api_base_response({"events": event_list, "total_count": len(event_list)})
         except RequestException as ex:
@@ -362,12 +350,12 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         """
         try:
             now = datetime.now(timezone.utc)
-            start: datetime = query_args.get("start_date_time") or self._add_months(now, -3)
-            end: datetime = query_args.get("end_date_time") or self._add_months(now, 9)
+            start: datetime = query_args.get("start_date_time") or add_months(now, -3)
+            end: datetime = query_args.get("end_date_time") or add_months(now, 9)
             search: str | None = query_args.get("search")
             calendar_user: CalendarUser = self._calendar_user_for(key) if key else CalendarUser(user=self.user, owner=self.user)
-            tasks: list[CalEvent] = self.module.get_tasks(calendar_user, start, end, search, key)
-            task_list: list[dict[str, Any]] = [self._serialize_task(t) for t in tasks]
+            tasks: list[CalEvent] = self.module.get_all_tasks(calendar_user, start, end, search, key)
+            task_list: list[dict[str, Any]] = [self._task_serializer.serialize(t) for t in tasks]
             return create_api_base_response({"tasks": task_list, "total_count": len(task_list)})
         except RequestException as ex:
             logger_api.error("get_tasks failed for user %s, calendar %s: %s", self.user.uid, key, ex)
@@ -376,10 +364,9 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
     def create_task(self, calendar_key: str, body: dict[str, Any]) -> tuple[dict[str, Any], int]:
         """Create a new VTODO in the given calendar."""
         try:
-            task_body: dict[str, Any] = self._normalize_task_body(body)
-            task: CalEvent = self._event_deserializer.deserialize(task_body)
+            task: CalEvent = self._task_deserializer.deserialize(body)
             created: CalEvent = self.module.create_task(self._calendar_user_for(calendar_key), calendar_key, task)
-            return create_api_base_response(self._serialize_task(created), code=201)
+            return create_api_base_response(self._task_serializer.serialize(created), code=201)
         except RequestException as ex:
             logger_api.error("create_task failed for user %s calendar %s: %s", self.user.uid, calendar_key, ex)
             return create_api_base_response(None, ex.error)
@@ -391,7 +378,7 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         """Get a single VTODO by key."""
         try:
             task: CalEvent = self.module.get_task(self._event_user_for(task_key), task_key)
-            return create_api_base_response(self._serialize_task(task))
+            return create_api_base_response(self._task_serializer.serialize(task))
         except RequestException as ex:
             logger_api.error("get_task failed for user %s task %s: %s", self.user.uid, task_key, ex)
             return create_api_base_response(None, ex.error)
@@ -399,14 +386,11 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
     def patch_task(self, task_key: str, body: dict[str, Any]) -> tuple[dict[str, Any], int]:
         """Apply partial updates to a VTODO."""
         try:
-            if "date_due" in body:
-                body = dict(body)
-                body["date_end"] = body.pop("date_due")
             calendar_user: CalendarUser = self._event_user_for(task_key)
             existing: CalEvent = self.module.get_task(calendar_user, task_key)
-            task_update: CalEvent = self._event_deserializer.deserialize_with_update(existing, body)
+            task_update: CalEvent = self._task_deserializer.deserialize_with_update(existing, body)
             updated: CalEvent = self.module.update_task(calendar_user, task_key, task_update)
-            return create_api_base_response(self._serialize_task(updated))
+            return create_api_base_response(self._task_serializer.serialize(updated))
         except RequestException as ex:
             logger_api.error("patch_task failed for user %s task %s: %s", self.user.uid, task_key, ex)
             return create_api_base_response(None, ex.error)
@@ -645,32 +629,3 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         domain: str = get_domain_from_mail(user_uid) or ""
         raw: dict = config_module.get_one_domain_setting(domain)["settings"]
         return CalendarContactSettingsObj(raw[CalendarContactSettings.subparent])
-
-    @staticmethod
-    def _normalize_calendar_updates(body: dict[str, Any]) -> dict[str, Any]:
-        """Convert API-format calendar update fields into model values (default_type string -> enum)."""
-        updates: dict[str, Any] = dict(body)
-        if "default_type" in updates:
-            raw = updates["default_type"]
-            updates["default_type"] = EventVisibility(raw) if raw else None
-        return updates
-
-    @staticmethod
-    def _normalize_task_body(body: dict[str, Any]) -> dict[str, Any]:
-        """Map task API fields to CalEvent fields and fill required defaults."""
-        now_iso: str = datetime.now(timezone.utc).isoformat()
-        task_body: dict[str, Any] = dict(body)
-        task_body["date_start"] = task_body.get("date_start") or now_iso
-        task_body["date_end"] = task_body.pop("date_due", None)
-        task_body["component_type"] = "task"
-        return task_body
-
-    def _serialize_task(self, task: CalEvent) -> dict[str, Any]:
-        """Serialize a VTODO: the event serializer emits date_end, surfaced here as ``date_due``.
-
-        Inverse of :meth:`_normalize_task_body`. A task without a due date has date_end=None,
-        so ``date_due`` comes out null.
-        """
-        result: dict[str, Any] = self._event_serializer.serialize(task)
-        result["date_due"] = result.pop("date_end", None)
-        return result

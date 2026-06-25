@@ -124,10 +124,10 @@ def _build_module(sources: dict):
             source = sources.get(calendar_key)
             if source is None:
                 raise RequestException(error=err.ERROR_CALENDAR_NOT_FOUND)
-            return source.get_events(start, end, search)
-        return [e for s in sources.values() for e in s.get_events(start, end, search)]
+            return source.get_all_events(start, end, search)
+        return [e for s in sources.values() for e in s.get_all_events(start, end, search)]
 
-    sources_mock.get_events.side_effect = _get_events
+    sources_mock.get_all_events.side_effect = _get_events
     module._sources = sources_mock
     module._imip = ImipProcessor(sources_mock)
     module._db = MagicMock()
@@ -442,7 +442,7 @@ def test_get_events_date_range_too_large_raises():
     end = datetime(2026, 3, 1, tzinfo=_UTC)
     assert (end - start).days > MAX_EVENT_FETCH_DAYS
     with pytest.raises(RequestException) as exc_info:
-        module.get_events(_fake_user(), start, end, None, "cal-key")
+        module.get_all_events(_fake_user(), start, end, None, "cal-key")
     assert exc_info.value.error == err.ERROR_CALENDAR_DATE_RANGE_TOO_LARGE
 
 
@@ -452,7 +452,7 @@ def test_get_events_search_bypasses_date_range_limit():
     start = datetime(2026, 1, 1, tzinfo=_UTC)
     end = datetime(2027, 1, 1, tzinfo=_UTC)
     assert (end - start).days > MAX_EVENT_FETCH_DAYS
-    results = module.get_events(_fake_user(), start, end, "meeting", "cal-key")
+    results = module.get_all_events(_fake_user(), start, end, "meeting", "cal-key")
     assert results is not None
 
 
@@ -462,7 +462,7 @@ def test_get_events_no_key_merges_all_calendars():
     source_a = _make_source("cal-a", events=[evt1])
     source_b = _make_source("cal-b", events=[evt2])
     module = _build_module({"cal-a": source_a, "cal-b": source_b})
-    results = module.get_events(_fake_user(), None, None, None)
+    results = module.get_all_events(_fake_user(), None, None, None)
     assert len(results) == 2
     keys = {e.key for e in results}
     assert keys == {"e1", "e2"}
@@ -470,7 +470,7 @@ def test_get_events_no_key_merges_all_calendars():
 
 def test_get_events_no_key_unknown_calendar_not_raised():
     module = _build_module({})
-    results = module.get_events(_fake_user(), None, None, None)
+    results = module.get_all_events(_fake_user(), None, None, None)
     assert results == []
 
 
@@ -479,7 +479,7 @@ def test_get_events_applies_acl_masking():
     source = _make_source("cal-key", events=[event])
     module = _build_module({"cal-key": source})
     module._acl.sanitize_listing.side_effect = lambda calendar_user, items, calendars: []  # ACL hides everything
-    results = module.get_events(_fake_user(), None, None, None, "cal-key")
+    results = module.get_all_events(_fake_user(), None, None, None, "cal-key")
     assert results == []
 
 
