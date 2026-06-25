@@ -56,7 +56,7 @@ class CalEvent:  # pylint: disable=too-many-instance-attributes,invalid-name,too
     description: str | None = None
     # RFC 5545 §3.8.1.7 (LOCATION)
     location: str | None = None
-    # RFC 5545 §3.8.8.3 (URL)
+    # RFC 5545 §3.8.4.6 (URL)
     url: str | None = None
     # RFC 5545 §3.8.1.11 (STATUS - CONFIRMED, TENTATIVE, CANCELLED)
     status: EventStatus = field(default=EventStatus.UNDEFINED)
@@ -70,7 +70,7 @@ class CalEvent:  # pylint: disable=too-many-instance-attributes,invalid-name,too
     sequence: int = 0
     # RFC 5545 §3.8.1.9 (PRIORITY) - 0 = undefined, 1 = highest, 9 = lowest
     priority: int = 0
-    # RFC 5545 §3.7.3 (DTSTAMP) - required in every component
+    # RFC 5545 §3.8.7.2 (DTSTAMP) - required in every component
     dtstamp: datetime | None = None
 
     # RFC 5545 §3.8.4.3 (ORGANIZER)
@@ -137,7 +137,7 @@ class CalEvent:  # pylint: disable=too-many-instance-attributes,invalid-name,too
     })
 
     # Fields each attendee owns on their own copy (their VALARM and conference data). An attendee who
-    # is not the organizer may edit only these; the organizer never propagates them (RFC 6638 §3.2.1).
+    # is not the organizer may edit only these; the organizer never propagates them (RFC 6638 §3.2.2.1).
     _PERSONAL_FIELDS: ClassVar[frozenset[str]] = frozenset({"reminders", "conference_data"})
 
     def apply_defaults(
