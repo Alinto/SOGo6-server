@@ -197,6 +197,11 @@ check_count() {
     local got; got=$(body | jq -r "$path | length")
     [ "$got" = "$want" ] && ok "$label count=$want" || fail "$label - expected $want, got $got"
 }
+check_error_code() {
+    local label="$1" want="$2"
+    local got; got=$(body | jq -r '.error_code // empty')
+    [ "$got" = "$want" ] && ok "$label ($want)" || fail "$label - expected error_code $want, got '$got'"
+}
 
 if ! command -v jq &>/dev/null; then
     echo "jq is required (brew install jq)"; exit 1
@@ -2378,7 +2383,8 @@ step "86. Export/Import - run the async export job and verify content"
 info "GET /export enqueues an Agent job; poll GET /jobs/<id> until success, then download the result."
 
 EXP_ICS_FILE=$(mktemp)
-trap 'rm -f "$EXP_ICS_FILE"' EXIT
+# Keep the original TMPFILE cleanup: a bare EXIT trap here would replace it, not add to it.
+trap 'rm -f "$TMPFILE" "$EXP_ICS_FILE"' EXIT
 
 # 1. Enqueue the export - returns a job_id (202), not the ICS.
 CODE=$(req "$BASE/calendars/$EXP_CAL_KEY/export" -H "$H_AUTH")
@@ -2654,23 +2660,33 @@ check_field ".data.default_type"               "private"
 DEF_CAL_KEY=$(extract '.data.key')
 info "Defaults calendar key: $DEF_CAL_KEY"
 
+# The free/busy exclusion/inclusion checks below are written as DELTAS against this baseline, not as
+# absolute counts: re-running without -d leaves events in the DB, so an absolute "== 0 / == 1" would
+# false-fail on the next run. The per-run year reduces noise; the delta is what makes it robust (and
+# still catches a real exclusion bug: a leaked excluded event would change the delta).
+FB_DATE="$((2027 + ($$ % 70)))-01-15"
+CODE=$(req -X POST "$BASE/freebusy" -H "$H_JSON" -H "$H_AUTH" \
+    -d "{\"target_uids\": [\"$LOGIN_1\"], \"start\": \"${FB_DATE}T00:00:00Z\", \"end\": \"${FB_DATE}T23:59:59Z\"}")
+FB_BASE=$(body | jq -r --arg uid "$LOGIN_1" '.data.attendees[$uid].periods | length')
+info "Free/busy baseline on $FB_DATE before this run adds events: $FB_BASE busy period(s)"
+
 
 step "99. Calendar defaults - new event inherits duration, type and alarm offset"
 info "Event sent without date_end, without visibility, with an alarm lacking minutes_before. The server fills all three from the calendar defaults."
 
 CODE=$(req -X POST "$BASE/calendars/$DEF_CAL_KEY/events" \
     -H "$H_JSON" -H "$H_AUTH" \
-    -d '{
-        "title": "Inherits Defaults",
-        "date_start": "2027-01-15T09:00:00Z",
-        "reminders": [{"method": "popup"}]
-    }')
+    -d "{
+        \"title\": \"Inherits Defaults\",
+        \"date_start\": \"${FB_DATE}T09:00:00Z\",
+        \"reminders\": [{\"method\": \"popup\"}]
+    }")
 check_code  "POST /events (defaults applied)" "$CODE" "201"
 check_error "POST /events (defaults applied) error_code"
 DEND=$(extract '.data.date_end')
 case "$DEND" in
-    2027-01-15T09:45:00*) ok "date_end derived from default duration ($DEND)" ;;
-    *) fail "date_end not derived from default duration - got '$DEND' (expected 2027-01-15T09:45:00*)" ;;
+    ${FB_DATE}T09:45:00*) ok "date_end derived from default duration ($DEND)" ;;
+    *) fail "date_end not derived from default duration - got '$DEND' (expected ${FB_DATE}T09:45:00*)" ;;
 esac
 check_field ".data.visibility"                  "private"
 check_field ".data.reminders[0].minutes_before" "25"
@@ -2679,19 +2695,19 @@ info "Defaults event key: $DEF_EVT_KEY"
 
 
 step "100. Calendar defaults - free/busy excludes an include_in_freebusy=false calendar"
-info "LOGIN_1 self free/busy on 2027-01-15 must be empty: the only event that day lives in the excluded calendar."
+info "The event added in step 99 lives in the excluded calendar, so the busy-period count must not change versus the baseline."
 
 CODE=$(req -X POST "$BASE/freebusy" \
     -H "$H_JSON" -H "$H_AUTH" \
     -d "{
         \"target_uids\": [\"$LOGIN_1\"],
-        \"start\": \"2027-01-15T00:00:00Z\",
-        \"end\":   \"2027-01-15T23:59:59Z\"
+        \"start\": \"${FB_DATE}T00:00:00Z\",
+        \"end\":   \"${FB_DATE}T23:59:59Z\"
     }")
 check_code  "POST /freebusy (exclusion)" "$CODE" "200"
 check_error "POST /freebusy (exclusion) error_code"
 FB_EXCL=$(body | jq -r --arg uid "$LOGIN_1" '.data.attendees[$uid].periods | length')
-[ "$FB_EXCL" = "0" ] && ok "excluded calendar contributes no busy period (count=0)" || fail "excluded calendar leaked $FB_EXCL period(s) into free/busy"
+[ "$FB_EXCL" = "$FB_BASE" ] && ok "excluded calendar adds no busy period (still $FB_BASE)" || fail "excluded calendar leaked a period (baseline $FB_BASE -> $FB_EXCL)"
 
 
 step "101. Calendar defaults - free/busy still reflects an included calendar"
@@ -2699,12 +2715,12 @@ info "An event the same day in the main (included) calendar must appear, proving
 
 CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
     -H "$H_JSON" -H "$H_AUTH" \
-    -d '{
-        "title": "Counts In FreeBusy",
-        "date_start": "2027-01-15T11:00:00Z",
-        "date_end":   "2027-01-15T12:00:00Z",
-        "show_as": "busy"
-    }')
+    -d "{
+        \"title\": \"Counts In FreeBusy\",
+        \"date_start\": \"${FB_DATE}T11:00:00Z\",
+        \"date_end\":   \"${FB_DATE}T12:00:00Z\",
+        \"show_as\": \"busy\"
+    }")
 check_code "POST /events (included calendar)" "$CODE" "201"
 INCL_EVT_KEY=$(extract '.data.key')
 
@@ -2712,12 +2728,13 @@ CODE=$(req -X POST "$BASE/freebusy" \
     -H "$H_JSON" -H "$H_AUTH" \
     -d "{
         \"target_uids\": [\"$LOGIN_1\"],
-        \"start\": \"2027-01-15T00:00:00Z\",
-        \"end\":   \"2027-01-15T23:59:59Z\"
+        \"start\": \"${FB_DATE}T00:00:00Z\",
+        \"end\":   \"${FB_DATE}T23:59:59Z\"
     }")
 check_code "POST /freebusy (inclusion)" "$CODE" "200"
 FB_INCL=$(body | jq -r --arg uid "$LOGIN_1" '.data.attendees[$uid].periods | length')
-[ "$FB_INCL" = "1" ] && ok "only the included calendar's event appears (count=1)" || fail "expected exactly 1 busy period (included only), got $FB_INCL"
+FB_EXPECTED=$((FB_EXCL + 1))
+[ "$FB_INCL" = "$FB_EXPECTED" ] && ok "the included calendar's event adds exactly one busy period ($FB_EXCL -> $FB_INCL)" || fail "expected one more busy period than the excluded case ($FB_EXPECTED), got $FB_INCL"
 
 
 step "102. Calendar defaults - cleanup"
@@ -2890,6 +2907,118 @@ else
     info "L2: freebusy=$FB_L2_EVT  calendar=$CAL_KEY_2"
     info "L3: event=$FB_L3_EVT  calendar=$CAL_KEY_3"
 fi
+
+step "N1. Negative - authentication required (401)"
+info "A protected endpoint must reject a request that carries no bearer token."
+
+CODE=$(req "$BASE/calendars")
+check_code "GET /calendars without token" "$CODE" "401"
+# NOTE: a malformed token (e.g. "Bearer garbage") currently returns 500, not 401, because the auth
+# voucher only catches ExpiredSignatureError. Not asserted here - it is an auth-layer bug, not a
+# calendar one. See the report to the auth owner.
+
+
+step "N2. Negative - tenant isolation (other user's resources resolve to 404)"
+info "LOGIN_1 creates an event; LOGIN_2 must not reach it (or LOGIN_1's calendar) by key - the lookup is scoped to the caller's own calendars, so it is a plain 404, never another user's data."
+
+CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d '{"title": "Private L1", "date_start": "2026-08-01T09:00:00Z", "date_end": "2026-08-01T10:00:00Z"}')
+check_code "POST /events (LOGIN_1 private)" "$CODE" "201"
+NEG_EVT=$(extract '.data.key')
+
+CODE=$(req "$BASE/events/$NEG_EVT" -H "$H_AUTH_2")
+check_code "GET LOGIN_1 event as LOGIN_2 -> 404" "$CODE" "404"
+
+CODE=$(req -X PATCH "$BASE/events/$NEG_EVT" -H "$H_JSON" -H "$H_AUTH_2" -d '{"title": "hijack"}')
+check_code "PATCH LOGIN_1 event as LOGIN_2 -> 404" "$CODE" "404"
+
+CODE=$(req -X DELETE "$BASE/events/$NEG_EVT" -H "$H_AUTH_2")
+check_code "DELETE LOGIN_1 event as LOGIN_2 -> 404" "$CODE" "404"
+
+CODE=$(req "$BASE/calendars/$CAL_KEY" -H "$H_AUTH_2")
+check_code "GET LOGIN_1 calendar as LOGIN_2 -> 404" "$CODE" "404"
+
+
+step "N3. Negative - unknown keys on write verbs (404)"
+info "PATCH/DELETE/GET against keys that do not exist must 404, not 500 or a silent success."
+
+CODE=$(req -X PATCH "$BASE/events/does-not-exist" -H "$H_JSON" -H "$H_AUTH" -d '{"title": "x"}')
+check_code "PATCH /events/unknown" "$CODE" "404"
+CODE=$(req -X DELETE "$BASE/events/does-not-exist" -H "$H_AUTH")
+check_code "DELETE /events/unknown" "$CODE" "404"
+CODE=$(req "$BASE/tasks/does-not-exist" -H "$H_AUTH")
+check_code "GET /tasks/unknown" "$CODE" "404"
+CODE=$(req -X PATCH "$BASE/tasks/does-not-exist" -H "$H_JSON" -H "$H_AUTH" -d '{"title": "x"}')
+check_code "PATCH /tasks/unknown" "$CODE" "404"
+CODE=$(req -X DELETE "$BASE/tasks/does-not-exist" -H "$H_AUTH")
+check_code "DELETE /tasks/unknown" "$CODE" "404"
+CODE=$(req -X PATCH "$BASE/calendars/does-not-exist" -H "$H_JSON" -H "$H_AUTH" -d '{"name": "x"}')
+check_code "PATCH /calendars/unknown" "$CODE" "404"
+CODE=$(req -X DELETE "$BASE/calendars/does-not-exist" -H "$H_AUTH")
+check_code "DELETE /calendars/unknown" "$CODE" "404"
+CODE=$(req "$BASE/external-calendars/does-not-exist" -H "$H_AUTH")
+check_code "GET /external-calendars/unknown" "$CODE" "404"
+CODE=$(req -X DELETE "$BASE/external-calendars/does-not-exist" -H "$H_AUTH")
+check_code "DELETE /external-calendars/unknown" "$CODE" "404"
+
+
+step "N4. Negative - request body validation (422)"
+info "Marshmallow / deserializer validation must reject bad enums, malformed dates, out-of-range numbers and bad URLs with a 4xx, not persist them."
+
+CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d '{"title": "Bad Status", "date_start": "2026-08-02T09:00:00Z", "date_end": "2026-08-02T10:00:00Z", "status": "not-a-status"}')
+check_code "POST /events invalid status enum" "$CODE" "422"
+
+CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d '{"title": "Bad Date", "date_start": "not-a-date", "date_end": "2026-08-02T10:00:00Z"}')
+check_code      "POST /events malformed date_start" "$CODE" "422"
+check_error_code "POST /events malformed date_start error_code" "S000611"
+
+CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/tasks" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d '{"title": "Bad Priority", "priority": 42}')
+check_code "POST /tasks priority out of range" "$CODE" "422"
+
+CODE=$(req -X POST "$BASE/external-calendars" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d '{"name": "Bad URL", "url": "not-a-url"}')
+check_code "POST /external-calendars invalid url" "$CODE" "422"
+
+
+step "N5. Negative + edge - attendance statuses (tentative / delegated / bad)"
+info "Fresh invitation L1 -> L2 so LOGIN_2 is a real attendee; tentative and delegated are valid PARTSTAT values (200), an unknown status is rejected (422)."
+
+CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d "{
+        \"title\": \"Attendance Edge Invite\",
+        \"date_start\": \"2026-08-03T13:00:00Z\",
+        \"date_end\":   \"2026-08-03T14:00:00Z\",
+        \"attendees\": [{\"email\": \"$LOGIN_2\", \"status\": \"needs-action\"}]
+    }")
+check_code "POST /events (attendance-edge invite)" "$CODE" "201"
+ATT_UID=$(extract '.data.uid')
+
+CODE=$(req "$BASE/events?start_date_time=2026-08-03T00:00:00Z&end_date_time=2026-08-03T23:59:59Z" -H "$H_AUTH_2")
+check_code "GET /events (LOGIN_2) for attendance-edge date" "$CODE" "200"
+ATT_KEY_L2=$(body | jq -r --arg uid "$ATT_UID" '[.data.events[] | select(.uid == $uid)][0].key // empty')
+[ -n "$ATT_KEY_L2" ] && ok "LOGIN_2 sees the propagated invitation copy" || fail "LOGIN_2 copy not found - cannot test attendance"
+
+CODE=$(req -X POST "$BASE/events/$ATT_KEY_L2/attendance" \
+    -H "$H_JSON" -H "$H_AUTH_2" -d '{"status": "tentative"}')
+check_code "POST attendance tentative (LOGIN_2)" "$CODE" "200"
+
+CODE=$(req -X POST "$BASE/events/$ATT_KEY_L2/attendance" \
+    -H "$H_JSON" -H "$H_AUTH_2" -d '{"status": "delegated"}')
+check_code "POST attendance delegated (LOGIN_2)" "$CODE" "200"
+
+CODE=$(req -X POST "$BASE/events/$ATT_KEY_L2/attendance" \
+    -H "$H_JSON" -H "$H_AUTH_2" -d '{"status": "bogus"}')
+check_code "POST attendance invalid status -> 422" "$CODE" "422"
+
 
 step "68. Calendar - delete (LOGIN_1 main calendar)"
 info "Deletes the test calendar created in step 2. Verifies it returns 404 afterwards. Skipped without -d."
