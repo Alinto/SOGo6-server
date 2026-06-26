@@ -1,12 +1,10 @@
 """Tests for FreeBusyEngine."""
 from datetime import datetime, time, timedelta, timezone
-from zoneinfo import ZoneInfo
 
 import pytest
 
 from app.module.calendar.freebusy.FreeBusyEngine import FreeBusyEngine, FreeBusyPrefs
 from app.module.calendar.model.CalEvent import CalEvent
-from app.utils.datetime.DateTimeUtils import resolve_tz
 from app.module.calendar.model.CalFreeBusyPeriod import CalFreeBusyPeriod
 from app.module.calendar.model.enums.EventStatus import EventStatus
 from app.module.calendar.model.enums.EventVisibility import EventVisibility
@@ -213,16 +211,6 @@ def test_allday_zero_duration_not_busy():
 
 def test_parse_time():
     assert FreeBusyEngine._parse_time("09:30") == time(9, 30)  # pylint: disable=protected-access
-
-
-# ========== _resolve_tz ==========
-
-def test_resolve_tz_valid():
-    assert resolve_tz("Europe/Paris") == ZoneInfo("Europe/Paris")
-
-
-def test_resolve_tz_fallback():
-    assert resolve_tz("Invalid/Timezone") == ZoneInfo("UTC")
 
 
 # ========== Result ordering ==========

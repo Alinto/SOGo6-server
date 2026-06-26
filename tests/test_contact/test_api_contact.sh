@@ -653,6 +653,78 @@ CODE=$(req "$BASE/addressbooks/$AB_KEY/lists/$TW_KEY" -H "$H_AUTH")
 check_code "GET deleted throwaway list -> 404" "$CODE" "404"
 
 # 14. CONDITIONAL DELETE
+step "N1. Edge - display_name is derived (or defaulted) when omitted"
+info "vCard requires an FN. When display_name is omitted the server derives it from the name parts / organization / nickname, falling back to a default; it never persists an empty FN."
+
+# Organization-only contact: FN is derived from the organization.
+CODE=$(req -X POST "$BASE/addressbooks/$AB_KEY/contacts" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d '{"organization": "Acme Inc"}')
+check_code  "POST contact org-only (FN derived)" "$CODE" "201"
+check_field ".data.display_name" "Acme Inc"
+
+# No name parts at all: FN falls back to the default placeholder, still non-empty.
+CODE=$(req -X POST "$BASE/addressbooks/$AB_KEY/contacts" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d '{"emails": [{"value": "anon@example.com"}]}')
+check_code  "POST contact with no name parts (FN defaulted)" "$CODE" "201"
+check_field ".data.display_name" "Unnamed Contact"
+
+
+step "N2. Negative/edge - multi-valued sub-objects round-trip every item, not just the first"
+info "Two emails, two phones, two addresses: each item must survive the create, guarding against a silent truncation to [0]."
+
+CODE=$(req -X POST "$BASE/addressbooks/$AB_KEY/contacts" \
+    -H "$H_JSON" -H "$H_AUTH" \
+    -d '{
+        "display_name": "Multi Valued",
+        "emails":    [{"value": "first@x.com", "types": ["work"]}, {"value": "second@x.com", "types": ["home"]}],
+        "phones":    [{"number": "+33100000001", "types": ["work"]}, {"number": "+33100000002", "types": ["cell"]}],
+        "addresses": [{"locality": "Paris"}, {"locality": "Lyon"}]
+    }')
+check_code  "POST contact multi-valued" "$CODE" "201"
+check_count "contact emails"    ".data.emails"    "2"
+check_count "contact phones"    ".data.phones"    "2"
+check_count "contact addresses" ".data.addresses" "2"
+check_field ".data.emails[1].value"       "second@x.com"
+check_field ".data.phones[1].number"      "+33100000002"
+check_field ".data.addresses[1].locality" "Lyon"
+MULTI_KEY=$(extract '.data.key')
+info "Multi-valued contact key: $MULTI_KEY"
+
+
+step "N3. Negative - request validation and scoping errors"
+info "Too-short search, missing book, wrong content-type and unknown keys must all be rejected with the right 4xx, never a 500 or a silent success."
+
+CODE=$(req "$BASE/addressbooks/$AB_KEY/contacts?search=a" -H "$H_AUTH")
+check_code "GET contacts ?search=a (too short)" "$CODE" "422"
+
+CODE=$(req -X POST "$BASE/addressbooks/does-not-exist/contacts" \
+    -H "$H_JSON" -H "$H_AUTH" -d '{"display_name": "Orphan"}')
+check_code       "POST contact in unknown book -> 404" "$CODE" "404"
+check_error_code "POST contact in unknown book error_code" "S000701"
+
+CODE=$(req -X POST "$BASE/addressbooks/does-not-exist/lists" \
+    -H "$H_JSON" -H "$H_AUTH" -d '{"name": "Orphan List"}')
+check_code "POST list in unknown book -> 404" "$CODE" "404"
+
+CODE=$(req -X POST "$BASE/addressbooks/$AB_KEY/contacts" \
+    -H "Content-Type: text/plain" -H "$H_AUTH" -d 'display_name=NotJson')
+check_code       "POST contact with non-JSON content-type -> 400" "$CODE" "400"
+check_error_code "POST contact non-JSON content-type error_code" "S000205"
+
+CODE=$(req -X PATCH "$BASE/addressbooks/$AB_KEY/contacts/does-not-exist" \
+    -H "$H_JSON" -H "$H_AUTH" -d '{"display_name": "x"}')
+check_code "PATCH /contacts/unknown -> 404" "$CODE" "404"
+CODE=$(req -X DELETE "$BASE/addressbooks/$AB_KEY/contacts/does-not-exist" -H "$H_AUTH")
+check_code "DELETE /contacts/unknown -> 404" "$CODE" "404"
+CODE=$(req -X PATCH "$BASE/addressbooks/$AB_KEY/lists/does-not-exist" \
+    -H "$H_JSON" -H "$H_AUTH" -d '{"name": "x"}')
+check_code "PATCH /lists/unknown -> 404" "$CODE" "404"
+CODE=$(req -X DELETE "$BASE/addressbooks/$AB_KEY/lists/does-not-exist" -H "$H_AUTH")
+check_code "DELETE /lists/unknown -> 404" "$CODE" "404"
+
+
 step "20. Cleanup (DELETE)"
 if $DO_DELETE; then
     CODE=$(req -X DELETE "$BASE/addressbooks/$AB_KEY/lists/$LIST_KEY" -H "$H_AUTH")

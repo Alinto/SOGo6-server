@@ -8,6 +8,7 @@ from app.utils.datetime.DateTimeUtils import (
     combine_in_tz_to_utc,
     normalize_partial_date,
     partial_date_to_basic,
+    resolve_tz,
 )
 
 _UTC = timezone.utc
@@ -82,3 +83,11 @@ def test_add_months_forward_and_back():
 def test_add_months_clamps_to_last_day():
     # Jan 31 + 1 month -> Feb 28 (2026 is not a leap year), not an invalid Feb 31.
     assert add_months(datetime(2026, 1, 31, tzinfo=_UTC), 1) == datetime(2026, 2, 28, tzinfo=_UTC)
+
+
+def test_resolve_tz_valid():
+    assert resolve_tz("Europe/Paris") == ZoneInfo("Europe/Paris")
+
+
+def test_resolve_tz_fallback_to_utc():
+    assert resolve_tz("Invalid/Timezone") == ZoneInfo("UTC")

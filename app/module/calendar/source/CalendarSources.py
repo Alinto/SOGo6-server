@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 class CalendarSources:
     """Factory and lookup for CalendarSource instances.
 
-    Entry point for per-calendar access and attendee propagation: the façade resolves a calendar to
+    Entry point for per-calendar access and attendee propagation: the facade resolves a calendar to
     a CalendarSource through here rather than wiring repositories itself. System-wide bulk sweeps
     (reminder activation, external-sync discovery, purge) read their repositories directly, as they
     operate across calendars rather than on a single resolved source.

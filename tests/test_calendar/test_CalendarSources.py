@@ -4,12 +4,14 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from app.module.calendar.model.CalAttendee import CalAttendee
 from app.module.calendar.model.CalCalendar import CalCalendar
 from app.module.calendar.model.CalEvent import CalEvent
+from app.module.calendar.model.CalOrganizer import CalOrganizer
 from app.module.calendar.model.CalReminder import CalReminder
 from app.module.calendar.model.enums.CalendarSourceType import CalendarSourceType
 from app.module.calendar.model.enums.ReminderMethod import ReminderMethod
-from app.module.calendar.rrule.RecurrenceScopeProcessor import EventAction
+from app.module.calendar.rrule.RecurrenceScopeProcessor import EventAction, ScopeResult
 from app.module.calendar.source.CalendarSources import CalendarSources
 from app.utils import errors as err
 from app.utils.exceptions import RequestException
@@ -72,6 +74,95 @@ def test_apply_action_insert_strips_reminders_for_plain_event():
     sources._apply_action(att_source, new_evt, EventAction.INSERT)
     inserted = att_source.insert_event.call_args[0][0]
     assert inserted.reminders == []
+
+
+# ========== propagate - replicate touched to attendees ==========
+
+def _organized_event(attendees=("alice@x",), organizer="boss@x", **kwargs):
+    return _event(9, organizer=CalOrganizer(email=organizer),
+                  attendees=[CalAttendee(email=a) for a in attendees], **kwargs)
+
+
+def test_propagate_update_applies_organizer_content_to_attendee_copy():
+    sources = object.__new__(CalendarSources)
+    att_copy = _event(9)
+    att_copy.title = "Old"
+    att_source = MagicMock()
+    att_source.get_master_event_by_uid.return_value = att_copy
+    sources._resolve_attendee_source = MagicMock(return_value=att_source)
+    updated = _organized_event()
+    updated.title = "New"
+    sources.propagate(ScopeResult(result=updated, touched=[(updated, EventAction.UPDATE)]))
+    att_source.update_event.assert_called_once_with(att_copy)
+    assert att_copy.title == "New"  # propagatable field carried onto the attendee's copy
+
+
+def test_propagate_delete_master_removes_attendee_copy():
+    sources = object.__new__(CalendarSources)
+    att_source = MagicMock()
+    sources._resolve_attendee_source = MagicMock(return_value=att_source)
+    ev = _organized_event()
+    sources.propagate(ScopeResult(result=ev, touched=[(ev, EventAction.DELETE)]))
+    att_source.delete_event.assert_called_once_with("e9")
+    att_source.delete_occurrence.assert_not_called()
+
+
+def test_propagate_delete_occurrence_removes_attendee_occurrence():
+    sources = object.__new__(CalendarSources)
+    att_occ = _event(9)
+    att_source = MagicMock()
+    att_source.get_event_by_recurrence_id.return_value = att_occ
+    sources._resolve_attendee_source = MagicMock(return_value=att_source)
+    rid = datetime(2026, 6, 3, 9, tzinfo=timezone.utc)
+    ev = _organized_event(recurrence_id=rid)
+    sources.propagate(ScopeResult(result=ev, touched=[(ev, EventAction.DELETE)]))
+    att_source.get_event_by_recurrence_id.assert_called_once_with("e9", rid)
+    att_source.delete_occurrence.assert_called_once_with(att_occ)
+    att_source.delete_event.assert_not_called()
+
+
+def test_propagate_skips_organizer_and_external_attendees():
+    sources = object.__new__(CalendarSources)
+    local = MagicMock()
+    sources._resolve_attendee_source = MagicMock(side_effect=lambda email: local if email == "alice@x" else None)
+    ev = _organized_event(attendees=("boss@x", "alice@x", "bob@x"), organizer="boss@x")
+    sources.propagate(ScopeResult(result=ev, touched=[(ev, EventAction.DELETE)]))
+    local.delete_event.assert_called_once_with("e9")
+    # organizer skipped before resolution; only alice and bob are resolved (bob is external -> skipped)
+    assert sources._resolve_attendee_source.call_count == 2
+
+
+def test_propagate_no_attendees_is_noop():
+    sources = object.__new__(CalendarSources)
+    sources._resolve_attendee_source = MagicMock()
+    ev = _event(9, organizer=CalOrganizer(email="boss@x"), attendees=[])
+    sources.propagate(ScopeResult(result=ev, touched=[(ev, EventAction.DELETE)]))
+    sources._resolve_attendee_source.assert_not_called()
+
+
+# ========== _sync_attendee_list - add / remove attendee copies ==========
+
+def test_sync_attendee_list_adds_copy_for_new_attendee():
+    sources = object.__new__(CalendarSources)
+    new_src = MagicMock()
+    new_src.calendar.key = "bob-cal"
+    sources._resolve_attendee_source = MagicMock(return_value=new_src)
+    original = _organized_event(attendees=("boss@x", "alice@x"), organizer="boss@x")
+    updated = _organized_event(attendees=("boss@x", "alice@x", "bob@x"), organizer="boss@x")
+    sources._sync_attendee_list(original=original, updated=updated)
+    sources._resolve_attendee_source.assert_called_once_with("bob@x")  # only the added one
+    new_src.insert_event.assert_called_once()
+
+
+def test_sync_attendee_list_removes_copy_for_dropped_attendee():
+    sources = object.__new__(CalendarSources)
+    drop_src = MagicMock()
+    sources._resolve_attendee_source = MagicMock(return_value=drop_src)
+    original = _organized_event(attendees=("boss@x", "alice@x", "bob@x"), organizer="boss@x")
+    updated = _organized_event(attendees=("boss@x", "alice@x"), organizer="boss@x")
+    sources._sync_attendee_list(original=original, updated=updated)
+    sources._resolve_attendee_source.assert_called_once_with("bob@x")
+    drop_src.delete_event.assert_called_once_with("e9")
 
 
 # ========== require_event ==========
