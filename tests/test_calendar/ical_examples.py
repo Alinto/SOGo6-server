@@ -6,7 +6,7 @@ These constants are shared across deserialization, serialization and roundtrip
 tests to avoid repetition.
 """
 
-# Example 1 — Three-day conference, UTC datetimes, single ORGANIZER
+# Example 1 - Three-day conference, UTC datetimes, single ORGANIZER
 ICAL_EXAMPLE_1 = (
     "BEGIN:VCALENDAR\r\n"
     "PRODID:-//xyz Corp//NONSGML PDA Calendar Version 1.0//EN\r\n"
@@ -27,7 +27,7 @@ ICAL_EXAMPLE_1 = (
     "END:VCALENDAR\r\n"
 )
 
-# Example 2 — Group meeting with VTIMEZONE (America/New_York), ATTENDEE with RSVP+ROLE+CUTYPE
+# Example 2 - Group meeting with VTIMEZONE (America/New_York), ATTENDEE with RSVP+ROLE+CUTYPE
 ICAL_EXAMPLE_2 = (
     "BEGIN:VCALENDAR\r\n"
     "PRODID:-//RDU Software//NONSGML HandCal//EN\r\n"
@@ -65,7 +65,7 @@ ICAL_EXAMPLE_2 = (
     "END:VCALENDAR\r\n"
 )
 
-# Example 3 — Single event, multiple CATEGORIES, URI attachment, folded DESCRIPTION and ATTACH
+# Example 3 - Single event, multiple CATEGORIES, URI attachment, folded DESCRIPTION and ATTACH
 ICAL_EXAMPLE_3 = (
     "BEGIN:VCALENDAR\r\n"
     "METHOD:xyz\r\n"
@@ -91,7 +91,7 @@ ICAL_EXAMPLE_3 = (
     "END:VCALENDAR\r\n"
 )
 
-# Example 4 — VTODO with VALARM (not a VEVENT — not supported by CalendarEventDeserializerIcal)
+# Example 4 - VTODO with VALARM (not a VEVENT - not supported by CalEventDeserializerIcal)
 ICAL_EXAMPLE_4 = (
     "BEGIN:VCALENDAR\r\n"
     "VERSION:2.0\r\n"
@@ -115,7 +115,7 @@ ICAL_EXAMPLE_4 = (
     "END:VCALENDAR\r\n"
 )
 
-# Example 5 — VJOURNAL with long folded DESCRIPTION (not supported by CalendarEventDeserializerIcal)
+# Example 5 - VJOURNAL with long folded DESCRIPTION (not supported by CalEventDeserializerIcal)
 ICAL_EXAMPLE_5 = (
     "BEGIN:VCALENDAR\r\n"
     "VERSION:2.0\r\n"
@@ -136,7 +136,7 @@ ICAL_EXAMPLE_5 = (
     "END:VCALENDAR\r\n"
 )
 
-# Example 6 — VFREEBUSY request/response (not supported by CalendarEventDeserializerIcal)
+# Example 6 - VFREEBUSY request/response (not supported by CalEventDeserializerIcal)
 ICAL_EXAMPLE_6 = (
     "BEGIN:VCALENDAR\r\n"
     "VERSION:2.0\r\n"

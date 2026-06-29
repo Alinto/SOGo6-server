@@ -9,7 +9,9 @@ from typing import TYPE_CHECKING
 from app.module.calendar.rrule.RecurrenceScopeProcessor import EventAction
 from app.module.calendar.rrule.RruleEngine import RruleEngine
 from app.utils import errors as err
+from app.utils.datetime.DateTimeUtils import to_utc
 from app.utils.exceptions import RequestException
+from app.utils.logger.logger import logger_calendar
 
 if TYPE_CHECKING:
     from app.module.calendar.model.CalCalendar import CalCalendar
@@ -39,7 +41,7 @@ class CalendarSource(ABC):  # pylint: disable=too-many-public-methods
         """The calendar associated with this source."""
         return self._calendar
 
-    def get_events(
+    def get_all_events(
         self,
         start: datetime | None = None,
         end: datetime | None = None,
@@ -48,9 +50,9 @@ class CalendarSource(ABC):  # pylint: disable=too-many-public-methods
     ) -> list[CalEvent]:
         """Return events overlapping [start, end], sorted by date_start ASC.
 
-        With ``expand=True`` (default): resolve bounds → fetch → expand recurring → filter.
+        With ``expand=True`` (default): resolve bounds -> fetch -> expand recurring -> filter.
         With ``expand=False`` (export): recurring masters keep their RRULE and are returned
-        as-is — no expansion, no Python date filter (the SQL fetch already bounds the range)
+        as-is - no expansion, no Python date filter (the SQL fetch already bounds the range)
         so the recipient calendar can rebuild the series. The upper bound also defaults to
         ``9999-12-31`` in that mode to capture future occurrences.
 
@@ -68,7 +70,7 @@ class CalendarSource(ABC):  # pylint: disable=too-many-public-methods
         """
         raise NotImplementedError
 
-    def get_tasks(
+    def get_all_tasks(
         self,
         start: datetime | None = None,
         end: datetime | None = None,
@@ -77,7 +79,7 @@ class CalendarSource(ABC):  # pylint: disable=too-many-public-methods
     ) -> list[CalEvent]:
         """Return tasks (VTODO) overlapping [start, end], sorted by date_start ASC.
 
-        Same resolution and filtering pipeline as :meth:`get_events`, applied to VTODO
+        Same resolution and filtering pipeline as :meth:`get_all_events`, applied to VTODO
         components. ``expand`` has the same meaning.
         """
         return self._collect(self._fetch_tasks, start, end, search, expand)
@@ -90,7 +92,7 @@ class CalendarSource(ABC):  # pylint: disable=too-many-public-methods
         search: str | None,
         expand: bool,
     ) -> list[CalEvent]:
-        """Shared pipeline for get_events / get_tasks: resolve bounds, fetch, optionally expand, filter, sort."""
+        """Shared pipeline for the listing getters: resolve bounds, fetch, optionally expand, filter, sort."""
         resolved_start: datetime = start if start is not None else _DEFAULT_START
         if end is not None:
             resolved_end: datetime = end
@@ -99,10 +101,8 @@ class CalendarSource(ABC):  # pylint: disable=too-many-public-methods
         else:
             resolved_end = datetime.now(timezone.utc)
 
-        if resolved_start.tzinfo is None:
-            resolved_start = resolved_start.replace(tzinfo=timezone.utc)
-        if resolved_end.tzinfo is None:
-            resolved_end = resolved_end.replace(tzinfo=timezone.utc)
+        resolved_start = to_utc(resolved_start)
+        resolved_end = to_utc(resolved_end)
 
         raw: list[CalEvent] = fetch(resolved_start, resolved_end, search)
         if expand:
@@ -178,7 +178,7 @@ class CalendarSource(ABC):  # pylint: disable=too-many-public-methods
     def search(self, events: list[CalEvent], query: str) -> list[CalEvent]:
         """Keep events matching query in title, description or location.
 
-        Matching is case-insensitive and accent-insensitive: "etape" matches "Étape".
+        Matching is case-insensitive and accent-insensitive: "etape" matches an accented "Etape".
         """
         needle: str = self._fold(query)
         return [
@@ -274,6 +274,21 @@ class CalendarSource(ABC):  # pylint: disable=too-many-public-methods
         """Update an existing event. Raises NOT_SUPPORTED on read-only sources."""
         raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
 
+    def update_event_or_fail(self, event: CalEvent, context: str) -> CalEvent:
+        """Persist an event update and return it, re-wrapping unexpected errors.
+
+        `context` is a short present-participle phrase used in the failure log
+        (e.g. "updating personal fields", "processing iMIP reply").
+        """
+        try:
+            self.update_event(event)
+            return event
+        except RequestException:
+            raise
+        except Exception as exc:
+            logger_calendar.exception("Unexpected error %s for event %s", context, event.key)
+            raise RequestException(error=err.ERROR_CALENDAR_EVENT_UPDATE_FAILED) from exc
+
     def delete_event(self, uid: str) -> None:
         """Soft-delete an event by uid. Raises NOT_SUPPORTED on read-only sources."""
         raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
@@ -282,7 +297,7 @@ class CalendarSource(ABC):  # pylint: disable=too-many-public-methods
         """Soft-delete a single event by its opaque key. Raises NOT_SUPPORTED on read-only sources."""
         raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
 
-    def delete_detached_occurrence(self, occurrence: CalEvent) -> None:
+    def delete_occurrence(self, occurrence: CalEvent) -> None:
         """Soft-delete a detached occurrence and add its recurrence_id to the master EXDATE.
 
         Called instead of delete_event when the event being deleted has recurrence_id set.
@@ -294,7 +309,7 @@ class CalendarSource(ABC):  # pylint: disable=too-many-public-methods
         """Truncate a recurring series at `until` and soft-delete future detached occurrences.
 
         Called on the organizer's and each attendee's source as part of a THISANDFUTURE split.
-        No-op on read-only sources — only DB-backed sources hold mutable recurring events.
+        No-op on read-only sources - only DB-backed sources hold mutable recurring events.
         Returns a list of (CalEvent, EventAction) for every row touched.
         """
         return []

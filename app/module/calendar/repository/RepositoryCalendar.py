@@ -16,10 +16,10 @@ if TYPE_CHECKING:
     from app.manager.db.ClientSQL import ClientSQL
 
 
-# All column names in ALL_CAL_COL order — used for SELECT and row mapping
+# All column names in ALL_CAL_COL order - used for SELECT and row mapping
 _ALL_COLS: tuple[str, ...] = tuple(col.name for col in tbl.ALL_CAL_COL)
 
-# Columns for INSERT — id is serial, omitted
+# Columns for INSERT - id is serial, omitted
 _INSERT_COLS: tuple[str, ...] = tuple(col.name for col in tbl.ALL_CAL_COL if col.name != tbl.COL_ID.name)
 
 
@@ -169,6 +169,19 @@ class RepositoryCalendar:
             table_name=tbl.TABLE_CALENDAR.name,
             column_tuple=_ALL_COLS,
             condition=condition,
+            sort_by=tbl.COL_ID.name,
+        )
+        return [self._row_to_calendar(row) for row in rows]
+
+    def find_all_external(self) -> list[CalCalendar]:
+        """Return every external ICS calendar across all users, ordered by id.
+
+        System-wide (no user filter): used by the periodic auto-sync sweep, which has no user context.
+        """
+        rows = self._db.select_from_table(
+            table_name=tbl.TABLE_CALENDAR.name,
+            column_tuple=_ALL_COLS,
+            condition=EqualCondition(tbl.COL_CAL_SOURCE_TYPE.name, CalendarSourceType.ICS.value),
             sort_by=tbl.COL_ID.name,
         )
         return [self._row_to_calendar(row) for row in rows]

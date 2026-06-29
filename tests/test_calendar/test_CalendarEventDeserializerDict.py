@@ -1,5 +1,5 @@
 """
-Unit tests for CalendarEventDeserializerDict.
+Unit tests for CalEventDeserializerDict.
 Verifies that dict payloads matching the SOGo6 REST API schema are correctly parsed into CalEvent objects.
 """
 from datetime import datetime, timezone
@@ -12,10 +12,10 @@ from app.module.calendar.model.enums.EventStatus import EventStatus
 from app.module.calendar.model.enums.EventVisibility import EventVisibility
 from app.module.calendar.model.enums.ShowAs import ShowAs
 from app.module.calendar.model.enums.ComponentType import ComponentType
-from app.module.calendar.serializer.CalendarEventDeserializerDict import CalendarEventDeserializerDict
+from app.module.calendar.serializer.CalEventDeserializerDict import CalEventDeserializerDict
 from app.module.calendar.model.CalRecurrenceRule import CalRecurrenceRule
 from app.module.calendar.model.enums.RecurrenceFrequency import RecurrenceFrequency
-from app.module.calendar.serializer.CalendarEventSerializerDict import CalendarEventSerializerDict
+from app.module.calendar.serializer.CalEventSerializerDict import CalEventSerializerDict
 from app.module.calendar.model.CalEvent import CalEvent
 
 FULL_EVENT = {
@@ -73,7 +73,7 @@ MINIMAL_EVENT = {
 
 @pytest.fixture
 def deserializer():
-    return CalendarEventDeserializerDict()
+    return CalEventDeserializerDict()
 
 
 def test_full_event_scalar_fields(deserializer):
@@ -258,8 +258,8 @@ def test_recurrence_roundtrip():
         recurrence_exceptions=[datetime(2026, 3, 9, 9, 0, 0, tzinfo=timezone.utc)],
     )
 
-    blob = CalendarEventSerializerDict().serialize(event)
-    restored = CalendarEventDeserializerDict().deserialize(blob)
+    blob = CalEventSerializerDict().serialize(event)
+    restored = CalEventDeserializerDict().deserialize(blob)
 
     assert restored.recurrence_rule.frequency.value == "weekly"
     assert restored.recurrence_rule.by_day == ["MO"]
@@ -268,7 +268,7 @@ def test_recurrence_roundtrip():
 
 
 # ==========================================================================
-# deserialize — partial dict (update scenario)
+# deserialize - partial dict (update scenario)
 # ==========================================================================
 
 def test_partial_recurrence_exceptions_as_datetimes(deserializer):

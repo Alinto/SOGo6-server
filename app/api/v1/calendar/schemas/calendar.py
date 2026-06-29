@@ -99,32 +99,36 @@ class CalendarExportQueryArgsSchema(Schema):
 
     start_date_time = DateTimeUtcField(
         load_default=None, allow_none=True,
-        metadata={"description": "ISO 8601 UTC datetime — only return events ending after this instant."},
+        metadata={"description": "ISO 8601 UTC datetime - only return events ending after this instant."},
     )
     end_date_time = DateTimeEndUtcField(
         load_default=None, allow_none=True,
-        metadata={"description": "ISO 8601 UTC datetime or date — only return events starting before this instant. Date-only values default to 23:59:59 UTC."},
-    )
-    download = fields.Boolean(
-        load_default=False,
-        metadata={"description": "When true, the response carries a Content-Disposition: attachment header to trigger a browser download. Otherwise the iCalendar payload is served inline."},
+        metadata={"description": "ISO 8601 UTC datetime or date - only return events starting before this instant. Date-only values default to 23:59:59 UTC."},
     )
 
 
-class CalendarImportResultDataSchema(Schema):
-    """Counters returned after an import."""
+class CalendarExportDataSchema(Schema):
+    """Payload returned when an export is enqueued as an Agent job."""
 
-    inserted = fields.Integer()
-    updated  = fields.Integer()
-    deleted  = fields.Integer()
-    total    = fields.Integer()
-    skipped  = fields.Integer()
+    job_id = fields.String(required=True, metadata={"description": "Id of the enqueued Agent job. Poll GET /jobs/<job_id> until status is SUCCESS, then fetch GET /jobs/<job_id>/result."})
+
+
+class CalendarExportResponseSchema(ApiBaseResponse):
+    """Response schema for the async export endpoint (returns a job_id, not the ICS)."""
+
+    data = fields.Nested(CalendarExportDataSchema, allow_none=True)
+
+
+class CalendarImportDataSchema(Schema):
+    """Payload returned when an import is enqueued as an Agent job."""
+
+    job_id = fields.String(required=True, metadata={"description": "Id of the enqueued Agent job. Poll GET /jobs/<job_id> until status is SUCCESS; the import counters are then in the job's result {inserted, updated, deleted, total, skipped}."})
 
 
 class CalendarImportResponseSchema(ApiBaseResponse):
-    """Response schema for an import call."""
+    """Response schema for the async import endpoint (returns a job_id, not the counters)."""
 
-    data = fields.Nested(CalendarImportResultDataSchema, allow_none=True)
+    data = fields.Nested(CalendarImportDataSchema, allow_none=True)
 
 
 class CalendarSubscriptionDataSchema(Schema):

@@ -11,9 +11,9 @@ class CalReminder:
     """
     Reminder (alarm) associated with a calendar event (RFC 5545 §3.6.6 VALARM).
     """
-    # RFC 5545 §3.8.6.1 ACTION — delivery method for the alarm
+    # RFC 5545 §3.8.6.1 ACTION - delivery method for the alarm
     method: ReminderMethod
-    # RFC 5545 §3.8.6.3 TRIGGER — offset in minutes before the event start (negative = before).
+    # RFC 5545 §3.8.6.3 TRIGGER - offset in minutes before the event start (negative = before).
     # None means "not specified by the caller": the offset is then resolved from the parent
     # calendar's default (default_alarm_duration_min) or the global fallback before persistence.
     minutes_before: int | None = None

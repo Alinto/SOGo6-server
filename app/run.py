@@ -8,8 +8,8 @@ from flask.typing import ResponseReturnValue
 
 
 from app import create_app, __version__
-from app.service import set_cache
 from app.config.init_config import init_sogo
+from app.service import set_agent, set_cache
 from app.utils import constants as cs
 from app.utils.logger.logger import logger
 
@@ -20,8 +20,9 @@ if TYPE_CHECKING:
 #To see the correct behavior run:
 #poetry run start --no-debug
 
-sogo_state, cache = init_sogo()
+sogo_state, cache, agent_client = init_sogo()
 set_cache(cache)
+set_agent(agent_client)
 app = create_app(sogo_state)
 
 

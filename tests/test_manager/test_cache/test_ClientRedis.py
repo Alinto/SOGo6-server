@@ -126,6 +126,13 @@ class FakeRedis:
             return members[start:]
         return members[start:end + 1]
 
+    def zrevrange(self, key, start, stop):
+        zset = self._zsets.get(key, {})
+        members = sorted(zset, key=lambda m: zset[m], reverse=True)
+        if stop == -1:
+            return members[start:]
+        return members[start:stop + 1]
+
     def zrangebyscore(self, key, min, max):
         zset = self._zsets.get(key, {})
         result = []
@@ -429,6 +436,32 @@ class TestZsetCount:
     def test_zset_count_empty_set_returns_zero(self):
         client = make_client()
         assert client.zset_count("nonexistent") == 0
+
+
+# ===========================================================================
+# Tests: zset_revrange
+# ===========================================================================
+
+class TestZsetRevrange:
+    def test_returns_members_by_descending_score(self):
+        client = make_client()
+        client.redis._zsets["z"] = {"old": 1.0, "recent": 3.0, "mid": 2.0}
+        assert client.zset_revrange("z", 0, -1) == ["recent", "mid", "old"]
+
+    def test_respects_rank_bounds(self):
+        client = make_client()
+        client.redis._zsets["z"] = {"a": 1.0, "b": 2.0, "c": 3.0}
+        assert client.zset_revrange("z", 0, 1) == ["c", "b"]
+
+    def test_empty_set_returns_empty_list(self):
+        client = make_client()
+        assert client.zset_revrange("nope", 0, -1) == []
+
+    def test_decodes_bytes_members_to_str(self):
+        client = make_client()
+        client.redis = MagicMock()
+        client.redis.zrevrange.return_value = [b"recent", "mid", b"old"]
+        assert client.zset_revrange("z", 0, -1) == ["recent", "mid", "old"]
 
 
 # ===========================================================================

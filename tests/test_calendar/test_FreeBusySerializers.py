@@ -7,9 +7,9 @@ from app.module.calendar.model.CalFreeBusyPeriod import CalFreeBusyPeriod
 from app.module.calendar.model.CalFreeBusyResult import CalFreeBusyResult
 from app.module.calendar.model.enums.FreeBusyType import FreeBusyType
 from app.module.calendar.serializer.FreeBusyDeserializerDict import FreeBusyDeserializerDict
-from app.module.calendar.serializer.FreeBusyDeserializerIcal import FreeBusyDeserializerIcal
-from app.module.calendar.serializer.FreeBusySerializerDict import FreeBusySerializerDict
-from app.module.calendar.serializer.FreeBusySerializerIcal import FreeBusySerializerIcal
+from app.module.calendar.serializer.CalFreeBusyRequestDeserializerIcal import CalFreeBusyRequestDeserializerIcal
+from app.module.calendar.serializer.CalFreeBusyResultSerializerDict import CalFreeBusyResultSerializerDict
+from app.module.calendar.serializer.CalFreeBusyResultSerializerIcal import CalFreeBusyResultSerializerIcal
 from app.utils.exceptions import RequestException
 
 _UTC = timezone.utc
@@ -37,79 +37,79 @@ _ICAL_REQUEST = (
 )
 
 
-# ========== FreeBusySerializerDict ==========
+# ========== CalFreeBusyResultSerializerDict ==========
 
 def test_dict_serialize_basic():
     period = CalFreeBusyPeriod(_START, _END, FreeBusyType.BUSY)
-    result = FreeBusySerializerDict().serialize(CalFreeBusyResult({"u@x": [period]}, _RANGE_START, _RANGE_END))
+    result = CalFreeBusyResultSerializerDict().serialize(CalFreeBusyResult({"u@x": [period]}, _RANGE_START, _RANGE_END))
     assert result["attendees"]["u@x"]["periods"][0]["type"] == FreeBusyType.BUSY.value
 
 
 def test_dict_title_present_when_set():
     period = CalFreeBusyPeriod(_START, _END, FreeBusyType.BUSY, title="Meeting")
-    result = FreeBusySerializerDict().serialize(CalFreeBusyResult({"u@x": [period]}, _RANGE_START, _RANGE_END))
+    result = CalFreeBusyResultSerializerDict().serialize(CalFreeBusyResult({"u@x": [period]}, _RANGE_START, _RANGE_END))
     assert result["attendees"]["u@x"]["periods"][0]["title"] == "Meeting"
 
 
 def test_dict_title_absent_when_none():
     period = CalFreeBusyPeriod(_START, _END, FreeBusyType.BUSY, title=None)
-    result = FreeBusySerializerDict().serialize(CalFreeBusyResult({"u@x": [period]}, _RANGE_START, _RANGE_END))
+    result = CalFreeBusyResultSerializerDict().serialize(CalFreeBusyResult({"u@x": [period]}, _RANGE_START, _RANGE_END))
     assert "title" not in result["attendees"]["u@x"]["periods"][0]
 
 
 def test_is_available_always_present():
     period = CalFreeBusyPeriod(_START, _END, FreeBusyType.TENTATIVE)
-    result = FreeBusySerializerDict().serialize(CalFreeBusyResult({"u@x": [period]}, _RANGE_START, _RANGE_END))
+    result = CalFreeBusyResultSerializerDict().serialize(CalFreeBusyResult({"u@x": [period]}, _RANGE_START, _RANGE_END))
     assert "is_available" in result
 
 
 def test_is_available_true_when_no_busy():
     period = CalFreeBusyPeriod(_START, _END, FreeBusyType.TENTATIVE)
-    result = FreeBusySerializerDict().serialize(CalFreeBusyResult({"u@x": [period]}, _RANGE_START, _RANGE_END))
+    result = CalFreeBusyResultSerializerDict().serialize(CalFreeBusyResult({"u@x": [period]}, _RANGE_START, _RANGE_END))
     assert result["is_available"] is True
 
 
 def test_is_available_false_when_busy():
     period = CalFreeBusyPeriod(_START, _END, FreeBusyType.BUSY)
-    result = FreeBusySerializerDict().serialize(CalFreeBusyResult({"u@x": [period]}, _RANGE_START, _RANGE_END))
+    result = CalFreeBusyResultSerializerDict().serialize(CalFreeBusyResult({"u@x": [period]}, _RANGE_START, _RANGE_END))
     assert result["is_available"] is False
 
 
 def test_is_available_false_when_unavailable():
     period = CalFreeBusyPeriod(_START, _END, FreeBusyType.UNAVAILABLE)
-    result = FreeBusySerializerDict().serialize(CalFreeBusyResult({"u@x": [period]}, _RANGE_START, _RANGE_END))
+    result = CalFreeBusyResultSerializerDict().serialize(CalFreeBusyResult({"u@x": [period]}, _RANGE_START, _RANGE_END))
     assert result["is_available"] is False
 
 
 def test_is_available_false_when_one_attendee_busy():
     busy = CalFreeBusyPeriod(_START, _END, FreeBusyType.BUSY)
-    result = FreeBusySerializerDict().serialize(CalFreeBusyResult({"a@x": [], "b@x": [busy]}, _RANGE_START, _RANGE_END))
+    result = CalFreeBusyResultSerializerDict().serialize(CalFreeBusyResult({"a@x": [], "b@x": [busy]}, _RANGE_START, _RANGE_END))
     assert result["is_available"] is False
 
 
-# ========== FreeBusySerializerIcal ==========
+# ========== CalFreeBusyResultSerializerIcal ==========
 
 def test_ical_method_reply():
-    ical = FreeBusySerializerIcal().serialize(CalFreeBusyResult({}, _RANGE_START, _RANGE_END))
+    ical = CalFreeBusyResultSerializerIcal().serialize(CalFreeBusyResult({}, _RANGE_START, _RANGE_END))
     assert "METHOD:REPLY" in ical
 
 
 def test_ical_attendee_present():
     period = CalFreeBusyPeriod(_START, _END, FreeBusyType.BUSY)
-    ical = FreeBusySerializerIcal().serialize(CalFreeBusyResult({"user@x.com": [period]}, _RANGE_START, _RANGE_END))
+    ical = CalFreeBusyResultSerializerIcal().serialize(CalFreeBusyResult({"user@x.com": [period]}, _RANGE_START, _RANGE_END))
     assert "ATTENDEE" in ical
     assert "user@x.com" in ical
 
 
 def test_ical_freebusy_property_present():
     period = CalFreeBusyPeriod(_START, _END, FreeBusyType.BUSY)
-    ical = FreeBusySerializerIcal().serialize(CalFreeBusyResult({"user@x.com": [period]}, _RANGE_START, _RANGE_END))
+    ical = CalFreeBusyResultSerializerIcal().serialize(CalFreeBusyResult({"user@x.com": [period]}, _RANGE_START, _RANGE_END))
     assert "FREEBUSY" in ical
 
 
 def test_ical_two_vfreebusy_for_two_attendees():
     period = CalFreeBusyPeriod(_START, _END, FreeBusyType.BUSY)
-    ical = FreeBusySerializerIcal().serialize(CalFreeBusyResult(
+    ical = CalFreeBusyResultSerializerIcal().serialize(CalFreeBusyResult(
         {"a@x.com": [period], "b@x.com": [period]},
         _RANGE_START,
         _RANGE_END,
@@ -117,38 +117,38 @@ def test_ical_two_vfreebusy_for_two_attendees():
     assert ical.count("BEGIN:VFREEBUSY") == 2
 
 
-# ========== FreeBusyDeserializerIcal.parse_reply ==========
+# ========== CalFreeBusyRequestDeserializerIcal.parse_reply ==========
 
 def test_ical_parse_reply():
-    periods = FreeBusyDeserializerIcal().parse_reply(_ICAL_REPLY)
+    periods = CalFreeBusyRequestDeserializerIcal().parse_reply(_ICAL_REPLY)
     assert len(periods) == 1
     assert periods[0].fb_type == FreeBusyType.BUSY
     assert periods[0].date_start == _START
     assert periods[0].date_end == _END
 
 
-# ========== FreeBusyDeserializerIcal.deserialize ==========
+# ========== CalFreeBusyRequestDeserializerIcal.deserialize ==========
 
 def test_ical_deserialize_request_attendees():
-    req = FreeBusyDeserializerIcal().deserialize(_ICAL_REQUEST)
+    req = CalFreeBusyRequestDeserializerIcal().deserialize(_ICAL_REQUEST)
     assert "user1@example.com" in req.attendees
     assert "user2@example.com" in req.attendees
 
 
 def test_ical_deserialize_request_organizer():
-    req = FreeBusyDeserializerIcal().deserialize(_ICAL_REQUEST)
+    req = CalFreeBusyRequestDeserializerIcal().deserialize(_ICAL_REQUEST)
     assert req.organizer == "org@example.com"
 
 
 def test_ical_deserialize_request_dates():
-    req = FreeBusyDeserializerIcal().deserialize(_ICAL_REQUEST)
+    req = CalFreeBusyRequestDeserializerIcal().deserialize(_ICAL_REQUEST)
     assert req.start == datetime(2026, 6, 15, 0, 0, tzinfo=_UTC)
     assert req.end   == datetime(2026, 6, 16, 0, 0, tzinfo=_UTC)
 
 
 def test_ical_deserialize_request_invalid():
     with pytest.raises(RequestException):
-        FreeBusyDeserializerIcal().deserialize("NOT ICAL")
+        CalFreeBusyRequestDeserializerIcal().deserialize("NOT ICAL")
 
 
 
@@ -160,7 +160,7 @@ def test_dict_roundtrip():
         CalFreeBusyPeriod(_START, _END, FreeBusyType.BUSY, title="Meeting"),
         CalFreeBusyPeriod(datetime(2026, 6, 15, 16, 0, tzinfo=_UTC), datetime(2026, 6, 15, 17, 0, tzinfo=_UTC), FreeBusyType.TENTATIVE),
     ]
-    serialized = FreeBusySerializerDict().serialize(CalFreeBusyResult({"u@x": periods}, _RANGE_START, _RANGE_END))
+    serialized = CalFreeBusyResultSerializerDict().serialize(CalFreeBusyResult({"u@x": periods}, _RANGE_START, _RANGE_END))
     restored = FreeBusyDeserializerDict().deserialize(serialized)
     assert len(restored["u@x"]) == 2
     assert restored["u@x"][0].date_start == _START
@@ -177,8 +177,8 @@ def test_ical_roundtrip():
         CalFreeBusyPeriod(_START, _END, FreeBusyType.BUSY),
         CalFreeBusyPeriod(datetime(2026, 6, 15, 16, 0, tzinfo=_UTC), datetime(2026, 6, 15, 17, 0, tzinfo=_UTC), FreeBusyType.TENTATIVE),
     ]
-    serialized = FreeBusySerializerIcal().serialize(CalFreeBusyResult({"u@x": periods}, _RANGE_START, _RANGE_END))
-    restored = FreeBusyDeserializerIcal().parse_reply(serialized)
+    serialized = CalFreeBusyResultSerializerIcal().serialize(CalFreeBusyResult({"u@x": periods}, _RANGE_START, _RANGE_END))
+    restored = CalFreeBusyRequestDeserializerIcal().parse_reply(serialized)
     assert len(restored) == 2
     types = {p.fb_type for p in restored}
     assert FreeBusyType.BUSY in types

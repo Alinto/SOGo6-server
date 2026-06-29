@@ -1,15 +1,20 @@
 from __future__ import annotations
 
-import calendar
+from dataclasses import replace
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 from app.utils.api.external_url import build_external_url
 
-from app.config.settings.DomainSettings import CalendarContactSettings, CalendarContactSettingsObj
+from app.config.settings.DomainSettings import (
+    CalendarContactSettings, CalendarContactSettingsObj, MailSettings, MailSettingsObj,
+)
 from app.config.settings.UserSettings import UserCalendarGeneralSettings, UserGeneralSettings
 from app.module.admin.ModuleAdminConfig import ModuleAdminConfig
 from app.module.calendar.ModuleCalendar import ModuleCalendar
+from app.module.calendar.imip.ImipBuilder import ImipBuilder
+from app.module.calendar.imip.ImipEmailBuilder import ImipEmailBuilder
+from app.module.mail.ModuleMailOutgoing import ModuleMailOutgoing
 from app.module.calendar.freebusy.FreeBusyEngine import FreeBusyPrefs
 from app.module.calendar.model.CalCalendar import CalCalendar
 from app.module.calendar.model.CalendarUser import CalendarUser
@@ -18,29 +23,35 @@ from app.module.calendar.model.CalOrganizer import CalOrganizer
 from app.module.calendar.model.enums.AttendeeStatus import AttendeeStatus
 from app.module.calendar.model.enums.CalendarSourceType import CalendarSourceType
 from app.module.calendar.model.enums.CalendarSyncStatus import CalendarSyncStatus
-from app.module.calendar.model.enums.EventVisibility import EventVisibility
 from app.module.calendar.model.enums.ReminderMethod import ReminderMethod
 from app.module.calendar.model.CalFreeBusyResult import CalFreeBusyResult
-from app.module.calendar.serializer.CalendarEventDeserializerDict import CalendarEventDeserializerDict
-from app.module.calendar.serializer.CalendarEventSerializerDict import CalendarEventSerializerDict
-from app.module.calendar.serializer.CalendarEventsSerializerDict import CalendarEventsSerializerDict
-from app.module.calendar.serializer.CalendarSerializerDict import CalendarSerializerDict
-from app.module.calendar.serializer.CalendarsSerializerList import CalendarsSerializerList
-from app.module.calendar.serializer.EventReminderSerializerDict import EventReminderSerializerDict
-from app.module.calendar.serializer.FreeBusySerializerDict import FreeBusySerializerDict
-from app.module.calendar.serializer.SyncResultSerializerDict import SyncResultSerializerDict
-from app.module.calendar.serializer.SyncStatusSerializerDict import SyncStatusSerializerDict
+from app.module.calendar.serializer.CalCalendarDeserializerDict import CalCalendarDeserializerDict
+from app.module.calendar.serializer.CalEventDeserializerDict import CalEventDeserializerDict
+from app.module.calendar.serializer.CalEventSerializerDict import CalEventSerializerDict
+from app.module.calendar.serializer.CalEventsSerializerDict import CalEventsSerializerDict
+from app.module.calendar.serializer.CalTaskDeserializerDict import CalTaskDeserializerDict
+from app.module.calendar.serializer.CalTaskSerializerDict import CalTaskSerializerDict
+from app.module.calendar.serializer.CalCalendarSerializerDict import CalCalendarSerializerDict
+from app.module.calendar.serializer.CalCalendarsSerializerList import CalCalendarsSerializerList
+from app.module.calendar.serializer.CalEventReminderSerializerDict import CalEventReminderSerializerDict
+from app.module.calendar.serializer.CalFreeBusyResultSerializerDict import CalFreeBusyResultSerializerDict
+from app.module.calendar.serializer.CalSyncStatusSerializerDict import CalSyncStatusSerializerDict
 from app.module.user.ModuleUserProfile import ModuleUserProfile
-from app.service import sogo_cache
+from app.service import sogo_agent, sogo_cache
 from app.utils.api.ApiBaseResponse import create_api_base_response
+from app.utils.datetime.DateTimeUtils import add_months
 from app.utils.errors import ERROR_CALENDAR_JSON_PARSE_FAILED
 from app.utils.exceptions import RequestException
 from app.utils.strings import get_domain_from_mail
 from app.auth.User import User
 from app.utils.logger.logger import logger_api
+from app.utils import constants as cs
 
 if TYPE_CHECKING:
+    from email.message import EmailMessage
+
     from app.config.settings.ProcessSetting import ProcessSetting
+    from app.module.calendar.imip.ImipMessage import ImipMessage
     from app.module.calendar.model.CalEvent import CalEvent
     from app.module.calendar.source.CalendarSource import CalendarSource
 
@@ -50,41 +61,66 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
 
     _PUBLIC_SUBSCRIPTION_ENDPOINT: str = "user#Calendar.v1_Calendar.Calendar.ApiCalendarPublicSubscription"
 
-    @staticmethod
-    def _add_months(dt: datetime, months: int) -> datetime:
-        """Return dt shifted by the given number of months, clamping to the last day if needed."""
-        total = dt.month - 1 + months
-        year = dt.year + total // 12
-        month = total % 12 + 1
-        day = min(dt.day, calendar.monthrange(year, month)[1])
-        return dt.replace(year=year, month=month, day=day)
-
     def __init__(self, process_setting: ProcessSetting, user_domain_settings: dict, user: User) -> None:
         self.user: User = user
         self._process_setting: ProcessSetting = process_setting
         self.settings: CalendarContactSettingsObj = CalendarContactSettingsObj(user_domain_settings[CalendarContactSettings.subparent])
-        self.module: ModuleCalendar = ModuleCalendar(process_setting, cache=sogo_cache())
+        self.module: ModuleCalendar = ModuleCalendar(process_setting, cache=sogo_cache(), agent=sogo_agent())
+        # iMIP is sent through the mail module: cross-module collaboration lives in the interface.
+        self._mail_outgoing: ModuleMailOutgoing = ModuleMailOutgoing(
+            user, MailSettingsObj(user_domain_settings[MailSettings.subparent]),
+        )
         self._user_module: ModuleUserProfile = ModuleUserProfile(process_setting, user_domain_settings)
-        self._events_serializer: CalendarEventsSerializerDict = CalendarEventsSerializerDict()
-        self._event_serializer: CalendarEventSerializerDict = CalendarEventSerializerDict()
-        self._event_deserializer: CalendarEventDeserializerDict = CalendarEventDeserializerDict()
-        self._calendar_serializer: CalendarSerializerDict = CalendarSerializerDict()
-        self._calendars_serializer: CalendarsSerializerList = CalendarsSerializerList()
-        self._freebusy_serializer: FreeBusySerializerDict = FreeBusySerializerDict()
-        self._reminder_serializer: EventReminderSerializerDict = EventReminderSerializerDict()
-        self._sync_result_serializer: SyncResultSerializerDict = SyncResultSerializerDict()
-        self._sync_status_serializer: SyncStatusSerializerDict = SyncStatusSerializerDict()
+        self._events_serializer: CalEventsSerializerDict = CalEventsSerializerDict()
+        self._event_serializer: CalEventSerializerDict = CalEventSerializerDict()
+        self._event_deserializer: CalEventDeserializerDict = CalEventDeserializerDict()
+        self._task_serializer: CalTaskSerializerDict = CalTaskSerializerDict()
+        self._task_deserializer: CalTaskDeserializerDict = CalTaskDeserializerDict()
+        self._calendar_deserializer: CalCalendarDeserializerDict = CalCalendarDeserializerDict()
+        self._calendar_serializer: CalCalendarSerializerDict = CalCalendarSerializerDict()
+        self._calendars_serializer: CalCalendarsSerializerList = CalCalendarsSerializerList()
+        self._freebusy_serializer: CalFreeBusyResultSerializerDict = CalFreeBusyResultSerializerDict()
+        self._reminder_serializer: CalEventReminderSerializerDict = CalEventReminderSerializerDict()
+        self._sync_status_serializer: CalSyncStatusSerializerDict = CalSyncStatusSerializerDict()
 
-    def _calendar_user_for(self, calendar_key: str) -> CalendarUser:
-        """Build a CalendarUser by resolving the owner from the calendar's user_uid."""
-        source: CalendarSource = self.module.get_calendar(self.user, calendar_key)
-        owner_uid: str = source.calendar.user_uid
+    def _calendar_user_from_owner_uid(self, owner_uid: str) -> CalendarUser:
+        """Build the (acting user, owner) pair from a calendar owner uid, loading the owner profile.
+
+        We need the owner's email. The uid is not necessarily the email - it has to be resolved
+        through the user module (ModuleUserProfile). The architecture rule forbids a module calling
+        another module, so this resolution cannot live in ModuleCalendar; it stays here in the
+        interface, which is why the caller pays a second lookup (the calendar module looks the
+        calendar/event up again to operate on it). When the owner is the acting user (personal
+        calendar) we skip the profile fetch entirely - it would be pointless.
+        """
         if owner_uid == self.user.uid:
             return CalendarUser(user=self.user, owner=self.user)
         owner: User = User(uid=owner_uid)
         owner.mail = owner_uid
         self._user_module.get_user_profile(owner)
         return CalendarUser(user=self.user, owner=owner)
+
+    def _calendar_user_for(self, calendar_key: str) -> CalendarUser:
+        """Resolve the (acting user, owner) pair for a calendar identified by its key.
+
+        We need the owner's email. The uid is not necessarily the email - it has to be resolved
+        through the user module (ModuleUserProfile). The architecture rule forbids a module calling
+        another module, so this resolution stays in the interface, not in ModuleCalendar - hence the
+        unavoidable second lookup (the calendar module looks the calendar up again to operate on it).
+        """
+        owner_uid: str = self.module.get_calendar(self.user, calendar_key).calendar.user_uid
+        return self._calendar_user_from_owner_uid(owner_uid)
+
+    def _event_user_for(self, event_key: str) -> CalendarUser:
+        """Resolve the (acting user, owner) pair for an event or task identified by its key.
+
+        We need the owner's email. The uid is not necessarily the email - it has to be resolved
+        through the user module (ModuleUserProfile). The architecture rule forbids a module calling
+        another module, so this resolution stays in the interface, not in ModuleCalendar - hence the
+        unavoidable second lookup (the calendar module looks the event up again to operate on it).
+        """
+        owner_uid: str = self.module.get_event_calendar(self.user, event_key).user_uid
+        return self._calendar_user_from_owner_uid(owner_uid)
 
     def _public_url(self, share_token: str | None) -> str | None:
         """Build the absolute public subscription URL for a calendar, or None when inactive."""
@@ -107,7 +143,7 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
                 calendars = [c for c in calendars if c.source_type.value == source_type]
             serialized: list[dict[str, Any]] = self._calendars_serializer.serialize(calendars)
             # public_url is an API-level value (derived via url_for) injected after serialization;
-            # the order matches since CalendarsSerializerList preserves the input order.
+            # the order matches since CalCalendarsSerializerList preserves the input order.
             for index, cal in enumerate(calendars):
                 serialized[index]["public_url"] = self._public_url(cal.share_token)
             return create_api_base_response({"calendars": serialized, "total_count": len(calendars)})
@@ -134,19 +170,10 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         anchor for floating-time events imported later.
         """
         try:
-            default_type_raw: str | None = body.get("default_type")
-            cal: CalCalendar = CalCalendar(
-                user_uid=self.user.uid,
-                name=body["name"],
-                color=body.get("color"),
-                description=body.get("description"),
-                timezone=body.get("timezone") or self._user_timezone(self.user.uid),
-                source_type=CalendarSourceType.LOCAL,
-                include_in_freebusy=body.get("include_in_freebusy", True),
-                default_event_duration_min=body.get("default_event_duration_min"),
-                default_alarm_duration_min=body.get("default_alarm_duration_min"),
-                default_type=EventVisibility(default_type_raw) if default_type_raw else None,
-            )
+            cal: CalCalendar = self._calendar_deserializer.deserialize(body)
+            cal.source_type = CalendarSourceType.LOCAL
+            if not body.get("timezone"):
+                cal.timezone = self._user_timezone(self.user.uid)
             created: CalCalendar = self.module.create_calendar(self.user, cal)
             return create_api_base_response(self._calendar_serializer.serialize(created), code=201)
         except RequestException as ex:
@@ -156,8 +183,9 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
     def update_calendar(self, key: str, body: dict[str, Any]) -> tuple[dict[str, Any], int]:
         """Update an existing calendar."""
         try:
-            updates: dict[str, Any] = self._normalize_calendar_updates(body)
-            updated: CalCalendar = self.module.update_calendar(self.user, key, updates)
+            source: CalendarSource = self.module.get_calendar(self.user, key)
+            merged: CalCalendar = self._calendar_deserializer.deserialize_with_update(source.calendar, body)
+            updated: CalCalendar = self.module.update_calendar(self.user, key, merged)
             return create_api_base_response(self._calendar_serializer.serialize(updated))
         except RequestException as ex:
             logger_api.error("update_calendar failed for user %s key %s: %s", self.user.uid, key, ex)
@@ -176,11 +204,15 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
     # Events
     #
     def create_event(self, calendar_key: str, body: dict[str, Any]) -> tuple[dict[str, Any], int]:
-        """Create a new event in the given calendar."""
+        """Create a new event in the given calendar, sending an iMIP invitation when it has attendees."""
         try:
+            calendar_user: CalendarUser = self._calendar_user_for(calendar_key)
             event: CalEvent = self._event_deserializer.deserialize(body)
-            organizer: CalOrganizer = CalOrganizer(email=self.user.mail)
-            created: CalEvent = self.module.create_event(CalendarUser(user=self.user, owner=self.user), calendar_key, event, organizer)
+            organizer: CalOrganizer = CalOrganizer(email=calendar_user.owner.mail)
+            created: CalEvent = self.module.create_event(calendar_user, calendar_key, event, organizer)
+            imip_msg: ImipMessage | None = ImipBuilder.build_request(created)
+            if imip_msg is not None:
+                self._send_imip(imip_msg)
             return create_api_base_response(self._event_serializer.serialize(created), code=201)
         except RequestException as ex:
             logger_api.error("create_event failed for user %s calendar %s: %s", self.user.uid, calendar_key, ex)
@@ -189,10 +221,30 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
             logger_api.error("Failed to parse event body for user %s calendar %s: %s", self.user.uid, calendar_key, exc)
             return create_api_base_response(None, ERROR_CALENDAR_JSON_PARSE_FAILED)
 
+    def _send_imip(self, imip_msg: ImipMessage) -> None:
+        """Send an iMIP message to each attendee individually, best-effort.
+
+        iTIP delivers one copy per recipient: the To header then matches the actual recipient and a
+        single unreachable address cannot sink the whole batch. The iCalendar payload still lists
+        every attendee, as the standard requires. A delivery failure must never break the calendar
+        operation that produced it - the event is already persisted, the invitation is a side effect.
+        Errors are logged and swallowed per recipient.
+        """
+        for recipient in imip_msg.to_emails:
+            try:
+                single: ImipMessage = replace(imip_msg, to_emails=[recipient])
+                email_message: EmailMessage = ImipEmailBuilder.build_email(single)
+                self._mail_outgoing.send_raw_message(cs.DEFAULT_IDENTITY_KEY_VALUE, email_message)
+            except Exception:  # pylint: disable=broad-exception-caught
+                logger_api.exception(
+                    "iMIP %s send failed for event %s to %s",
+                    imip_msg.method.value, imip_msg.event.uid, recipient,
+                )
+
     def get_event(self, event_key: str) -> tuple[dict[str, Any], int]:
         """Get a single event by key."""
         try:
-            event: CalEvent = self.module.get_event(CalendarUser(user=self.user, owner=self.user), event_key)
+            event: CalEvent = self.module.get_event(self._event_user_for(event_key), event_key)
             return create_api_base_response(self._event_serializer.serialize(event))
         except RequestException as ex:
             logger_api.error("get_event failed for user %s event %s: %s", self.user.uid, event_key, ex)
@@ -201,10 +253,17 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
     def patch_event(self, event_key: str, body: dict[str, Any]) -> tuple[dict[str, Any], int]:
         """Apply partial updates to an event."""
         try:
-            existing: CalEvent = self.module.get_event(CalendarUser(user=self.user, owner=self.user), event_key)
+            calendar_user: CalendarUser = self._event_user_for(event_key)
+            existing: CalEvent = self.module.get_event(calendar_user, event_key)
             event_update: CalEvent = self._event_deserializer.deserialize_with_update(existing, body)
-            organizer: CalOrganizer = CalOrganizer(email=self.user.mail)
-            updated: CalEvent = self.module.update_event(CalendarUser(user=self.user, owner=self.user), event_key, event_update, organizer)
+            organizer: CalOrganizer = CalOrganizer(email=calendar_user.owner.mail)
+            updated: CalEvent = self.module.update_event(calendar_user, event_key, event_update, organizer)
+            # Only the organizer notifies attendees: a non-organizer attendee editing their own copy
+            # (e.g. their personal reminders) must not send a REQUEST in the organizer's name.
+            if updated.is_organized_by(calendar_user.owner.mail):
+                imip_msg: ImipMessage | None = ImipBuilder.build_request(updated)
+                if imip_msg is not None:
+                    self._send_imip(imip_msg)
             return create_api_base_response(self._event_serializer.serialize(updated))
         except RequestException as ex:
             logger_api.error("patch_event failed for user %s event %s: %s", self.user.uid, event_key, ex)
@@ -223,7 +282,11 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         try:
             attendance: AttendeeStatus = AttendeeStatus(body["status"])
             recurrence_id: datetime | None = body.get("recurrence_id")
-            updated: CalEvent = self.module.set_attendance_status(CalendarUser(user=self.user, owner=self.user), event_key, attendance, recurrence_id)
+            calendar_user: CalendarUser = self._event_user_for(event_key)
+            updated: CalEvent = self.module.set_attendance_status(calendar_user, event_key, attendance, recurrence_id)
+            imip_msg: ImipMessage | None = ImipBuilder.build_reply(updated, calendar_user)
+            if imip_msg is not None:
+                self._send_imip(imip_msg)
             return create_api_base_response(self._event_serializer.serialize(updated))
         except RequestException as ex:
             logger_api.error("set_attendance_status failed for user %s event %s: %s", self.user.uid, event_key, ex)
@@ -233,9 +296,13 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
             return create_api_base_response(None, ERROR_CALENDAR_JSON_PARSE_FAILED)
 
     def delete_event(self, event_key: str) -> tuple[dict[str, Any], int]:
-        """Delete an event."""
+        """Delete an event, sending an iMIP cancellation to attendees when the organizer deletes it."""
         try:
-            self.module.delete_event(CalendarUser(user=self.user, owner=self.user), event_key)
+            cancelled: CalEvent | None = self.module.delete_event(self._event_user_for(event_key), event_key)
+            if cancelled is not None:
+                imip_msg: ImipMessage | None = ImipBuilder.build_cancel(cancelled)
+                if imip_msg is not None:
+                    self._send_imip(imip_msg)
             return create_api_base_response(None)
         except RequestException as ex:
             logger_api.error("delete_event failed for user %s event %s: %s", self.user.uid, event_key, ex)
@@ -258,7 +325,8 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
                 today = datetime.now(timezone.utc).date()
                 start = datetime(today.year, today.month, today.day, 0, 0, 0, tzinfo=timezone.utc)
                 end = datetime(today.year, today.month, today.day, 23, 59, 59, tzinfo=timezone.utc)
-            events: list[CalEvent] = self.module.get_events(CalendarUser(user=self.user, owner=self.user), start, end, search, key)
+            calendar_user: CalendarUser = self._calendar_user_for(key) if key else CalendarUser(user=self.user, owner=self.user)
+            events: list[CalEvent] = self.module.get_all_events(calendar_user, start, end, search, key)
             event_list: list[dict[str, Any]] = self._events_serializer.serialize(events)
             return create_api_base_response({"events": event_list, "total_count": len(event_list)})
         except RequestException as ex:
@@ -271,7 +339,7 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
     def get_tasks(self, key: str | None, query_args: dict[str, Any]) -> tuple[dict[str, Any], int]:
         """List VTODO tasks in a calendar with optional date range and search filters.
 
-        When no date bounds are provided, defaults to 3 months ago → 9 months ahead.
+        When no date bounds are provided, defaults to 3 months ago -> 9 months ahead.
 
         :param key: Calendar key, or None to query all user calendars.
         :type key: str | None
@@ -282,11 +350,12 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         """
         try:
             now = datetime.now(timezone.utc)
-            start: datetime = query_args.get("start_date_time") or self._add_months(now, -3)
-            end: datetime = query_args.get("end_date_time") or self._add_months(now, 9)
+            start: datetime = query_args.get("start_date_time") or add_months(now, -3)
+            end: datetime = query_args.get("end_date_time") or add_months(now, 9)
             search: str | None = query_args.get("search")
-            tasks: list[CalEvent] = self.module.get_tasks(CalendarUser(user=self.user, owner=self.user), start, end, search, key)
-            task_list: list[dict[str, Any]] = [self._serialize_task(t) for t in tasks]
+            calendar_user: CalendarUser = self._calendar_user_for(key) if key else CalendarUser(user=self.user, owner=self.user)
+            tasks: list[CalEvent] = self.module.get_all_tasks(calendar_user, start, end, search, key)
+            task_list: list[dict[str, Any]] = [self._task_serializer.serialize(t) for t in tasks]
             return create_api_base_response({"tasks": task_list, "total_count": len(task_list)})
         except RequestException as ex:
             logger_api.error("get_tasks failed for user %s, calendar %s: %s", self.user.uid, key, ex)
@@ -295,10 +364,9 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
     def create_task(self, calendar_key: str, body: dict[str, Any]) -> tuple[dict[str, Any], int]:
         """Create a new VTODO in the given calendar."""
         try:
-            task_body: dict[str, Any] = self._normalize_task_body(body)
-            task: CalEvent = self._event_deserializer.deserialize(task_body)
-            created: CalEvent = self.module.create_task(CalendarUser(user=self.user, owner=self.user), calendar_key, task)
-            return create_api_base_response(self._serialize_task(created), code=201)
+            task: CalEvent = self._task_deserializer.deserialize(body)
+            created: CalEvent = self.module.create_task(self._calendar_user_for(calendar_key), calendar_key, task)
+            return create_api_base_response(self._task_serializer.serialize(created), code=201)
         except RequestException as ex:
             logger_api.error("create_task failed for user %s calendar %s: %s", self.user.uid, calendar_key, ex)
             return create_api_base_response(None, ex.error)
@@ -309,8 +377,8 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
     def get_task(self, task_key: str) -> tuple[dict[str, Any], int]:
         """Get a single VTODO by key."""
         try:
-            task: CalEvent = self.module.get_task(CalendarUser(user=self.user, owner=self.user), task_key)
-            return create_api_base_response(self._serialize_task(task))
+            task: CalEvent = self.module.get_task(self._event_user_for(task_key), task_key)
+            return create_api_base_response(self._task_serializer.serialize(task))
         except RequestException as ex:
             logger_api.error("get_task failed for user %s task %s: %s", self.user.uid, task_key, ex)
             return create_api_base_response(None, ex.error)
@@ -318,13 +386,11 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
     def patch_task(self, task_key: str, body: dict[str, Any]) -> tuple[dict[str, Any], int]:
         """Apply partial updates to a VTODO."""
         try:
-            if "date_due" in body:
-                body = dict(body)
-                body["date_end"] = body.pop("date_due")
-            existing: CalEvent = self.module.get_task(CalendarUser(user=self.user, owner=self.user), task_key)
-            task_update: CalEvent = self._event_deserializer.deserialize_with_update(existing, body)
-            updated: CalEvent = self.module.update_task(CalendarUser(user=self.user, owner=self.user), task_key, task_update)
-            return create_api_base_response(self._serialize_task(updated))
+            calendar_user: CalendarUser = self._event_user_for(task_key)
+            existing: CalEvent = self.module.get_task(calendar_user, task_key)
+            task_update: CalEvent = self._task_deserializer.deserialize_with_update(existing, body)
+            updated: CalEvent = self.module.update_task(calendar_user, task_key, task_update)
+            return create_api_base_response(self._task_serializer.serialize(updated))
         except RequestException as ex:
             logger_api.error("patch_task failed for user %s task %s: %s", self.user.uid, task_key, ex)
             return create_api_base_response(None, ex.error)
@@ -335,7 +401,7 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
     def delete_task(self, task_key: str) -> tuple[dict[str, Any], int]:
         """Delete a VTODO."""
         try:
-            self.module.delete_task(CalendarUser(user=self.user, owner=self.user), task_key)
+            self.module.delete_task(self._event_user_for(task_key), task_key)
             return create_api_base_response(None)
         except RequestException as ex:
             logger_api.error("delete_task failed for user %s task %s: %s", self.user.uid, task_key, ex)
@@ -438,10 +504,14 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
             return create_api_base_response(None, ex.error)
 
     def sync_external_calendar(self, key: str) -> tuple[dict[str, Any], int]:
-        """Trigger a sync for an external ICS calendar."""
+        """Enqueue a manual sync of an external ICS calendar and return its ``job_id`` (202).
+
+        The sync runs in the background; the caller polls ``GET /jobs/<job_id>`` for the counters,
+        or ``GET /external-calendars/<key>/sync`` for the durable sync status.
+        """
         try:
-            result = self.module.sync_external_calendar(self.user, key)
-            return create_api_base_response(self._sync_result_serializer.serialize(result))
+            job_id: str = self.module.enqueue_sync(self.user, key)
+            return create_api_base_response({"job_id": job_id}, code=202)
         except RequestException as ex:
             logger_api.error("sync_external_calendar failed for user %s key %s: %s", self.user.uid, key, ex)
             return create_api_base_response(None, ex.error)
@@ -458,44 +528,45 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
     #
     # Import / Export
     #
-    def export_calendar(self, key: str, query_args: dict[str, Any]) -> tuple[str, int, dict[str, str]] | tuple[dict[str, Any], int]:
-        """Export the calendar as a VCALENDAR payload.
+    def export_calendar(self, key: str, query_args: dict[str, Any]) -> tuple[dict[str, Any], int]:
+        """Enqueue an ICS export as an Agent job and return its ``job_id``.
+
+        The export always runs in the background: the response carries a
+        ``job_id`` (202). The caller polls ``GET /jobs/<job_id>`` until SUCCESS
+        then fetches ``GET /jobs/<job_id>/result``.
 
         :param key: Opaque calendar key.
-        :param query_args: Validated query string. Supports optional ``start_date_time``
-            and ``end_date_time`` bounds, and a ``download`` flag that toggles the
-            Content-Disposition attachment header so browsers trigger a file download
-            instead of inlining the iCalendar.
-        :return: A tuple ``(ics_text, status_code, headers)`` for Flask when successful, or
-            the standard error envelope on failure.
+        :param query_args: Validated query string - ``start_date_time`` /
+            ``end_date_time`` bounds.
+        :return: API envelope with ``{"job_id": "..."}`` and status 202, or the
+            standard error envelope on failure.
         """
         try:
             date_start: datetime | None = query_args.get("start_date_time")
             date_end: datetime | None = query_args.get("end_date_time")
-            download: bool = bool(query_args.get("download"))
-            ics_text: str = self.module.export_calendar(self.user, key, date_start=date_start, date_end=date_end)
-            headers: dict[str, str] = {"Content-Type": "text/calendar; charset=utf-8"}
-            if download:
-                filename: str = f"calendar-{key}.ics"
-                headers["Content-Disposition"] = f'attachment; filename="{filename}"'
-            return ics_text, 200, headers
+            job_id: str = self.module.export_calendar(
+                self.user, key, date_start=date_start, date_end=date_end,
+            )
+            return create_api_base_response({"job_id": job_id}, code=202)
         except RequestException as ex:
             logger_api.error("export_calendar failed for user %s key %s: %s", self.user.uid, key, ex)
             return create_api_base_response(None, ex.error)
 
     def import_calendar(self, key: str, ics_text: str) -> tuple[dict[str, Any], int]:
-        """Import a VCALENDAR payload into a calendar (additive merge).
+        """Enqueue an ICS import as an Agent job and return its ``job_id``.
 
-        Floating-time events (no explicit timezone) are anchored to the destination
-        calendar's timezone by the module — no user-preference lookup needed here.
+        The import always runs in the background: the response carries a ``job_id``
+        (202). The caller polls ``GET /jobs/<job_id>`` until SUCCESS; the import
+        counters are then available in the job's ``result``.
 
         :param key: Opaque calendar key.
-        :param ics_text: Raw VCALENDAR payload (UTF-8 decoded), typically read from an upload.
-        :return: API envelope with insert/update/delete counters.
+        :param ics_text: Decoded VCALENDAR text.
+        :return: API envelope with ``{"job_id": "..."}`` and status 202, or the
+            standard error envelope on failure.
         """
         try:
-            result = self.module.import_calendar(self.user, key, ics_text)
-            return create_api_base_response(self._sync_result_serializer.serialize(result))
+            job_id: str = self.module.import_calendar(self.user, key, ics_text)
+            return create_api_base_response({"job_id": job_id}, code=202)
         except RequestException as ex:
             logger_api.error("import_calendar failed for user %s key %s: %s", self.user.uid, key, ex)
             return create_api_base_response(None, ex.error)
@@ -531,7 +602,7 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
     def export_public_calendar(self, token: str) -> tuple[str, int, dict[str, str]] | tuple[dict[str, Any], int]:
         """Serve the full calendar as ``text/calendar`` for a public subscription token.
 
-        Unauthenticated path — the token is the capability. Returns the standard error
+        Unauthenticated path - the token is the capability. Returns the standard error
         envelope (404) when the token does not match an active subscription, or when the
         calendar owner's domain disables public links. The caller being anonymous, the
         relevant domain settings are the owner's ones: the owner is resolved from the token
@@ -543,7 +614,7 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
             ics_text: str = self.module.export_by_share_token(token, owner_settings)
             return ics_text, 200, {"Content-Type": "text/calendar; charset=utf-8"}
         except RequestException as ex:
-            # An unknown token is a normal 404, not an anomaly — no log (and never log the
+            # An unknown token is a normal 404, not an anomaly - no log (and never log the
             # token itself, it is a secret capability).
             return create_api_base_response(None, ex.error)
 
@@ -558,32 +629,3 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         domain: str = get_domain_from_mail(user_uid) or ""
         raw: dict = config_module.get_one_domain_setting(domain)["settings"]
         return CalendarContactSettingsObj(raw[CalendarContactSettings.subparent])
-
-    @staticmethod
-    def _normalize_calendar_updates(body: dict[str, Any]) -> dict[str, Any]:
-        """Convert API-format calendar update fields into model values (default_type string -> enum)."""
-        updates: dict[str, Any] = dict(body)
-        if "default_type" in updates:
-            raw = updates["default_type"]
-            updates["default_type"] = EventVisibility(raw) if raw else None
-        return updates
-
-    @staticmethod
-    def _normalize_task_body(body: dict[str, Any]) -> dict[str, Any]:
-        """Map task API fields to CalEvent fields and fill required defaults."""
-        now_iso: str = datetime.now(timezone.utc).isoformat()
-        task_body: dict[str, Any] = dict(body)
-        task_body["date_start"] = task_body.get("date_start") or now_iso
-        task_body["date_end"] = task_body.pop("date_due", None)
-        task_body["component_type"] = "task"
-        return task_body
-
-    def _serialize_task(self, task: CalEvent) -> dict[str, Any]:
-        """Serialize a VTODO: the event serializer emits date_end, surfaced here as ``date_due``.
-
-        Inverse of :meth:`_normalize_task_body`. A task without a due date has date_end=None,
-        so ``date_due`` comes out null.
-        """
-        result: dict[str, Any] = self._event_serializer.serialize(task)
-        result["date_due"] = result.pop("date_end", None)
-        return result

@@ -7,7 +7,7 @@ from app.utils import errors as err
 
 REX_VALID_NAMES = r"^[A-Za-z_0-9]+$" #We force the fact that tables and columns' name must be alphanumerical with underscore only
 
-SOGO_DB_DATA_TYPE = {"dict", "str", "list", "serial", "json", "int8", "bool", "datetime", "int", "text", "tsvector"}
+SOGO_DB_DATA_TYPE = {"dict", "str", "list", "serial", "json", "int8", "bool", "datetime", "int", "text", "tsvector", "bytes"}
 SOGO_DB_DATA_TYPE_VALIDATION = {
     "dict":     {"dict", "json"},
     "str":      {"str"},
@@ -21,6 +21,8 @@ SOGO_DB_DATA_TYPE_VALIDATION = {
     "text":     {"str", "text"},
     # tsvector is a real tsvector column on PostgreSQL but a plain TEXT column on MariaDB
     "tsvector": {"tsvector", "text"},
+    # raw binary: bytea on PostgreSQL, LONGBLOB on MariaDB
+    "bytes":    {"bytes", "bytea", "blob", "longblob", "mediumblob"},
 }
 
 class Column:

@@ -1,10 +1,11 @@
-"""Unit tests for InterfaceApiCalendarCalendar — calendar CRUD timezone defaulting and public subscription."""
+"""Unit tests for InterfaceApiCalendarCalendar - calendar CRUD timezone defaulting and public subscription."""
 from unittest.mock import MagicMock, patch
 
 from app.interface.calendar.InterfaceApiCalendarCalendar import InterfaceApiCalendarCalendar
 from app.module.calendar.model.CalCalendar import CalCalendar
 from app.module.calendar.model.enums.EventVisibility import EventVisibility
-from app.module.calendar.serializer.CalendarSerializerDict import CalendarSerializerDict
+from app.module.calendar.serializer.CalCalendarDeserializerDict import CalCalendarDeserializerDict
+from app.module.calendar.serializer.CalCalendarSerializerDict import CalCalendarSerializerDict
 from app.utils import errors as err
 from app.utils.exceptions import RequestException
 
@@ -17,7 +18,8 @@ def _build_interface(user_tz="Europe/Paris"):
     inter.module = MagicMock()
     # Return the calendar passed in so we can assert on what was built.
     inter.module.create_calendar.side_effect = lambda user, cal: cal
-    inter._calendar_serializer = CalendarSerializerDict()
+    inter._calendar_deserializer = CalCalendarDeserializerDict()
+    inter._calendar_serializer = CalCalendarSerializerDict()
     inter._process_setting = MagicMock(SOGO_P_PUBLIC_BASE_URL="")
     inter._user_module = MagicMock()
     inter._user_module.get_partial_user_preferences.return_value = {"USER_GENERAL": {"SOGO_U_TIMEZONE": user_tz}}
@@ -65,20 +67,23 @@ def test_create_calendar_default_type_absent_stays_none():
     assert _created_calendar(inter).default_type is None
 
 
-def test_update_calendar_normalizes_default_type_to_enum():
+def test_update_calendar_converts_default_type_to_enum():
     inter = _build_interface()
-    inter.module.update_calendar.return_value = CalCalendar(key="k", user_uid="u", name="C")
+    inter.module.get_calendar.return_value.calendar = CalCalendar(key="k", user_uid="u", name="C")
+    inter.module.update_calendar.side_effect = lambda user, key, cal: cal
     inter.update_calendar("k", {"default_type": "confidential"})
-    updates = inter.module.update_calendar.call_args.args[2]
-    assert updates["default_type"] == EventVisibility.CONFIDENTIAL
+    merged = inter.module.update_calendar.call_args.args[2]
+    assert merged.default_type == EventVisibility.CONFIDENTIAL
 
 
 def test_update_calendar_default_type_null_clears():
     inter = _build_interface()
-    inter.module.update_calendar.return_value = CalCalendar(key="k", user_uid="u", name="C")
+    inter.module.get_calendar.return_value.calendar = CalCalendar(
+        key="k", user_uid="u", name="C", default_type=EventVisibility.PRIVATE)
+    inter.module.update_calendar.side_effect = lambda user, key, cal: cal
     inter.update_calendar("k", {"default_type": None})
-    updates = inter.module.update_calendar.call_args.args[2]
-    assert updates["default_type"] is None
+    merged = inter.module.update_calendar.call_args.args[2]
+    assert merged.default_type is None
 
 
 # ========== public subscription ==========

@@ -1,0 +1,244 @@
+= Contact Module
+
+The contact module manages address books and contacts (vCard, RFC 6350) stored in the database.
+It is built around two domain objects - `CardAddressBook` and `CardContact` - that flow through sources, repositories, and serializers without any format leaking across layers.
+
+== Architecture overview
+
+----
+  Interface (API)        Module              Sources                   Persistence
+  --------------         ------              -------                   -----------
+  InterfaceApi       ModuleContact          ContactSources            RepositoryContact
+       |                  |                      |                     RepositoryAddressBook
+       |  CardContact     |                      |
+       +----------------->|  CardContact         |
+                          |--------------------->|
+                          |                      +-- ContactSourceDb --> SQL (sogo6_contacts_*)
+                          |                      +-- ContactSourceDirectory -> user source (SQL/LDAP), read-only
+                          |
+                          +-- ContactAclEngine (permission resolution + enforcement)
+----
+
+**Responsibilities:**
+
+* *InterfaceApi* (`InterfaceApiContactContact`) - Dict-to-CardContact conversion (via Deserializer), response formatting, error handling. No business logic.
+* *ModuleContact* - Orchestration: address book and contact CRUD, transverse listing, recipient autocompletion. Resolves the source for a key, enforces ACL on writes.
+* *ContactSources* - Factory for `ContactSource` instances and multi-book aggregator. Single entry point for all address book access; `ModuleContact` never touches the repositories directly. All reads are scoped to a `user_uid`.
+* *ContactSourceDb* - Source backed by the database. Handles address book and contact persistence and bumps the address book `ctag` on every contact mutation.
+* *ContactSourceDirectory* - Read-only source backed by a domain user source (the directory / annuaire, SQL or LDAP). A stub for now; see <<Directory>>.
+* *ContactAclEngine* - Resolves and enforces address book permissions. See <<acl>>.
+* *RepositoryContact / RepositoryAddressBook* - SQL-only persistence. No business logic.
+* *Serializers / Deserializers* - Format conversion: Dict (the JSON blob and the REST API), plus vCard and LDIF for import / export (see <<import-export>>). `deserialize_with_update(origin, update)` merges a dict update onto an existing CardContact.
+
+== Domain model
+
+`CardContact` is the single canonical representation of a contact, a plain Python dataclass aligned with vCard (RFC 6350): structured name (N), formatted name (FN, `display_name`), `kind` (individual / group / org), multi-valued `emails` / `phones` / `addresses` / `urls` / `impp`, `categories`, `birthday` / `anniversary`, `organization`, and a catch-all `extra_properties` for unmapped / X-* properties (best-effort passthrough: a flat name->value map, so property parameters and repeated occurrences are not preserved).
+
+`import_format` records the format a contact was imported from (`undefined` / `vcard3` / `vcard4` / `ldif`), so the dialect of the entries kept in `extra_properties` can be told apart. It is server-set (stamped by the importing deserializer) and read-only - never accepted from the request body.
+
+Fields are either *relational* - dedicated columns for filtering and sorting: `key`, `addressbook_key`, `uid`, `kind`, `last_name`, `first_name`, `organization`, `display_name`, `is_deleted`, `created_at`, `updated_at`, and the full-text `search_vector` - or *blob*: everything else, serialized as JSON in the `contact_data` column. The same dict produced by `CardContactSerializerDict` is reused as the blob, so it must carry every field needed to reconstruct the contact; the relational columns are authoritative and override their blob counterparts on read.
+
+`key` is the opaque public identifier exposed in the API (it prevents row enumeration); the internal integer primary key (`db_id`) is never exposed. `uid` is the vCard UID (a stable semantic identifier).
+
+`addressbook_name` is a transient field: it is stamped at fetch time from the originating book (for display, e.g. autocompletion provenance) and is never persisted.
+
+`CardAddressBook` maps to `sogo6_contacts_addressbooks`. `ctag` (CardDAV `CS:getctag`, RFC 6352) is incremented on every contact or distribution-list mutation by `ContactSourceDb`, so clients detect changes without fetching the full contact list. A user has one default ("personal") address book, provisioned at first login (see <<Provisioning>>).
+
+== Contact sources
+
+`ContactSource` is an abstract base class: the address book backend. Two implementations:
+
+* `ContactSourceDb` - DB-backed, full CRUD, `is_writable() -> True`.
+* `ContactSourceDirectory` - read-only adapter over a domain user source (see <<Directory>>).
+
+`ContactSources` is the factory and aggregator. `get(book)` dispatches on `book.source_type`; `get_all(user_uid)` and `get_by_key(user_uid, key)` are scoped to the owner. The optional `user_source` argument carries the acting user's source config and is the seam through which the directory source will be surfaced.
+
+== Address books and contacts
+
+Both are addressed by their opaque key, and a contact is always scoped to its address book: `GET /addressbooks/\{key\}/contacts/\{contact_key\}`. `ModuleContact` resolves the book first (`get_addressbook`), then the contact within it (`source.get_contact_by_key`). The transverse `/contacts` listing and `/contacts/autocomplete` are the only cross-book endpoints (they span every book of the user).
+
+[cols="2,1,3"]
+|===
+| Route | Methods | Operation
+
+| `/addressbooks` | GET, POST | List / create address books
+| `/addressbooks/\{key\}` | GET, PATCH, DELETE | Get / update / delete one address book
+| `/addressbooks/\{key\}/contacts` | GET, POST | List (paginated) / create contacts in a book
+| `/addressbooks/\{key\}/contacts/\{contact_key\}` | GET, PATCH, DELETE | Get / patch / delete one contact
+| `/addressbooks/\{key\}/lists` | GET, POST | List (paginated) / create distribution lists in a book
+| `/addressbooks/\{key\}/lists/\{list_key\}` | GET, PATCH, DELETE | Get / patch / delete one distribution list
+| `/contacts` | GET | List (paginated) contacts across every book (transverse)
+| `/contacts/autocomplete` | GET | Recipient suggestions
+|===
+
+A `PATCH` merges only the provided fields: `CardContactDeserializerDict.deserialize_with_update(existing, body)` parses each key against `CardContact.MUTABLE_FIELDS` and applies it to a copy. Identity columns (`uid`, `key`, `db_id`, `addressbook_key`) are never mutable through an update - they are re-asserted by `ModuleContact.update_contact`. The patch request schema carries no `load_default`, so an omitted field stays absent and the merge leaves the stored value untouched (a partial PATCH never wipes the fields it does not mention).
+
+Errors follow the `S0007xx` range (`app/utils/errors.py`): a missing book / contact / list raises `S000701` / `S000703` / `S000710`; a write on a book the user does not own raises `S000709`; a uid or name collision surfaces as a conflict (`S000702` / `S000704` / `S000711`); a list member that is not a contact of the list's own book raises `S000714`; and a mutation targeting a non-writable source raises `S000707` (not supported) / `S000708` (read-only).
+
+== Distribution lists
+
+A distribution list is a vCard `KIND:group` (RFC 6350 §6.1.4): a named object that references member contacts. It belongs to one address book exactly like a contact, which is what scopes the `/addressbooks/\{key\}/lists` endpoints - there is no CardDAV "list" collection, a group card sits in an address book collection next to the individual cards, so book ownership, ACL and `ctag` are all inherited for free.
+
+A list is `CardList` (key, uid, name, description, members) mapped to its own table `sogo6_contacts_lists`, *not* stored among the contacts. The serializer abstracts the format, so the internal model stays a dedicated table while the wire format becomes `KIND:group` for the CardDAV server. Members live in the join table `sogo6_contacts_list_members` and are plain *references* - a member is a contact `key`, never an ad-hoc email - so editing a member contact propagates to every list it belongs to. A member must be a contact of the list's *own* address book: `ModuleContact.create_list` / `update_list` validate every member key against the book (`source.get_contact_by_key`) and reject an unknown, deleted or out-of-book key with `ERROR_CONTACT_LIST_MEMBER_INVALID`. Both ends are referenced by their opaque key, consistent with the rest of the schema (a contact references its book by `addressbook_key`), never by the internal id.
+
+`ModuleContact` exposes the same shape as for contacts: `get_all_lists` (book-scoped, paginated), `get_list` (members populated), `create_list` (generates the uid, persists the membership), `update_list` (identity preserved, full membership replacement) and `delete_list`. Writes go through `_get_writable_addressbook`, so the `MODIFY` ACL applies to lists exactly as to contacts. `ContactSourceDb` orchestrates the list row and its membership as two separate concerns and bumps the book `ctag` on every list mutation. The API exposes member contact keys plus a `member_count`; resolving each member to a full contact card is left to the caller.
+
+The REST list response carries the member keys and their count, not the expanded member cards. Membership is maintained at delete time (deleting a list or its address book clears the join rows), so the only orphan rows possible come from a physically purged contact - `clean()` drops those after the tombstone sweep (see <<Soft delete>>). The vCard `KIND:group` / `MEMBER` export serializer is implemented (`CardListSerializerVcard3` / `...Vcard4`, see <<import-export>>): it emits each member as `MEMBER:urn:uuid:<uid>` resolved from the populated `member_contacts`.
+
+== Pagination, sorting and search
+
+The two list endpoints use the project-wide `@collection_paginate` decorator (same as the mail and admin APIs): page / page_size / sort_by / sort_order come from the query string, and the total count is returned in the `X-Pagination` response header (not the body). The interface translates `collection_param.first_item / page_size / sort_by / sort_order` into the module's `offset / limit / sort_by / order` and returns `(total, response, status)`.
+
+`sort_by` becomes an `ORDER BY` column, so it is constrained to an allowlist (`SORTABLE_COLUMNS` in `ContactSourceDb`: `display_name`, `last_name`, `first_name`, `organization`, `created_at`, `updated_at`); an unknown value falls back to `display_name` before reaching the SQL layer. The list collection uses its own narrower allowlist (`LIST_SORTABLE_COLUMNS`: `name`, `created_at`, `updated_at`, default `name`) and a case-insensitive name `search` filter instead of the full-text vector.
+
+`search` is a separate query argument (minimum 2 characters). When an address book key is given the query is scoped to that book; when absent it spans every book of the user. The transverse case runs a single DB query across all the user's books (one `OR`-chained `WHERE addressbook_key IN (...)`, sorted and paginated at the DB level) as long as every source is DB-backed; if a directory source contributes, it falls back to merging and paginating the sources in memory.
+
+=== Full-text search
+
+`RepositoryContact._build_search_vector` builds a plain-text, accent-insensitive index (`strip_accents`) from the contact's names, nickname, organization, note, emails and phones. The same normalization is applied to the stored vector and to the query, so matching is independent of the SGBD. The column is `TSVECTOR` (PostgreSQL, GIN index) or `TEXT` (MariaDB, FULLTEXT), abstracted behind `FullTextValue` / `FullTextCondition`. Each query word is matched as a *prefix* (so `joe` matches `joel`).
+
+PostgreSQL's text-search parser keeps a compound string such as an email or a URL as a single token, which would make interior parts (an email's local-part words, its domain) unsearchable. `ClientPostgreSQL._fulltext_to_tsvector` therefore normalizes the text before `to_tsvector` (`regexp_replace([^[:alnum:]_]+ -> space)`), so the stored tokenization matches the query side and MariaDB's FULLTEXT. The behaviour is database-specific and stays in the PostgreSQL client.
+
+== Recipient autocompletion
+
+`GET /contacts/autocomplete?q=` returns lightweight recipient suggestions for a mail compose field - distinct from the contact listing. A suggestion is discriminated by a `type` field: a `contact` suggestion is `{type, name, email, contact_key, list_key: null, member_count: null, members: null, address_book}`, *one per email address* (a contact with several emails yields several suggestions; a contact with none yields none); a `list` suggestion is `{type, name, email: null, contact_key: null, list_key, member_count, members, address_book}` - a distribution list surfaces as one result carrying, instead of an email, its `member_count` and the *exhaustive* `members` array (every member resolved to `{contact_key, name, email}`), because it expands to several recipients. The members are resolved within the list's own book; the cap on the number of suggestions does not truncate a list's members. `contact_key`, `list_key` and `address_book` are nullable for future sources (the directory, collected mail addresses) that may not map to a stored object or a real book.
+
+It reuses the same engines as the listings - `ContactSources.get_contacts(search=q)` for contacts and `ContactSources.search_all_lists(search=q)` for lists (both transverse) - so the directory will contribute automatically once `ContactSourceDirectory` is wired. The originating book name is stamped via a local `{key -> name}` cache built from the already-loaded sources (no extra query, no Redis); the `resolve_ab` flag gates it.
+
+Below `SOGO_D_AUTOCOMPLETION_MIN_LEN` characters (domain setting, `USER_MODULE_SETTINGS`) the result is an empty list rather than an error, the standard autocomplete behaviour. Contacts and lists are each capped at `AUTOCOMPLETE_DEFAULT_LIMIT` (`ContactConst`); the directory will apply its own `US_AUTO_QUERY_LIMIT`. Collected addresses, member expansion (a list resolved to its recipients) and `US_HIDDEN_USER` filtering are deferred (mail-side).
+
+== Soft delete
+
+`is_deleted` is a relational column: deletes are soft, never `DELETE FROM` (required for CardDAV sync reports, the same pattern as SOGo v5). Deleting a single contact sets `is_deleted = True` and drops the contact from every list it belonged to (so a deleted contact never lingers as a dangling member nor inflates a list's count); deleting a single list does the same on `sogo6_contacts_lists` and clears its membership rows.
+
+Deleting an address book (`DELETE /addressbooks/\{key\}`) tombstones its contacts and lists (`is_deleted = True`) and *detaches* them from the book (`addressbook_key = NULL`) before the book row is removed, so the tombstones survive while no longer referencing a gone book; the lists' membership rows are cleared first. A `hard_delete` option on the module method physically removes them instead. The address book table itself has no `is_deleted`, so the book row is removed physically.
+
+`ModuleContact.clean()` is the physical reclaim pass: it purges every `is_deleted` contact and list row, then drops the membership rows left pointing at a vanished contact or list (`purge_orphan_members`). Membership is already cleared when a list or book is deleted, so the only orphans reaching `clean()` are member rows referencing a contact that has just been physically purged.
+
+[#acl]
+== Access control (ACL)
+
+The contact ACL is deliberately simple: a single ordered level `ContactShareLevel` (`VIEW < MODIFY`), with no per-visibility-class masking.
+
+`ContactAclEngine` centralizes permission logic:
+
+* `get_share_level(addressbook, user) -> ContactShareLevel | None` - resolves the acting user's access level, or `None` when denied. The owner gets `MODIFY`; a non-owner is denied (stub) until the centralized ACL module provides shared levels.
+* `check_permission(level, required)` - raises `ERROR_CONTACT_ACCESS_DENIED` when the resolved level is below the required one (a `None` level always denies).
+
+`ModuleContact` enforces `MODIFY` on every mutating operation (create / update / delete contact, create / update / delete list, update / delete address book) through `_get_writable_addressbook`, and `VIEW` on every single-book read (get contact / list, list a book, listing scoped to a book) through `_get_readable_addressbook`. Both are no-ops beyond ownership today (`get_by_key(user.uid)` already scopes reads to the owner), but the check is in place so shared-book reads enforce the level the day sharing lands.
+
+Access (who, via ownership / sharing) and source capability (whether the backend can be written at all, `ContactSource.is_writable()`) are orthogonal concerns, kept separate. The engine is the adapter point for the future centralized ACL module: only `get_share_level` and the surfacing of shared books in `ContactSources` change when it lands.
+
+[#Directory]
+== Directory (annuaire)
+
+`ContactSourceDirectory` is the read-only source that will surface a domain directory (a user source with `US_IS_ADDRESSBOOK`) as a synthetic address book, so its entries contribute to transverse search and recipient autocompletion. The backend is abstracted by the user source layer (`US_TYPE = sql | ldap`) - the contact module never knows whether the directory is SQL or LDAP. This mirrors SOGo's `SOGoContactSourceFolder` (a system source), not an ACL-shared personal book. The class is a stub: the query primitive (owned by the user source layer) and the entry -> `CardContact` mapping remain to be wired.
+
+[#Provisioning]
+== Provisioning
+
+A user's personal address book is created at first login. `InterfaceAuthUser.plain_login` calls `ModuleContact.create_personal_addressbook(uid)` when the user profile is first created. The call is idempotent: it returns the existing default book if one is already present.
+
+== Repositories
+
+`RepositoryContact`, `RepositoryAddressBook` and `RepositoryContactList` are the only classes that issue SQL. All queries use structured `Condition` objects - no string interpolation. `find_by_addressbook` applies pagination, sorting and the optional full-text filter; `count_by_addressbook` returns the total for pagination. `RepositoryContactList` owns both `sogo6_contacts_lists` and the `sogo6_contacts_list_members` join: row CRUD never touches the join, membership is handled by the dedicated member methods (`find_member_keys`, `replace_members`, `delete_members`, `remove_contact_from_lists`, `purge_orphan_members`).
+
+== Serialization
+
+All serializers extend `Serializer[TIn, TOut]`, all deserializers extend `Deserializer[TIn, TOut]`. Multi-valued vCard sub-objects (email, phone, address, url, impp) have their own dedicated sub-serializers composed by `CardContactSerializerDict` / `CardContactDeserializerDict`. Collection serializers (`CardContactsSerializerList`, `CardAddressBooksSerializerList`, `CardListsSerializerList`) and the lightweight autocomplete serializers (`CardContactAutocompleteSerializerList`, `CardListAutocompleteSerializerList`) reuse the single-object serializers. Distribution lists have their own `CardListSerializerDict` / `CardListDeserializerDict`; the deserializer's `deserialize_with_update` merges a partial update onto an existing `CardList` (only `name` / `description` / `members` are mutable). All datetimes are ISO 8601 UTC; `birthday` / `anniversary` are real `date` objects; a year-less date (the iOS reduced-accuracy `--MM-DD` case, which `date` cannot hold) is kept in a parallel `birthday_yearless` / `anniversary_yearless` string. At most one of the pair is set, and the API merges them into a single `birthday` value (`YYYY-MM-DD` or `--MM-DD`); the routing uses `DateTimeUtils.normalize_partial_date`. The vCard and LDIF serializers/deserializers used for import / export are covered in <<import-export>>.
+
+[#import-export]
+== Import and export (vCard, LDIF)
+
+Beyond the JSON of the REST API (the `*Dict` serializers), a contact and an address book can be exchanged as vCard 3.0 (RFC 2426), vCard 4.0 (RFC 6350) or LDIF (RFC 2849). The codecs are hand-written (no external library) and live in `app/module/contact/format/`. Both directions are wired: export (see <<export-endpoints>>) and import (see <<import-endpoints>>).
+
+[#import-endpoints]
+=== Import endpoints
+
+Three import endpoints mirror the three export ones (book / contact / list):
+
+----
+  POST /addressbooks/import                     <- creates a NEW book from the document (contacts + lists)
+  POST /addressbooks/\{key\}/contacts/import      <- upsert contacts into an existing book
+  POST /addressbooks/\{key\}/lists/import         <- upsert lists into an existing book
+  ... all multipart/form-data, one "file" part, ?format=json|vcard3|vcard4|ldif (default json)
+  ... all enqueue an Agent job and answer 202 \{job_id\}; counters live in the job result
+----
+
+Import runs *asynchronously* as an Agent job (a large book can carry thousands of cards). Each endpoint is a `multipart/form-data` upload with a single `file` part (the `accepted_content_types` attribute lets it past the JSON content-type middleware); the body is capped at `IMPORT_MAX_BYTES`. The route enqueues the job and answers `202 \{job_id\}`; the caller polls `GET /jobs/\{job_id\}` until SUCCESS and reads the counters from the job result. The whole-book import has no key: it *creates* a fresh book (the document carries no book identity), named `IMPORT_BOOK_NAME_PREFIX (YYYY-MM-DD)`, whose key/name are returned in the job result alongside the counters. The contact / list imports target an existing book (ACL/existence checked synchronously at enqueue, so a 404/403 is immediate).
+
+The format is the `?format` query value (`json` default, `vcard3`, `vcard4`, `ldif`), restricted by the route schema's `OneOf` - an invalid value is a plain validation error, not a custom code. The format token travels in the job payload; the *worker-side* interface (`InterfaceAgentContact`) picks the deserializer from it - no content sniffing - so `ModuleContact` stays models-only. `json` parses with the `*Dict` deserializers, `vcard3`/`vcard4` with the vCard document deserializer (the version is still detected per card), `ldif` with the LDIF one. A malformed document - whether it raises (invalid JSON) or a lenient vCard/LDIF reader reduces it to nothing importable - makes the job end in `failure` with `ERROR_CONTACT_IMPORT_PARSE_FAILED` (so the client sees a clear parse error rather than a silent "0 imported").
+
+`ModuleContact.enqueue_import` offloads the uploaded document (decoded to text at the API read) to the agent blob store via `save_text` (only the reference travels in the payload) and enqueues a single `contact.import` job carrying a `kind` discriminator (`addressbook` / `contact` / `list`); if the enqueue fails, the blob is dropped. The worker reads the blob back with `load_text`, deletes it, and calls the symmetric trio `import_addressbook` (creates the book, then dispatches to the two internal upserts), `import_contact` or `import_list`. Import is an *upsert keyed by uid*: a contact / list whose uid already exists in the book is updated, otherwise inserted; an entry that fails on its own is counted in `skipped` and never aborts the run. The two passes are inherent: contacts are persisted first so each parsed object receives its key, then each list's members are resolved from those keys - the document deserializer linked every list's `member_contacts` to the parsed contacts (by UID in vCard and JSON, by the member DN's uid - falling back to its cn - in LDIF), so the module reads `member.key` without any format-specific logic. The job result carries `ContactImportResult` (`contacts_inserted`/`contacts_updated`, `lists_inserted`/`lists_updated`, `skipped`). See xref:agent.adoc[] for the job lifecycle.
+
+[#export-endpoints]
+=== Export endpoints
+
+Three read endpoints enqueue an async export job and answer `202 \{job_id\}`:
+
+----
+  GET /addressbooks/\{key\}/export                        <- whole book: contacts + lists
+  GET /addressbooks/\{key\}/contacts/\{contact_key\}/export <- one contact
+  GET /addressbooks/\{key\}/lists/\{list_key\}/export       <- one distribution list
+  ... 202 \{job_id\}; fetch the serialized document from GET /jobs/\{job_id\}/result
+----
+
+Export runs *asynchronously* (a whole book can be large). The serialization is negotiated from the request `Accept` header *at enqueue time* (the worker has no HTTP context): `application/json` selects JSON, `text/ldif` selects LDIF, `text/vcard` selects vCard (3.0 by default, 4.0 when the header carries `version=4`), and an empty or `*/*` accept defaults to vCard 3.0 - the dialect every client (Apple, Google, Outlook) imports reliably, whereas vCard 4.0 imports blank in Apple Contacts. Any other explicit media type is answered `406 Not Acceptable` (`ERROR_CONTACT_EXPORT_FORMAT_UNSUPPORTED`). The resolved format (a `ContactExportFormat` member name) travels in the job payload; once the job succeeds, the caller fetches the document from `GET /jobs/\{job_id\}/result` (which serves it with its `Content-Type` and, with `?download=true`, a `Content-Disposition: attachment` filename). The JSON form is *portable*: a book - and likewise a single contact or list, as a one-item document, exactly as a single vCard is one card - is `{"contacts": [...], "lists": [...]}`. Like vCard / LDIF it is uid-keyed and carries no server-internal handle - the contact / list `key` and `addressbook_key` are stripped and a list's members are emitted as the member contacts' uids (not keys), so a re-import resolves membership by uid. The `AddressBookContent <-> dict` mapping is the `AddressBookContentSerializerDict` / `...DeserializerDict` job; the `dict <-> JSON string` is done in the worker interface (`json.dumps` wrapping `AddressBookContentSerializerDict` in the per-format dispatch table), since JSON is the framework's native format and there is deliberately no `...SerializerJson` class. `ContactExportFormat` is the single source of truth tying a format to its media type and file extension; the Accept negotiation lives in the API interface (`_negotiate_export_format`), the serialization in the worker interface (`InterfaceAgentContact`). Read access is checked at ACL VIEW level (synchronously at enqueue).
+
+`ModuleContact.enqueue_export` runs the book ACL/existence check then enqueues a single `contact.export` job carrying a `kind` discriminator. The worker exposes the serialization through `InterfaceAgentContact.export_document`, which calls `get_addressbook_content(user, key) -> AddressBookContent` (a `NamedTuple` of the book's contacts and lists) for the whole book, and `get_list_for_export(user, key, list_key) -> CardList` for a single list, then offloads the serialized document to the agent blob store. Photos are inlined as `data:` URIs so the document is self-contained, and a list's `member_contacts` are resolved from the book's contacts (no extra per-member query for the book export, which already holds them) because the group-card serializers emit members by their contact UID. A whole book is rendered by `AddressBookContentSerializerVcard` / `AddressBookContentSerializerLdif`; a single contact or list directly by the per-entity serializers (`CardContactSerializerVcard3/4` / `CardContactSerializerLdif`, `CardListSerializerVcard3/4` / `CardListSerializerLdif`).
+
+=== Format engines
+
+`FormatEngine` is the common contract of a directory-format codec. It implements once the line folding / unfolding shared by every MIME-DIR and LDIF format (octet-based, never splitting a UTF-8 character) and `parse_item`, and declares the three methods each format provides: `split_items` (a document -> card / record bodies), `parse_line` and `emit_line`. A line is a `ContentLine` (name, value, params, group) - the rich vCard case; an LDIF attribute is a degenerate `ContentLine` with empty params and group.
+
+----
+  format/
+    FormatEngine.py   ContentLine.py            <- shared base + line model
+    vcard/  FormatEngineVcard.py  VcardConst.py
+    ldif/   FormatEngineLdif.py   LdifConst.py
+----
+
+An engine owns the *syntax* only (folding, escaping, parameters) and knows no property name nor version; the serializers own the *semantics* (mapping `CardContact` / `CardList` onto properties).
+
+=== vCard serializers
+
+Writing chooses a version: `CardContactSerializerVcard` is the abstract mapping, `CardContactSerializerVcard3` / `CardContactSerializerVcard4` carry the deltas (the VERSION value, the TYPE/PREF encoding, `KIND`, `ANNIVERSARY` vs `X-ANNIVERSARY`, the `GEO` form, the `PHOTO` encoding - see <<photos>>). `CardListSerializerVcard3` / `...Vcard4` emit a list as a group card (`KIND:group` + `MEMBER` in 4.0, `X-ADDRESSBOOKSERVER-*` in 3.0). `AddressBookContentSerializerVcard` concatenates a book's contact cards and group cards into one `.vcf` (see <<export-endpoints>>).
+
+Reading is symmetric: `CardContactDeserializerVcard` is the abstract base with the version-independent parsing and a static `detect_version` (reads the card's `VERSION`, defaults to `DEFAULT_VCARD_VERSION`); `CardContactDeserializerVcard3` / `...Vcard4` override the version hooks (`import_format`, `_parse_type_pref`, `_decode_geo`) - no version branch lives in the base. The reader is *lenient*: an unknown property is kept verbatim in `extra_properties`, a year-less date is kept (`--MM-DD`) while a free-text date is dropped, a malformed line never raises. `CardContactsDeserializerVcard` splits a multi-card document, detects each card's version independently and skips group cards (parsed by `CardListDeserializerVcard`, whose members are kept as UID references resolved to contact keys at import time).
+
+=== LDIF
+
+`CardContactSerializerLdif` / `CardContactDeserializerLdif` map a contact onto `inetOrgPerson` attributes (cn, sn, givenName, displayName, mail, telephoneNumber / mobile, o, ou, title, description, the first postal address, uid, and the binary `jpegPhoto`); `CardListSerializerLdif` / `CardListDeserializerLdif` map a list onto `groupOfNames` (member DNs). A whole book is written by `AddressBookContentSerializerLdif` (one `version: 1` header, then the `inetOrgPerson` and `groupOfNames` records); reading a multi-record document is `CardContactsDeserializerLdif`, which skips `groupOfNames` records. Attributes outside the mapped subset are kept in `extra_properties`.
+
+The output is meant to load into a directory (`ldapadd`), so two RFC 4519 constraints are honoured. Entry DNs are made unique: a contact is named `cn=<name>+uid=<uid>,ou=contacts` (a multi-valued RDN), so two contacts sharing a display name no longer collide on the same DN; the uid is also emitted as an attribute, as the RDN requires. `FormatEngineLdif.build_dn` builds the DN and the same function builds a list's `member` references, so a member DN matches its contact entry exactly (the import then resolves a member by its DN's uid). A `groupOfNames` must carry at least one `member`: a list with no resolvable members serializes to nothing and is dropped from the document rather than emitting a schema-invalid empty group. A group entry is named by `cn` only (`groupOfNames` has no uid attribute to back a uid RDN).
+
+=== Fidelity and limits
+
+Conversion is faithful for the fields the model carries, but it is *not* a byte-exact round-trip of the full RFCs. Not preserved: property parameters (LANGUAGE, ALTID, PID, MEDIATYPE, LABEL), property grouping (`item1.X-ABLabel`), embedded binary other than photos (a base64 logo / sound / key - only URI values survive), free-text dates (year-less dates *are* kept), quoted-printable encoding, and on the LDIF side the change records (`changetype`) and every field outside the `inetOrgPerson` subset. An inline `PHOTO` *is* preserved: it is carried as a `data:` URI through the model and offloaded to file storage (see <<photos>>). Byte-exact fidelity - required for full Apple / Google / Outlook / Nextcloud interoperability - belongs to a later stage built on a stored raw vCard, alongside the CardDAV server.
+
+[[photos]]
+== Binary media (photos)
+
+A contact `PHOTO` may be an external URI or an inline image. Inline images are *not* stored in the contact's JSON blob (a base64 image would bloat every listing); they are offloaded to a separate, swappable file store, leaving only an opaque reference in the contact.
+
+The exchange representation, everywhere a photo crosses a boundary (JSON, vCard, LDIF), is a base64 `data:` URI (`data:<mime>;base64,...`), produced by `app/utils/uri/DataUri.py`. Each format expresses it in its own syntax, handled by the serializers: vCard 4.0 carries the `data:` URI verbatim, vCard 3.0 uses `PHOTO;ENCODING=b;TYPE=<subtype>` (external ones `PHOTO;VALUE=uri`), LDIF uses the binary `jpegPhoto`.
+
+The serializers do *not* inspect the bytes: they only translate the format syntax to/from a `data:` URI carrying the format's nominal type (4.0 the declared one, 3.0 the `TYPE` token, LDIF a nominal `image/jpeg`). Everything else about a file's bytes belongs to one place - the file layer.
+
+`ClientStorage` (`app/manager/storage/`) is the single owner of the whole inbound/outbound file lifecycle, and the swappable storage abstraction. It is generic (no contact notion - limits are passed in) so other owners, e.g. the agent's large-result store, reuse it under a different `StorageSource`. It exposes the per-item primitives `save` / `load` / `matches` / `delete`, and three list-level operations shared by every backend:
+
+* `save_all(previous, incoming, max_size, allowed_types)` - inbound: each inline payload is decoded and sniffed *once*; its real (sniffed) type and size are validated against the caller's limits (a malformed data URI or non-http(s) value is rejected); then it is offloaded to storage and replaced by a reference. An unchanged file (matched by content) reuses its existing blob instead of duplicating it; an http(s) URI passes through. It never deletes - blobs a contact stops using become orphans, reclaimed by `purge_orphans`.
+* `load_all(values)` - outbound: each reference is turned back into a `data:` URI; a reference whose blob is gone is dropped rather than leaked.
+* `purge_orphans(referenced)` - maintenance: drops every stored blob no live owner references.
+
+`ModuleContact` calls `save_all` on create / update (with the contact's file limits) and `load_all` on every contact it returns, so a client only ever sees `data:` URIs and references never leave the module. `get_contacts` takes a `resolve_images` flag (default True): set it to False for a listing that should not load every photo blob - the managed references are then dropped (external URIs kept) instead of being inlined.
+
+`ClientStorageDatabase` (`app/manager/storage/`) is the current backend, selected by config (`SOGO_P_STORAGE_TYPE`); it stores blobs in `sogo6_file_storage` (key, source, data, content_type, content_hash, timestamps) through the `DbFileStorage` helper (same package). The `source` column (`StorageSource.CONTACT` here) isolates each owner's blobs, so a contact orphan sweep never reaches another owner's rows. The reference scheme is `sogo:file:<key>`; `matches` compares a stored `content_hash` (sha256) without loading the blob, which keeps the update round-trip cheap. A file backend (file share / WebDAV) can be substituted without touching the module - only a new `ClientStorage<Type>` and the config value differ.
+
+*Validation and typing.* `save_all` rejects an inline file larger than `FILE_MAX_SIZE_KB` (`ERROR_FILE_TOO_LARGE`) or whose sniffed type is not in `ALLOWED_FILE_MIME_TYPES` (`ERROR_FILE_TYPE_NOT_ALLOWED`, both generic file errors) - the contact module passes its own limits in - both checked on the bytes (`app/utils/media/MediaType.py`), before anything is stored. The declared label (vCard `TYPE`, `data:` URI mediatype, the `jpegPhoto` name) is never trusted: the type *stored and echoed back* is the sniffed one, so a mislabeled file is corrected from its content, a PNG survives a round-trip through LDIF, and a polyglot (image bytes declared `text/html`) cannot be echoed with an executable content type. SVG is deliberately excluded from the allowlist: it is a script-bearing document and a stored-XSS vector when rendered as anything other than an `<img>` source.
+
+*Lifecycle.* `save_all` itself never deletes - it would otherwise mutate the store before the owning row is committed, stranding the row on missing bytes if the commit then failed. Instead `update_contact` reclaims the blobs a write dropped (a replaced or removed photo) *after* the row commits (`_delete_dropped_files`), so the old `sogo6_file_storage` row disappears immediately. A *deleted* contact is soft-deleted and keeps its blobs, like the tombstone itself; those, and any blob a post-commit delete missed, are reclaimed by `ModuleContact.clean()` (`ClientStorage.purge_orphans` drops every row no surviving contact references) - the same backstop sweep that purges tombstones and dangling distribution-list membership.
+
+== Module - ModuleContact
+
+`ModuleContact` is the single entry point for business logic. The `User` is never stored on the instance - it is passed as the first argument to every public method, so the same module can serve a request and a background worker. The database client is injected via the constructor; the Redis cache is optional (the module must not make login depend on Redis). Permission resolution and enforcement are delegated to `ContactAclEngine`.

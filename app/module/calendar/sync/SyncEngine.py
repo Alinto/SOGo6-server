@@ -9,11 +9,11 @@ from app.module.calendar.model.CalSyncResult import CalSyncResult
 from app.module.calendar.model.enums.CalendarSourceType import CalendarSourceType
 from app.module.calendar.model.enums.CalendarSyncStatus import CalendarSyncStatus
 from app.module.calendar.model.CalOrganizer import CalOrganizer
-from app.module.calendar.serializer.CalendarDeserializerIcal import CalendarDeserializerIcal
-from app.module.calendar.serializer.CalendarEventDeserializerIcal import CalendarEventDeserializerIcal
-from app.module.calendar.serializer.CalendarEventsDeserializerIcal import CalendarEventsDeserializerIcal
+from app.module.calendar.serializer.CalCalendarDeserializerIcal import CalCalendarDeserializerIcal
+from app.module.calendar.serializer.CalEventDeserializerIcal import CalEventDeserializerIcal
+from app.module.calendar.serializer.CalEventsDeserializerIcal import CalEventsDeserializerIcal
 from app.module.calendar.sync.IcsFetcher import IcsFetcher
-from app.utils.calendar.DateTimeUtils import anchor_to_utc, to_utc
+from app.utils.datetime.DateTimeUtils import anchor_to_utc, to_utc
 from app.utils import errors as err
 from app.utils.exceptions import RequestException
 from app.utils.logger.logger import logger_calendar
@@ -32,14 +32,14 @@ class SyncEngine:
     Compares fetched events with existing DB rows by UID, then inserts new events,
     updates modified ones (by SEQUENCE or LAST-MODIFIED), and soft-deletes removed ones.
 
-    Designed to be callable independently from the HTTP context — ready for Celery dispatch.
+    Designed to be callable independently from the HTTP context - ready for Celery dispatch.
     """
 
     def __init__(self, sources: CalendarSources, cache: ClientRedis) -> None:
         self._sources = sources
         self._cache = cache
-        self._deserializer = CalendarDeserializerIcal(
-            CalendarEventsDeserializerIcal(CalendarEventDeserializerIcal())
+        self._deserializer = CalCalendarDeserializerIcal(
+            CalEventsDeserializerIcal(CalEventDeserializerIcal())
         )
 
     def sync(self, calendar: CalCalendar) -> CalSyncResult:
@@ -98,15 +98,15 @@ class SyncEngine:
         :param calendar: The target calendar (writes go through its CalendarSource).
         :param ics_text: Raw VCALENDAR payload to apply.
         :param delete_missing: When True, soft-delete local events absent from ``ics_text``
-            (mirror semantics — used by external ICS sync). When False, only insert and
-            update (additive semantics — used by user import, which must not erase the rest
+            (mirror semantics - used by external ICS sync). When False, only insert and
+            update (additive semantics - used by user import, which must not erase the rest
             of the calendar).
         :param default_timezone: IANA timezone applied to datetimes that carry no explicit
             timezone (floating time). When None, naive datetimes are assumed UTC.
         :param rewrite_owner_email: When set, every parsed event has its ORGANIZER replaced
-            with this email and its SEQUENCE reset to 0 — used by the import flow to make the
+            with this email and its SEQUENCE reset to 0 - used by the import flow to make the
             importing user the sole owner of imported events. Attendees are left untouched.
-        :param remove_attendees: When True, every parsed event has its ATTENDEE list cleared —
+        :param remove_attendees: When True, every parsed event has its ATTENDEE list cleared -
             used by the import flow when imported events must not carry over their original
             guest list. Defaults to False (attendees preserved).
         :return: Counters of inserted, updated and deleted rows.
@@ -120,7 +120,7 @@ class SyncEngine:
         if rewrite_owner_email:
             # Ownership rewrite on the deserialized models (never on the raw iCal text):
             # the importing user becomes the organizer and the revision history restarts
-            # (RFC 5546 §2.1.4 — SEQUENCE belongs to the organizer). Attendees are kept.
+            # (RFC 5546 §2.1.4 - SEQUENCE belongs to the organizer). Attendees are kept.
             for event in remote_events:
                 event.organizer = CalOrganizer(email=rewrite_owner_email)
                 event.sequence = 0
@@ -152,7 +152,7 @@ class SyncEngine:
         # An override (RECURRENCE-ID) is only meaningful if its parent master is reachable:
         # either present in the same payload, or already persisted in the calendar. Google
         # Calendar (and other producers) sometimes export detached occurrences without their
-        # master when the master falls outside the export window — skip those silently.
+        # master when the master falls outside the export window - skip those silently.
         known_master_uids: set[str] = {m.require_uid for m in remote_masters}
         known_master_uids.update(meta.uid for meta in local_metadata if meta.recurrence_id is None)
 

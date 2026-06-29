@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from app.module.calendar.model.CalCalendar import CalCalendar
 from app.module.calendar.model.CalEvent import CalEvent
+from app.module.calendar.model.CalReminder import CalReminder
 from app.module.calendar.model.enums.CalendarSourceType import CalendarSourceType
 from app.module.calendar.repository.RepositoryCalendar import RepositoryCalendar
 from app.module.calendar.rrule.RecurrenceScopeProcessor import EventAction, ScopeResult
@@ -23,8 +24,10 @@ if TYPE_CHECKING:
 class CalendarSources:
     """Factory and lookup for CalendarSource instances.
 
-    Single entry point for all calendar access — ModuleCalendar never touches
-    RepositoryCalendar directly.
+    Entry point for per-calendar access and attendee propagation: the facade resolves a calendar to
+    a CalendarSource through here rather than wiring repositories itself. System-wide bulk sweeps
+    (reminder activation, external-sync discovery, purge) read their repositories directly, as they
+    operate across calendars rather than on a single resolved source.
     """
 
     def __init__(self, db: ClientSQL) -> None:
@@ -35,7 +38,7 @@ class CalendarSources:
         """Return the appropriate CalendarSource for the given calendar.
 
         Both local and ICS calendars are backed by the database. ICS calendars
-        are read-only mirrors — their events are populated by the sync engine,
+        are read-only mirrors - their events are populated by the sync engine,
         not by direct CRUD operations.
         """
         if calendar.source_type == CalendarSourceType.LOCAL:
@@ -48,7 +51,15 @@ class CalendarSources:
         raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
 
     def get_all(self, user_uid: str) -> list[CalendarSource]:
-        """Return a source for every calendar owned by user_uid."""
+        """Return a source for every calendar owned by user_uid.
+
+        TODO(ACL module): this is the single scope chokepoint for resolution, operations and
+        listings. Today it returns only calendars OWNED by user_uid. When calendar sharing lands,
+        it must also surface calendars SHARED WITH user_uid (own + shared, read from
+        sogo_calendar_shares) - that one change activates delegated access everywhere downstream
+        (owner resolution, event lookups, get_all_events/get_all_tasks), with per-calendar permissions then
+        enforced by CalendarAclEngine.
+        """
         return [self.get(cal) for cal in self._repo_calendar.find_all(user_uid)]
 
     def get_default(self, user_uid: str) -> CalendarSource | None:
@@ -68,6 +79,17 @@ class CalendarSources:
                 return source, event
         return None
 
+    def require_event(self, user_uid: str, event_key: str) -> tuple[CalendarSource, CalEvent]:
+        """Find the source and event by opaque event_key across user_uid's calendars, or raise EVENT_NOT_FOUND.
+
+        event_key is the UUID stored in the key column of sogo_events, not the RFC 5545 uid.
+        """
+        for source in self.get_all(user_uid):
+            event: CalEvent | None = source.get_event(event_key)
+            if event is not None:
+                return source, event
+        raise RequestException(error=err.ERROR_CALENDAR_EVENT_NOT_FOUND)
+
     def get_by_key(self, user_uid: str, key: str) -> CalendarSource | None:
         """Return the source for a specific calendar, or None if not found."""
         cal = self._repo_calendar.find_by_key(user_uid, key)
@@ -76,12 +98,12 @@ class CalendarSources:
     def get_by_share_token(self, share_token: str) -> CalendarSource | None:
         """Return the source for the calendar exposed by this public subscription token.
 
-        Not scoped to a user — the token is the capability granting access to the feed.
+        Not scoped to a user - the token is the capability granting access to the feed.
         """
         cal = self._repo_calendar.find_by_share_token(share_token)
         return self.get(cal) if cal is not None else None
 
-    def get_events(
+    def get_all_events(
         self,
         user_uid: str,
         start: datetime | None = None,
@@ -98,10 +120,10 @@ class CalendarSources:
             source = self.get_by_key(user_uid, calendar_key)
             if source is None:
                 raise RequestException(error=err.ERROR_CALENDAR_NOT_FOUND)
-            return source.get_events(start, end, search)
+            return source.get_all_events(start, end, search)
         events: list[CalEvent] = []
         for source in self.get_all(user_uid):
-            events.extend(source.get_events(start, end, search))
+            events.extend(source.get_all_events(start, end, search))
         events.sort(key=lambda e: e.require_date_start)
         return events
 
@@ -120,11 +142,11 @@ class CalendarSources:
         for source in self.get_all(user_uid):
             if not source.calendar.include_in_freebusy:
                 continue
-            events.extend(source.get_events(start, end))
+            events.extend(source.get_all_events(start, end))
         events.sort(key=lambda e: e.require_date_start)
         return events
 
-    def get_tasks(
+    def get_all_tasks(
         self,
         user_uid: str,
         start: datetime | None = None,
@@ -141,10 +163,10 @@ class CalendarSources:
             source = self.get_by_key(user_uid, calendar_key)
             if source is None:
                 raise RequestException(error=err.ERROR_CALENDAR_NOT_FOUND)
-            return source.get_tasks(start, end, search)
+            return source.get_all_tasks(start, end, search)
         tasks: list[CalEvent] = []
         for source in self.get_all(user_uid):
-            tasks.extend(source.get_tasks(start, end, search))
+            tasks.extend(source.get_all_tasks(start, end, search))
         tasks.sort(key=lambda e: e.require_date_start)
         return tasks
 
@@ -202,7 +224,17 @@ class CalendarSources:
     def _apply_action(self, att_source: CalendarSource, evt: CalEvent, action: EventAction) -> None:
         """Apply a single propagation action on an attendee's calendar."""
         if action == EventAction.INSERT:
-            copy: CalEvent = dataclasses.replace(evt, key=None, calendar_key=att_source.calendar.key, reminders=[])
+            # A split sub-series (uid_parent_split set) carries THIS attendee's own reminders from their
+            # copy of the original series; a plain new event starts empty (attendees never inherit the
+            # organizer's alarms).
+            reminders: list[CalReminder] = []
+            if evt.uid_parent_split is not None:
+                origin: CalEvent | None = att_source.get_master_event_by_uid(evt.uid_parent_split)
+                if origin is not None:
+                    reminders = origin.reminders
+            copy: CalEvent = dataclasses.replace(
+                evt, key=None, calendar_key=att_source.calendar.key, reminders=reminders,
+            )
             att_source.insert_event(copy)
         elif action == EventAction.UPDATE:
             self._update_attendee_copy(att_source, evt)
@@ -210,7 +242,7 @@ class CalendarSources:
             if evt.recurrence_id is not None:
                 att_copy: CalEvent | None = att_source.get_event_by_recurrence_id(evt.require_uid, evt.recurrence_id)
                 if att_copy is not None:
-                    att_source.delete_detached_occurrence(att_copy)
+                    att_source.delete_occurrence(att_copy)
             else:
                 att_source.delete_event(evt.require_uid)
 
@@ -222,8 +254,7 @@ class CalendarSources:
             copy = att_source.get_master_event_by_uid(event.require_uid)
         if copy is None:
             return
-        for field_name in CalEvent.PROPAGATABLE_FIELDS:
-            setattr(copy, field_name, getattr(event, field_name))
+        copy.apply_propagatable_fields(event)
         att_source.update_event(copy)
 
     def _sync_attendee_list(self, original: CalEvent | None, updated: CalEvent) -> None:
@@ -234,9 +265,9 @@ class CalendarSources:
         - Attendee added (in updated but not in original): create a copy in their calendar.
         - Attendee removed (in original but not in updated): delete their copy.
 
-        Existing attendee copies are NOT updated here — content propagation is handled
+        Existing attendee copies are NOT updated here - content propagation is handled
         separately by propagate().
-        External attendees (no local account) are silently skipped — the iMIP agent handles them.
+        External attendees (no local account) are silently skipped - the iMIP agent handles them.
         """
         if not updated.organizer:
             return

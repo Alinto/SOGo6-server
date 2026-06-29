@@ -31,6 +31,19 @@ from .ClientSQL import ClientSQL
 POSTGRES_TEXT_SEARCH_CONFIG = "simple"
 
 
+def _fulltext_to_tsvector() -> Composable:
+    """Build the to_tsvector(...) wrapper used to write a full-text value.
+
+    Postgres' parser keeps compound strings such as emails and URLs as a single token (type
+    "email"/"host"/"url"), so their interior parts (an email's local-part words, its domain) are
+    not searchable on their own. Replacing runs of non-alphanumeric characters with spaces before
+    to_tsvector makes the stored tokenization match the query side (which splits terms on word
+    boundaries) and MariaDB's FULLTEXT, so a row can be found by part of an email or URL, not only
+    by the whole string.
+    """
+    return SQL("to_tsvector({cfg}, regexp_replace({ph}, '[^[:alnum:]_]+', ' ', 'g'))").format(
+        cfg=Literal(POSTGRES_TEXT_SEARCH_CONFIG), ph=Placeholder())
+
 def str_to_varchar(max_len: int = 0) -> str:
     """
     Convert a string type to a varchar()
@@ -67,6 +80,7 @@ data_type_sogo_to_postgre: dict[str, Any] = {
     "int":      "integer",  # FK to serial (4-byte integer) in PostgreSQL
     "text":     "text",
     "tsvector": "tsvector",
+    "bytes":    "bytea",
 }
 
 data_type_postgre_to_sogo: dict[str, Any] = {
@@ -82,6 +96,7 @@ data_type_postgre_to_sogo: dict[str, Any] = {
     "bigint":                      "int",
     "text":                        "text",
     "tsvector":                    "tsvector",  # search_vector full-text column
+    "bytea":                       "bytes",
 }
 
 def table_to_query(table: Table) -> Composed:
@@ -337,8 +352,7 @@ class ClientPostgreSQL(ClientSQL):
             row_placeholders: list[Composable] = []
             for idx, value in enumerate(values):
                 if isinstance(value, FullTextValue):
-                    row_placeholders.append(SQL("to_tsvector({cfg}, {ph})").format(
-                        cfg=Literal(POSTGRES_TEXT_SEARCH_CONFIG), ph=Placeholder()))
+                    row_placeholders.append(_fulltext_to_tsvector())
                     values[idx] = value.text
                 elif isinstance(value, dict):
                     row_placeholders.append(Placeholder())
@@ -391,8 +405,7 @@ class ClientPostgreSQL(ClientSQL):
         row_placeholders: list[Composable] = []
         for idx, value in enumerate(values_list):
             if isinstance(value, FullTextValue):
-                row_placeholders.append(SQL("to_tsvector({cfg}, {ph})").format(
-                    cfg=Literal(POSTGRES_TEXT_SEARCH_CONFIG), ph=Placeholder()))
+                row_placeholders.append(_fulltext_to_tsvector())
                 values_list[idx] = value.text
             elif isinstance(value, dict):
                 row_placeholders.append(Placeholder())

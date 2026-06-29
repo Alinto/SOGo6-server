@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 from app.module.calendar.imip.ImipBuilder import ImipBuilder
 from app.module.calendar.imip.ImipMethod import ImipMethod
 from app.module.calendar.model.CalAttendee import CalAttendee
+from app.module.calendar.model.CalendarUser import CalendarUser
 from app.module.calendar.model.CalEvent import CalEvent
 from app.module.calendar.model.CalOrganizer import CalOrganizer
 from app.module.calendar.model.enums.AttendeeStatus import AttendeeStatus
@@ -36,7 +37,7 @@ def _fake_user(uid="bob@example.com"):
     user = MagicMock()
     user.uid = uid
     user.mail = uid
-    return user
+    return CalendarUser(user=user, owner=user)
 
 
 # ========== Tests for ImipBuilder.build_request ==========
@@ -117,3 +118,22 @@ def test_build_reply_not_attendee_returns_none():
 def test_build_reply_no_organizer_returns_none():
     event = _make_event(attendees=[_attendee("bob@example.com")])
     assert ImipBuilder.build_reply(event, _fake_user("bob@example.com")) is None
+
+
+def test_build_reply_organizer_replying_to_self_returns_none():
+    event = _make_event(organizer=_organizer("alice@example.com"), attendees=[_attendee("alice@example.com")])
+    assert ImipBuilder.build_reply(event, _fake_user("alice@example.com")) is None
+
+
+def test_build_reply_delegated_replies_for_owner_not_acting_user():
+    # A delegate (carol) responds on the owner (bob)'s calendar - bob is the invitee.
+    owner = MagicMock(uid="bob@example.com", mail="bob@example.com")
+    actor = MagicMock(uid="carol@example.com", mail="carol@example.com")
+    event = _make_event(
+        organizer=_organizer("alice@example.com"),
+        attendees=[_attendee("bob@example.com", AttendeeStatus.ACCEPTED)],
+    )
+    msg = ImipBuilder.build_reply(event, CalendarUser(user=actor, owner=owner))
+    assert msg is not None
+    assert msg.from_email == "bob@example.com"      # the owner (invitee), not the acting delegate
+    assert msg.to_emails == ["alice@example.com"]

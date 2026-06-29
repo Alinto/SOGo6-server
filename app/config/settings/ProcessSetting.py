@@ -92,6 +92,9 @@ class ProcessSetting(FlaskConfig):
     SOGO_P_DB_SSL: bool = False
     SOGO_P_DB_ENC: str  = "utf8" #encoding, needed or autodetected ?
 
+    # Backend selecting the ClientStorage implementation (ClientStorage<Type>): database, local, webdav...
+    SOGO_P_STORAGE_TYPE: str = "database"
+
     SOGO_LOG_PATH: str = "/var/log/sogo/sogo.log"
 
     SOGO_INIT_SYSTEM_SETTINGS_PATH: str = ""
@@ -100,6 +103,30 @@ class ProcessSetting(FlaskConfig):
     # served to external clients. Required behind a reverse proxy, where the host seen by Flask
     # differs from the public one. Empty: fall back to Flask's own external URL.
     SOGO_P_PUBLIC_BASE_URL: str = ""
+
+    # Agent (Celery) — broker and result backend reuse SOGO_P_REDIS_URL. Only the
+    # process-wide settings are exposed here. Per-job settings (soft / hard timeout,
+    # retry policy) belong to each JobRequest and are set at job definition time.
+    # Defaults are tuned for the dev container; production overrides via env vars.
+
+    # Number of worker processes spawned by `poetry run agent`. ~1 per CPU is a sensible
+    # ceiling for IO-bound jobs; raise it for CPU-bound parsing.
+    SOGO_P_AGENT_WORKER_CONCURRENCY: int = 4
+    # Redis visibility timeout: a reserved message is redelivered if the worker hasn't acked
+    # within this delay. Must exceed the longest job we run, otherwise we get phantom
+    # double executions when Redis re-queues an in-flight job.
+    SOGO_P_AGENT_BROKER_VISIBILITY_TIMEOUT_SECONDS: int = 6 * 3600
+    # Messages prefetched per worker. 1 keeps long jobs isolated; raise it only for very
+    # short jobs where the broker round-trip dominates.
+    SOGO_P_AGENT_WORKER_PREFETCH_MULTIPLIER: int = 1
+    # How long a JobState stays in cache after the job is completed (post-mortem window).
+    SOGO_P_AGENT_JOB_STATE_TTL_SECONDS: int = 3 * 24 * 3600
+    # Age beyond which an agent job blob is purged from the file storage by the cleanup job.
+    SOGO_P_AGENT_LARGE_STORE_MAX_AGE_SECONDS: int = 24 * 3600
+    # Celery Beat schedule state file (last_run_at per entry). Its directory must be
+    # writable by the agent user - provisioned in the image (see the agent Dockerfile,
+    # which installs /var/celery owned by the application user). Run a single beat instance.
+    SOGO_P_AGENT_BEAT_SCHEDULE_PATH: str = "/var/celery/celerybeat-schedule"
 
     # --- Table names ---
     SOGO_P_TABLE_SETTINGS:   str = "sogo6_sogo_settings"
@@ -110,6 +137,11 @@ class ProcessSetting(FlaskConfig):
     SOGO_P_TABLE_EVENTS:    str = "sogo6_calendar_events"
     SOGO_P_TABLE_REMINDERS:  str = "sogo6_calendar_reminders"
     SOGO_P_TABLE_TMP_DRAFTS:  str = "sogo6_tmp_draft"
+    SOGO_P_TABLE_ADDRESSBOOKS:         str = "sogo6_contacts_addressbooks"
+    SOGO_P_TABLE_CONTACTS:             str = "sogo6_contacts_contacts"
+    SOGO_P_TABLE_CONTACT_LISTS:        str = "sogo6_contacts_lists"
+    SOGO_P_TABLE_CONTACT_LIST_MEMBERS: str = "sogo6_contacts_list_members"
+    SOGO_P_TABLE_FILE_STORAGE:         str = "sogo6_file_storage"
 
     def __getitem__(self, i:str) -> Any:
         if hasattr(self, i):

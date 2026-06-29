@@ -3,7 +3,7 @@ iCalendar RFC 5545 constants shared between the serializer and deserializer.
 """
 
 # Product identifier emitted in PRODID property
-PRODID = "-//SOGo//CalendarSerializer//EN"
+PRODID = "-//SOGo//CalCalendarSerializer//EN"
 
 # iCalendar standard version
 ICAL_VERSION = "2.0"
@@ -11,7 +11,7 @@ ICAL_VERSION = "2.0"
 # Calendar scale (only GREGORIAN is supported)
 CALSCALE = "GREGORIAN"
 
-# Component names — used to identify components during parsing
+# Component names - used to identify components during parsing
 COMP_VCALENDAR = "VCALENDAR"
 COMP_VEVENT = "VEVENT"
 COMP_VTIMEZONE = "VTIMEZONE"

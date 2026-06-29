@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 from app.config.db import tables as tbl
 from app.module.calendar.model.CalEventReminder import CalEventReminder
 from app.module.calendar.model.enums.ReminderMethod import ReminderMethod
-from app.utils.calendar.DateTimeUtils import to_utc
+from app.utils.datetime.DateTimeUtils import to_utc
 from app.utils.db.Condition import (AndCondition, Condition, EqualCondition, GreaterOrEqualCondition, JoinClause,
                                      LessOrEqualCondition)
 
@@ -76,7 +76,7 @@ class RepositoryReminder:
         Uses INNER JOIN on sogo_events and sogo_calendars to filter by user
         and exclude soft-deleted events in a single SQL query.
         Returned CalEventReminder objects have title, location, timezone and
-        calendar_timezone set to None — the caller enriches them from the full CalEvent.
+        calendar_timezone set to None - the caller enriches them from the full CalEvent.
         """
         rem: str = tbl.TABLE_REMINDER.name
         evt: str = tbl.TABLE_EVENT.name
@@ -85,16 +85,6 @@ class RepositoryReminder:
         q_trigger: str = f"{rem}.{tbl.COL_REM_TRIGGER_AT.name}"
         q_rem_deleted: str = f"{rem}.{tbl.COL_REM_IS_DELETED.name}"
         q_evt_deleted: str = f"{evt}.{tbl.COL_EVT_IS_DELETED.name}"
-
-        find_cols: tuple[str, ...] = (
-            f"{rem}.{tbl.COL_REM_EVENT_KEY.name}",
-            f"{rem}.{tbl.COL_REM_METHOD.name}",
-            f"{rem}.{tbl.COL_REM_MINUTES.name}",
-            f"{rem}.{tbl.COL_REM_TRIGGER_AT.name}",
-            f"{evt}.{tbl.COL_EVT_DATE_START.name}",
-            f"{evt}.{tbl.COL_EVT_DATE_END.name}",
-            f"{evt}.{tbl.COL_EVT_IS_RECURRING.name}",
-        )
 
         condition = AndCondition(
             AndCondition(
@@ -111,11 +101,20 @@ class RepositoryReminder:
         if method is not None:
             condition = AndCondition(condition, EqualCondition(f"{rem}.{tbl.COL_REM_METHOD.name}", method.value))
 
+        find_cols: tuple[str, ...] = (
+            f"{rem}.{tbl.COL_REM_EVENT_KEY.name}",
+            f"{rem}.{tbl.COL_REM_METHOD.name}",
+            f"{rem}.{tbl.COL_REM_MINUTES.name}",
+            f"{rem}.{tbl.COL_REM_TRIGGER_AT.name}",
+            f"{evt}.{tbl.COL_EVT_DATE_START.name}",
+            f"{evt}.{tbl.COL_EVT_DATE_END.name}",
+            f"{evt}.{tbl.COL_EVT_IS_RECURRING.name}",
+            f"{cal}.user_uid",
+        )
         joins: list[JoinClause] = [
             JoinClause(table=evt, left_col=f"{rem}.{tbl.COL_REM_EVENT_KEY.name}", right_col=f"{evt}.{tbl.COL_EVT_KEY.name}"),
             JoinClause(table=cal, left_col=f"{evt}.{tbl.COL_EVT_CALENDAR_KEY.name}", right_col=f"{cal}.key"),
         ]
-
         rows = self._db.select_from_several_table(
             table_name=rem,
             joins=joins,
@@ -138,4 +137,5 @@ class RepositoryReminder:
             method=ReminderMethod(row[1]),
             minutes_before=row[2],
             trigger_at=to_utc(row[3]),
+            user_uid=row[7],
         )

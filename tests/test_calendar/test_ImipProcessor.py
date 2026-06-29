@@ -1,7 +1,5 @@
 """Unit tests for ImipProcessor (REQUEST, REPLY, CANCEL flows)."""
 from datetime import datetime, timezone
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 from unittest.mock import MagicMock
 
 from app.module.calendar.model.CalendarUser import CalendarUser
@@ -18,13 +16,13 @@ from app.module.calendar.model.CalOrganizer import CalOrganizer
 from app.module.calendar.model.CalReminder import CalReminder
 from app.module.calendar.model.enums.AttendeeStatus import AttendeeStatus
 from app.module.calendar.model.enums.ReminderMethod import ReminderMethod
-from app.module.calendar.serializer.CalendarEventSerializerIcal import CalendarEventSerializerIcal
+from app.module.calendar.serializer.CalEventSerializerIcal import CalEventSerializerIcal
 from app.module.calendar.source.CalendarSource import CalendarSource
 from app.utils import errors as err
 from app.utils.exceptions import RequestException
 
 _UTC = timezone.utc
-_serializer = CalendarEventSerializerIcal()
+_serializer = CalEventSerializerIcal()
 
 
 # ---------------------------------------------------------------------------
@@ -56,12 +54,7 @@ def _make_event(**kwargs):
 
 
 def _build_imip_bytes(event: CalEvent, method: str) -> bytes:
-    ical = _serializer.build_imip(event, method)
-    msg = MIMEMultipart()
-    msg["From"] = "sender@example.com"
-    msg["To"] = "recipient@example.com"
-    msg.attach(MIMEText(ical, "calendar", "utf-8"))
-    return msg.as_bytes()
+    return _serializer.build_imip(event, method).encode("utf-8")
 
 
 def _fake_user(uid="organizer@example.com"):
@@ -238,7 +231,7 @@ def test_request_inserts_new_event():
 
 
 def test_request_updates_existing_event():
-    existing = _make_event(title="Old Title", sequence=1)
+    existing = _make_event(title="Old Title", sequence=1, organizer=_organizer())
     source = _make_source(events=[existing])
     module = _build_module({"cal-key": source})
 
@@ -252,7 +245,7 @@ def test_request_updates_existing_event():
 
 
 def test_request_stale_sequence_ignored():
-    existing = _make_event(title="Current", sequence=5)
+    existing = _make_event(title="Current", sequence=5, organizer=_organizer())
     source = _make_source(events=[existing])
     module = _build_module({"cal-key": source})
 
@@ -267,7 +260,7 @@ def test_request_stale_sequence_ignored():
 
 def test_request_does_not_overwrite_reminders():
     personal_reminder = CalReminder(method=ReminderMethod.POPUP, minutes_before=15)
-    existing = _make_event(sequence=1, reminders=[personal_reminder])
+    existing = _make_event(sequence=1, reminders=[personal_reminder], organizer=_organizer())
     source = _make_source(events=[existing])
     module = _build_module({"cal-key": source})
 
@@ -308,7 +301,7 @@ def test_request_wrong_method_raises():
 # ========== Tests for process_imip_cancel ==========
 
 def test_cancel_full_deletes_event():
-    event = _make_event()
+    event = _make_event(organizer=_organizer())
     source = _make_source(events=[event])
     module = _build_module({"cal-key": source})
 
@@ -322,7 +315,7 @@ def test_cancel_full_deletes_event():
 
 def test_cancel_partial_adds_exdate():
     recid = _dt(2026, 6, 8, 9)
-    master = _make_event(recurrence_exceptions=[])
+    master = _make_event(recurrence_exceptions=[], organizer=_organizer())
     source = _make_source(events=[master])
     module = _build_module({"cal-key": source})
 
@@ -339,7 +332,7 @@ def test_cancel_partial_adds_exdate():
 def test_cancel_partial_idempotent():
     """Sending the same partial CANCEL twice should not duplicate the EXDATE."""
     recid = _dt(2026, 6, 8, 9)
-    master = _make_event(recurrence_exceptions=[recid])
+    master = _make_event(recurrence_exceptions=[recid], organizer=_organizer())
     source = _make_source(events=[master])
     module = _build_module({"cal-key": source})
 
@@ -348,7 +341,7 @@ def test_cancel_partial_idempotent():
 
     module.process_imip_cancel(_fake_user(), raw, "organizer@example.com")
 
-    # Already in EXDATE — should not update
+    # Already in EXDATE - should not update
     assert len(source.updated) == 0
 
 
@@ -364,6 +357,29 @@ def test_cancel_event_not_found_ignored():
     assert len(source.deleted_uids) == 0
 
 
+def test_cancel_rejected_when_sender_not_organizer():
+    event = _make_event(organizer=_organizer())
+    source = _make_source(events=[event])
+    module = _build_module({"cal-key": source})
+    raw = _build_imip_bytes(event, "CANCEL")
+    with pytest.raises(RequestException) as exc_info:
+        module.process_imip_cancel(_fake_user(), raw, "attacker@example.com")
+    assert exc_info.value.error == err.ERROR_CALENDAR_IMIP_SENDER_MISMATCH
+    assert source.deleted_uids == []
+
+
+def test_request_update_rejected_when_sender_not_organizer():
+    existing = _make_event(title="Original", sequence=1, organizer=_organizer())
+    source = _make_source(events=[existing])
+    module = _build_module({"cal-key": source})
+    forged = _make_event(title="Hijacked", sequence=2, organizer=_organizer("attacker@example.com"))
+    raw = _build_imip_bytes(forged, "REQUEST")
+    with pytest.raises(RequestException) as exc_info:
+        module.process_imip_request(_fake_user(), raw, "attacker@example.com")
+    assert exc_info.value.error == err.ERROR_CALENDAR_IMIP_SENDER_MISMATCH
+    assert source.updated == []
+
+
 def test_cancel_wrong_method_raises():
     event = _make_event()
     source = _make_source(events=[event])
@@ -372,3 +388,49 @@ def test_cancel_wrong_method_raises():
     with pytest.raises(RequestException) as exc_info:
         module.process_imip_cancel(_fake_user(), raw, "x@example.com")
     assert exc_info.value.error == err.ERROR_CALENDAR_IMIP_INVALID_REQUEST
+
+
+# ========== Tests for process_imip (method dispatch facade) ==========
+
+def test_process_imip_dispatches_reply():
+    org_event = _make_event(
+        organizer=_organizer(),
+        attendees=[_attendee("attendee@example.com", AttendeeStatus.NEEDS_ACTION)],
+    )
+    source = _make_source(events=[org_event])
+    module = _build_module({"cal-key": source})
+    reply_event = _make_event(
+        organizer=_organizer(),
+        attendees=[_attendee("attendee@example.com", AttendeeStatus.ACCEPTED)],
+    )
+    raw = _build_imip_bytes(reply_event, "REPLY")
+
+    result = module.process_imip(_fake_user(), raw, "attendee@example.com")
+
+    assert result is not None
+    assert result.attendees[0].status == AttendeeStatus.ACCEPTED
+
+
+def test_process_imip_dispatches_cancel():
+    event = _make_event(organizer=_organizer(), attendees=[_attendee()])
+    source = _make_source(events=[event])
+    module = _build_module({"cal-key": source})
+    raw = _build_imip_bytes(event, "CANCEL")
+
+    result = module.process_imip(_fake_user(), raw, "organizer@example.com")
+
+    assert result is None
+    assert source.deleted_uids == [event.uid]
+
+
+def test_process_imip_unknown_method_is_noop():
+    source = _make_source(events=[])
+    module = _build_module({"cal-key": source})
+    raw = b"BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:x\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+
+    result = module.process_imip(_fake_user(), raw, "someone@example.com")
+
+    assert result is None
+    assert source.updated == []
+    assert source.deleted_uids == []
+    assert source.inserted == []

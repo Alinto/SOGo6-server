@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
 
 from app.module.calendar.model.CalFreeBusyPeriod import CalFreeBusyPeriod
 from app.module.calendar.model.enums.FreeBusyType import FreeBusyType
-from app.module.calendar.serializer.Deserializer import Deserializer
+from app.utils.datetime.DateTimeUtils import to_utc
+from app.utils.serializer.Deserializer import Deserializer
 
 _JSON_TYPE_TO_FB: dict[str, FreeBusyType] = {
     FreeBusyType.BUSY.value: FreeBusyType.BUSY,
@@ -15,11 +16,11 @@ _JSON_TYPE_TO_FB: dict[str, FreeBusyType] = {
 
 
 class FreeBusyDeserializerDict(Deserializer[dict[str, Any], dict[str, list[CalFreeBusyPeriod]]]):
-    """Deserializes a FreeBusy dict (as produced by FreeBusySerializerDict) into periods per attendee."""
+    """Deserializes a FreeBusy dict (as produced by CalFreeBusyResultSerializerDict) into periods per attendee."""
 
     @staticmethod
     def _parse_dt(value: str) -> datetime:
-        return datetime.strptime(value.strip(), "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+        return to_utc(datetime.strptime(value.strip(), "%Y%m%dT%H%M%SZ"))
 
     @staticmethod
     def _parse_period(item: dict[str, Any]) -> CalFreeBusyPeriod | None:
