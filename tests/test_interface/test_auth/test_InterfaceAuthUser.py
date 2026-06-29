@@ -20,6 +20,7 @@ class FakeModuleAuth:
         self.get_login_mech_args = None
         self.get_user_and_domain_user_sources_args = None
         self.generate_voucher_from_user_args = None
+        self.logout_user_args = None
 
         # Results
         self.get_login_mech_result = {"mechanism": "plain", "redirect": None}
@@ -40,6 +41,10 @@ class FakeModuleAuth:
         """Generate voucher for authenticated user."""
         self.generate_voucher_from_user_args = user
         return self.generate_voucher_from_user_result
+
+    def logout_user(self, voucher_data):
+        """Revoke the session associated with the given voucher."""
+        self.logout_user_args = voucher_data
 
 
 class FakeModuleUserSource:
@@ -343,3 +348,88 @@ def test_plain_login_profile_creation_bug_exception(monkeypatch):
         interface.plain_login(data)
 
     assert exc_info.value.error == err.ERROR_BUG_UNKNOWN_ORDER
+
+
+# ========== Tests for logout ==========
+
+def test_logout_success(monkeypatch):
+    """Test successful logout: delegates to module_auth and returns 200."""
+    fake_auth = FakeModuleAuth(None, None, None, None)
+    fake_profile = FakeModuleUserProfile(None, None)
+
+    patch_modules_on_interface(monkeypatch, fake_auth, fake_profile, FakeModuleUserSource)
+
+    interface = InterfaceAuthUser(
+        process={"test": "config"},
+        system={"SYSTEM_SETTINGS": {"test": "value"}},
+        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}}
+    )
+
+    result, status_code = interface.logout("fake-jwt-token")
+
+    assert status_code == 200
+    assert result["data"] is None
+    assert fake_auth.logout_user_args == "fake-jwt-token"
+
+
+def test_logout_empty_token(monkeypatch):
+    """Test logout with an empty token still calls module_auth.logout_user."""
+    fake_auth = FakeModuleAuth(None, None, None, None)
+    fake_profile = FakeModuleUserProfile(None, None)
+
+    patch_modules_on_interface(monkeypatch, fake_auth, fake_profile, FakeModuleUserSource)
+
+    interface = InterfaceAuthUser(
+        process={"test": "config"},
+        system={"SYSTEM_SETTINGS": {"test": "value"}},
+        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}}
+    )
+
+    result, status_code = interface.logout("")
+
+    assert status_code == 200
+    assert fake_auth.logout_user_args == ""
+
+
+def test_logout_request_exception_returns_error_response(monkeypatch):
+    """Test that a RequestException from logout_user is caught and returns an error response."""
+    fake_auth = FakeModuleAuth(None, None, None, None)
+    fake_auth.logout_user = lambda voucher_data: (_ for _ in ()).throw(
+        RequestException("Voucher has expired or cannot be read", err.ERROR_USER_CREDS_NOT_VALID)
+    )
+    fake_profile = FakeModuleUserProfile(None, None)
+
+    patch_modules_on_interface(monkeypatch, fake_auth, fake_profile, FakeModuleUserSource)
+
+    interface = InterfaceAuthUser(
+        process={"test": "config"},
+        system={"SYSTEM_SETTINGS": {"test": "value"}},
+        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}}
+    )
+
+    result, status_code = interface.logout("expired-jwt-token")
+
+    assert status_code == err.ERROR_USER_CREDS_NOT_VALID.h
+    assert result["error_code"] == err.ERROR_USER_CREDS_NOT_VALID.c
+
+
+def test_logout_invalid_voucher_type_returns_error_response(monkeypatch):
+    """Test that a RequestException for wrong voucher type is properly returned."""
+    fake_auth = FakeModuleAuth(None, None, None, None)
+    fake_auth.logout_user = lambda voucher_data: (_ for _ in ()).throw(
+        RequestException("Wrong data type for voucher", err.ERROR_WRONG_AUTHORIZATION_TYPE)
+    )
+    fake_profile = FakeModuleUserProfile(None, None)
+
+    patch_modules_on_interface(monkeypatch, fake_auth, fake_profile, FakeModuleUserSource)
+
+    interface = InterfaceAuthUser(
+        process={"test": "config"},
+        system={"SYSTEM_SETTINGS": {"test": "value"}},
+        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}}
+    )
+
+    result, status_code = interface.logout(12345)  # wrong type
+
+    assert status_code == err.ERROR_WRONG_AUTHORIZATION_TYPE.h
+    assert result["error_code"] == err.ERROR_WRONG_AUTHORIZATION_TYPE.c

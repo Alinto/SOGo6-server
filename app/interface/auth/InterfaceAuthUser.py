@@ -124,3 +124,18 @@ class InterfaceAuthUser:
             self.module_user_profile.get_user_profile(user)
         return success
 
+    def logout(self, voucher_data: str) -> tuple[dict, int]:
+        """
+        Revoke the session associated with the given voucher.
+
+        :param voucher_data: The raw JWT token from the Authorization header
+        :type voucher_data: str
+        :return: Tuple containing the API response dict and HTTP status code
+        :rtype: tuple[dict, int]
+        """
+        try:
+            self.module_auth.logout_user(voucher_data)
+        except RequestException as e:
+            return create_api_base_response(None, e.error)
+        return create_api_base_response(None)
+
