@@ -154,3 +154,18 @@ class ModuleAuth:
         voucher_user_service = VoucherUserService(self.process_settings)
         voucher_data = voucher_user_service.generate_voucher_from_user(user)
         return {"jwt_token": voucher_data}
+
+    def logout_user(self, voucher_data: str) -> None:
+        """
+        Revoke the session associated with the given voucher.
+
+        :param voucher_data: The raw voucher (JWT token) from the Authorization header
+        :type voucher_data: str
+        :raises RequestException: If the voucher is invalid or the session cannot be revoked
+        """
+        voucher_user_service = VoucherUserService(self.process_settings)
+        redis_key = voucher_user_service.get_redis_session_key_from_voucher(voucher_data)
+
+        from app.service import sogo_cache
+        cache = sogo_cache()
+        cache.revoke_user_sessions_by_key([redis_key])

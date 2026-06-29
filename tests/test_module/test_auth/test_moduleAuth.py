@@ -533,3 +533,101 @@ def test_full_auth_flow_domainless(monkeypatch):
             mock_service.return_value = FakeVoucherUserService(process)
             result = module.generate_voucher_from_user(user)
             assert 'jwt_token' in result
+
+
+# ========== Tests for logout_user ==========
+
+class FakeVoucherUserServiceForLogout:
+    """Fake VoucherUserService for logout tests."""
+
+    def __init__(self, process_settings):
+        self.process_settings = process_settings
+        self.get_redis_session_key_from_voucher_args = None
+
+    def get_redis_session_key_from_voucher(self, voucher_data):
+        """Return a predictable Redis key."""
+        self.get_redis_session_key_from_voucher_args = voucher_data
+        return "user_session:fake-session-id"
+
+
+class FakeSogoCache:
+    """Fake cache client for logout tests."""
+
+    def __init__(self):
+        self.revoke_user_sessions_by_key_args = None
+
+    def revoke_user_sessions_by_key(self, redis_keys):
+        """Record the keys that were revoked."""
+        self.revoke_user_sessions_by_key_args = redis_keys
+        return len(redis_keys)
+
+
+def test_logout_user_success(monkeypatch):
+    """Test that logout_user extracts the Redis key and calls revoke."""
+    process = FakeProcessSettings()
+    system = FakeSystemSettings()
+    auth_settings = get_default_auth_settings()
+    user_sources = get_default_user_sources()
+
+    module = ModuleAuth(process, system, auth_settings, user_sources)
+
+    fake_voucher_service = FakeVoucherUserServiceForLogout(process)
+    fake_cache = FakeSogoCache()
+
+    with mock.patch('app.module.auth.ModuleAuth.VoucherUserService') as mock_service:
+        mock_service.return_value = fake_voucher_service
+        with mock.patch('app.service.sogo_cache') as mock_cache_factory:
+            mock_cache_factory.return_value = fake_cache
+
+            module.logout_user("fake-jwt-token")
+
+            # VoucherUserService was instantiated with the process settings
+            mock_service.assert_called_once_with(process)
+            # The voucher token was passed to get_redis_session_key_from_voucher
+            assert fake_voucher_service.get_redis_session_key_from_voucher_args == "fake-jwt-token"
+            # The Redis key was passed to revoke_user_sessions_by_key
+            assert fake_cache.revoke_user_sessions_by_key_args == ["user_session:fake-session-id"]
+
+
+def test_logout_user_invalid_voucher_raises_request_exception(monkeypatch):
+    """Test that logout_user propagates RequestException when the voucher is invalid."""
+    process = FakeProcessSettings()
+    system = FakeSystemSettings()
+    auth_settings = get_default_auth_settings()
+    user_sources = get_default_user_sources()
+
+    module = ModuleAuth(process, system, auth_settings, user_sources)
+
+    def raise_request_exception(voucher_data):
+        raise RequestException("Voucher has expired or cannot be read")
+
+    fake_voucher_service = FakeVoucherUserServiceForLogout(process)
+    fake_voucher_service.get_redis_session_key_from_voucher = raise_request_exception
+
+    with mock.patch('app.module.auth.ModuleAuth.VoucherUserService') as mock_service:
+        mock_service.return_value = fake_voucher_service
+
+        with pytest.raises(RequestException, match="Voucher has expired or cannot be read"):
+            module.logout_user("invalid-or-expired-token")
+
+
+def test_logout_user_empty_voucher_raises_request_exception(monkeypatch):
+    """Test that logout_user propagates RequestException for an empty voucher."""
+    process = FakeProcessSettings()
+    system = FakeSystemSettings()
+    auth_settings = get_default_auth_settings()
+    user_sources = get_default_user_sources()
+
+    module = ModuleAuth(process, system, auth_settings, user_sources)
+
+    def raise_wrong_type(voucher_data):
+        raise RequestException("Wrong data type for voucher")
+
+    fake_voucher_service = FakeVoucherUserServiceForLogout(process)
+    fake_voucher_service.get_redis_session_key_from_voucher = raise_wrong_type
+
+    with mock.patch('app.module.auth.ModuleAuth.VoucherUserService') as mock_service:
+        mock_service.return_value = fake_voucher_service
+
+        with pytest.raises(RequestException, match="Wrong data type for voucher"):
+            module.logout_user("")
