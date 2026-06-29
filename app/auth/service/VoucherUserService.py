@@ -108,6 +108,46 @@ class VoucherUserService:
 
         return voucher_data
 
+    def get_redis_session_key_from_voucher(self, voucher_data: Any) -> str:
+        """
+        Extract the Redis session key from a voucher without loading the full user session.
+
+        :param voucher_data: The raw voucher data (e.g. JWT token string)
+        :type voucher_data: Any
+        :raises RequestException: If the voucher is invalid, expired, or cannot be decrypted
+        :return: Redis key for the session (``user_session:<session_id>``)
+        :rtype: str
+        """
+        voucher_type = "JWTVoucher"
+        voucher_class: Type[Voucher] = import_and_get_class("app.auth.voucher", voucher_type)
+
+        needed_data = voucher_class.get_needed_parameters_to_instantiate()
+        kargs = {}
+        for kind, (param_name, arg_name) in needed_data.items():
+            if kind == "process_settings":
+                kargs[arg_name] = self.process_settings[param_name]
+        voucher = voucher_class(**kargs)
+
+        if not voucher.check_voucher_data_type(voucher_data):
+            raise RequestException("Wrong data type for voucher")
+
+        payload = voucher.read_voucher(voucher_data)
+        if not payload:
+            raise RequestException("Voucher has expired or cannot be read")
+
+        session_key_crypted: str = payload[cs.SESSION_KEY]
+        try:
+            session_key = self.fernet_session.decrypt(session_key_crypted.encode("utf-8")).decode("utf-8")
+        except (ValueError, InvalidToken) as e:
+            raise RequestException("Cannot decrypt session key from voucher") from e
+
+        try:
+            session_id, _ = session_key.split(":")
+        except ValueError as e:
+            raise RequestException("Session key from voucher is not valid") from e
+
+        return f"user_session:{session_id}"
+
     def generate_user_from_voucher(self,  data: Any) -> User:
         """
         Get a voucher instance and the expected data for it 

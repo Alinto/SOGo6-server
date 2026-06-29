@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, cast
 
-from flask import g, Response
+from flask import g, request, Response
 from flask.views import MethodView
 from flask.typing import ResponseReturnValue
 from flask_smorest import Blueprint
@@ -81,3 +81,21 @@ class ApiAuthUserCallback(MethodView):
         """
         interface_api : InterfaceAuthUser = g.inter
         raise NotImplementedError("Not implemented yet")
+
+
+@blp.route("/logout")
+class ApiAuthUserLogout(MethodView):
+    """
+    Action, revoke the current user session
+    """
+
+    @blp.response(200)
+    def post(self) -> ResponseReturnValue:
+        """
+        Action, logout the authenticated user by revoking the session associated
+        with the JWT token present in the Authorization header.
+        """
+        auth_header = request.authorization
+        voucher_data: str = auth_header.token if auth_header else ""
+        interface_api: InterfaceAuthUser = g.inter
+        return interface_api.logout(voucher_data)
