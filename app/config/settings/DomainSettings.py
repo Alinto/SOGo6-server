@@ -3,13 +3,15 @@
 """
 Define all domains parameters
 """
-from typing import Type
+from typing import Type, cast
 from marshmallow import fields, validate
+
 from app.config.settings.SogoSchema import SogoSchema
-from app.utils.config.generateObjFromSchema import SettingsObj
-from app.utils.exceptions import AggravatedException
 from app.utils import errors as err
 from app.utils import constants as cs
+from app.utils.config.generateObjFromSchema import SettingsObj
+from app.utils.exceptions import AggravatedException
+from app.utils.strings import parse_url_str
 
 def get_all_domain_schemas() -> list[Type[SogoSchema]]:
     """
@@ -221,21 +223,24 @@ class UserSourceSettings(SogoSchema):
     US_NAME  = fields.String(required=True) #Name of the user source
     US_TYPE = fields.String(required=True, validate=validate.OneOf(('ldap', 'sql'))) #Type of the user source
 
-    US_LDAP_HOSTNAME = fields.Url(schemes={'ldap', 'ldaps'}, require_tld=False)
+    US_LDAP_HOSTNAME = fields.String() #Hostname or ip of the ldap server
+    US_LDAP_PORT = fields.Integer(load_default=390, dump_default=390, validate=validate.Range(min=1, max=65535))
+    US_LDAP_ENCRYPTION = fields.String(load_default="None", dump_default="None", validate=validate.OneOf(cs.SOCK_ENC_LIST))
     US_LDAP_BIND_DN      = fields.String() #The bind DN used to authentify against the ldap server
     US_LDAP_BIND_DN_PWD  = fields.String() #The password for the bindDN
     US_LDAP_BASE_DN    = fields.String() #Example: 'dc=example,dc=com'
     US_LDAP_UID        = fields.String(dump_default='uid', load_default='uid') #field with the user's login typically 'uid'
     US_LDAP_CN         = fields.String(dump_default='cn', load_default='cn') #Field that return the Complete Name of the user, typically 'cn'
     US_LDAP_ID         = fields.String(dump_default='uid', load_default='uid') #Field the start the DN
-    US_LDAP_SCOPE      = fields.String(dump_default="SUB", load_default="SUB", validate=validate.OneOf(('BASE', 'ONE', 'SUB')))
+    US_LDAP_SCOPE      = fields.String(dump_default=cs.LDAP_SCOPE_SUB, load_default=cs.LDAP_SCOPE_SUB,
+                                       validate=validate.OneOf((cs.LDAP_SCOPE_BASE, cs.LDAP_SCOPE_ONE, cs.LDAP_SCOPE_SUB)))
     US_LDAP_FILTER     = fields.String() #Additional filter for ldap query
-    US_LDAP_PWD_POLICY = fields.Boolean(dump_default=False, load_default=False) # set to true if ldap has passwpord policy
+    US_LDAP_PWD_POLICY = fields.Boolean(dump_default=False, load_default=False) # set to true if ldap has passwpord policy https://datatracker.ietf.org/doc/html/rfc3062
     US_LDAP_PWD_UPDATE_SAMBA  = fields.Boolean(dump_default=False, load_default=False) # Also update samba password when changing password
     US_LDAP_QUERY_TIMEOUT = fields.Integer(dump_default=0, load_default=0, validate=validate.Range(min=0)) #Used as parameter by ldap query method. 0 means no limit
-    US_LDAP_BIND_AS_USER = fields.Boolean(load_default=False, dump_default=False) #After the fist auth, use the user's DN for the bind DN
-    US_LDAP_BIND_FIELD   = fields.List(fields.String())  #Additionnal field to use when doing a bind
-    US_LDAP_ATTR_FIELD = fields.List(fields.String(), load_default=['*'], dump_default=['*']) #Attributes ftehc during ldap search queries
+    US_LDAP_BIND_AS_USER = fields.Boolean(load_default=False, dump_default=False) #Use user's DN to make bind before search query instead of US_LDAP_BIND_DN
+    US_LDAP_BIND_FIELD   = fields.List(fields.String())  #Info to fetch the correct DN of a user
+    US_LDAP_ATTR_FIELD = fields.List(fields.String(), load_default=['*'], dump_default=['*']) #Attributes fetch during ldap search queries
     US_LDAP_GROUP_CLASS  = fields.List(fields.String(), load_default=['group', 'groupOfNames', 'groupOfUniqueNames', 'posixGroup'],
                                                      dump_default=['group', 'groupOfNames', 'groupOfUniqueNames', 'posixGroup'])
 
@@ -293,13 +298,15 @@ class UserSourceSettingsObj(SettingsObj):
     US_NAME: str = ""
     US_TYPE: str = ""
     US_LDAP_HOSTNAME: str = ""
+    US_LDAP_PORT: int = 390
+    US_LDAP_ENCRYPTION: str = "None"
     US_LDAP_BIND_DN: str = ""
     US_LDAP_BIND_DN_PWD: str = ""
     US_LDAP_BASE_DN: str = ""
     US_LDAP_UID: str = "uid"
     US_LDAP_CN: str = "cn"
     US_LDAP_ID: str = "uid"
-    US_LDAP_SCOPE: str = "SUB"
+    US_LDAP_SCOPE: str = cs.LDAP_SCOPE_SUB
     US_LDAP_FILTER: str = ""
     US_LDAP_PWD_POLICY: bool = False
     US_LDAP_PWD_UPDATE_SAMBA: bool = False
@@ -344,6 +351,61 @@ class UserSourceSettingsObj(SettingsObj):
     US_RESOURCE_MULTIBOOKING: str = ""
     US_RESOURCE_EXTRA_INFO: str = ""
 
+    def get_user_source_settings(self, type_us:str) -> dict:
+        """
+        Returns the parameters needed for the user source's client class init
+
+        :param type_us: Type of the user source, must matcv US_TYPE possible value.
+        :type type_us: str
+        :return: The dictonnary ready to be passes as kwargs to the class init
+        :rtype: dict
+        """
+
+        if type_us == "ldap":
+            #Must match ClientLdap __init__ param
+            return {
+                    "ldap_host": self.US_LDAP_HOSTNAME,
+                    "ldap_bind_dn": self.US_LDAP_BIND_DN,
+                    "ldap_bind_pwd": self.US_LDAP_BIND_DN_PWD,
+                    "ldap_base_dn": self.US_LDAP_BASE_DN,
+                    # self.US_LDAP_UID,
+                    # self.US_LDAP_CN,
+                    # self.US_LDAP_ID,
+                    "ldap_scope": self.US_LDAP_SCOPE,
+                    # self.US_LDAP_FILTER,
+                    # self.US_LDAP_PWD_POLICY,
+                    # self.US_LDAP_PWD_UPDATE_SAMBA,
+                    # self.US_LDAP_QUERY_TIMEOUT,
+                    # self.US_LDAP_BIND_AS_USER,
+                    # self.US_LDAP_BIND_FIELD,
+                    # self.US_LDAP_ATTR_FIELD,
+                    # self.US_LDAP_GROUP_CLASS
+            }
+        elif type_us == "sql":
+            #Transform url to parameters
+            parsed_url = parse_url_str(self.US_SQL_USER_URL)
+
+            type_db = str(parsed_url["protocol"])
+            encodage = "utf8"
+            
+            if type_db == "mysql":
+                encodage = parsed_url["params"].get("charset", "utf8")
+            elif type_db == "postgresql":
+                encodage = parsed_url["params"].get("client_encoding", "utf8")
+
+
+            return {
+                "db_user": parsed_url["usernname"],
+                "db_pwd":  parsed_url["password"],
+                "db_host": parsed_url["hostname"],
+                "db_port": parsed_url["port"],
+                "db_ssl":  "", #TODO get ssl from url string
+                "db_enc":  encodage
+            }
+        else:
+            raise AggravatedException(err.ERROR_CONFIG_WRONG_US_SERVER.m, err.ERROR_CONFIG_WRONG_US_SERVER)
+
+
 class UserModuleSettings(SogoSchema):
     """
     Schema for an User module and action
@@ -368,7 +430,6 @@ class UserModuleSettings(SogoSchema):
     SOGO_D_MODULE_ACCESS = fields.List(fields.String(), validate=validate.ContainsOnly(('mail', 'calendar', 'contact')),
                                     load_default=['mail', 'calendar', 'contact'],
                                     dump_default=['mail', 'calendar', 'contact'])
-    SOGO_D_MAPI_ACCESS = fields.Boolean(load_default=False, dump_default=False) #Allow user to access their data with MAPI
     SOGO_D_EAS_ACCESS = fields.Boolean(load_default=False, dump_default=False) #Allow user to access their data with EAS
 
     #Folder settings
@@ -413,7 +474,6 @@ class UserModuleSettingsObj(SettingsObj):
     """
 
     SOGO_D_MODULE_ACCESS: list[str] = ['mail', 'calendar', 'contact']
-    SOGO_D_MAPI_ACCESS: bool = False
     SOGO_D_EAS_ACCESS: bool = False
     SOGO_D_FOLDER_DISABLE_EXPORT: list[str] = []
     SOGO_D_FOLDER_DISABLE_SHARING: list[str] = []

@@ -254,15 +254,19 @@ to properly explain to which features this code is for.
 
 * [*] 100%: check process settings in ENV
 * [*] 100%: check process settings in file
-* [*] 90%: Add param to allow admin to use their own tables name (PR in review)
+* [*]  90%: Add param to allow admin to use their own tables name (PR in review)
 * [*] 100%: Check the cache 
 * [*] 100%: Check database connection
 * [*] 100%: Check database structure
-* [ ] 0%: Update database structure when new version, if needed
-* [ ] 0%: Check the agent
+* [ ]   0%: Update database structure when new version, if needed
+* [ ]   0%: Check the agent
 * [*] 100%: Check if SOGo 6 is already configured in database
 * [*] 100%: If not, check if files with config has been provided then populate the database
 * [*] 100%: If not, block API except Admin APi to configure SOGo 6
+
+* [ ]   0%: handle ssl mode for PostgreSQL
+* [ ]   0%: handle ssl mode for MySQL/mariadb
+
 
 === API
 

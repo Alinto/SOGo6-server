@@ -77,7 +77,7 @@ class ProcessSetting(FlaskConfig):
     """
     Contains all SOGo relative settings
     """
-    SOGO_P_REDIS_URL: str = "redis://redis:6379"
+    SOGO_P_REDIS_URL: str
     SOGO_P_REDIS_RESP_3: bool = True # Version of RESP, 3 is strongly recommanded
 
     SOGO_P_SECRET: str

@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING
 
 from app.config.settings.DomainSettings import UserSourceSettingsObj, UserSourceSettings
 from app.utils import exceptions as exc
+from app.utils.module.importManager import import_and_instantiate_manager
 
 if TYPE_CHECKING:
     from app.auth.User import User

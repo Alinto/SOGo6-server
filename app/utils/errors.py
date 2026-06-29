@@ -194,6 +194,7 @@ ERROR_QUERY_DELETION_CONDITION = E("S000404", "Database Deletion Query Delete Ev
 
 #Config
 ERROR_CONFIG_WRONG_MAIL_SERVER = E("S000500", "Mail server type is unknown or not supported", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_CONFIG_WRONG_US_SERVER = E("S000501", "User Source server type is unknown or not supported", HTTPStatus.INTERNAL_SERVER_ERROR)
 
 #Calendar
 ERROR_CALENDAR_ICS_FETCH_FAILED = E("S000600", "Failed To Fetch ICS Calendar Feed", HTTPStatus.BAD_GATEWAY)
@@ -251,6 +252,11 @@ ERROR_JOB_FORBIDDEN        = E("S000801", "Job Does Not Belong To Current User",
 ERROR_JOB_NOT_READY        = E("S000802", "Job Has Not Completed Yet", HTTPStatus.CONFLICT)
 ERROR_JOB_NO_RESULT        = E("S000803", "Job Has No Downloadable Result", HTTPStatus.GONE)
 ERROR_JOB_CONCURRENT_LIMIT = E("S000804", "Concurrent Job Limit Reached", HTTPStatus.CONFLICT)
+
+#Ldap user source
+ERROR_LDAP_CANNOT_CONNECT = E("S000700", "Cannot connect to the ldap server", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_LDAP_BIND_WRONG_CRED = E("S000701", "Wrong bind dn credentials for the ldap server", HTTPStatus.UNAUTHORIZED)
+ERROR_LDAP_CANNOT_BIND = E("S000702", "Cannot bind to the ldap server", HTTPStatus.INTERNAL_SERVER_ERROR)
 
 #the bugs
 ERROR_UNKOWN = E("S999999", "Undefined Error", HTTPStatus.INTERNAL_SERVER_ERROR)

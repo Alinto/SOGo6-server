@@ -71,6 +71,7 @@ testpaths = [
     "tests"
 ]
 
+
 [tool.pylint.basic]
 module-naming-style="any"
 class-naming-style="PascalCase"
@@ -88,13 +89,17 @@ disable= [
     "unused-argument"
 ]
 max-line-length=240
-ignored-modules=["psycopg"]
+ignored-modules=["psycopg", "ldap"]
 
 [tool.mypy]
 disallow_untyped_defs = true
 implicit_optional = true
 disable_error_code = ["import-untyped"]
 exclude = ["tests"]
+
+[[tool.mypy.overrides]]
+module = ["ldap.*"]
+ignore_missing_imports = true
 
 [tool.black]
 line-length = 120

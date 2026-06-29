@@ -1,0 +1,7 @@
+= SOGo 6 - Install from source
+
+
+Clone the repo and REDMA.md?
+
+#TODO
+

@@ -166,13 +166,33 @@ def condition_to_query(condition: Condition, add_where : bool = False) -> Compos
     elif isinstance(condition, NotEqualCondition):
         sql_condition = SQL("{param} != {value}").format(param=_col_ref(condition.param_name), value=Literal(condition.param_value))
     elif isinstance(condition, AndCondition):
-        condition1 = condition_to_query(condition.condition1)
-        condition2 = condition_to_query(condition.condition2)
-        sql_condition = SQL("({cond1} AND {cond2})").format(cond1=condition1, cond2=condition2)
+        f_conds = []
+        all_cond = "("
+        first = True
+        for cond in condition.conditions:
+            p_cond = condition_to_query(cond)
+            f_conds.append(p_cond)
+            if first:
+                all_cond += "{}"
+                first=False
+            else:
+                all_cond += " AND {}"
+        all_cond += ")"
+        sql_condition = SQL(all_cond).format(*f_conds)
     elif isinstance(condition, OrCondition):
-        condition1 = condition_to_query(condition.condition1)
-        condition2 = condition_to_query(condition.condition2)
-        sql_condition = SQL("({cond1} OR {cond2})").format(cond1=condition1, cond2=condition2)
+        f_conds = []
+        all_cond = "("
+        first = True
+        for cond in condition.conditions:
+            p_cond = condition_to_query(cond)
+            f_conds.append(p_cond)
+            if first:
+                all_cond += "{}"
+                first=False
+            else:
+                all_cond += " OR {}"
+        all_cond += ")"
+        sql_condition = SQL(all_cond).format(*f_conds)
     elif isinstance(condition, LessOrEqualCondition):
         sql_condition = SQL("{param} <= {value}").format(param=_col_ref(condition.param_name), value=Literal(condition.param_value))
     elif isinstance(condition, GreaterOrEqualCondition):
@@ -217,6 +237,8 @@ class ClientPostgreSQL(ClientSQL):
         self.conn_string: str      = f"postgresql://{quote_plus(db_user)}:{quote_plus(db_pwd)}@{db_host}:{db_port}/sogo?client_encoding={db_enc}"
         self.safe_conn_string: str = f"postgresql://SOGO_P_DB_USER:SOGO_P_DB_PWD@{db_host}:{db_port}/sogo?client_encoding={db_enc}"
         self.db_conn: psycopg.Connection | None = None
+
+        #TODO for db_ssl, see sslmode https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-PARAMKEYWORDS
 
     def connect(self) -> None:
         """
