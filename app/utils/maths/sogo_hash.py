@@ -80,6 +80,11 @@ def generate_uuid() -> str:
     return str(uuid4())
 
 
+def generate_uuid() -> str:
+    """Return a UUID v4 string for use as an opaque resource key."""
+    return str(uuid4())
+
+
 def get_unique_token(size: int) -> str:
     """
     :param size: _description_

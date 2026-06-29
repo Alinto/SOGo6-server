@@ -35,7 +35,10 @@ RUN sudo apt install -y \
     && sudo rm -rf /var/lib/apt/lists/*
 
 RUN echo "Give the right to write the sogo log directory"
-RUN sudo install -o ${USERNAME} -g ${USERNAME} -m 750 -d /var/log/sogo 
+RUN sudo install -o ${USERNAME} -g ${USERNAME} -m 750 -d /var/log/sogo
+
+RUN echo "Create the Agent Beat schedule directory writable by the application user"
+RUN sudo install -o ${USERNAME} -g ${USERNAME} -m 750 -d /var/celery
 
 
 WORKDIR /workspace

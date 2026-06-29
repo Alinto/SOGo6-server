@@ -20,3 +20,6 @@ class CalEventReminder:  # pylint: disable=too-many-instance-attributes
     method: ReminderMethod
     minutes_before: int
     trigger_at: datetime
+    # Owner of the parent calendar. Populated by the repository so the periodic email-reminder sweep
+    # (cross-user) knows whom to notify; left at its default on the per-user path, which already knows.
+    user_uid: str | None = None

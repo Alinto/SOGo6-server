@@ -1,5 +1,5 @@
 """
-Unit tests for CalendarEventsDeserializerIcal.
+Unit tests for CalEventsDeserializerIcal.
 Verifies that a full VCALENDAR block is correctly parsed into a list of CalEvent objects.
 
 RFC 5545 examples: https://icalendar.org/iCalendar-RFC-5545/4-icalendar-object-examples.html
@@ -7,8 +7,8 @@ RFC 5545 examples: https://icalendar.org/iCalendar-RFC-5545/4-icalendar-object-e
 import pytest
 
 from app.module.calendar.model.enums.ComponentType import ComponentType
-from app.module.calendar.serializer.CalendarEventsDeserializerIcal import CalendarEventsDeserializerIcal
-from app.module.calendar.serializer.CalendarEventDeserializerIcal import CalendarEventDeserializerIcal
+from app.module.calendar.serializer.CalEventsDeserializerIcal import CalEventsDeserializerIcal
+from app.module.calendar.serializer.CalEventDeserializerIcal import CalEventDeserializerIcal
 from app.utils.exceptions import RequestException
 from tests.test_calendar.ical_examples import (
     ICAL_EXAMPLE_1,
@@ -40,7 +40,7 @@ ICAL_MULTI_EVENT = (
 
 @pytest.fixture
 def deserializer():
-    return CalendarEventsDeserializerIcal(CalendarEventDeserializerIcal())
+    return CalEventsDeserializerIcal(CalEventDeserializerIcal())
 
 
 def test_single_event_parsed(deserializer):

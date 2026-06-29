@@ -5,13 +5,13 @@ from typing import TYPE_CHECKING
 
 from app.module.calendar.imip.ImipMessage import ImipMessage
 from app.module.calendar.imip.ImipMethod import ImipMethod
-from app.module.calendar.serializer.CalendarEventSerializerIcal import CalendarEventSerializerIcal
+from app.module.calendar.serializer.CalEventSerializerIcal import CalEventSerializerIcal
 
 if TYPE_CHECKING:
-    from app.auth.User import User
     from app.module.calendar.model.CalEvent import CalEvent
+    from app.module.calendar.model.CalendarUser import CalendarUser
 
-_serializer: CalendarEventSerializerIcal = CalendarEventSerializerIcal()
+_serializer: CalEventSerializerIcal = CalEventSerializerIcal()
 
 
 class ImipBuilder:
@@ -54,24 +54,27 @@ class ImipBuilder:
         )
 
     @staticmethod
-    def build_reply(event: CalEvent, user: User) -> ImipMessage | None:
-        """Build a METHOD:REPLY on behalf of the attending user.
+    def build_reply(event: CalEvent, calendar_user: CalendarUser) -> ImipMessage | None:
+        """Build a METHOD:REPLY on behalf of the invited party.
 
-        Locates the attendee whose email matches user.mail, then produces a REPLY
-        VCALENDAR containing only that attendee (RFC 5546 §3.2.3).
-        Returns None if the event has no organizer or the user is not listed as an attendee.
+        The responding attendee is the calendar owner, not necessarily the connected user: on a
+        delegated calendar the owner is the invitee while ``user`` is the delegate acting for them.
+        Locates the attendee whose email matches the owner, then produces a REPLY VCALENDAR containing
+        only that attendee (RFC 5546 §3.2.3). Returns None if the event has no organizer or the owner
+        is not listed as an attendee.
 
-        :param event: The event the user is responding to.
-        :type event: CalEvent
-        :param user: The attendee who is replying.
-        :type user: User
-        :return: The iMIP REPLY message, or None if the user is not an attendee.
-        :rtype: ImipMessage | None
+        :param event: The event being responded to.
+        :param calendar_user: The acting user and the calendar owner (the invitee).
+        :return: The iMIP REPLY message, or None if the owner is not an attendee.
         """
         if not event.organizer:
             return None
+        owner_mail: str = calendar_user.owner.mail
+        # The organizer does not reply to their own event (RFC 5546): there is no one to notify.
+        if event.organizer.email == owner_mail:
+            return None
         replying_attendee = next(
-            (a for a in event.attendees if a.email == user.mail),
+            (a for a in event.attendees if a.email == owner_mail),
             None,
         )
         if replying_attendee is None:
@@ -81,7 +84,7 @@ class ImipBuilder:
         return ImipMessage(
             method=ImipMethod.REPLY,
             event=reply_event,
-            from_email=user.mail,
+            from_email=owner_mail,
             to_emails=[event.organizer.email],
             ical_content=ical,
         )

@@ -8,6 +8,8 @@ from http import HTTPStatus
 
 from app.utils.exceptions import RequestException
 from app.module.mail.ModuleMail import ModuleMail
+from app.module.calendar.ModuleCalendar import ModuleCalendar
+from app.module.calendar.model.CalendarUser import CalendarUser
 from app.config.settings.DomainSettings import MailSettings, MailSettingsObj
 from app.utils.api.ApiBaseResponse import create_api_base_response
 from app.utils import errors as err
@@ -70,10 +72,38 @@ class InterfaceApiMailMail:
         """
         try:
             mail_detail = self.mail_module.get_mail_detail(account_id, folder_name, mail_uid)
+            self._process_inbound_imip(mail_detail)
             return create_api_base_response(mail_detail)
         except RequestException as ex:
             logger_api.error("Request exception in get_mail_detail: %s", str(ex))
             return create_api_base_response(None, ex.error)
+
+    def _process_inbound_imip(self, mail_detail: dict[str, Any]) -> None:
+        """Feed an opened mail's calendar part to the calendar module (iMIP inbound), if any.
+
+        An iMIP REPLY updates the organizer's event with the attendee's response, a REQUEST adds or
+        updates the event, a CANCEL removes it. Most mails carry no calendar data, so the calendar
+        module - and the DB connection it opens - is built only when the mail actually holds a
+        text/calendar part. Processing is best-effort: a failure must never prevent the mail from
+        being displayed.
+        """
+        if "event" not in mail_detail.get("mail_type", []):
+            return
+        ics_payloads: list[str] = [
+            item["ics_content"]
+            for item in mail_detail.get("mail_type_data", [])
+            if item.get("ics_content")
+        ]
+        if not ics_payloads:
+            return
+        from_email: str = (mail_detail.get("from") or {}).get("email", "")
+        calendar_user: CalendarUser = CalendarUser(user=self.user, owner=self.user)
+        try:
+            calendar: ModuleCalendar = ModuleCalendar(self.process_setting)
+            for ics in ics_payloads:
+                calendar.process_imip(calendar_user, ics.encode(), from_email)
+        except Exception:  # pylint: disable=broad-exception-caught
+            logger_api.exception("Inbound iMIP processing failed for an opened mail")
 
     def delete_mail(self, account_id: str, folder_name: str, mail_uid: str) -> tuple[str|dict, int]:
         """Delete a specific mail (mark as deleted).

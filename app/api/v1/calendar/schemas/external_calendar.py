@@ -4,7 +4,7 @@ from marshmallow import Schema, fields, validate
 
 from app.utils.api.ApiBaseResponse import ApiBaseResponse
 from app.api.v1.calendar.schemas.calendar import CalendarSchema
-from app.api.v1.calendar.schemas.components import SyncConfigUpdateSchema, SyncResultSchema
+from app.api.v1.calendar.schemas.components import SyncConfigUpdateSchema
 
 
 class ExternalCalendarCreateSchema(Schema):
@@ -61,7 +61,13 @@ class SyncStatusResponseSchema(ApiBaseResponse):
     data = fields.Nested(SyncStatusSchema, allow_none=True)
 
 
-class SyncTriggerResponseSchema(ApiBaseResponse):
-    """Response schema for triggering a sync."""
+class SyncTriggerDataSchema(Schema):
+    """Payload returned when a manual sync is enqueued as an Agent job."""
 
-    data = fields.Nested(SyncResultSchema, allow_none=True)
+    job_id = fields.String(required=True, metadata={"description": "Id of the enqueued Agent job. Poll GET /jobs/<job_id> until SUCCESS (counters in the job result), or GET /external-calendars/<key>/sync for the durable status."})
+
+
+class SyncTriggerResponseSchema(ApiBaseResponse):
+    """Response schema for the async manual-sync endpoint (returns a job_id)."""
+
+    data = fields.Nested(SyncTriggerDataSchema, allow_none=True)

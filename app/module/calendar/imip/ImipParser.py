@@ -1,18 +1,21 @@
 from __future__ import annotations
 
 import email as email_lib
-import re
 from email.message import Message
 from email.utils import getaddresses, parseaddr
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from app.module.calendar.imip.ImipMessage import ImipMessage
 from app.module.calendar.imip.ImipMethod import ImipMethod
-from app.module.calendar.serializer.CalendarEventDeserializerIcal import CalendarEventDeserializerIcal
+from app.module.calendar.serializer.CalEventDeserializerIcal import CalEventDeserializerIcal
+from app.module.calendar.serializer.EnvelopeIcal import EnvelopeIcal
 from app.utils import errors as err
 from app.utils.exceptions import RequestException
 
-_deserializer: CalendarEventDeserializerIcal = CalendarEventDeserializerIcal()
+if TYPE_CHECKING:
+    from app.module.calendar.model.CalEvent import CalEvent
+
+_deserializer: CalEventDeserializerIcal = CalEventDeserializerIcal()
 
 
 class ImipParser:
@@ -20,7 +23,7 @@ class ImipParser:
 
     Intended for use by the asynchronous agent when polling incoming mail.
     Uses only stdlib (email, re) for MIME parsing; delegates iCalendar
-    parsing to CalendarEventDeserializerIcal.
+    parsing to CalEventDeserializerIcal.
     """
 
     @staticmethod
@@ -56,6 +59,30 @@ class ImipParser:
         )
 
     @staticmethod
+    def parse_calendar(ical_bytes: bytes, from_email: str = "") -> ImipMessage:
+        """Parse a raw text/calendar payload (no MIME envelope) into an ImipMessage.
+
+        Counterpart of :meth:`parse` for callers that already hold the calendar object itself - e.g.
+        the mail interface, which gets the extracted text/calendar part from an opened mail. The
+        sender is not part of the payload, so it is supplied separately (empty by default).
+
+        :param ical_bytes: Raw iCalendar (VCALENDAR) bytes.
+        :param from_email: Sender address, when known by the caller.
+        :return: The parsed message (method, event, sender, ical_content); to_emails stays empty.
+        :raises RequestException: If the METHOD is missing/unsupported or the iCalendar cannot be read.
+        """
+        ical_content: str = ical_bytes.decode("utf-8", errors="replace")
+        method: ImipMethod = ImipParser._extract_method(ical_content)
+        event: CalEvent = _deserializer.deserialize(ical_content)
+        return ImipMessage(
+            method=method,
+            event=event,
+            from_email=from_email,
+            to_emails=[],
+            ical_content=ical_content,
+        )
+
+    @staticmethod
     def _extract_ical(msg: Message) -> str | None:
         """Walk MIME parts and return the first text/calendar payload as a string."""
         for part in msg.walk():
@@ -78,11 +105,11 @@ class ImipParser:
         :return: The detected method, or None when absent or unsupported.
         """
         text: str = ical_bytes.decode("utf-8", errors="replace")
-        match = re.search(r'^METHOD:([A-Z]+)', text, re.MULTILINE)
-        if not match:
+        method: str | None = EnvelopeIcal.read_method(text)
+        if method is None:
             return None
         try:
-            return ImipMethod(match.group(1))
+            return ImipMethod(method)
         except ValueError:
             return None
 

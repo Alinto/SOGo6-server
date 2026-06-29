@@ -1,5 +1,5 @@
 """
-Unit tests for CalendarEventSerializerDict.
+Unit tests for CalEventSerializerDict.
 Verifies that CalEvent objects are correctly serialized to the SOGo6 REST API schema.
 """
 from datetime import datetime, timezone
@@ -25,15 +25,15 @@ from app.module.calendar.model.enums.ShowAs import ShowAs
 from app.module.calendar.model.enums.ComponentType import ComponentType
 from app.module.calendar.model.CalRecurrenceRule import CalRecurrenceRule
 from app.module.calendar.model.enums.RecurrenceFrequency import RecurrenceFrequency
-from app.module.calendar.serializer.CalendarEventDeserializerDict import CalendarEventDeserializerDict
-from app.module.calendar.serializer.CalendarEventSerializerDict import CalendarEventSerializerDict
+from app.module.calendar.serializer.CalEventDeserializerDict import CalEventDeserializerDict
+from app.module.calendar.serializer.CalEventSerializerDict import CalEventSerializerDict
 
 _UTC = timezone.utc
 
 
 @pytest.fixture
 def serializer():
-    return CalendarEventSerializerDict()
+    return CalEventSerializerDict()
 
 
 @pytest.fixture
@@ -219,7 +219,7 @@ def test_recurrence_rule_serialized():
             count=5,
         ),
     )
-    rule = CalendarEventSerializerDict().serialize(event)["recurrence_rule"]
+    rule = CalEventSerializerDict().serialize(event)["recurrence_rule"]
     assert rule["frequency"] == "weekly"
     assert rule["interval"] == 2
     assert rule["by_day"] == ["MO", "FR"]
@@ -237,7 +237,7 @@ def test_recurrence_exceptions_serialized():
             datetime(2026, 3, 14, 9, 0, 0, tzinfo=_UTC),
         ],
     )
-    exceptions = CalendarEventSerializerDict().serialize(event)["recurrence_exceptions"]
+    exceptions = CalEventSerializerDict().serialize(event)["recurrence_exceptions"]
     assert exceptions == ["2026-03-07T09:00:00.000Z", "2026-03-14T09:00:00.000Z"]
 
 
@@ -248,7 +248,7 @@ def test_recurrence_id_serialized():
         date_end=datetime(2026, 3, 7, 10, 0, 0, tzinfo=_UTC),
         recurrence_id=datetime(2026, 3, 7, 9, 0, 0, tzinfo=_UTC),
     )
-    assert CalendarEventSerializerDict().serialize(event)["recurrence_id"] == "2026-03-07T09:00:00.000Z"
+    assert CalEventSerializerDict().serialize(event)["recurrence_id"] == "2026-03-07T09:00:00.000Z"
 
 
 # ========== dates_with_tz ==========
@@ -335,26 +335,15 @@ def test_conference_data_and_attachment(serializer):
     assert d["attachments"][0]["filename"] == "report.pdf"
 
 
-# ========== Detached occurrences (parent_uid / recurrence_id) ==========
-
-def test_deserializer_parses_parent_uid():
-    data = {
-        "uid": "u@e.com", "title": "T",
-        "date_start": "2026-01-01T00:00:00.000Z",
-        "date_end": "2026-01-01T01:00:00.000Z",
-        "parent_uid": "master@example.com",
-    }
-    assert CalendarEventDeserializerDict().deserialize(data).parent_uid == "master@example.com"
-
+# ========== Detached occurrences (recurrence_id) ==========
 
 def test_occurrence_deserialize_preserves_recurrence_id():
     rid_str = "2026-03-09T09:00:00.000Z"
     data = {
         "uid": "master@example.com", "title": "Modified",
         "date_start": rid_str, "date_end": "2026-03-09T11:00:00.000Z",
-        "recurrence_id": rid_str, "parent_uid": "master@example.com",
+        "recurrence_id": rid_str,
     }
-    restored = CalendarEventDeserializerDict().deserialize(data)
-    assert restored.parent_uid == "master@example.com"
+    restored = CalEventDeserializerDict().deserialize(data)
     assert restored.recurrence_id == datetime(2026, 3, 9, 9, 0, tzinfo=_UTC)
     assert restored.recurrence_rule is None

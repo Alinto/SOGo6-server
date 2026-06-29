@@ -58,9 +58,10 @@ def _make_event(**kwargs):
     return CalEvent(**defaults)
 
 
-def _build_join_row(event_key, method, minutes_before, trigger_at, date_start, date_end, is_recurring):
+def _build_join_row(event_key, method, minutes_before, trigger_at, date_start, date_end, is_recurring,
+                    user_uid="user@example.com"):
     """Build a row tuple matching the _FIND_COLS order from find_pending JOIN."""
-    return (event_key, method, minutes_before, trigger_at, date_start, date_end, is_recurring)
+    return (event_key, method, minutes_before, trigger_at, date_start, date_end, is_recurring, user_uid)
 
 
 # ========== upsert_for_event ==========

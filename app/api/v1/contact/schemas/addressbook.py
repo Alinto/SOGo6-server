@@ -1,0 +1,85 @@
+from __future__ import annotations
+
+from marshmallow import Schema, fields, validate
+
+from app.utils.api.ApiBaseResponse import ApiBaseResponse
+
+
+class AddressBookCreateSchema(Schema):
+    """Request body for creating an address book."""
+
+    name        = fields.String(required=True, validate=validate.Length(min=1, max=255),
+                                metadata={"example": "Personal contacts"})
+    description = fields.String(load_default=None, allow_none=True,
+                                metadata={"example": "My personal address book"})
+
+
+class AddressBookUpdateSchema(Schema):
+    """Request body for updating an address book (all fields optional)."""
+
+    name        = fields.String(validate=validate.Length(min=1, max=255), metadata={"example": "Friends"})
+    description = fields.String(allow_none=True)
+    is_default  = fields.Boolean(metadata={"description": "Mark this book as the user's default address book."})
+
+
+class AddressBookSchema(Schema):
+    """Representation of an address book in API responses."""
+
+    key         = fields.String()
+    name        = fields.String()
+    description = fields.String(allow_none=True)
+    is_default  = fields.Boolean()
+    source_type = fields.String()
+    ctag        = fields.Integer(metadata={"description": "CardDAV change tag, bumped on every contact mutation."})
+
+
+class AddressBookListDataSchema(Schema):
+    """Data payload for the address book list response."""
+
+    addressbooks = fields.List(fields.Nested(AddressBookSchema))
+    total_count  = fields.Integer()
+
+
+class AddressBookListResponseSchema(ApiBaseResponse):
+    """Response schema for a list of address books."""
+
+    data = fields.Nested(AddressBookListDataSchema, allow_none=True)
+
+
+class AddressBookResponseSchema(ApiBaseResponse):
+    """Response schema for a single address book."""
+
+    data = fields.Nested(AddressBookSchema, allow_none=True)
+
+
+class ContactImportQueryArgsSchema(Schema):
+    """Query arguments for the import endpoints."""
+
+    format = fields.String(load_default="json", validate=validate.OneOf(["json", "vcard3", "vcard4", "ldif"]),
+                           metadata={"description": "Source format of the uploaded document (default json)."})
+
+
+class ContactJobDataSchema(Schema):
+    """Payload returned when an import or export is enqueued as an Agent job."""
+
+    job_id = fields.String(required=True, metadata={"description": "Id of the enqueued Agent job. Poll GET /jobs/<job_id> until SUCCESS; import counters are in the job result, export document via GET /jobs/<job_id>/result."})
+
+
+class ContactJobResponseSchema(ApiBaseResponse):
+    """Response schema for the async import/export endpoints (returns a job_id)."""
+
+    data = fields.Nested(ContactJobDataSchema, allow_none=True)
+
+
+class ContactImportUploadSchema(Schema):
+    """Multipart file upload schema for the import endpoint.
+
+    Declares the ``file`` part so Swagger renders an upload widget. The actual binary read happens in
+    the view since Marshmallow does not deserialize the FileStorage object.
+    """
+
+    file = fields.Raw(
+        required=True,
+        metadata={"type": "string", "format": "binary",
+                  "description": "The JSON (.json), vCard (.vcf) or LDIF (.ldif) file to import."},
+    )

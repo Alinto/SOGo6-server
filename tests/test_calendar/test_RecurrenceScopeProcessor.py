@@ -1,13 +1,20 @@
 from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 
+import pytest
+
+from app.module.calendar.model.CalAttendee import CalAttendee
 from app.module.calendar.model.CalCalendar import CalCalendar
 from app.module.calendar.model.CalEvent import CalEvent
+from app.module.calendar.model.CalOrganizer import CalOrganizer
 from app.module.calendar.model.CalRecurrenceRule import CalRecurrenceRule
 from app.module.calendar.model.CalReminder import CalReminder
+from app.module.calendar.model.enums.AttendeeStatus import AttendeeStatus
 from app.module.calendar.model.enums.RecurrenceFrequency import RecurrenceFrequency
 from app.module.calendar.model.enums.ReminderMethod import ReminderMethod
 from app.module.calendar.rrule.RecurrenceScopeProcessor import EventAction, RecurrenceScopeProcessor
 from app.module.calendar.source.CalendarSource import CalendarSource
+from app.utils.exceptions import RequestException
 
 _UTC = timezone.utc
 
@@ -50,6 +57,8 @@ class FakeSource(CalendarSource):
         self.inserted = []
         self.updated = []
         self.split_calls = []
+        self.deleted_uids = []
+        self.deleted_occurrences = []
         self._events_by_uid = {}
 
     def _fetch_events(self, start, end, search=None):
@@ -80,8 +89,63 @@ class FakeSource(CalendarSource):
     def get_master_event_by_uid(self, uid):
         return self._events_by_uid.get(uid)
 
+    def delete_event(self, uid):
+        self.deleted_uids.append(uid)
 
-# ========== process — dispatch ==========
+    def delete_occurrence(self, occurrence):
+        self.deleted_occurrences.append(occurrence)
+
+
+# ========== process_attendee_edit (attendee personal edits) ==========
+
+def _reminder():
+    return CalReminder(method=ReminderMethod.POPUP, minutes_before=15)
+
+
+def test_process_attendee_edit_applies_reminder_to_series():
+    master = _make_event(recurrence_rule=_daily_rule(), organizer=CalOrganizer(email="boss@example.com"))
+    update = _merge_update(master, reminders=[_reminder()])
+    result = RecurrenceScopeProcessor.process_attendee_edit(FakeSource(), master, update)
+    assert result.reminders == update.reminders
+    assert result.title == master.title
+
+
+def test_process_attendee_edit_occurrence_scope_applies_to_series_without_403():
+    """An attendee scoping a reminder to an unmoved occurrence is accepted; it lands on the master."""
+    master = _make_event(date_start=_dt(2026, 6, 1, 9), date_end=_dt(2026, 6, 1, 10),
+                         recurrence_rule=_daily_rule(), organizer=CalOrganizer(email="boss@example.com"))
+    update = _merge_update(master, recurrence_id=_dt(2026, 6, 3, 9),
+                           date_start=_dt(2026, 6, 3, 9), date_end=_dt(2026, 6, 3, 10), reminders=[_reminder()])
+    result = RecurrenceScopeProcessor.process_attendee_edit(FakeSource(), master, update)
+    assert result.reminders == update.reminders
+
+
+def test_process_attendee_edit_on_existing_detached_occurrence():
+    occ = _make_event(recurrence_id=_dt(2026, 6, 3, 9), date_start=_dt(2026, 6, 3, 9),
+                      date_end=_dt(2026, 6, 3, 10), organizer=CalOrganizer(email="boss@example.com"))
+    update = _merge_update(occ, reminders=[_reminder()])
+    result = RecurrenceScopeProcessor.process_attendee_edit(FakeSource(), occ, update)
+    assert result.reminders == update.reminders
+
+
+def test_process_attendee_edit_rejects_content_change():
+    master = _make_event(recurrence_rule=_daily_rule(), organizer=CalOrganizer(email="boss@example.com"))
+    update = _merge_update(master, title="Hacked", reminders=[_reminder()])
+    with pytest.raises(RequestException):
+        RecurrenceScopeProcessor.process_attendee_edit(FakeSource(), master, update)
+
+
+def test_process_attendee_edit_lenient_ignores_content_when_flag_off():
+    """With REJECT_ATTENDEE_CONTENT_CHANGE off, content drift is ignored (no 403), only personal applied."""
+    master = _make_event(recurrence_rule=_daily_rule(), organizer=CalOrganizer(email="boss@example.com"))
+    update = _merge_update(master, title="Hacked", reminders=[_reminder()])
+    with patch("app.module.calendar.rrule.RecurrenceScopeProcessor.REJECT_ATTENDEE_CONTENT_CHANGE", False):
+        result = RecurrenceScopeProcessor.process_attendee_edit(FakeSource(), master, update)
+    assert result.reminders == update.reminders   # personal field applied
+    assert result.title != "Hacked"               # organizer content ignored, not applied
+
+
+# ========== process - dispatch ==========
 
 def test_process_standard_update():
     master = _make_event(key="evt-key", sequence=2)
@@ -125,6 +189,26 @@ def test_process_dispatches_to_split_series():
     assert EventAction.INSERT in actions
 
 
+# ========== process_delete - dispatch ==========
+
+def test_process_delete_whole_series():
+    master = _make_event(uid="master@example.com")
+    source = FakeSource()
+    scope_result = RecurrenceScopeProcessor.process_delete(source, master)
+    assert source.deleted_uids == ["master@example.com"]
+    assert source.deleted_occurrences == []
+    assert scope_result.touched == [(master, EventAction.DELETE)]
+
+
+def test_process_delete_detached_occurrence_spares_master():
+    occ = _make_event(uid="master@example.com", recurrence_id=_dt(2026, 6, 3, 9))
+    source = FakeSource()
+    scope_result = RecurrenceScopeProcessor.process_delete(source, occ)
+    assert source.deleted_occurrences == [occ]
+    assert source.deleted_uids == []  # master untouched
+    assert scope_result.touched[0][1] == EventAction.DELETE
+
+
 # ========== split_occurrence ==========
 
 def test_split_occurrence_creates_detached_row():
@@ -146,6 +230,28 @@ def test_split_occurrence_preserves_master_duration():
     source = FakeSource()
     result = RecurrenceScopeProcessor.split_occurrence(source, master, update)
     assert result.date_end - result.date_start == timedelta(hours=2)
+
+
+def test_split_occurrence_resets_attendees_when_moved():
+    """Moving a single occurrence off its slot resets non-organizer attendee replies."""
+    organizer = CalOrganizer(email="boss@example.com")
+    master = _make_event(recurrence_rule=_daily_rule(), organizer=organizer,
+                         attendees=[CalAttendee(email="bob@example.com", status=AttendeeStatus.ACCEPTED)])
+    update = _merge_update(master, recurrence_id=_dt(2026, 6, 3, 9),
+                           date_start=_dt(2026, 6, 3, 14), date_end=_dt(2026, 6, 3, 15))
+    result = RecurrenceScopeProcessor.split_occurrence(FakeSource(), master, update)
+    assert result.attendees[0].status == AttendeeStatus.NEEDS_ACTION
+
+
+def test_split_occurrence_keeps_attendees_when_not_moved():
+    """Editing an occurrence at its slot (no time move) keeps attendee replies."""
+    organizer = CalOrganizer(email="boss@example.com")
+    master = _make_event(recurrence_rule=_daily_rule(), organizer=organizer,
+                         attendees=[CalAttendee(email="bob@example.com", status=AttendeeStatus.ACCEPTED)])
+    update = _merge_update(master, recurrence_id=_dt(2026, 6, 3, 9),
+                           date_start=_dt(2026, 6, 3, 9), date_end=_dt(2026, 6, 3, 10), title="Override")
+    result = RecurrenceScopeProcessor.split_occurrence(FakeSource(), master, update)
+    assert result.attendees[0].status == AttendeeStatus.ACCEPTED
 
 
 def test_split_occurrence_does_not_modify_master():
@@ -193,6 +299,8 @@ def test_split_series_creates_new_master():
     update = _merge_update(master,
         recurrence_id=_dt(2026, 6, 3, 9),
         recurrence_range="THISANDFUTURE",
+        date_start=_dt(2026, 6, 3, 9),
+        date_end=_dt(2026, 6, 3, 10),
         title="New Series",
     )
     result = RecurrenceScopeProcessor.split_series(source, master, update)
@@ -204,8 +312,77 @@ def test_split_series_creates_new_master():
     assert result.key is not None
 
 
+def test_split_series_falls_back_to_slot_when_date_omitted():
+    """When the client omits date_start (merged value equals the master's), anchor at the split slot."""
+    organizer = CalOrganizer(email="boss@example.com")
+    master = _make_event(recurrence_rule=_daily_rule(), organizer=organizer,
+                         attendees=[CalAttendee(email="bob@example.com", status=AttendeeStatus.ACCEPTED)])
+    source = FakeSource()
+    source._events_by_uid[master.uid] = master
+    # No date_start/date_end -> stays at the master's values (simulates a minimal client).
+    update = _merge_update(master,
+        recurrence_id=_dt(2026, 6, 3, 9),
+        recurrence_range="THISANDFUTURE",
+        title="X",
+    )
+    result = RecurrenceScopeProcessor.split_series(source, master, update)
+    assert result.date_start == _dt(2026, 6, 3, 9)          # anchored at the slot, not the master start
+    assert result.attendees[0].status == AttendeeStatus.ACCEPTED  # no move -> no reset
+
+
+def test_split_series_honors_move():
+    """The new series starts at the moved time the client provides, not the original slot."""
+    master = _make_event(recurrence_rule=_daily_rule())
+    source = FakeSource()
+    source._events_by_uid[master.uid] = master
+    update = _merge_update(master,
+        recurrence_id=_dt(2026, 6, 3, 9),
+        recurrence_range="THISANDFUTURE",
+        date_start=_dt(2026, 6, 3, 14),
+        date_end=_dt(2026, 6, 3, 15),
+        title="Moved Series",
+    )
+    result = RecurrenceScopeProcessor.split_series(source, master, update)
+    assert result.date_start == _dt(2026, 6, 3, 14)
+
+
+def test_split_series_resets_attendees_on_move():
+    """Moving this-and-following resets non-organizer attendees on the new series."""
+    organizer = CalOrganizer(email="boss@example.com")
+    master = _make_event(recurrence_rule=_daily_rule(), organizer=organizer,
+                         attendees=[CalAttendee(email="bob@example.com", status=AttendeeStatus.ACCEPTED)])
+    source = FakeSource()
+    source._events_by_uid[master.uid] = master
+    update = _merge_update(master,
+        recurrence_id=_dt(2026, 6, 3, 9),
+        recurrence_range="THISANDFUTURE",
+        date_start=_dt(2026, 6, 3, 14),
+        date_end=_dt(2026, 6, 3, 15),
+    )
+    result = RecurrenceScopeProcessor.split_series(source, master, update)
+    assert result.attendees[0].status == AttendeeStatus.NEEDS_ACTION
+
+
+def test_split_series_keeps_attendees_on_pure_content_change():
+    """A title-only this-and-following split (no reschedule) keeps attendee replies."""
+    organizer = CalOrganizer(email="boss@example.com")
+    master = _make_event(recurrence_rule=_daily_rule(), organizer=organizer,
+                         attendees=[CalAttendee(email="bob@example.com", status=AttendeeStatus.ACCEPTED)])
+    source = FakeSource()
+    source._events_by_uid[master.uid] = master
+    update = _merge_update(master,
+        recurrence_id=_dt(2026, 6, 3, 9),
+        recurrence_range="THISANDFUTURE",
+        date_start=_dt(2026, 6, 3, 9),
+        date_end=_dt(2026, 6, 3, 10),
+        title="Renamed Series",
+    )
+    result = RecurrenceScopeProcessor.split_series(source, master, update)
+    assert result.attendees[0].status == AttendeeStatus.ACCEPTED
+
+
 def test_split_series_truncate_only():
-    """No content changes via process() → no new master, returns truncated original."""
+    """No content changes via process() -> no new master, returns truncated original."""
     master = _make_event(key="evt-key", uid="m@e.com", recurrence_rule=_daily_rule())
     source = FakeSource()
     source._events_by_uid[master.uid] = master
@@ -241,20 +418,8 @@ def test_split_series_converts_count_to_until():
     assert result.recurrence_rule.until is not None
 
 
-def test_split_series_new_master_has_no_parent_uid():
-    master = _make_event(recurrence_rule=_daily_rule(), parent_uid="should-be-cleared")
-    source = FakeSource()
-    source._events_by_uid[master.uid] = master
-    update = _merge_update(master,
-        recurrence_id=_dt(2026, 6, 3, 9),
-        recurrence_range="THISANDFUTURE",
-        title="X",
-    )
-    result = RecurrenceScopeProcessor.split_series(source, master, update)
-    assert result.parent_uid is None
-
-
-def test_split_series_clears_reminders_on_new_master():
+def test_split_series_keeps_reminders_on_new_master():
+    """The organizer's reminders carry over to the new sub-series (they are not cleared)."""
     reminder = CalReminder(method=ReminderMethod.POPUP, minutes_before=15)
     master = _make_event(recurrence_rule=_daily_rule(), reminders=[reminder])
     source = FakeSource()
@@ -265,7 +430,7 @@ def test_split_series_clears_reminders_on_new_master():
         title="X",
     )
     result = RecurrenceScopeProcessor.split_series(source, master, update)
-    assert result.reminders == []
+    assert result.reminders == [reminder]
 
 
 # ========== _normalize_all_day ==========

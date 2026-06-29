@@ -109,6 +109,16 @@ class FakeModuleCalendar:
         self.create_personal_calendar_timezone = tz
 
 
+class FakeModuleContact:
+    """Fake ModuleContact for testing."""
+    def __init__(self, *args, **kwargs):
+        self.create_personal_addressbook_args = None
+
+    def create_personal_addressbook(self, user_uid, name="Personal contacts"):
+        """Create personal address book."""
+        self.create_personal_addressbook_args = user_uid
+
+
 def patch_modules_on_interface(monkeypatch, fake_module_auth, fake_module_user_profile, fake_module_user_source_class):
     """Patch modules in InterfaceAuthUser."""
     monkeypatch.setattr(
@@ -126,6 +136,10 @@ def patch_modules_on_interface(monkeypatch, fake_module_auth, fake_module_user_p
     monkeypatch.setattr(
         "app.interface.auth.InterfaceAuthUser.ModuleCalendar",
         FakeModuleCalendar
+    )
+    monkeypatch.setattr(
+        "app.interface.auth.InterfaceAuthUser.ModuleContact",
+        FakeModuleContact
     )
 
 
@@ -262,6 +276,8 @@ def test_plain_login_create_user_profile(monkeypatch):
     assert interface._module_calendar.create_personal_calendar_args == "newuser@example.com"  # pylint: disable=protected-access
     # The user's preferred timezone is forwarded to the default calendar.
     assert interface._module_calendar.create_personal_calendar_timezone == "Europe/Paris"  # pylint: disable=protected-access
+    # The personal address book is provisioned at first login alongside the calendar.
+    assert interface._module_contact.create_personal_addressbook_args == "newuser@example.com"  # pylint: disable=protected-access
 
 
 def test_plain_login_profile_creation_request_exception(monkeypatch):

@@ -31,6 +31,7 @@ dependencies = [
     "yarl",
     "cryptography",
     "mysql-connector-python (==9.5.0)",
+    "celery",
     "icalendar",
 ]
 
@@ -39,7 +40,6 @@ dependencies = [
 version = "6.0.0"  # base version
 packages = [
     { include = "app" },
-    { include = "agent" },
 ]
 exclude = ["tests"]
 
@@ -58,6 +58,10 @@ poetry-plugin-export = ">=1.8"
 [tool.poetry.scripts]
 # poetry run start
 start = "app.run:main"
+# poetry run agent
+agent = "app.agent.run:main"
+# poetry run agent-beat
+agent-beat = "app.agent.run:beat"
 
 
 [tool.pytest.ini_options]

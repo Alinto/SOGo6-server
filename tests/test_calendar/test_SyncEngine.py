@@ -99,7 +99,7 @@ def test_sync_recurrence_id_naive_vs_aware():
     local_meta = CalEventSyncMeta(db_id=1, key="k1", uid="recur@test",
                                   recurrence_id=naive_rid, sequence=0, updated_at=None)
     # After to_utc normalization in find_sync_metadata, both should match
-    from app.utils.calendar.DateTimeUtils import to_utc
+    from app.utils.datetime.DateTimeUtils import to_utc
     normalized = to_utc(naive_rid)
     assert normalized == aware_rid
 

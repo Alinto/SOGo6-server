@@ -1,0 +1,163 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from datetime import date, datetime
+from typing import ClassVar
+
+from app.module.contact.model.CardAddress import CardAddress
+from app.module.contact.model.CardEmail import CardEmail
+from app.module.contact.model.CardImpp import CardImpp
+from app.module.contact.model.CardPhone import CardPhone
+from app.module.contact.model.CardUrl import CardUrl
+from app.module.contact.ContactConst import DEFAULT_DISPLAY_NAME, DEFAULT_VCARD_VERSION
+from app.module.contact.model.enums.CardKind import CardKind
+from app.module.contact.model.enums.ContactImportFormat import ContactImportFormat
+from app.utils import errors as err
+from app.utils.exceptions import BugException, RequestException
+from app.utils.maths.sogo_hash import generate_uuid
+
+
+@dataclass
+class CardContact:  # pylint: disable=too-many-instance-attributes
+    """Format-agnostic representation of a contact (vCard, RFC 6350).
+
+    Once persisted a contact belongs to a single address book (addressbook_key), but the model
+    itself is autonomous - it carries no address book by default, so the same object can also
+    describe a directory entry that lives outside the user's books. Relational filter columns
+    (last_name, first_name, organization, display_name, kind, uid) are derived from these fields
+    by the repository; everything else is stored in the contact_data JSON blob.
+
+    Birthday/anniversary are real date objects; a year-less date (RFC 6350 4.3.1) is kept apart in the
+    birthday_yearless / anniversary_yearless string. Text forms ("circa 1800") are dropped.
+    """
+    # vCard UID (RFC 6350 §6.7.6) - stable semantic identifier
+    uid: str | None = None
+    # Opaque public identifier exposed in the API
+    key: str | None = None
+    db_id: int | None = None
+    # UUID key of the parent address book - nullable: set by the source at persistence time
+    addressbook_key: str | None = None
+    # vCard VERSION (RFC 6350 §6.7.9)
+    version: str = DEFAULT_VCARD_VERSION
+    # vCard KIND (RFC 6350 §6.1.4)
+    kind: CardKind = CardKind.INDIVIDUAL
+
+    # FN (RFC 6350 §6.2.1) - formatted display name; required by vCard, filled by apply_defaults
+    display_name: str | None = None
+    # N (RFC 6350 §6.2.2) - structured name components
+    first_name: str | None = None
+    last_name: str | None = None
+    middle_name: str | None = None
+    prefix: str | None = None
+    suffix: str | None = None
+    # NICKNAME (RFC 6350 §6.2.3)
+    nickname: str | None = None
+
+    # ORG (RFC 6350 §6.6.4) - organization name and organizational unit
+    organization: str | None = None
+    department: str | None = None
+    # TITLE (RFC 6350 §6.6.1) - job title
+    job_title: str | None = None
+    # ROLE (RFC 6350 §6.6.2)
+    role: str | None = None
+
+    emails: list[CardEmail] = field(default_factory=list)
+    phones: list[CardPhone] = field(default_factory=list)
+    addresses: list[CardAddress] = field(default_factory=list)
+    urls: list[CardUrl] = field(default_factory=list)
+    impp: list[CardImpp] = field(default_factory=list)
+    # PHOTO (RFC 6350 §6.2.4) - external URIs or inline data URIs (data:<mime>;base64,...).
+    # Inline payloads are offloaded to file storage by the module and surface as data URIs again.
+    photos: list[str] = field(default_factory=list)
+    # CATEGORIES (RFC 6350 §6.7.1)
+    categories: list[str] = field(default_factory=list)
+
+    # BDAY / ANNIVERSARY (RFC 6350 §6.2.5 / §6.2.6). A full date is a real date; a year-less one
+    # (RFC 6350 §4.3.1, the iOS case) cannot be a date.date, so it lives in the _yearless string
+    # ("--MM-DD"). At most one of the pair is set; the API exposes a single merged value.
+    birthday: date | None = None
+    birthday_yearless: str | None = None
+    anniversary: date | None = None
+    anniversary_yearless: str | None = None
+    # GEO (RFC 6350 §6.5.2) - "geo:lat,lon"
+    geo: str | None = None
+    # NOTE (RFC 6350 §6.7.2)
+    note: str | None = None
+    # KEY (RFC 6350 §6.8.1) - public key, stored as a URI
+    public_key: str | None = None
+    # SOUND (RFC 6350 §6.7.5) - URI
+    sound: str | None = None
+    # TZ (RFC 6350 §6.5.1)
+    timezone: str | None = None
+
+    # Catch-all for single-valued, parameter-less X-* and unmapped properties. NOT lossless: a flat
+    # name->value map cannot keep repeated properties, property parameters (TYPE, PREF, GROUP) nor
+    # the Apple "item1.X-ABLabel" grouping; those are dropped if present.
+    extra_properties: dict[str, str] = field(default_factory=dict)
+    # REV (RFC 6350 §6.7.4) - revision timestamp
+    rev: datetime | None = None
+    # Internal - format the contact was imported from; tells the dialect of extra_properties.
+    # Server-set (stamped by the importing deserializer), never accepted from the API body.
+    import_format: ContactImportFormat = ContactImportFormat.UNDEFINED
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+    # Transient - parent address book display name, stamped at fetch time for the response (e.g.
+    # recipient autocompletion provenance). Not persisted, not a mutable field.
+    addressbook_name: str | None = None
+
+    _MUTABLE_FIELDS: ClassVar[frozenset[str]] = frozenset({
+        "display_name", "first_name", "last_name", "middle_name", "prefix", "suffix", "nickname",
+        "kind", "organization", "department", "job_title", "role",
+        "emails", "phones", "addresses", "urls", "impp", "photos", "categories",
+        "birthday", "anniversary", "geo", "note", "public_key", "sound", "timezone", "extra_properties",
+    })
+
+    @staticmethod
+    def is_mutable_field(field_name: str) -> bool:
+        """Return True if the field accepts partial updates."""
+        return field_name in CardContact._MUTABLE_FIELDS
+
+    @property
+    def require_uid(self) -> str:
+        """vCard UID, guaranteed once apply_defaults has run / the contact has been loaded."""
+        if self.uid is None:
+            raise BugException("CardContact.uid accessed before it was generated")
+        return self.uid
+
+    @property
+    def require_key(self) -> str:
+        """Opaque public key, guaranteed once the contact has been persisted/loaded."""
+        if self.key is None:
+            raise BugException("CardContact.key accessed before the contact was persisted")
+        return self.key
+
+    @property
+    def require_addressbook_key(self) -> str:
+        """Parent address book key, guaranteed once the contact has been attached to a book."""
+        if self.addressbook_key is None:
+            raise BugException("CardContact.addressbook_key accessed before the contact was attached to a book")
+        return self.addressbook_key
+
+    def apply_defaults(self) -> None:
+        """Fill in creation-time defaults: generate a UID and derive a display name when missing."""
+        if not self.uid:
+            self.uid = generate_uuid()
+        if not self.display_name:
+            self.display_name = self._derive_display_name()
+
+    def _derive_display_name(self) -> str:
+        """Build a formatted name (FN) from the structured name components, organization or nickname."""
+        parts: list[str] = [p for p in (self.first_name, self.middle_name, self.last_name) if p]
+        if parts:
+            return " ".join(parts)
+        return self.organization or self.nickname or DEFAULT_DISPLAY_NAME
+
+    def validate(self) -> None:
+        """Run business validations. Raises RequestException on failure.
+
+        vCard requires a non-empty FN; apply_defaults guarantees one, so an empty display_name
+        here means the caller bypassed it. (Inline files are validated by the file layer, not here.)
+        """
+        if not self.display_name:
+            raise RequestException(error=err.ERROR_CONTACT_DISPLAY_NAME_REQUIRED)

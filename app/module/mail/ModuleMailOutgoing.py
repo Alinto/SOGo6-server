@@ -200,11 +200,25 @@ class ModuleMailOutgoing:
                     error=err.ERROR_MISSING_ACTION_DATA,
                 ) from exc
 
+        self.send_raw_message(account_id, message)
+        return message
+
+    def send_raw_message(self, account_id: str, message: EmailMessage) -> None:
+        """Send an already-built MIME message through the account's outgoing client.
+
+        This is the low-level send shared by every outgoing path: it opens the account's client and
+        hands off the message as-is. :meth:`send_mail` builds an ``EmailMessage`` from a field dict
+        and delegates here. Callers that must own the full MIME themselves use it directly: ``send_mail``
+        can only emit text/plain and text/html bodies and cannot carry an iCalendar body whose
+        Content-Type holds the iTIP method (``text/calendar; method=REQUEST``); iMIP invitations
+        (RFC 6047) require exactly that part, so the calendar layer assembles the message upstream and
+        hands it here verbatim. The mail module stays generic and never learns about iTIP/VEVENT.
+
+        :param account_id: Account identifier (DEFAULT_IDENTITY_KEY_VALUE or external id).
+        :param message: The fully built message to send, as-is.
+        """
         client = self._open_client_for(account_id)
         logger_mail_server.info(
-            "Sending mail from account '%s' subject='%s'",
-            account_id,
-            mail_data["subject"],
+            "Sending message from account '%s' subject='%s'", account_id, message["Subject"],
         )
         client.send_mail(message)
-        return message

@@ -92,6 +92,15 @@ def _build_module(sources: dict):
     sources_mock.get_all.return_value = list(sources.values())
     sources_mock.get_default.return_value = None
     sources_mock.find_by_uid.return_value = None
+
+    def _require_event(uid, event_key):
+        for s in sources.values():
+            ev = s.get_event(event_key)
+            if ev is not None:
+                return s, ev
+        raise RequestException(error=err.ERROR_CALENDAR_EVENT_NOT_FOUND)
+
+    sources_mock.require_event.side_effect = _require_event
     module._sources = sources_mock
     module._imip = ImipProcessor(sources_mock)
     module._db = MagicMock()

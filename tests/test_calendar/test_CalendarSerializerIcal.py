@@ -1,4 +1,4 @@
-"""Unit tests for CalendarSerializerIcal — the VCALENDAR wrapping and calendar-level header."""
+"""Unit tests for CalCalendarSerializerIcal - the VCALENDAR wrapping and calendar-level header."""
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -6,16 +6,16 @@ import pytest
 from app.module.calendar.model.CalCalendar import CalCalendar
 from app.module.calendar.model.CalEvent import CalEvent
 from app.module.calendar.model.enums.ComponentType import ComponentType
-from app.module.calendar.serializer.CalendarEventSerializerIcal import CalendarEventSerializerIcal
-from app.module.calendar.serializer.CalendarEventsSerializerIcal import CalendarEventsSerializerIcal
-from app.module.calendar.serializer.CalendarSerializerIcal import CalendarSerializerIcal
+from app.module.calendar.serializer.CalEventSerializerIcal import CalEventSerializerIcal
+from app.module.calendar.serializer.CalEventsSerializerIcal import CalEventsSerializerIcal
+from app.module.calendar.serializer.CalCalendarSerializerIcal import CalCalendarSerializerIcal
 
 _UTC = timezone.utc
 
 
 def _serializer(refresh_interval=None):
-    return CalendarSerializerIcal(
-        CalendarEventsSerializerIcal(CalendarEventSerializerIcal()), refresh_interval=refresh_interval,
+    return CalCalendarSerializerIcal(
+        CalEventsSerializerIcal(CalEventSerializerIcal()), refresh_interval=refresh_interval,
     )
 
 

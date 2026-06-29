@@ -215,9 +215,7 @@ Key queries:
 # is_deleted: soft delete flag — never DELETE FROM sogo_events; deleted events return HTTP 404 in CalDAV sync reports (RFC 4791)
 # sequence: RFC 5545 SEQUENCE — incremented by the organizer on each modification; attendees use it to detect whether a received iMIP message supersedes their current copy
 # search_vector: aggregation of title + description + location maintained by the service layer; a single full-text column, stored as tsvector (GIN index) on PostgreSQL and as TEXT (FULLTEXT index) on MariaDB
-# cal_event: full serialized RFC 5545 component as JSON — contains all properties not needed for SQL filtering: title,
-#   description, location, url, timezone_start, timezone_end, all_day, status, visibility, color, priority, dtstamp, organizer,
-#   attendees, reminders, conference_data, attachments, recurrence_range (THISANDFUTURE), percent_complete (VTODO), completed_at (VTODO)
+# cal_event: full serialized RFC 5545 component as JSON — contains all properties not needed for SQL filtering: title, description, location, url, timezone_start, timezone_end, all_day, status, visibility, color, priority, dtstamp, organizer, attendees, reminders, conference_data, attachments, recurrence_range (THISANDFUTURE), percent_complete (VTODO), completed_at (VTODO)
 # created_at / updated_at: UTC timestamps; updated_at serves as RFC 5545 LAST-MODIFIED when serializing to iCalendar
 COL_EVT_KEY               = Column(name="key",                  data_type="str",      is_unique=True,               extra_args={"max_len": 64})
 COL_EVT_CALENDAR_KEY      = Column(name="calendar_key",         data_type="str",      extra_args={"max_len": 64})
@@ -295,6 +293,221 @@ IDX_REM_EVENT_KEY = Index(name="idx_rem_event_key", columns=(COL_REM_EVENT_KEY.n
 TABLE_REMINDER = Table(name=process_config.SOGO_P_TABLE_REMINDERS, columns=ALL_REM_COL, primary_keys=(COL_ID.name,),
                        indexes=[IDX_REM_TRIGGER, IDX_REM_EVENT_KEY])
 
+####################################
+# Table sogo6_contacts_addressbooks #
+####################################
+"""
+Stores personal and external address books for each user.
+All queries use WHERE user_uid = <uid>.
+The address book is the unit of sharing: contacts belong to exactly one book.
+External CardDAV books are differentiated by source_type; their sync metadata lives in sync_config JSON.
+"""
+# key: opaque token exposed in the API instead of id to prevent row enumeration
+# user_uid: owner of this address book - FK to sogo_user_profiles.uid - present in every WHERE clause
+# is_default: marks the user's primary address book; only one per user, enforced by the service layer
+# source_type: discriminates the backend - 'local' (DB, full CRUD) or 'carddav' (read-write CardDAV)
+# name: display name shown in the UI
+# description: optional free-text description, nullable
+# ctag: collection tag bumped by the service layer on every contact mutation - CardDAV change detection (RFC 6352)
+# sync_config: JSON blob grouping external CardDAV sync metadata - NULL for source_type='local'
+# created_at / updated_at: UTC timestamps stored as DATETIME
+COL_AB_KEY                = Column(name="key",            data_type="str",      is_unique=True,                    extra_args={"max_len": 64})
+COL_AB_USER_UID           = Column(name="user_uid",       data_type="str",                                         extra_args={"max_len": 512})
+COL_AB_IS_DEFAULT         = Column(name="is_default",     data_type="bool")
+COL_AB_SOURCE_TYPE        = Column(name="source_type",    data_type="str",                                         extra_args={"max_len": 8})
+COL_AB_NAME               = Column(name="name",           data_type="str",                                         extra_args={"max_len": 255})
+COL_AB_DESCRIPTION        = Column(name="description",    data_type="text",     is_nullable=True)
+COL_AB_CTAG               = Column(name="ctag",           data_type="int")
+COL_AB_SYNC_CONFIG        = Column(name="sync_config",    data_type="dict",     is_nullable=True)
+COL_AB_CREATED_AT         = Column(name="created_at",     data_type="datetime")
+COL_AB_UPDATED_AT         = Column(name="updated_at",     data_type="datetime")
+
+ALL_AB_COL = [COL_ID,
+              COL_AB_KEY,
+              COL_AB_USER_UID,
+              COL_AB_IS_DEFAULT,
+              COL_AB_SOURCE_TYPE,
+              COL_AB_NAME,
+              COL_AB_DESCRIPTION,
+              COL_AB_CTAG,
+              COL_AB_SYNC_CONFIG,
+              COL_AB_CREATED_AT,
+              COL_AB_UPDATED_AT]
+
+IDX_AB_USER_UID = Index(name="idx_ab_user_uid", columns=(COL_AB_USER_UID.name,))
+
+TABLE_ADDRESSBOOK = Table(name=process_config.SOGO_P_TABLE_ADDRESSBOOKS, columns=ALL_AB_COL,
+                          primary_keys=(COL_ID.name, COL_AB_KEY.name), indexes=[IDX_AB_USER_UID])
+
+###############################
+# Table sogo6_contacts_contacts #
+###############################
+"""
+Stores all contacts (vCard, RFC 6350) of an address book.
+Pattern: relational columns only for SQL filtering/sorting; the full vCard fiche is serialized
+in the contact_data JSON blob (names, emails, phones, addresses, etc.).
+
+Key queries:
+  SELECT ... FROM sogo6_contacts_contacts WHERE addressbook_key = ? AND is_deleted = FALSE ORDER BY last_name, first_name
+  SELECT ... WHERE addressbook_key = ? AND is_deleted = FALSE AND MATCH(search_vector) ...  (autocompletion / search)
+"""
+# key: opaque token exposed in the API instead of id
+# addressbook_key: FK to sogo6_contacts_addressbooks.key - present in every WHERE clause
+# uid: vCard UID - expected unique per (addressbook_key, uid), but NOT enforced at the DB level yet
+#   (the REST API generates the uid itself; a real unique constraint is needed once CardDAV clients
+#   own the uid - RFC 6352)
+# kind: vCard KIND - 'individual', 'org', 'group'
+# last_name / first_name / organization: relational copies of the name parts, for ORDER BY and filtering
+# display_name: vCard FN - the formatted name shown in listings
+# is_deleted: soft delete flag - never DELETE FROM (required for CardDAV sync reports, RFC 6352)
+# search_vector: aggregation of the textual fields maintained by the service layer; tsvector (GIN) on
+#   PostgreSQL, TEXT (FULLTEXT) on MariaDB
+# contact_data: full vCard fiche as JSON - everything not promoted to a relational column
+# created_at / updated_at: UTC timestamps
+COL_CT_KEY                = Column(name="key",            data_type="str",      is_unique=True,                    extra_args={"max_len": 64})
+COL_CT_ADDRESSBOOK_KEY    = Column(name="addressbook_key", data_type="str",      is_nullable=True,                  extra_args={"max_len": 64})
+COL_CT_UID                = Column(name="uid",            data_type="str",                                         extra_args={"max_len": 512})
+COL_CT_KIND               = Column(name="kind",           data_type="str",                                         extra_args={"max_len": 12})
+COL_CT_LAST_NAME          = Column(name="last_name",      data_type="str",      is_nullable=True,                  extra_args={"max_len": 255})
+COL_CT_FIRST_NAME         = Column(name="first_name",     data_type="str",      is_nullable=True,                  extra_args={"max_len": 255})
+COL_CT_ORGANIZATION       = Column(name="organization",   data_type="str",      is_nullable=True,                  extra_args={"max_len": 255})
+COL_CT_DISPLAY_NAME       = Column(name="display_name",   data_type="str",                                         extra_args={"max_len": 255})
+COL_CT_IS_DELETED         = Column(name="is_deleted",     data_type="bool")
+COL_CT_SEARCH_VECTOR      = Column(name="search_vector",  data_type="tsvector")
+COL_CT_CONTACT_DATA       = Column(name="contact_data",   data_type="dict")
+COL_CT_CREATED_AT         = Column(name="created_at",     data_type="datetime")
+COL_CT_UPDATED_AT         = Column(name="updated_at",     data_type="datetime")
+
+ALL_CT_COL = [COL_ID,
+              COL_CT_KEY,
+              COL_CT_ADDRESSBOOK_KEY,
+              COL_CT_UID,
+              COL_CT_KIND,
+              COL_CT_LAST_NAME,
+              COL_CT_FIRST_NAME,
+              COL_CT_ORGANIZATION,
+              COL_CT_DISPLAY_NAME,
+              COL_CT_IS_DELETED,
+              COL_CT_SEARCH_VECTOR,
+              COL_CT_CONTACT_DATA,
+              COL_CT_CREATED_AT,
+              COL_CT_UPDATED_AT]
+
+IDX_CT_ADDRESSBOOK_KEY = Index(name="idx_ct_addressbook_key", columns=(COL_CT_ADDRESSBOOK_KEY.name,))
+IDX_CT_UID = Index(name="idx_ct_uid", columns=(COL_CT_UID.name,))
+IDX_CT_SORT = Index(name="idx_ct_sort", columns=(COL_CT_ADDRESSBOOK_KEY.name, COL_CT_LAST_NAME.name, COL_CT_FIRST_NAME.name))
+# Dedicated full-text structure: GIN on the tsvector column (PostgreSQL) / FULLTEXT on the TEXT column (MariaDB).
+IDX_CT_SEARCH = Index(name="idx_ct_search_vector", columns=(COL_CT_SEARCH_VECTOR.name,), fulltext=True)
+
+TABLE_CONTACT = Table(name=process_config.SOGO_P_TABLE_CONTACTS, columns=ALL_CT_COL,
+                      primary_keys=(COL_ID.name, COL_CT_KEY.name),
+                      indexes=[IDX_CT_ADDRESSBOOK_KEY, IDX_CT_UID, IDX_CT_SORT, IDX_CT_SEARCH])
+
+#############################
+# Table sogo6_contacts_lists #
+#############################
+"""
+Stores distribution lists (vCard KIND:group, RFC 6350 6.1.4). A list belongs to one address book,
+like a contact, and is the object members are attached to. Members themselves live in the join table
+sogo6_contacts_list_members and are plain references to contacts (modify-propagates).
+
+Key queries:
+  SELECT ... FROM sogo6_contacts_lists WHERE addressbook_key = ? AND is_deleted = FALSE ORDER BY name
+"""
+# key: opaque token exposed in the API instead of id, like contacts and address books
+# addressbook_key: key of the owning address book - nullable so the row survives the book's deletion
+# uid: vCard UID - the stable identity carried in the .vcf and matched across CardDAV sync (RFC 6352);
+#   dormant while the API is REST only, used by the KIND:group serializer
+# name: display name of the list
+# description: optional free-text description, nullable
+# is_deleted: soft delete flag - never DELETE FROM (required for CardDAV sync reports)
+# created_at / updated_at: UTC timestamps
+COL_LST_KEY               = Column(name="key",            data_type="str",      is_unique=True,                    extra_args={"max_len": 64})
+COL_LST_ADDRESSBOOK_KEY   = Column(name="addressbook_key", data_type="str",      is_nullable=True,                  extra_args={"max_len": 64})
+COL_LST_UID               = Column(name="uid",            data_type="str",                                         extra_args={"max_len": 512})
+COL_LST_NAME              = Column(name="name",           data_type="str",                                         extra_args={"max_len": 255})
+COL_LST_DESCRIPTION       = Column(name="description",    data_type="text",     is_nullable=True)
+COL_LST_IS_DELETED        = Column(name="is_deleted",     data_type="bool")
+COL_LST_CREATED_AT        = Column(name="created_at",     data_type="datetime")
+COL_LST_UPDATED_AT        = Column(name="updated_at",     data_type="datetime")
+
+ALL_LST_COL = [COL_ID,
+               COL_LST_KEY,
+               COL_LST_ADDRESSBOOK_KEY,
+               COL_LST_UID,
+               COL_LST_NAME,
+               COL_LST_DESCRIPTION,
+               COL_LST_IS_DELETED,
+               COL_LST_CREATED_AT,
+               COL_LST_UPDATED_AT]
+
+IDX_LST_ADDRESSBOOK_KEY = Index(name="idx_lst_addressbook_key", columns=(COL_LST_ADDRESSBOOK_KEY.name,))
+IDX_LST_UID = Index(name="idx_lst_uid", columns=(COL_LST_UID.name,))
+
+TABLE_CONTACT_LIST = Table(name=process_config.SOGO_P_TABLE_CONTACT_LISTS, columns=ALL_LST_COL,
+                           primary_keys=(COL_ID.name, COL_LST_KEY.name),
+                           indexes=[IDX_LST_ADDRESSBOOK_KEY, IDX_LST_UID])
+
+####################################
+# Table sogo6_contacts_list_members #
+####################################
+"""
+Join table between a distribution list and its member contacts (N:M). A member is a reference to a
+contact, never an ad-hoc email, so editing the contact propagates to every list it belongs to.
+Both ends are referenced by their opaque key, consistent with the rest of the schema (contacts
+reference their book by addressbook_key, events reference their calendar by key) - never by the
+internal id. A member must be a contact of the list's own address book (enforced by the service
+layer); the join carries no book column.
+
+Key queries:
+  SELECT contact_key FROM sogo6_contacts_list_members WHERE list_key = ?            (expand a list)
+  SELECT list_key    FROM sogo6_contacts_list_members WHERE contact_key = ?         (lists of a contact)
+"""
+# list_key: key of the owning list (sogo6_contacts_lists.key)
+# contact_key: key of the member contact (sogo6_contacts_contacts.key)
+COL_LM_LIST_KEY           = Column(name="list_key",      data_type="str",                                         extra_args={"max_len": 64})
+COL_LM_CONTACT_KEY        = Column(name="contact_key",   data_type="str",                                         extra_args={"max_len": 64})
+
+ALL_LM_COL = [COL_LM_LIST_KEY,
+              COL_LM_CONTACT_KEY]
+
+IDX_LM_CONTACT_KEY = Index(name="idx_lm_contact_key", columns=(COL_LM_CONTACT_KEY.name,))
+
+TABLE_CONTACT_LIST_MEMBER = Table(name=process_config.SOGO_P_TABLE_CONTACT_LIST_MEMBERS, columns=ALL_LM_COL,
+                                  primary_keys=(COL_LM_LIST_KEY.name, COL_LM_CONTACT_KEY.name),
+                                  indexes=[IDX_LM_CONTACT_KEY])
+
+###########################
+# Table sogo6_file_storage #
+###########################
+"""
+Generic binary blob store keyed by an opaque key. Decouples large binary payloads (e.g. contact
+photos) from the rows that reference them, so a listing never loads the bytes. The referencing row
+keeps only the key; the bytes and their MIME type are fetched on demand.
+"""
+# key: opaque token referenced by the owning row (e.g. a contact photo entry)
+# data: the raw bytes (bytea / LONGBLOB)
+# content_type: the MIME type, needed to rebuild a data: URI on read
+# content_hash: sha256 hex of the bytes, to compare content without loading the blob
+# created_at / updated_at: UTC timestamps
+COL_FS_KEY                = Column(name="key",          data_type="str",   is_unique=True,  extra_args={"max_len": 64})
+COL_FS_SOURCE             = Column(name="source",       data_type="str",                    extra_args={"max_len": 32})
+COL_FS_DATA               = Column(name="data",         data_type="bytes")
+COL_FS_CONTENT_TYPE       = Column(name="content_type", data_type="str",                    extra_args={"max_len": 128})
+COL_FS_CONTENT_HASH       = Column(name="content_hash", data_type="str",                    extra_args={"max_len": 64})
+COL_FS_CREATED_AT         = Column(name="created_at",   data_type="datetime")
+COL_FS_UPDATED_AT         = Column(name="updated_at",   data_type="datetime")
+
+ALL_FS_COL = [COL_FS_KEY,
+              COL_FS_SOURCE,
+              COL_FS_DATA,
+              COL_FS_CONTENT_TYPE,
+              COL_FS_CONTENT_HASH,
+              COL_FS_CREATED_AT,
+              COL_FS_UPDATED_AT]
+
+TABLE_FILE_STORAGE = Table(name=process_config.SOGO_P_TABLE_FILE_STORAGE, columns=ALL_FS_COL, primary_keys=(COL_FS_KEY.name,))
+
 ##############################
 # Table tmp_draft      #
 ##############################
@@ -339,4 +552,9 @@ ALL_TABLES = [TABLE_SETTINGS,
               TABLE_CALENDAR,
               TABLE_EVENT,
               TABLE_REMINDER,
+              TABLE_ADDRESSBOOK,
+              TABLE_CONTACT,
+              TABLE_CONTACT_LIST,
+              TABLE_CONTACT_LIST_MEMBER,
+              TABLE_FILE_STORAGE,
               TABLE_DRAFT_STATE]

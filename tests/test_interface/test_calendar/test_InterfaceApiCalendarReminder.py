@@ -1,4 +1,4 @@
-"""Unit tests for InterfaceApiCalendarCalendar — get_reminders method."""
+"""Unit tests for InterfaceApiCalendarCalendar - get_reminders method."""
 from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
@@ -9,7 +9,7 @@ import pytest
 from app.interface.calendar.InterfaceApiCalendarCalendar import InterfaceApiCalendarCalendar
 from app.module.calendar.model.CalEventReminder import CalEventReminder
 from app.module.calendar.model.enums.ReminderMethod import ReminderMethod
-from app.module.calendar.serializer.EventReminderSerializerDict import EventReminderSerializerDict
+from app.module.calendar.serializer.CalEventReminderSerializerDict import CalEventReminderSerializerDict
 from app.utils import errors as err
 from app.utils.exceptions import RequestException
 
@@ -25,7 +25,7 @@ def _build_interface(module=None):
     inter.user = MagicMock()
     inter.user.uid = "user@example.com"
     inter.module = module if module is not None else MagicMock()
-    inter._reminder_serializer = EventReminderSerializerDict()
+    inter._reminder_serializer = CalEventReminderSerializerDict()
     return inter
 
 

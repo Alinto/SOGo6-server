@@ -1,4 +1,4 @@
-"""Unit tests for InterfaceApiCalendarCalendar — task (VTODO) CRUD methods."""
+"""Unit tests for InterfaceApiCalendarCalendar - task (VTODO) CRUD methods."""
 # pylint: disable=missing-function-docstring
 from datetime import datetime, timezone
 from unittest.mock import MagicMock
@@ -9,9 +9,8 @@ import pytest
 
 from app.interface.calendar.InterfaceApiCalendarCalendar import InterfaceApiCalendarCalendar
 from app.module.calendar.model.CalEvent import CalEvent
-from app.module.calendar.serializer.CalendarEventDeserializerDict import CalendarEventDeserializerDict
-from app.module.calendar.serializer.CalendarEventSerializerDict import CalendarEventSerializerDict
-from app.module.calendar.serializer.CalendarEventsSerializerDict import CalendarEventsSerializerDict
+from app.module.calendar.serializer.CalTaskDeserializerDict import CalTaskDeserializerDict
+from app.module.calendar.serializer.CalTaskSerializerDict import CalTaskSerializerDict
 from app.module.calendar.model.enums.ComponentType import ComponentType
 from app.utils import errors as err
 from app.utils.exceptions import RequestException
@@ -41,9 +40,11 @@ def _build_interface(module=None):
     inter.user = MagicMock()
     inter.user.uid = "user@example.com"
     inter.module = module if module is not None else MagicMock()
-    inter._event_serializer = CalendarEventSerializerDict()
-    inter._events_serializer = CalendarEventsSerializerDict()
-    inter._event_deserializer = CalendarEventDeserializerDict()
+    # Owner resolvers short-circuit to owner == acting user (no shared calendars today).
+    inter.module.get_calendar.return_value.calendar.user_uid = inter.user.uid
+    inter.module.get_event_calendar.return_value.user_uid = inter.user.uid
+    inter._task_serializer = CalTaskSerializerDict()
+    inter._task_deserializer = CalTaskDeserializerDict()
     return inter
 
 
@@ -52,7 +53,7 @@ def _build_interface(module=None):
 def test_get_tasks_success():
     tasks = [_make_task(key="t1"), _make_task(key="t2", uid="t2@example.com")]
     module = MagicMock()
-    module.get_tasks.return_value = tasks
+    module.get_all_tasks.return_value = tasks
     inter = _build_interface(module)
     response, _ = inter.get_tasks("cal-key", {})
     assert response["error_code"] == "S000000"
@@ -61,7 +62,7 @@ def test_get_tasks_success():
 
 def test_get_tasks_calendar_not_found():
     module = MagicMock()
-    module.get_tasks.side_effect = RequestException(error=err.ERROR_CALENDAR_NOT_FOUND)
+    module.get_all_tasks.side_effect = RequestException(error=err.ERROR_CALENDAR_NOT_FOUND)
     inter = _build_interface(module)
     response, _ = inter.get_tasks("missing", {})
     assert response["error_code"] == err.ERROR_CALENDAR_NOT_FOUND.c
@@ -69,7 +70,7 @@ def test_get_tasks_calendar_not_found():
 
 def test_get_tasks_unexpected_error_propagates():
     module = MagicMock()
-    module.get_tasks.side_effect = RuntimeError("boom")
+    module.get_all_tasks.side_effect = RuntimeError("boom")
     inter = _build_interface(module)
     with pytest.raises(RuntimeError):
         inter.get_tasks("cal-key", {})
@@ -77,11 +78,11 @@ def test_get_tasks_unexpected_error_propagates():
 
 def test_get_tasks_passes_default_dates_when_no_args():
     module = MagicMock()
-    module.get_tasks.return_value = []
+    module.get_all_tasks.return_value = []
     inter = _build_interface(module)
     inter.get_tasks("cal-key", {})
-    module.get_tasks.assert_called_once()
-    call_args = module.get_tasks.call_args
+    module.get_all_tasks.assert_called_once()
+    call_args = module.get_all_tasks.call_args
     assert call_args[0][4] == "cal-key"
     assert call_args[0][1] is not None
     assert call_args[0][2] is not None

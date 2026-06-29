@@ -17,6 +17,7 @@ from .schemas.calendar import (
     CalendarListResponseSchema,
     CalendarResponseSchema,
     CalendarExportQueryArgsSchema,
+    CalendarExportResponseSchema,
     CalendarImportResponseSchema,
     CalendarImportUploadSchema,
     CalendarSubscriptionResponseSchema,
@@ -113,11 +114,18 @@ class ApiCalendarDetail(MethodView):
 
 @blp.route("/calendars/<string:key>/export")
 class ApiCalendarExport(MethodView):
-    """API to download a calendar as a VCALENDAR (.ics) payload."""
+    """Export a calendar to VCALENDAR (.ics) as an Agent job.
+
+    The export always runs in the background: the response carries a ``job_id``
+    (202). Clients poll ``GET /jobs/<job_id>`` until ``status == "success"`` then
+    fetch the file with ``GET /jobs/<job_id>/result`` (add ``?download=true`` to
+    trigger a browser save dialog).
+    """
 
     @blp.arguments(CalendarExportQueryArgsSchema, location="query", arg_name="query_args")
+    @blp.response(202, CalendarExportResponseSchema)
     def get(self, query_args: dict, key: str) -> ResponseReturnValue:
-        """Stream the calendar as ``text/calendar``."""
+        """Enqueue the export and return the ``job_id`` to poll."""
         logger_api.debug("GET /calendars/%s/export user=%s args=%s", key, g.user.uid, query_args)
         interface: InterfaceApiCalendarCalendar = g.inter
         return interface.export_calendar(key, query_args)
@@ -155,31 +163,36 @@ class ApiCalendarPublicSubscription(MethodView):
 
     def get(self, token: str) -> ResponseReturnValue:
         """Serve the calendar matching the token as a text/calendar feed, or 404."""
-        # The token is a secret; never log it in full (capability URL — would leak access).
-        logger_api.debug("GET /public/calendars/%s… (public subscription)", token[:8])
+        # The token is a secret; never log it in full (capability URL - would leak access).
+        logger_api.debug("GET /public/calendars/%s... (public subscription)", token[:8])
         interface: InterfaceApiCalendarCalendar = g.inter
         return interface.export_public_calendar(token)
 
 
 @blp.route("/calendars/<string:key>/import")
 class ApiCalendarImport(MethodView):
-    """API to import a VCALENDAR (.ics) payload into a calendar.
+    """API to import a VCALENDAR (.ics) payload into a calendar as an Agent job.
 
     Per the spec, the endpoint accepts a ``multipart/form-data`` upload containing a single
     ``file`` part. The ``accepted_content_types`` class attribute tells the global
     content-type middleware to skip its default ``application/json`` rule for this route.
+
+    The import runs in the background: the response carries a ``job_id`` (202). Clients poll
+    ``GET /jobs/<job_id>`` until ``status == "success"``; the counters are then in the job's
+    ``result``.
     """
 
     accepted_content_types: set[str] = {"multipart/form-data"}
 
     @blp.arguments(CalendarImportUploadSchema, location="files")
-    @blp.response(200, CalendarImportResponseSchema)
+    @blp.response(202, CalendarImportResponseSchema)
     def post(self, files: dict, key: str) -> ResponseReturnValue:
-        """Import the uploaded .ics file into the calendar.
+        """Enqueue the import of the uploaded .ics file and return the ``job_id``.
 
         The total request size is already capped at the WSGI layer (MAX_CONTENT_LENGTH),
-        and the module enforces the per-import size limit; this view only reads the part and
-        decodes it.
+        and the module enforces the per-import size limit. The raw part is decoded to text here
+        (utf-8, latin-1 fallback) - the single place the upload's charset is guessed - then handed
+        to the interface as a string.
         """
         logger_api.debug("POST /calendars/%s/import user=%s", key, g.user.uid)
         interface: InterfaceApiCalendarCalendar = g.inter
@@ -413,9 +426,9 @@ class ApiExternalCalendarSync(MethodView):
         interface: InterfaceApiCalendarCalendar = g.inter
         return interface.get_sync_status(key)
 
-    @blp.response(200, SyncTriggerResponseSchema)
+    @blp.response(202, SyncTriggerResponseSchema)
     def post(self, key: str) -> ResponseReturnValue:
-        """Trigger an immediate sync for an external calendar."""
+        """Enqueue a manual sync for an external calendar (returns a job_id)."""
         logger_api.debug("POST /external-calendars/%s/sync user=%s", key, g.user.uid)
         interface: InterfaceApiCalendarCalendar = g.inter
         return interface.sync_external_calendar(key)

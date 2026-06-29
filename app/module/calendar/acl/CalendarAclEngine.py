@@ -22,7 +22,7 @@ class CalendarAclEngine:
     """Resolves and enforces calendar permissions.
 
     Centralizes all ACL logic: permission resolution, action checks, and event sanitization.
-    Currently stubbed — owner gets full access, non-owner is denied.
+    Currently stubbed - owner gets full access, non-owner is denied.
     Will be connected to the ACL module when it is implemented.
     """
 
@@ -109,6 +109,31 @@ class CalendarAclEngine:
                 result.append(self._mask_event(event))
             else:
                 result.append(event)
+        return result
+
+    def sanitize_listing(
+        self, calendar_user: CalendarUser, items: list[CalEvent], calendars: dict[str, CalCalendar],
+    ) -> list[CalEvent]:
+        """Apply per-calendar ACL masking to a flat, order-preserving list of events or tasks.
+
+        Resolves each source calendar's permissions once (cached) and runs the sanitizer, hiding or
+        masking entries the acting user may only partially see (a shared calendar granting
+        VIEW_DATETIME only, etc.). Items whose calendar is not in ``calendars`` are passed through
+        unchanged. Input order is preserved (sanitize is applied per item).
+        """
+        if not items:
+            return items
+        permissions_cache: dict[str, CalendarPermissions] = {}
+        result: list[CalEvent] = []
+        for item in items:
+            calendar_key: str | None = item.calendar_key
+            calendar: CalCalendar | None = calendars.get(calendar_key) if calendar_key else None
+            if calendar is None or calendar_key is None:
+                result.append(item)
+                continue
+            if calendar_key not in permissions_cache:
+                permissions_cache[calendar_key] = self.get_permissions(calendar, calendar_user)
+            result.extend(self.sanitize_events([item], permissions_cache[calendar_key]))
         return result
 
     @staticmethod

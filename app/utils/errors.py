@@ -46,6 +46,10 @@ ERROR_TABLE_SYSTEM_NOT_UNIQUE = E("S000007", "Sogo Table For System Settings Is 
 #General Error
 ERROR_CONFIG_ERROR = E("S000020", "A configuration Problem prevent SOGo to work properly", HTTPStatus.INTERNAL_SERVER_ERROR)
 
+#FILE (generic inline file storage)
+ERROR_FILE_TOO_LARGE        = E("S000040", "File Exceeds The Maximum Allowed Size", HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
+ERROR_FILE_TYPE_NOT_ALLOWED = E("S000041", "File Media Type Is Not Allowed", HTTPStatus.UNSUPPORTED_MEDIA_TYPE)
+
 #CACHE
 ERROR_CACHE_DATA_NOT_JSON  = E("S000100", "Cache Server Data Is Not A Json", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_CACHE_TTL_BELOW_0    = E("S000101", "Cache Server Data TTL Is Below 1", HTTPStatus.INTERNAL_SERVER_ERROR)
@@ -190,7 +194,7 @@ ERROR_CALENDAR_DATE_RANGE_TOO_LARGE = E("S000606", "Event Fetch Range Exceeds Ma
 ERROR_CALENDAR_EVENT_DUPLICATE      = E("S000607", "Calendar Event Already Exists", HTTPStatus.CONFLICT)
 ERROR_CALENDAR_EVENT_INSERT_FAILED  = E("S000608", "Failed To Persist Calendar Event", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_CALENDAR_EVENT_UPDATE_FAILED  = E("S000609", "Failed To Update Calendar Event", HTTPStatus.INTERNAL_SERVER_ERROR)
-ERROR_CALENDAR_TASK_NOT_FOUND       = E("S000610", "Calendar Task Not Found", HTTPStatus.NOT_FOUND)
+ERROR_CALENDAR_TASK_NOT_FOUND       = E("S000610", "Calendar Job Not Found", HTTPStatus.NOT_FOUND)
 ERROR_CALENDAR_JSON_PARSE_FAILED      = E("S000611", "Failed To Parse Calendar JSON Content", HTTPStatus.UNPROCESSABLE_ENTITY)
 ERROR_CALENDAR_EVENT_NOT_RECURRING    = E("S000612", "Event Is Not Recurring", HTTPStatus.BAD_REQUEST)
 ERROR_CALENDAR_OCCURRENCE_NOT_FOUND   = E("S000613", "Occurrence Not Found", HTTPStatus.NOT_FOUND)
@@ -204,6 +208,37 @@ ERROR_CALENDAR_ACCESS_DENIED                 = E("S000620", "Access Denied To Th
 ERROR_CALENDAR_IMPORT_NO_FILE                = E("S000621", "No File Provided In The Import Request", HTTPStatus.BAD_REQUEST)
 ERROR_CALENDAR_IMPORT_TOO_LARGE              = E("S000622", "Import Payload Exceeds Maximum Allowed Size", HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
 ERROR_CALENDAR_PUBLIC_LINK_DISABLED          = E("S000623", "Public Calendar Link Is Disabled For This Domain", HTTPStatus.FORBIDDEN)
+ERROR_CALENDAR_EXPORT_FORMAT_UNSUPPORTED     = E("S000624", "Requested Export Format Is Not Supported", HTTPStatus.NOT_ACCEPTABLE)
+ERROR_CALENDAR_IMIP_SENDER_MISMATCH          = E("S000625", "iMIP Sender Is Not The Event Organizer", HTTPStatus.FORBIDDEN)
+
+#the contacts
+ERROR_CONTACT_JSON_PARSE_FAILED              = E("S000700", "Failed To Parse Contact JSON Content", HTTPStatus.UNPROCESSABLE_ENTITY)
+ERROR_CONTACT_ADDRESSBOOK_NOT_FOUND          = E("S000701", "Address Book Not Found", HTTPStatus.NOT_FOUND)
+ERROR_CONTACT_ADDRESSBOOK_DUPLICATE          = E("S000702", "Address Book Already Exists", HTTPStatus.CONFLICT)
+ERROR_CONTACT_NOT_FOUND                      = E("S000703", "Contact Not Found", HTTPStatus.NOT_FOUND)
+ERROR_CONTACT_DUPLICATE                      = E("S000704", "Contact Already Exists", HTTPStatus.CONFLICT)
+ERROR_CONTACT_INSERT_FAILED                  = E("S000705", "Failed To Persist Contact", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_CONTACT_UPDATE_FAILED                  = E("S000706", "Failed To Update Contact", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_CONTACT_ADDRESSBOOK_NOT_SUPPORTED      = E("S000707", "Operation Not Supported On This Address Book Source", HTTPStatus.METHOD_NOT_ALLOWED)
+ERROR_CONTACT_ADDRESSBOOK_READ_ONLY          = E("S000708", "Address Book Is Read-Only", HTTPStatus.FORBIDDEN)
+ERROR_CONTACT_ACCESS_DENIED                  = E("S000709", "Access Denied To This Address Book", HTTPStatus.FORBIDDEN)
+ERROR_CONTACT_LIST_NOT_FOUND                 = E("S000710", "Distribution List Not Found", HTTPStatus.NOT_FOUND)
+ERROR_CONTACT_LIST_DUPLICATE                 = E("S000711", "Distribution List Already Exists", HTTPStatus.CONFLICT)
+ERROR_CONTACT_LIST_INSERT_FAILED             = E("S000712", "Failed To Persist Distribution List", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_CONTACT_LIST_UPDATE_FAILED             = E("S000713", "Failed To Update Distribution List", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_CONTACT_LIST_MEMBER_INVALID            = E("S000714", "Distribution List Member Is Not A Contact Of This Address Book", HTTPStatus.UNPROCESSABLE_ENTITY)
+ERROR_CONTACT_EXPORT_FORMAT_UNSUPPORTED      = E("S000715", "Requested Export Format Is Not Supported", HTTPStatus.NOT_ACCEPTABLE)
+ERROR_CONTACT_IMPORT_NO_FILE                 = E("S000716", "No File Provided In The Import Request", HTTPStatus.BAD_REQUEST)
+ERROR_CONTACT_IMPORT_TOO_LARGE               = E("S000717", "Import Payload Exceeds Maximum Allowed Size", HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
+ERROR_CONTACT_IMPORT_PARSE_FAILED            = E("S000718", "Failed To Parse The Import Document", HTTPStatus.UNPROCESSABLE_ENTITY)
+ERROR_CONTACT_DISPLAY_NAME_REQUIRED          = E("S000719", "Contact Display Name Is Required", HTTPStatus.UNPROCESSABLE_ENTITY)
+
+#AGENT / TASK
+ERROR_JOB_NOT_FOUND        = E("S000800", "Job Not Found", HTTPStatus.NOT_FOUND)
+ERROR_JOB_FORBIDDEN        = E("S000801", "Job Does Not Belong To Current User", HTTPStatus.FORBIDDEN)
+ERROR_JOB_NOT_READY        = E("S000802", "Job Has Not Completed Yet", HTTPStatus.CONFLICT)
+ERROR_JOB_NO_RESULT        = E("S000803", "Job Has No Downloadable Result", HTTPStatus.GONE)
+ERROR_JOB_CONCURRENT_LIMIT = E("S000804", "Concurrent Job Limit Reached", HTTPStatus.CONFLICT)
 
 #the bugs
 ERROR_UNKOWN = E("S999999", "Undefined Error", HTTPStatus.INTERNAL_SERVER_ERROR)

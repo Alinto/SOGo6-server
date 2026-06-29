@@ -63,12 +63,12 @@ class CalendarEventQueryArgsSchema(Schema):
     start_date_time = DateTimeUtcField(
         load_default=None,
         allow_none=True,
-        metadata={"description": "ISO 8601 UTC datetime — only return events ending after this instant."},
+        metadata={"description": "ISO 8601 UTC datetime - only return events ending after this instant."},
     )
     end_date_time = DateTimeEndUtcField(
         load_default=None,
         allow_none=True,
-        metadata={"description": "ISO 8601 UTC datetime or date — only return events starting before this instant. Date-only values default to 23:59:59 UTC."},
+        metadata={"description": "ISO 8601 UTC datetime or date - only return events starting before this instant. Date-only values default to 23:59:59 UTC."},
     )
     search = fields.String(
         load_default=None,
