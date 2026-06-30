@@ -66,8 +66,8 @@ class ModuleInitSogo:
 
         # Check tables
         table_ok = []
+        temp_error = []
         for table in ALL_TABLES:
-            temp_error = []
             db_table_info = sogo_db_manager.get_table_info(table.name)
             if db_table_info:
                 #Check the Columns
