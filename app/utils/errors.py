@@ -254,9 +254,9 @@ ERROR_JOB_NO_RESULT        = E("S000803", "Job Has No Downloadable Result", HTTP
 ERROR_JOB_CONCURRENT_LIMIT = E("S000804", "Concurrent Job Limit Reached", HTTPStatus.CONFLICT)
 
 #Ldap user source
-ERROR_LDAP_CANNOT_CONNECT = E("S000700", "Cannot connect to the ldap server", HTTPStatus.INTERNAL_SERVER_ERROR)
-ERROR_LDAP_BIND_WRONG_CRED = E("S000701", "Wrong bind dn credentials for the ldap server", HTTPStatus.UNAUTHORIZED)
-ERROR_LDAP_CANNOT_BIND = E("S000702", "Cannot bind to the ldap server", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_LDAP_CANNOT_CONNECT = E("S000900", "Cannot connect to the ldap server", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_LDAP_BIND_WRONG_CRED = E("S000901", "Wrong bind dn credentials for the ldap server", HTTPStatus.UNAUTHORIZED)
+ERROR_LDAP_CANNOT_BIND = E("S000902", "Cannot bind to the ldap server", HTTPStatus.INTERNAL_SERVER_ERROR)
 
 #the bugs
 ERROR_UNKOWN = E("S999999", "Undefined Error", HTTPStatus.INTERNAL_SERVER_ERROR)
