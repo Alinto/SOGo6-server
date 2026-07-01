@@ -95,7 +95,7 @@ def patch_module_on_interface(monkeypatch, fake_module):
     )
 
 
-def create_interface_with_settings(monkeypatch, fake_module, allow_external=True):
+def create_interface_with_settings(monkeypatch, fake_module, allow_external=True, fake_mail_module_class=None):
     """Helper to create interface with mocked settings."""
     patch_module_on_interface(monkeypatch, fake_module)
 
@@ -122,17 +122,19 @@ def create_interface_with_settings(monkeypatch, fake_module, allow_external=True
     )
 
     # Mock ModuleMail
-    class FakeModuleMail:
-        """Fake ModuleMail for testing."""
-        def __init__(self, user, mail_settings, process_setting=None):
-            pass
+    if fake_mail_module_class is None:
+        class FakeModuleMail:
+            """Fake ModuleMail for testing."""
+            def __init__(self, user, mail_settings, process_setting=None):
+                pass
 
-        def get_mailbox_quota(self, account_id):
-            return None
+            def get_mailbox_quota(self, account_id):
+                return None
+        fake_mail_module_class = FakeModuleMail
 
     monkeypatch.setattr(
         "app.interface.mail.InterfaceApiMailMailbox.ModuleMail",
-        FakeModuleMail
+        fake_mail_module_class
     )
 
     process_setting = FakeProcessSetting()
@@ -459,3 +461,304 @@ def test_create_mailbox_delegate_module_error(monkeypatch):
     _, status_code = interface.create_mailbox_delegate(account_id="0", data=data)
 
     assert status_code == 400
+
+
+# ========== Tests for purge_mailbox ==========
+
+def test_purge_mailbox_success(monkeypatch):
+    """Test purging all folders in a mailbox."""
+    # Create a proper fake module
+    class FakeModuleMailForPurge:
+        def __init__(self, user, mail_settings, process_setting=None):
+            pass
+        
+        def get_mailbox_quota(self, account_id):
+            return None
+        
+        def purge_all_folders(self, account_id, purge_data):
+            return {"mails_deleted": 150, "folders_processed": 8}
+    
+    fake_module = FakeModuleUserProfile()
+    interface = create_interface_with_settings(monkeypatch, fake_module, fake_mail_module_class=FakeModuleMailForPurge)
+    
+    purge_data = {"permanently_delete": True, "date": "2024-01-01"}
+    result, status_code = interface.purge_mailbox(account_id="0", purge_data=purge_data)
+
+    assert status_code == 200
+    assert result["data"]["mails_deleted"] == 150
+
+
+def test_purge_mailbox_external_account_success(monkeypatch):
+    """Test purging external account mailbox."""
+    class FakeModuleMailForPurge:
+        def __init__(self, user, mail_settings, process_setting=None):
+            pass
+        
+        def get_mailbox_quota(self, account_id):
+            return None
+        
+        def purge_all_folders(self, account_id, purge_data):
+            return {"mails_deleted": 50}
+    
+    fake_module = FakeModuleUserProfile()
+    interface = create_interface_with_settings(monkeypatch, fake_module, allow_external=True, fake_mail_module_class=FakeModuleMailForPurge)
+    
+    result, status_code = interface.purge_mailbox(account_id="abc123", purge_data={})
+
+    assert status_code == 200
+
+
+def test_purge_mailbox_external_forbidden(monkeypatch):
+    """Test purging external account when not allowed."""
+    fake_module = FakeModuleUserProfile()
+    interface = create_interface_with_settings(monkeypatch, fake_module, allow_external=False)
+    
+    result, status_code = interface.purge_mailbox(account_id="abc123", purge_data={})
+
+    assert status_code == 403
+    assert result["error_code"] == err.ERROR_EXTERNAL_ACCOUNT_FORBIDDEN.c
+
+
+def test_purge_mailbox_module_error(monkeypatch):
+    """Test error handling when purge fails."""
+    class FakeModuleMailForPurge:
+        def __init__(self, user, mail_settings, process_setting=None):
+            pass
+        
+        def get_mailbox_quota(self, account_id):
+            return None
+        
+        def purge_all_folders(self, account_id, purge_data):
+            raise RequestException("Purge failed", err.ERROR_VALIDATION_ERROR)
+    
+    fake_module = FakeModuleUserProfile()
+    interface = create_interface_with_settings(monkeypatch, fake_module, fake_mail_module_class=FakeModuleMailForPurge)
+    
+    result, status_code = interface.purge_mailbox(account_id="0", purge_data={})
+
+    assert status_code == 400
+
+
+# ========== Tests for save_draft ==========
+
+def test_save_draft_new_success(monkeypatch):
+    """Test creating a new draft."""
+    class FakeModuleMailForDraft:
+        def __init__(self, user, mail_settings, process_setting=None):
+            pass
+        
+        def get_mailbox_quota(self, account_id):
+            return None
+        
+        def save_draft(self, account_id, mail_data, key):
+            return {"draft_key": "draft_456", "saved": True}
+    
+    fake_module = FakeModuleUserProfile()
+    interface = create_interface_with_settings(monkeypatch, fake_module, fake_mail_module_class=FakeModuleMailForDraft)
+    
+    mail_data = {"to": "recipient@example.com", "subject": "Draft", "body": "Draft body"}
+    result, status_code = interface.save_draft(account_id="0", mail_data=mail_data, key=None)
+
+    assert status_code == 200
+    assert result["data"]["draft_key"] == "draft_456"
+
+
+def test_save_draft_update_existing(monkeypatch):
+    """Test updating an existing draft."""
+    class FakeModuleMailForDraft:
+        def __init__(self, user, mail_settings, process_setting=None):
+            pass
+        
+        def get_mailbox_quota(self, account_id):
+            return None
+        
+        def save_draft(self, account_id, mail_data, key):
+            return {"draft_key": key, "updated": True}
+    
+    fake_module = FakeModuleUserProfile()
+    interface = create_interface_with_settings(monkeypatch, fake_module, fake_mail_module_class=FakeModuleMailForDraft)
+    
+    mail_data = {"to": "recipient@example.com", "subject": "Updated Draft"}
+    result, status_code = interface.save_draft(account_id="0", mail_data=mail_data, key="draft_123")
+
+    assert status_code == 200
+    assert result["data"]["draft_key"] == "draft_123"
+
+
+def test_save_draft_external_account(monkeypatch):
+    """Test saving draft in external account."""
+    class FakeModuleMailForDraft:
+        def __init__(self, user, mail_settings, process_setting=None):
+            pass
+        
+        def get_mailbox_quota(self, account_id):
+            return None
+        
+        def save_draft(self, account_id, mail_data, key):
+            return {"draft_key": "draft_789", "account": account_id}
+    
+    fake_module = FakeModuleUserProfile()
+    interface = create_interface_with_settings(monkeypatch, fake_module, allow_external=True, fake_mail_module_class=FakeModuleMailForDraft)
+    
+    mail_data = {"to": "external@example.com", "subject": "External Draft"}
+    result, status_code = interface.save_draft(account_id="abc123", mail_data=mail_data)
+
+    assert status_code == 200
+
+
+def test_save_draft_module_error(monkeypatch):
+    """Test error handling when draft save fails."""
+    class FakeModuleMailForDraft:
+        def __init__(self, user, mail_settings, process_setting=None):
+            pass
+        
+        def get_mailbox_quota(self, account_id):
+            return None
+        
+        def save_draft(self, account_id, mail_data, key):
+            raise RequestException("Save failed", err.ERROR_VALIDATION_ERROR)
+    
+    fake_module = FakeModuleUserProfile()
+    interface = create_interface_with_settings(monkeypatch, fake_module, fake_mail_module_class=FakeModuleMailForDraft)
+    
+    result, status_code = interface.save_draft(account_id="0", mail_data={})
+
+    assert status_code == 400
+
+
+# ========== Tests for send_mail ==========
+
+def test_send_mail_success(monkeypatch):
+    """Test sending a mail successfully."""
+    class FakeModuleMailOutgoingForSend:
+        def __init__(self, user, mail_settings):
+            pass
+        
+        def send_mail(self, account_id, mail_data):
+            return b"Sent mail message"
+    
+    class FakeModuleMailForSend:
+        def __init__(self, user, mail_settings, process_setting=None):
+            pass
+        
+        def get_mailbox_quota(self, account_id):
+            return None
+        
+        def save_mail_to_folder(self, account_id, message, folder):
+            return True
+        
+        def delete_draft_mail(self, account_id, draft_uid):
+            return True
+    
+    monkeypatch.setattr(
+        "app.interface.mail.InterfaceApiMailMailbox.ModuleMailOutgoing",
+        FakeModuleMailOutgoingForSend
+    )
+    
+    fake_module = FakeModuleUserProfile()
+    interface = create_interface_with_settings(monkeypatch, fake_module, fake_mail_module_class=FakeModuleMailForSend)
+    
+    mail_data = {"to": "recipient@example.com", "subject": "Test", "body": "Test body"}
+    result, status_code = interface.send_mail(account_id="0", mail_data=mail_data)
+
+    assert status_code == 200
+
+
+def test_send_mail_with_draft_deletion(monkeypatch):
+    """Test sending mail and deleting associated draft."""
+    class FakeModuleMailOutgoingForSend:
+        def __init__(self, user, mail_settings):
+            pass
+        
+        def send_mail(self, account_id, mail_data):
+            return b"Sent mail message"
+    
+    class FakeModuleMailForSend:
+        def __init__(self, user, mail_settings, process_setting=None):
+            self.draft_deleted = False
+        
+        def get_mailbox_quota(self, account_id):
+            return None
+        
+        def save_mail_to_folder(self, account_id, message, folder):
+            return True
+        
+        def delete_draft_mail(self, account_id, draft_uid):
+            self.draft_deleted = True
+            return True
+    
+    monkeypatch.setattr(
+        "app.interface.mail.InterfaceApiMailMailbox.ModuleMailOutgoing",
+        FakeModuleMailOutgoingForSend
+    )
+    
+    fake_module = FakeModuleUserProfile()
+    interface = create_interface_with_settings(monkeypatch, fake_module, fake_mail_module_class=FakeModuleMailForSend)
+    
+    mail_data = {"to": "recipient@example.com", "subject": "Test"}
+    result, status_code = interface.send_mail(account_id="0", mail_data=mail_data, draft_uid="draft_123")
+
+    assert status_code == 200
+
+
+def test_send_mail_send_failure(monkeypatch):
+    """Test error handling when mail sending fails."""
+    fake_module = FakeModuleUserProfile()
+    
+    class FakeModuleMailOutgoingForSend:
+        def __init__(self, user, mail_settings):
+            pass
+        
+        def send_mail(self, account_id, mail_data):
+            raise RequestException("SMTP error", err.ERROR_VALIDATION_ERROR)
+    
+    class FakeModuleMailForSend:
+        def __init__(self, user, mail_settings, process_setting=None):
+            pass
+        
+        def get_mailbox_quota(self, account_id):
+            return None
+    
+    monkeypatch.setattr(
+        "app.interface.mail.InterfaceApiMailMailbox.ModuleMailOutgoing",
+        FakeModuleMailOutgoingForSend
+    )
+    
+    interface = create_interface_with_settings(monkeypatch, fake_module, fake_mail_module_class=FakeModuleMailForSend)
+    
+    result, status_code = interface.send_mail(account_id="0", mail_data={})
+
+    assert status_code == 400
+
+
+def test_send_mail_external_account(monkeypatch):
+    """Test sending mail from external account."""
+    class FakeModuleMailOutgoingForSend:
+        def __init__(self, user, mail_settings):
+            pass
+        
+        def send_mail(self, account_id, mail_data):
+            return b"Sent from external"
+    
+    class FakeModuleMailForSend:
+        def __init__(self, user, mail_settings, process_setting=None):
+            pass
+        
+        def get_mailbox_quota(self, account_id):
+            return None
+        
+        def save_mail_to_folder(self, account_id, message, folder):
+            return True
+    
+    monkeypatch.setattr(
+        "app.interface.mail.InterfaceApiMailMailbox.ModuleMailOutgoing",
+        FakeModuleMailOutgoingForSend
+    )
+    
+    fake_module = FakeModuleUserProfile()
+    interface = create_interface_with_settings(monkeypatch, fake_module, allow_external=True, fake_mail_module_class=FakeModuleMailForSend)
+    
+    mail_data = {"to": "recipient@example.com", "subject": "From External"}
+    result, status_code = interface.send_mail(account_id="abc123", mail_data=mail_data)
+
+    assert status_code == 200

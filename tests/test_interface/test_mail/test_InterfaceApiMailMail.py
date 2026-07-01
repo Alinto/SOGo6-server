@@ -326,3 +326,132 @@ def test_mail_action_module_error():
 
     assert status_code == 400
     assert result["error_code"] == "S000300"
+
+# ========== Tests for download_mail ==========
+
+def test_download_mail_success():
+    """Test downloading a mail as .eml format."""
+    from io import BytesIO
+    fake_module = FakeModuleMail()
+    mail_content = BytesIO(b"From: test@example.com\nTo: user@example.com\nSubject: Test")
+    fake_module.download_mail = lambda *args: mail_content
+    interface = make_interface(fake_module)
+
+    result = interface.download_mail(account_id=0, folder_name="INBOX", mail_uid=42, download_format="eml")
+
+    assert isinstance(result, BytesIO)
+    assert result.getvalue() == b"From: test@example.com\nTo: user@example.com\nSubject: Test"
+
+
+def test_download_mail_zip_format():
+    """Test downloading a mail as .zip format."""
+    from io import BytesIO
+    fake_module = FakeModuleMail()
+    mail_content = BytesIO(b"PK\x03\x04")  # ZIP file signature
+    fake_module.download_mail = lambda *args: mail_content
+    interface = make_interface(fake_module)
+
+    result = interface.download_mail(account_id=0, folder_name="INBOX", mail_uid=42, download_format="zip")
+
+    assert isinstance(result, BytesIO)
+
+
+def test_download_mail_module_error():
+    """Test error handling when mail download fails."""
+    fake_module = FakeModuleMail()
+    fake_module.download_mail = lambda *args: (_ for _ in ()).throw(
+        RequestException("Cannot download", err.ERROR_VALIDATION_ERROR)
+    )
+    interface = make_interface(fake_module)
+
+    result = interface.download_mail(account_id=0, folder_name="INBOX", mail_uid=42, download_format="eml")
+
+    assert isinstance(result, tuple)
+    assert result[1] == 400
+    assert result[0]["error_code"] == "S000300"
+
+# ========== Tests for download_attachment ==========
+
+def test_download_attachment_success():
+    """Test downloading an attachment from a mail."""
+    fake_module = FakeModuleMail()
+    fake_module.download_attachment = lambda *args: (b"attachment_content", "application/pdf")
+    interface = make_interface(fake_module)
+
+    result = interface.download_attachment(account_id=0, folder_name="INBOX", mail_uid=42, filename="document.pdf")
+
+    assert isinstance(result, tuple)
+    assert result[0] == b"attachment_content"
+    assert result[1] == "application/pdf"
+
+
+def test_download_attachment_not_found():
+    """Test error handling when attachment is not found."""
+    fake_module = FakeModuleMail()
+    fake_module.download_attachment = lambda *args: (_ for _ in ()).throw(
+        RequestException("Attachment not found", err.ERROR_VALIDATION_ERROR)
+    )
+    interface = make_interface(fake_module)
+
+    result = interface.download_attachment(account_id=0, folder_name="INBOX", mail_uid=42, filename="missing.pdf")
+
+    assert isinstance(result, tuple)
+    assert result[1] == 400
+    assert result[0]["error_code"] == "S000300"
+
+
+def test_download_attachment_module_error():
+    """Test error handling when download fails."""
+    fake_module = FakeModuleMail()
+    fake_module.download_attachment = lambda *args: (_ for _ in ()).throw(
+        RequestException("Download failed", err.ERROR_VALIDATION_ERROR)
+    )
+    interface = make_interface(fake_module)
+
+    result = interface.download_attachment(account_id=0, folder_name="INBOX", mail_uid=42, filename="file.txt")
+
+    assert isinstance(result, tuple)
+    assert result[1] == 400
+
+
+# ========== Tests for open_mail_for_edit ==========
+
+def test_open_mail_for_edit_success():
+    """Test opening a mail for editing."""
+    fake_module = FakeModuleMail()
+    fake_module.open_mail_for_edit = lambda *args: {"draft_key": "draft_123", "subject": "Test", "body": "Test body"}
+    interface = make_interface(fake_module)
+
+    result, status_code = interface.open_mail_for_edit(account_id=0, folder_name="INBOX", mail_uid=42)
+
+    assert status_code == 200
+    assert result["data"]["draft_key"] == "draft_123"
+    assert result["data"]["subject"] == "Test"
+
+
+def test_open_mail_for_edit_not_found():
+    """Test error handling when mail is not found."""
+    fake_module = FakeModuleMail()
+    fake_module.open_mail_for_edit = lambda *args: (_ for _ in ()).throw(
+        RequestException("Mail not found", err.ERROR_MAIL_UID_NOT_FOUND)
+    )
+    interface = make_interface(fake_module)
+
+    result, status_code = interface.open_mail_for_edit(account_id=0, folder_name="INBOX", mail_uid=999)
+
+    assert status_code == 404
+    assert result["error_code"] == "S000303"
+
+
+def test_open_mail_for_edit_module_error():
+    """Test error handling when opening mail for edit fails."""
+    fake_module = FakeModuleMail()
+    fake_module.open_mail_for_edit = lambda *args: (_ for _ in ()).throw(
+        RequestException("Cannot open", err.ERROR_VALIDATION_ERROR)
+    )
+    interface = make_interface(fake_module)
+
+    result, status_code = interface.open_mail_for_edit(account_id=0, folder_name="INBOX", mail_uid=42)
+
+    assert status_code == 400
+    assert result["error_code"] == "S000300"

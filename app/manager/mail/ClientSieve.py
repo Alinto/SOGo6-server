@@ -667,6 +667,15 @@ class ClientSieve(ClientFiltering):
                     continue
                 script_parts_retry.append((section_name, section_content))
 
+            # If all parts were skipped, there's nothing left to upload – return skipped sections
+            if not script_parts_retry:
+                logger_sieve.info(
+                    "All script parts were skipped after removing unsupported extension '%s'; "
+                    "no script to upload",
+                    missing_capability,
+                )
+                return skipped_sections
+
             # If there are still script parts to process, recompile and retry
             if script_parts_retry:
                 try:
