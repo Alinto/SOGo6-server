@@ -241,7 +241,6 @@ class InterfaceApiMailMailbox:
         except RequestException as ex:
             logger_api.error("Request exception in purge_mailbox for user %s, account %s: %s", self.user.uid, account_id, str(ex))
             return create_api_base_response(None, ex.error)
-        raise NotImplementedError("Purge mailbox is not implemented yet")
 
 
     def save_draft(self, account_id: str, mail_data: dict, key: str | None = None) -> tuple[dict, int]:
