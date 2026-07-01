@@ -3,6 +3,7 @@ Tests unitaires pour ModuleMail (Module layer).
 Ces tests utilisent un fake ClientMailServer pour tester la logique mtier du module.
 """
 import pytest
+from io import BytesIO
 from unittest.mock import MagicMock
 from app.module.mail.ModuleMail import ModuleMail
 from app.utils.exceptions import RequestException
@@ -68,7 +69,7 @@ class FakeClientMailServer:
     def expunge_folder(self, folder_path, do_subfolders=True):
         return self.expunge_folder_result
 
-    def purge_folder(self, folder_path, before_date=None, do_subfolders=False, permanently_delete=False):
+    def purge_folder(self, folder_path, before_date=None, do_children=False, permanently=False):
         return self.purge_folder_result
 
     # ---- mail methods ----
@@ -148,6 +149,14 @@ class FakeClientMailServer:
     def fetch_all_mails_without_content(self, mailbox, number_of_mails, offset=0):
         """Fetch all mails from a mailbox without content (used by get_folder_mails)."""
         yield {'nb_mails': 0}
+
+    def fetch_attachment(self, folder_name, mail_uid, filename):
+        """Fetch an attachment from a mail."""
+        return (b"attachment data", "application/octet-stream")
+
+    def delete_mail_permanently_from_folder_type(self, folder_type, uid):
+        """Delete a mail permanently from a folder type."""
+        pass
 
 
 def _make_email_message(subject='Test', from_='sender@example.com',
@@ -650,3 +659,375 @@ def test_perform_mail_action_invalid_action(monkeypatch):
     action_data = {"action": "invalid_action"}
     with pytest.raises(RequestException, match="Invalid action: invalid_action"):
         module.perform_mail_action(ACCOUNT_ID, "INBOX", "42", action_data)
+
+
+# ========== Tests for delete_mails error handling ==========
+
+def test_delete_mails_with_preference_flag_deleted_only(monkeypatch):
+    """Test delete_mails with FLAG_DELETED_ONLY preference."""
+    module, fake_client = _make_module(monkeypatch)
+    # Mock user preferences for FLAG_DELETED_ONLY behavior
+    module.user.profile.preferences.get = lambda key, default: {
+        "UserMailGeneralSettings": {"SOGO_U_MAIL_DELETE_BEHAVIOR": "FLAG_DELETED_ONLY"}
+    }.get(key, default)
+
+    module.delete_mails(ACCOUNT_ID, "INBOX", [1, 2, 3])
+    # Should call with move_to_trash=False, permanently=False
+    assert len(fake_client.delete_mails_by_uid_calls) == 1
+
+
+def test_delete_mails_with_single_mail_uid(monkeypatch):
+    """Test delete_mails with a single mail UID (as string)."""
+    module, fake_client = _make_module(monkeypatch)
+
+    module.delete_mails(ACCOUNT_ID, "INBOX", "42")
+    assert len(fake_client.delete_mails_by_uid_calls) == 1
+
+
+def test_delete_mails_with_client_error_on_delete_by_uid(monkeypatch):
+    """Test delete_mails propagates client error."""
+    module, fake_client = _make_module(monkeypatch)
+
+    def raise_error(*args, **kwargs):
+        raise RequestException("Delete failed")
+
+    fake_client.delete_mails_by_uid = raise_error
+
+    with pytest.raises(RequestException, match="Delete failed"):
+        module.delete_mails(ACCOUNT_ID, "INBOX", [1, 2, 3])
+
+
+# ========== Tests for get_mail_detail error handling ==========
+
+def test_get_mail_detail_with_error(monkeypatch):
+    """Test get_mail_detail when client fails to fetch mail."""
+    module, fake_client = _make_module(monkeypatch)
+
+    def raise_error(*args, **kwargs):
+        raise RequestException("Mail not found")
+
+    fake_client.fetch_mail = raise_error
+
+    with pytest.raises(RequestException, match="Mail not found"):
+        module.get_mail_detail(ACCOUNT_ID, "INBOX", "42")
+
+
+# ========== Tests for get_mail_raw error handling ==========
+
+def test_get_mail_raw_with_error(monkeypatch):
+    """Test get_mail_raw when client fails to fetch raw content."""
+    module, fake_client = _make_module(monkeypatch)
+
+    def raise_error(*args, **kwargs):
+        raise RequestException("Mail not found")
+
+    fake_client.fetch_mail_raw = raise_error
+
+    with pytest.raises(RequestException, match="Mail not found"):
+        module.get_mail_raw(ACCOUNT_ID, "INBOX", "42")
+
+
+# ========== Tests for download_attachment ==========
+
+def test_download_attachment_success(monkeypatch):
+    """Test downloading an attachment successfully."""
+    module, fake_client = _make_module(monkeypatch)
+    attachment_data = b"test attachment data"
+    content_type = "application/pdf"
+
+    def fetch_attachment(folder_name, mail_uid, filename):
+        return (attachment_data, content_type)
+
+    fake_client.fetch_attachment = fetch_attachment
+
+    result = module.download_attachment(ACCOUNT_ID, "INBOX", "42", "test.pdf")
+    assert result == (attachment_data, content_type)
+
+
+def test_download_attachment_not_found(monkeypatch):
+    """Test downloading an attachment that doesn't exist."""
+    module, fake_client = _make_module(monkeypatch)
+
+    def raise_error(*args, **kwargs):
+        raise RequestException("Attachment not found")
+
+    fake_client.fetch_attachment = raise_error
+
+    with pytest.raises(RequestException, match="Attachment not found"):
+        module.download_attachment(ACCOUNT_ID, "INBOX", "42", "nonexistent.pdf")
+
+
+# ========== Tests for download_mail ==========
+
+def test_download_mail_eml_format(monkeypatch):
+    """Test downloading a mail in EML format."""
+    module, fake_client = _make_module(monkeypatch)
+    mail_content = 'Subject: Test\r\nFrom: sender@example.com\r\n\r\nBody'
+
+    fake_client.fetch_mail_raw_result = mail_content
+
+    result = module.download_mail(ACCOUNT_ID, "INBOX", "42", "eml")
+    
+    # Result should be BytesIO with the mail content
+    assert isinstance(result, BytesIO)
+    result.seek(0)
+    assert result.read() == mail_content.encode()
+
+
+def test_download_mail_zip_format(monkeypatch):
+    """Test downloading a mail in ZIP format."""
+    import zipfile
+    from io import BytesIO
+    
+    module, fake_client = _make_module(monkeypatch)
+    mail_content = 'Subject: Test\r\nFrom: sender@example.com\r\n\r\nBody'
+    fake_client.fetch_mail_raw_result = mail_content
+
+    result = module.download_mail(ACCOUNT_ID, "INBOX", "42", "zip")
+    
+    # Result should be BytesIO with zip content
+    assert isinstance(result, BytesIO)
+    result.seek(0)
+    
+    # Verify it's a valid zip
+    with zipfile.ZipFile(result, 'r') as zf:
+        files = zf.namelist()
+        assert len(files) == 1
+        assert files[0] == 'mail_42.eml'
+        assert zf.read(files[0]) == mail_content.encode()
+
+
+def test_download_mail_invalid_format(monkeypatch):
+    """Test downloading a mail with invalid format defaults to eml."""
+    module, fake_client = _make_module(monkeypatch)
+    mail_content = 'Subject: Test\r\n\r\nBody'
+    fake_client.fetch_mail_raw_result = mail_content
+
+    result = module.download_mail(ACCOUNT_ID, "INBOX", "42", "invalid")
+    
+    # Should default to eml format
+    assert isinstance(result, BytesIO)
+    result.seek(0)
+    assert result.read() == mail_content.encode()
+
+
+# ========== Tests for delete_draft_mail ==========
+
+def test_delete_draft_mail_success(monkeypatch):
+    """Test deleting a draft mail successfully."""
+    module, fake_client = _make_module(monkeypatch)
+    
+    def delete_draft(folder_type, uid):
+        pass
+    
+    fake_client.delete_mail_permanently_from_folder_type = delete_draft
+
+    # Should not raise
+    module.delete_draft_mail(ACCOUNT_ID, "draft_123")
+
+
+def test_delete_draft_mail_with_error(monkeypatch):
+    """Test delete_draft_mail when client fails."""
+    module, fake_client = _make_module(monkeypatch)
+
+    def raise_error(*args, **kwargs):
+        raise RequestException("Draft not found")
+
+    fake_client.delete_mail_permanently_from_folder_type = raise_error
+
+    with pytest.raises(RequestException, match="Draft not found"):
+        module.delete_draft_mail(ACCOUNT_ID, "draft_123")
+
+
+# ========== Tests for purge_all_folders ==========
+
+def test_purge_all_folders_success(monkeypatch):
+    """Test purging all folders in an account."""
+    module, fake_client = _make_module(monkeypatch)
+    
+    # Set up folder list
+    fake_client.list_folders_result = [
+        {'name': 'INBOX', 'path': 'INBOX'},
+        {'name': 'Sent', 'path': 'Sent'},
+        {'name': 'Trash', 'path': 'Trash'}
+    ]
+    fake_client.purge_folder_result = 10  # 10 mails per folder
+
+    purge_data = {"permanently_delete": False, "date": None}
+    result = module.purge_all_folders(ACCOUNT_ID, purge_data)
+    
+    # Should have purged all 3 folders
+    assert result['mails_deleted'] == 30
+
+
+def test_purge_all_folders_empty_account(monkeypatch):
+    """Test purging all folders when account has no folders."""
+    module, fake_client = _make_module(monkeypatch)
+    
+    fake_client.list_folders_result = []
+    fake_client.purge_folder_result = 0
+
+    purge_data = {"permanently_delete": False, "date": None}
+    result = module.purge_all_folders(ACCOUNT_ID, purge_data)
+    
+    assert result['mails_deleted'] == 0
+
+
+def test_purge_all_folders_with_date_filter(monkeypatch):
+    """Test purging all folders with date filter."""
+    module, fake_client = _make_module(monkeypatch)
+    
+    fake_client.list_folders_result = [
+        {'name': 'INBOX', 'path': 'INBOX'},
+        {'name': 'Archive', 'path': 'Archive'}
+    ]
+    fake_client.purge_folder_result = 5
+
+    purge_data = {"permanently_delete": False, "date": "2024-01-01"}
+    result = module.purge_all_folders(ACCOUNT_ID, purge_data)
+    
+    assert result['mails_deleted'] == 10
+
+
+def test_purge_all_folders_with_permanent_delete(monkeypatch):
+    """Test purging all folders with permanent deletion."""
+    module, fake_client = _make_module(monkeypatch)
+    
+    fake_client.list_folders_result = [
+        {'name': 'INBOX', 'path': 'INBOX'},
+        {'name': 'Sent', 'path': 'Sent'}
+    ]
+    fake_client.purge_folder_result = 15
+
+    purge_data = {"permanently_delete": True, "date": None}
+    result = module.purge_all_folders(ACCOUNT_ID, purge_data)
+    
+    assert result['mails_deleted'] == 30
+
+
+# ========== Additional Tests for get_folder_mails with fields filtering ==========
+
+def test_get_folder_mails_without_content_include_filter(monkeypatch):
+    """Test getting mails without content using include filter."""
+    module, fake_client = _make_module(monkeypatch)
+
+    mail1 = _make_email_message(subject='Test1')
+
+    def fetch_all_without_content(mailbox, number_of_mails, offset=0):
+        yield {'nb_mails': 50}
+        yield {'uid': '1', 'mail': mail1, 'flags': {'seen': True, 'flagged': False, 'answered': False, 'forwarded': False, 'deleted': False, 'all': ['\\Seen']}, 'size': 120}
+
+    fake_client.fetch_all_mails_without_content = fetch_all_without_content
+
+    # Mock collection param with fields that exclude content
+    from unittest.mock import MagicMock
+    collection_param = MagicMock()
+    collection_param.first_item = 0
+    collection_param.last_item = 9
+    collection_param.fields = "uid,subject,from"
+    collection_param.fields_action = "include"
+
+    result, total = module.get_folder_mails(ACCOUNT_ID, "INBOX", collection_param)
+    assert total == 50
+    assert len(result) == 1
+    assert 'contents' not in result[0]
+    assert 'attachments' not in result[0]
+
+
+def test_get_folder_mails_without_content_exclude_filter(monkeypatch):
+    """Test getting mails without content using exclude filter."""
+    module, fake_client = _make_module(monkeypatch)
+
+    mail1 = _make_email_message(subject='Test1')
+
+    def fetch_all_without_content(mailbox, number_of_mails, offset=0):
+        yield {'nb_mails': 25}
+        yield {'uid': '1', 'mail': mail1, 'flags': {'seen': False, 'flagged': False, 'answered': False, 'forwarded': False, 'deleted': False, 'all': []}, 'size': 120}
+
+    fake_client.fetch_all_mails_without_content = fetch_all_without_content
+
+    # Mock collection param with fields that exclude content
+    from unittest.mock import MagicMock
+    collection_param = MagicMock()
+    collection_param.first_item = 0
+    collection_param.last_item = 9
+    collection_param.fields = "contents"
+    collection_param.fields_action = "exclude"
+
+    result, total = module.get_folder_mails(ACCOUNT_ID, "INBOX", collection_param)
+    assert total == 25
+    assert len(result) == 1
+    assert 'contents' not in result[0]
+
+
+# ========== Additional Tests for share_folder with removal ==========
+
+def test_share_folder_with_user_removal(monkeypatch):
+    """Test sharing a folder and removing a previously shared user."""
+    module, fake_client = _make_module(monkeypatch)
+    module.user.login_mail_server = 'owner@example.com'
+    
+    # Initial ACL with two users
+    def get_acl_mock(folder_path):
+        if fake_client.set_acl_calls:
+            return [
+                ('user1@example.com', {'userCanViewFolder': 1, 'userCanReadMails': 1}),
+                ('user2@example.com', {'userCanViewFolder': 1})
+            ]
+        return [
+            ('user1@example.com', {'userCanViewFolder': 1, 'userCanReadMails': 1}),
+            ('user2@example.com', {'userCanViewFolder': 1})
+        ]
+
+    fake_client.get_acl = get_acl_mock
+
+    # Only share with user1, removing user2
+    share_data = [
+        {
+            "c_email": "user1@example.com",
+            "rights": {"userCanViewFolder": 1, "userCanReadMails": 1}
+        }
+    ]
+
+    result = list(module.share_folder(ACCOUNT_ID, "INBOX", share_data))
+    
+    # Should have called delete_acl for user2
+    assert len(fake_client.delete_acl_calls) >= 1
+    # Should have updated user1
+    assert len(fake_client.set_acl_calls) >= 1
+
+
+def test_share_folder_with_multiple_users(monkeypatch):
+    """Test sharing a folder with multiple users."""
+    module, fake_client = _make_module(monkeypatch)
+    module.user.login_mail_server = 'owner@example.com'
+    fake_client.get_acl_result = []
+
+    def get_acl_after_share(folder_path):
+        if fake_client.set_acl_calls:
+            return [
+                ('user1@example.com', {'userCanViewFolder': 1, 'userCanReadMails': 1}),
+                ('user2@example.com', {'userCanViewFolder': 1})
+            ]
+        return []
+
+    fake_client.get_acl = get_acl_after_share
+
+    share_data = [
+        {
+            "c_email": "user1@example.com",
+            "rights": {"userCanViewFolder": 1, "userCanReadMails": 1}
+        },
+        {
+            "c_email": "user2@example.com",
+            "rights": {"userCanViewFolder": 1}
+        }
+    ]
+
+    result = list(module.share_folder(ACCOUNT_ID, "INBOX", share_data))
+    
+    # Should have called set_acl for both users
+    assert len(fake_client.set_acl_calls) == 2
+    identifiers = [call[1] for call in fake_client.set_acl_calls]
+    assert 'user1@example.com' in identifiers
+    assert 'user2@example.com' in identifiers

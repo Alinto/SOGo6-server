@@ -5,6 +5,7 @@ Ces tests utilisent des mock objects pour simuler les réponses IMAP.
 import pytest
 import imaplib
 from unittest import mock
+from email.message import EmailMessage
 from app.manager.mail.ClientImap import (
     ClientImap, ImapFolder,
     _convert_rights_to_imap, _convert_imap_to_rights,
@@ -1273,3 +1274,304 @@ class TestSaveMailToFolder:
                 # MAIL_FOLDER_DRAFT is a special folder, not NORMAL
                 client.save_mail_to_folder(msg, cs.MAIL_FOLDER_DRAFT)
                 mock_create.assert_called_once()
+# Tests: namespace
+# ===========================================================================
+
+class TestNamespace:
+    def test_namespace_success(self):
+        fake_conn = FakeIMAPConnection()
+        fake_conn.namespace_response = ("OK", [b'(("" ".")) NIL NIL'])
+        client = authenticated_client(fake_conn)
+        client.namespace()
+        assert client.default_delimiter == "."
+        assert client.default_prefix == ""
+
+    def test_namespace_not_authenticated_raises(self):
+        client = make_client()
+        client.connection = None
+        with pytest.raises(BugException):
+            client.namespace()
+
+
+# ===========================================================================
+# Tests: _fix_folder_path
+# ===========================================================================
+
+class TestFixFolderPath:
+    def test_fix_folder_path_no_change_needed(self):
+        client = make_client()
+        client.default_delimiter = "."
+        result = client._fix_folder_path("INBOX.Folder")
+        assert result == "INBOX.Folder"
+
+    def test_fix_folder_path_non_ascii_raises(self):
+        client = make_client()
+        with pytest.raises(RequestException):
+            client._fix_folder_path("INBØX")
+
+
+# ===========================================================================
+# Tests: _imap_list_folders
+# ===========================================================================
+
+class TestImapListFolders:
+    def test_imap_list_folders_success(self):
+        fake_conn = FakeIMAPConnection()
+        fake_conn.list_response = ("OK", [
+            b'(\\HasNoChildren) "." "INBOX"',
+            b'(\\HasNoChildren) "." "Sent"'
+        ])
+        fake_conn.uid_response = ("OK", [b""])
+        client = authenticated_client(fake_conn)
+        folders = list(client._imap_list_folders())
+        assert len(folders) >= 1
+        assert isinstance(folders[0], ImapFolder)
+
+    def test_imap_list_folders_not_authenticated_raises(self):
+        client = make_client()
+        client.connection = None
+        with pytest.raises(BugException):
+            list(client._imap_list_folders())
+
+
+# ===========================================================================
+# Tests: list_folders
+# ===========================================================================
+
+class TestListFolders:
+    def test_list_folders_success(self):
+        fake_conn = FakeIMAPConnection()
+        fake_conn.list_response = ("OK", [b'(\\HasNoChildren) "." "INBOX"'])
+        fake_conn.uid_response = ("OK", [b""])
+        client = authenticated_client(fake_conn)
+        folders = client.list_folders()
+        assert isinstance(folders, list)
+        assert len(folders) >= 0
+
+    def test_list_folders_not_authenticated_raises(self):
+        client = make_client()
+        client.connection = None
+        with pytest.raises(BugException):
+            client.list_folders()
+
+
+# ===========================================================================
+# Tests: _imap_create_folder
+# ===========================================================================
+
+class TestImapCreateFolder:
+    def test_imap_create_folder_success(self):
+        fake_conn = FakeIMAPConnection()
+        client = authenticated_client(fake_conn)
+        client._imap_create_folder('"NewFolder"')
+        assert '"NewFolder"' in fake_conn.folders
+
+    def test_imap_create_folder_failure_raises(self):
+        fake_conn = FakeIMAPConnection()
+        fake_conn.create_should_fail = True
+        client = authenticated_client(fake_conn)
+        with pytest.raises(RequestException):
+            client._imap_create_folder('"ExistingFolder"')
+
+    def test_imap_create_folder_not_authenticated_raises(self):
+        client = make_client()
+        client.connection = None
+        with pytest.raises(BugException):
+            client._imap_create_folder('"NewFolder"')
+
+
+# ===========================================================================
+# Tests: get_one_folder
+# ===========================================================================
+
+class TestGetOneFolder:
+    def test_get_one_folder_success(self):
+        fake_conn = FakeIMAPConnection()
+        fake_conn.list_response = ("OK", [b'(\\HasNoChildren) "." "INBOX"'])
+        client = authenticated_client(fake_conn)
+        folder_dict = client.get_one_folder("INBOX")
+        assert isinstance(folder_dict, dict)
+        assert "name" in folder_dict
+
+    def test_get_one_folder_not_authenticated_raises(self):
+        client = make_client()
+        client.connection = None
+        with pytest.raises(BugException):
+            client.get_one_folder("INBOX")
+
+
+# ===========================================================================
+# Tests: _imap_delete
+# ===========================================================================
+
+class TestImapDelete:
+    def test_imap_delete_success(self):
+        fake_conn = FakeIMAPConnection()
+        client = authenticated_client(fake_conn)
+        client._imap_delete('"TestFolder"', ".")
+        # No exception means success
+
+    def test_imap_delete_not_authenticated_does_nothing(self):
+        client = make_client()
+        client.connection = None
+        # _imap_delete is a private method that does nothing when not authenticated
+        client._imap_delete('"TestFolder"', ".")  # Should not raise
+
+
+# ===========================================================================
+# Tests: _imap_move_folder_to_trash
+# ===========================================================================
+
+class TestImapMoveFolderToTrash:
+    def test_move_folder_to_trash_success(self):
+        fake_conn = FakeIMAPConnection()
+        client = authenticated_client(fake_conn)
+        client._imap_move_folder_to_trash('"TestFolder"', ".")
+        # No exception means success
+
+    def test_move_folder_to_trash_not_authenticated_does_nothing(self):
+        client = make_client()
+        client.connection = None
+        # _imap_move_folder_to_trash is a private method that does nothing when not authenticated
+        client._imap_move_folder_to_trash('"TestFolder"', ".")  # Should not raise
+
+
+# ===========================================================================
+# Tests: fetch_all_mails_without_content
+# ===========================================================================
+
+class TestFetchAllMailsWithoutContent:
+    def test_fetch_all_mails_without_content_success(self):
+        fake_conn = FakeIMAPConnection()
+        fake_conn.select_response = ("OK", [b"2"])
+        fake_conn.uid_response = ("OK", [
+            b"1 (UID 100 FLAGS (\\Seen) RFC822.SIZE 1000)",
+            b"2 (UID 101 FLAGS () RFC822.SIZE 2000)",
+        ])
+        client = authenticated_client(fake_conn)
+        results = list(client.fetch_all_mails_without_content("INBOX", number_of_mails=2, offset=0))
+        assert len(results) > 0
+
+    def test_fetch_all_mails_without_content_not_authenticated_raises(self):
+        client = make_client()
+        client.connection = None
+        with pytest.raises(BugException):
+            list(client.fetch_all_mails_without_content("INBOX", number_of_mails=5, offset=0))
+
+
+# ===========================================================================
+# Tests: fetch_mails_by_uids
+# ===========================================================================
+
+class TestFetchMailsByUids:
+    def test_fetch_mails_by_uids_success(self):
+        fake_conn = FakeIMAPConnection()
+        fake_conn.select_response = ("OK", [b"10"])
+        fake_conn.uid_response = ("OK", [
+            (b"1 (UID 100 FLAGS (\\Seen) BODY[] {10}", b"Subject: T\r\n\r\nBody"),
+            (b"2 (UID 101 FLAGS () BODY[] {10}", b"Subject: T\r\n\r\nBody"),
+        ])
+        client = authenticated_client(fake_conn)
+        mails = client.fetch_mails_by_uids("INBOX", ["100", "101"])
+        assert isinstance(mails, list)
+
+    def test_fetch_mails_by_uids_not_authenticated_raises(self):
+        client = make_client()
+        client.connection = None
+        with pytest.raises(BugException):
+            client.fetch_mails_by_uids("INBOX", ["100"])
+
+
+# ===========================================================================
+# Tests: fetch_attachment
+# ===========================================================================
+
+class TestFetchAttachment:
+    def test_fetch_attachment_not_authenticated_raises(self):
+        client = make_client()
+        client.connection = None
+        with pytest.raises(BugException):
+            client.fetch_attachment("INBOX", "100", "file.txt")
+
+
+# ===========================================================================
+# Tests: _parse_body_structure_for_attachment
+# ===========================================================================
+
+class TestParseBodyStructureForAttachment:
+    def test_parse_body_structure_with_attachment(self):
+        client = make_client()
+        result = client._parse_body_structure_for_attachment(b'("text" "plain")')
+        assert isinstance(result, dict)
+
+
+# ===========================================================================
+# Tests: get_quota (additional)
+# ===========================================================================
+
+class TestGetQuotaFull:
+    def test_get_quota_not_supported_returns_none(self):
+        fake_conn = FakeIMAPConnection()
+        client = authenticated_client(fake_conn)
+        client.capabilities = set()
+        result = client.get_quota()
+        assert result is None
+
+    def test_get_quota_not_authenticated_raises(self):
+        client = make_client()
+        client.connection = None
+        with pytest.raises(BugException):
+            client.get_quota()
+
+
+# ===========================================================================
+# Tests: save_draft (additional)
+# ===========================================================================
+
+class TestSaveDraftFull:
+    def test_save_draft_not_authenticated_raises(self):
+        client = make_client()
+        client.connection = None
+        message = EmailMessage()
+        with pytest.raises(BugException):
+            client.save_draft(message)
+
+
+
+
+# ===========================================================================
+# Tests: delete_mail_permanently_from_folder_type (additional)
+# ===========================================================================
+
+class TestDeleteMailPermanentlyFromFolderTypeFull:
+    def test_delete_mail_permanently_not_authenticated_raises(self):
+        client = make_client()
+        client.connection = None
+        with pytest.raises(BugException):
+            client.delete_mail_permanently_from_folder_type(cs.MAIL_FOLDER_DRAFT, "100")
+
+
+# ===========================================================================
+# Tests: _is_folder_subscribed
+# ===========================================================================
+
+class TestIsFolderSubscribed:
+    def test_is_folder_subscribed_true(self):
+        fake_conn = FakeIMAPConnection()
+        fake_conn.lsub_response = ("OK", [b'(\\Subscribed) "." "INBOX"'])
+        client = authenticated_client(fake_conn)
+        result = client._is_folder_subscribed("INBOX")
+        assert result is True
+
+    def test_is_folder_subscribed_false(self):
+        fake_conn = FakeIMAPConnection()
+        fake_conn.lsub_response = ("OK", [])  # no subscribed folders
+        client = authenticated_client(fake_conn)
+        result = client._is_folder_subscribed("INBOX")
+        assert result is False
+
+    def test_is_folder_subscribed_not_authenticated_raises(self):
+        client = make_client()
+        client.connection = None
+        with pytest.raises(BugException):
+            client._is_folder_subscribed("INBOX")
