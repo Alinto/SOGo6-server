@@ -32,7 +32,8 @@ class ClientSieve(ClientFiltering):
     """
 
     # Sieve commands that are always available and should not be in require
-    BUILTIN_SIEVE_COMMANDS = {"redirect", "copy", "keep", "discard", "stop"}
+    # Note: "copy" is NOT a command, it's a flag on fileinto (:copy) and requires the "copy" extension
+    BUILTIN_SIEVE_COMMANDS = {"redirect", "keep", "discard", "stop"}
 
     def __init__(self, server: str, port: int, encryption: str, auth_mech: str) -> None:
         """
@@ -300,6 +301,9 @@ class ClientSieve(ClientFiltering):
     def _add_filter_to_set(self, filters_set: FiltersSet, filter_item: dict) -> None:
         """Convert a single API filter definition and add it to a FiltersSet.
 
+        Special handling: If the filter uses "cc or to" field, creates two separate
+        filters (one for CC, one for TO) with the same actions to achieve OR logic.
+
         :param filters_set: The FiltersSet to add the filter to.
         :type filters_set: FiltersSet
         :param filter_item: Filter definition with keys: name, enabled, actions, rules.
@@ -315,19 +319,183 @@ class ClientSieve(ClientFiltering):
             return
 
         try:
-            conditions = self._build_sieve_conditions(rules)
-            filters_set.addfilter(
-                name=filter_name,
-                conditions=conditions,
-                actions=self._build_sieve_actions(actions),
-            )
-            logger_sieve.debug("Added filter '%s' to FiltersSet", filter_name)
+            # Check if the top-level rule uses "cc or to" field
+            if self._rule_uses_cc_or_to(rules):
+                # Handle "cc or to" by creating two filters
+                self._add_cc_or_to_filter_to_set(filters_set, filter_item)
+            else:
+                # Normal filter processing
+                conditions, matchtype = self._build_sieve_conditions(rules)
+                filters_set.addfilter(
+                    name=filter_name,
+                    conditions=conditions,
+                    actions=self._build_sieve_actions(actions),
+                    matchtype=matchtype,
+                )
+                logger_sieve.debug("Added filter '%s' to FiltersSet with matchtype=%s", filter_name, matchtype)
         except Exception as e:
             logger_sieve.error("Error adding filter '%s' to FiltersSet: %s", filter_name, e)
             raise RequestException(
                 f"Failed to add filter '{filter_name}': {e}",
                 err.ERROR_SIEVE_SCRIPT_INVALID,
             ) from e
+
+    def _rule_uses_cc_or_to(self, rule_node: dict) -> bool:
+        """Check if a rule tree uses the 'cc or to' field.
+        
+        :param rule_node: A rule node (leaf or group).
+        :type rule_node: dict
+        :return: True if 'cc or to' field is used anywhere in the rule tree.
+        :rtype: bool
+        """
+        if "op" in rule_node:
+            # Group node: check nested rules
+            nested_rules = rule_node.get("rules", [])
+            return any(self._rule_uses_cc_or_to(rule) for rule in nested_rules)
+        else:
+            # Leaf node: check field
+            field = rule_node.get("field", "")
+            return field == "cc or to"
+
+    def _add_cc_or_to_filter_to_set(self, filters_set: FiltersSet, filter_item: dict) -> None:
+        """Handle 'cc or to' field by creating two separate filters.
+        
+        Creates two filters with the same actions but different conditions:
+        - One for CC field
+        - One for TO field
+        
+        This achieves OR logic at the filter level.
+        
+        :param filters_set: The FiltersSet to add filters to.
+        :type filters_set: FiltersSet
+        :param filter_item: Original filter definition with 'cc or to' field.
+        :type filter_item: dict
+        """
+        filter_name = filter_item.get("name", "unknown")
+        actions = filter_item.get("actions", [])
+        rules = filter_item.get("rules", {})
+        
+        # Create two versions of the rules: one with "cc" and one with "to"
+        cc_rules = self._replace_field_in_rules(rules, "cc or to", "cc")
+        to_rules = self._replace_field_in_rules(rules, "cc or to", "to")
+        
+        # Add both filters to the set
+        cc_conditions, cc_matchtype = self._build_sieve_conditions(cc_rules)
+        to_conditions, to_matchtype = self._build_sieve_conditions(to_rules)
+        sieve_actions = self._build_sieve_actions(actions)
+        
+        # Create two filters with suffixes to differentiate them
+        filters_set.addfilter(
+            name=f"{filter_name} (CC)",
+            conditions=cc_conditions,
+            actions=sieve_actions,
+            matchtype=cc_matchtype,
+        )
+        logger_sieve.debug("Added filter '%s' (CC variant) to FiltersSet", filter_name)
+        
+        filters_set.addfilter(
+            name=f"{filter_name} (TO)",
+            conditions=to_conditions,
+            actions=sieve_actions,
+            matchtype=to_matchtype,
+        )
+        logger_sieve.debug("Added filter '%s' (TO variant) to FiltersSet", filter_name)
+
+    def _replace_field_in_rules(self, rule_node: dict, old_field: str, new_field: str) -> dict:
+        """Recursively replace field names in a rule tree.
+        
+        :param rule_node: A rule node (leaf or group).
+        :type rule_node: dict
+        :param old_field: Field name to replace.
+        :type old_field: str
+        :param new_field: Replacement field name.
+        :type new_field: str
+        :return: New rule tree with replaced field names.
+        :rtype: dict
+        """
+        if "op" in rule_node:
+            # Group node: recursively replace in nested rules
+            nested_rules = [self._replace_field_in_rules(rule, old_field, new_field) 
+                          for rule in rule_node.get("rules", [])]
+            return {
+                "op": rule_node.get("op"),
+                "rules": nested_rules
+            }
+        else:
+            # Leaf node: replace field if it matches
+            new_rule = dict(rule_node)  # Shallow copy
+            if new_rule.get("field") == old_field:
+                new_rule["field"] = new_field
+            return new_rule
+
+    def _detect_required_extensions_from_rules(self, rule_node: dict) -> set[str]:
+        """Recursively detect Sieve extensions required by a rule tree.
+        
+        Returns a set of extension names needed:
+        - "body" for body field searches (RFC 5173)
+        
+        :param rule_node: A rule node (leaf or group).
+        :type rule_node: dict
+        :return: Set of extension names required.
+        :rtype: set[str]
+        """
+        required_extensions = set()
+        
+        if "op" in rule_node:
+            # Group node: recursively check nested rules
+            nested_rules = rule_node.get("rules", [])
+            for nested_rule in nested_rules:
+                required_extensions.update(self._detect_required_extensions_from_rules(nested_rule))
+        else:
+            # Leaf node: check the field
+            field = rule_node.get("field", "")
+            if field == "body":
+                required_extensions.add("body")
+        
+        return required_extensions
+
+    def _detect_required_extensions_from_actions(self, actions: list[dict]) -> set[str]:
+        """Recursively detect Sieve extensions required by filter actions.
+        
+        Returns a set of extension names needed:
+        - "fileinto" for fileinto actions
+        - "copy" for fileinto with :copy flag (keep_copy=True)
+        - "mailbox" for fileinto with :create flag
+        - "imap4flags" for imapflags action
+        - "enotify" for notify action
+        
+        :param actions: List of action dicts with keys: method, arguments.
+        :type actions: list[dict]
+        :return: Set of extension names required.
+        :rtype: set[str]
+        """
+        required_extensions = set()
+        
+        for action in actions:
+            method = action.get("method", "").lower()
+            arguments = action.get("arguments", {})
+            
+            if method == "fileinto":
+                # fileinto is an extension (RFC 5228)
+                required_extensions.add("fileinto")
+                
+                # Check for :copy flag (requires "copy" extension)
+                if arguments.get("keep_copy", False):
+                    required_extensions.add("copy")
+                
+                # Check for :create flag (requires "mailbox" extension)
+                if arguments.get("create_if_no_exist", False):
+                    required_extensions.add("mailbox")
+            
+            elif method == "imapflags":
+                # imapflags action requires imap4flags extension (RFC 5232)
+                required_extensions.add("imap4flags")
+            
+            elif method == "notify":
+                # notify action requires enotify extension
+                required_extensions.add("enotify")
+        
+        return required_extensions
 
     def _check_authenticated(self, method_name: str) -> None:
         """Verify that the client is connected and authenticated.
@@ -496,14 +664,25 @@ class ClientSieve(ClientFiltering):
                 try:
                     filters_set = FiltersSet("sogo-rules")
                     for filter_item in filters_list:
-                        if filter_item.get("enabled", 1):
+                        if filter_item.get("enabled", True):
                             self._add_filter_to_set(filters_set, filter_item)
+                            
+                            # Detect required extensions from filter rules
+                            rules = filter_item.get("rules", {})
+                            if rules:
+                                required_exts = self._detect_required_extensions_from_rules(rules)
+                                requires_set.update(required_exts)
+                            
+                            # Detect required extensions from filter actions
+                            # This includes "copy" for :copy flag and "mailbox" for :create
+                            actions = filter_item.get("actions", [])
+                            if actions:
+                                action_exts = self._detect_required_extensions_from_actions(actions)
+                                requires_set.update(action_exts)
 
                     if filters_set.filters:  # Only add if filters exist
                         filters_script = self._render_filters_set(filters_set)
                         merged_script_parts.append((FILTER_SECTION_FILTERS, filters_script))
-                        # Don't add "copy" to requires - it's a native Sieve command
-                        # Only "mailbox" extension is needed if :create is used
                         activated_sections[FILTER_SECTION_FILTERS] = True
                         logger_sieve.debug("Added filters section to merged script")
                 except Exception as e:
@@ -515,20 +694,13 @@ class ClientSieve(ClientFiltering):
 
             # 2. Process forward settings
             forward_config = filters_config.get(FILTER_SECTION_FORWARD)
-            if forward_config and forward_config.get("enabled", 0):
+            if forward_config and forward_config.get("enabled", False):
                 try:
                     forward_addresses = forward_config.get("forwardAddress", [])
                     if forward_addresses:
-                        # Validate all addresses
-                        for address in forward_addresses:
-                            if not self._validate_email(address):
-                                raise RequestException(
-                                    f"Invalid email address for forward: {address}",
-                                    err.ERROR_SIEVE_SCRIPT_INVALID,
-                                )
-
-                        keep_copy = forward_config.get("keepCopy", 0)
-                        always_send = forward_config.get("alwaysSend", 0)
+                        # Addresses are already validated by the Marshmallow schema
+                        keep_copy = forward_config.get("keepCopy", False)
+                        always_send = forward_config.get("alwaysSend", False)
 
                         forward_script = self._build_forward_script(forward_addresses, keep_copy, always_send)
                         merged_script_parts.append((FILTER_SECTION_FORWARD, forward_script))
@@ -546,7 +718,7 @@ class ClientSieve(ClientFiltering):
 
             # 3. Process vacation settings
             vacation_config = filters_config.get(FILTER_SECTION_VACATION)
-            if vacation_config and vacation_config.get("enabled", 0):
+            if vacation_config and vacation_config.get("enabled", False):
                 try:
                     vacation_script = self._build_vacation_script(vacation_config)
                     merged_script_parts.append((FILTER_SECTION_VACATION, vacation_script))
@@ -564,17 +736,11 @@ class ClientSieve(ClientFiltering):
             # NOTE: This section is optional and requires Dovecot to support the 'notify' extension.
             # If the server doesn't support it, we store the configuration but don't add it to the script.
             notification_config = filters_config.get(FILTER_SECTION_NOTIFICATION)
-            if notification_config and notification_config.get("enabled", 0):
+            if notification_config and notification_config.get("enabled", False):
                 try:
                     notify_addresses = notification_config.get("notifyAddresses", [])
                     if notify_addresses:
-                        # Validate all addresses
-                        for address in notify_addresses:
-                            if not self._validate_email(address):
-                                raise RequestException(
-                                    f"Invalid email address for notification: {address}",
-                                    err.ERROR_SIEVE_SCRIPT_INVALID,
-                                )
+                        # Addresses are already validated by the Marshmallow schema
 
                         # Build notification script (will be added to merged script if server supports it)
                         notification_script = self._build_notification_script(notification_config)
@@ -699,26 +865,45 @@ class ClientSieve(ClientFiltering):
                 err.ERROR_SIEVE_SCRIPT_INVALID,
             ) from e
 
-    def _build_sieve_conditions(self, rules: dict) -> list[tuple]:
-        """Convert API rule tree into a flat list of sievelib conditions."""
+    def _build_sieve_conditions(self, rules: dict) -> tuple[list[tuple], str]:
+        """Convert API rule tree into a flat list of sievelib conditions and return matchtype.
+        
+        Returns a tuple of (conditions_list, matchtype) where:
+        - conditions_list: flat list of condition tuples for sievelib
+        - matchtype: "anyof" or "allof" for the top-level grouping
+        
+        :param rules: Rule tree from API (leaf or group node)
+        :type rules: dict
+        :return: Tuple of (conditions list, matchtype string)
+        :rtype: tuple[list[tuple], str]
+        """
         if not rules:
-            return []
+            return [], "allof"
+        
         conditions: list = []
-        self._flatten_rules(rules, conditions)
-        return conditions
+        matchtype_ref: list = ["allof"]  # Default, will be mutated
+        self._flatten_rules(rules, conditions, matchtype_ref)
+        return conditions, matchtype_ref[0]
 
-    def _flatten_rules(self, rule_node: dict, conditions: list, parent_op: str = "and") -> None:
+    def _flatten_rules(self, rule_node: dict, conditions: list, matchtype_ref: list = None, parent_op: str = "and") -> None:
         """Recursively convert a nested rule tree into sievelib condition tuples.
 
-        Preserves AND/OR logic by using sievelib's allof/anyof constructs.
+        Handles both leaf conditions (single rules) and group nodes (multiple rules with AND/OR).
+        For groups with multiple rules, sets the matchtype_ref to reflect the top-level operator.
 
         :param rule_node: A rule node (leaf or group).
         :type rule_node: dict
         :param conditions: The list to append conditions to (mutated).
         :type conditions: list
+        :param matchtype_ref: Single-element list holding the matchtype ("anyof" or "allof"). 
+                              Mutated to track top-level operator.
+        :type matchtype_ref: list | None
         :param parent_op: Parent operator ("and" or "or") for context.
         :type parent_op: str
         """
+        if matchtype_ref is None:
+            matchtype_ref = ["allof"]
+        
         if "op" in rule_node:
             # Group node with multiple rules
             op = rule_node.get("op", "and").lower()
@@ -728,17 +913,13 @@ class ClientSieve(ClientFiltering):
                 return
 
             if len(nested_rules) == 1:
-                # Single rule in group, just process it
-                self._flatten_rules(nested_rules[0], conditions, op)
+                # Single rule in group, just process it recursively
+                self._flatten_rules(nested_rules[0], conditions, matchtype_ref, op)
             else:
-                # Multiple rules: use allof/anyof
-                nested_conditions: list = []
+                # Multiple rules: set matchtype based on operator, then flatten all
+                matchtype_ref[0] = "anyof" if op == "or" else "allof"
                 for nested_rule in nested_rules:
-                    self._flatten_rules(nested_rule, nested_conditions, op)
-
-                if nested_conditions:
-                    group_op = "anyof" if op == "or" else "allof"
-                    conditions.append((group_op, nested_conditions))
+                    self._flatten_rules(nested_rule, conditions, matchtype_ref, op)
         else:
             # Leaf node: a single condition
             field = rule_node.get("field", "")
@@ -746,37 +927,72 @@ class ClientSieve(ClientFiltering):
             value = rule_node.get("value", "")
             custom_header = rule_node.get("custom_header", "")
 
-            mapped_field = self._map_field_name(field, custom_header)
-            mapped_operator = self._map_operator_name(operator)
+            # Special handling for "size" field (uses :size operator, not a regular field)
+            if field == "size":
+                mapped_operator = f":{operator.lower()}"
+                conditions.append(("size", mapped_operator, value))
+                logger_sieve.debug("Added size condition with operator %s and value %s", operator, value)
+            
+            # Special handling for "body" field (RFC 5173 - Body Extension)
+            elif field == "body":
+                mapped_operator = f":{operator.lower()}"
+                # For body, sievelib expects: ("body", ":text", ":contains", "value")
+                conditions.append(("body", ":text", mapped_operator, value))
+                logger_sieve.debug("Added body condition with operator %s and value %s", operator, value)
+            
+            else:
+                # Standard field handling (including cc, header, etc.)
+                mapped_field = self._map_field_name(field, custom_header)
+                mapped_operator = f":{operator.lower()}"
 
-            if mapped_field and mapped_operator:
-                conditions.append((mapped_field, mapped_operator, value))
+                if mapped_field and mapped_operator:
+                    # sievelib expects lists for most operators (e.g., subject, from, to, cc)
+                    # Convert single string value to list
+                    value_for_sieve = [value] if isinstance(value, str) else value
+                    conditions.append((mapped_field, mapped_operator, value_for_sieve))
+                    logger_sieve.debug("Added condition: field=%s, operator=%s, value=%s", mapped_field, mapped_operator, value_for_sieve)
 
     def _map_field_name(self, field: str, custom_header: str = "") -> str:
-        """Map API field names to sievelib field names."""
-        if field in ("subject", "from", "to"):
+        """Map API field names to Sieve field names for use with sievelib.
+        
+        Supports the following field types:
+        - Standard headers: "subject", "from", "to", "cc"
+        - Custom headers: "header" (requires custom_header parameter)
+        - Body: "body" (uses Sieve body extension)
+        - Size: "size" (special operator, maps to empty string as size uses :size operator on any field)
+        
+        The field has already been validated by the schema (FilterRuleSchema).
+        
+        :param field: API field name (pre-validated by schema)
+        :type field: str
+        :param custom_header: Custom header name (used when field == "header")
+        :type custom_header: str
+        :return: Sieve field name (or empty string for special cases like "size")
+        :rtype: str
+        """
+        # Standard headers that map directly to Sieve
+        if field in ("subject", "from", "to", "cc"):
             return field
-        if field == "header" and custom_header:
-            return custom_header
-        if field not in ("subject", "from", "to"):
-            logger_sieve.warning("Unknown field name: %s", field)
+        
+        # Custom header field
+        if field == "header":
+            if custom_header:
+                return custom_header
+            logger_sieve.warning("header field used but no custom_header specified")
+            return ""
+        
+        # Body field (requires body extension in Sieve)
+        if field == "body":
+            return "body"
+        
+        # Size field (uses :size operator, returns empty since size works differently)
+        # In Sieve, :size is an operator applied to the message, not a header field
+        if field == "size":
+            return ""
+        
+        # Unknown field - should have been caught by schema validation
+        logger_sieve.warning("Unknown field name: %s", field)
         return field
-
-    def _map_operator_name(self, operator: str) -> str:
-        """Map API operator names to sievelib operator names with ':' prefix."""
-        mapping = {
-            "contains": ":contains", "is": ":is", "equals": ":is",
-            "starts-with": ":startswith", "starts_with": ":startswith", "startswith": ":startswith",
-            "ends-with": ":endswith", "ends_with": ":endswith", "endswith": ":endswith",
-            "matches": ":matches", "regex": ":regex",
-            "not-contains": ":notcontains", "not_contains": ":notcontains", "notcontains": ":notcontains",
-            "exists": ":exists", "size": ":size",
-        }
-        mapped = mapping.get(operator.lower())
-        if mapped:
-            return mapped
-        logger_sieve.warning("Unknown operator name: %s, using as-is", operator)
-        return f":{operator.lower()}" if not operator.lower().startswith(":") else operator.lower()
 
     def _build_sieve_actions(self, actions: list[dict]) -> list:
         """Convert API action definitions into sievelib action definitions.
@@ -804,10 +1020,34 @@ class ClientSieve(ClientFiltering):
                 self._add_redirect_action(sieve_actions, arguments)
             
             elif method == "copy":
+                # Copy is no longer a standalone action in Sieve (it's a flag on fileinto)
                 self._add_copy_action(sieve_actions, arguments)
             
-            elif method == "removeheader":
-                self._add_removeheader_action(sieve_actions, arguments)
+            elif method == "reject":
+                # Reject action can have an optional message
+                message = arguments.get("message", "")
+                if message:
+                    sieve_actions.append(("reject", message))
+                    logger_sieve.debug("Added reject action with message")
+                else:
+                    sieve_actions.append(("reject",))
+                    logger_sieve.debug("Added reject action")
+            
+            elif method == "imapflags":
+                flags = arguments.get("flags", [])
+                if flags:
+                    for flag in flags:
+                        sieve_actions.append(("addflag", flag))
+                    logger_sieve.debug("Added addflag action with flags: %s", flags)
+                else:
+                    logger_sieve.warning("imapflags action has no flags, skipping")
+            
+            elif method == "notify":
+                method_val = arguments.get("method", "mailto")
+                priority = arguments.get("priority", "normal")
+                message_text = arguments.get("message_text", "")
+                sieve_actions.append(("notify", method_val, priority, message_text))
+                logger_sieve.debug("Added notify action")
             
             else:
                 logger_sieve.warning("Unknown filter action method: %s", method)
@@ -815,57 +1055,96 @@ class ClientSieve(ClientFiltering):
         return sieve_actions
 
     def _add_fileinto_action(self, actions_list: list, arguments: dict) -> None:
-        """Helper to add a fileinto action."""
-        folder = arguments.get("folder", "")
-        if not folder:
-            logger_sieve.warning("fileinto action has no folder, skipping")
+        """Helper to add fileinto action(s).
+        
+        Supports multiple folders and the :copy flag:
+        - Single folder (backward compatible): arguments.get("folder")
+        - Multiple folders: arguments.get("folders") list
+        - Copy flag: arguments.get("keep_copy") boolean
+        
+        For each folder, adds a fileinto action to the actions list, optionally with :copy flag.
+        
+        In Sieve syntax:
+        - Without copy: fileinto "Folder";
+        - With copy: fileinto :copy "Folder";
+        """
+        folders = arguments.get("folders", [])
+        
+        # Backward compatibility: if no folders list, try single folder
+        if not folders:
+            folder = arguments.get("folder", "")
+            if folder:
+                folders = [folder]
+        
+        if not folders:
+            logger_sieve.warning("fileinto action has no folder(s), skipping")
             return
+        
         create_flag = (":create",) if arguments.get("create_if_no_exist", False) else ()
-        actions_list.append(("fileinto", *create_flag, folder))
-        logger_sieve.debug("Added fileinto action for folder: %s", folder)
+        copy_flag = (":copy",) if arguments.get("keep_copy", False) else ()
+        
+        # Add a fileinto action for each folder
+        for folder in folders:
+            if not folder or not isinstance(folder, str):
+                logger_sieve.warning("Skipping invalid folder: %s", folder)
+                continue
+            actions_list.append(("fileinto", *copy_flag, *create_flag, folder))
+            log_msg = f"Added fileinto action for folder: {folder}"
+            if arguments.get("keep_copy", False):
+                log_msg += " (with :copy flag)"
+            logger_sieve.debug(log_msg)
 
     def _add_redirect_action(self, actions_list: list, arguments: dict) -> None:
-        """Helper to add a redirect action."""
-        address = arguments.get("address", "")
-        if not address:
-            logger_sieve.warning("redirect action has no address, skipping")
+        """Helper to add redirect action(s).
+        
+        Supports multiple addresses:
+        - Single address (backward compatible): arguments.get("address")
+        - Multiple addresses: arguments.get("addresses") list
+        
+        For each address, adds a separate redirect action to the actions list.
+        
+        In Sieve syntax, each redirect address becomes a separate action:
+        - redirect "admin@example.com";
+        - redirect "boss@example.com";
+        
+        :param actions_list: List to append redirect actions to.
+        :type actions_list: list
+        :param arguments: Action arguments dict containing address(es).
+        :type arguments: dict
+        """
+        addresses = arguments.get("addresses", [])
+        
+        # Backward compatibility: if no addresses list, try single address
+        if not addresses:
+            address = arguments.get("address", "")
+            if address:
+                addresses = [address]
+        
+        if not addresses:
+            logger_sieve.warning("redirect action has no address(es), skipping")
             return
-        if not self._validate_email(address):
-            logger_sieve.warning("Invalid email address for redirect: %s", address)
-            return
-        actions_list.append(("redirect", address))
-        logger_sieve.debug("Added redirect action to: %s", address)
+        
+        # Add a redirect action for each address
+        for address in addresses:
+            if not address or not isinstance(address, str):
+                logger_sieve.warning("Skipping invalid redirect address: %s", address)
+                continue
+            # Address is already validated by the Marshmallow schema
+            actions_list.append(("redirect", address))
+            logger_sieve.debug("Added redirect action to: %s", address)
 
     def _add_copy_action(self, actions_list: list, arguments: dict) -> None:
-        """Helper to add a copy action."""
-        folder = arguments.get("folder", "")
-        if not folder:
-            logger_sieve.warning("copy action has no folder, skipping")
-            return
-        create_flag = (":create",) if arguments.get("create_if_no_exist", False) else ()
-        actions_list.append(("copy", *create_flag, folder))
-        logger_sieve.debug("Added copy action for folder: %s", folder)
-
-    def _add_removeheader_action(self, actions_list: list, arguments: dict) -> None:
-        """Helper to add a removeheader action."""
-        header_name = arguments.get("header_name", "")
-        if not header_name:
-            logger_sieve.warning("removeheader action has no header_name, skipping")
-            return
-        actions_list.append(("removeheader", header_name))
-        logger_sieve.debug("Added removeheader action for: %s", header_name)
-
-    def _validate_email(self, email: str) -> bool:
-        """Validate email address format.
-
-        :param email: Email address to validate.
-        :type email: str
-        :return: True if valid, False otherwise.
-        :rtype: bool
+        """Deprecated: copy is not a standalone action in Sieve.
+        
+        In Sieve, copy is a flag (:copy) applied to fileinto, not a standalone action.
+        This method is kept for backward compatibility and logs a deprecation warning.
+        
+        Use method="fileinto" with keep_copy=True instead.
         """
-        # Simple regex for email validation
-        pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-        return re.match(pattern, email) is not None
+        logger_sieve.warning(
+            "Copy action is deprecated and not supported. "
+            "Use fileinto action with keep_copy=True instead (Sieve :copy flag)."
+        )
 
     def _parse_vacation_datetime(self, dt_str: str | None, default_tz: str = "UTC") -> tuple[str | None, str | None, str | None]:
         """Parse a vacation datetime string with optional timezone.
@@ -1124,10 +1403,10 @@ class ClientSieve(ClientFiltering):
 
         :param forward_addresses: List of email addresses to forward to.
         :type forward_addresses: list[str]
-        :param keep_copy: Whether to keep a copy (0 or 1).
-        :type keep_copy: int
-        :param always_send: Whether to forward even if sender is unknown (0 or 1).
-        :type always_send: int
+        :param keep_copy: Whether to keep a copy.
+        :type keep_copy: bool
+        :param always_send: Whether to forward even if sender is unknown.
+        :type always_send: bool
         :return: The forward Sieve script (without require clause).
         :rtype: str
         """
@@ -1144,7 +1423,7 @@ class ClientSieve(ClientFiltering):
         else:
             script += 'discard;\n'
 
-        logger_sieve.debug("Generated forward script (keepCopy=%d, alwaysSend=%d):\n%s", keep_copy, always_send, script)
+        logger_sieve.debug("Generated forward script (keepCopy=%s, alwaysSend=%s):\n%s", keep_copy, always_send, script)
         return script
 
     def _build_notification_script(self, notification_config: dict) -> str:
@@ -1166,12 +1445,7 @@ class ClientSieve(ClientFiltering):
             logger_sieve.warning("No notification addresses provided")
             return ""
 
-        for address in notify_addresses:
-            if not self._validate_email(address):
-                raise RequestException(
-                    f"Invalid email address for notification: {address}",
-                    err.ERROR_SIEVE_SCRIPT_INVALID,
-                )
+        # Addresses are already validated by the Marshmallow schema
 
         if not notify_message:
             notify_message = "A mail event has been triggered."
