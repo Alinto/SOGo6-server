@@ -160,8 +160,8 @@ class ModuleFilter:
         :rtype: bool
         """
         if isinstance(value, list):
-            return any(bool(f.get("enabled", 1)) for f in value if isinstance(f, dict))
-        return isinstance(value, dict) and bool(value.get("enabled", 0))
+            return any(bool(f.get("enabled", True)) for f in value if isinstance(f, dict))
+        return isinstance(value, dict) and bool(value.get("enabled", False))
 
     def set_section(self, section_key: str, value: Any) -> dict[str, Any]:
         """Replace one section of the stored filters column and push to Sieve.
