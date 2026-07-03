@@ -54,7 +54,7 @@ class InterfaceApiMailFilter:
         """Replace the ``Vacation`` section for the current user.
 
         Automatically adds the user's timezone to the vacation config if not specified,
-        so that startDate/endDate without explicit timezone use the user's timezone.
+        so that start_date/end_date without explicit timezone use the user's timezone.
 
         :param vacation: Validated vacation settings dict.
         :type vacation: dict[str, Any]

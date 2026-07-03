@@ -3,6 +3,10 @@ from typing import Callable, TypeVar, ParamSpec
 import re
 from socket import timeout as sock_timeout, gaierror, error as sock_error
 from datetime import datetime
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    from backports.zoneinfo import ZoneInfo
 
 from sievelib.managesieve import Client, Error as SieveError
 from sievelib.factory import FiltersSet
@@ -12,6 +16,7 @@ from app.utils.logger.logger import logger_sieve
 from app.manager.mail.ClientFiltering import ClientFiltering
 from app.utils import errors as err
 from app.utils import constants as cs
+from app.utils.datetime.DateTimeUtils import parse_vacation_datetime
 from app.utils.constants import (
     FILTER_SECTION_FILTERS,
     FILTER_SECTION_VACATION,
@@ -24,6 +29,103 @@ R = TypeVar("R")
 
 # Name of the single active Sieve script that merges all sections (filters, vacation, forward, notification).
 SIEVE_MASTER_SCRIPT = "sogo-master"
+
+
+# ---------------------------------------------------------------------------
+# Vacation Condition Data Class
+# ---------------------------------------------------------------------------
+
+class VacationConditions:
+    """Encapsulates all condition parameters for vacation filtering.
+    
+    Represents the filtering criteria for determining when a vacation reply should be sent:
+    - Fixed date/time ranges (start/end with optional embedded times and timezones)
+    - Recurring daily time windows (start_time to end_time, every day)
+    - Specific weekdays (0-6, where 0 is Sunday)
+    
+    All three condition types are ALTERNATIVES (OR logic): vacation activates if ANY is true.
+    """
+    
+    def __init__(
+        self,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        start_tz: str | None = None,
+        end_tz: str | None = None,
+        start_date_time: str | None = None,
+        end_date_time: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        weekdays_enabled: bool = False,
+        weekday: list | None = None,
+    ):
+        """Initialize vacation condition parameters.
+        
+        :param start_date: Start date in YYYY-MM-DD format (or None)
+        :param end_date: End date in YYYY-MM-DD format (or None)
+        :param start_tz: Timezone for start_date (already in Sieve format)
+        :param end_tz: Timezone for end_date (already in Sieve format)
+        :param start_date_time: Start time extracted from start_date (HH:MM:SS or None)
+        :param end_date_time: End time extracted from end_date (HH:MM:SS or None)
+        :param start_time: Recurring start time in HH:MM or HH:MM:SS format (independent, or None)
+        :param end_time: Recurring end time in HH:MM or HH:MM:SS format (independent, or None)
+        :param weekdays_enabled: Whether weekday filtering is enabled
+        :param weekday: List of weekday numbers (0-6)
+        """
+        self.start_date = start_date
+        self.end_date = end_date
+        self.start_tz = start_tz
+        self.end_tz = end_tz
+        self.start_date_time = start_date_time
+        self.end_date_time = end_date_time
+        self.start_time = start_time
+        self.end_time = end_time
+        self.weekdays_enabled = weekdays_enabled
+        self.weekday = weekday if weekday is not None else []
+    
+    @classmethod
+    def from_vacation_config(
+        cls,
+        start_date_raw: str | None,
+        end_date_raw: str | None,
+        default_timezone: str,
+        start_time: str | None,
+        end_time: str | None,
+        weekdays_enabled: bool,
+        weekday: list | None,
+        parse_datetime_func: Callable,
+    ) -> "VacationConditions":
+        """Factory method to create VacationConditions from raw vacation config.
+        
+        Parses dates with timezone awareness and extracts time components.
+        
+        :param start_date_raw: Raw start date string (may include time/timezone)
+        :param end_date_raw: Raw end date string (may include time/timezone)
+        :param default_timezone: Default timezone if not specified in dates
+        :param start_time: Independent recurring start time
+        :param end_time: Independent recurring end time
+        :param weekdays_enabled: Whether weekday filtering is enabled
+        :param weekday: List of weekday numbers
+        :param parse_datetime_func: Function to parse dates (typically _parse_vacation_datetime)
+        :return: Initialized VacationConditions instance
+        """
+        # Parse dates with timezone awareness
+        # Returns (date_str, time_str, tz_normalized)
+        start_date_str, start_date_time, start_tz = parse_datetime_func(start_date_raw, default_timezone)
+        end_date_str, end_date_time, end_tz = parse_datetime_func(end_date_raw, default_timezone)
+        
+        return cls(
+            start_date=start_date_str,
+            end_date=end_date_str,
+            start_tz=start_tz,
+            end_tz=end_tz,
+            start_date_time=start_date_time,
+            end_date_time=end_date_time,
+            start_time=start_time,
+            end_time=end_time,
+            weekdays_enabled=weekdays_enabled,
+            weekday=weekday,
+        )
 
 
 class ClientSieve(ClientFiltering):
@@ -627,10 +729,10 @@ class ClientSieve(ClientFiltering):
         'sogo-master' which is then activated. Individual scripts are deleted to
         keep the server clean.
 
-        The merged script follows this order:
-        1. Forward rules (redirect or keep+copy)
-        2. Filter rules (custom rules)
-        3. Vacation auto-reply
+        The merged script order depends on forward and vacation priority (controlled by always_send):
+        - If forward.always_send=True: Forward first, then (Vacation if always_send), then Filters, then Notification
+        - Else if vacation.always_send=True: Vacation first, then Forward, then Filters, then Notification
+        - Otherwise: Forward, then Filters, then Vacation, then Notification
 
         :param filters_config: Complete filters dict with keys: 'filters', 'Vacation',
                               'Forward', 'Notification'.
@@ -658,7 +760,75 @@ class ClientSieve(ClientFiltering):
             merged_script_parts = []
             requires_set = set()
 
-            # 1. Process filters (rules)
+            # Check priority flags for both forward and vacation
+            forward_config = filters_config.get(FILTER_SECTION_FORWARD)
+            vacation_config = filters_config.get(FILTER_SECTION_VACATION)
+            
+            forward_has_priority = forward_config and forward_config.get("enabled", False) and forward_config.get("always_send", False)
+            vacation_has_priority = vacation_config and vacation_config.get("enabled", False) and vacation_config.get("always_send", False)
+
+            # If forward has priority, process it first
+            if forward_has_priority:
+                try:
+                    forward_addresses = forward_config.get("forward_address", [])
+                    if forward_addresses:
+                        # Addresses are already validated by the Marshmallow schema
+                        keep_copy = forward_config.get("keep_copy", False)
+                        always_send = forward_config.get("always_send", False)
+
+                        forward_script = self._build_forward_script(forward_addresses, keep_copy, always_send)
+                        merged_script_parts.append((FILTER_SECTION_FORWARD, forward_script))
+                        # Don't add "redirect" or "copy" to requires - they are native Sieve commands
+                        logger_sieve.debug("Added forward section to merged script (with priority)")
+                        activated_sections[FILTER_SECTION_FORWARD] = True
+                except RequestException:
+                    raise
+                except Exception as e:
+                    logger_sieve.error("Error processing forward section: %s", e)
+                    raise RequestException(
+                        f"Failed to process forward: {e}",
+                        err.ERROR_SIEVE_SCRIPT_INVALID,
+                    ) from e
+
+            # If vacation has priority, process it second
+            if vacation_has_priority:
+                try:
+                    vacation_script = self._build_vacation_script(vacation_config)
+                    merged_script_parts.append((FILTER_SECTION_VACATION, vacation_script))
+                    requires_set.add("vacation")
+                    activated_sections[FILTER_SECTION_VACATION] = True
+                    logger_sieve.debug("Added vacation section to merged script (with priority)")
+                except Exception as e:
+                    logger_sieve.error("Error processing vacation section: %s", e)
+                    raise RequestException(
+                        f"Failed to process vacation: {e}",
+                        err.ERROR_SIEVE_SCRIPT_INVALID,
+                    ) from e
+
+            # 1. Process forward settings (if not already processed with priority)
+            if not forward_has_priority and forward_config and forward_config.get("enabled", False):
+                try:
+                    forward_addresses = forward_config.get("forward_address", [])
+                    if forward_addresses:
+                        # Addresses are already validated by the Marshmallow schema
+                        keep_copy = forward_config.get("keep_copy", False)
+                        always_send = forward_config.get("always_send", False)
+
+                        forward_script = self._build_forward_script(forward_addresses, keep_copy, always_send)
+                        merged_script_parts.append((FILTER_SECTION_FORWARD, forward_script))
+                        # Don't add "redirect" or "copy" to requires - they are native Sieve commands
+                        logger_sieve.debug("Added forward section to merged script")
+                        activated_sections[FILTER_SECTION_FORWARD] = True
+                except RequestException:
+                    raise
+                except Exception as e:
+                    logger_sieve.error("Error processing forward section: %s", e)
+                    raise RequestException(
+                        f"Failed to process forward: {e}",
+                        err.ERROR_SIEVE_SCRIPT_INVALID,
+                    ) from e
+
+            # 2. Process filters (rules)
             filters_list = filters_config.get(FILTER_SECTION_FILTERS, [])
             if filters_list:
                 try:
@@ -692,33 +862,8 @@ class ClientSieve(ClientFiltering):
                         err.ERROR_SIEVE_SCRIPT_INVALID,
                     ) from e
 
-            # 2. Process forward settings
-            forward_config = filters_config.get(FILTER_SECTION_FORWARD)
-            if forward_config and forward_config.get("enabled", False):
-                try:
-                    forward_addresses = forward_config.get("forwardAddress", [])
-                    if forward_addresses:
-                        # Addresses are already validated by the Marshmallow schema
-                        keep_copy = forward_config.get("keepCopy", False)
-                        always_send = forward_config.get("alwaysSend", False)
-
-                        forward_script = self._build_forward_script(forward_addresses, keep_copy, always_send)
-                        merged_script_parts.append((FILTER_SECTION_FORWARD, forward_script))
-                        # Don't add "redirect" or "copy" to requires - they are native Sieve commands
-                        logger_sieve.debug("Added forward section to merged script")
-                        activated_sections[FILTER_SECTION_FORWARD] = True
-                except RequestException:
-                    raise
-                except Exception as e:
-                    logger_sieve.error("Error processing forward section: %s", e)
-                    raise RequestException(
-                        f"Failed to process forward: {e}",
-                        err.ERROR_SIEVE_SCRIPT_INVALID,
-                    ) from e
-
-            # 3. Process vacation settings
-            vacation_config = filters_config.get(FILTER_SECTION_VACATION)
-            if vacation_config and vacation_config.get("enabled", False):
+            # 3. Process vacation settings (if not already processed with priority)
+            if not vacation_has_priority and vacation_config and vacation_config.get("enabled", False):
                 try:
                     vacation_script = self._build_vacation_script(vacation_config)
                     merged_script_parts.append((FILTER_SECTION_VACATION, vacation_script))
@@ -738,7 +883,7 @@ class ClientSieve(ClientFiltering):
             notification_config = filters_config.get(FILTER_SECTION_NOTIFICATION)
             if notification_config and notification_config.get("enabled", False):
                 try:
-                    notify_addresses = notification_config.get("notifyAddresses", [])
+                    notify_addresses = notification_config.get("notify_addresses", [])
                     if notify_addresses:
                         # Addresses are already validated by the Marshmallow schema
 
@@ -1019,10 +1164,6 @@ class ClientSieve(ClientFiltering):
             elif method == "redirect":
                 self._add_redirect_action(sieve_actions, arguments)
             
-            elif method == "copy":
-                # Copy is no longer a standalone action in Sieve (it's a flag on fileinto)
-                self._add_copy_action(sieve_actions, arguments)
-            
             elif method == "reject":
                 # Reject action can have an optional message
                 message = arguments.get("message", "")
@@ -1133,104 +1274,118 @@ class ClientSieve(ClientFiltering):
             actions_list.append(("redirect", address))
             logger_sieve.debug("Added redirect action to: %s", address)
 
-    def _add_copy_action(self, actions_list: list, arguments: dict) -> None:
-        """Deprecated: copy is not a standalone action in Sieve.
-        
-        In Sieve, copy is a flag (:copy) applied to fileinto, not a standalone action.
-        This method is kept for backward compatibility and logs a deprecation warning.
-        
-        Use method="fileinto" with keep_copy=True instead.
-        """
-        logger_sieve.warning(
-            "Copy action is deprecated and not supported. "
-            "Use fileinto action with keep_copy=True instead (Sieve :copy flag)."
-        )
 
     def _parse_vacation_datetime(self, dt_str: str | None, default_tz: str = "UTC") -> tuple[str | None, str | None, str | None]:
         """Parse a vacation datetime string with optional timezone.
         
-        Supports formats:
-        - Date only: "2026-06-15" → returns (date, None, default_tz)
-        - DateTime: "2026-06-15T14:30:00" → returns (date, time, default_tz)
-        - DateTime with +HH:MM: "2026-06-15T14:30:00+0100" → returns (date, time, extracted_tz)
-        - DateTime with :Zone: "2026-06-15T14:30:00:Europe/Paris" → returns (date, time, "Europe/Paris")
-        - DateTime with Z: "2026-06-15T14:30:00Z" → returns (date, time, "UTC")
+        Wrapper around the utility function from DateTimeUtils for backward compatibility.
+        This method delegates to the module-level parse_vacation_datetime function, passing
+        the _convert_tz_to_sieve_format method as the timezone converter.
         
         :param dt_str: DateTime string to parse
-        :param default_tz: Default timezone if none specified in the string
-        :return: Tuple of (date_str, time_str, timezone_str) - time_str is None for date-only
+        :param default_tz: Default timezone if none specified in the string (can be IANA name or offset)
+        :return: Tuple of (date_str, time_str, timezone_str_sieve_format) - time_str is None for date-only
         """
-        if not dt_str or not isinstance(dt_str, str):
-            return None, None, default_tz
+        return parse_vacation_datetime(dt_str, default_tz, self._convert_tz_to_sieve_format)
+
+    def _convert_tz_to_sieve_format(self, tz_str: str, date_str: str = None) -> str:
+        """Convert a timezone string to Sieve-compatible UTC offset format.
         
-        dt_str = dt_str.strip()
-        if not dt_str:
-            return None, None, default_tz
+        RFC 5260 (Sieve Date extension) :zone parameter accepts only UTC offsets
+        in the format "+HHMM" or "-HHMM" (e.g., "+0200", "-0500").
         
-        # Check if it's date-only (YYYY-MM-DD)
-        if len(dt_str) == 10 and dt_str.count("-") == 2:
-            try:
-                datetime.strptime(dt_str, "%Y-%m-%d")
-                return dt_str, None, default_tz
-            except ValueError:
-                return None, None, default_tz
+        This method:
+        - Passes through existing UTC offsets (+HHMM, -HHMM, Z)
+        - Converts IANA timezone names (e.g., "Europe/Paris") to their UTC offset AT the specified date
+        - Defaults to "+0000" (UTC) if conversion fails
         
-        # Try to parse datetime with timezone
-        if "T" not in dt_str:
-            return None, None, default_tz
+        :param tz_str: Timezone string (IANA name or UTC offset)
+        :type tz_str: str
+        :param date_str: Optional date in YYYY-MM-DD format to get the exact offset on that date
+                        (useful for DST transitions). If not provided, uses current date.
+        :type date_str: str
+        :return: UTC offset in Sieve format (e.g., "+0200")
+        :rtype: str
+        """
+        if not tz_str:
+            return "+0000"
         
-        date_part, time_part = dt_str.split("T", 1)
+        tz_str = tz_str.strip()
         
-        # Validate date part
+        # Already in UTC offset format (+/-HHMM or +/-HH:MM)
+        if tz_str[0] in ("+", "-"):
+            # Normalize to +HHMM format (remove colon if present)
+            return tz_str.replace(":", "")
+        
+        # Handle Z (UTC)
+        if tz_str.upper() == "Z":
+            return "+0000"
+        
+        # Handle UTC/GMT special cases
+        if tz_str.upper() in ("UTC", "GMT"):
+            return "+0000"
+        
+        # Try to convert IANA timezone name to UTC offset at the specified date
         try:
-            datetime.strptime(date_part, "%Y-%m-%d")
-        except ValueError:
-            return None, None, default_tz
-        
-        extracted_tz = default_tz
-        
-        # Check for timezone info
-        if time_part.endswith("Z"):
-            # UTC marker
-            time_only = time_part[:-1]
-            extracted_tz = "UTC"
-        elif "+" in time_part:
-            # Format with +HH:MM or +HHMM
-            idx = time_part.rfind("+")
-            time_only = time_part[:idx]
-            tz_offset = time_part[idx:]  # Keep as "+HH:MM" or "+HHMM"
-            extracted_tz = tz_offset
-        elif time_part.count("-") > 0 and time_part.rfind("-") > 7:
-            # Format with -HH:MM (negative UTC offset)
-            # Find the last dash; only treat as timezone if it appears after the minimum time length
-            idx = time_part.rfind("-")
-            if idx > 0:
-                time_only = time_part[:idx]
-                tz_offset = time_part[idx:]
-                extracted_tz = tz_offset
+            tz_info = ZoneInfo(tz_str)
+            
+            # If a date is provided, use it to get the correct offset (accounting for DST)
+            if date_str:
+                try:
+                    dt = datetime.strptime(date_str, "%Y-%m-%d")
+                    dt_with_tz = dt.replace(tzinfo=tz_info)
+                except ValueError:
+                    # Invalid date format, fall back to current date
+                    dt_with_tz = datetime.now(tz_info)
             else:
-                time_only = time_part
-        elif ":" in time_part and time_part.count(":") > 2:
-            # Check for :Zone format (e.g., "14:30:00:Europe/Paris")
-            # If more than 2 colons (HH:MM:SS = 2), there might be a timezone
-            parts = time_part.rsplit(":", 1)
-            time_only = parts[0]
-            tz_candidate = parts[1]
-            # Validate it looks like a timezone (contains / or other valid indicators)
-            if "/" in tz_candidate or tz_candidate.startswith("UTC") or tz_candidate.startswith("GMT"):
-                extracted_tz = tz_candidate
-            else:
-                # Not a timezone, just regular time
-                time_only = time_part
+                # Use current date/time
+                dt_with_tz = datetime.now(tz_info)
+            
+            offset = dt_with_tz.utcoffset()
+            if offset is None:
+                return "+0000"
+            
+            # Convert timedelta to +/-HHMM format
+            total_seconds = int(offset.total_seconds())
+            hours, remainder = divmod(abs(total_seconds), 3600)
+            minutes = remainder // 60
+            sign = "-" if total_seconds < 0 else "+"
+            return f"{sign}{hours:02d}{minutes:02d}"
+        except (KeyError, ValueError, Exception) as e:
+            logger_sieve.warning(
+                "Could not convert timezone '%s' to UTC offset: %s. Using UTC (+0000).",
+                tz_str, str(e)
+            )
+            return "+0000"
+
+    def _normalize_time_to_sieve(self, time_str: str) -> str:
+        """Normalize a time string to HH:MM:SS format for Sieve.
+        
+        Accepts:
+        - "HH:MM" → "HH:MM:00"
+        - "HH:MM:SS" → "HH:MM:SS"
+        
+        :param time_str: Time string in HH:MM or HH:MM:SS format
+        :type time_str: str
+        :return: Normalized time in HH:MM:SS format
+        :rtype: str
+        """
+        if not time_str:
+            return "00:00:00"
+        
+        time_str = time_str.strip()
+        parts = time_str.split(":")
+        
+        if len(parts) == 2:
+            # HH:MM → HH:MM:00
+            return f"{parts[0]}:{parts[1]}:00"
+        elif len(parts) == 3:
+            # Already HH:MM:SS
+            return time_str
         else:
-            # No timezone info
-            time_only = time_part
-        
-        # Return parsed components
-        if time_only and len(time_only.split(":")) >= 2:
-            return date_part, time_only, extracted_tz
-        
-        return date_part, None, extracted_tz
+            # Invalid format, return default
+            logger_sieve.warning("Invalid time format: %s, using 00:00:00", time_str)
+            return "00:00:00"
 
     def _build_vacation_script(self, vacation_config: dict) -> str:
         """Build a Sieve vacation script with advanced filtering options.
@@ -1238,13 +1393,13 @@ class ClientSieve(ClientFiltering):
         Supports date/time/weekday filtering with timezone awareness, custom subject, and auto-reply text.
         
         Timezone precedence:
-        - If startDate/endDate have explicit timezone (e.g., +0100 or :Europe/Paris), use that
+        - If start_date/end_date have explicit timezone (e.g., +0100 or :Europe/Paris), use that
         - Else if 'timezone' field is present in config, use it
         - Else use "UTC" as default
 
         :param vacation_config: Complete vacation settings dict with all fields.
-                              Must include: enabled, customSubject, customSubjectEnabled, autoReplyText,
-                              startDate, endDate, timezone, startTime, endTime, weekdaysEnabled, days
+                              Must include: enabled, custom_subject, custom_subject_enabled, auto_reply_text,
+                              start_date, end_date, timezone, start_time, end_time, weekdays_enabled, weekday, days
         :type vacation_config: dict
         :return: The vacation Sieve script.
         :rtype: str
@@ -1253,47 +1408,65 @@ class ClientSieve(ClientFiltering):
         logger_sieve.debug("Building vacation script with config: %s", vacation_config)
         
         # Extract fields
-        subject = vacation_config.get("customSubject", "")
-        custom_subject_enabled = vacation_config.get("customSubjectEnabled", False)
-        message = vacation_config.get("autoReplyText", "")
-        start_date_raw = vacation_config.get("startDate")
-        end_date_raw = vacation_config.get("endDate")
+        subject = vacation_config.get("custom_subject", "")
+        custom_subject_enabled = vacation_config.get("custom_subject_enabled", False)
+        message = vacation_config.get("auto_reply_text", "")
+        start_date_raw = vacation_config.get("start_date")
+        end_date_raw = vacation_config.get("end_date")
         default_timezone = vacation_config.get("timezone", "UTC")
-        start_time = vacation_config.get("startTime")
-        end_time = vacation_config.get("endTime")
-        weekdays_enabled = vacation_config.get("weekdaysEnabled", False)
-        days = vacation_config.get("days", [])
+        start_time = vacation_config.get("start_time")
+        end_time = vacation_config.get("end_time")
+        weekdays_enabled = vacation_config.get("weekdays_enabled", False)
+        weekday = vacation_config.get("weekday", [])
+        days = vacation_config.get("days")  # RFC 5230 :days parameter (integer or None)
 
-        # Parse dates with timezone awareness
-        start_date_str, _, start_tz = self._parse_vacation_datetime(start_date_raw, default_timezone)
-        end_date_str, _, end_tz = self._parse_vacation_datetime(end_date_raw, default_timezone)
-
-        # Fallback to default subject if custom subject is not enabled or empty
-        if not custom_subject_enabled or not subject:
-            subject = "Auto: Away"
-
-        # Escape subject and message for Sieve (single pass, not repeated)
-        subject_escaped = subject.replace('"', '\\"').replace('\\', '\\\\')
+        # Create VacationConditions object from raw config
+        vacation_conditions = VacationConditions.from_vacation_config(
+            start_date_raw=start_date_raw,
+            end_date_raw=end_date_raw,
+            default_timezone=default_timezone,
+            start_time=start_time,
+            end_time=end_time,
+            weekdays_enabled=weekdays_enabled,
+            weekday=weekday,
+            parse_datetime_func=self._parse_vacation_datetime,
+        )
+        
+        # Escape message for Sieve
         message_escaped = message.replace('"', '\\"').replace('\\', '\\\\').replace('\n', '\\n')
 
         # Build requires clause
         requires = ['vacation']
         
         # Add extensions needed for advanced filtering
-        if (start_date_str or end_date_str or start_time or end_time or 
-            (weekdays_enabled and days)):
+        if (vacation_conditions.start_date or vacation_conditions.end_date or 
+            vacation_conditions.start_time or vacation_conditions.end_time or 
+            (vacation_conditions.weekdays_enabled and vacation_conditions.weekday)):
             requires.extend(['relational', 'date', 'comparator-i;ascii-numeric'])
 
         # Build script
         script = 'require [' + ', '.join(f'"{req}"' for req in requires) + '];\n\n'
 
         # Build condition block if any filtering is needed
-        conditions = self._build_vacation_conditions(
-            start_date_str, end_date_str, start_tz, end_tz, start_time, end_time, weekdays_enabled, days
-        )
+        conditions = self._build_vacation_conditions(vacation_conditions)
 
         # Build vacation parameters
-        vacation_params = [':subject', f'"{subject_escaped}"', f'"{message_escaped}"']
+        # Sieve syntax: vacation [:days N] [:subject "..."] "message";
+        vacation_params = []
+        
+        # Add RFC 5230 :days parameter first (before :subject)
+        if days is not None and days > 0:
+            vacation_params.append(':days')
+            vacation_params.append(str(days))
+        
+        # Add custom subject if enabled
+        if custom_subject_enabled and subject:
+            subject_escaped = subject.replace('"', '\\"').replace('\\', '\\\\')
+            vacation_params.append(':subject')
+            vacation_params.append(f'"{subject_escaped}"')
+        
+        # Add the message (always the last element)
+        vacation_params.append(f'"{message_escaped}"')
 
         if conditions:
             # Wrap vacation in conditional block
@@ -1307,93 +1480,136 @@ class ClientSieve(ClientFiltering):
         logger_sieve.debug("Generated vacation script:\n%s", script)
         return script
 
-    def _build_vacation_conditions(self, start_date: str = None, end_date: str = None,
-                                   start_tz: str = None, end_tz: str = None,
-                                   start_time: str = None, end_time: str = None,
-                                   weekdays_enabled: bool = False, days: list = None) -> str:
+    def _build_vacation_conditions(self, conditions: VacationConditions) -> str:
         """Build the condition block for vacation filtering (dates, times, weekdays).
         
-        Each date can have its own timezone, which allows fine-grained control.
+        The vacation response is active if ANY of the following is true:
+        1. Within the fixed date/time range (start_date to end_date, including their embedded times)
+        2. Within the recurring daily time window (start_time to end_time, every day)
+        3. On any of the specified weekdays (all day)
+        
+        All three conditions are ALTERNATIVES (OR logic), not requirements.
+        
+        Handles date ranges with timezone awareness. Each date can have its own timezone.
+        
+        Special handling for overnight time ranges (e.g., 18:00 to 08:00):
+        - Converted to: anyof(time >= 18:00 OR time < 08:00)
         
         :param start_date: Start date in YYYY-MM-DD format (or None)
         :param end_date: End date in YYYY-MM-DD format (or None)
-        :param start_tz: Timezone for start_date (e.g., "UTC", "Europe/Paris", "+0100")
-        :param end_tz: Timezone for end_date (e.g., "UTC", "Europe/Paris", "+0100")
-        :param start_time: Start time in HH:MM format (or None)
-        :param end_time: End time in HH:MM format (or None)
-        :param weekdays_enabled: Whether weekday filtering is enabled
-        :param days: List of weekday numbers (0-6)
+        :param start_tz: Timezone for start (already in Sieve format from _parse_vacation_datetime)
+        :param end_tz: Timezone for end (already in Sieve format from _parse_vacation_datetime)
+        :param start_date_time: Start time extracted from start_date (or None if date-only)
+        :param end_date_time: End time extracted from end_date (or None if date-only)
+        :param start_time: Recurring start time in HH:MM or HH:MM:SS format (independent, or None)
+        :param end_time: Recurring end time in HH:MM or HH:MM:SS format (independent, or None)
+        :type conditions: VacationConditions
         :return: Sieve condition block as string, or empty string if no conditions
+        :rtype: str
         """
-        if days is None:
-            days = []
-
-        conditions = []
+        # Build individual condition parts that will be combined with OR (anyof)
+        condition_parts = []
         
-        # Date range filtering with timezone awareness
-        if start_date:
+        # === PART 1: Fixed date/time range condition ===
+        # Represents: start_date (with its time if present) to end_date (with its time if present)
+        date_range_condition = None
+        date_range_parts = []
+        
+        if conditions.start_date:
             try:
-                datetime.strptime(start_date, "%Y-%m-%d")
-                conditions.append(f'currentdate :value "ge" "date" "{start_date}"')
-            except ValueError:
-                logger_sieve.warning("Invalid startDate format: %s, skipping", start_date)
-
-        if end_date:
-            try:
-                datetime.strptime(end_date, "%Y-%m-%d")
-                conditions.append(f'currentdate :value "le" "date" "{end_date}"')
-            except ValueError:
-                logger_sieve.warning("Invalid endDate format: %s, skipping", end_date)
-
-        # Time range filtering
-        if start_time and end_time and self._is_valid_time(start_time) and self._is_valid_time(end_time):
-            start_time_sieve = f"{start_time}:00"
-            end_time_sieve = f"{end_time}:00"
-            if start_time < end_time:
-                conditions.append(
-                    f'allof(currentdate :value "ge" "time" "{start_time_sieve}", '
-                    f'currentdate :value "le" "time" "{end_time_sieve}")'
-                )
-            else:  # Overnight range
-                conditions.append(
-                    f'anyof(allof(currentdate :value "ge" "time" "{start_time_sieve}", '
-                    f'currentdate :value "le" "time" "23:59:59"), '
-                    f'allof(currentdate :value "ge" "time" "00:00:00", '
-                    f'currentdate :value "le" "time" "{end_time_sieve}"))'
-                )
-
-        # Weekday filtering
-        if weekdays_enabled and days:
-            valid_days = [str(d) for d in days if 0 <= d <= 6]
-            if valid_days:
-                if len(valid_days) == 1:
-                    conditions.append(f'currentdate :is "weekday" "{valid_days[0]}"')
+                datetime.strptime(conditions.start_date, "%Y-%m-%d")
+                sieve_tz = conditions.start_tz if conditions.start_tz else "+0000"
+                zone_param = f' :zone "{sieve_tz}"'
+                
+                if conditions.start_date_time:
+                    start_time_sieve = self._normalize_time_to_sieve(conditions.start_date_time)
+                    # Condition: date > start_date OR (date == start_date AND time >= start_date_time)
+                    date_range_parts.append(
+                        f'anyof(currentdate{zone_param} :value "gt" "date" "{conditions.start_date}", '
+                        f'allof(currentdate{zone_param} :value "eq" "date" "{conditions.start_date}", '
+                        f'currentdate{zone_param} :value "ge" "time" "{start_time_sieve}"))'
+                    )
                 else:
-                    day_conditions = ', '.join([f'currentdate :is "weekday" "{day}"' for day in valid_days])
-                    conditions.append(f'anyof({day_conditions})')
+                    # Date-only: date >= start_date
+                    date_range_parts.append(f'currentdate{zone_param} :value "ge" "date" "{conditions.start_date}"')
+            except ValueError:
+                logger_sieve.warning("Invalid start_date format: %s, skipping", conditions.start_date)
 
-        if not conditions:
+        if conditions.end_date:
+            try:
+                datetime.strptime(conditions.end_date, "%Y-%m-%d")
+                sieve_tz = conditions.end_tz if conditions.end_tz else "+0000"
+                zone_param = f' :zone "{sieve_tz}"'
+                
+                if conditions.end_date_time:
+                    end_time_sieve = self._normalize_time_to_sieve(conditions.end_date_time)
+                    # Condition: date < end_date OR (date == end_date AND time <= end_date_time)
+                    date_range_parts.append(
+                        f'anyof(currentdate{zone_param} :value "lt" "date" "{conditions.end_date}", '
+                        f'allof(currentdate{zone_param} :value "eq" "date" "{conditions.end_date}", '
+                        f'currentdate{zone_param} :value "le" "time" "{end_time_sieve}"))'
+                    )
+                else:
+                    # Date-only: date <= end_date
+                    date_range_parts.append(f'currentdate{zone_param} :value "le" "date" "{conditions.end_date}"')
+            except ValueError:
+                logger_sieve.warning("Invalid end_date format: %s, skipping", conditions.end_date)
+        
+        # Combine date range parts with AND (all must be true for date range to match)
+        if date_range_parts:
+            if len(date_range_parts) == 1:
+                date_range_condition = date_range_parts[0]
+            else:
+                date_range_condition = f'allof({", ".join(date_range_parts)})'
+            condition_parts.append(date_range_condition)
+        
+        # === PART 2: Recurring daily time window ===
+        # Represents: every day between start_time and end_time (independent of date range)
+        if conditions.start_time and conditions.end_time:
+            start_time_sieve = self._normalize_time_to_sieve(conditions.start_time)
+            end_time_sieve = self._normalize_time_to_sieve(conditions.end_time)
+            sieve_tz = conditions.start_tz if conditions.start_tz else "+0000"
+            zone_param = f' :zone "{sieve_tz}"'
+            
+            if conditions.start_time < conditions.end_time:
+                # Normal range (e.g., 09:00 to 17:00): time >= 09:00 AND time <= 17:00
+                daily_time_condition = (
+                    f'allof(currentdate{zone_param} :value "ge" "time" "{start_time_sieve}", '
+                    f'currentdate{zone_param} :value "le" "time" "{end_time_sieve}")'
+                )
+            else:
+                # Overnight range (e.g., 18:00 to 08:00): time >= 18:00 OR time < 08:00
+                daily_time_condition = (
+                    f'anyof(currentdate{zone_param} :value "ge" "time" "{start_time_sieve}", '
+                    f'currentdate{zone_param} :value "lt" "time" "{end_time_sieve}")'
+                )
+            condition_parts.append(daily_time_condition)
+        
+        # === PART 3: Weekday filtering ===
+        # Represents: specific weekdays, all day long (independent conditions)
+        if conditions.weekdays_enabled and conditions.weekday:
+            valid_days = [str(d) for d in conditions.weekday if 0 <= d <= 6]
+            if valid_days:
+                sieve_tz = conditions.start_tz if conditions.start_tz else "+0000"
+                zone_param = f' :zone "{sieve_tz}"'
+                
+                if len(valid_days) == 1:
+                    weekday_condition = f'currentdate{zone_param} :is "weekday" "{valid_days[0]}"'
+                else:
+                    day_conditions = ', '.join([f'currentdate{zone_param} :is "weekday" "{day}"' for day in valid_days])
+                    weekday_condition = f'anyof({day_conditions})'
+                condition_parts.append(weekday_condition)
+
+        if not condition_parts:
             return ""
 
-        if len(conditions) == 1:
-            return "if " + conditions[0].strip() + " {\n"
+        # Combine all parts with OR (anyof): activation if ANY condition is true
+        if len(condition_parts) == 1:
+            return "if " + condition_parts[0].strip() + " {\n"
         else:
-            indented = [f"    {c}" for c in conditions]
-            return "if allof(\n" + ",\n".join(indented) + "\n) {\n"
+            indented = [f"    {part}" for part in condition_parts]
+            return "if anyof(\n" + ",\n".join(indented) + "\n) {\n"
 
-    def _is_valid_time(self, time_str: str) -> bool:
-        """Validate time format (HH:MM).
-
-        :param time_str: Time string to validate.
-        :type time_str: str
-        :return: True if valid, False otherwise.
-        :rtype: bool
-        """
-        try:
-            datetime.strptime(time_str, "%H:%M")
-            return True
-        except ValueError:
-            return False
 
     def _build_forward_script(self, forward_addresses: list[str], keep_copy: int = 0, always_send: int = 0) -> str:
         """Build a Sieve forward script.
@@ -1423,14 +1639,14 @@ class ClientSieve(ClientFiltering):
         else:
             script += 'discard;\n'
 
-        logger_sieve.debug("Generated forward script (keepCopy=%s, alwaysSend=%s):\n%s", keep_copy, always_send, script)
+        logger_sieve.debug("Generated forward script (keep_copy=%s, always_send=%s):\n%s", keep_copy, always_send, script)
         return script
 
     def _build_notification_script(self, notification_config: dict) -> str:
         """Build a Sieve notification script (RFC 5435 - enotify extension).
 
         :param notification_config: Notification settings dict with keys:
-                                   notifyAddresses (list), notifyMessage (str)
+                                   notify_addresses (list), notify_message (str)
         :type notification_config: dict
         :return: The notification Sieve script with require clause.
         :rtype: str
@@ -1438,8 +1654,8 @@ class ClientSieve(ClientFiltering):
         """
         logger_sieve.debug("Building notification script with config: %s", notification_config)
 
-        notify_addresses = notification_config.get("notifyAddresses", [])
-        notify_message = notification_config.get("notifyMessage", "")
+        notify_addresses = notification_config.get("notify_addresses", [])
+        notify_message = notification_config.get("notify_message", "")
 
         if not notify_addresses:
             logger_sieve.warning("No notification addresses provided")

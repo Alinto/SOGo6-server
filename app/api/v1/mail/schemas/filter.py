@@ -153,7 +153,6 @@ class FilterRuleSchema(Schema):
     operator      = fields.String(validate=validate.OneOf(VALID_FILTER_OPERATORS))  # contains | is | matches | regex | notcontains | exists | over | under
     custom_header = fields.String()             # used when field == "header"
     value         = fields.String()             # value to match against or number for :count/:size
-    case_sensitive = fields.Boolean(load_default=True, dump_default=True)  # For string comparisons
 
     def __post_load__(self, data: dict, **kwargs: Any) -> dict:
         """Validate that 'over' and 'under' operators are only used with 'size' field.
@@ -250,26 +249,72 @@ class FilterItemSchema(Schema):
 class VacationSchema(Schema):
     """Auto-reply (vacation) settings."""
     enabled                = fields.Boolean(load_default=False, dump_default=False)
-    customSubjectEnabled   = fields.Boolean(load_default=False, dump_default=False)
-    customSubject          = fields.String(load_default="", dump_default="")
-    autoReplyText          = fields.String(load_default="", dump_default="")
-    startDate              = DateTimeWithTzField(load_default=None, dump_default=None, allow_none=True)
-    endDate                = DateTimeWithTzField(load_default=None, dump_default=None, allow_none=True)
-    timezone               = fields.String(load_default=None, dump_default=None, allow_none=True, metadata={"description": "IANA timezone (e.g., 'Europe/Paris', 'UTC'). Used for startDate/endDate when they don't have explicit timezone."})
-    alwaysSend             = fields.Boolean(load_default=False, dump_default=False)
-    ignoreLists            = fields.Boolean(load_default=False, dump_default=False)
-    startTime              = fields.String(load_default=None, dump_default=None, allow_none=True)
-    endTime                = fields.String(load_default=None, dump_default=None, allow_none=True)
-    weekdaysEnabled        = fields.Boolean(load_default=False, dump_default=False)
-    days                   = fields.List(fields.Integer(), load_default=[], dump_default=[])
+    custom_subject_enabled   = fields.Boolean(load_default=False, dump_default=False)
+    custom_subject          = fields.String(load_default="", dump_default="")
+    auto_reply_text          = fields.String(load_default="", dump_default="")
+    start_date              = DateTimeWithTzField(load_default=None, dump_default=None, allow_none=True)
+    end_date                = DateTimeWithTzField(load_default=None, dump_default=None, allow_none=True)
+    timezone               = fields.String(load_default=None, dump_default=None, allow_none=True, metadata={"description": "IANA timezone (e.g., 'Europe/Paris', 'UTC'). Used for start_date/end_date when they don't have explicit timezone."})
+    always_send             = fields.Boolean(load_default=False, dump_default=False, metadata={"description": "If True, the vacation rule is processed before regular filter rules and always sends replies (takes priority over other filters)."})
+    start_time              = fields.String(load_default=None, dump_default=None, allow_none=True)
+    end_time                = fields.String(load_default=None, dump_default=None, allow_none=True)
+    weekdays_enabled        = fields.Boolean(load_default=False, dump_default=False)
+    weekday                = fields.List(fields.Integer(), load_default=[], dump_default=[], metadata={"description": "List of weekday numbers (0-6, where 0 is Sunday). Only applies when weekdays_enabled is True."})
+    days                   = fields.Integer(load_default=None, dump_default=None, allow_none=True, metadata={"description": "Minimum delay in days between vacation responses (RFC 5230 :days). If set, prevents sending duplicate vacation replies within this period. Must be > 0, or = 0 if SOGO_D_VACATION_ALLOW_RESPONSE_ALWAYS is enabled."})
+
+    def __post_load__(self, data: dict, **kwargs: Any) -> dict:
+        """Clean up fields that depend on boolean flags and validate the days field.
+        
+        When a boolean flag is False, the associated field(s) should be ignored/cleared:
+        - If custom_subject_enabled is False, clear custom_subject
+        - If weekdays_enabled is False, clear weekday list
+        
+        Validates the 'days' field:
+        - If days is set (not None), it must be >= 0 if allow_always_send is True in context
+        - Otherwise, it must be > 0
+        
+        :param data: The deserialized data
+        :type data: dict
+        :raises ValidationError: If days validation fails
+        :return: The validated and cleaned data
+        :rtype: dict
+        """
+        # If custom_subject_enabled is False, ignore custom_subject content
+        if not data.get("custom_subject_enabled", False):
+            data["custom_subject"] = ""
+        
+        # If weekdays_enabled is False, ignore weekday list
+        if not data.get("weekdays_enabled", False):
+            data["weekday"] = []
+        
+        # Validate the 'days' field
+        days_value = data.get("days")
+        if days_value is not None:
+            # Check if SOGO_D_VACATION_ALLOW_RESPONSE_ALWAYS is enabled in context
+            allow_always_send = self.context.get("allow_always_send", False)
+            
+            if allow_always_send:
+                # days can be >= 0
+                if days_value < 0:
+                    raise ValidationError(
+                        "The 'days' field must be >= 0 (since SOGO_D_VACATION_ALLOW_RESPONSE_ALWAYS is enabled), but got: {}".format(days_value)
+                    )
+            else:
+                # days must be > 0
+                if days_value <= 0:
+                    raise ValidationError(
+                        "The 'days' field must be > 0, but got: {}. Set it to 0 only if SOGO_D_VACATION_ALLOW_RESPONSE_ALWAYS is enabled in domain settings.".format(days_value)
+                    )
+        
+        return data
 
 
 class ForwardSchema(Schema):
     """Mail forwarding settings."""
-    forwardAddress = fields.List(fields.Email(), load_default=[], dump_default=[])
+    forward_address = fields.List(fields.Email(), load_default=[], dump_default=[])
     enabled        = fields.Boolean(load_default=False, dump_default=False)
-    keepCopy       = fields.Boolean(load_default=False, dump_default=False)
-    alwaysSend     = fields.Boolean(load_default=False, dump_default=False)
+    keep_copy       = fields.Boolean(load_default=False, dump_default=False)
+    always_send     = fields.Boolean(load_default=False, dump_default=False)
 
 
 class NotificationSchema(Schema):
@@ -278,8 +323,8 @@ class NotificationSchema(Schema):
     Allows users to configure email notifications when mail filters are triggered.
     """
     enabled              = fields.Boolean(load_default=False, dump_default=False)
-    notifyAddresses      = fields.List(fields.Email(), load_default=[], dump_default=[])
-    notifyMessage        = fields.String(load_default="", dump_default="")
+    notify_addresses      = fields.List(fields.Email(), load_default=[], dump_default=[])
+    notify_message        = fields.String(load_default="", dump_default="")
 
 
 # ---------------------------------------------------------------------------
@@ -317,13 +362,11 @@ class FiltersPayloadSchema(Schema):
                                 "field": "from",
                                 "operator": "contains",
                                 "value": "ceo@company.com",
-                                "case_sensitive": False
                             },
                             {
                                 "field": "subject",
                                 "operator": "contains",
                                 "value": "urgent",
-                                "case_sensitive": False
                             }
                         ]
                     }
@@ -343,7 +386,6 @@ class FiltersPayloadSchema(Schema):
                         "field": "from",
                         "operator": "notcontains",
                         "value": "@company.com",
-                        "case_sensitive": False
                     }
                 },
                 {
@@ -366,13 +408,11 @@ class FiltersPayloadSchema(Schema):
                                 "field": "subject",
                                 "operator": "contains",
                                 "value": "[ALERTE]",
-                                "case_sensitive": False
                             },
                             {
                                 "field": "subject",
                                 "operator": "contains",
                                 "value": "[NOTIFICATION]",
-                                "case_sensitive": False
                             }
                         ]
                     }
@@ -401,7 +441,6 @@ class FiltersPayloadSchema(Schema):
                                 "field": "from",
                                 "operator": "notcontains",
                                 "value": "@company.com",
-                                "case_sensitive": False
                             }
                         ]
                     }
@@ -432,13 +471,11 @@ class FiltersPayloadSchema(Schema):
                                 "operator": "contains",
                                 "custom_header": "X-Marketing-Campaign",
                                 "value": "summer2026",
-                                "case_sensitive": False
                             },
                             {
                                 "field": "from",
                                 "operator": "contains",
                                 "value": "marketing@",
-                                "case_sensitive": False
                             }
                         ]
                     }
@@ -462,7 +499,6 @@ class FiltersPayloadSchema(Schema):
                                 "field": "subject",
                                 "operator": "contains",
                                 "value": "[PROJECT]",
-                                "case_sensitive": False
                             },
                             {
                                 "op": "and",
@@ -471,13 +507,11 @@ class FiltersPayloadSchema(Schema):
                                         "field": "subject",
                                         "operator": "contains",
                                         "value": "[IMPORTANT]",
-                                        "case_sensitive": False
                                     },
                                     {
                                         "field": "from",
                                         "operator": "contains",
                                         "value": "team@company.com",
-                                        "case_sensitive": False
                                     }
                                 ]
                             }
@@ -503,7 +537,6 @@ class FiltersPayloadSchema(Schema):
                                 "field": "body",
                                 "operator": "contains",
                                 "value": "urgent action required",
-                                "case_sensitive": False
                             },
                             {
                                 "field": "size",
@@ -514,9 +547,40 @@ class FiltersPayloadSchema(Schema):
                                 "field": "to",
                                 "operator": "contains",
                                 "value": "team@company.com",
-                                "case_sensitive": False
                             }
                         ]
+                    }
+                },
+                {
+                    "name": "Discard spam emails",
+                    "enabled": True,
+                    "actions": [
+                        {
+                            "method": "discard",
+                            "arguments": {}
+                        }
+                    ],
+                    "rules": {
+                        "field": "subject",
+                        "operator": "contains",
+                        "value": "SPAM"                
+                    }
+                },
+                {
+                    "name": "Reject emails from blocked domain",
+                    "enabled": True,
+                    "actions": [
+                        {
+                            "method": "reject",
+                            "arguments": {
+                                "message": "Emails from this domain are not accepted"
+                            }
+                        }
+                    ],
+                    "rules": {
+                        "field": "from",
+                        "operator": "contains",
+                        "value": "@blocked-domain.com",
                     }
                 }
             ]
@@ -535,18 +599,18 @@ class VacationPayloadSchema(Schema):
         return {
             "Vacation": {
                 "enabled": True,
-                "customSubjectEnabled": True,
-                "customSubject": "Out of office",
-                "autoReplyText": "I am away until Monday.",
-                "startDate": "2026-06-15T09:00:00+0100",
-                "endDate": "2026-06-20T17:00:00",
+                "custom_subject_enabled": True,
+                "custom_subject": "Out of office",
+                "auto_reply_text": "I am away until Monday.",
+                "start_date": "2026-06-15T09:00:00+0100",
+                "end_date": "2026-06-20T17:00:00",
                 "timezone": "Europe/Paris",
-                "alwaysSend": False,
-                "ignoreLists": True,
-                "startTime": "18:00",
-                "endTime": "08:00",
-                "weekdaysEnabled": True,
-                "days": [0, 3, 5]
+                "always_send": True,
+                "start_time": "18:00",
+                "end_time": "08:00",
+                "weekdays_enabled": True,
+                "weekday": [0, 3, 5],
+                "days": 1
             }
         }
 
@@ -562,10 +626,10 @@ class ForwardPayloadSchema(Schema):
         """
         return {
             "Forward": {
-                "forwardAddress": ["toma@gmail.com"],
+                "forward_address": ["toma@gmail.com"],
                 "enabled": True,
-                "keepCopy": True,
-                "alwaysSend": True
+                "keep_copy": True,
+                "always_send": True
             }
         }
 
@@ -582,8 +646,8 @@ class NotificationPayloadSchema(Schema):
         return {
             "Notification": {
                 "enabled": True,
-                "notifyAddresses": ["admin@example.com", "alerts@example.com"],
-                "notifyMessage": "A mail filter has been triggered on your account"
+                "notify_addresses": ["admin@example.com", "alerts@example.com"],
+                "notify_message": "A mail filter has been triggered on your account"
             }
         }
 
