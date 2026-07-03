@@ -497,18 +497,117 @@ state that makes the link between the "mail in progress" and the mail currently 
 
 '''
 
-* [ ] 90% send a mail (miss priority, is_html, reply-to)
-* [ ] 80% Edit a message (missing return_receipt, priority)
-* [ ] 80% Reply a message (missing RE: and reply-to)
-* [ ] 80% Forward a message (missing FWD:)
+* [ ]  90% send a mail (miss priority, is_html, reply-to)
+* [ ]  80% Edit a message (missing return_receipt, priority)
+* [ ]  80% Reply a message (missing RE: and reply-to)
+* [ ]  80% Forward a message (missing FWD:)
 
 '''
 
-* [ ] ??%: Show explicit smtp error to user in some cases
+* [ ]  ??%: Show explicit smtp error to user in some cases
 
 '''
 
 * [ ]   0%: send a receipt when reading a mail asking for one
+
+=== Mails filtering
+
+As for now, only sieve protocol are managed.
+
+==== Backend
+
+* [ ]  90%: Allow admin to enable or not mail filtering (when this one is disable, also disable the others)
+* [ ]  90%: Allow admin to enable or not vacation
+* [ ]  90%: Allow admin to enable or not auto-forward
+* [ ]  90%: Allow admin to enable or not notification
+
+'''
+
+**Filters**
+
+* [*] 100%: Can have several filters
+* [*] 100%: Can prioritize the filters (set the order of execution)
+* [*] 100%: Can prioritize the filters (set the order of execution)
+* [*] 100%: can create/delete a filter
+* [*] 100%: Can enable/disable a filter (but not lost in database)
+* [*] 100%: Can name a filter (also add a comment in sieve script)
+* [*] 100%: Can make conditions: all must be true, only one must be true, complex logic (a or (b and c))
+* [*] 100%: Condition: X equal/not equal Y: perfect match
+* [*] 100%: Condition: X contains/does not contains Y: value included
+* [*] 100%: Condition: X match/does not match Y: value with wildcard
+* [*] 100%: Condition: X regex/not regex Y: value with regex
+* [*] 100%: Condition: X greater/lesser than Y: only for size
+* [*] 100%: Can choose a field for the condition (X)
+* [*] 100%: Can choose 'subject' as field
+* [*] 100%: Can choose 'from' as field
+* [*] 100%: Can choose 'to' as field
+* [ ]    0%: Can choose 'cc' as field
+* [ ]   0%: Can choose 'to or cc' as field
+* [ ]   0%: Can choose 'size' as field
+* [*] 100%: Can choose 'header' as field and write the header (which can be tru or not)
+* [ ]   0%: Can choose 'body' as field
+* [*] 100%: Can make one or several action
+* [*] 100%: Action: discard (mail is lost)
+* [*] 100%: Action: stop (stop the filtering now)
+* [*]   0%: Action: keep (mail is kept)
+
+[NOTE]
+====
+Not found a case where `keep` is useful. from https://datatracker.ietf.org/doc/html/rfc5228#section-4.3[rfc5228]:
+
+Example:  if size :under 1M { keep; } else { discard; }
+
+Note that the above script is identical to the one below.
+
+Example:  if not size :under 1M { discard; }
+
+But SOGo 6 does not managed `if (conditon) action1 else action2`, so it will always be `if (not condition) action2`
+====
+
+* [ ]  90%: Action: move to a folder and option to create it if it does not exist (only one folder for now)
+* [ ]  80%: Action: redirect to one or several address (only one for now)
+* [ ]  90%: Action: Copy to a folder (only one for now)
+* [ ]   0%: Action: Mark the mail as (add flag)
+* [ ]   0%: Action: Reject with a message
+* [ ]   0%: Action: Reject with a message (not implemented in sievelib)
+ 
+'''
+
+**Vacation**
+
+* [*] 100%: Admin can allow or not Vacation message
+* [*]  90%: User can enable or not a vacation message (NOT TESTED)
+* [ ]   0%: User can set different vacation messages on condition (if send to intern@example.org this one, if extern@example.org this other one)
+* [*] 100%: User can set a custom subject
+* [ ]   0%: User can use placeholder {subject} in its custom subject
+* [ ] 100%: User can set a message
+* [ ]   0%: Admin can set a header and/or a for the message
+* [ ]   0%: User can tell the delay in days between two response [0 == always, only allow by admin]
+* [ ]   0%: User can set the priority of vacation compare to thers filters (do first or not)
+* [ ]   0%: User can choose to discard all the mails while in vacation (will not do)
+* [ ]  80%: User can choose a start datetime (only date for now)
+* [ ]  80%: User can choose a end datetime (only date for now)
+* [ ] 100%: User can choose a start time during the day
+* [ ] 100%: User can choose a end time during the day
+* [ ] 100%: user can choose a specific day when to send vacation message
+
+'''
+
+**Forward**
+
+* [*] 100%: Admin can allow or not Forward
+* [*] 100%: User can enable or not Forward
+* [*] 100%: User can set several addresses to forward to
+* [ ]  10%: Admin can set rules of whitelisting/blackisting (parameters exists)
+* [ ] 100%: Admin can set rules of whitelisting/blackisting (parameters exists)
+
+
+==== UI
+
+* [ ]   0%: Do not show filters' related pannels in user settings (filter, vacation, forward/notification) if admin doesn't allow it
+* [ ]   0%: Do not show vacation pannel in user settings if admin doesn't allow it
+* [ ]   0%: Do not show foward pannel in user settings if admin doesn't allow it
+* [ ]   0%: Do not show notification pannel in user settings if admin doesn't allow it
 
 === Calendar
 
