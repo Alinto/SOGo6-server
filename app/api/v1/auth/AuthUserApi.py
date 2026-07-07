@@ -14,7 +14,6 @@ from .schema import authUser as sch
 
 if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
-    from app.utils.api.paginate_sort_filter import FakePaginationParameters
 
 
 blp = Blueprint("Auth", __name__, url_prefix="/auth")
@@ -96,6 +95,8 @@ class ApiAuthUserLogout(MethodView):
         with the JWT token present in the Authorization header.
         """
         auth_header = request.authorization
-        voucher_data: str = auth_header.token if auth_header else ""
+        voucher_data: str = ""
+        if auth_header and auth_header.token:
+            voucher_data = auth_header.token
         interface_api: InterfaceAuthUser = g.inter
         return interface_api.logout(voucher_data)
