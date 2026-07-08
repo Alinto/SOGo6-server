@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 
 from sievelib.managesieve import Client, Error as SieveError
 from sievelib.factory import FiltersSet
+from sievelib import commands
 
 from app.utils.exceptions import RequestException, BugException
 from app.utils.logger.logger import logger_sieve
@@ -398,6 +399,8 @@ class ClientSieve(ClientFiltering):
         Special handling: If the filter uses "cc or to" field, creates two separate
         filters (one for CC, one for TO) with the same actions to achieve OR logic.
 
+        Supports nested conditions by building sievelib commands manually.
+
         :param filters_set: The FiltersSet to add the filter to.
         :type filters_set: FiltersSet
         :param filter_item: Filter definition with keys: name, enabled, actions, rules.
@@ -418,14 +421,22 @@ class ClientSieve(ClientFiltering):
                 # Handle "cc or to" by creating two filters
                 self._add_cc_or_to_filter_to_set(filters_set, filter_item)
             else:
-                # Normal filter processing
+                # Build nested conditions
                 conditions, matchtype = self._build_sieve_conditions(rules)
-                filters_set.addfilter(
-                    name=filter_name,
-                    conditions=conditions,
-                    actions=self._build_sieve_actions(actions),
-                    matchtype=matchtype,
-                )
+                sieve_actions = self._build_sieve_actions(actions)
+                
+                # Check if we have nested groups (indicated by "__group__" tuples)
+                if any(isinstance(c, tuple) and len(c) > 0 and c[0] == "__group__" for c in conditions):
+                    # Use manual construction for nested structures
+                    self._add_filter_with_nested_conditions_direct(filters_set, filter_name, conditions, matchtype, sieve_actions)
+                else:
+                    # Use standard addfilter for flat structures
+                    filters_set.addfilter(
+                        name=filter_name,
+                        conditions=conditions,
+                        actions=sieve_actions,
+                        matchtype=matchtype,
+                    )
                 logger_sieve.debug("Added filter '%s' to FiltersSet with matchtype=%s", filter_name, matchtype)
         except Exception as e:
             logger_sieve.error("Error adding filter '%s' to FiltersSet: %s", filter_name, e)
@@ -1033,11 +1044,13 @@ class ClientSieve(ClientFiltering):
             ) from e
 
     def _build_sieve_conditions(self, rules: dict) -> tuple[list[tuple], str]:
-        """Convert API rule tree into a flat list of sievelib conditions and return matchtype.
+        """Convert API rule tree into nested sievelib conditions respecting the rule structure.
         
         Returns a tuple of (conditions_list, matchtype) where:
-        - conditions_list: flat list of condition tuples for sievelib
+        - conditions_list: list of conditions (may contain nested tuples for groups)
         - matchtype: "anyof" or "allof" for the top-level grouping
+        
+        Nested groups are represented as special tuples: ("__group__", "anyof"|"allof", [nested_conditions])
         
         :param rules: Rule tree from API (leaf or group node)
         :type rules: dict
@@ -1047,77 +1060,103 @@ class ClientSieve(ClientFiltering):
         if not rules:
             return [], "allof"
 
-        conditions: list = []
-        matchtype_ref: list = ["allof"]  # Default, will be mutated
-        self._flatten_rules(rules, conditions, matchtype_ref)
-        return conditions, matchtype_ref[0]
+        # Build nested conditions while respecting the rule structure
+        conditions, matchtype = self._build_nested_conditions_recursive(rules)
+        return conditions, matchtype
 
-    def _flatten_rules(self, rule_node: dict, conditions: list, matchtype_ref: list = None, parent_op: str = "and") -> None:
-        """Recursively convert a nested rule tree into sievelib condition tuples.
-
-        Handles both leaf conditions (single rules) and group nodes (multiple rules with AND/OR).
-        For groups with multiple rules, sets the matchtype_ref to reflect the top-level operator.
-
+    def _build_nested_conditions_recursive(self, rule_node: dict) -> tuple[list, str]:
+        """Recursively build nested conditions from a rule tree, respecting structure.
+        
+        Returns (conditions_list, matchtype) where conditions_list may contain:
+        - Regular condition tuples: ("field", ":operator", value)
+        - Nested group tuples: ("__group__", "anyof"|"allof", [nested_conditions])
+        
         :param rule_node: A rule node (leaf or group).
         :type rule_node: dict
-        :param conditions: The list to append conditions to (mutated).
-        :type conditions: list
-        :param matchtype_ref: Single-element list holding the matchtype ("anyof" or "allof"). 
-                              Mutated to track top-level operator.
-        :type matchtype_ref: list | None
-        :param parent_op: Parent operator ("and" or "or") for context.
-        :type parent_op: str
+        :return: Tuple of (conditions list, matchtype string for this level)
+        :rtype: tuple[list, str]
         """
-        if matchtype_ref is None:
-            matchtype_ref = ["allof"]
-
         if "op" in rule_node:
             # Group node with multiple rules
             op = rule_node.get("op", "and").lower()
             nested_rules = rule_node.get("rules", [])
 
             if not nested_rules:
-                return
+                return [], "allof"
 
             if len(nested_rules) == 1:
                 # Single rule in group, just process it recursively
-                self._flatten_rules(nested_rules[0], conditions, matchtype_ref, op)
-            else:
-                # Multiple rules: set matchtype based on operator, then flatten all
-                matchtype_ref[0] = "anyof" if op == "or" else "allof"
-                for nested_rule in nested_rules:
-                    self._flatten_rules(nested_rule, conditions, matchtype_ref, op)
+                return self._build_nested_conditions_recursive(nested_rules[0])
+
+            # Multiple rules: build each one and group them
+            group_matchtype = "anyof" if op == "or" else "allof"
+            conditions = []
+
+            for nested_rule in nested_rules:
+                nested_conditions, nested_matchtype = self._build_nested_conditions_recursive(nested_rule)
+                
+                if len(nested_conditions) == 1 and not (isinstance(nested_conditions[0], tuple) and nested_conditions[0][0] == "__group__"):
+                    # Single condition from nested rule, add directly
+                    conditions.extend(nested_conditions)
+                else:
+                    # Multiple conditions or nested group, wrap as a group if needed
+                    if len(nested_conditions) > 1 or (isinstance(nested_conditions[0], tuple) and nested_conditions[0][0] == "__group__"):
+                        if nested_matchtype != group_matchtype:
+                            # Different operator, wrap as nested group
+                            conditions.append(("__group__", nested_matchtype, nested_conditions))
+                        else:
+                            # Same operator, flatten
+                            conditions.extend(nested_conditions)
+                    else:
+                        conditions.extend(nested_conditions)
+
+            return conditions, group_matchtype
         else:
             # Leaf node: a single condition
-            field = rule_node.get("field", "")
-            operator = rule_node.get("operator", "")
-            value = rule_node.get("value", "")
-            custom_header = rule_node.get("custom_header", "")
+            condition = self._build_single_condition(rule_node)
+            if condition:
+                return [condition], "allof"
+            return [], "allof"
 
-            # Special handling for "size" field (uses :size operator, not a regular field)
-            if field == cs.FILTER_FIELD_SIZE:
-                mapped_operator = f":{operator.lower()}"
-                conditions.append(("size", mapped_operator, value))
-                logger_sieve.debug("Added size condition with operator %s and value %s", operator, value)
+    def _build_single_condition(self, rule_node: dict) -> tuple | None:
+        """Build a single condition from a leaf rule node.
+        
+        :param rule_node: A leaf rule node with field, operator, and value.
+        :type rule_node: dict
+        :return: A condition tuple, or None if invalid.
+        :rtype: tuple | None
+        """
+        field = rule_node.get("field", "")
+        operator = rule_node.get("operator", "")
+        value = rule_node.get("value", "")
+        custom_header = rule_node.get("custom_header", "")
 
-            # Special handling for "body" field (RFC 5173 - Body Extension)
-            elif field == cs.FILTER_FIELD_BODY:
-                mapped_operator = f":{operator.lower()}"
-                # For body, sievelib expects: ("body", ":text", ":contains", "value")
-                conditions.append(("body", ":text", mapped_operator, value))
-                logger_sieve.debug("Added body condition with operator %s and value %s", operator, value)
+        # Special handling for "size" field (uses :size operator, not a regular field)
+        if field == cs.FILTER_FIELD_SIZE:
+            mapped_operator = f":{operator.lower()}"
+            logger_sieve.debug("Added size condition with operator %s and value %s", operator, value)
+            return ("size", mapped_operator, value)
 
-            else:
-                # Standard field handling (including cc, header, etc.)
-                mapped_field = self._map_field_name(field, custom_header)
-                mapped_operator = f":{operator.lower()}"
+        # Special handling for "body" field (RFC 5173 - Body Extension)
+        elif field == cs.FILTER_FIELD_BODY:
+            mapped_operator = f":{operator.lower()}"
+            # For body, sievelib expects: ("body", ":text", ":contains", "value")
+            logger_sieve.debug("Added body condition with operator %s and value %s", operator, value)
+            return ("body", ":text", mapped_operator, value)
 
-                if mapped_field and mapped_operator:
-                    # sievelib expects lists for most operators (e.g., subject, from, to, cc)
-                    # Convert single string value to list
-                    value_for_sieve = [value] if isinstance(value, str) else value
-                    conditions.append((mapped_field, mapped_operator, value_for_sieve))
-                    logger_sieve.debug("Added condition: field=%s, operator=%s, value=%s", mapped_field, mapped_operator, value_for_sieve)
+        else:
+            # Standard field handling (including cc, header, etc.)
+            mapped_field = self._map_field_name(field, custom_header)
+            mapped_operator = f":{operator.lower()}"
+
+            if mapped_field and mapped_operator:
+                # sievelib expects lists for most operators (e.g., subject, from, to, cc)
+                # Convert single string value to list
+                value_for_sieve = [value] if isinstance(value, str) else value
+                logger_sieve.debug("Added condition: field=%s, operator=%s, value=%s", mapped_field, mapped_operator, value_for_sieve)
+                return (mapped_field, mapped_operator, value_for_sieve)
+
+        return None
 
     def _map_field_name(self, field: str, custom_header: str = "") -> str:
         """Map API field names to Sieve field names for use with sievelib.
@@ -1712,3 +1751,86 @@ class ClientSieve(ClientFiltering):
                 self.connection    = None
                 self.connected     = False
                 self.authenticated = False
+
+    def _add_filter_with_nested_conditions_direct(self, filters_set: FiltersSet, filter_name: str,
+                                                   conditions: list, top_matchtype: str, sieve_actions: list) -> None:
+        """Build filter with nested conditions directly using sievelib commands."""
+        ifcontrol = commands.get_command_instance("if")
+        mtypeobj = commands.get_command_instance(top_matchtype, ifcontrol)
+        self._build_test_recursive(mtypeobj, conditions, ifcontrol, filters_set)
+        ifcontrol.check_next_arg("test", mtypeobj)
+        
+        for actdef in sieve_actions:
+            action = commands.get_command_instance(actdef[0], ifcontrol, False)
+            if action.extension is not None:
+                filters_set.require(action.extension)
+            for arg in actdef[1:]:
+                filters_set.check_if_arg_is_extension(arg)
+                if isinstance(arg, int):
+                    atype = "number"
+                elif isinstance(arg, list):
+                    atype = "stringlist"
+                elif isinstance(arg, str) and arg.startswith(":"):
+                    atype = "tag"
+                else:
+                    atype = "string"
+                    if isinstance(arg, str) and not arg.startswith('"'):
+                        arg = f'"{arg}"'
+                action.check_next_arg(atype, arg, check_extension=False)
+            ifcontrol.addchild(action)
+        
+        filters_set.filters.append({
+            "name": filter_name,
+            "content": ifcontrol,
+            "enabled": True,
+        })
+
+    def _build_test_recursive(self, parent_matchtype, conditions, ifcontrol, filters_set):
+        """Recursively build tests, handling nested groups."""
+        for cond in conditions:
+            if isinstance(cond, tuple) and len(cond) > 0 and cond[0] == "__group__":
+                nested_test = commands.get_command_instance(cond[1], ifcontrol)
+                self._build_test_recursive(nested_test, cond[2], ifcontrol, filters_set)
+                parent_matchtype.check_next_arg("test", nested_test)
+            else:
+                cmd = self._build_condition_command(cond, ifcontrol, filters_set)
+                if cmd:
+                    parent_matchtype.check_next_arg("test", cmd)
+
+    def _build_condition_command(self, cond, ifcontrol, filters_set):
+        """Build a single sievelib command from condition tuple."""
+        if not cond or len(cond) < 2:
+            return None
+        name = cond[0]
+        if name == "size":
+            cmd = commands.get_command_instance("size", ifcontrol)
+            cmd.check_next_arg("tag", cond[1]) # "tag" for operator starting with ":"
+            cmd.check_next_arg("number", str(cond[2]))
+            return cmd
+        elif name == "body":
+            cmd = commands.get_command_instance("body", ifcontrol, False)
+            filters_set.require("body")
+            cmd.check_next_arg("tag", cond[1])
+            cmd.check_next_arg("tag", cond[2])
+            val = cond[3] if len(cond) > 3 else ""
+            val_str = "[%s]" % (",".join('"%s"' % v for v in val)) if isinstance(val, list) else '"%s"' % val
+            cmd.check_next_arg("stringlist", val_str)
+            return cmd
+        elif name in ("subject", "from", "to", "cc"):
+            cmd = commands.get_command_instance("header", ifcontrol)
+            cmd.check_next_arg("tag", cond[1])
+            cmd.check_next_arg("string", f'"{name}"')
+            vals = cond[2] if len(cond) > 2 else []
+            val_str = "[%s]" % (",".join('"%s"' % v for v in vals)) if isinstance(vals, list) else '"%s"' % vals
+            cmd.check_next_arg("stringlist", val_str)
+            return cmd
+        else:
+            logger_sieve.warning("Unknown test '%s', treating as header", name)
+            cmd = commands.get_command_instance("header", ifcontrol)
+            if len(cond) >= 3:
+                cmd.check_next_arg("tag", cond[1])
+                cmd.check_next_arg("string", f'"{name}"')
+                vals = cond[2] if isinstance(cond[2], list) else [cond[2]]
+                val_str = "[%s]" % (",".join('"%s"' % v for v in vals))
+                cmd.check_next_arg("stringlist", val_str)
+            return cmd
