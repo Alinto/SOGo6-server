@@ -111,7 +111,6 @@ class CalendarEventSchema(Schema):
     created_at = fields.String(allow_none=True)
     updated_at = fields.String(allow_none=True)
     component_type = fields.String()
-    percent_complete = fields.Integer(allow_none=True)
     completed_at = fields.String(allow_none=True)
     recurrence_rule = fields.Nested(RecurrenceRuleSchema, allow_none=True)
     recurrence_exceptions = fields.List(fields.String())
@@ -157,7 +156,6 @@ class CalendarEventCreateSchema(Schema):
     recurrence_rule = fields.Nested(RecurrenceRuleSchema, load_default=None, allow_none=True, metadata={"example": None})
     recurrence_exceptions = fields.List(fields.String(), load_default=list, metadata={"example": []})
     recurrence_id = fields.String(load_default=None, allow_none=True)
-    percent_complete = fields.Integer(load_default=None, allow_none=True)
     completed_at = fields.String(load_default=None, allow_none=True)
 
 
@@ -189,7 +187,6 @@ class CalendarEventPatchSchema(Schema):
     recurrence_exceptions = fields.List(fields.String())
     recurrence_id = fields.String(allow_none=True)
     recurrence_range = fields.String(allow_none=True)
-    percent_complete = fields.Integer(allow_none=True)
     completed_at = fields.String(allow_none=True)
 
 
