@@ -62,7 +62,9 @@ MAIL_FOLDER_DRAFT    = "DRAFT"    #Folder made to store mail not already sent
 MAIL_FOLDER_JUNK     = "JUNK"     #Folder made to store mail viewed as SPAM
 MAIL_FOLDER_TRASH    = "TRASH"    #Folder made to store deleted mail before permanent deletion
 MAIL_FOLDER_TEMPLATE = "TEMPLATE" #Folder made to store tamplate mail
+MAIL_FOLDER_PLANNED  = "PLANNED"  #Folder made to store mail planned to be sent later
 MAIL_FOLDER_NORMAL   = "NORMAL"   #Folder with no special used except to store mails
+
 
 #IMAP
 IMAP_DEFAULT_DELIMITER = "/./." #It will be a key (not the value) to get the default delimiter of all namespaces.

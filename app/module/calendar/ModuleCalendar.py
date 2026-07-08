@@ -191,8 +191,6 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
                 result=created, touched=[(created, EventAction.INSERT)],
             ))
             return created
-        except RequestException:
-            raise
         except Exception as exc:
             logger_calendar.exception("Unexpected error creating event in calendar %s", calendar_key)
             raise RequestException(error=err.ERROR_CALENDAR_EVENT_INSERT_FAILED) from exc

@@ -336,6 +336,8 @@ The only example for now is if the UI will make the login in two steps (first us
 ==== UI
 
 * [*]  80%: Change language (miss the autodetec of language)
+* [ ]   0%: Is user already logged, requets to index or auth redicret to main view. 
+* [ ]   0%: Is user token is not valid anymore, return to login page
 
 **2 steps login**
 
@@ -390,6 +392,7 @@ The only example for now is if the UI will make the login in two steps (first us
 * [*]   0%: Show profile picture according to user settings
 * [*] 100%: Show CN (Commmon Name) and mail as a button for theming, profile, settings and logout
 * [ ]  20%: Show module according to user preferences (SOGO_U_FIRST_MODULE) (can set the preferences but does not affect login)
+* [ ]   0%: SHow message of the day (not done by backend)
 
 '''
 
@@ -406,8 +409,9 @@ The only example for now is if the UI will make the login in two steps (first us
 * [*] 100%: Return quota if mail server handles it.
 * [*] 100%: Endpoint to list delegation
 * [ ]  60%: Endpoint to delegate one or several account; means give another user the right to use our identity to send mail (not implemented)
-* [ ]  80%: Endpoint to purge all folders of an acocunt (delete mail olders than X), if allowed by admin with a minimal date allowed. (admin settings are not used yet)
-* [ ]  20%: Endpoint to search among all mails of all folders
+* [ ]  80%: Endpoint to purge all folders of an account (delete mail olders than X), if allowed by admin with a minimal date allowed. (admin settings are not used yet)
+** [ ]   0%: Add an option to not delte message flag as important
+* [ ]  20%: Endpoint to search among all mails of all folders (in review)
 
 '''
 
@@ -429,8 +433,11 @@ The only example for now is if the UI will make the login in two steps (first us
 * [ ]   0%: Add openPGP certificate to sign mail and received encrypted mail
 * [ ]   0%: Manage certificates renewal (keep expired private key to still ba able to decrypt old mails)
 * [ ]   0%: Endpoint to update password
-* [ ]   0%: Endpoint for totp
-* [ ]   0%: Endpoint for set password recovery
+* [ ]   0%: Endpoint to set totp
+* [ ]   0%: Endpoint to set password recovery
+** [ ]   0%: Can set secondary mail, if allowed by admin
+** [ ]   0%: Can set quesitons/answers, if allowed by admin
+
 
 '''
 
@@ -440,7 +447,7 @@ The only example for now is if the UI will make the login in two steps (first us
 ** [*] 100%: Imap settings (hostname, port, encryption, auth - login/plain -, username and password)
 ** [*] 100%: Smtp settings (hostname, port, encryption, auth - login/plain -, username and password)
 ** [*] 100%: One, or several identities without limit from admin
-** [ ]   0%: Security
+** [ ]   0%: add certificates
 
 ==== UI
 
@@ -450,7 +457,9 @@ The only example for now is if the UI will make the login in two steps (first us
 * [*] 100%: Button to switch between them
 * [*] 100%: Shortcut to create them if allowed by SOGO_D_ALLOW_EXT_MAIL_ACCOUNT
 * [ ]   0%: Show quota if available, with soft quota. Add warning icon if close to max.
-* [ ]  100%: Button to show delegations and modify them
+** [ ]   0%: If any action, except remove, failed because of a full quota (save draft, copy mail to...), show a proper message error explaining why
+** [ ]   0%: If action remove failed because of a full quota ask to delete permanently
+* [ ]  90%: Button to show delegations and modify them (backend missing)
 * [ ]    0%: Button to purge, if allowed
 ** [ ]    0%: ask for date (with minimun date set by admin)
 ** [ ]    0%: ask for permanent deletion (instead of moving to trash)
@@ -466,7 +475,6 @@ The only example for now is if the UI will make the login in two steps (first us
 ** [*] 100%: User can choose default profile picture
 ** [ ]   0%: User can choose gravatar pp
 ** [ ]   0%: User can choose libravatar pp
-** [ ]   0%: User can choose custom pp
 * [ ] 80%: See user infos (not linked to usersource)
 * [*] 100%: Get identities of the main account
 ** [*] 100%: Can change name, if allowed by admin
@@ -478,11 +486,11 @@ The only example for now is if the UI will make the login in two steps (first us
 
 * [ ]   0%: Add pkcs7 certificate to sign mail and received encrypted mail
 * [ ]   0%: Add openPGP certificate to sign mail and received encrypted mail
-* [ ]   0%: Manage certificates renewal (keep expired private key to still ba able to decrypt old mails)
-* [ ]   0%: Add certficates for main account
-* [ ]   0%: update password if allowed
-* [ ]   0%: set password recovery if allowed
-* [ ]   0%: set totp
+* [ ]   0%: user can update password if allowed
+* [ ]   0%: user can set totp if allowed
+* [ ]   0%: user can set password recoveyr method
+** [ ]   0%: user can set secondary email
+** [ ]   0%: user can set questions/answers
 
 **Preferences - Mail**
 
@@ -498,19 +506,30 @@ The only example for now is if the UI will make the login in two steps (first us
 ==== Backend
 
 * [*] 100%: Endpoint, List folders or get one specific
+* [ ]   0%: Endpoint, List shared folders or get one specific
 * [ ]  80%: Endpoint, rename folder
-* [ ]   0%: Endpoint to move fodlers to
-* [*] 100%: Kind of folder: Inbox, draft, sent, junk, tash, template
-* [*] 100%: Create or remove folder or subfolders (except INBOX)
+* [ ]   0%: Endpoint to move folders to
+* [*] 100%: Kind of folder: Inbox, draft, sent, junk, tash, template, planned, normal
+* [*] 100%: Create or remove folder or subfolders (except special folder)
 * [*]  70%: Modify folder
+** [ ]  80%: Share a folder with rights (rework the names of the rights)
 * [*] 100%: Expunge (=remove all mails flag as deleted from the folder) a folder
 * [*] 100%: Purge (=delete all mail older than X) a folder
 * [ ]  20%: Mark all mails in a folder as read
-* [ ]  80%: Share a folder with rights (rework the names)
-* [*]  40%: Search in a folder
-* [*]  40%: sort mails in a folder
+
+* [ ]  40%: Search in a folder
+* [ ]  40%: sort mails in a folder
+** [ ]   0%: sort by subject
+** [ ]   0%: sort by from
+** [ ]   0%: sort by date
+** [ ]   0%: sort by size
+** [ ]   0%: sort by order receive
 * [ ]   0%: filter mails in a folder
+** [ ]   0%: show only unread message
+** [ ]   0%: show only important message
+** [ ]   0%: show only message with tag X
 * [ ]   0%: export a folder
+* [ ]   0%: empty Trash/Junk folder
 * [ ]   0%: import .eml if allowed by Admin (or DEBUG mode?)
 
 '''
@@ -539,15 +558,16 @@ The only example for now is if the UI will make the login in two steps (first us
 * [ ]   0%: share folders
 * [ ]   0%: export a folder
 
+
 '''
 
 **Action on sevral mails
 
 * [*] 100% can select several mails
 * [*] 100%: button to select/unselect all
-* [*] 100%: delete
-* [*] 100%: mark as read/unread
-* [*] 100%: mark as spam/ham
+* [ ]   0%: delete
+* [ ]   0%: mark as read/unread
+* [ ]   0%: mark as spam/ham
 * [ ]   0%: mark as important
 * [ ]   0%: move
 * [ ]   0%: copy
@@ -572,7 +592,7 @@ The only example for now is if the UI will make the login in two steps (first us
 * [*] 100%: delete a mail
 
 * [ ]   0%: Preview an attachment
-* [ ]   0%: Download an attachment
+* [ ]   50%: Download an attachment
 * [ ]   0%: Check public key validity
 * [ ]   0%: Store public key of sender
 * [ ]   0%: Check the signature (hash) of a mail
@@ -623,6 +643,7 @@ state that makes the link between the "mail in progress" and the mail currently 
 * [*] 100%: No subject allowed
 * [*] 100%: No body  allowed
 * [*] 100%: No subject and no body allowed
+* [ ]   0%: Admin Option to check that the "from" and "reply-to" is a mail, alias, delegate account belonging to the user before sending
 
 '''
 
@@ -737,16 +758,16 @@ As for now, only sieve protocol are managed.
 
 ==== Backend
 
-* [ ]  90%: Allow admin to enable or not mail filtering (when this one is disable, also disable the others)
-* [ ]  90%: Allow admin to enable or not vacation
-* [ ]  90%: Allow admin to enable or not auto-forward
-* [ ]  90%: Allow admin to enable or not notification
+* [ ] 100%: Allow admin to enable or not mail filtering (when this one is disable, also disable the others)
+* [ ] 100%: Allow admin to enable or not vacation
+* [ ] 100%: Allow admin to enable or not auto-forward
+* [ ] 100%: Allow admin to enable or not notification
 
 '''
 
 **Filters**
 
-* [*] 100%: Can have several filters
+* [*] 90%: Can have several filters (NOT TESTED)
 * [*] 100%: Can prioritize the filters (set the order of execution)
 * [*] 100%: Can prioritize the filters (set the order of execution)
 * [*] 100%: can create/delete a filter
@@ -762,15 +783,15 @@ As for now, only sieve protocol are managed.
 * [*] 100%: Can choose 'subject' as field
 * [*] 100%: Can choose 'from' as field
 * [*] 100%: Can choose 'to' as field
-* [ ]    0%: Can choose 'cc' as field
-* [ ]   0%: Can choose 'to or cc' as field
-* [ ]   0%: Can choose 'size' as field
+* [*] 100%: Can choose 'cc' as field
+* [*] 100%: Can choose 'to or cc' as field
+* [*] 100%: Can choose 'size' as field
 * [*] 100%: Can choose 'header' as field and write the header (which can be tru or not)
-* [ ]   0%: Can choose 'body' as field
+* [*] 100%: Can choose 'body' as field
 * [*] 100%: Can make one or several action
 * [*] 100%: Action: discard (mail is lost)
 * [*] 100%: Action: stop (stop the filtering now)
-* [*]   0%: Action: keep (mail is kept)
+* [*] 100%: Action: keep (mail is kept)
 
 [NOTE]
 ====
@@ -785,12 +806,11 @@ Example:  if not size :under 1M { discard; }
 But SOGo 6 does not managed `if (conditon) action1 else action2`, so it will always be `if (not condition) action2`
 ====
 
-* [ ]  90%: Action: move to a folder and option to create it if it does not exist (only one folder for now)
-* [ ]  80%: Action: redirect to one or several address (only one for now)
-* [ ]  90%: Action: Copy to a folder (only one for now)
-* [ ]   0%: Action: Mark the mail as (add flag)
-* [ ]   0%: Action: Reject with a message
-* [ ]   0%: Action: Reject with a message (not implemented in sievelib)
+* [*] 100%: Action: move to a folder and option to create it if it does not exist (only one folder for now)
+* [*] 100%: Action: redirect to one or several address (only one for now)
+* [*] 100%: Action: Copy to a folder (only one for now)
+* [*] 100%: Action: Mark the mail as (add flag)
+* [*] 100%: Action: Reject with a message
  
 '''
 
@@ -801,16 +821,16 @@ But SOGo 6 does not managed `if (conditon) action1 else action2`, so it will alw
 * [ ]   0%: User can set different vacation messages on condition (if send to intern@example.org this one, if extern@example.org this other one)
 * [*] 100%: User can set a custom subject
 * [ ]   0%: User can use placeholder {subject} in its custom subject
-* [ ] 100%: User can set a message
+* [*] 100%: User can set a message
 * [ ]   0%: Admin can set a header and/or a for the message
-* [ ]   0%: User can tell the delay in days between two response [0 == always, only allow by admin]
-* [ ]   0%: User can set the priority of vacation compare to thers filters (do first or not)
+* [*] 100%: User can tell the delay in days between two response [0 == always, only allow by admin]
+* [*] 100%: User can set the priority of vacation compare to thers filters (do first or not)
 * [ ]   0%: User can choose to discard all the mails while in vacation (will not do)
-* [ ]  80%: User can choose a start datetime (only date for now)
-* [ ]  80%: User can choose a end datetime (only date for now)
-* [ ] 100%: User can choose a start time during the day
-* [ ] 100%: User can choose a end time during the day
-* [ ] 100%: user can choose a specific day when to send vacation message
+* [*] 100%: User can choose a start datetime
+* [*] 100%: User can choose a end datetime
+* [*] 100%: User can choose a start time during the day
+* [*] 100%: User can choose a end time during the day
+* [*] 100%: user can choose a specific day when to send vacation message
 
 '''
 
@@ -819,10 +839,18 @@ But SOGo 6 does not managed `if (conditon) action1 else action2`, so it will alw
 * [*] 100%: Admin can allow or not Forward
 * [*] 100%: User can enable or not Forward
 * [*] 100%: User can set several addresses to forward to
-* [ ]  10%: Admin can set rules of whitelisting/blackisting (parameters exists)
+* [ ]  10%: Admin can set rules of whitelisting/blackisting (parameters exists nut not used)
 * [*] 100%: User can choose to keep a copy of the mail
-* [ ]   0%: User can choose to put the foward at the top priority
+* [*] 100%: User can choose to put the foward at the top priority
 
+**Notification**
+
+* [*] 100%: Admin can allow or not Notificaiton
+* [*] 100%: User can enable or not Notificaiton
+* [*] 100%: User can set several addresses to notify
+* [ ]  10%: Admin can set rules of whitelisting/blackisting (parameters exists nut not used)
+* [*] 100%: User set the notificaiton message
+* [ ]   0%: User can choose to put the notification at the top priority
 
 ==== UI
 
@@ -908,6 +936,13 @@ But SOGo 6 does not managed `if (conditon) action1 else action2`, so it will alw
 * [*] 100%: Delete a calendar (except personal)
 * [*] 95%: modify a calendar
 ** [ ]  0%: show/unshow calendars (state not stored in database)
+** [*] 100%: Name
+** [*] 100%: color
+** [*] 100%: description
+** [ ] 100%: Timezone
+** [ ] 100%: Default event duration
+** [ ] 100%: Default reminder duration
+** [ ] 100%: Set as default
 * [ ]   0%: share a calendar with rights
 * [*] 100%: Create a sogo-token for public share (read only)
 * [*] 100%: Delete the sogo-token for public share (read only)
@@ -922,14 +957,21 @@ But SOGo 6 does not managed `if (conditon) action1 else action2`, so it will alw
 * [ ]   0%: subscribe to another sogo user calendar
 * [ ]   0%: subscribe to an external calendar (caldav)
 * [*]  80%: generate public link (doesn't work??)
+
 '''
 
 Events
 
 * [*] 100%: list all events (across calendars) or a specific one
 * [*] 100%: list all events of a calendar or a specific one
-* [*] 100%: create/modify/remove a event
-* [ ]   0%: see event .ics
+* [*] 100%: create an event
+** [*] 100%: generate uuid
+** [*] 100%: title, mandatory
+** [ ]  90%: description (plain text only)
+* [*] 100%: modify an event
+* [*] 100%: remove an event
+* [ ]   0%: see event raw source
+* [ ]   0%: Endpoint do create a visio link of type X (Jitsi, ...)
 * [ ]   0%: copy event
 
 '''
@@ -939,8 +981,8 @@ Tasks
 * [*] 100%: list all tasks (across calendars) or a specific one
 * [*] 100%: list all tasks of a calendar or a specific one
 * [*] 100%: create/modify/remove a task
-* [ ]   0%: see event .ics
-* [ ]   0%: copy event
+* [ ]   0%: see task raw source
+* [ ]   0%: copy task
 
 '''
 
@@ -968,6 +1010,8 @@ Journal are dated notes. New feature of SOGo 6.
 ** [*] 100%: description
 ** [ ]   0%: Timezone
 ** [ ]   0%: Default event duration
+** [ ]   0%: Default reminder duration
+** [ ]   0%: Set as default
 * [*] 100%: delete calendars except personnal
 * [ ]   0%: share a calendar with rights
 * [ ] 100%: add a external calendar (.ics)
@@ -1133,6 +1177,8 @@ Tools
 * [ ]   0%: Remove user (all info from database, not the user source)
 * [ ]   0%: rename user (in database, not user source) 
 * [ ]   0%: Update secret (for passwords, certificates...) (cannot be an endpoint but a script)
+
+* [ ]   0%: Set, modfy or remove a "Message of the day"
 
 '''
 
