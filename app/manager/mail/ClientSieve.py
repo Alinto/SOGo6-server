@@ -1585,8 +1585,9 @@ class ClientSieve(ClientFiltering):
                     start_time_sieve = self._normalize_time_to_sieve(conditions.start_date_time)
                     # Condition: date > start_date OR (date == start_date AND time >= start_date_time)
                     date_range_parts.append(
+                        f'anyof(currentdate{zone_param} :value "gt" "date" "{conditions.start_date}", '
                         f'allof(currentdate{zone_param} :value "eq" "date" "{conditions.start_date}", '
-                        f'currentdate{zone_param} :value "ge" "time" "{start_time_sieve}")'
+                        f'currentdate{zone_param} :value "ge" "time" "{start_time_sieve}"))'
                     )
                 else:
                     # Date-only: date >= start_date
@@ -1604,8 +1605,9 @@ class ClientSieve(ClientFiltering):
                     end_time_sieve = self._normalize_time_to_sieve(conditions.end_date_time)
                     # Condition: date < end_date OR (date == end_date AND time <= end_date_time)
                     date_range_parts.append(
+                        f'anyof(currentdate{zone_param} :value "lt" "date" "{conditions.end_date}", '
                         f'allof(currentdate{zone_param} :value "eq" "date" "{conditions.end_date}", '
-                        f'currentdate{zone_param} :value "le" "time" "{end_time_sieve}")'
+                        f'currentdate{zone_param} :value "le" "time" "{end_time_sieve}"))'
                     )
                 else:
                     # Date-only: date <= end_date
