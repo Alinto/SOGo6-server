@@ -747,189 +747,219 @@ class ClientSieve(ClientFiltering):
             cs.FILTER_SECTION_FILTERS: False,
         }
 
-        try:
-            # Build the merged script by combining all enabled sections
-            merged_script_parts = []
-            requires_set = set()
+        # Build the merged script by combining all enabled sections
+        merged_script_parts = []
+        requires_set = set()
 
-            # Check priority flags for both forward and vacation
-            forward_config = filters_config.get(cs.FILTER_SECTION_FORWARD)
-            vacation_config = filters_config.get(cs.FILTER_SECTION_VACATION)
+        # Get configurations
+        forward_config = filters_config.get(cs.FILTER_SECTION_FORWARD)
+        vacation_config = filters_config.get(cs.FILTER_SECTION_VACATION)
 
-            forward_has_priority = forward_config and forward_config.get("enabled", False) and forward_config.get("always_send", False)
-            vacation_has_priority = vacation_config and vacation_config.get("enabled", False) and vacation_config.get("always_send", False)
+        # Determine priority: forward has priority over vacation if both have always_send=True
+        forward_has_priority = forward_config and forward_config.get("enabled", False) and forward_config.get("always_send", False)
+        vacation_has_priority = vacation_config and vacation_config.get("enabled", False) and vacation_config.get("always_send", False)
 
-            # If forward has priority, process it first
-            if forward_config and forward_has_priority:
-                try:
-                    forward_addresses = forward_config.get("forward_address", [])
-                    if forward_addresses:
-                        # Addresses are already validated by the Marshmallow schema
-                        keep_copy = forward_config.get("keep_copy", False)
-                        always_send = forward_config.get("always_send", False)
+        # Process forward and vacation sections with priority handling
+        # Forward has priority over vacation if both have always_send=True
+        if forward_has_priority:
+            priority_insert_pos = self._process_forward_section(forward_config, merged_script_parts, requires_set, activated_sections)
+            if vacation_has_priority and vacation_config.get("enabled", False):
+                self._process_vacation_section(vacation_config, merged_script_parts, requires_set, activated_sections, insert_pos=priority_insert_pos + 1)
+        elif vacation_has_priority:
+            self._process_vacation_section(vacation_config, merged_script_parts, requires_set, activated_sections, insert_pos=0)
 
-                        forward_script = self._build_forward_script(forward_addresses, keep_copy, always_send)
-                        merged_script_parts.append((cs.FILTER_SECTION_FORWARD, forward_script))
-                        # Don't add "redirect" or "copy" to requires - they are native Sieve commands
-                        logger_sieve.debug("Added forward section to merged script (with priority)")
-                        activated_sections[cs.FILTER_SECTION_FORWARD] = True
-                except RequestException:
-                    raise
-                except Exception as e:
-                    logger_sieve.error("Error processing forward section: %s", e)
-                    raise RequestException(
-                        f"Failed to process forward: {e}",
-                        err.ERROR_SIEVE_SCRIPT_INVALID,
-                    ) from e
+        # Process non-priority forward (normal order)
+        if not forward_has_priority and forward_config and forward_config.get("enabled", False):
+            self._process_forward_section(forward_config, merged_script_parts, requires_set, activated_sections)
 
-            # If vacation has priority, process it second
-            if vacation_config and vacation_has_priority:
-                try:
-                    vacation_script = self._build_vacation_script(vacation_config)
-                    merged_script_parts.append((cs.FILTER_SECTION_VACATION, vacation_script))
-                    requires_set.add("vacation")
-                    activated_sections[cs.FILTER_SECTION_VACATION] = True
-                    logger_sieve.debug("Added vacation section to merged script (with priority)")
-                except Exception as e:
-                    logger_sieve.error("Error processing vacation section: %s", e)
-                    raise RequestException(
-                        f"Failed to process vacation: {e}",
-                        err.ERROR_SIEVE_SCRIPT_INVALID,
-                    ) from e
+        # Process filters (rules)
+        self._process_filters_section(filters_config.get(cs.FILTER_SECTION_FILTERS, []), merged_script_parts, requires_set, activated_sections)
 
-            # 1. Process forward settings (if not already processed with priority)
-            if not forward_has_priority and forward_config and forward_config.get("enabled", False):
-                try:
-                    forward_addresses = forward_config.get("forward_address", [])
-                    if forward_addresses:
-                        # Addresses are already validated by the Marshmallow schema
-                        keep_copy = forward_config.get("keep_copy", False)
-                        always_send = forward_config.get("always_send", False)
+        # Process non-priority vacation (normal order)
+        if not vacation_has_priority and vacation_config and vacation_config.get("enabled", False):
+            self._process_vacation_section(vacation_config, merged_script_parts, requires_set, activated_sections)
 
-                        forward_script = self._build_forward_script(forward_addresses, keep_copy, always_send)
-                        merged_script_parts.append((cs.FILTER_SECTION_FORWARD, forward_script))
-                        # Don't add "redirect" or "copy" to requires - they are native Sieve commands
-                        logger_sieve.debug("Added forward section to merged script")
-                        activated_sections[cs.FILTER_SECTION_FORWARD] = True
-                except RequestException:
-                    raise
-                except Exception as e:
-                    logger_sieve.error("Error processing forward section: %s", e)
-                    raise RequestException(
-                        f"Failed to process forward: {e}",
-                        err.ERROR_SIEVE_SCRIPT_INVALID,
-                    ) from e
+        # Process notification settings
+        self._process_notification_section(filters_config.get(cs.FILTER_SECTION_NOTIFICATION), merged_script_parts, requires_set, activated_sections)
 
-            # 2. Process filters (rules)
-            filters_list = filters_config.get(cs.FILTER_SECTION_FILTERS, [])
-            if filters_list:
-                try:
-                    filters_set = FiltersSet("sogo-rules")
-                    for filter_item in filters_list:
-                        if filter_item.get("enabled", True):
-                            self._add_filter_to_set(filters_set, filter_item)
-
-                            # Detect required extensions from filter rules
-                            rules = filter_item.get("rules", {})
-                            if rules:
-                                required_exts = self._detect_required_extensions_from_rules(rules)
-                                requires_set.update(required_exts)
-
-                            # Detect required extensions from filter actions
-                            # This includes "copy" for :copy flag and "mailbox" for :create
-                            actions = filter_item.get("actions", [])
-                            if actions:
-                                action_exts = self._detect_required_extensions_from_actions(actions)
-                                requires_set.update(action_exts)
-
-                    if filters_set.filters:  # Only add if filters exist
-                        filters_script = self._render_filters_set(filters_set)
-                        merged_script_parts.append((cs.FILTER_SECTION_FILTERS, filters_script))
-                        activated_sections[cs.FILTER_SECTION_FILTERS] = True
-                        logger_sieve.debug("Added filters section to merged script")
-                except Exception as e:
-                    logger_sieve.error("Error processing filters section: %s", e)
-                    raise RequestException(
-                        f"Failed to process filters: {e}",
-                        err.ERROR_SIEVE_SCRIPT_INVALID,
-                    ) from e
-
-            # 3. Process vacation settings (if not already processed with priority)
-            if not vacation_has_priority and vacation_config and vacation_config.get("enabled", False):
-                try:
-                    vacation_script = self._build_vacation_script(vacation_config)
-                    merged_script_parts.append((cs.FILTER_SECTION_VACATION, vacation_script))
-                    requires_set.add("vacation")
-                    activated_sections[cs.FILTER_SECTION_VACATION] = True
-                    logger_sieve.debug("Added vacation section to merged script")
-                except Exception as e:
-                    logger_sieve.error("Error processing vacation section: %s", e)
-                    raise RequestException(
-                        f"Failed to process vacation: {e}",
-                        err.ERROR_SIEVE_SCRIPT_INVALID,
-                    ) from e
-
-            # 4. Process notification settings (RFC 5435)
-            # NOTE: This section is optional and requires Dovecot to support the 'notify' extension.
-            # If the server doesn't support it, we store the configuration but don't add it to the script.
-            notification_config = filters_config.get(cs.FILTER_SECTION_NOTIFICATION)
-            if notification_config and notification_config.get("enabled", False):
-                try:
-                    notify_addresses = notification_config.get("notify_addresses", [])
-                    if notify_addresses:
-                        # Addresses are already validated by the Marshmallow schema
-
-                        # Build notification script (will be added to merged script if server supports it)
-                        notification_script = self._build_notification_script(notification_config)
-                        if notification_script:  # Only add if script is not empty
-                            merged_script_parts.append((cs.FILTER_SECTION_NOTIFICATION, notification_script))
-                            requires_set.add("enotify")
-                            logger_sieve.debug("Added notification section to merged script")
-                        activated_sections[cs.FILTER_SECTION_NOTIFICATION] = True
-                    else:
-                        logger_sieve.debug("Notification has no addresses; marking as activated for database persistence")
-                        activated_sections[cs.FILTER_SECTION_NOTIFICATION] = True
-                except RequestException:
-                    raise
-                except Exception as e:
-                    logger_sieve.error("Error processing notification section: %s", e)
-                    raise RequestException(
-                        f"Failed to process notification: {e}",
-                        err.ERROR_SIEVE_SCRIPT_INVALID,
-                    ) from e
-
-            # If nothing is enabled, deactivate then delete the master script.
-            if not merged_script_parts:
-                logger_sieve.info("No filter sections are enabled; deactivating and deleting master script")
-                try:
-                    self.set_active("")
-                    logger_sieve.debug("Deactivated active Sieve script before cleanup")
-                except RequestException as e:
-                    logger_sieve.debug("Could not deactivate Sieve script (may not be active): %s", e)
-                self._cleanup_scripts([SIEVE_MASTER_SCRIPT])
-                return activated_sections
-
-            # Compile final merged script with all requirements
-            master_script = self._compile_merged_script(requires_set, merged_script_parts)
-            # Upload and activate the master script with automatic retry for unsupported extensions
-            skipped_sections = self._store_and_activate_script(SIEVE_MASTER_SCRIPT, master_script, requires_set, merged_script_parts)
-
-            # Mark sections as activated based on what was included and not skipped
-            for section_name, _ in merged_script_parts:
-                if section_name not in skipped_sections:
-                    activated_sections[section_name] = True
-
-            logger_sieve.info("Successfully merged and activated all filter sections")
-            logger_sieve.info("Activated sections: %s", activated_sections)
-
+        # If nothing is enabled, deactivate then delete the master script.
+        if not merged_script_parts:
+            logger_sieve.info("No filter sections are enabled; deactivating and deleting master script")
+            try:
+                self.set_active("")
+                logger_sieve.debug("Deactivated active Sieve script before cleanup")
+            except RequestException as e:
+                logger_sieve.debug("Could not deactivate Sieve script (may not be active): %s", e)
+            self._cleanup_scripts([SIEVE_MASTER_SCRIPT])
             return activated_sections
 
-        except RequestException:
-            raise
+        # Compile final merged script with all requirements
+        master_script = self._compile_merged_script(requires_set, merged_script_parts)
+        # Upload and activate the master script with automatic retry for unsupported extensions
+        skipped_sections = self._store_and_activate_script(SIEVE_MASTER_SCRIPT, master_script, requires_set, merged_script_parts)
+
+        # Mark sections as activated based on what was included and not skipped
+        for section_name, _ in merged_script_parts:
+            if section_name not in skipped_sections:
+                activated_sections[section_name] = True
+
+        logger_sieve.info("Activated sections: %s", activated_sections)
+
+        return activated_sections
+
+    def _process_forward_section(self, forward_config: dict, merged_script_parts: list, requires_set: set, activated_sections: dict) -> int:
+        """Process forward section and add it to merged script parts.
+        
+        :param forward_config: Forward configuration dict.
+        :type forward_config: dict
+        :param merged_script_parts: List to append the forward script part to.
+        :type merged_script_parts: list
+        :param requires_set: Set of required extensions to update.
+        :type requires_set: set
+        :param activated_sections: Dictionary to update with activation status.
+        :type activated_sections: dict
+        :return: Index where the script part was inserted.
+        :rtype: int
+        :raises RequestException: If forward processing fails.
+        """
+        try:
+            forward_addresses = forward_config.get("forward_address", [])
+            if forward_addresses:
+                keep_copy = forward_config.get("keep_copy", False)
+                always_send = forward_config.get("always_send", False)
+
+                forward_script = self._build_forward_script(forward_addresses, keep_copy, always_send)
+                merged_script_parts.append((cs.FILTER_SECTION_FORWARD, forward_script))
+                # Don't add "redirect" or "copy" to requires - they are native Sieve commands
+                logger_sieve.debug("Added forward section to merged script")
+                activated_sections[cs.FILTER_SECTION_FORWARD] = True
+                return len(merged_script_parts) - 1
         except Exception as e:
-            logger_sieve.error("Error in set_merged_filters: %s", e)
+            logger_sieve.error("Error processing forward section: %s", e)
             raise RequestException(
-                f"Failed to merge filters: {e}",
+                f"Failed to process forward: {e}",
+                err.ERROR_SIEVE_SCRIPT_INVALID,
+            ) from e
+        return -1
+
+    def _process_vacation_section(self, vacation_config: dict, merged_script_parts: list, requires_set: set, 
+                                  activated_sections: dict, insert_pos: int = None) -> None:
+        """Process vacation section and add it to merged script parts.
+        
+        :param vacation_config: Vacation configuration dict.
+        :type vacation_config: dict
+        :param merged_script_parts: List to append the vacation script part to.
+        :type merged_script_parts: list
+        :param requires_set: Set of required extensions to update.
+        :type requires_set: set
+        :param activated_sections: Dictionary to update with activation status.
+        :type activated_sections: dict
+        :param insert_pos: Position to insert the script part (if None, append).
+        :type insert_pos: int | None
+        :raises RequestException: If vacation processing fails.
+        """
+        try:
+            vacation_script = self._build_vacation_script(vacation_config)
+            if insert_pos is not None:
+                merged_script_parts.insert(insert_pos, (cs.FILTER_SECTION_VACATION, vacation_script))
+            else:
+                merged_script_parts.append((cs.FILTER_SECTION_VACATION, vacation_script))
+            requires_set.add("vacation")
+            activated_sections[cs.FILTER_SECTION_VACATION] = True
+            logger_sieve.debug("Added vacation section to merged script")
+        except Exception as e:
+            logger_sieve.error("Error processing vacation section: %s", e)
+            raise RequestException(
+                f"Failed to process vacation: {e}",
+                err.ERROR_SIEVE_SCRIPT_INVALID,
+            ) from e
+
+    def _process_filters_section(self, filters_list: list, merged_script_parts: list, requires_set: set, 
+                                activated_sections: dict) -> None:
+        """Process filters section and add it to merged script parts.
+        
+        :param filters_list: List of filter definitions.
+        :type filters_list: list
+        :param merged_script_parts: List to append the filters script part to.
+        :type merged_script_parts: list
+        :param requires_set: Set of required extensions to update.
+        :type requires_set: set
+        :param activated_sections: Dictionary to update with activation status.
+        :type activated_sections: dict
+        :raises RequestException: If filters processing fails.
+        """
+        if not filters_list:
+            return
+
+        try:
+            filters_set = FiltersSet("sogo-rules")
+            for filter_item in filters_list:
+                if filter_item.get("enabled", True):
+                    self._add_filter_to_set(filters_set, filter_item)
+
+                    # Detect required extensions from filter rules
+                    rules = filter_item.get("rules", {})
+                    if rules:
+                        required_exts = self._detect_required_extensions_from_rules(rules)
+                        requires_set.update(required_exts)
+
+                    # Detect required extensions from filter actions
+                    # This includes "copy" for :copy flag and "mailbox" for :create
+                    actions = filter_item.get("actions", [])
+                    if actions:
+                        action_exts = self._detect_required_extensions_from_actions(actions)
+                        requires_set.update(action_exts)
+
+            if filters_set.filters:  # Only add if filters exist
+                filters_script = self._render_filters_set(filters_set)
+                merged_script_parts.append((cs.FILTER_SECTION_FILTERS, filters_script))
+                activated_sections[cs.FILTER_SECTION_FILTERS] = True
+                logger_sieve.debug("Added filters section to merged script")
+        except Exception as e:
+            logger_sieve.error("Error processing filters section: %s", e)
+            raise RequestException(
+                f"Failed to process filters: {e}",
+                err.ERROR_SIEVE_SCRIPT_INVALID,
+            ) from e
+
+    def _process_notification_section(self, notification_config: dict, merged_script_parts: list, requires_set: set,
+                                     activated_sections: dict) -> None:
+        """Process notification section and add it to merged script parts.
+        
+        NOTE: This section is optional and requires Dovecot to support the 'notify' extension.
+        If the server doesn't support it, we store the configuration but don't add it to the script.
+        
+        :param notification_config: Notification configuration dict (or None).
+        :type notification_config: dict
+        :param merged_script_parts: List to append the notification script part to.
+        :type merged_script_parts: list
+        :param requires_set: Set of required extensions to update.
+        :type requires_set: set
+        :param activated_sections: Dictionary to update with activation status.
+        :type activated_sections: dict
+        :raises RequestException: If notification processing fails.
+        """
+        if not notification_config or not notification_config.get("enabled", False):
+            return
+
+        try:
+            notify_addresses = notification_config.get("notify_addresses", [])
+            if notify_addresses:
+                # Addresses are already validated by the Marshmallow schema
+                # Build notification script (will be added to merged script if server supports it)
+                notification_script = self._build_notification_script(notification_config)
+                if notification_script:  # Only add if script is not empty
+                    merged_script_parts.append((cs.FILTER_SECTION_NOTIFICATION, notification_script))
+                    requires_set.add("enotify")
+                    logger_sieve.debug("Added notification section to merged script")
+                activated_sections[cs.FILTER_SECTION_NOTIFICATION] = True
+            else:
+                logger_sieve.debug("Notification has no addresses; marking as activated for database persistence")
+                activated_sections[cs.FILTER_SECTION_NOTIFICATION] = True
+        except Exception as e:
+            logger_sieve.error("Error processing notification section: %s", e)
+            raise RequestException(
+                f"Failed to process notification: {e}",
                 err.ERROR_SIEVE_SCRIPT_INVALID,
             ) from e
 

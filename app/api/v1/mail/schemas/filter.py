@@ -409,7 +409,7 @@ class FiltersPayloadSchema(Schema):
                             }
                         },
                         {
-                            "method": "imapflags",
+                            "method": "addflag",
                             "arguments": {
                                 "flags": ["\\Flagged"]
                             }
