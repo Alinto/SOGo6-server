@@ -128,3 +128,111 @@ def partial_date_to_basic(canonical: str) -> str:
     if canonical.startswith("--"):
         return "--" + canonical[2:].replace("-", "")
     return canonical.replace("-", "")
+
+
+def parse_vacation_datetime(dt_str: str | None, default_tz: str = "UTC", tz_converter=None) -> tuple[str | None, str | None, str | None]:
+    """Parse a vacation datetime string with optional timezone.
+    
+    Supports formats:
+    - Date only: "2026-06-15" → returns (date, None, default_tz)
+    - DateTime: "2026-06-15T14:30:00" → returns (date, time, default_tz)
+    - DateTime with +HH:MM: "2026-06-15T14:30:00+0100" → returns (date, time, extracted_tz)
+    - DateTime with :Zone: "2026-06-15T14:30:00:Europe/Paris" → returns (date, time, "Europe/Paris")
+    - DateTime with Z: "2026-06-15T14:30:00Z" → returns (date, time, "UTC")
+    
+    Returns the timezone already converted using the provided tz_converter function.
+    When default_tz is an IANA name (e.g., "Europe/Paris"), it's converted once here.
+    
+    :param dt_str: DateTime string to parse
+    :param default_tz: Default timezone if none specified in the string (can be IANA name or offset)
+    :param tz_converter: Optional function to convert timezone strings (e.g., to Sieve format).
+                        If None, returns the timezone string as-is.
+    :return: Tuple of (date_str, time_str, timezone_str_converted) - time_str is None for date-only
+    """
+    # Use identity function if no converter provided
+    if tz_converter is None:
+        tz_converter = lambda tz, dt=None: tz
+    
+    if not dt_str or not isinstance(dt_str, str):
+        normalized_tz = tz_converter(default_tz)
+        return None, None, normalized_tz
+    
+    dt_str = dt_str.strip()
+    if not dt_str:
+        normalized_tz = tz_converter(default_tz)
+        return None, None, normalized_tz
+    
+    # Check if it's date-only (YYYY-MM-DD)
+    if len(dt_str) == 10 and dt_str.count("-") == 2:
+        try:
+            datetime.strptime(dt_str, "%Y-%m-%d")
+            # Normalize timezone, using the date for DST correctness
+            normalized_tz = tz_converter(default_tz, dt_str)
+            return dt_str, None, normalized_tz
+        except ValueError:
+            normalized_tz = tz_converter(default_tz)
+            return None, None, normalized_tz
+    
+    # Try to parse datetime with timezone
+    if "T" not in dt_str:
+        normalized_tz = tz_converter(default_tz)
+        return None, None, normalized_tz
+    
+    date_part, time_part = dt_str.split("T", 1)
+    
+    # Validate date part
+    try:
+        datetime.strptime(date_part, "%Y-%m-%d")
+    except ValueError:
+        normalized_tz = tz_converter(default_tz)
+        return None, None, normalized_tz
+    
+    extracted_tz = default_tz
+    time_only = None
+    
+    # Check for timezone info in the time part
+    if time_part.endswith("Z"):
+        # UTC marker
+        time_only = time_part[:-1]
+        extracted_tz = "UTC"
+    elif "+" in time_part:
+        # Format with +HH:MM or +HHMM
+        idx = time_part.rfind("+")
+        time_only = time_part[:idx]
+        tz_offset = time_part[idx:]  # Keep as "+HH:MM" or "+HHMM"
+        extracted_tz = tz_offset
+    elif time_part.count("-") > 0 and time_part.rfind("-") > 7:
+        # Format with -HH:MM (negative UTC offset)
+        # Find the last dash; only treat as timezone if it appears after the minimum time length
+        idx = time_part.rfind("-")
+        if idx > 0:
+            time_only = time_part[:idx]
+            tz_offset = time_part[idx:]
+            extracted_tz = tz_offset
+        else:
+            time_only = time_part
+    elif ":" in time_part and time_part.count(":") > 2:
+        # Check for :Zone format (e.g., "14:30:00:Europe/Paris")
+        # If more than 2 colons (HH:MM:SS = 2), there might be a timezone
+        parts = time_part.rsplit(":", 1)
+        time_only = parts[0]
+        tz_candidate = parts[1]
+        # Validate it looks like a timezone (contains / or other valid indicators)
+        if "/" in tz_candidate or tz_candidate.startswith("UTC") or tz_candidate.startswith("GMT"):
+            extracted_tz = tz_candidate
+        else:
+            # Not a timezone, just regular time
+            time_only = time_part
+    else:
+        # No timezone info in time part - use default_tz
+        time_only = time_part
+    
+    # Return parsed components with timezone converted using provided converter
+    # Pass date_part to converter so it can account for DST
+    if time_only and len(time_only.split(":")) >= 2:
+        normalized_tz = tz_converter(extracted_tz, date_part)
+        return date_part, time_only, normalized_tz
+    
+    # No valid time found
+    normalized_tz = tz_converter(extracted_tz, date_part)
+    return date_part, None, normalized_tz

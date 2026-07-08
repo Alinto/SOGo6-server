@@ -2,8 +2,10 @@ from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Any
 
-from marshmallow import Schema, ValidationError, fields
+from marshmallow import Schema, ValidationError, fields, validate, validates_schema, post_load
+from marshmallow.validate import Email
 from app.utils.api.ApiBaseResponse import ApiBaseResponse
+from app.utils import constants as cs
 
 
 # ---------------------------------------------------------------------------
@@ -30,33 +32,33 @@ class DateTimeWithTzField(fields.Field):
         """
         if value is None:
             return None
-            
+
         if not isinstance(value, str):
             raise ValidationError("Must be a string in ISO 8601 format.")
-        
+
         value = value.strip()
         if not value:
             return None
-        
+
         # Validate format by trying to parse it
         try:
             # Format: date only (YYYY-MM-DD)
             if len(value) == 10 and value.count("-") == 2:
                 datetime.strptime(value, "%Y-%m-%d")
                 return value
-            
+
             # Format: with T (datetime variations)
             if "T" not in value:
                 raise ValidationError("Invalid date/datetime format: must contain 'T' for datetime or be YYYY-MM-DD for date.")
-            
+
             date_part, time_part = value.split("T", 1)
-            
+
             # Validate date part
             datetime.strptime(date_part, "%Y-%m-%d")
-            
+
             time_part_base = time_part
             has_tz = False
-            
+
             # Check for Z (UTC)
             if time_part_base.endswith("Z"):
                 time_part_base = time_part_base[:-1]
@@ -78,7 +80,7 @@ class DateTimeWithTzField(fields.Field):
                 if "/" in tz_candidate or tz_candidate.startswith("UTC") or tz_candidate.startswith("GMT"):
                     time_part_base = parts[0]
                     has_tz = True
-            
+
             # Validate the time part (HH:MM:SS or HH:MM:SS.ffffff)
             # Try to parse it
             try:
@@ -92,12 +94,10 @@ class DateTimeWithTzField(fields.Field):
                     datetime.strptime(time_part_base, "%H:%M")
                 except ValueError:
                     raise ValidationError(f"Invalid time format in: {value}")
-            
+
             # If we got here, the format is valid
             return value
-            
-        except ValidationError:
-            raise
+
         except (ValueError, TypeError, AttributeError) as e:
             raise ValidationError(f"Invalid date/datetime format: {str(e)}") from e
 
@@ -106,28 +106,108 @@ class DateTimeWithTzField(fields.Field):
 # Filter rules & actions
 # ---------------------------------------------------------------------------
 
+# Valid field names for filter rules
+VALID_FILTER_FIELDS = [
+    cs.FILTER_FIELD_SUBJECT,
+    cs.FILTER_FIELD_FROM,
+    cs.FILTER_FIELD_TO,
+    cs.FILTER_FIELD_CC,
+    cs.FILTER_FIELD_TO_OR_CC,
+    cs.FILTER_FIELD_HEADER,
+    cs.FILTER_FIELD_BODY,
+    cs.FILTER_FIELD_SIZE,
+]
+
+# Valid operator names for filter rules
+# Note: "FILTER_OP_OVER" and "FILTER_OP_UNDER" are only valid with field FILTER_FIELD_SIZE
+# Note: "FILTER_OP_EXISTS" and "FILTER_OP_EXISTS_NOT" are only valid with field FILTER_FIELD_HEADER
+VALID_FILTER_OPERATORS = [
+    cs.FILTER_OP_IS,
+    cs.FILTER_OP_IS_NOT,
+    cs.FILTER_OP_CONTAINS,
+    cs.FILTER_OP_CONTAINS_NOT,
+    cs.FILTER_OP_MATCHES,
+    cs.FILTER_OP_MATCHES_NOT,
+    cs.FILTER_OP_REGEX,
+    cs.FILTER_OP_REGEX_NOT,
+    cs.FILTER_OP_EXISTS,
+    cs.FILTER_OP_EXISTS_NOT,
+    cs.FILTER_OP_OVER,
+    cs.FILTER_OP_UNDER,
+]
+
+# Valid action methods for filter actions
+VALID_ACTION_METHODS = [
+    cs.FILTER_ACTION_FILEINTO,
+    cs.FILTER_ACTION_REDIRECT,
+    cs.FILTER_ACTION_REJECT,
+    cs.FILTER_ACTION_DISCARD,
+    cs.FILTER_ACTION_KEEP,
+    cs.FILTER_ACTION_FLAG,
+    cs.FILTER_ACTION_NOTIFY,
+    cs.FILTER_ACTION_STOP
+]
+
+
 class FilterRuleSchema(Schema):
     """
     A single rule condition or a nested group of rules.
     When ``op`` is present this node is a group; otherwise it is a leaf condition.
     """
-    op            = fields.String()             # "and" | "or" — group node
+    op            = fields.String(validate=validate.OneOf(('and', 'or')))             # "and" | "or" — group node
     rules         = fields.List(fields.Dict())  # nested rules — group node
-    field         = fields.String()             # "subject" | "from" | "to" | "header" | "body" | "size" | …
-    operator      = fields.String()             # "contains" | "is" | "starts-with" | "count" | …
-    custom_header = fields.String()             # used when field == "header"
+    field         = fields.String(validate=validate.OneOf(VALID_FILTER_FIELDS))
+    operator      = fields.String(validate=validate.OneOf(VALID_FILTER_OPERATORS))
+    custom_header = fields.String()             # used when field == cs.FILTER_FIELD_HEADER
     value         = fields.String()             # value to match against or number for :count/:size
-    case_sensitive = fields.Boolean(load_default=True, dump_default=True)  # For string comparisons
+
+    @validates_schema
+    def check_over_unser(self, data: dict, **kwargs: Any) -> dict:
+        """Validate that 'over' and 'under' operators are only used with 'size' field.
+        
+        :param data: The deserialized data
+        :type data: dict
+        :raises ValidationError: If over/under is used with non-size field
+        :return: The validated data
+        :rtype: dict
+        """
+        # Only validate leaf nodes (rules without nested rules)
+        if "op" not in data and "rules" not in data:
+            operator = data.get("operator", "").lower()
+            field = data.get("field", "")
+
+            # Check if using size-specific operators with non-size field
+            if operator in ("over", "under") and field != "size":
+                raise ValidationError(
+                    f"Operator '{operator}' can only be used with field='size', but got field='{field}'"
+                )
+
+            # Check if using size field with non-size operators
+            if field == "size" and operator not in ("over", "under"):
+                raise ValidationError(
+                    f"Field 'size' can only be used with operators 'over' or 'under', but got operator='{operator}'"
+                )
+
+        return data
 
 
 class FilterActionArgumentsSchema(Schema):
-    """Arguments for a filter action."""
-    # fileinto / copy actions
-    folder             = fields.String()
+    """Arguments for a filter action.
+    
+    Note: In Sieve, "copy" is not a standalone action but a flag (:copy) applied to fileinto.
+    Use method="fileinto" with keep_copy=True to achieve the copy behavior.
+    
+    For redirect with multiple addresses, provide "addresses" as a list.
+    In Sieve, each address will generate a separate "redirect" action.
+    """
+    # fileinto action arguments
+    folders            = fields.List(fields.String(validate=validate.Length(min=1)), load_default=[], dump_default=[])  # Folders list
     create_if_no_exist = fields.Boolean()
-    # redirect / reject actions
-    address            = fields.String()
-    message            = fields.String()
+    keep_copy          = fields.Boolean(load_default=False, dump_default=False)  # Sieve :copy flag
+    # redirect action arguments
+    addresses          = fields.List(fields.Email(), load_default=[], dump_default=[])  # Email addresses for redirect
+    # reject action arguments
+    message            = fields.String()  # Only used for reject action
     # imapflags action
     flags              = fields.List(fields.String())
     # notify action
@@ -138,14 +218,14 @@ class FilterActionArgumentsSchema(Schema):
 
 class FilterSchema(Schema):
     """A single filter action."""
-    method    = fields.String(required=True)
+    method    = fields.String(validate=validate.OneOf(VALID_ACTION_METHODS))
     arguments = fields.Nested(FilterActionArgumentsSchema, load_default={}, dump_default={})
 
 
 class FilterItemSchema(Schema):
     """A single mail filter rule."""
     name    = fields.String(required=True)
-    enabled = fields.Integer(load_default=1, dump_default=1)
+    enabled = fields.Boolean(load_default=True, dump_default=True)
     actions = fields.List(fields.Nested(FilterSchema), required=True)
     rules   = fields.Nested(FilterRuleSchema, required=True)
 
@@ -156,27 +236,37 @@ class FilterItemSchema(Schema):
 
 class VacationSchema(Schema):
     """Auto-reply (vacation) settings."""
-    enabled                = fields.Integer(load_default=0, dump_default=0)
-    customSubjectEnabled   = fields.Boolean(load_default=False, dump_default=False)
-    customSubject          = fields.String(load_default="", dump_default="")
-    autoReplyText          = fields.String(load_default="", dump_default="")
-    startDate              = DateTimeWithTzField(load_default=None, dump_default=None, allow_none=True)
-    endDate                = DateTimeWithTzField(load_default=None, dump_default=None, allow_none=True)
-    timezone               = fields.String(load_default=None, dump_default=None, allow_none=True, metadata={"description": "IANA timezone (e.g., 'Europe/Paris', 'UTC'). Used for startDate/endDate when they don't have explicit timezone."})
-    alwaysSend             = fields.Integer(load_default=0, dump_default=0)
-    ignoreLists            = fields.Boolean(load_default=False, dump_default=False)
-    startTime              = fields.String(load_default=None, dump_default=None, allow_none=True)
-    endTime                = fields.String(load_default=None, dump_default=None, allow_none=True)
-    weekdaysEnabled        = fields.Boolean(load_default=False, dump_default=False)
-    days                   = fields.List(fields.Integer(), load_default=[], dump_default=[])
+
+    enabled                = fields.Boolean(load_default=False, dump_default=False)
+    custom_subject_enabled = fields.Boolean(load_default=False, dump_default=False)
+    custom_subject         = fields.String(load_default="", dump_default="")
+    auto_reply_text        = fields.String(load_default="", dump_default="")
+    start_date             = DateTimeWithTzField(load_default=None, dump_default=None, allow_none=True)
+    end_date               = DateTimeWithTzField(load_default=None, dump_default=None, allow_none=True)
+    timezone               = fields.String(load_default=None, dump_default=None, allow_none=True,
+                                           metadata={"description": "IANA timezone (e.g., 'Europe/Paris', 'UTC'). Used for "
+                                           "start_date/end_date when they don't have explicit timezone."})
+    always_send            = fields.Boolean(load_default=False, dump_default=False,
+                                             metadata={"description": "If True, the vacation rule is processed before regular "
+                                             "filter rules and always sends replies (takes priority over other filters)."})
+    start_time             = fields.String(load_default=None, dump_default=None, allow_none=True)
+    end_time               = fields.String(load_default=None, dump_default=None, allow_none=True)
+    weekdays_enabled       = fields.Boolean(load_default=False, dump_default=False)
+    weekday                = fields.List(fields.Integer(), load_default=[], dump_default=[],
+                                         metadata={"description": "List of weekday numbers (0-6, where 0 is Sunday). Only applies when weekdays_enabled is True."})
+    days                   = fields.Integer(load_default=None, dump_default=None, allow_none=True,
+                                            validate=validate.Range(min=0),
+                                            metadata={"description": "Minimum delay in days between vacation responses (RFC 5230 :days)."
+                                            " If set, prevents sending duplicate vacation replies within this period. Must be > 0, or = 0 "
+                                            "if SOGO_D_VACATION_ALLOW_RESPONSE_ALWAYS is enabled."})
 
 
 class ForwardSchema(Schema):
     """Mail forwarding settings."""
-    forwardAddress = fields.List(fields.String(), load_default=[], dump_default=[])
-    enabled        = fields.Integer(load_default=0, dump_default=0)
-    keepCopy       = fields.Integer(load_default=0, dump_default=0)
-    alwaysSend     = fields.Integer(load_default=0, dump_default=0)
+    forward_address = fields.List(fields.Email(), load_default=[], dump_default=[])
+    enabled        = fields.Boolean(load_default=False, dump_default=False)
+    keep_copy       = fields.Boolean(load_default=False, dump_default=False)
+    always_send     = fields.Boolean(load_default=False, dump_default=False)
 
 
 class NotificationSchema(Schema):
@@ -184,9 +274,9 @@ class NotificationSchema(Schema):
     
     Allows users to configure email notifications when mail filters are triggered.
     """
-    enabled              = fields.Integer(load_default=0, dump_default=0)
-    notifyAddresses      = fields.List(fields.String(), load_default=[], dump_default=[])
-    notifyMessage        = fields.String(load_default="", dump_default="")
+    enabled              = fields.Boolean(load_default=False, dump_default=False)
+    notify_addresses      = fields.List(fields.Email(), load_default=[], dump_default=[])
+    notify_message        = fields.String(load_default="", dump_default="")
 
 
 # ---------------------------------------------------------------------------
@@ -200,18 +290,156 @@ class FiltersPayloadSchema(Schema):
     @classmethod
     def example(cls) -> dict:
         """
-        Example for this schema
+        Example for this schema showing various filter conditions and actions.
+        Demonstrates multiple folders with fileinto, the keep_copy flag, and redirect with multiple addresses.
         """
         return {
             "filters": [
                 {
-                    "name": "test header",
-                    "enabled": 1,
+                    "name": "Move from CEO with urgent subject to INBOX",
+                    "enabled": True,
                     "actions": [
                         {
                             "method": "fileinto",
                             "arguments": {
-                                "folder": "Trash",
+                                "folders": ["INBOX"],
+                                "create_if_no_exist": True
+                            }
+                        }
+                    ],
+                    "rules": {
+                        "op": "and",
+                        "rules": [
+                            {
+                                "field": "from",
+                                "operator": "contains",
+                                "value": "ceo@company.com",
+                            },
+                            {
+                                "field": "subject",
+                                "operator": "contains",
+                                "value": "urgent",
+                            }
+                        ]
+                    }
+                },
+                {
+                    "name": "Redirect external mail to multiple addresses",
+                    "enabled": True,
+                    "actions": [
+                        {
+                            "method": "redirect",
+                            "arguments": {
+                                "addresses": ["admin@example.com", "boss@example.com"]
+                            }
+                        }
+                    ],
+                    "rules": {
+                        "field": "from",
+                        "operator": "notcontains",
+                        "value": "@company.com",
+                    }
+                },
+                {
+                    "name": "Alerts or notifications to multiple folders",
+                    "enabled": True,
+                    "actions": [
+                        {
+                            "method": "fileinto",
+                            "arguments": {
+                                "folders": ["Alertes", "Notifications"],
+                                "create_if_no_exist": True,
+                                "keep_copy": True
+                            }
+                        }
+                    ],
+                    "rules": {
+                        "op": "or",
+                        "rules": [
+                            {
+                                "field": "subject",
+                                "operator": "contains",
+                                "value": "[ALERTE]",
+                            },
+                            {
+                                "field": "subject",
+                                "operator": "contains",
+                                "value": "[NOTIFICATION]",
+                            }
+                        ]
+                    }
+                },
+                {
+                    "name": "Large attachments from external senders",
+                    "enabled": True,
+                    "actions": [
+                        {
+                            "method": "fileinto",
+                            "arguments": {
+                                "folders": ["Archive"],
+                                "create_if_no_exist": True
+                            }
+                        }
+                    ],
+                    "rules": {
+                        "op": "and",
+                        "rules": [
+                            {
+                                "field": "size",
+                                "operator": "over",
+                                "value": "5M"
+                            },
+                            {
+                                "field": "from",
+                                "operator": "notcontains",
+                                "value": "@company.com",
+                            }
+                        ]
+                    }
+                },
+                {
+                    "name": "Marketing emails with specific header",
+                    "enabled": True,
+                    "actions": [
+                        {
+                            "method": "fileinto",
+                            "arguments": {
+                                "folders": ["Marketing"],
+                                "create_if_no_exist": True
+                            }
+                        },
+                        {
+                            "method": "addflag",
+                            "arguments": {
+                                "flags": ["\\Flagged"]
+                            }
+                        }
+                    ],
+                    "rules": {
+                        "op": "and",
+                        "rules": [
+                            {
+                                "field": "header",
+                                "operator": "contains",
+                                "custom_header": "X-Marketing-Campaign",
+                                "value": "summer2026",
+                            },
+                            {
+                                "field": "from",
+                                "operator": "contains",
+                                "value": "marketing@",
+                            }
+                        ]
+                    }
+                },
+                {
+                    "name": "Complex rule: projects OR important AND from team",
+                    "enabled": True,
+                    "actions": [
+                        {
+                            "method": "fileinto",
+                            "arguments": {
+                                "folders": ["Work"],
                                 "create_if_no_exist": True
                             }
                         }
@@ -220,13 +448,91 @@ class FiltersPayloadSchema(Schema):
                         "op": "or",
                         "rules": [
                             {
-                                "field": "header",
+                                "field": "subject",
                                 "operator": "contains",
-                                "custom_header": "X-Alinto-Pub",
-                                "value": "rule1",
-                                "case_sensitive": False
+                                "value": "[PROJECT]",
+                            },
+                            {
+                                "op": "and",
+                                "rules": [
+                                    {
+                                        "field": "subject",
+                                        "operator": "contains",
+                                        "value": "[IMPORTANT]",
+                                    },
+                                    {
+                                        "field": "from",
+                                        "operator": "contains",
+                                        "value": "team@company.com",
+                                    }
+                                ]
                             }
                         ]
+                    }
+                },
+                {
+                    "name": "Body content with size constraint AND specific recipient",
+                    "enabled": True,
+                    "actions": [
+                        {
+                            "method": "fileinto",
+                            "arguments": {
+                                "folders": ["Important"],
+                                "create_if_no_exist": True
+                            }
+                        }
+                    ],
+                    "rules": {
+                        "op": "and",
+                        "rules": [
+                            {
+                                "field": "body",
+                                "operator": "contains",
+                                "value": "urgent action required",
+                            },
+                            {
+                                "field": "size",
+                                "operator": "under",
+                                "value": "10M"
+                            },
+                            {
+                                "field": "to",
+                                "operator": "contains",
+                                "value": "team@company.com",
+                            }
+                        ]
+                    }
+                },
+                {
+                    "name": "Discard spam emails",
+                    "enabled": True,
+                    "actions": [
+                        {
+                            "method": "discard",
+                            "arguments": {}
+                        }
+                    ],
+                    "rules": {
+                        "field": "subject",
+                        "operator": "contains",
+                        "value": "SPAM"                
+                    }
+                },
+                {
+                    "name": "Reject emails from blocked domain",
+                    "enabled": True,
+                    "actions": [
+                        {
+                            "method": "reject",
+                            "arguments": {
+                                "message": "Emails from this domain are not accepted"
+                            }
+                        }
+                    ],
+                    "rules": {
+                        "field": "from",
+                        "operator": "contains",
+                        "value": "@blocked-domain.com",
                     }
                 }
             ]
@@ -244,19 +550,19 @@ class VacationPayloadSchema(Schema):
         """
         return {
             "Vacation": {
-                "enabled": 1,
-                "customSubjectEnabled": True,
-                "customSubject": "Out of office",
-                "autoReplyText": "I am away until Monday.",
-                "startDate": "2026-06-15T09:00:00+0100",
-                "endDate": "2026-06-20T17:00:00",
+                "enabled": True,
+                "custom_subject_enabled": True,
+                "custom_subject": "Out of office",
+                "auto_reply_text": "I am away until Monday.",
+                "start_date": "2026-06-15T09:00:00+0100",
+                "end_date": "2026-06-20T17:00:00",
                 "timezone": "Europe/Paris",
-                "alwaysSend": 0,
-                "ignoreLists": True,
-                "startTime": "18:00",
-                "endTime": "08:00",
-                "weekdaysEnabled": True,
-                "days": [0, 3, 5]
+                "always_send": True,
+                "start_time": "18:00",
+                "end_time": "08:00",
+                "weekdays_enabled": True,
+                "weekday": [0, 3, 5],
+                "days": 1
             }
         }
 
@@ -272,10 +578,10 @@ class ForwardPayloadSchema(Schema):
         """
         return {
             "Forward": {
-                "forwardAddress": ["toma@gmail.com"],
-                "enabled": 1,
-                "keepCopy": 1,
-                "alwaysSend": 1
+                "forward_address": ["toma@gmail.com"],
+                "enabled": True,
+                "keep_copy": True,
+                "always_send": True
             }
         }
 
@@ -291,9 +597,9 @@ class NotificationPayloadSchema(Schema):
         """
         return {
             "Notification": {
-                "enabled": 1,
-                "notifyAddresses": ["admin@example.com", "alerts@example.com"],
-                "notifyMessage": "A mail filter has been triggered on your account"
+                "enabled": True,
+                "notify_addresses": ["admin@example.com", "alerts@example.com"],
+                "notify_message": "A mail filter has been triggered on your account"
             }
         }
 

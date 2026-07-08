@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Any
 from app.config.db import tables as tbl
 from app.utils import errors as err
 from app.utils.constants import (
-    FILTER_SIEVE_SECTIONS,
+    FILTER_SECTIONS,
 )
 from app.utils.db.Condition import EqualCondition
 from app.utils.exceptions import RequestException, BugException
@@ -160,8 +160,8 @@ class ModuleFilter:
         :rtype: bool
         """
         if isinstance(value, list):
-            return any(bool(f.get("enabled", 1)) for f in value if isinstance(f, dict))
-        return isinstance(value, dict) and bool(value.get("enabled", 0))
+            return any(bool(f.get("enabled", True)) for f in value if isinstance(f, dict))
+        return isinstance(value, dict) and bool(value.get("enabled", False))
 
     def set_section(self, section_key: str, value: Any) -> dict[str, Any]:
         """Replace one section of the stored filters column and push to Sieve.
@@ -200,7 +200,7 @@ class ModuleFilter:
         client = None
         activated_sections: dict = {}
         try:
-            if section_key in FILTER_SIEVE_SECTIONS:
+            if section_key in FILTER_SECTIONS:
                 # These sections are merged and pushed to Sieve as a single script
                 client = self._open_filtering_client()
 
