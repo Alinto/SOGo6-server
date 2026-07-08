@@ -1917,7 +1917,7 @@ class ClientImap(ClientMailServer):
             None,  # type: ignore[arg-type]
             raw_bytes,
         )
-        if not success:
+        if not success: #TODO : create folder if not exist if folder_type is "special"
             raise RequestException(
                 f"Failed to append mail to folder '{folder_path}': {datas}",
                 err.ERROR_MAIL_SAVE_SENT_FAILED,

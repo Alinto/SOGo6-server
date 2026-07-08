@@ -3,17 +3,20 @@ from typing import TYPE_CHECKING
 
 from app.auth.User import UserAnonymous
 from app.config.settings.SystemSettings import SystemSettingsObj, SystemSettings
-from app.config.settings.DomainSettings import AuthSettingsObj, AuthSettings, UserSourceSettings, UserSourceSettingsObj
+from app.config.settings.DomainSettings import AuthSettingsObj, AuthSettings, UserSourceSettings, UserSourceSettingsObj, MailSettings, MailSettingsObj
 from app.config.settings.UserSettings import UserGeneralSettings
 from app.module.auth.ModuleAuth import ModuleAuth
 from app.module.auth.ModuleUserSource import ModuleUserSource
 from app.module.calendar.ModuleCalendar import ModuleCalendar
 from app.module.contact.ModuleContact import ModuleContact
+from app.module.mail.ModuleMail import ModuleMail
 from app.module.user.ModuleUserProfile import ModuleUserProfile
 from app.utils.api.ApiBaseResponse import create_api_base_response
 from app.utils.exceptions import RequestException, BugException
 from app.utils import errors as err
 from app.utils.logger.logger import logger_api
+from app.utils import constants as cs
+
 
 if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
@@ -34,11 +37,12 @@ class InterfaceAuthUser:
         for source_uid, source_settings in default_us_source_raw.items():
             default_us_source[source_uid] = UserSourceSettingsObj(source_settings)
 
+        self.process = process
+        self.default_domain = default_domain
         self.module_auth = ModuleAuth(process, system_settings, default_auth, default_us_source)
         self.module_user_profile = ModuleUserProfile(process, default_domain)
         self._module_calendar: ModuleCalendar = ModuleCalendar(process)
         self._module_contact: ModuleContact = ModuleContact(process)
-
 
     def get_login_mech(self, user_uid:str, redirect:str) -> tuple[dict, int]:
         """
@@ -103,6 +107,8 @@ class InterfaceAuthUser:
                 user_tz: str = raw_gen.get(UserGeneralSettings.subparent, {}).get("SOGO_U_TIMEZONE", "UTC")
                 self._module_calendar.create_personal_calendar(uid, tz=user_tz)
                 self._module_contact.create_personal_addressbook(uid)
+                module_mail = ModuleMail(user, MailSettingsObj(self.default_domain[MailSettings.subparent]), self.process)
+                module_mail.create_special_folders_if_not_exist(cs.DEFAULT_IDENTITY_KEY_VALUE)
         except RequestException as ex:
             logger_api.error("Request exception when onboarding user %s: %s", uid, str(ex))
             return create_api_base_response(None, ex.error)
