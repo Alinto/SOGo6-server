@@ -2,9 +2,10 @@ from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Any
 
-from marshmallow import Schema, ValidationError, fields, validate
+from marshmallow import Schema, ValidationError, fields, validate, validates_schema, post_load
 from marshmallow.validate import Email
 from app.utils.api.ApiBaseResponse import ApiBaseResponse
+from app.utils import constants as cs
 
 
 # ---------------------------------------------------------------------------
@@ -31,33 +32,33 @@ class DateTimeWithTzField(fields.Field):
         """
         if value is None:
             return None
-            
+
         if not isinstance(value, str):
             raise ValidationError("Must be a string in ISO 8601 format.")
-        
+
         value = value.strip()
         if not value:
             return None
-        
+
         # Validate format by trying to parse it
         try:
             # Format: date only (YYYY-MM-DD)
             if len(value) == 10 and value.count("-") == 2:
                 datetime.strptime(value, "%Y-%m-%d")
                 return value
-            
+
             # Format: with T (datetime variations)
             if "T" not in value:
                 raise ValidationError("Invalid date/datetime format: must contain 'T' for datetime or be YYYY-MM-DD for date.")
-            
+
             date_part, time_part = value.split("T", 1)
-            
+
             # Validate date part
             datetime.strptime(date_part, "%Y-%m-%d")
-            
+
             time_part_base = time_part
             has_tz = False
-            
+
             # Check for Z (UTC)
             if time_part_base.endswith("Z"):
                 time_part_base = time_part_base[:-1]
@@ -79,7 +80,7 @@ class DateTimeWithTzField(fields.Field):
                 if "/" in tz_candidate or tz_candidate.startswith("UTC") or tz_candidate.startswith("GMT"):
                     time_part_base = parts[0]
                     has_tz = True
-            
+
             # Validate the time part (HH:MM:SS or HH:MM:SS.ffffff)
             # Try to parse it
             try:
@@ -93,7 +94,7 @@ class DateTimeWithTzField(fields.Field):
                     datetime.strptime(time_part_base, "%H:%M")
                 except ValueError:
                     raise ValidationError(f"Invalid time format in: {value}")
-            
+
             # If we got here, the format is valid
             return value
 
@@ -107,38 +108,44 @@ class DateTimeWithTzField(fields.Field):
 
 # Valid field names for filter rules
 VALID_FILTER_FIELDS = [
-    "subject",
-    "from",
-    "to",
-    "header",
-    "body",
-    "size",
-    "cc",
-    "cc or to",
+    cs.FILTER_FIELD_SUBJECT,
+    cs.FILTER_FIELD_FROM,
+    cs.FILTER_FIELD_TO,
+    cs.FILTER_FIELD_CC,
+    cs.FILTER_FIELD_TO_OR_CC,
+    cs.FILTER_FIELD_HEADER,
+    cs.FILTER_FIELD_BODY,
+    cs.FILTER_FIELD_SIZE,
 ]
 
 # Valid operator names for filter rules
-# Note: "over" and "under" are only valid with field="size"
+# Note: "FILTER_OP_OVER" and "FILTER_OP_UNDER" are only valid with field FILTER_FIELD_SIZE
+# Note: "FILTER_OP_EXISTS" and "FILTER_OP_EXISTS_NOT" are only valid with field FILTER_FIELD_HEADER
 VALID_FILTER_OPERATORS = [
-    "contains",
-    "is",
-    "matches",
-    "regex",
-    "notcontains",
-    "exists",
-    "over",
-    "under",
+    cs.FILTER_OP_IS,
+    cs.FILTER_OP_IS_NOT,
+    cs.FILTER_OP_CONTAINS,
+    cs.FILTER_OP_CONTAINS_NOT,
+    cs.FILTER_OP_MATCHES,
+    cs.FILTER_OP_MATCHES_NOT,
+    cs.FILTER_OP_REGEX,
+    cs.FILTER_OP_REGEX_NOT,
+    cs.FILTER_OP_EXISTS,
+    cs.FILTER_OP_EXISTS_NOT,
+    cs.FILTER_OP_OVER,
+    cs.FILTER_OP_UNDER,
 ]
 
 # Valid action methods for filter actions
 VALID_ACTION_METHODS = [
-    "fileinto",
-    "redirect",
-    "reject",
-    "discard",
-    "keep",
-    "imapflags",
-    "notify",
+    cs.FILTER_ACTION_FILEINTO,
+    cs.FILTER_ACTION_REDIRECT,
+    cs.FILTER_ACTION_REJECT,
+    cs.FILTER_ACTION_DISCARD,
+    cs.FILTER_ACTION_KEEP,
+    cs.FILTER_ACTION_FLAG,
+    cs.FILTER_ACTION_NOTIFY,
+    cs.FILTER_ACTION_STOP
 ]
 
 
@@ -147,14 +154,15 @@ class FilterRuleSchema(Schema):
     A single rule condition or a nested group of rules.
     When ``op`` is present this node is a group; otherwise it is a leaf condition.
     """
-    op            = fields.String()             # "and" | "or" — group node
+    op            = fields.String(validate=validate.OneOf(('and', 'or')))             # "and" | "or" — group node
     rules         = fields.List(fields.Dict())  # nested rules — group node
-    field         = fields.String(validate=validate.OneOf(VALID_FILTER_FIELDS))  # subject | from | to | header | body | size
-    operator      = fields.String(validate=validate.OneOf(VALID_FILTER_OPERATORS))  # contains | is | matches | regex | notcontains | exists | over | under
-    custom_header = fields.String()             # used when field == "header"
+    field         = fields.String(validate=validate.OneOf(VALID_FILTER_FIELDS))
+    operator      = fields.String(validate=validate.OneOf(VALID_FILTER_OPERATORS))
+    custom_header = fields.String()             # used when field == cs.FILTER_FIELD_HEADER
     value         = fields.String()             # value to match against or number for :count/:size
 
-    def __post_load__(self, data: dict, **kwargs: Any) -> dict:
+    @validates_schema
+    def check_over_unser(self, data: dict, **kwargs: Any) -> dict:
         """Validate that 'over' and 'under' operators are only used with 'size' field.
         
         :param data: The deserialized data
@@ -167,19 +175,19 @@ class FilterRuleSchema(Schema):
         if "op" not in data and "rules" not in data:
             operator = data.get("operator", "").lower()
             field = data.get("field", "")
-            
+
             # Check if using size-specific operators with non-size field
             if operator in ("over", "under") and field != "size":
                 raise ValidationError(
                     f"Operator '{operator}' can only be used with field='size', but got field='{field}'"
                 )
-            
+
             # Check if using size field with non-size operators
             if field == "size" and operator not in ("over", "under"):
                 raise ValidationError(
                     f"Field 'size' can only be used with operators 'over' or 'under', but got operator='{operator}'"
                 )
-        
+
         return data
 
 
@@ -193,7 +201,7 @@ class FilterActionArgumentsSchema(Schema):
     In Sieve, each address will generate a separate "redirect" action.
     """
     # fileinto action arguments
-    folders            = fields.List(fields.String(), load_default=[], dump_default=[])  # Folders list
+    folders            = fields.List(fields.String(validate=validate.Length(min=1)), load_default=[], dump_default=[])  # Folders list
     create_if_no_exist = fields.Boolean()
     keep_copy          = fields.Boolean(load_default=False, dump_default=False)  # Sieve :copy flag
     # redirect action arguments
@@ -206,26 +214,6 @@ class FilterActionArgumentsSchema(Schema):
     method             = fields.String()  # e.g. "mailto"
     priority           = fields.String()  # e.g. "normal", "urgent", "low"
     message_text       = fields.String()  # Alternative message for notify
-
-    def __post_load__(self, data: dict, **kwargs: Any) -> dict:
-        """Filter out empty strings from lists.
-        
-        Ensures that folders and addresses lists contain only non-empty strings.
-        
-        :param data: The deserialized data
-        :type data: dict
-        :return: The validated and cleaned data
-        :rtype: dict
-        """
-        # Filter out empty strings from folders list
-        if data.get("folders"):
-            data["folders"] = [f for f in data["folders"] if f and isinstance(f, str)]
-        
-        # Filter out empty strings from addresses list
-        if data.get("addresses"):
-            data["addresses"] = [a for a in data["addresses"] if a and isinstance(a, str)]
-        
-        return data
 
 
 class FilterSchema(Schema):
@@ -248,65 +236,29 @@ class FilterItemSchema(Schema):
 
 class VacationSchema(Schema):
     """Auto-reply (vacation) settings."""
-    enabled                = fields.Boolean(load_default=False, dump_default=False)
-    custom_subject_enabled   = fields.Boolean(load_default=False, dump_default=False)
-    custom_subject          = fields.String(load_default="", dump_default="")
-    auto_reply_text          = fields.String(load_default="", dump_default="")
-    start_date              = DateTimeWithTzField(load_default=None, dump_default=None, allow_none=True)
-    end_date                = DateTimeWithTzField(load_default=None, dump_default=None, allow_none=True)
-    timezone               = fields.String(load_default=None, dump_default=None, allow_none=True, metadata={"description": "IANA timezone (e.g., 'Europe/Paris', 'UTC'). Used for start_date/end_date when they don't have explicit timezone."})
-    always_send             = fields.Boolean(load_default=False, dump_default=False, metadata={"description": "If True, the vacation rule is processed before regular filter rules and always sends replies (takes priority over other filters)."})
-    start_time              = fields.String(load_default=None, dump_default=None, allow_none=True)
-    end_time                = fields.String(load_default=None, dump_default=None, allow_none=True)
-    weekdays_enabled        = fields.Boolean(load_default=False, dump_default=False)
-    weekday                = fields.List(fields.Integer(), load_default=[], dump_default=[], metadata={"description": "List of weekday numbers (0-6, where 0 is Sunday). Only applies when weekdays_enabled is True."})
-    days                   = fields.Integer(load_default=None, dump_default=None, allow_none=True, metadata={"description": "Minimum delay in days between vacation responses (RFC 5230 :days). If set, prevents sending duplicate vacation replies within this period. Must be > 0, or = 0 if SOGO_D_VACATION_ALLOW_RESPONSE_ALWAYS is enabled."})
 
-    def __post_load__(self, data: dict, **kwargs: Any) -> dict:
-        """Clean up fields that depend on boolean flags and validate the days field.
-        
-        When a boolean flag is False, the associated field(s) should be ignored/cleared:
-        - If custom_subject_enabled is False, clear custom_subject
-        - If weekdays_enabled is False, clear weekday list
-        
-        Validates the 'days' field:
-        - If days is set (not None), it must be >= 0 if allow_always_send is True in context
-        - Otherwise, it must be > 0
-        
-        :param data: The deserialized data
-        :type data: dict
-        :raises ValidationError: If days validation fails
-        :return: The validated and cleaned data
-        :rtype: dict
-        """
-        # If custom_subject_enabled is False, ignore custom_subject content
-        if not data.get("custom_subject_enabled", False):
-            data["custom_subject"] = ""
-        
-        # If weekdays_enabled is False, ignore weekday list
-        if not data.get("weekdays_enabled", False):
-            data["weekday"] = []
-        
-        # Validate the 'days' field
-        days_value = data.get("days")
-        if days_value is not None:
-            # Check if SOGO_D_VACATION_ALLOW_RESPONSE_ALWAYS is enabled in context
-            allow_always_send = self.context.get("allow_always_send", False)
-            
-            if allow_always_send:
-                # days can be >= 0
-                if days_value < 0:
-                    raise ValidationError(
-                        "The 'days' field must be >= 0 (since SOGO_D_VACATION_ALLOW_RESPONSE_ALWAYS is enabled), but got: {}".format(days_value)
-                    )
-            else:
-                # days must be > 0
-                if days_value <= 0:
-                    raise ValidationError(
-                        "The 'days' field must be > 0, but got: {}. Set it to 0 only if SOGO_D_VACATION_ALLOW_RESPONSE_ALWAYS is enabled in domain settings.".format(days_value)
-                    )
-        
-        return data
+    enabled                = fields.Boolean(load_default=False, dump_default=False)
+    custom_subject_enabled = fields.Boolean(load_default=False, dump_default=False)
+    custom_subject         = fields.String(load_default="", dump_default="")
+    auto_reply_text        = fields.String(load_default="", dump_default="")
+    start_date             = DateTimeWithTzField(load_default=None, dump_default=None, allow_none=True)
+    end_date               = DateTimeWithTzField(load_default=None, dump_default=None, allow_none=True)
+    timezone               = fields.String(load_default=None, dump_default=None, allow_none=True,
+                                           metadata={"description": "IANA timezone (e.g., 'Europe/Paris', 'UTC'). Used for "
+                                           "start_date/end_date when they don't have explicit timezone."})
+    always_send            = fields.Boolean(load_default=False, dump_default=False,
+                                             metadata={"description": "If True, the vacation rule is processed before regular "
+                                             "filter rules and always sends replies (takes priority over other filters)."})
+    start_time             = fields.String(load_default=None, dump_default=None, allow_none=True)
+    end_time               = fields.String(load_default=None, dump_default=None, allow_none=True)
+    weekdays_enabled       = fields.Boolean(load_default=False, dump_default=False)
+    weekday                = fields.List(fields.Integer(), load_default=[], dump_default=[],
+                                         metadata={"description": "List of weekday numbers (0-6, where 0 is Sunday). Only applies when weekdays_enabled is True."})
+    days                   = fields.Integer(load_default=None, dump_default=None, allow_none=True,
+                                            validate=validate.Range(min=0),
+                                            metadata={"description": "Minimum delay in days between vacation responses (RFC 5230 :days)."
+                                            " If set, prevents sending duplicate vacation replies within this period. Must be > 0, or = 0 "
+                                            "if SOGO_D_VACATION_ALLOW_RESPONSE_ALWAYS is enabled."})
 
 
 class ForwardSchema(Schema):

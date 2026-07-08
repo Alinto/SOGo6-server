@@ -3,10 +3,7 @@ from typing import Callable, TypeVar, ParamSpec
 import re
 from socket import timeout as sock_timeout, gaierror, error as sock_error
 from datetime import datetime
-try:
-    from zoneinfo import ZoneInfo
-except ImportError:
-    from backports.zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo
 
 from sievelib.managesieve import Client, Error as SieveError
 from sievelib.factory import FiltersSet
@@ -17,12 +14,7 @@ from app.manager.mail.ClientFiltering import ClientFiltering
 from app.utils import errors as err
 from app.utils import constants as cs
 from app.utils.datetime.DateTimeUtils import parse_vacation_datetime
-from app.utils.constants import (
-    FILTER_SECTION_FILTERS,
-    FILTER_SECTION_VACATION,
-    FILTER_SECTION_FORWARD,
-    FILTER_SECTION_NOTIFICATION,
-)
+
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -45,7 +37,7 @@ class VacationConditions:
     
     All three condition types are ALTERNATIVES (OR logic): vacation activates if ANY is true.
     """
-    
+
     def __init__(
         self,
         start_date: str | None = None,
@@ -82,7 +74,7 @@ class VacationConditions:
         self.end_time = end_time
         self.weekdays_enabled = weekdays_enabled
         self.weekday = weekday if weekday is not None else []
-    
+
     @classmethod
     def from_vacation_config(
         cls,
@@ -113,7 +105,7 @@ class VacationConditions:
         # Returns (date_str, time_str, tz_normalized)
         start_date_str, start_date_time, start_tz = parse_datetime_func(start_date_raw, default_timezone)
         end_date_str, end_date_time, end_tz = parse_datetime_func(end_date_raw, default_timezone)
-        
+
         return cls(
             start_date=start_date_str,
             end_date=end_date_str,
@@ -227,14 +219,14 @@ class ClientSieve(ClientFiltering):
         except SieveError as e:
             error_msg = str(e)
             logger_sieve.error(
-                "Sieve connection/auth error for %s@%s:%d – %s",
+                "Sieve connection/auth error for %s@%s:%d - %s",
                 username, self.server, self.port, error_msg,
             )
             if "Connection to server failed" in error_msg or "SSL error" in error_msg:
                 raise RequestException(f"Sieve connection failed: {error_msg}", err.ERROR_SIEVE_CONNECTION_FAILED) from e
             raise RequestException(f"Sieve error: {error_msg}", err.ERROR_SIEVE_AUTH_FAILED) from e
         except (gaierror, sock_timeout, TimeoutError, ConnectionRefusedError, sock_error) as e:
-            logger_sieve.error("Sieve TCP error connecting to %s:%d – %s", self.server, self.port, e)
+            logger_sieve.error("Sieve TCP error connecting to %s:%d - %s", self.server, self.port, e)
             raise RequestException(f"Sieve connection failed: {e}", err.ERROR_SIEVE_CONNECTION_FAILED) from e
 
         if not result:
@@ -311,7 +303,7 @@ class ClientSieve(ClientFiltering):
         match = re.search(r"unknown command ['\"]([^'\"]+)['\"]", error_msg)
         if match:
             return match.group(1)
-        
+
         #return "notify"
         raise BugException("Unknown Sieve capability", err.ERROR_SIEVE_CAPABILITY_NOT_FOUND)
 
@@ -476,16 +468,16 @@ class ClientSieve(ClientFiltering):
         filter_name = filter_item.get("name", "unknown")
         actions = filter_item.get("actions", [])
         rules = filter_item.get("rules", {})
-        
+
         # Create two versions of the rules: one with "cc" and one with "to"
         cc_rules = self._replace_field_in_rules(rules, "cc or to", "cc")
         to_rules = self._replace_field_in_rules(rules, "cc or to", "to")
-        
+
         # Add both filters to the set
         cc_conditions, cc_matchtype = self._build_sieve_conditions(cc_rules)
         to_conditions, to_matchtype = self._build_sieve_conditions(to_rules)
         sieve_actions = self._build_sieve_actions(actions)
-        
+
         # Create two filters with suffixes to differentiate them
         filters_set.addfilter(
             name=f"{filter_name} (CC)",
@@ -494,7 +486,7 @@ class ClientSieve(ClientFiltering):
             matchtype=cc_matchtype,
         )
         logger_sieve.debug("Added filter '%s' (CC variant) to FiltersSet", filter_name)
-        
+
         filters_set.addfilter(
             name=f"{filter_name} (TO)",
             conditions=to_conditions,
@@ -542,7 +534,7 @@ class ClientSieve(ClientFiltering):
         :rtype: set[str]
         """
         required_extensions = set()
-        
+
         if "op" in rule_node:
             # Group node: recursively check nested rules
             nested_rules = rule_node.get("rules", [])
@@ -553,7 +545,7 @@ class ClientSieve(ClientFiltering):
             field = rule_node.get("field", "")
             if field == "body":
                 required_extensions.add("body")
-        
+
         return required_extensions
 
     def _detect_required_extensions_from_actions(self, actions: list[dict]) -> set[str]:
@@ -572,31 +564,31 @@ class ClientSieve(ClientFiltering):
         :rtype: set[str]
         """
         required_extensions = set()
-        
+
         for action in actions:
             method = action.get("method", "").lower()
             arguments = action.get("arguments", {})
-            
-            if method == "fileinto":
+
+            if method == cs.FILTER_ACTION_FILEINTO:
                 # fileinto is an extension (RFC 5228)
                 required_extensions.add("fileinto")
-                
+
                 # Check for :copy flag (requires "copy" extension)
                 if arguments.get("keep_copy", False):
                     required_extensions.add("copy")
-                
+
                 # Check for :create flag (requires "mailbox" extension)
                 if arguments.get("create_if_no_exist", False):
                     required_extensions.add("mailbox")
-            
-            elif method == "imapflags":
+
+            elif method == cs.FILTER_ACTION_FLAG:
                 # imapflags action requires imap4flags extension (RFC 5232)
                 required_extensions.add("imap4flags")
-            
-            elif method == "notify":
+
+            elif method == cs.FILTER_ACTION_NOTIFY:
                 # notify action requires enotify extension
                 required_extensions.add("enotify")
-        
+
         return required_extensions
 
     def _check_authenticated(self, method_name: str) -> None:
@@ -656,11 +648,11 @@ class ClientSieve(ClientFiltering):
             script_parts_retry = []
             for section_name, section_content in script_parts:
                 # Skip notification section if notify extension is unsupported
-                if missing_capability == "notify" and section_name == FILTER_SECTION_NOTIFICATION:
+                if missing_capability == "notify" and section_name == cs.FILTER_SECTION_NOTIFICATION:
                     logger_sieve.warning(
                         "Skipping notification section because 'notify' extension is not supported"
                     )
-                    skipped_sections.add(FILTER_SECTION_NOTIFICATION)
+                    skipped_sections.add(cs.FILTER_SECTION_NOTIFICATION)
                     continue
                 script_parts_retry.append((section_name, section_content))
 
@@ -749,10 +741,10 @@ class ClientSieve(ClientFiltering):
 
         # Track which sections were actually activated on the server
         activated_sections = {
-            FILTER_SECTION_NOTIFICATION: False,
-            FILTER_SECTION_VACATION: False,
-            FILTER_SECTION_FORWARD: False,
-            FILTER_SECTION_FILTERS: False,
+            cs.FILTER_SECTION_NOTIFICATION: False,
+            cs.FILTER_SECTION_VACATION: False,
+            cs.FILTER_SECTION_FORWARD: False,
+            cs.FILTER_SECTION_FILTERS: False,
         }
 
         try:
@@ -761,14 +753,14 @@ class ClientSieve(ClientFiltering):
             requires_set = set()
 
             # Check priority flags for both forward and vacation
-            forward_config = filters_config.get(FILTER_SECTION_FORWARD)
-            vacation_config = filters_config.get(FILTER_SECTION_VACATION)
-            
+            forward_config = filters_config.get(cs.FILTER_SECTION_FORWARD)
+            vacation_config = filters_config.get(cs.FILTER_SECTION_VACATION)
+
             forward_has_priority = forward_config and forward_config.get("enabled", False) and forward_config.get("always_send", False)
             vacation_has_priority = vacation_config and vacation_config.get("enabled", False) and vacation_config.get("always_send", False)
 
             # If forward has priority, process it first
-            if forward_has_priority:
+            if forward_config and forward_has_priority:
                 try:
                     forward_addresses = forward_config.get("forward_address", [])
                     if forward_addresses:
@@ -777,10 +769,10 @@ class ClientSieve(ClientFiltering):
                         always_send = forward_config.get("always_send", False)
 
                         forward_script = self._build_forward_script(forward_addresses, keep_copy, always_send)
-                        merged_script_parts.append((FILTER_SECTION_FORWARD, forward_script))
+                        merged_script_parts.append((cs.FILTER_SECTION_FORWARD, forward_script))
                         # Don't add "redirect" or "copy" to requires - they are native Sieve commands
                         logger_sieve.debug("Added forward section to merged script (with priority)")
-                        activated_sections[FILTER_SECTION_FORWARD] = True
+                        activated_sections[cs.FILTER_SECTION_FORWARD] = True
                 except RequestException:
                     raise
                 except Exception as e:
@@ -791,12 +783,12 @@ class ClientSieve(ClientFiltering):
                     ) from e
 
             # If vacation has priority, process it second
-            if vacation_has_priority:
+            if vacation_config and vacation_has_priority:
                 try:
                     vacation_script = self._build_vacation_script(vacation_config)
-                    merged_script_parts.append((FILTER_SECTION_VACATION, vacation_script))
+                    merged_script_parts.append((cs.FILTER_SECTION_VACATION, vacation_script))
                     requires_set.add("vacation")
-                    activated_sections[FILTER_SECTION_VACATION] = True
+                    activated_sections[cs.FILTER_SECTION_VACATION] = True
                     logger_sieve.debug("Added vacation section to merged script (with priority)")
                 except Exception as e:
                     logger_sieve.error("Error processing vacation section: %s", e)
@@ -815,10 +807,10 @@ class ClientSieve(ClientFiltering):
                         always_send = forward_config.get("always_send", False)
 
                         forward_script = self._build_forward_script(forward_addresses, keep_copy, always_send)
-                        merged_script_parts.append((FILTER_SECTION_FORWARD, forward_script))
+                        merged_script_parts.append((cs.FILTER_SECTION_FORWARD, forward_script))
                         # Don't add "redirect" or "copy" to requires - they are native Sieve commands
                         logger_sieve.debug("Added forward section to merged script")
-                        activated_sections[FILTER_SECTION_FORWARD] = True
+                        activated_sections[cs.FILTER_SECTION_FORWARD] = True
                 except RequestException:
                     raise
                 except Exception as e:
@@ -829,20 +821,20 @@ class ClientSieve(ClientFiltering):
                     ) from e
 
             # 2. Process filters (rules)
-            filters_list = filters_config.get(FILTER_SECTION_FILTERS, [])
+            filters_list = filters_config.get(cs.FILTER_SECTION_FILTERS, [])
             if filters_list:
                 try:
                     filters_set = FiltersSet("sogo-rules")
                     for filter_item in filters_list:
                         if filter_item.get("enabled", True):
                             self._add_filter_to_set(filters_set, filter_item)
-                            
+
                             # Detect required extensions from filter rules
                             rules = filter_item.get("rules", {})
                             if rules:
                                 required_exts = self._detect_required_extensions_from_rules(rules)
                                 requires_set.update(required_exts)
-                            
+
                             # Detect required extensions from filter actions
                             # This includes "copy" for :copy flag and "mailbox" for :create
                             actions = filter_item.get("actions", [])
@@ -852,8 +844,8 @@ class ClientSieve(ClientFiltering):
 
                     if filters_set.filters:  # Only add if filters exist
                         filters_script = self._render_filters_set(filters_set)
-                        merged_script_parts.append((FILTER_SECTION_FILTERS, filters_script))
-                        activated_sections[FILTER_SECTION_FILTERS] = True
+                        merged_script_parts.append((cs.FILTER_SECTION_FILTERS, filters_script))
+                        activated_sections[cs.FILTER_SECTION_FILTERS] = True
                         logger_sieve.debug("Added filters section to merged script")
                 except Exception as e:
                     logger_sieve.error("Error processing filters section: %s", e)
@@ -866,9 +858,9 @@ class ClientSieve(ClientFiltering):
             if not vacation_has_priority and vacation_config and vacation_config.get("enabled", False):
                 try:
                     vacation_script = self._build_vacation_script(vacation_config)
-                    merged_script_parts.append((FILTER_SECTION_VACATION, vacation_script))
+                    merged_script_parts.append((cs.FILTER_SECTION_VACATION, vacation_script))
                     requires_set.add("vacation")
-                    activated_sections[FILTER_SECTION_VACATION] = True
+                    activated_sections[cs.FILTER_SECTION_VACATION] = True
                     logger_sieve.debug("Added vacation section to merged script")
                 except Exception as e:
                     logger_sieve.error("Error processing vacation section: %s", e)
@@ -880,7 +872,7 @@ class ClientSieve(ClientFiltering):
             # 4. Process notification settings (RFC 5435)
             # NOTE: This section is optional and requires Dovecot to support the 'notify' extension.
             # If the server doesn't support it, we store the configuration but don't add it to the script.
-            notification_config = filters_config.get(FILTER_SECTION_NOTIFICATION)
+            notification_config = filters_config.get(cs.FILTER_SECTION_NOTIFICATION)
             if notification_config and notification_config.get("enabled", False):
                 try:
                     notify_addresses = notification_config.get("notify_addresses", [])
@@ -890,13 +882,13 @@ class ClientSieve(ClientFiltering):
                         # Build notification script (will be added to merged script if server supports it)
                         notification_script = self._build_notification_script(notification_config)
                         if notification_script:  # Only add if script is not empty
-                            merged_script_parts.append((FILTER_SECTION_NOTIFICATION, notification_script))
+                            merged_script_parts.append((cs.FILTER_SECTION_NOTIFICATION, notification_script))
                             requires_set.add("enotify")
                             logger_sieve.debug("Added notification section to merged script")
-                        activated_sections[FILTER_SECTION_NOTIFICATION] = True
+                        activated_sections[cs.FILTER_SECTION_NOTIFICATION] = True
                     else:
                         logger_sieve.debug("Notification has no addresses; marking as activated for database persistence")
-                        activated_sections[FILTER_SECTION_NOTIFICATION] = True
+                        activated_sections[cs.FILTER_SECTION_NOTIFICATION] = True
                 except RequestException:
                     raise
                 except Exception as e:
@@ -921,7 +913,7 @@ class ClientSieve(ClientFiltering):
             master_script = self._compile_merged_script(requires_set, merged_script_parts)
             # Upload and activate the master script with automatic retry for unsupported extensions
             skipped_sections = self._store_and_activate_script(SIEVE_MASTER_SCRIPT, master_script, requires_set, merged_script_parts)
-    
+
             # Mark sections as activated based on what was included and not skipped
             for section_name, _ in merged_script_parts:
                 if section_name not in skipped_sections:
@@ -1024,7 +1016,7 @@ class ClientSieve(ClientFiltering):
         """
         if not rules:
             return [], "allof"
-        
+
         conditions: list = []
         matchtype_ref: list = ["allof"]  # Default, will be mutated
         self._flatten_rules(rules, conditions, matchtype_ref)
@@ -1048,7 +1040,7 @@ class ClientSieve(ClientFiltering):
         """
         if matchtype_ref is None:
             matchtype_ref = ["allof"]
-        
+
         if "op" in rule_node:
             # Group node with multiple rules
             op = rule_node.get("op", "and").lower()
@@ -1073,18 +1065,18 @@ class ClientSieve(ClientFiltering):
             custom_header = rule_node.get("custom_header", "")
 
             # Special handling for "size" field (uses :size operator, not a regular field)
-            if field == "size":
+            if field == cs.FILTER_FIELD_SIZE:
                 mapped_operator = f":{operator.lower()}"
                 conditions.append(("size", mapped_operator, value))
                 logger_sieve.debug("Added size condition with operator %s and value %s", operator, value)
-            
+
             # Special handling for "body" field (RFC 5173 - Body Extension)
-            elif field == "body":
+            elif field == cs.FILTER_FIELD_BODY:
                 mapped_operator = f":{operator.lower()}"
                 # For body, sievelib expects: ("body", ":text", ":contains", "value")
                 conditions.append(("body", ":text", mapped_operator, value))
                 logger_sieve.debug("Added body condition with operator %s and value %s", operator, value)
-            
+
             else:
                 # Standard field handling (including cc, header, etc.)
                 mapped_field = self._map_field_name(field, custom_header)
@@ -1116,28 +1108,27 @@ class ClientSieve(ClientFiltering):
         :rtype: str
         """
         # Standard headers that map directly to Sieve
-        if field in ("subject", "from", "to", "cc"):
+        if field in {cs.FILTER_FIELD_SUBJECT, cs.FILTER_FIELD_FROM, cs.FILTER_FIELD_TO, cs.FILTER_FIELD_CC}:
             return field
-        
+
         # Custom header field
-        if field == "header":
+        if field == cs.FILTER_FIELD_HEADER:
             if custom_header:
                 return custom_header
             logger_sieve.warning("header field used but no custom_header specified")
             return ""
-        
+
         # Body field (requires body extension in Sieve)
-        if field == "body":
+        if field == cs.FILTER_FIELD_BODY:
             return "body"
-        
+
         # Size field (uses :size operator, returns empty since size works differently)
         # In Sieve, :size is an operator applied to the message, not a header field
-        if field == "size":
+        if field == cs.FILTER_FIELD_SIZE:
             return ""
-        
+
         # Unknown field - should have been caught by schema validation
-        logger_sieve.warning("Unknown field name: %s", field)
-        return field
+        raise BugException(f"Unknown field for filter given {field}")
 
     def _build_sieve_actions(self, actions: list[dict]) -> list:
         """Convert API action definitions into sievelib action definitions.
@@ -1148,23 +1139,23 @@ class ClientSieve(ClientFiltering):
         :rtype: list
         :raises RequestException: If an action is invalid.
         """
-        sieve_actions = []
+        sieve_actions: list[tuple] = []
 
         for action in actions:
             method = action.get("method", "").lower()
             arguments = action.get("arguments", {})
 
-            if method in ("discard", "keep", "stop"):
+            if method in {cs.FILTER_ACTION_DISCARD, cs.FILTER_ACTION_KEEP, cs.FILTER_ACTION_STOP}:
                 sieve_actions.append((method,))
                 logger_sieve.debug("Added %s action", method)
-            
-            elif method == "fileinto":
+
+            elif method == cs.FILTER_ACTION_FILEINTO:
                 self._add_fileinto_action(sieve_actions, arguments)
-            
-            elif method == "redirect":
+
+            elif method == cs.FILTER_ACTION_REDIRECT:
                 self._add_redirect_action(sieve_actions, arguments)
-            
-            elif method == "reject":
+
+            elif method == cs.FILTER_ACTION_REJECT:
                 # Reject action can have an optional message
                 message = arguments.get("message", "")
                 if message:
@@ -1173,8 +1164,8 @@ class ClientSieve(ClientFiltering):
                 else:
                     sieve_actions.append(("reject",))
                     logger_sieve.debug("Added reject action")
-            
-            elif method == "imapflags":
+
+            elif method == cs.FILTER_ACTION_FLAG:
                 flags = arguments.get("flags", [])
                 if flags:
                     for flag in flags:
@@ -1182,16 +1173,16 @@ class ClientSieve(ClientFiltering):
                     logger_sieve.debug("Added addflag action with flags: %s", flags)
                 else:
                     logger_sieve.warning("imapflags action has no flags, skipping")
-            
-            elif method == "notify":
+
+            elif method == cs.FILTER_ACTION_NOTIFY:
                 method_val = arguments.get("method", "mailto")
                 priority = arguments.get("priority", "normal")
                 message_text = arguments.get("message_text", "")
                 sieve_actions.append(("notify", method_val, priority, message_text))
                 logger_sieve.debug("Added notify action")
-            
+
             else:
-                logger_sieve.warning("Unknown filter action method: %s", method)
+                raise BugException(f"Unknown filter action {method}")
 
         return sieve_actions
 
@@ -1210,20 +1201,20 @@ class ClientSieve(ClientFiltering):
         - With copy: fileinto :copy "Folder";
         """
         folders = arguments.get("folders", [])
-        
+
         # Backward compatibility: if no folders list, try single folder
         if not folders:
             folder = arguments.get("folder", "")
             if folder:
                 folders = [folder]
-        
+
         if not folders:
             logger_sieve.warning("fileinto action has no folder(s), skipping")
             return
-        
+
         create_flag = (":create",) if arguments.get("create_if_no_exist", False) else ()
         copy_flag = (":copy",) if arguments.get("keep_copy", False) else ()
-        
+
         # Add a fileinto action for each folder
         for folder in folders:
             if not folder or not isinstance(folder, str):
@@ -1254,17 +1245,17 @@ class ClientSieve(ClientFiltering):
         :type arguments: dict
         """
         addresses = arguments.get("addresses", [])
-        
+
         # Backward compatibility: if no addresses list, try single address
         if not addresses:
             address = arguments.get("address", "")
             if address:
                 addresses = [address]
-        
+
         if not addresses:
             logger_sieve.warning("redirect action has no address(es), skipping")
             return
-        
+
         # Add a redirect action for each address
         for address in addresses:
             if not address or not isinstance(address, str):
@@ -1309,26 +1300,26 @@ class ClientSieve(ClientFiltering):
         """
         if not tz_str:
             return "+0000"
-        
+
         tz_str = tz_str.strip()
-        
+
         # Already in UTC offset format (+/-HHMM or +/-HH:MM)
         if tz_str[0] in ("+", "-"):
             # Normalize to +HHMM format (remove colon if present)
             return tz_str.replace(":", "")
-        
+
         # Handle Z (UTC)
         if tz_str.upper() == "Z":
             return "+0000"
-        
+
         # Handle UTC/GMT special cases
         if tz_str.upper() in ("UTC", "GMT"):
             return "+0000"
-        
+
         # Try to convert IANA timezone name to UTC offset at the specified date
         try:
             tz_info = ZoneInfo(tz_str)
-            
+
             # If a date is provided, use it to get the correct offset (accounting for DST)
             if date_str:
                 try:
@@ -1340,18 +1331,18 @@ class ClientSieve(ClientFiltering):
             else:
                 # Use current date/time
                 dt_with_tz = datetime.now(tz_info)
-            
+
             offset = dt_with_tz.utcoffset()
             if offset is None:
                 return "+0000"
-            
+
             # Convert timedelta to +/-HHMM format
             total_seconds = int(offset.total_seconds())
             hours, remainder = divmod(abs(total_seconds), 3600)
             minutes = remainder // 60
             sign = "-" if total_seconds < 0 else "+"
             return f"{sign}{hours:02d}{minutes:02d}"
-        except (KeyError, ValueError, Exception) as e:
+        except (KeyError, ValueError) as e:
             logger_sieve.warning(
                 "Could not convert timezone '%s' to UTC offset: %s. Using UTC (+0000).",
                 tz_str, str(e)
@@ -1372,10 +1363,10 @@ class ClientSieve(ClientFiltering):
         """
         if not time_str:
             return "00:00:00"
-        
+
         time_str = time_str.strip()
         parts = time_str.split(":")
-        
+
         if len(parts) == 2:
             # HH:MM → HH:MM:00
             return f"{parts[0]}:{parts[1]}:00"
@@ -1406,7 +1397,7 @@ class ClientSieve(ClientFiltering):
         :raises RequestException: If configuration is invalid.
         """
         logger_sieve.debug("Building vacation script with config: %s", vacation_config)
-        
+
         # Extract fields
         subject = vacation_config.get("custom_subject", "")
         custom_subject_enabled = vacation_config.get("custom_subject_enabled", False)
@@ -1431,13 +1422,13 @@ class ClientSieve(ClientFiltering):
             weekday=weekday,
             parse_datetime_func=self._parse_vacation_datetime,
         )
-        
+
         # Escape message for Sieve
         message_escaped = message.replace('"', '\\"').replace('\\', '\\\\').replace('\n', '\\n')
 
         # Build requires clause
         requires = ['vacation']
-        
+
         # Add extensions needed for advanced filtering
         if (vacation_conditions.start_date or vacation_conditions.end_date or 
             vacation_conditions.start_time or vacation_conditions.end_time or 
@@ -1453,18 +1444,18 @@ class ClientSieve(ClientFiltering):
         # Build vacation parameters
         # Sieve syntax: vacation [:days N] [:subject "..."] "message";
         vacation_params = []
-        
+
         # Add RFC 5230 :days parameter first (before :subject)
         if days is not None and days > 0:
             vacation_params.append(':days')
             vacation_params.append(str(days))
-        
+
         # Add custom subject if enabled
         if custom_subject_enabled and subject:
             subject_escaped = subject.replace('"', '\\"').replace('\\', '\\\\')
             vacation_params.append(':subject')
             vacation_params.append(f'"{subject_escaped}"')
-        
+
         # Add the message (always the last element)
         vacation_params.append(f'"{message_escaped}"')
 
@@ -1509,25 +1500,24 @@ class ClientSieve(ClientFiltering):
         """
         # Build individual condition parts that will be combined with OR (anyof)
         condition_parts = []
-        
+
         # === PART 1: Fixed date/time range condition ===
         # Represents: start_date (with its time if present) to end_date (with its time if present)
         date_range_condition = None
         date_range_parts = []
-        
+
         if conditions.start_date:
             try:
                 datetime.strptime(conditions.start_date, "%Y-%m-%d")
                 sieve_tz = conditions.start_tz if conditions.start_tz else "+0000"
                 zone_param = f' :zone "{sieve_tz}"'
-                
+
                 if conditions.start_date_time:
                     start_time_sieve = self._normalize_time_to_sieve(conditions.start_date_time)
                     # Condition: date > start_date OR (date == start_date AND time >= start_date_time)
                     date_range_parts.append(
-                        f'anyof(currentdate{zone_param} :value "gt" "date" "{conditions.start_date}", '
                         f'allof(currentdate{zone_param} :value "eq" "date" "{conditions.start_date}", '
-                        f'currentdate{zone_param} :value "ge" "time" "{start_time_sieve}"))'
+                        f'currentdate{zone_param} :value "ge" "time" "{start_time_sieve}")'
                     )
                 else:
                     # Date-only: date >= start_date
@@ -1540,29 +1530,28 @@ class ClientSieve(ClientFiltering):
                 datetime.strptime(conditions.end_date, "%Y-%m-%d")
                 sieve_tz = conditions.end_tz if conditions.end_tz else "+0000"
                 zone_param = f' :zone "{sieve_tz}"'
-                
+
                 if conditions.end_date_time:
                     end_time_sieve = self._normalize_time_to_sieve(conditions.end_date_time)
                     # Condition: date < end_date OR (date == end_date AND time <= end_date_time)
                     date_range_parts.append(
-                        f'anyof(currentdate{zone_param} :value "lt" "date" "{conditions.end_date}", '
                         f'allof(currentdate{zone_param} :value "eq" "date" "{conditions.end_date}", '
-                        f'currentdate{zone_param} :value "le" "time" "{end_time_sieve}"))'
+                        f'currentdate{zone_param} :value "le" "time" "{end_time_sieve}")'
                     )
                 else:
                     # Date-only: date <= end_date
                     date_range_parts.append(f'currentdate{zone_param} :value "le" "date" "{conditions.end_date}"')
             except ValueError:
                 logger_sieve.warning("Invalid end_date format: %s, skipping", conditions.end_date)
-        
+
         # Combine date range parts with AND (all must be true for date range to match)
         if date_range_parts:
             if len(date_range_parts) == 1:
                 date_range_condition = date_range_parts[0]
             else:
-                date_range_condition = f'allof({", ".join(date_range_parts)})'
+                date_range_condition = f'allof(\n        {", ".join(date_range_parts)})'
             condition_parts.append(date_range_condition)
-        
+
         # === PART 2: Recurring daily time window ===
         # Represents: every day between start_time and end_time (independent of date range)
         if conditions.start_time and conditions.end_time:
@@ -1570,7 +1559,7 @@ class ClientSieve(ClientFiltering):
             end_time_sieve = self._normalize_time_to_sieve(conditions.end_time)
             sieve_tz = conditions.start_tz if conditions.start_tz else "+0000"
             zone_param = f' :zone "{sieve_tz}"'
-            
+
             if conditions.start_time < conditions.end_time:
                 # Normal range (e.g., 09:00 to 17:00): time >= 09:00 AND time <= 17:00
                 daily_time_condition = (
@@ -1584,7 +1573,7 @@ class ClientSieve(ClientFiltering):
                     f'currentdate{zone_param} :value "lt" "time" "{end_time_sieve}")'
                 )
             condition_parts.append(daily_time_condition)
-        
+
         # === PART 3: Weekday filtering ===
         # Represents: specific weekdays, all day long (independent conditions)
         if conditions.weekdays_enabled and conditions.weekday:
@@ -1592,7 +1581,7 @@ class ClientSieve(ClientFiltering):
             if valid_days:
                 sieve_tz = conditions.start_tz if conditions.start_tz else "+0000"
                 zone_param = f' :zone "{sieve_tz}"'
-                
+
                 if len(valid_days) == 1:
                     weekday_condition = f'currentdate{zone_param} :is "weekday" "{valid_days[0]}"'
                 else:
@@ -1670,7 +1659,7 @@ class ClientSieve(ClientFiltering):
         message_escaped = notify_message.replace('"', '\\"').replace('\\', '\\\\').replace('\n', '\\n')
 
         script = 'require ["enotify"];\n\n'
-        
+
         for address in notify_addresses:
             script += f'notify :message "{message_escaped}" "mailto:{address}";\n'
             logger_sieve.debug("Added notification to: %s", address)

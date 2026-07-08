@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Any
 from app.config.db import tables as tbl
 from app.utils import errors as err
 from app.utils.constants import (
-    FILTER_SIEVE_SECTIONS,
+    FILTER_SECTIONS,
 )
 from app.utils.db.Condition import EqualCondition
 from app.utils.exceptions import RequestException, BugException
@@ -200,7 +200,7 @@ class ModuleFilter:
         client = None
         activated_sections: dict = {}
         try:
-            if section_key in FILTER_SIEVE_SECTIONS:
+            if section_key in FILTER_SECTIONS:
                 # These sections are merged and pushed to Sieve as a single script
                 client = self._open_filtering_client()
 

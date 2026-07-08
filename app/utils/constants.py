@@ -125,9 +125,40 @@ FILTER_SECTION_FORWARD: str = "forward"
 FILTER_SECTION_NOTIFICATION: str = "notification"
 
 # All sections that are pushed to the Sieve server as a merged script.
-FILTER_SIEVE_SECTIONS: tuple[str, ...] = (
+FILTER_SECTIONS: tuple[str, ...] = (
     FILTER_SECTION_FILTERS,
     FILTER_SECTION_VACATION,
     FILTER_SECTION_FORWARD,
     FILTER_SECTION_NOTIFICATION,
 )
+
+FILTER_FIELD_SUBJECT  = "subject"
+FILTER_FIELD_FROM     = "from"
+FILTER_FIELD_TO       = "to"
+FILTER_FIELD_CC       = "cc"
+FILTER_FIELD_TO_OR_CC = "to or cc"
+FILTER_FIELD_HEADER   = "header"
+FILTER_FIELD_BODY     = "body"
+FILTER_FIELD_SIZE     = "size"
+
+FILTER_OP_IS           = "is"          #exactly is
+FILTER_OP_IS_NOT       = "notis"       #exactly is not
+FILTER_OP_CONTAINS     = "contains"    #contains
+FILTER_OP_CONTAINS_NOT = "notcontains" #does not contain
+FILTER_OP_MATCHES      = "matches"     #Like is but permissive (dog will march DoG, dogs, Dog...)
+FILTER_OP_MATCHES_NOT  = "notmatches"  
+FILTER_OP_REGEX        = "regex"       #regex
+FILTER_OP_REGEX_NOT    = "notregex"
+FILTER_OP_EXISTS       = "exists"      #for field FILTER_FIELD_HEADER, does exist
+FILTER_OP_EXISTS_NOT   = "notexists"
+FILTER_OP_OVER         = "over"        #for field FILTER_FIELD_SIZE (size of the mail)
+FILTER_OP_UNDER        = "under"
+
+FILTER_ACTION_FILEINTO = "fileinto"
+FILTER_ACTION_REDIRECT = "redirect"
+FILTER_ACTION_REJECT   = "reject"
+FILTER_ACTION_DISCARD  = "discard"
+FILTER_ACTION_KEEP     = "keep"
+FILTER_ACTION_FLAG     = "addflag"
+FILTER_ACTION_NOTIFY   = "notify"
+FILTER_ACTION_STOP     = "stop"
