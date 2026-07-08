@@ -3,21 +3,19 @@ from typing import Callable, TypeVar, ParamSpec
 import re
 from socket import timeout as sock_timeout, gaierror, error as sock_error
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from sievelib.managesieve import Client, Error as SieveError
 from sievelib.factory import FiltersSet
+from sievelib import commands
 
 from app.utils.exceptions import RequestException, BugException
 from app.utils.logger.logger import logger_sieve
 from app.manager.mail.ClientFiltering import ClientFiltering
 from app.utils import errors as err
 from app.utils import constants as cs
-from app.utils.constants import (
-    FILTER_SECTION_FILTERS,
-    FILTER_SECTION_VACATION,
-    FILTER_SECTION_FORWARD,
-    FILTER_SECTION_NOTIFICATION,
-)
+from app.utils.datetime.DateTimeUtils import parse_vacation_datetime
+
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -26,13 +24,111 @@ R = TypeVar("R")
 SIEVE_MASTER_SCRIPT = "sogo-master"
 
 
+# ---------------------------------------------------------------------------
+# Vacation Condition Data Class
+# ---------------------------------------------------------------------------
+
+class VacationConditions:
+    """Encapsulates all condition parameters for vacation filtering.
+    
+    Represents the filtering criteria for determining when a vacation reply should be sent:
+    - Fixed date/time ranges (start/end with optional embedded times and timezones)
+    - Recurring daily time windows (start_time to end_time, every day)
+    - Specific weekdays (0-6, where 0 is Sunday)
+    
+    All three condition types are ALTERNATIVES (OR logic): vacation activates if ANY is true.
+    """
+
+    def __init__(
+        self,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        start_tz: str | None = None,
+        end_tz: str | None = None,
+        start_date_time: str | None = None,
+        end_date_time: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        weekdays_enabled: bool = False,
+        weekday: list | None = None,
+    ):
+        """Initialize vacation condition parameters.
+        
+        :param start_date: Start date in YYYY-MM-DD format (or None)
+        :param end_date: End date in YYYY-MM-DD format (or None)
+        :param start_tz: Timezone for start_date (already in Sieve format)
+        :param end_tz: Timezone for end_date (already in Sieve format)
+        :param start_date_time: Start time extracted from start_date (HH:MM:SS or None)
+        :param end_date_time: End time extracted from end_date (HH:MM:SS or None)
+        :param start_time: Recurring start time in HH:MM or HH:MM:SS format (independent, or None)
+        :param end_time: Recurring end time in HH:MM or HH:MM:SS format (independent, or None)
+        :param weekdays_enabled: Whether weekday filtering is enabled
+        :param weekday: List of weekday numbers (0-6)
+        """
+        self.start_date = start_date
+        self.end_date = end_date
+        self.start_tz = start_tz
+        self.end_tz = end_tz
+        self.start_date_time = start_date_time
+        self.end_date_time = end_date_time
+        self.start_time = start_time
+        self.end_time = end_time
+        self.weekdays_enabled = weekdays_enabled
+        self.weekday = weekday if weekday is not None else []
+
+    @classmethod
+    def from_vacation_config(
+        cls,
+        start_date_raw: str | None,
+        end_date_raw: str | None,
+        default_timezone: str,
+        start_time: str | None,
+        end_time: str | None,
+        weekdays_enabled: bool,
+        weekday: list | None,
+        parse_datetime_func: Callable,
+    ) -> "VacationConditions":
+        """Factory method to create VacationConditions from raw vacation config.
+        
+        Parses dates with timezone awareness and extracts time components.
+        
+        :param start_date_raw: Raw start date string (may include time/timezone)
+        :param end_date_raw: Raw end date string (may include time/timezone)
+        :param default_timezone: Default timezone if not specified in dates
+        :param start_time: Independent recurring start time
+        :param end_time: Independent recurring end time
+        :param weekdays_enabled: Whether weekday filtering is enabled
+        :param weekday: List of weekday numbers
+        :param parse_datetime_func: Function to parse dates (typically _parse_vacation_datetime)
+        :return: Initialized VacationConditions instance
+        """
+        # Parse dates with timezone awareness
+        # Returns (date_str, time_str, tz_normalized)
+        start_date_str, start_date_time, start_tz = parse_datetime_func(start_date_raw, default_timezone)
+        end_date_str, end_date_time, end_tz = parse_datetime_func(end_date_raw, default_timezone)
+
+        return cls(
+            start_date=start_date_str,
+            end_date=end_date_str,
+            start_tz=start_tz,
+            end_tz=end_tz,
+            start_date_time=start_date_time,
+            end_date_time=end_date_time,
+            start_time=start_time,
+            end_time=end_time,
+            weekdays_enabled=weekdays_enabled,
+            weekday=weekday,
+        )
+
+
 class ClientSieve(ClientFiltering):
     """
     Sieve (ManageSieve) client implementation for Dovecot using sievelib.
     """
 
     # Sieve commands that are always available and should not be in require
-    BUILTIN_SIEVE_COMMANDS = {"redirect", "copy", "keep", "discard", "stop"}
+    # Note: "copy" is NOT a command, it's a flag on fileinto (:copy) and requires the "copy" extension
+    BUILTIN_SIEVE_COMMANDS = {"redirect", "keep", "discard", "stop"}
 
     def __init__(self, server: str, port: int, encryption: str, auth_mech: str) -> None:
         """
@@ -124,14 +220,14 @@ class ClientSieve(ClientFiltering):
         except SieveError as e:
             error_msg = str(e)
             logger_sieve.error(
-                "Sieve connection/auth error for %s@%s:%d – %s",
+                "Sieve connection/auth error for %s@%s:%d - %s",
                 username, self.server, self.port, error_msg,
             )
             if "Connection to server failed" in error_msg or "SSL error" in error_msg:
                 raise RequestException(f"Sieve connection failed: {error_msg}", err.ERROR_SIEVE_CONNECTION_FAILED) from e
             raise RequestException(f"Sieve error: {error_msg}", err.ERROR_SIEVE_AUTH_FAILED) from e
         except (gaierror, sock_timeout, TimeoutError, ConnectionRefusedError, sock_error) as e:
-            logger_sieve.error("Sieve TCP error connecting to %s:%d – %s", self.server, self.port, e)
+            logger_sieve.error("Sieve TCP error connecting to %s:%d - %s", self.server, self.port, e)
             raise RequestException(f"Sieve connection failed: {e}", err.ERROR_SIEVE_CONNECTION_FAILED) from e
 
         if not result:
@@ -208,7 +304,7 @@ class ClientSieve(ClientFiltering):
         match = re.search(r"unknown command ['\"]([^'\"]+)['\"]", error_msg)
         if match:
             return match.group(1)
-        
+
         #return "notify"
         raise BugException("Unknown Sieve capability", err.ERROR_SIEVE_CAPABILITY_NOT_FOUND)
 
@@ -300,6 +396,11 @@ class ClientSieve(ClientFiltering):
     def _add_filter_to_set(self, filters_set: FiltersSet, filter_item: dict) -> None:
         """Convert a single API filter definition and add it to a FiltersSet.
 
+        Special handling: If the filter uses "cc or to" field, creates two separate
+        filters (one for CC, one for TO) with the same actions to achieve OR logic.
+
+        Supports nested conditions by building sievelib commands manually.
+
         :param filters_set: The FiltersSet to add the filter to.
         :type filters_set: FiltersSet
         :param filter_item: Filter definition with keys: name, enabled, actions, rules.
@@ -315,19 +416,191 @@ class ClientSieve(ClientFiltering):
             return
 
         try:
-            conditions = self._build_sieve_conditions(rules)
-            filters_set.addfilter(
-                name=filter_name,
-                conditions=conditions,
-                actions=self._build_sieve_actions(actions),
-            )
-            logger_sieve.debug("Added filter '%s' to FiltersSet", filter_name)
+            # Check if the top-level rule uses "cc or to" field
+            if self._rule_uses_cc_or_to(rules):
+                # Handle "cc or to" by creating two filters
+                self._add_cc_or_to_filter_to_set(filters_set, filter_item)
+            else:
+                # Build nested conditions
+                conditions, matchtype = self._build_sieve_conditions(rules)
+                sieve_actions = self._build_sieve_actions(actions)
+                
+                # Check if we have nested groups (indicated by "__group__" tuples)
+                if any(isinstance(c, tuple) and len(c) > 0 and c[0] == "__group__" for c in conditions):
+                    # Use manual construction for nested structures
+                    self._add_filter_with_nested_conditions_direct(filters_set, filter_name, conditions, matchtype, sieve_actions)
+                else:
+                    # Use standard addfilter for flat structures
+                    filters_set.addfilter(
+                        name=filter_name,
+                        conditions=conditions,
+                        actions=sieve_actions,
+                        matchtype=matchtype,
+                    )
+                logger_sieve.debug("Added filter '%s' to FiltersSet with matchtype=%s", filter_name, matchtype)
         except Exception as e:
             logger_sieve.error("Error adding filter '%s' to FiltersSet: %s", filter_name, e)
             raise RequestException(
                 f"Failed to add filter '{filter_name}': {e}",
                 err.ERROR_SIEVE_SCRIPT_INVALID,
             ) from e
+
+    def _rule_uses_cc_or_to(self, rule_node: dict) -> bool:
+        """Check if a rule tree uses the 'cc or to' field.
+        
+        :param rule_node: A rule node (leaf or group).
+        :type rule_node: dict
+        :return: True if 'cc or to' field is used anywhere in the rule tree.
+        :rtype: bool
+        """
+        if "op" in rule_node:
+            # Group node: check nested rules
+            nested_rules = rule_node.get("rules", [])
+            return any(self._rule_uses_cc_or_to(rule) for rule in nested_rules)
+        else:
+            # Leaf node: check field
+            field = rule_node.get("field", "")
+            return field == "cc or to"
+
+    def _add_cc_or_to_filter_to_set(self, filters_set: FiltersSet, filter_item: dict) -> None:
+        """Handle 'cc or to' field by creating two separate filters.
+        
+        Creates two filters with the same actions but different conditions:
+        - One for CC field
+        - One for TO field
+        
+        This achieves OR logic at the filter level.
+        
+        :param filters_set: The FiltersSet to add filters to.
+        :type filters_set: FiltersSet
+        :param filter_item: Original filter definition with 'cc or to' field.
+        :type filter_item: dict
+        """
+        filter_name = filter_item.get("name", "unknown")
+        actions = filter_item.get("actions", [])
+        rules = filter_item.get("rules", {})
+
+        # Create two versions of the rules: one with "cc" and one with "to"
+        cc_rules = self._replace_field_in_rules(rules, "cc or to", "cc")
+        to_rules = self._replace_field_in_rules(rules, "cc or to", "to")
+
+        # Add both filters to the set
+        cc_conditions, cc_matchtype = self._build_sieve_conditions(cc_rules)
+        to_conditions, to_matchtype = self._build_sieve_conditions(to_rules)
+        sieve_actions = self._build_sieve_actions(actions)
+
+        # Create two filters with suffixes to differentiate them
+        filters_set.addfilter(
+            name=f"{filter_name} (CC)",
+            conditions=cc_conditions,
+            actions=sieve_actions,
+            matchtype=cc_matchtype,
+        )
+        logger_sieve.debug("Added filter '%s' (CC variant) to FiltersSet", filter_name)
+
+        filters_set.addfilter(
+            name=f"{filter_name} (TO)",
+            conditions=to_conditions,
+            actions=sieve_actions,
+            matchtype=to_matchtype,
+        )
+        logger_sieve.debug("Added filter '%s' (TO variant) to FiltersSet", filter_name)
+
+    def _replace_field_in_rules(self, rule_node: dict, old_field: str, new_field: str) -> dict:
+        """Recursively replace field names in a rule tree.
+        
+        :param rule_node: A rule node (leaf or group).
+        :type rule_node: dict
+        :param old_field: Field name to replace.
+        :type old_field: str
+        :param new_field: Replacement field name.
+        :type new_field: str
+        :return: New rule tree with replaced field names.
+        :rtype: dict
+        """
+        if "op" in rule_node:
+            # Group node: recursively replace in nested rules
+            nested_rules = [self._replace_field_in_rules(rule, old_field, new_field) 
+                          for rule in rule_node.get("rules", [])]
+            return {
+                "op": rule_node.get("op"),
+                "rules": nested_rules
+            }
+        else:
+            # Leaf node: replace field if it matches
+            new_rule = dict(rule_node)  # Shallow copy
+            if new_rule.get("field") == old_field:
+                new_rule["field"] = new_field
+            return new_rule
+
+    def _detect_required_extensions_from_rules(self, rule_node: dict) -> set[str]:
+        """Recursively detect Sieve extensions required by a rule tree.
+        
+        Returns a set of extension names needed:
+        - "body" for body field searches (RFC 5173)
+        
+        :param rule_node: A rule node (leaf or group).
+        :type rule_node: dict
+        :return: Set of extension names required.
+        :rtype: set[str]
+        """
+        required_extensions = set()
+
+        if "op" in rule_node:
+            # Group node: recursively check nested rules
+            nested_rules = rule_node.get("rules", [])
+            for nested_rule in nested_rules:
+                required_extensions.update(self._detect_required_extensions_from_rules(nested_rule))
+        else:
+            # Leaf node: check the field
+            field = rule_node.get("field", "")
+            if field == "body":
+                required_extensions.add("body")
+
+        return required_extensions
+
+    def _detect_required_extensions_from_actions(self, actions: list[dict]) -> set[str]:
+        """Recursively detect Sieve extensions required by filter actions.
+        
+        Returns a set of extension names needed:
+        - "fileinto" for fileinto actions
+        - "copy" for fileinto with :copy flag (keep_copy=True)
+        - "mailbox" for fileinto with :create flag
+        - "imap4flags" for imapflags action
+        - "enotify" for notify action
+        
+        :param actions: List of action dicts with keys: method, arguments.
+        :type actions: list[dict]
+        :return: Set of extension names required.
+        :rtype: set[str]
+        """
+        required_extensions = set()
+
+        for action in actions:
+            method = action.get("method", "").lower()
+            arguments = action.get("arguments", {})
+
+            if method == cs.FILTER_ACTION_FILEINTO:
+                # fileinto is an extension (RFC 5228)
+                required_extensions.add("fileinto")
+
+                # Check for :copy flag (requires "copy" extension)
+                if arguments.get("keep_copy", False):
+                    required_extensions.add("copy")
+
+                # Check for :create flag (requires "mailbox" extension)
+                if arguments.get("create_if_no_exist", False):
+                    required_extensions.add("mailbox")
+
+            elif method == cs.FILTER_ACTION_FLAG:
+                # imapflags action requires imap4flags extension (RFC 5232)
+                required_extensions.add("imap4flags")
+
+            elif method == cs.FILTER_ACTION_NOTIFY:
+                # notify action requires enotify extension
+                required_extensions.add("enotify")
+
+        return required_extensions
 
     def _check_authenticated(self, method_name: str) -> None:
         """Verify that the client is connected and authenticated.
@@ -386,11 +659,11 @@ class ClientSieve(ClientFiltering):
             script_parts_retry = []
             for section_name, section_content in script_parts:
                 # Skip notification section if notify extension is unsupported
-                if missing_capability == "notify" and section_name == FILTER_SECTION_NOTIFICATION:
+                if missing_capability == "notify" and section_name == cs.FILTER_SECTION_NOTIFICATION:
                     logger_sieve.warning(
                         "Skipping notification section because 'notify' extension is not supported"
                     )
-                    skipped_sections.add(FILTER_SECTION_NOTIFICATION)
+                    skipped_sections.add(cs.FILTER_SECTION_NOTIFICATION)
                     continue
                 script_parts_retry.append((section_name, section_content))
 
@@ -459,10 +732,10 @@ class ClientSieve(ClientFiltering):
         'sogo-master' which is then activated. Individual scripts are deleted to
         keep the server clean.
 
-        The merged script follows this order:
-        1. Forward rules (redirect or keep+copy)
-        2. Filter rules (custom rules)
-        3. Vacation auto-reply
+        The merged script order depends on forward and vacation priority (controlled by always_send):
+        - If forward.always_send=True: Forward first, then (Vacation if always_send), then Filters, then Notification
+        - Else if vacation.always_send=True: Vacation first, then Forward, then Filters, then Notification
+        - Otherwise: Forward, then Filters, then Vacation, then Notification
 
         :param filters_config: Complete filters dict with keys: 'filters', 'Vacation',
                               'Forward', 'Notification'.
@@ -479,154 +752,225 @@ class ClientSieve(ClientFiltering):
 
         # Track which sections were actually activated on the server
         activated_sections = {
-            FILTER_SECTION_NOTIFICATION: False,
-            FILTER_SECTION_VACATION: False,
-            FILTER_SECTION_FORWARD: False,
-            FILTER_SECTION_FILTERS: False,
+            cs.FILTER_SECTION_NOTIFICATION: False,
+            cs.FILTER_SECTION_VACATION: False,
+            cs.FILTER_SECTION_FORWARD: False,
+            cs.FILTER_SECTION_FILTERS: False,
         }
 
-        try:
-            # Build the merged script by combining all enabled sections
-            merged_script_parts = []
-            requires_set = set()
+        # Build the merged script by combining all enabled sections
+        merged_script_parts = []
+        requires_set = set()
 
-            # 1. Process filters (rules)
-            filters_list = filters_config.get(FILTER_SECTION_FILTERS, [])
-            if filters_list:
-                try:
-                    filters_set = FiltersSet("sogo-rules")
-                    for filter_item in filters_list:
-                        if filter_item.get("enabled", 1):
-                            self._add_filter_to_set(filters_set, filter_item)
+        # Get configurations
+        forward_config = filters_config.get(cs.FILTER_SECTION_FORWARD)
+        vacation_config = filters_config.get(cs.FILTER_SECTION_VACATION)
 
-                    if filters_set.filters:  # Only add if filters exist
-                        filters_script = self._render_filters_set(filters_set)
-                        merged_script_parts.append((FILTER_SECTION_FILTERS, filters_script))
-                        # Don't add "copy" to requires - it's a native Sieve command
-                        # Only "mailbox" extension is needed if :create is used
-                        activated_sections[FILTER_SECTION_FILTERS] = True
-                        logger_sieve.debug("Added filters section to merged script")
-                except Exception as e:
-                    logger_sieve.error("Error processing filters section: %s", e)
-                    raise RequestException(
-                        f"Failed to process filters: {e}",
-                        err.ERROR_SIEVE_SCRIPT_INVALID,
-                    ) from e
+        # Determine priority: forward has priority over vacation if both have always_send=True
+        forward_has_priority = forward_config and forward_config.get("enabled", False) and forward_config.get("always_send", False)
+        vacation_has_priority = vacation_config and vacation_config.get("enabled", False) and vacation_config.get("always_send", False)
 
-            # 2. Process forward settings
-            forward_config = filters_config.get(FILTER_SECTION_FORWARD)
-            if forward_config and forward_config.get("enabled", 0):
-                try:
-                    forward_addresses = forward_config.get("forwardAddress", [])
-                    if forward_addresses:
-                        # Validate all addresses
-                        for address in forward_addresses:
-                            if not self._validate_email(address):
-                                raise RequestException(
-                                    f"Invalid email address for forward: {address}",
-                                    err.ERROR_SIEVE_SCRIPT_INVALID,
-                                )
+        # Process forward and vacation sections with priority handling
+        # Forward has priority over vacation if both have always_send=True
+        if forward_has_priority:
+            priority_insert_pos = self._process_forward_section(forward_config, merged_script_parts, requires_set, activated_sections)
+            if vacation_has_priority and vacation_config.get("enabled", False):
+                self._process_vacation_section(vacation_config, merged_script_parts, requires_set, activated_sections, insert_pos=priority_insert_pos + 1)
+        elif vacation_has_priority:
+            self._process_vacation_section(vacation_config, merged_script_parts, requires_set, activated_sections, insert_pos=0)
 
-                        keep_copy = forward_config.get("keepCopy", 0)
-                        always_send = forward_config.get("alwaysSend", 0)
+        # Process non-priority forward (normal order)
+        if not forward_has_priority and forward_config and forward_config.get("enabled", False):
+            self._process_forward_section(forward_config, merged_script_parts, requires_set, activated_sections)
 
-                        forward_script = self._build_forward_script(forward_addresses, keep_copy, always_send)
-                        merged_script_parts.append((FILTER_SECTION_FORWARD, forward_script))
-                        # Don't add "redirect" or "copy" to requires - they are native Sieve commands
-                        logger_sieve.debug("Added forward section to merged script")
-                        activated_sections[FILTER_SECTION_FORWARD] = True
-                except RequestException:
-                    raise
-                except Exception as e:
-                    logger_sieve.error("Error processing forward section: %s", e)
-                    raise RequestException(
-                        f"Failed to process forward: {e}",
-                        err.ERROR_SIEVE_SCRIPT_INVALID,
-                    ) from e
+        # Process filters (rules)
+        self._process_filters_section(filters_config.get(cs.FILTER_SECTION_FILTERS, []), merged_script_parts, requires_set, activated_sections)
 
-            # 3. Process vacation settings
-            vacation_config = filters_config.get(FILTER_SECTION_VACATION)
-            if vacation_config and vacation_config.get("enabled", 0):
-                try:
-                    vacation_script = self._build_vacation_script(vacation_config)
-                    merged_script_parts.append((FILTER_SECTION_VACATION, vacation_script))
-                    requires_set.add("vacation")
-                    activated_sections[FILTER_SECTION_VACATION] = True
-                    logger_sieve.debug("Added vacation section to merged script")
-                except Exception as e:
-                    logger_sieve.error("Error processing vacation section: %s", e)
-                    raise RequestException(
-                        f"Failed to process vacation: {e}",
-                        err.ERROR_SIEVE_SCRIPT_INVALID,
-                    ) from e
+        # Process non-priority vacation (normal order)
+        if not vacation_has_priority and vacation_config and vacation_config.get("enabled", False):
+            self._process_vacation_section(vacation_config, merged_script_parts, requires_set, activated_sections)
 
-            # 4. Process notification settings (RFC 5435)
-            # NOTE: This section is optional and requires Dovecot to support the 'notify' extension.
-            # If the server doesn't support it, we store the configuration but don't add it to the script.
-            notification_config = filters_config.get(FILTER_SECTION_NOTIFICATION)
-            if notification_config and notification_config.get("enabled", 0):
-                try:
-                    notify_addresses = notification_config.get("notifyAddresses", [])
-                    if notify_addresses:
-                        # Validate all addresses
-                        for address in notify_addresses:
-                            if not self._validate_email(address):
-                                raise RequestException(
-                                    f"Invalid email address for notification: {address}",
-                                    err.ERROR_SIEVE_SCRIPT_INVALID,
-                                )
+        # Process notification settings
+        self._process_notification_section(filters_config.get(cs.FILTER_SECTION_NOTIFICATION), merged_script_parts, requires_set, activated_sections)
 
-                        # Build notification script (will be added to merged script if server supports it)
-                        notification_script = self._build_notification_script(notification_config)
-                        if notification_script:  # Only add if script is not empty
-                            merged_script_parts.append((FILTER_SECTION_NOTIFICATION, notification_script))
-                            requires_set.add("enotify")
-                            logger_sieve.debug("Added notification section to merged script")
-                        activated_sections[FILTER_SECTION_NOTIFICATION] = True
-                    else:
-                        logger_sieve.debug("Notification has no addresses; marking as activated for database persistence")
-                        activated_sections[FILTER_SECTION_NOTIFICATION] = True
-                except RequestException:
-                    raise
-                except Exception as e:
-                    logger_sieve.error("Error processing notification section: %s", e)
-                    raise RequestException(
-                        f"Failed to process notification: {e}",
-                        err.ERROR_SIEVE_SCRIPT_INVALID,
-                    ) from e
-
-            # If nothing is enabled, deactivate then delete the master script.
-            if not merged_script_parts:
-                logger_sieve.info("No filter sections are enabled; deactivating and deleting master script")
-                try:
-                    self.set_active("")
-                    logger_sieve.debug("Deactivated active Sieve script before cleanup")
-                except RequestException as e:
-                    logger_sieve.debug("Could not deactivate Sieve script (may not be active): %s", e)
-                self._cleanup_scripts([SIEVE_MASTER_SCRIPT])
-                return activated_sections
-
-            # Compile final merged script with all requirements
-            master_script = self._compile_merged_script(requires_set, merged_script_parts)
-            # Upload and activate the master script with automatic retry for unsupported extensions
-            skipped_sections = self._store_and_activate_script(SIEVE_MASTER_SCRIPT, master_script, requires_set, merged_script_parts)
-    
-            # Mark sections as activated based on what was included and not skipped
-            for section_name, _ in merged_script_parts:
-                if section_name not in skipped_sections:
-                    activated_sections[section_name] = True
-
-            logger_sieve.info("Successfully merged and activated all filter sections")
-            logger_sieve.info("Activated sections: %s", activated_sections)
-
+        # If nothing is enabled, deactivate then delete the master script.
+        if not merged_script_parts:
+            logger_sieve.info("No filter sections are enabled; deactivating and deleting master script")
+            try:
+                self.set_active("")
+                logger_sieve.debug("Deactivated active Sieve script before cleanup")
+            except RequestException as e:
+                logger_sieve.debug("Could not deactivate Sieve script (may not be active): %s", e)
+            self._cleanup_scripts([SIEVE_MASTER_SCRIPT])
             return activated_sections
 
-        except RequestException:
-            raise
+        # Compile final merged script with all requirements
+        master_script = self._compile_merged_script(requires_set, merged_script_parts)
+        # Upload and activate the master script with automatic retry for unsupported extensions
+        skipped_sections = self._store_and_activate_script(SIEVE_MASTER_SCRIPT, master_script, requires_set, merged_script_parts)
+
+        # Mark sections as activated based on what was included and not skipped
+        for section_name, _ in merged_script_parts:
+            if section_name not in skipped_sections:
+                activated_sections[section_name] = True
+
+        logger_sieve.info("Activated sections: %s", activated_sections)
+
+        return activated_sections
+
+    def _process_forward_section(self, forward_config: dict, merged_script_parts: list, requires_set: set, activated_sections: dict) -> int:
+        """Process forward section and add it to merged script parts.
+        
+        :param forward_config: Forward configuration dict.
+        :type forward_config: dict
+        :param merged_script_parts: List to append the forward script part to.
+        :type merged_script_parts: list
+        :param requires_set: Set of required extensions to update.
+        :type requires_set: set
+        :param activated_sections: Dictionary to update with activation status.
+        :type activated_sections: dict
+        :return: Index where the script part was inserted.
+        :rtype: int
+        :raises RequestException: If forward processing fails.
+        """
+        try:
+            forward_addresses = forward_config.get("forward_address", [])
+            if forward_addresses:
+                keep_copy = forward_config.get("keep_copy", False)
+                always_send = forward_config.get("always_send", False)
+
+                forward_script = self._build_forward_script(forward_addresses, keep_copy, always_send)
+                merged_script_parts.append((cs.FILTER_SECTION_FORWARD, forward_script))
+                # Don't add "redirect" or "copy" to requires - they are native Sieve commands
+                logger_sieve.debug("Added forward section to merged script")
+                activated_sections[cs.FILTER_SECTION_FORWARD] = True
+                return len(merged_script_parts) - 1
         except Exception as e:
-            logger_sieve.error("Error in set_merged_filters: %s", e)
+            logger_sieve.error("Error processing forward section: %s", e)
             raise RequestException(
-                f"Failed to merge filters: {e}",
+                f"Failed to process forward: {e}",
+                err.ERROR_SIEVE_SCRIPT_INVALID,
+            ) from e
+        return -1
+
+    def _process_vacation_section(self, vacation_config: dict, merged_script_parts: list, requires_set: set, 
+                                  activated_sections: dict, insert_pos: int = None) -> None:
+        """Process vacation section and add it to merged script parts.
+        
+        :param vacation_config: Vacation configuration dict.
+        :type vacation_config: dict
+        :param merged_script_parts: List to append the vacation script part to.
+        :type merged_script_parts: list
+        :param requires_set: Set of required extensions to update.
+        :type requires_set: set
+        :param activated_sections: Dictionary to update with activation status.
+        :type activated_sections: dict
+        :param insert_pos: Position to insert the script part (if None, append).
+        :type insert_pos: int | None
+        :raises RequestException: If vacation processing fails.
+        """
+        try:
+            vacation_script = self._build_vacation_script(vacation_config)
+            if insert_pos is not None:
+                merged_script_parts.insert(insert_pos, (cs.FILTER_SECTION_VACATION, vacation_script))
+            else:
+                merged_script_parts.append((cs.FILTER_SECTION_VACATION, vacation_script))
+            requires_set.add("vacation")
+            activated_sections[cs.FILTER_SECTION_VACATION] = True
+            logger_sieve.debug("Added vacation section to merged script")
+        except Exception as e:
+            logger_sieve.error("Error processing vacation section: %s", e)
+            raise RequestException(
+                f"Failed to process vacation: {e}",
+                err.ERROR_SIEVE_SCRIPT_INVALID,
+            ) from e
+
+    def _process_filters_section(self, filters_list: list, merged_script_parts: list, requires_set: set, 
+                                activated_sections: dict) -> None:
+        """Process filters section and add it to merged script parts.
+        
+        :param filters_list: List of filter definitions.
+        :type filters_list: list
+        :param merged_script_parts: List to append the filters script part to.
+        :type merged_script_parts: list
+        :param requires_set: Set of required extensions to update.
+        :type requires_set: set
+        :param activated_sections: Dictionary to update with activation status.
+        :type activated_sections: dict
+        :raises RequestException: If filters processing fails.
+        """
+        if not filters_list:
+            return
+
+        try:
+            filters_set = FiltersSet("sogo-rules")
+            for filter_item in filters_list:
+                if filter_item.get("enabled", True):
+                    self._add_filter_to_set(filters_set, filter_item)
+
+                    # Detect required extensions from filter rules
+                    rules = filter_item.get("rules", {})
+                    if rules:
+                        required_exts = self._detect_required_extensions_from_rules(rules)
+                        requires_set.update(required_exts)
+
+                    # Detect required extensions from filter actions
+                    # This includes "copy" for :copy flag and "mailbox" for :create
+                    actions = filter_item.get("actions", [])
+                    if actions:
+                        action_exts = self._detect_required_extensions_from_actions(actions)
+                        requires_set.update(action_exts)
+
+            if filters_set.filters:  # Only add if filters exist
+                filters_script = self._render_filters_set(filters_set)
+                merged_script_parts.append((cs.FILTER_SECTION_FILTERS, filters_script))
+                activated_sections[cs.FILTER_SECTION_FILTERS] = True
+                logger_sieve.debug("Added filters section to merged script")
+        except Exception as e:
+            logger_sieve.error("Error processing filters section: %s", e)
+            raise RequestException(
+                f"Failed to process filters: {e}",
+                err.ERROR_SIEVE_SCRIPT_INVALID,
+            ) from e
+
+    def _process_notification_section(self, notification_config: dict, merged_script_parts: list, requires_set: set,
+                                     activated_sections: dict) -> None:
+        """Process notification section and add it to merged script parts.
+        
+        NOTE: This section is optional and requires Dovecot to support the 'notify' extension.
+        If the server doesn't support it, we store the configuration but don't add it to the script.
+        
+        :param notification_config: Notification configuration dict (or None).
+        :type notification_config: dict
+        :param merged_script_parts: List to append the notification script part to.
+        :type merged_script_parts: list
+        :param requires_set: Set of required extensions to update.
+        :type requires_set: set
+        :param activated_sections: Dictionary to update with activation status.
+        :type activated_sections: dict
+        :raises RequestException: If notification processing fails.
+        """
+        if not notification_config or not notification_config.get("enabled", False):
+            return
+
+        try:
+            notify_addresses = notification_config.get("notify_addresses", [])
+            if notify_addresses:
+                # Addresses are already validated by the Marshmallow schema
+                # Build notification script (will be added to merged script if server supports it)
+                notification_script = self._build_notification_script(notification_config)
+                if notification_script:  # Only add if script is not empty
+                    merged_script_parts.append((cs.FILTER_SECTION_NOTIFICATION, notification_script))
+                    requires_set.add("enotify")
+                    logger_sieve.debug("Added notification section to merged script")
+                activated_sections[cs.FILTER_SECTION_NOTIFICATION] = True
+            else:
+                logger_sieve.debug("Notification has no addresses; marking as activated for database persistence")
+                activated_sections[cs.FILTER_SECTION_NOTIFICATION] = True
+        except Exception as e:
+            logger_sieve.error("Error processing notification section: %s", e)
+            raise RequestException(
+                f"Failed to process notification: {e}",
                 err.ERROR_SIEVE_SCRIPT_INVALID,
             ) from e
 
@@ -699,25 +1043,38 @@ class ClientSieve(ClientFiltering):
                 err.ERROR_SIEVE_SCRIPT_INVALID,
             ) from e
 
-    def _build_sieve_conditions(self, rules: dict) -> list[tuple]:
-        """Convert API rule tree into a flat list of sievelib conditions."""
+    def _build_sieve_conditions(self, rules: dict) -> tuple[list[tuple], str]:
+        """Convert API rule tree into nested sievelib conditions respecting the rule structure.
+        
+        Returns a tuple of (conditions_list, matchtype) where:
+        - conditions_list: list of conditions (may contain nested tuples for groups)
+        - matchtype: "anyof" or "allof" for the top-level grouping
+        
+        Nested groups are represented as special tuples: ("__group__", "anyof"|"allof", [nested_conditions])
+        
+        :param rules: Rule tree from API (leaf or group node)
+        :type rules: dict
+        :return: Tuple of (conditions list, matchtype string)
+        :rtype: tuple[list[tuple], str]
+        """
         if not rules:
-            return []
-        conditions: list = []
-        self._flatten_rules(rules, conditions)
-        return conditions
+            return [], "allof"
 
-    def _flatten_rules(self, rule_node: dict, conditions: list, parent_op: str = "and") -> None:
-        """Recursively convert a nested rule tree into sievelib condition tuples.
+        # Build nested conditions while respecting the rule structure
+        conditions, matchtype = self._build_nested_conditions_recursive(rules)
+        return conditions, matchtype
 
-        Preserves AND/OR logic by using sievelib's allof/anyof constructs.
-
+    def _build_nested_conditions_recursive(self, rule_node: dict) -> tuple[list, str]:
+        """Recursively build nested conditions from a rule tree, respecting structure.
+        
+        Returns (conditions_list, matchtype) where conditions_list may contain:
+        - Regular condition tuples: ("field", ":operator", value)
+        - Nested group tuples: ("__group__", "anyof"|"allof", [nested_conditions])
+        
         :param rule_node: A rule node (leaf or group).
         :type rule_node: dict
-        :param conditions: The list to append conditions to (mutated).
-        :type conditions: list
-        :param parent_op: Parent operator ("and" or "or") for context.
-        :type parent_op: str
+        :return: Tuple of (conditions list, matchtype string for this level)
+        :rtype: tuple[list, str]
         """
         if "op" in rule_node:
             # Group node with multiple rules
@@ -725,58 +1082,122 @@ class ClientSieve(ClientFiltering):
             nested_rules = rule_node.get("rules", [])
 
             if not nested_rules:
-                return
+                return [], "allof"
 
             if len(nested_rules) == 1:
-                # Single rule in group, just process it
-                self._flatten_rules(nested_rules[0], conditions, op)
-            else:
-                # Multiple rules: use allof/anyof
-                nested_conditions: list = []
-                for nested_rule in nested_rules:
-                    self._flatten_rules(nested_rule, nested_conditions, op)
+                # Single rule in group, just process it recursively
+                return self._build_nested_conditions_recursive(nested_rules[0])
 
-                if nested_conditions:
-                    group_op = "anyof" if op == "or" else "allof"
-                    conditions.append((group_op, nested_conditions))
+            # Multiple rules: build each one and group them
+            group_matchtype = "anyof" if op == "or" else "allof"
+            conditions = []
+
+            for nested_rule in nested_rules:
+                nested_conditions, nested_matchtype = self._build_nested_conditions_recursive(nested_rule)
+                
+                if len(nested_conditions) == 1 and not (isinstance(nested_conditions[0], tuple) and nested_conditions[0][0] == "__group__"):
+                    # Single condition from nested rule, add directly
+                    conditions.extend(nested_conditions)
+                else:
+                    # Multiple conditions or nested group, wrap as a group if needed
+                    if len(nested_conditions) > 1 or (isinstance(nested_conditions[0], tuple) and nested_conditions[0][0] == "__group__"):
+                        if nested_matchtype != group_matchtype:
+                            # Different operator, wrap as nested group
+                            conditions.append(("__group__", nested_matchtype, nested_conditions))
+                        else:
+                            # Same operator, flatten
+                            conditions.extend(nested_conditions)
+                    else:
+                        conditions.extend(nested_conditions)
+
+            return conditions, group_matchtype
         else:
             # Leaf node: a single condition
-            field = rule_node.get("field", "")
-            operator = rule_node.get("operator", "")
-            value = rule_node.get("value", "")
-            custom_header = rule_node.get("custom_header", "")
+            condition = self._build_single_condition(rule_node)
+            if condition:
+                return [condition], "allof"
+            return [], "allof"
 
+    def _build_single_condition(self, rule_node: dict) -> tuple | None:
+        """Build a single condition from a leaf rule node.
+        
+        :param rule_node: A leaf rule node with field, operator, and value.
+        :type rule_node: dict
+        :return: A condition tuple, or None if invalid.
+        :rtype: tuple | None
+        """
+        field = rule_node.get("field", "")
+        operator = rule_node.get("operator", "")
+        value = rule_node.get("value", "")
+        custom_header = rule_node.get("custom_header", "")
+
+        # Special handling for "size" field (uses :size operator, not a regular field)
+        if field == cs.FILTER_FIELD_SIZE:
+            mapped_operator = f":{operator.lower()}"
+            logger_sieve.debug("Added size condition with operator %s and value %s", operator, value)
+            return ("size", mapped_operator, value)
+
+        # Special handling for "body" field (RFC 5173 - Body Extension)
+        elif field == cs.FILTER_FIELD_BODY:
+            mapped_operator = f":{operator.lower()}"
+            # For body, sievelib expects: ("body", ":text", ":contains", "value")
+            logger_sieve.debug("Added body condition with operator %s and value %s", operator, value)
+            return ("body", ":text", mapped_operator, value)
+
+        else:
+            # Standard field handling (including cc, header, etc.)
             mapped_field = self._map_field_name(field, custom_header)
-            mapped_operator = self._map_operator_name(operator)
+            mapped_operator = f":{operator.lower()}"
 
             if mapped_field and mapped_operator:
-                conditions.append((mapped_field, mapped_operator, value))
+                # sievelib expects lists for most operators (e.g., subject, from, to, cc)
+                # Convert single string value to list
+                value_for_sieve = [value] if isinstance(value, str) else value
+                logger_sieve.debug("Added condition: field=%s, operator=%s, value=%s", mapped_field, mapped_operator, value_for_sieve)
+                return (mapped_field, mapped_operator, value_for_sieve)
+
+        return None
 
     def _map_field_name(self, field: str, custom_header: str = "") -> str:
-        """Map API field names to sievelib field names."""
-        if field in ("subject", "from", "to"):
+        """Map API field names to Sieve field names for use with sievelib.
+        
+        Supports the following field types:
+        - Standard headers: "subject", "from", "to", "cc"
+        - Custom headers: "header" (requires custom_header parameter)
+        - Body: "body" (uses Sieve body extension)
+        - Size: "size" (special operator, maps to empty string as size uses :size operator on any field)
+        
+        The field has already been validated by the schema (FilterRuleSchema).
+        
+        :param field: API field name (pre-validated by schema)
+        :type field: str
+        :param custom_header: Custom header name (used when field == "header")
+        :type custom_header: str
+        :return: Sieve field name (or empty string for special cases like "size")
+        :rtype: str
+        """
+        # Standard headers that map directly to Sieve
+        if field in {cs.FILTER_FIELD_SUBJECT, cs.FILTER_FIELD_FROM, cs.FILTER_FIELD_TO, cs.FILTER_FIELD_CC}:
             return field
-        if field == "header" and custom_header:
-            return custom_header
-        if field not in ("subject", "from", "to"):
-            logger_sieve.warning("Unknown field name: %s", field)
-        return field
 
-    def _map_operator_name(self, operator: str) -> str:
-        """Map API operator names to sievelib operator names with ':' prefix."""
-        mapping = {
-            "contains": ":contains", "is": ":is", "equals": ":is",
-            "starts-with": ":startswith", "starts_with": ":startswith", "startswith": ":startswith",
-            "ends-with": ":endswith", "ends_with": ":endswith", "endswith": ":endswith",
-            "matches": ":matches", "regex": ":regex",
-            "not-contains": ":notcontains", "not_contains": ":notcontains", "notcontains": ":notcontains",
-            "exists": ":exists", "size": ":size",
-        }
-        mapped = mapping.get(operator.lower())
-        if mapped:
-            return mapped
-        logger_sieve.warning("Unknown operator name: %s, using as-is", operator)
-        return f":{operator.lower()}" if not operator.lower().startswith(":") else operator.lower()
+        # Custom header field
+        if field == cs.FILTER_FIELD_HEADER:
+            if custom_header:
+                return custom_header
+            logger_sieve.warning("header field used but no custom_header specified")
+            return ""
+
+        # Body field (requires body extension in Sieve)
+        if field == cs.FILTER_FIELD_BODY:
+            return "body"
+
+        # Size field (uses :size operator, returns empty since size works differently)
+        # In Sieve, :size is an operator applied to the message, not a header field
+        if field == cs.FILTER_FIELD_SIZE:
+            return ""
+
+        # Unknown field - should have been caught by schema validation
+        raise BugException(f"Unknown field for filter given {field}")
 
     def _build_sieve_actions(self, actions: list[dict]) -> list:
         """Convert API action definitions into sievelib action definitions.
@@ -787,171 +1208,244 @@ class ClientSieve(ClientFiltering):
         :rtype: list
         :raises RequestException: If an action is invalid.
         """
-        sieve_actions = []
+        sieve_actions: list[tuple] = []
 
         for action in actions:
             method = action.get("method", "").lower()
             arguments = action.get("arguments", {})
 
-            if method in ("discard", "keep", "stop"):
+            if method in {cs.FILTER_ACTION_DISCARD, cs.FILTER_ACTION_KEEP, cs.FILTER_ACTION_STOP}:
                 sieve_actions.append((method,))
                 logger_sieve.debug("Added %s action", method)
-            
-            elif method == "fileinto":
+
+            elif method == cs.FILTER_ACTION_FILEINTO:
                 self._add_fileinto_action(sieve_actions, arguments)
-            
-            elif method == "redirect":
+
+            elif method == cs.FILTER_ACTION_REDIRECT:
                 self._add_redirect_action(sieve_actions, arguments)
-            
-            elif method == "copy":
-                self._add_copy_action(sieve_actions, arguments)
-            
-            elif method == "removeheader":
-                self._add_removeheader_action(sieve_actions, arguments)
-            
+
+            elif method == cs.FILTER_ACTION_REJECT:
+                # Reject action can have an optional message
+                message = arguments.get("message", "")
+                if message:
+                    sieve_actions.append(("reject", message))
+                    logger_sieve.debug("Added reject action with message")
+                else:
+                    sieve_actions.append(("reject",))
+                    logger_sieve.debug("Added reject action")
+
+            elif method == cs.FILTER_ACTION_FLAG:
+                flags = arguments.get("flags", [])
+                if flags:
+                    for flag in flags:
+                        sieve_actions.append(("addflag", flag))
+                    logger_sieve.debug("Added addflag action with flags: %s", flags)
+                else:
+                    logger_sieve.warning("imapflags action has no flags, skipping")
+
+            elif method == cs.FILTER_ACTION_NOTIFY:
+                method_val = arguments.get("method", "mailto")
+                priority = arguments.get("priority", "normal")
+                message_text = arguments.get("message_text", "")
+                sieve_actions.append(("notify", method_val, priority, message_text))
+                logger_sieve.debug("Added notify action")
+
             else:
-                logger_sieve.warning("Unknown filter action method: %s", method)
+                raise BugException(f"Unknown filter action {method}")
 
         return sieve_actions
 
     def _add_fileinto_action(self, actions_list: list, arguments: dict) -> None:
-        """Helper to add a fileinto action."""
-        folder = arguments.get("folder", "")
-        if not folder:
-            logger_sieve.warning("fileinto action has no folder, skipping")
+        """Helper to add fileinto action(s).
+        
+        Supports multiple folders and the :copy flag:
+        - Single folder (backward compatible): arguments.get("folder")
+        - Multiple folders: arguments.get("folders") list
+        - Copy flag: arguments.get("keep_copy") boolean
+        
+        For each folder, adds a fileinto action to the actions list, optionally with :copy flag.
+        
+        In Sieve syntax:
+        - Without copy: fileinto "Folder";
+        - With copy: fileinto :copy "Folder";
+        """
+        folders = arguments.get("folders", [])
+
+        # Backward compatibility: if no folders list, try single folder
+        if not folders:
+            folder = arguments.get("folder", "")
+            if folder:
+                folders = [folder]
+
+        if not folders:
+            logger_sieve.warning("fileinto action has no folder(s), skipping")
             return
+
         create_flag = (":create",) if arguments.get("create_if_no_exist", False) else ()
-        actions_list.append(("fileinto", *create_flag, folder))
-        logger_sieve.debug("Added fileinto action for folder: %s", folder)
+        copy_flag = (":copy",) if arguments.get("keep_copy", False) else ()
+
+        # Add a fileinto action for each folder
+        for folder in folders:
+            if not folder or not isinstance(folder, str):
+                logger_sieve.warning("Skipping invalid folder: %s", folder)
+                continue
+            actions_list.append(("fileinto", *copy_flag, *create_flag, folder))
+            log_msg = f"Added fileinto action for folder: {folder}"
+            if arguments.get("keep_copy", False):
+                log_msg += " (with :copy flag)"
+            logger_sieve.debug(log_msg)
 
     def _add_redirect_action(self, actions_list: list, arguments: dict) -> None:
-        """Helper to add a redirect action."""
-        address = arguments.get("address", "")
-        if not address:
-            logger_sieve.warning("redirect action has no address, skipping")
-            return
-        if not self._validate_email(address):
-            logger_sieve.warning("Invalid email address for redirect: %s", address)
-            return
-        actions_list.append(("redirect", address))
-        logger_sieve.debug("Added redirect action to: %s", address)
-
-    def _add_copy_action(self, actions_list: list, arguments: dict) -> None:
-        """Helper to add a copy action."""
-        folder = arguments.get("folder", "")
-        if not folder:
-            logger_sieve.warning("copy action has no folder, skipping")
-            return
-        create_flag = (":create",) if arguments.get("create_if_no_exist", False) else ()
-        actions_list.append(("copy", *create_flag, folder))
-        logger_sieve.debug("Added copy action for folder: %s", folder)
-
-    def _add_removeheader_action(self, actions_list: list, arguments: dict) -> None:
-        """Helper to add a removeheader action."""
-        header_name = arguments.get("header_name", "")
-        if not header_name:
-            logger_sieve.warning("removeheader action has no header_name, skipping")
-            return
-        actions_list.append(("removeheader", header_name))
-        logger_sieve.debug("Added removeheader action for: %s", header_name)
-
-    def _validate_email(self, email: str) -> bool:
-        """Validate email address format.
-
-        :param email: Email address to validate.
-        :type email: str
-        :return: True if valid, False otherwise.
-        :rtype: bool
+        """Helper to add redirect action(s).
+        
+        Supports multiple addresses:
+        - Single address (backward compatible): arguments.get("address")
+        - Multiple addresses: arguments.get("addresses") list
+        
+        For each address, adds a separate redirect action to the actions list.
+        
+        In Sieve syntax, each redirect address becomes a separate action:
+        - redirect "admin@example.com";
+        - redirect "boss@example.com";
+        
+        :param actions_list: List to append redirect actions to.
+        :type actions_list: list
+        :param arguments: Action arguments dict containing address(es).
+        :type arguments: dict
         """
-        # Simple regex for email validation
-        pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-        return re.match(pattern, email) is not None
+        addresses = arguments.get("addresses", [])
+
+        # Backward compatibility: if no addresses list, try single address
+        if not addresses:
+            address = arguments.get("address", "")
+            if address:
+                addresses = [address]
+
+        if not addresses:
+            logger_sieve.warning("redirect action has no address(es), skipping")
+            return
+
+        # Add a redirect action for each address
+        for address in addresses:
+            if not address or not isinstance(address, str):
+                logger_sieve.warning("Skipping invalid redirect address: %s", address)
+                continue
+            # Address is already validated by the Marshmallow schema
+            actions_list.append(("redirect", address))
+            logger_sieve.debug("Added redirect action to: %s", address)
+
 
     def _parse_vacation_datetime(self, dt_str: str | None, default_tz: str = "UTC") -> tuple[str | None, str | None, str | None]:
         """Parse a vacation datetime string with optional timezone.
         
-        Supports formats:
-        - Date only: "2026-06-15" → returns (date, None, default_tz)
-        - DateTime: "2026-06-15T14:30:00" → returns (date, time, default_tz)
-        - DateTime with +HH:MM: "2026-06-15T14:30:00+0100" → returns (date, time, extracted_tz)
-        - DateTime with :Zone: "2026-06-15T14:30:00:Europe/Paris" → returns (date, time, "Europe/Paris")
-        - DateTime with Z: "2026-06-15T14:30:00Z" → returns (date, time, "UTC")
+        Wrapper around the utility function from DateTimeUtils for backward compatibility.
+        This method delegates to the module-level parse_vacation_datetime function, passing
+        the _convert_tz_to_sieve_format method as the timezone converter.
         
         :param dt_str: DateTime string to parse
-        :param default_tz: Default timezone if none specified in the string
-        :return: Tuple of (date_str, time_str, timezone_str) - time_str is None for date-only
+        :param default_tz: Default timezone if none specified in the string (can be IANA name or offset)
+        :return: Tuple of (date_str, time_str, timezone_str_sieve_format) - time_str is None for date-only
         """
-        if not dt_str or not isinstance(dt_str, str):
-            return None, None, default_tz
+        return parse_vacation_datetime(dt_str, default_tz, self._convert_tz_to_sieve_format)
+
+    def _convert_tz_to_sieve_format(self, tz_str: str, date_str: str = None) -> str:
+        """Convert a timezone string to Sieve-compatible UTC offset format.
         
-        dt_str = dt_str.strip()
-        if not dt_str:
-            return None, None, default_tz
+        RFC 5260 (Sieve Date extension) :zone parameter accepts only UTC offsets
+        in the format "+HHMM" or "-HHMM" (e.g., "+0200", "-0500").
         
-        # Check if it's date-only (YYYY-MM-DD)
-        if len(dt_str) == 10 and dt_str.count("-") == 2:
-            try:
-                datetime.strptime(dt_str, "%Y-%m-%d")
-                return dt_str, None, default_tz
-            except ValueError:
-                return None, None, default_tz
+        This method:
+        - Passes through existing UTC offsets (+HHMM, -HHMM, Z)
+        - Converts IANA timezone names (e.g., "Europe/Paris") to their UTC offset AT the specified date
+        - Defaults to "+0000" (UTC) if conversion fails
         
-        # Try to parse datetime with timezone
-        if "T" not in dt_str:
-            return None, None, default_tz
-        
-        date_part, time_part = dt_str.split("T", 1)
-        
-        # Validate date part
+        :param tz_str: Timezone string (IANA name or UTC offset)
+        :type tz_str: str
+        :param date_str: Optional date in YYYY-MM-DD format to get the exact offset on that date
+                        (useful for DST transitions). If not provided, uses current date.
+        :type date_str: str
+        :return: UTC offset in Sieve format (e.g., "+0200")
+        :rtype: str
+        """
+        if not tz_str:
+            return "+0000"
+
+        tz_str = tz_str.strip()
+
+        # Already in UTC offset format (+/-HHMM or +/-HH:MM)
+        if tz_str[0] in ("+", "-"):
+            # Normalize to +HHMM format (remove colon if present)
+            return tz_str.replace(":", "")
+
+        # Handle Z (UTC)
+        if tz_str.upper() == "Z":
+            return "+0000"
+
+        # Handle UTC/GMT special cases
+        if tz_str.upper() in ("UTC", "GMT"):
+            return "+0000"
+
+        # Try to convert IANA timezone name to UTC offset at the specified date
         try:
-            datetime.strptime(date_part, "%Y-%m-%d")
-        except ValueError:
-            return None, None, default_tz
-        
-        extracted_tz = default_tz
-        
-        # Check for timezone info
-        if time_part.endswith("Z"):
-            # UTC marker
-            time_only = time_part[:-1]
-            extracted_tz = "UTC"
-        elif "+" in time_part:
-            # Format with +HH:MM or +HHMM
-            idx = time_part.rfind("+")
-            time_only = time_part[:idx]
-            tz_offset = time_part[idx:]  # Keep as "+HH:MM" or "+HHMM"
-            extracted_tz = tz_offset
-        elif time_part.count("-") > 0 and time_part.rfind("-") > 7:
-            # Format with -HH:MM (negative UTC offset)
-            # Find the last dash; only treat as timezone if it appears after the minimum time length
-            idx = time_part.rfind("-")
-            if idx > 0:
-                time_only = time_part[:idx]
-                tz_offset = time_part[idx:]
-                extracted_tz = tz_offset
+            tz_info = ZoneInfo(tz_str)
+
+            # If a date is provided, use it to get the correct offset (accounting for DST)
+            if date_str:
+                try:
+                    dt = datetime.strptime(date_str, "%Y-%m-%d")
+                    dt_with_tz = dt.replace(tzinfo=tz_info)
+                except ValueError:
+                    # Invalid date format, fall back to current date
+                    dt_with_tz = datetime.now(tz_info)
             else:
-                time_only = time_part
-        elif ":" in time_part and time_part.count(":") > 2:
-            # Check for :Zone format (e.g., "14:30:00:Europe/Paris")
-            # If more than 2 colons (HH:MM:SS = 2), there might be a timezone
-            parts = time_part.rsplit(":", 1)
-            time_only = parts[0]
-            tz_candidate = parts[1]
-            # Validate it looks like a timezone (contains / or other valid indicators)
-            if "/" in tz_candidate or tz_candidate.startswith("UTC") or tz_candidate.startswith("GMT"):
-                extracted_tz = tz_candidate
-            else:
-                # Not a timezone, just regular time
-                time_only = time_part
+                # Use current date/time
+                dt_with_tz = datetime.now(tz_info)
+
+            offset = dt_with_tz.utcoffset()
+            if offset is None:
+                return "+0000"
+
+            # Convert timedelta to +/-HHMM format
+            total_seconds = int(offset.total_seconds())
+            hours, remainder = divmod(abs(total_seconds), 3600)
+            minutes = remainder // 60
+            sign = "-" if total_seconds < 0 else "+"
+            return f"{sign}{hours:02d}{minutes:02d}"
+        except (KeyError, ValueError) as e:
+            logger_sieve.warning(
+                "Could not convert timezone '%s' to UTC offset: %s. Using UTC (+0000).",
+                tz_str, str(e)
+            )
+            return "+0000"
+
+    def _normalize_time_to_sieve(self, time_str: str) -> str:
+        """Normalize a time string to HH:MM:SS format for Sieve.
+        
+        Accepts:
+        - "HH:MM" → "HH:MM:00"
+        - "HH:MM:SS" → "HH:MM:SS"
+        
+        :param time_str: Time string in HH:MM or HH:MM:SS format
+        :type time_str: str
+        :return: Normalized time in HH:MM:SS format
+        :rtype: str
+        """
+        if not time_str:
+            return "00:00:00"
+
+        time_str = time_str.strip()
+        parts = time_str.split(":")
+
+        if len(parts) == 2:
+            # HH:MM → HH:MM:00
+            return f"{parts[0]}:{parts[1]}:00"
+        elif len(parts) == 3:
+            # Already HH:MM:SS
+            return time_str
         else:
-            # No timezone info
-            time_only = time_part
-        
-        # Return parsed components
-        if time_only and len(time_only.split(":")) >= 2:
-            return date_part, time_only, extracted_tz
-        
-        return date_part, None, extracted_tz
+            # Invalid format, return default
+            logger_sieve.warning("Invalid time format: %s, using 00:00:00", time_str)
+            return "00:00:00"
 
     def _build_vacation_script(self, vacation_config: dict) -> str:
         """Build a Sieve vacation script with advanced filtering options.
@@ -959,62 +1453,80 @@ class ClientSieve(ClientFiltering):
         Supports date/time/weekday filtering with timezone awareness, custom subject, and auto-reply text.
         
         Timezone precedence:
-        - If startDate/endDate have explicit timezone (e.g., +0100 or :Europe/Paris), use that
+        - If start_date/end_date have explicit timezone (e.g., +0100 or :Europe/Paris), use that
         - Else if 'timezone' field is present in config, use it
         - Else use "UTC" as default
 
         :param vacation_config: Complete vacation settings dict with all fields.
-                              Must include: enabled, customSubject, customSubjectEnabled, autoReplyText,
-                              startDate, endDate, timezone, startTime, endTime, weekdaysEnabled, days
+                              Must include: enabled, custom_subject, custom_subject_enabled, auto_reply_text,
+                              start_date, end_date, timezone, start_time, end_time, weekdays_enabled, weekday, days
         :type vacation_config: dict
         :return: The vacation Sieve script.
         :rtype: str
         :raises RequestException: If configuration is invalid.
         """
         logger_sieve.debug("Building vacation script with config: %s", vacation_config)
-        
+
         # Extract fields
-        subject = vacation_config.get("customSubject", "")
-        custom_subject_enabled = vacation_config.get("customSubjectEnabled", False)
-        message = vacation_config.get("autoReplyText", "")
-        start_date_raw = vacation_config.get("startDate")
-        end_date_raw = vacation_config.get("endDate")
+        subject = vacation_config.get("custom_subject", "")
+        custom_subject_enabled = vacation_config.get("custom_subject_enabled", False)
+        message = vacation_config.get("auto_reply_text", "")
+        start_date_raw = vacation_config.get("start_date")
+        end_date_raw = vacation_config.get("end_date")
         default_timezone = vacation_config.get("timezone", "UTC")
-        start_time = vacation_config.get("startTime")
-        end_time = vacation_config.get("endTime")
-        weekdays_enabled = vacation_config.get("weekdaysEnabled", False)
-        days = vacation_config.get("days", [])
+        start_time = vacation_config.get("start_time")
+        end_time = vacation_config.get("end_time")
+        weekdays_enabled = vacation_config.get("weekdays_enabled", False)
+        weekday = vacation_config.get("weekday", [])
+        days = vacation_config.get("days")  # RFC 5230 :days parameter (integer or None)
 
-        # Parse dates with timezone awareness
-        start_date_str, _, start_tz = self._parse_vacation_datetime(start_date_raw, default_timezone)
-        end_date_str, _, end_tz = self._parse_vacation_datetime(end_date_raw, default_timezone)
+        # Create VacationConditions object from raw config
+        vacation_conditions = VacationConditions.from_vacation_config(
+            start_date_raw=start_date_raw,
+            end_date_raw=end_date_raw,
+            default_timezone=default_timezone,
+            start_time=start_time,
+            end_time=end_time,
+            weekdays_enabled=weekdays_enabled,
+            weekday=weekday,
+            parse_datetime_func=self._parse_vacation_datetime,
+        )
 
-        # Fallback to default subject if custom subject is not enabled or empty
-        if not custom_subject_enabled or not subject:
-            subject = "Auto: Away"
-
-        # Escape subject and message for Sieve (single pass, not repeated)
-        subject_escaped = subject.replace('"', '\\"').replace('\\', '\\\\')
+        # Escape message for Sieve
         message_escaped = message.replace('"', '\\"').replace('\\', '\\\\').replace('\n', '\\n')
 
         # Build requires clause
         requires = ['vacation']
-        
+
         # Add extensions needed for advanced filtering
-        if (start_date_str or end_date_str or start_time or end_time or 
-            (weekdays_enabled and days)):
+        if (vacation_conditions.start_date or vacation_conditions.end_date or 
+            vacation_conditions.start_time or vacation_conditions.end_time or 
+            (vacation_conditions.weekdays_enabled and vacation_conditions.weekday)):
             requires.extend(['relational', 'date', 'comparator-i;ascii-numeric'])
 
         # Build script
         script = 'require [' + ', '.join(f'"{req}"' for req in requires) + '];\n\n'
 
         # Build condition block if any filtering is needed
-        conditions = self._build_vacation_conditions(
-            start_date_str, end_date_str, start_tz, end_tz, start_time, end_time, weekdays_enabled, days
-        )
+        conditions = self._build_vacation_conditions(vacation_conditions)
 
         # Build vacation parameters
-        vacation_params = [':subject', f'"{subject_escaped}"', f'"{message_escaped}"']
+        # Sieve syntax: vacation [:days N] [:subject "..."] "message";
+        vacation_params = []
+
+        # Add RFC 5230 :days parameter first (before :subject)
+        if days is not None and days > 0:
+            vacation_params.append(':days')
+            vacation_params.append(str(days))
+
+        # Add custom subject if enabled
+        if custom_subject_enabled and subject:
+            subject_escaped = subject.replace('"', '\\"').replace('\\', '\\\\')
+            vacation_params.append(':subject')
+            vacation_params.append(f'"{subject_escaped}"')
+
+        # Add the message (always the last element)
+        vacation_params.append(f'"{message_escaped}"')
 
         if conditions:
             # Wrap vacation in conditional block
@@ -1028,93 +1540,136 @@ class ClientSieve(ClientFiltering):
         logger_sieve.debug("Generated vacation script:\n%s", script)
         return script
 
-    def _build_vacation_conditions(self, start_date: str = None, end_date: str = None,
-                                   start_tz: str = None, end_tz: str = None,
-                                   start_time: str = None, end_time: str = None,
-                                   weekdays_enabled: bool = False, days: list = None) -> str:
+    def _build_vacation_conditions(self, conditions: VacationConditions) -> str:
         """Build the condition block for vacation filtering (dates, times, weekdays).
         
-        Each date can have its own timezone, which allows fine-grained control.
+        The vacation response is active if ANY of the following is true:
+        1. Within the fixed date/time range (start_date to end_date, including their embedded times)
+        2. Within the recurring daily time window (start_time to end_time, every day)
+        3. On any of the specified weekdays (all day)
+        
+        All three conditions are ALTERNATIVES (OR logic), not requirements.
+        
+        Handles date ranges with timezone awareness. Each date can have its own timezone.
+        
+        Special handling for overnight time ranges (e.g., 18:00 to 08:00):
+        - Converted to: anyof(time >= 18:00 OR time < 08:00)
         
         :param start_date: Start date in YYYY-MM-DD format (or None)
         :param end_date: End date in YYYY-MM-DD format (or None)
-        :param start_tz: Timezone for start_date (e.g., "UTC", "Europe/Paris", "+0100")
-        :param end_tz: Timezone for end_date (e.g., "UTC", "Europe/Paris", "+0100")
-        :param start_time: Start time in HH:MM format (or None)
-        :param end_time: End time in HH:MM format (or None)
-        :param weekdays_enabled: Whether weekday filtering is enabled
-        :param days: List of weekday numbers (0-6)
+        :param start_tz: Timezone for start (already in Sieve format from _parse_vacation_datetime)
+        :param end_tz: Timezone for end (already in Sieve format from _parse_vacation_datetime)
+        :param start_date_time: Start time extracted from start_date (or None if date-only)
+        :param end_date_time: End time extracted from end_date (or None if date-only)
+        :param start_time: Recurring start time in HH:MM or HH:MM:SS format (independent, or None)
+        :param end_time: Recurring end time in HH:MM or HH:MM:SS format (independent, or None)
+        :type conditions: VacationConditions
         :return: Sieve condition block as string, or empty string if no conditions
+        :rtype: str
         """
-        if days is None:
-            days = []
+        # Build individual condition parts that will be combined with OR (anyof)
+        condition_parts = []
 
-        conditions = []
-        
-        # Date range filtering with timezone awareness
-        if start_date:
+        # === PART 1: Fixed date/time range condition ===
+        # Represents: start_date (with its time if present) to end_date (with its time if present)
+        date_range_condition = None
+        date_range_parts = []
+
+        if conditions.start_date:
             try:
-                datetime.strptime(start_date, "%Y-%m-%d")
-                conditions.append(f'currentdate :value "ge" "date" "{start_date}"')
-            except ValueError:
-                logger_sieve.warning("Invalid startDate format: %s, skipping", start_date)
+                datetime.strptime(conditions.start_date, "%Y-%m-%d")
+                sieve_tz = conditions.start_tz if conditions.start_tz else "+0000"
+                zone_param = f' :zone "{sieve_tz}"'
 
-        if end_date:
-            try:
-                datetime.strptime(end_date, "%Y-%m-%d")
-                conditions.append(f'currentdate :value "le" "date" "{end_date}"')
-            except ValueError:
-                logger_sieve.warning("Invalid endDate format: %s, skipping", end_date)
-
-        # Time range filtering
-        if start_time and end_time and self._is_valid_time(start_time) and self._is_valid_time(end_time):
-            start_time_sieve = f"{start_time}:00"
-            end_time_sieve = f"{end_time}:00"
-            if start_time < end_time:
-                conditions.append(
-                    f'allof(currentdate :value "ge" "time" "{start_time_sieve}", '
-                    f'currentdate :value "le" "time" "{end_time_sieve}")'
-                )
-            else:  # Overnight range
-                conditions.append(
-                    f'anyof(allof(currentdate :value "ge" "time" "{start_time_sieve}", '
-                    f'currentdate :value "le" "time" "23:59:59"), '
-                    f'allof(currentdate :value "ge" "time" "00:00:00", '
-                    f'currentdate :value "le" "time" "{end_time_sieve}"))'
-                )
-
-        # Weekday filtering
-        if weekdays_enabled and days:
-            valid_days = [str(d) for d in days if 0 <= d <= 6]
-            if valid_days:
-                if len(valid_days) == 1:
-                    conditions.append(f'currentdate :is "weekday" "{valid_days[0]}"')
+                if conditions.start_date_time:
+                    start_time_sieve = self._normalize_time_to_sieve(conditions.start_date_time)
+                    # Condition: date > start_date OR (date == start_date AND time >= start_date_time)
+                    date_range_parts.append(
+                        f'anyof(currentdate{zone_param} :value "gt" "date" "{conditions.start_date}", '
+                        f'allof(currentdate{zone_param} :value "eq" "date" "{conditions.start_date}", '
+                        f'currentdate{zone_param} :value "ge" "time" "{start_time_sieve}"))'
+                    )
                 else:
-                    day_conditions = ', '.join([f'currentdate :is "weekday" "{day}"' for day in valid_days])
-                    conditions.append(f'anyof({day_conditions})')
+                    # Date-only: date >= start_date
+                    date_range_parts.append(f'currentdate{zone_param} :value "ge" "date" "{conditions.start_date}"')
+            except ValueError:
+                logger_sieve.warning("Invalid start_date format: %s, skipping", conditions.start_date)
 
-        if not conditions:
+        if conditions.end_date:
+            try:
+                datetime.strptime(conditions.end_date, "%Y-%m-%d")
+                sieve_tz = conditions.end_tz if conditions.end_tz else "+0000"
+                zone_param = f' :zone "{sieve_tz}"'
+
+                if conditions.end_date_time:
+                    end_time_sieve = self._normalize_time_to_sieve(conditions.end_date_time)
+                    # Condition: date < end_date OR (date == end_date AND time <= end_date_time)
+                    date_range_parts.append(
+                        f'anyof(currentdate{zone_param} :value "lt" "date" "{conditions.end_date}", '
+                        f'allof(currentdate{zone_param} :value "eq" "date" "{conditions.end_date}", '
+                        f'currentdate{zone_param} :value "le" "time" "{end_time_sieve}"))'
+                    )
+                else:
+                    # Date-only: date <= end_date
+                    date_range_parts.append(f'currentdate{zone_param} :value "le" "date" "{conditions.end_date}"')
+            except ValueError:
+                logger_sieve.warning("Invalid end_date format: %s, skipping", conditions.end_date)
+
+        # Combine date range parts with AND (all must be true for date range to match)
+        if date_range_parts:
+            if len(date_range_parts) == 1:
+                date_range_condition = date_range_parts[0]
+            else:
+                date_range_condition = f'allof(\n        {", ".join(date_range_parts)})'
+            condition_parts.append(date_range_condition)
+
+        # === PART 2: Recurring daily time window ===
+        # Represents: every day between start_time and end_time (independent of date range)
+        if conditions.start_time and conditions.end_time:
+            start_time_sieve = self._normalize_time_to_sieve(conditions.start_time)
+            end_time_sieve = self._normalize_time_to_sieve(conditions.end_time)
+            sieve_tz = conditions.start_tz if conditions.start_tz else "+0000"
+            zone_param = f' :zone "{sieve_tz}"'
+
+            if conditions.start_time < conditions.end_time:
+                # Normal range (e.g., 09:00 to 17:00): time >= 09:00 AND time <= 17:00
+                daily_time_condition = (
+                    f'allof(currentdate{zone_param} :value "ge" "time" "{start_time_sieve}", '
+                    f'currentdate{zone_param} :value "le" "time" "{end_time_sieve}")'
+                )
+            else:
+                # Overnight range (e.g., 18:00 to 08:00): time >= 18:00 OR time < 08:00
+                daily_time_condition = (
+                    f'anyof(currentdate{zone_param} :value "ge" "time" "{start_time_sieve}", '
+                    f'currentdate{zone_param} :value "lt" "time" "{end_time_sieve}")'
+                )
+            condition_parts.append(daily_time_condition)
+
+        # === PART 3: Weekday filtering ===
+        # Represents: specific weekdays, all day long (independent conditions)
+        if conditions.weekdays_enabled and conditions.weekday:
+            valid_days = [str(d) for d in conditions.weekday if 0 <= d <= 6]
+            if valid_days:
+                sieve_tz = conditions.start_tz if conditions.start_tz else "+0000"
+                zone_param = f' :zone "{sieve_tz}"'
+
+                if len(valid_days) == 1:
+                    weekday_condition = f'currentdate{zone_param} :is "weekday" "{valid_days[0]}"'
+                else:
+                    day_conditions = ', '.join([f'currentdate{zone_param} :is "weekday" "{day}"' for day in valid_days])
+                    weekday_condition = f'anyof({day_conditions})'
+                condition_parts.append(weekday_condition)
+
+        if not condition_parts:
             return ""
 
-        if len(conditions) == 1:
-            return "if " + conditions[0].strip() + " {\n"
+        # Combine all parts with OR (anyof): activation if ANY condition is true
+        if len(condition_parts) == 1:
+            return "if " + condition_parts[0].strip() + " {\n"
         else:
-            indented = [f"    {c}" for c in conditions]
-            return "if allof(\n" + ",\n".join(indented) + "\n) {\n"
+            indented = [f"    {part}" for part in condition_parts]
+            return "if anyof(\n" + ",\n".join(indented) + "\n) {\n"
 
-    def _is_valid_time(self, time_str: str) -> bool:
-        """Validate time format (HH:MM).
-
-        :param time_str: Time string to validate.
-        :type time_str: str
-        :return: True if valid, False otherwise.
-        :rtype: bool
-        """
-        try:
-            datetime.strptime(time_str, "%H:%M")
-            return True
-        except ValueError:
-            return False
 
     def _build_forward_script(self, forward_addresses: list[str], keep_copy: int = 0, always_send: int = 0) -> str:
         """Build a Sieve forward script.
@@ -1124,10 +1679,10 @@ class ClientSieve(ClientFiltering):
 
         :param forward_addresses: List of email addresses to forward to.
         :type forward_addresses: list[str]
-        :param keep_copy: Whether to keep a copy (0 or 1).
-        :type keep_copy: int
-        :param always_send: Whether to forward even if sender is unknown (0 or 1).
-        :type always_send: int
+        :param keep_copy: Whether to keep a copy.
+        :type keep_copy: bool
+        :param always_send: Whether to forward even if sender is unknown.
+        :type always_send: bool
         :return: The forward Sieve script (without require clause).
         :rtype: str
         """
@@ -1144,14 +1699,14 @@ class ClientSieve(ClientFiltering):
         else:
             script += 'discard;\n'
 
-        logger_sieve.debug("Generated forward script (keepCopy=%d, alwaysSend=%d):\n%s", keep_copy, always_send, script)
+        logger_sieve.debug("Generated forward script (keep_copy=%s, always_send=%s):\n%s", keep_copy, always_send, script)
         return script
 
     def _build_notification_script(self, notification_config: dict) -> str:
         """Build a Sieve notification script (RFC 5435 - enotify extension).
 
         :param notification_config: Notification settings dict with keys:
-                                   notifyAddresses (list), notifyMessage (str)
+                                   notify_addresses (list), notify_message (str)
         :type notification_config: dict
         :return: The notification Sieve script with require clause.
         :rtype: str
@@ -1159,19 +1714,14 @@ class ClientSieve(ClientFiltering):
         """
         logger_sieve.debug("Building notification script with config: %s", notification_config)
 
-        notify_addresses = notification_config.get("notifyAddresses", [])
-        notify_message = notification_config.get("notifyMessage", "")
+        notify_addresses = notification_config.get("notify_addresses", [])
+        notify_message = notification_config.get("notify_message", "")
 
         if not notify_addresses:
             logger_sieve.warning("No notification addresses provided")
             return ""
 
-        for address in notify_addresses:
-            if not self._validate_email(address):
-                raise RequestException(
-                    f"Invalid email address for notification: {address}",
-                    err.ERROR_SIEVE_SCRIPT_INVALID,
-                )
+        # Addresses are already validated by the Marshmallow schema
 
         if not notify_message:
             notify_message = "A mail event has been triggered."
@@ -1180,7 +1730,7 @@ class ClientSieve(ClientFiltering):
         message_escaped = notify_message.replace('"', '\\"').replace('\\', '\\\\').replace('\n', '\\n')
 
         script = 'require ["enotify"];\n\n'
-        
+
         for address in notify_addresses:
             script += f'notify :message "{message_escaped}" "mailto:{address}";\n'
             logger_sieve.debug("Added notification to: %s", address)
@@ -1203,3 +1753,86 @@ class ClientSieve(ClientFiltering):
                 self.connection    = None
                 self.connected     = False
                 self.authenticated = False
+
+    def _add_filter_with_nested_conditions_direct(self, filters_set: FiltersSet, filter_name: str,
+                                                   conditions: list, top_matchtype: str, sieve_actions: list) -> None:
+        """Build filter with nested conditions directly using sievelib commands."""
+        ifcontrol = commands.get_command_instance("if")
+        mtypeobj = commands.get_command_instance(top_matchtype, ifcontrol)
+        self._build_test_recursive(mtypeobj, conditions, ifcontrol, filters_set)
+        ifcontrol.check_next_arg("test", mtypeobj)
+        
+        for actdef in sieve_actions:
+            action = commands.get_command_instance(actdef[0], ifcontrol, False)
+            if action.extension is not None:
+                filters_set.require(action.extension)
+            for arg in actdef[1:]:
+                filters_set.check_if_arg_is_extension(arg)
+                if isinstance(arg, int):
+                    atype = "number"
+                elif isinstance(arg, list):
+                    atype = "stringlist"
+                elif isinstance(arg, str) and arg.startswith(":"):
+                    atype = "tag"
+                else:
+                    atype = "string"
+                    if isinstance(arg, str) and not arg.startswith('"'):
+                        arg = f'"{arg}"'
+                action.check_next_arg(atype, arg, check_extension=False)
+            ifcontrol.addchild(action)
+        
+        filters_set.filters.append({
+            "name": filter_name,
+            "content": ifcontrol,
+            "enabled": True,
+        })
+
+    def _build_test_recursive(self, parent_matchtype, conditions, ifcontrol, filters_set):
+        """Recursively build tests, handling nested groups."""
+        for cond in conditions:
+            if isinstance(cond, tuple) and len(cond) > 0 and cond[0] == "__group__":
+                nested_test = commands.get_command_instance(cond[1], ifcontrol)
+                self._build_test_recursive(nested_test, cond[2], ifcontrol, filters_set)
+                parent_matchtype.check_next_arg("test", nested_test)
+            else:
+                cmd = self._build_condition_command(cond, ifcontrol, filters_set)
+                if cmd:
+                    parent_matchtype.check_next_arg("test", cmd)
+
+    def _build_condition_command(self, cond, ifcontrol, filters_set):
+        """Build a single sievelib command from condition tuple."""
+        if not cond or len(cond) < 2:
+            return None
+        name = cond[0]
+        if name == "size":
+            cmd = commands.get_command_instance("size", ifcontrol)
+            cmd.check_next_arg("tag", cond[1]) # "tag" for operator starting with ":"
+            cmd.check_next_arg("number", str(cond[2]))
+            return cmd
+        elif name == "body":
+            cmd = commands.get_command_instance("body", ifcontrol, False)
+            filters_set.require("body")
+            cmd.check_next_arg("tag", cond[1])
+            cmd.check_next_arg("tag", cond[2])
+            val = cond[3] if len(cond) > 3 else ""
+            val_str = "[%s]" % (",".join('"%s"' % v for v in val)) if isinstance(val, list) else '"%s"' % val
+            cmd.check_next_arg("stringlist", val_str)
+            return cmd
+        elif name in ("subject", "from", "to", "cc"):
+            cmd = commands.get_command_instance("header", ifcontrol)
+            cmd.check_next_arg("tag", cond[1])
+            cmd.check_next_arg("string", f'"{name}"')
+            vals = cond[2] if len(cond) > 2 else []
+            val_str = "[%s]" % (",".join('"%s"' % v for v in vals)) if isinstance(vals, list) else '"%s"' % vals
+            cmd.check_next_arg("stringlist", val_str)
+            return cmd
+        else:
+            logger_sieve.warning("Unknown test '%s', treating as header", name)
+            cmd = commands.get_command_instance("header", ifcontrol)
+            if len(cond) >= 3:
+                cmd.check_next_arg("tag", cond[1])
+                cmd.check_next_arg("string", f'"{name}"')
+                vals = cond[2] if isinstance(cond[2], list) else [cond[2]]
+                val_str = "[%s]" % (",".join('"%s"' % v for v in vals))
+                cmd.check_next_arg("stringlist", val_str)
+            return cmd

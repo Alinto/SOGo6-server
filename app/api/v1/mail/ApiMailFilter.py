@@ -38,8 +38,11 @@ def init_filter_config() -> None:
 
     mail_settings: dict = user_domain_settings.get(MailSettings.subparent, {})
 
+
+    if not mail_settings.get("SOGO_D_MAIL_FILTERING_ENABLED", True):
+        abort(403)
+
     _ROUTE_SETTING_MAP = {
-        "/filters":  "SOGO_D_MAIL_FILTERING_ENABLED",
         "/vacation": "SOGO_D_VACATION_ENABLED",
         "/forward":  "SOGO_D_FORWARD_ENABLED",
         "/notify":   "SOGO_D_NOTIFY_ENABLED",
@@ -47,7 +50,7 @@ def init_filter_config() -> None:
 
     for suffix, setting_key in _ROUTE_SETTING_MAP.items():
         if request.path.endswith(suffix):
-            if not mail_settings.get(setting_key, True):
+            if not mail_settings.get(setting_key, False):
                 logger_api.debug(
                     "Access denied for %s: %s is False", request.path, setting_key
                 )
@@ -78,7 +81,7 @@ class ApiMailFilterResource(MethodView):
         interface: InterfaceApiMailFilter = g.inter
         return interface.get_filters()
 
-    @blp.arguments(FiltersPayloadSchema, example=FiltersPayloadSchema.example())
+    @blp.arguments(FiltersPayloadSchema, example=FiltersPayloadSchema.example(), error_status_code=400)
     @blp.response(200, FiltersSetResponseSchema, example=FiltersSetResponseSchema.example())
     def post(self, payload: dict, account_id: str) -> ResponseReturnValue:
         """Replace the ``filters`` list for a given account.
@@ -99,6 +102,7 @@ class ApiMailFilterResource(MethodView):
 class ApiMailVacationResource(MethodView):
     """API resource for vacation / auto-reply settings."""
 
+
     @blp.response(200, VacationGetResponseSchema, example=VacationGetResponseSchema.example())
     def get(self, account_id: str) -> ResponseReturnValue:
         """Return the ``Vacation`` section for a given account.
@@ -112,7 +116,7 @@ class ApiMailVacationResource(MethodView):
         interface: InterfaceApiMailFilter = g.inter
         return interface.get_vacation()
 
-    @blp.arguments(VacationPayloadSchema, example=VacationPayloadSchema.example())
+    @blp.arguments(VacationPayloadSchema, example=VacationPayloadSchema.example(), error_status_code=400)
     @blp.response(200, FiltersSetResponseSchema, example=FiltersSetResponseSchema.example())
     def post(self, payload: dict, account_id: str) -> ResponseReturnValue:
         """Replace the ``Vacation`` section for a given account.
@@ -146,7 +150,7 @@ class ApiMailForwardResource(MethodView):
         interface: InterfaceApiMailFilter = g.inter
         return interface.get_forward()
 
-    @blp.arguments(ForwardPayloadSchema, example=ForwardPayloadSchema.example())
+    @blp.arguments(ForwardPayloadSchema, example=ForwardPayloadSchema.example(), error_status_code=400)
     @blp.response(200, FiltersSetResponseSchema, example=FiltersSetResponseSchema.example())
     def post(self, payload: dict, account_id: str) -> ResponseReturnValue:
         """Replace the ``Forward`` section for a given account.
@@ -180,7 +184,7 @@ class ApiMailNotifyResource(MethodView):
         interface: InterfaceApiMailFilter = g.inter
         return interface.get_notification()
 
-    @blp.arguments(NotificationPayloadSchema, example=NotificationPayloadSchema.example())
+    @blp.arguments(NotificationPayloadSchema, example=NotificationPayloadSchema.example(), error_status_code=400)
     @blp.response(200, FiltersSetResponseSchema, example=FiltersSetResponseSchema.example())
     def post(self, payload: dict, account_id: str) -> ResponseReturnValue:
         """Replace the ``Notification`` section for a given account.

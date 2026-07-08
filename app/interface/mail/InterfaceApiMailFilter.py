@@ -54,19 +54,21 @@ class InterfaceApiMailFilter:
         """Replace the ``Vacation`` section for the current user.
 
         Automatically adds the user's timezone to the vacation config if not specified,
-        so that startDate/endDate without explicit timezone use the user's timezone.
+        so that start_date/end_date without explicit timezone use the user's timezone.
 
         :param vacation: Validated vacation settings dict.
         :type vacation: dict[str, Any]
         :return: Tuple of (API response dict, HTTP status code).
         :rtype: tuple[dict[str, Any], int]
         """
+        if vacation.get("days", None) is not None:
+            if vacation.get("days") == 0 and not self.mail_settings.SOGO_D_VACATION_ALLOW_RESPONSE_ALWAYS:
+                return create_api_base_response(code=400, error_msg="Vacation value days must be greater than 0")
+
+        # Ensure timezone is set: if not provided, use user's timezone
+        if not vacation.get("timezone"):
+            vacation["timezone"] = self._get_user_timezone()
         try:
-            # Ensure timezone is set: if not provided, use user's timezone
-            if not vacation.get("timezone"):
-                vacation = dict(vacation)  # Make a copy to avoid modifying the original
-                vacation["timezone"] = self._get_user_timezone()
-            
             saved = self.filter_module.set_section(FILTER_SECTION_VACATION, vacation)
         except RequestException as ex:
             logger_api.error("Request exception in set_vacation: %s", str(ex))
