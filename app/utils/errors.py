@@ -87,7 +87,7 @@ ERROR_FOLDER_DELIMITER      = E("S000308", "Cannot create a folder with delimite
 ERROR_INVALID_ACTION         = E("S000309", "Invalid Action Specified", HTTPStatus.BAD_REQUEST)
 ERROR_MISSING_ACTION_DATA    = E("S001306", "Missing Required Data For Action", HTTPStatus.BAD_REQUEST)
 
-ERROR_IMAP_UNAUTHORIZED      = E("S000310", "IMAP Unauthorized - Invalid Credentials Or Insufficient Permissions", HTTPStatus.UNAUTHORIZED)
+ERROR_IMAP_UNAUTHORIZED      = E("S000310", "IMAP Unauthorized - Invalid Credentials Or Insufficient Permissions", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_IMAP_CONNECTION_FAILED = E("S000311", "IMAP connection failed", HTTPStatus.SERVICE_UNAVAILABLE)
 ERROR_MAILBOX_NOT_FOUND      = E("S000312", "Mailbox Not Found", HTTPStatus.NOT_FOUND)
 ERROR_MAIL_DELETION          = E("S000313", "Mail Deletion Error", HTTPStatus.BAD_REQUEST)
@@ -111,7 +111,7 @@ ERROR_MAIL_DELETE_DRAFT_FAILED = E("S000364", "Deleting Draft Mail After Sending
 # tmp_draft
 ERROR_TMP_DRAFT_NOT_FOUND       = E("S000370", "Tmp Draft Not Found", HTTPStatus.NOT_FOUND)
 ERROR_TMP_DRAFT_LOCKED          = E("S000371", "Tmp Draft Is Locked By Another Operation", HTTPStatus.CONFLICT)
-ERROR_TMP_DRAFT_OWNER_MISMATCH  = E("S000372", "Tmp Draft Does Not Belong To This User", HTTPStatus.UNAUTHORIZED)
+ERROR_TMP_DRAFT_OWNER_MISMATCH  = E("S000372", "Tmp Draft Does Not Belong To This User", HTTPStatus.FORBIDDEN)
 ERROR_TMP_DRAFT_INSERT_FAILED   = E("S000373", "Failed To Insert Tmp Draft", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_TMP_DRAFT_UPDATE_FAILED   = E("S000374", "Failed To Update Tmp Draft", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_TMP_DRAFT_DELETE_FAILED   = E("S000375", "Failed To Delete Tmp Draft", HTTPStatus.INTERNAL_SERVER_ERROR)
@@ -151,7 +151,7 @@ ERROR_SIGNATURE_SIZE_EXCEEDED = E("S000335", "Signature size exceeds the maximum
 
 #SMTP
 ERROR_SMTP_CONNECTION_FAILED      = E("S001400", "SMTP connection failed", HTTPStatus.SERVICE_UNAVAILABLE)
-ERROR_SMTP_UNAUTHORIZED           = E("S001401", "", HTTPStatus.UNAUTHORIZED)
+ERROR_SMTP_UNAUTHORIZED           = E("S001401", "", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_SMTP_FAILED                 = E("S001402", "", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_SMTP_UNKNWON_AUTH_MECH      = E("S001403", "", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_SMTP_CONNECT_ERROR          = E("S001404", "", HTTPStatus.SERVICE_UNAVAILABLE)
@@ -164,7 +164,7 @@ ERROR_SMTP_RESPONSE_ERROR         = E("S001409", "", HTTPStatus.INTERNAL_SERVER_
 #Sieve
 ERROR_CONFIG_WRONG_MAIL_FILTERING = E("S001500", "Mail filtering server type is unknown or not supported", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_SIEVE_CONNECTION_FAILED     = E("S001501", "Sieve connection failed", HTTPStatus.SERVICE_UNAVAILABLE)
-ERROR_SIEVE_AUTH_FAILED           = E("S001502", "Sieve authentication failed: invalid credentials or unsupported mechanism", HTTPStatus.UNAUTHORIZED)
+ERROR_SIEVE_AUTH_FAILED           = E("S001502", "Sieve authentication failed: invalid credentials or unsupported mechanism", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_SIEVE_UNKNOWN_AUTH_MECH     = E("S001503", "Sieve authentication mechanism is unknown or not supported by server", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_SIEVE_COMMAND_FAILED        = E("S001504", "Sieve command failed", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_SIEVE_SCRIPT_NOT_FOUND      = E("S001505", "Sieve script not found", HTTPStatus.NOT_FOUND)
