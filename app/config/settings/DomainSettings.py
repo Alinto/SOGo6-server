@@ -1,17 +1,18 @@
-# -*- coding: utf-8 -*-
+from __future__ import annotations
+from typing import TYPE_CHECKING, Type
 
-"""
-Define all domains parameters
-"""
-from typing import Type, cast
 from marshmallow import fields, validate
 
 from app.config.settings.SogoSchema import SogoSchema
 from app.utils import errors as err
 from app.utils import constants as cs
 from app.utils.config.generateObjFromSchema import SettingsObj
+from app.utils.db.Condition import string_filter_to_conditions
 from app.utils.exceptions import AggravatedException
 from app.utils.strings import parse_url_str
+
+if TYPE_CHECKING:
+    from app.utils.db.Condition import Condition
 
 def get_all_domain_schemas() -> list[Type[SogoSchema]]:
     """
@@ -221,7 +222,7 @@ class UserSourceSettings(SogoSchema):
 
     US_UID  = fields.String(required=True) #must be unique
     US_NAME  = fields.String(required=True) #Name of the user source
-    US_TYPE = fields.String(required=True, validate=validate.OneOf(('ldap', 'sql'))) #Type of the user source
+    US_TYPE = fields.String(required=True, validate=validate.OneOf(('ldap', 'postgresql', 'mysql'))) #Type of the user source
 
     US_LDAP_HOSTNAME = fields.String() #Hostname or ip of the ldap server
     US_LDAP_PORT = fields.Integer(load_default=390, dump_default=390, validate=validate.Range(min=1, max=65535))
@@ -363,34 +364,39 @@ class UserSourceSettingsObj(SettingsObj):
 
         if type_us == "ldap":
             #Must match ClientLdap __init__ param
+            ldap_filer: Condition|None = None
+            if self.US_LDAP_FILTER:
+                ldap_filer = string_filter_to_conditions(self.US_LDAP_FILTER)
+
             return {
                     "ldap_host": self.US_LDAP_HOSTNAME,
+                    "ldap_port": self.US_LDAP_PORT,
+                    "ldap_enc": self.US_LDAP_ENCRYPTION,
                     "ldap_bind_dn": self.US_LDAP_BIND_DN,
                     "ldap_bind_pwd": self.US_LDAP_BIND_DN_PWD,
                     "ldap_base_dn": self.US_LDAP_BASE_DN,
-                    # self.US_LDAP_UID,
-                    # self.US_LDAP_CN,
-                    # self.US_LDAP_ID,
                     "ldap_scope": self.US_LDAP_SCOPE,
-                    # self.US_LDAP_FILTER,
-                    # self.US_LDAP_PWD_POLICY,
+                    "ldap_uid": self.US_LDAP_UID,
+                    "ldap_id": self.US_LDAP_ID,
+                    "ldap_cn": self.US_LDAP_CN,
+                    "ldap_mails": self.US_MAIL,
+                    "ldap_bind_fields": self.US_LDAP_BIND_FIELD,
+                    "ldap_bind_as_user": self.US_LDAP_BIND_AS_USER,
+                    "ldap_pwd_policy": self.US_LDAP_PWD_POLICY,
+                    "ldap_filer": ldap_filer,
                     # self.US_LDAP_PWD_UPDATE_SAMBA,
                     # self.US_LDAP_QUERY_TIMEOUT,
-                    # self.US_LDAP_BIND_AS_USER,
-                    # self.US_LDAP_BIND_FIELD,
                     # self.US_LDAP_ATTR_FIELD,
                     # self.US_LDAP_GROUP_CLASS
             }
-        elif type_us == "sql":
+        elif type_us in {"mysql", "postgresql"}:
             #Transform url to parameters
             parsed_url = parse_url_str(self.US_SQL_USER_URL)
-
-            type_db = str(parsed_url["protocol"])
             encodage = "utf8"
             
-            if type_db == "mysql":
+            if type_us == "mysql":
                 encodage = parsed_url["params"].get("charset", "utf8")
-            elif type_db == "postgresql":
+            elif type_us == "postgresql":
                 encodage = parsed_url["params"].get("client_encoding", "utf8")
 
 

@@ -64,7 +64,7 @@ npx antora antora-playbook-dev.yml
 
 Push documentation (with vpn)
 ```
-rsync -avz docs/developer/build/ root@192.168.69.247:/data2/sogo_doc
+rsync -avz docs/build/ root@192.168.69.247:/data2/sogo_doc
 ```
 
 # Build the local image
@@ -72,3 +72,4 @@ rsync -avz docs/developer/build/ root@192.168.69.247:/data2/sogo_doc
 ```
 docker build -t sogo6-backend -f deploy/local/Dockerfile.local .
 ```
+

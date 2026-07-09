@@ -90,9 +90,9 @@ If we keep SOGo 5 website, it's faster
 
 * [ ] 0%: Presentation/About
 * [ ] 0%: link to doc for installation, deployment
-* [ ] 100%?: news
-* [ ] 100%?: Community pannel with FAQ, docs...
-* [ ] 100%?: Prenium support and Partner Page
+* [*] 100%?: news
+* [*] 100%?: Community pannel with FAQ, docs...
+* [*] 100%?: Prenium support and Partner Page
 
 The website must be ready for the first public release
 
@@ -615,8 +615,8 @@ The only example for now is if the UI will make the login in two steps (first us
 * [*] 100%: Mark a mail as read/unread
 * [*] 100%: Mark a mail as important
 * [ ]   0%: tag/untag a mail
-* [ ] 100%: Print
-* [ ] 100%: View source
+* [*] 100%: Print
+* [*] 100%: View source
 * [ ]   0%: important 
 * [ ]   0%: move
 * [ ]   0%: copy
@@ -862,9 +862,9 @@ But SOGo 6 does not managed `if (conditon) action1 else action2`, so it will alw
 ==== UI
 
 * [ ]  90%: Do not show filters' related pannels in user settings (filter, vacation, forward/notification) if admin doesn't allow it
-* [ ] 100%: Do not show vacation pannel in user settings if admin doesn't allow it
-* [ ] 100%: Do not show foward pannel in user settings if admin doesn't allow it
-* [ ] 100%: Do not show notification pannel in user settings if admin doesn't allow it
+* [*] 100%: Do not show vacation pannel in user settings if admin doesn't allow it
+* [*] 100%: Do not show foward pannel in user settings if admin doesn't allow it
+* [*] 100%: Do not show notification pannel in user settings if admin doesn't allow it
 
 '''
 
@@ -912,15 +912,15 @@ But SOGo 6 does not managed `if (conditon) action1 else action2`, so it will alw
 * [ ]   0%: User can set different vacation messages on condition (if send to intern@example.org this one, if extern@example.org this other one)
 * [*] 100%: User can set a custom subject
 * [*] 100%: User can use placeholder $\{subject\} in its custom subject
-* [ ] 100%: User can set a message
+* [*] 100%: User can set a message
 * [ ]   0%: User can tell the delay in days between two response [0 == always, only allow by admin]
 * [ ]   0%: User can set the priority of vacation compare to thers filters (do first or not)
 * [ ]   0%: User can choose to discard all the mails while in vacation (will not do)
 * [ ]  80%: User can choose a start datetime (only date for now)
 * [ ]  80%: User can choose a end datetime (only date for now)
-* [ ] 100%: User can choose a start time during the day
-* [ ] 100%: User can choose a end time during the day
-* [ ] 100%: user can choose a specific day when to send vacation message
+* [*] 100%: User can choose a start time during the day
+* [*] 100%: User can choose a end time during the day
+* [*] 100%: user can choose a specific day when to send vacation message
 
 '''
 
@@ -946,10 +946,10 @@ But SOGo 6 does not managed `if (conditon) action1 else action2`, so it will alw
 ** [*] 100%: Name
 ** [*] 100%: color
 ** [*] 100%: description
-** [ ] 100%: Timezone
-** [ ] 100%: Default event duration
-** [ ] 100%: Default reminder duration
-** [ ] 100%: Set as default
+** [*] 100%: Timezone
+** [*] 100%: Default event duration
+** [*] 100%: Default reminder duration
+** [*] 100%: Set as default
 * [ ]   0%: share a calendar with rights
 * [*] 100%: Create a sogo-token for public share (read only)
 * [*] 100%: Delete the sogo-token for public share (read only)
@@ -1060,7 +1060,7 @@ Journal are dated notes. New feature of SOGo 6.
 ** [ ]   0%: Set as default
 * [*] 100%: delete calendars except personnal
 * [ ]   0%: share a calendar with rights
-* [ ] 100%: add a external calendar (.ics)
+* [*] 100%: add a external calendar (.ics)
 ** [*] 100%: auto-sync settings
 ** [*] 100%: Name
 ** [*] 100%: Color
@@ -1186,7 +1186,7 @@ Journal are dated notes. New feature of SOGo 6.
 * [*] 100%: list all list for an Addressbokk
 * [ ] 50%: create a list
 * [ ] 50%: modify a list
-* [ ] 100%: delete a list
+* [*] 100%: delete a list
 
 ==== UI
 

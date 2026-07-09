@@ -76,6 +76,21 @@ def condition_to_filter(condition: Condition.Condition) -> str:
 
     return ldap_filter
 
+def parse_python_ldap_record(record: tuple[str, dict[str, list[bytes]]]) -> dict:
+    """
+    python-ldap return values as bytes, just transform them into strings and add the dn too
+
+
+    :param record: _description_
+    :type record: tuple[str, dict[str, list[bytes]]]
+    :rtype: _type_
+    """
+    user_dict: dict[str, list[str]] = {}
+    for attribute, values in record[1].items():
+        user_dict[attribute] = [x.decode() for x in values]
+    user_dict["dn"] = [record[0]]
+    return user_dict
+
 
 class ClientLdap(ClientUserSource):
     """
@@ -131,10 +146,6 @@ class ClientLdap(ClientUserSource):
 
         #Client
         self.ldap_conn: LDAPObject|None = None
-
-        #Search
-        self.last_search: dict|None = None
-
 
 
     def _get_base_dn(self, username:str, domain:str) -> str:
@@ -211,13 +222,17 @@ class ClientLdap(ClientUserSource):
 
         self.connected = True
 
-    def _bind(self, bind_dn:str, bind_pwd:str, use_admin:bool = True) -> Any:
+    def _bind(self, bind_dn:str, bind_pwd:str, use_admin:bool = True, throw_error: bool = True) -> tuple[bool, Any]:
         """
         Login to the ldap server.
         In this context it means a simple bind authentication.
 
         Username here is the bind dn (ex: 'cn=admin,dc=example,dc=org')
         and password is the bind password.
+
+        return a tuple:
+        * boolean to say if the bind was suucessfull
+        * the answer of the ldap server (will be useful for password policy)
 
         :param username: the bind dn
         :type username: str
@@ -241,37 +256,50 @@ class ClientLdap(ClientUserSource):
             try:
                 ret =self.ldap_conn.simple_bind_s(bind_dn, h_password, serverctrls=serverctrls)
                 self.binded = True
-                return ret
+                return True, ret
             except ldap.INVALID_CREDENTIALS as e:
-                if isinstance(e, ldap.INVALID_CREDENTIALS):
+                if throw_error:
                     logger_ldap.error("Invalid bind Credentials for bind dn: %s", bind_dn)
-                    raise exc.RequestException(f"Invalid bind Credentials for bind {bind_dn}", error=err.ERROR_LDAP_BIND_WRONG_CRED)
+                    raise exc.RequestException(f"Invalid bind Credentials for bind {bind_dn}", error=err.ERROR_LDAP_BIND_WRONG_CRED) from e
+                else:
+                    logger_ldap.warning("Invalid bind Credentials for bind dn: %s", bind_dn)
+                    return False, {}
             except ldap.LDAPError as e:
                 logger_ldap.error("Cannot bind with bind dn: %s. Because: %s", bind_dn, e)
                 raise exc.RequestException(f"Cannot bind with bind dn: {bind_dn}" , error=err.ERROR_LDAP_CANNOT_BIND) from e
+        raise exc.BugException("self.connection is still None, meaning self.connect() method didn't catch or raise correctly an error")
 
 
 
-    def check_login(self, username: str, password: str, domain:str) -> None:
+    def check_login(self, username: str, password: str, domain:str) -> tuple[bool, dict, dict]:
         """Check the user credentials"""
 
         #Create the base dn
         base_dn = self._get_base_dn(username, domain)
 
         #bind
-        ret = self._bind(base_dn, password)
+        #TODO ret is useless for now  but wIll be useful later when the password policy will be implemented
+        success, ret = self._bind(base_dn, password, throw_error=False)
 
-        if self.last_search and (search := self.last_search.get(base_dn, False)):
-            contact = search
-        else:
-            if not self.bind_as_user:
-                self._bind(self.bind_dn, self.bind_pwd, use_admin=True)
-            contact = self._search(base_dn, self.filter)
+        if not success:
+            return False, {}, {}
 
+        #Search contact info for this the user
+        if not self.bind_as_user:
+            self._bind(self.bind_dn, self.bind_pwd, use_admin=True)
+        list_records = self._search(base_dn, self.filter)
 
-        print(type(ret))
-        print(ret)
-        print(contact)
+        if not list_records:
+            #Strange the bind works but no the search
+            raise exc.BugException("During check_login, the bind of the user workds but not the search after. Something is wrong")
+
+        if len(list_records) > 1:
+            raise exc.AggravatedException("More than one user returns for the login", err.ERROR_LDAP_NOT_UNIQUE_USER)
+
+        contact = parse_python_ldap_record(list_records[0])
+
+        return True, {}, contact
+
 
 
     def _search_dn(self, base_dn:str, l_filter:str) -> Any:
@@ -287,26 +315,44 @@ class ClientLdap(ClientUserSource):
         """
         if self.ldap_conn is not None and self.connected:
             ret = self.ldap_conn.search_s(base_dn, self.scope, filterstr=l_filter, attrlist=["dn"])
-            self.last_search = {base_dn: ret}
             return ret
         raise exc.BugException("self.connection is still None, meaning self.connect() method didn't catch or raise correctly an error")
 
-    def _search(self, base_dn:str, l_filter:str|None = None, attributes: list|None = None) -> Any:
+    def _search(self, base_dn:str, l_filter:str|None = None, attributes: list|None = None) -> list[tuple[str, dict[str, list[bytes]]]]:
         """
-        Return the DN for a filter.
+        Search inside the ldap server for a base_dn with filters and attributes to return
+        the return is a list of records that macth the search criteria
 
-        Careful this query might return several entries. Only the first one is returned.
+        each record is a tuple
+        (
+            "dn",
+            {
+                "field1", [b'value1', b'value2,...]
+                "field2", [b'value1']
+            }
+        )
 
-        :param filter: _description_
-        :type filter: str
-        :return: _description_
-        :rtype: str
+        :param base_dn: base_dn to search for
+        :type base_dn: str
+        :param l_filter: If any string of the filters (in ldap format), defaults to None
+        :type l_filter: str | None, optional
+        :param attributes: if any, list of attributes to look for, defaults to None
+        :type attributes: list | None, optional
+        :return: list of records that match the search
+        :rtype: list[tuple[str, dict[str, list[bytes]]]]
         """
         if self.ldap_conn is not None and self.connected:
-            #TODO search withouth attributes will fetch (including password, that will be lof in not encrypted)
-            ret = self.ldap_conn.search_s(base_dn, self.scope, filterstr=l_filter, attrlist=attributes)
-            self.last_search = {base_dn: ret}
-            return ret
+            try:
+                #TODO search withouth attributes will fetch all (including password, that will be logged if not encrypted)
+                ret: list[tuple[str, dict[str, list[bytes]]]] = self.ldap_conn.search_s(base_dn, self.scope, filterstr=l_filter, attrlist=attributes)
+                return ret
+            except ldap.NO_SUCH_OBJECT:
+                logger_ldap.info("Cannot find any entriees for (base_dn, filters): (%s, %s)", base_dn, l_filter)
+                return []
+            except ldap.LDAPError as e:
+                logger_ldap.error("Error when searching with for (base_dn, filters, attributes): (%s, %s, %s) because %s", base_dn, l_filter, attributes, e)
+                raise exc.RequestException(f"Error when searching with for (base_dn, filters, attributes): ({base_dn}, {l_filter}, {attributes})" , error=err.ERROR_LDAP_CANNOT_SEARCH) from e
+
         raise exc.BugException("self.connection is still None, meaning self.connect() method didn't catch or raise correctly an error")
 
 
