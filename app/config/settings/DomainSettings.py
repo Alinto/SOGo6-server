@@ -383,7 +383,7 @@ class UserSourceSettingsObj(SettingsObj):
                     "ldap_bind_fields": self.US_LDAP_BIND_FIELD,
                     "ldap_bind_as_user": self.US_LDAP_BIND_AS_USER,
                     "ldap_pwd_policy": self.US_LDAP_PWD_POLICY,
-                    "ldap_filer": ldap_filer,
+                    "ldap_filter": ldap_filer,
                     # self.US_LDAP_PWD_UPDATE_SAMBA,
                     # self.US_LDAP_QUERY_TIMEOUT,
                     # self.US_LDAP_ATTR_FIELD,

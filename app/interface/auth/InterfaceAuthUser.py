@@ -118,9 +118,9 @@ class InterfaceAuthUser:
         :return: True if the user credentials are ok
         :rtype: bool
         """
-        success, _, module_us = self._check_login(user.uid, user.password)
+        success, user_found, module_us = self._check_login(user.uid, user.password)
         if success:
-            module_us.fill_user(user)
+            user = user_found
             self.module_user_profile.get_user_profile(user)
         return success
 

@@ -76,7 +76,7 @@ def condition_to_filter(condition: Condition.Condition) -> str:
 
     return ldap_filter
 
-def parse_python_ldap_record(record: tuple[str, dict[str, list[bytes]]]) -> dict:
+def parse_python_ldap_record(record: tuple[str, dict[str, list[bytes]]]) -> dict[str, list[str]]:
     """
     python-ldap return values as bytes, just transform them into strings and add the dn too
 
@@ -103,7 +103,7 @@ class ClientLdap(ClientUserSource):
                  ldap_port:int,
                  ldap_enc:str,
                  ldap_bind_dn:str,
-                 ldab_bind_pwd:str,
+                 ldap_bind_pwd:str,
                  ldap_base_dn:str,
                  ldap_scope:str,
                  ldap_uid:str,
@@ -123,7 +123,7 @@ class ClientLdap(ClientUserSource):
 
         #bind
         self.bind_dn = ldap_bind_dn
-        self.bind_pwd = ldab_bind_pwd
+        self.bind_pwd = ldap_bind_pwd
         self.bind_as_user = ldap_bind_as_user
         self.pwd_policy = ldap_pwd_policy
         self.bind_fields = ldap_bind_fields
@@ -271,7 +271,7 @@ class ClientLdap(ClientUserSource):
 
 
 
-    def check_login(self, username: str, password: str, domain:str) -> tuple[bool, dict, dict]:
+    def check_login(self, username: str, password: str, domain:str) -> tuple[bool, dict, dict[str, list[str]]]:
         """Check the user credentials"""
 
         #Create the base dn

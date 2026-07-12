@@ -244,7 +244,7 @@ class InterfaceApiMailFolder:
                 #See if the identifier is known by us
                 user = User(identifier)
                 user.source_id = self.user.source_id
-                module_us.fill_user(user)
+                module_us.get_contact_info_for_user(user)
                 if user.anonymous:
                     #The user was not found
                     share_info[identifier] = {
@@ -305,7 +305,7 @@ class InterfaceApiMailFolder:
                     module_us = ModuleUserSource.init_from_domain_settings(self.user_domain_settings)
                 #See if the identifier is known by us
                 user = User(identifier)
-                module_us.fill_user(user)
+                module_us.get_contact_info_for_user(user)
                 if user.anonymous:
                     #The user was not found
                     share_info[identifier] = {

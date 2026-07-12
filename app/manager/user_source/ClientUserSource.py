@@ -24,7 +24,7 @@ class ClientUserSource(metaclass=ABCMeta):
 
 
     @abstractmethod
-    def check_login(self, username: str, password: str, domain:str) -> tuple[bool, dict, dict]:
+    def check_login(self, username: str, password: str, domain:str) -> tuple[bool, dict, dict[str, list[str]]]:
         """
         Check the credentials of a usermary
 

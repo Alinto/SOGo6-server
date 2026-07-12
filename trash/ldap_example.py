@@ -32,7 +32,7 @@ dev_ldap_conf = {
     "ldap_port"         : 390,
     "ldap_enc"          : "None",
     "ldap_bind_dn"      : LOGIN_DN,
-    "ldab_bind_pwd"     : LOGIN_PW,
+    "ldap_bind_pwd"     : LOGIN_PW,
     "ldap_base_dn"      : "ou=users,dc=example,dc=org",
     "ldap_scope"        : "SUB",
     "ldap_uid"          : "uid",
