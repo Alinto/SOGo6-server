@@ -67,8 +67,6 @@ data_type_mysql_to_sogo: dict[str, str] = {
     "smallint":   "int8",
     "tinyint(1)": "bool",
     "datetime":   "datetime",
-    "bigint":     "int",
-    "int":        "int",
     "tinyint": "int",
     "longblob":   "bytes",
     "mediumblob": "bytes",
@@ -154,25 +152,33 @@ def condition_to_query(condition: Condition, add_where: bool = False) -> Tuple[s
         sql_condition = f"{_col_ref(condition.param_name)} != %s"
         params.append(condition.param_value)
     elif isinstance(condition, AndCondition):
-        cond1_sql, cond1_params = condition_to_query(condition.condition1)
-        cond2_sql, cond2_params = condition_to_query(condition.condition2)
-        if cond1_sql.strip().upper().startswith("WHERE "):
-            cond1_sql = cond1_sql.strip()[6:]
-        if cond2_sql.strip().upper().startswith("WHERE "):
-            cond2_sql = cond2_sql.strip()[6:]
-        sql_condition = f"({cond1_sql} AND {cond2_sql})"
-        params.extend(cond1_params)
-        params.extend(cond2_params)
+        sql_condition = "("
+        first = True
+        for cond in condition.conditions:
+            cond_sql, cond_params = condition_to_query(cond)
+            if cond_sql.strip().upper().startswith("WHERE "):
+                cond_sql = cond_sql.strip()[6:]
+            if first:
+                sql_condition += f"{cond_sql}"
+                first = False
+            else:
+                sql_condition += f" AND {cond_sql}"
+            params.extend(cond_params)
+        sql_condition += ")"
     elif isinstance(condition, OrCondition):
-        cond1_sql, cond1_params = condition_to_query(condition.condition1)
-        cond2_sql, cond2_params = condition_to_query(condition.condition2)
-        if cond1_sql.strip().upper().startswith("WHERE "):
-            cond1_sql = cond1_sql.strip()[6:]
-        if cond2_sql.strip().upper().startswith("WHERE "):
-            cond2_sql = cond2_sql.strip()[6:]
-        sql_condition = f"({cond1_sql} OR {cond2_sql})"
-        params.extend(cond1_params)
-        params.extend(cond2_params)
+        sql_condition = "("
+        first = True
+        for cond in condition.conditions:
+            cond_sql, cond_params = condition_to_query(cond)
+            if cond_sql.strip().upper().startswith("WHERE "):
+                cond_sql = cond_sql.strip()[6:]
+            if first:
+                sql_condition += f"{cond_sql}"
+                first = False
+            else:
+                sql_condition += f" OR {cond_sql}"
+            params.extend(cond_params)
+        sql_condition += ")"
     elif isinstance(condition, LessOrEqualCondition):
         sql_condition = f"{_col_ref(condition.param_name)} <= %s"
         params.append(condition.param_value)

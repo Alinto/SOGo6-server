@@ -21,7 +21,7 @@ from app.utils.strings import string_to_sort_score
 
 class VoucherUserService:
     """
-    Class that can genarte a user session and the associated user, ot get the user session from
+    Class that can generate a user session and the associated user, ot get the user session from
     a voucher
     """
 

@@ -3,9 +3,24 @@ from typing import TYPE_CHECKING
 
 from app.config.settings.DomainSettings import UserSourceSettingsObj, UserSourceSettings
 from app.utils import exceptions as exc
+from app.utils.module.importManager import import_and_instantiate_manager
+from app.utils.logger.logger import logger
 
 if TYPE_CHECKING:
     from app.auth.User import User
+    from app.manager.user_source.ClientUserSource import ClientUserSource
+
+MAP_KEY_CLASS = {
+    "ldap": "ClientLdap",
+    "mysql": "ClientMySQL",
+    "postgresql": "ClientPostgreSQL"
+}
+
+MAP_KEY_PATH = {
+    "ldap": "app.manager.ldap",
+    "mysql": "app.manager.db",
+    "postgresql": "app.manager.db"
+}
 
 class ModuleUserSource:
     """
@@ -36,6 +51,25 @@ class ModuleUserSource:
         """
         self.all_user_sources = all_user_sources
 
+    def _make_us_check_login(self, source_settings: UserSourceSettingsObj, user: User) -> tuple[bool, dict, dict[str, list[str]]]:
+        """
+        _summary_
+
+        :param source_settings: _description_
+        :type source_settings: UserSourceSettingsObj
+        :param user: _description_
+        :type user: User
+        :return: _description_
+        :rtype: tuple[bool, dict, dict]
+        """
+        us_config = source_settings.get_user_source_settings(source_settings.US_TYPE)
+        client_us: ClientUserSource = import_and_instantiate_manager(
+            module_path=MAP_KEY_PATH[source_settings.US_TYPE],
+            module_and_class_name=MAP_KEY_CLASS[source_settings.US_TYPE],
+            module_args=us_config,
+        )
+        client_us.connect()
+        return client_us.check_login(user.uid, user.password, user.domain)
 
     def check_login(self, user:User) -> bool:
         """
@@ -46,62 +80,39 @@ class ModuleUserSource:
         :return: True if the user is correctly authenticated
         :rtype: bool
         """
+        auth = False
+        raw_policy: dict = {}
+        raw_content: dict[str, list[str]] = {}
         if user.source_id and user.source_id in self.all_user_sources:
             source_settings = self.all_user_sources[user.source_id]
-        else:
-            #No source id yet or source_id is not relevant anymore
-            for source_uid, source_settings in self.all_user_sources.items():
-                if source_settings.US_CAN_AUTH:
-                    us_type = source_settings.US_TYPE
-                    #TODO Dynamically import the relevant manager according to the us_type
+            if source_settings.US_CAN_AUTH:
+                logger.warning("Registered user source %s for user %s forbid authentication." \
+                "Might happend if the user source US_CAN_AUTH has changed", user.source_id, user.uid)
+            else:
+                auth, raw_policy, raw_contact = self._make_us_check_login(source_settings, user)
+                if not auth:
+                    return False
+                user.authenticated = True
 
-        ret = user.uid in ("sogo-tests1@example.org", "sogo-tests2@example.org", "sogo-tests3@example.org")
-        ret = ret and user.password == "sogo"
+        for source_uid, source_settings in self.all_user_sources.items():
+            if source_settings.US_CAN_AUTH:
+                auth, raw_policy, raw_contact = self._make_us_check_login(source_settings, user)
+                if not auth:
+                    #User not found in this user source, check the next one
+                    continue
+                user.source_id = source_uid
+                user.authenticated = True
+                break
 
-        user.source_id = "ldap_ex"
-        user.authenticated = True
+        if not user.authenticated:
+            # Creds false or user missing from user source
+            return False
 
         #Get user info
-        user_info = self.fake_user_source_lookup(user.uid)
-        self.fill_user_with_contact_info(user, user_info)
-        self.fill_user_with_source_info(user, user_info)
-        return ret
+        self.fill_user_with_contact_info(user, raw_contact)
+        self.fill_user_with_source_info(user, raw_contact)
+        return auth
 
-
-    def fake_user_source_lookup(self, uid:str) -> dict:
-        """
-        Return the infos from the user source for this uid
-
-        :param uid: The user unique ID
-        :type uid: str
-        :return: Dictionary containing user contact information (uid, cn, email)
-        :rtype: dict
-        """
-        ret : dict[str, dict] = {
-            "sogo-tests1@example.org": {
-                "uid": "sogo-tests1@example.org",
-                "cn": "John Paul",
-                "email": "sogo-tests1@example.org",
-                "aliases": ["jpaul@example.org", "dpo@example.org"],
-                "telephone": "555-3647"
-            },
-            "sogo-tests2@example.org": {
-                "uid": "sogo-tests2@example.org",
-                "cn": "John Paul",
-                "email": "sogo-tests2@example.org"
-            },
-            "sogo-tests3@example.org": {
-                "uid": "sogo-tests3@example.org",
-                "cn": "John Paul",
-                "email": "sogo-tests3@example.org",
-                "login_imap": "bernard",
-                "login_smtp": "bernard",
-                "login_sieve": "bernard",
-                "imap_host": "127.0.0.1",
-                "c_ou": "extern"
-            }
-        }
-        return ret.get(uid, {})
 
     def fill_user_with_contact_info(self, user:User, user_info:dict) -> None:
         """
@@ -113,9 +124,9 @@ class ModuleUserSource:
         :rtype: dict
         """
         user.cn =   user_info["cn"]
-        user.mail = user_info["email"]
+        user.mail = user_info["mail"]
 
-        #At this stage, the user mus have a source_id as it already has been logged in.
+        #At this stage, the user must have a source_id as it already has been logged in.
         if not user.source_id or user.source_id not in self.all_user_sources:
             raise exc.AggravatedException("User with no source_id")
 
@@ -123,14 +134,15 @@ class ModuleUserSource:
 
         #Check for others mails address
         for key_mail in user_source_settings.US_MAIL:
-            new_mail: str
-            if (new_mail := user_info.get(key_mail, None)) and new_mail != user.mail:
-                user.extra_mail.append(new_mail)
+            for new_mail in user_info.get(key_mail, []):
+                if new_mail != user.mail:
+                    user.extra_mail.append(new_mail)
 
         #Check if we have extra info in the user_info
         if user_source_settings.US_MAPPING:
             for key_sogo, key_user_source in user_source_settings.US_MAPPING.items():
                 if info := user_info.get(key_user_source):
+                    #TODO parse into contactCard
                     user.extra_info[key_sogo] = info
 
 
@@ -170,14 +182,27 @@ class ModuleUserSource:
                     if user_info.get(cond_name, None) == cond_value:
                         setattr(user.access, module_name.lower(), False)
 
-    def fill_user(self, user:User) -> None:
+
+    def _get_contact_info_for_user_from_user_source(self, user:User) -> dict:
+        """
+        _summary_
+
+        :param user: _description_
+        :type user: _type_
+        :return: _description_
+        :rtype: dict
+        """
+        #TODO fetch the user source
+        return {}
+
+    def get_contact_info_for_user(self, user:User) -> None:
         """
         Get a user and fill it with infos from user source
 
         :param user: user to fill
         :type user: User
         """
-        infos = self.fake_user_source_lookup(user.uid)
+        infos = self._get_contact_info_for_user_from_user_source(user)
         if not infos:
             user.anonymous = True
         else:

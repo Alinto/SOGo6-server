@@ -1,7 +1,7 @@
 from typing import Any, Generator
 from abc import abstractmethod, ABCMeta
 
-from app.utils.logger.logger import logger_sql
+from app.utils.logger.logger import logger
 from app.utils.db.Table import Table
 from app.utils.db.Condition import Condition, FullTextCondition, JoinClause, Order
 
@@ -18,9 +18,10 @@ class ClientSQL(metaclass=ABCMeta):
     @abstractmethod
     def connect(self) -> None:
         """
-        Connect to the database and check this is ok
+        Connect to the database and check this is ok.
+        /!\\ Beware must match ClientUserSource method as pylint nor mypy catch the error
         """
-        logger_sql.error("Method 'connect' of clientSQL must be implemented by the children %s", type(self).__name__)
+        logger.error("Method 'connect' of clientSQL must be implemented by the children %s", type(self).__name__)
         raise NotImplementedError
 
     @abstractmethod
@@ -29,7 +30,7 @@ class ClientSQL(metaclass=ABCMeta):
         Return None if the table was not found
         If found return a dict as {"column_name": "data_type", ...}
         """
-        logger_sql.error("Method 'get_table_info' of clientSQL must be implemented by the children %s", type(self).__name__)
+        logger.error("Method 'get_table_info' of clientSQL must be implemented by the children %s", type(self).__name__)
         raise NotImplementedError
 
     @abstractmethod
@@ -37,7 +38,7 @@ class ClientSQL(metaclass=ABCMeta):
         """
         Create a table
         """
-        logger_sql.error("Method 'create_table' of clientSQL must be implemented by the children %s", type(self).__name__)
+        logger.error("Method 'create_table' of clientSQL must be implemented by the children %s", type(self).__name__)
         raise NotImplementedError
 
     @abstractmethod
@@ -50,7 +51,7 @@ class ClientSQL(metaclass=ABCMeta):
         """
         Create several tables
         """
-        logger_sql.error("Method 'create_several_table' of clientSQL must be implemented by the children %s", type(self).__name__)
+        logger.error("Method 'create_several_table' of clientSQL must be implemented by the children %s", type(self).__name__)
         raise NotImplementedError
 
     @abstractmethod
@@ -79,7 +80,7 @@ class ClientSQL(metaclass=ABCMeta):
             first), with sort_by kept as a secondary tiebreaker. Defaults to None.
         :type rank_by: FullTextCondition | None
         """
-        logger_sql.error("Method 'select_from_table' of clientSQL must be implemented by the children %s", type(self).__name__)
+        logger.error("Method 'select_from_table' of clientSQL must be implemented by the children %s", type(self).__name__)
         raise NotImplementedError
 
     @abstractmethod
@@ -105,7 +106,7 @@ class ClientSQL(metaclass=ABCMeta):
         :param order: Sort direction (ASC or DESC), defaults to Order.ASC.
         :param limit: Maximum rows (0 = no limit).
         """
-        logger_sql.error("Method 'select_from_several_table' of clientSQL must be implemented by the children %s", type(self).__name__)
+        logger.error("Method 'select_from_several_table' of clientSQL must be implemented by the children %s", type(self).__name__)
         raise NotImplementedError
 
     @abstractmethod
@@ -113,7 +114,7 @@ class ClientSQL(metaclass=ABCMeta):
         """
         count row in a table
         """
-        logger_sql.error("Method 'count_row_in_table' of clientSQL must be implemented by the children %s", type(self).__name__)
+        logger.error("Method 'count_row_in_table' of clientSQL must be implemented by the children %s", type(self).__name__)
         raise NotImplementedError
 
 
@@ -122,7 +123,7 @@ class ClientSQL(metaclass=ABCMeta):
         """
         Insert one or more row into a table
         """
-        logger_sql.error("Method 'insert_in_table' of clientSQL must be implemented by the children %s", type(self).__name__)
+        logger.error("Method 'insert_in_table' of clientSQL must be implemented by the children %s", type(self).__name__)
         raise NotImplementedError
 
     @abstractmethod
@@ -130,7 +131,7 @@ class ClientSQL(metaclass=ABCMeta):
         """
         Update rows in a table
         """
-        logger_sql.error("Method 'update_in_table' of clientSQL must be implemented by the children %s", type(self).__name__)
+        logger.error("Method 'update_in_table' of clientSQL must be implemented by the children %s", type(self).__name__)
         raise NotImplementedError
 
     @abstractmethod
@@ -158,7 +159,7 @@ class ClientSQL(metaclass=ABCMeta):
         :return: number of rows deleted
         :rtype: int
         """
-        logger_sql.error("Method 'delete_row_in_table' of clientSQL must be implemented by the children %s", type(self).__name__)
+        logger.error("Method 'delete_row_in_table' of clientSQL must be implemented by the children %s", type(self).__name__)
         raise NotImplementedError
 
     @abstractmethod
@@ -166,5 +167,5 @@ class ClientSQL(metaclass=ABCMeta):
         """
         Close the connection to the database
         """
-        logger_sql.error("Method 'close' of clientSQL must be implemented by the children %s", type(self).__name__)
+        logger.error("Method 'close' of clientSQL must be implemented by the children %s", type(self).__name__)
         raise NotImplementedError

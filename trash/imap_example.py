@@ -27,10 +27,10 @@ m = imap.select("Drafts")
 print(m)
 
 
-# # m = imap.fetch("1", "(BODYSTRUCTURE FLAGS UID)")
-m = imap.fetch("1:*", "(BODY.PEEK[HEADER] BODYSTRUCTURE FLAGS UID RFC822.SIZE)")
-# # m = imap.response('CAPABILITY')
-print(m)
+# # # m = imap.fetch("1", "(BODYSTRUCTURE FLAGS UID)")
+# m = imap.fetch("1:*", "(BODY.PEEK[HEADER] BODYSTRUCTURE FLAGS UID RFC822.SIZE)")
+# # # m = imap.response('CAPABILITY')
+# print(m)
 
 
 # m = imap.namespace()

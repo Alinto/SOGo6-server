@@ -1,0 +1,62 @@
+= SOGo 6 - Configuration
+
+SOGo 6 can be configured extensively to set the behavior of the webmail and what a user can or cannot do.
+
+[NOTE]
+====
+Only the API server/backend of SOGo 6 have a configuration, the only setting of the UI/frontend being the url of the backend.
+====
+
+There are two kind of settings: the one mandatory to run the backend application, called
+process settings, provided in ENV or a file; And the one stored in database to configure all the rest.
+
+== Process Settings
+
+The *process settings* are mandatory to run the API server and are meant to set once, each modification needs a restart of
+SOGo 6 to be accounted. They are provided either by ENV or a file.
+
+== Systems, domains and rules settings.
+
+These settings are stored in the dabatase, a modification of them does not need to restart SOGo 6.
+They set the behavior of the webmail and the external services like the mail server, the user source...
+
+[NOTE]
+====
+When they're empty, which happens at the first install, SOGo 6 can run but not operate cooreclyt as
+it doesn't know where is the user source, the imap server...
+
+However, you can easy set them up at the installation or deployment by providing a configuration file that will fill up the database at first install.
+====
+
+=== Sytems settings
+
+Settings that affect all the webmail whatever the user
+
+=== Domains settings
+
+Settings that affect only user of a said domain. You have a mandatory `default_domain_settings` that set the settings for all users by default, except if
+a setting has beend defined for its domain.
+
+[NOTE]
+====
+E.g: +
+If you want all your users to have the same domain settings, only fill up the `default_domain_settings`. If you want the user with domain *@foo.bar* to 
+have a diffrent imap server than the others, you will just have to set the imap config for the domain *@foo.bar*. All others settings for *@foo.bar* will
+fallback to `default_domain_settings`
+====
+
+=== Rules settings
+
+It's the same as domain settings, but instead of defining custom settings for one domain, you define custome settings for several domains at once.
+
+[WARNING]
+====
+Not Implemented for alpha
+====
+
+=== Precedences
+
+The stting applied to a user according to its domain is:
+
+domain settings > rule settings > default_domain_settings
+
