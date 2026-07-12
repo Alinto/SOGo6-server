@@ -1,6 +1,6 @@
-from os import access, path, makedirs, W_OK
+from os import getpid,access, path, makedirs, W_OK
 
-from logging import basicConfig, getLogger, handlers
+from logging import basicConfig, getLogger, handlers, Formatter
 from logging import DEBUG, INFO, WARNING, ERROR
 
 
@@ -36,9 +36,9 @@ from logging import DEBUG, INFO, WARNING, ERROR
 # check_permission_dir(LOG_DIR)
 # check_permission_dir(LOG_FILE)
 
-
-LOG_FORMAT = "%(asctime)s [%(levelname)s][%(name)s][%(filename)s:%(funcName)s:%(lineno)d]: %(message)s"
-basicConfig(format=LOG_FORMAT, level=DEBUG)
+pid = getpid()
+LOG_FORMAT = "%(asctime)s <%(process)s> [%(levelname)s][%(name)s][%(filename)s:%(funcName)s:%(lineno)d]: %(message)s"
+basicConfig(format=LOG_FORMAT, level=WARNING)
 
 # file_handler = handlers.RotatingFileHandler()
 
@@ -58,5 +58,6 @@ logger_calendar = getLogger("sogolog.calendar")
 logger_agent = getLogger("sogolog.agent")
 logger_contact = getLogger("sogolog.contact")
 
-logger_sql.setLevel(ERROR)
-logger_cache.setLevel(ERROR)
+logger_imap.setLevel(WARNING)
+# logger_cache.setLevel(DEBUG)
+# logger_sql.setLevel(DEBUG)

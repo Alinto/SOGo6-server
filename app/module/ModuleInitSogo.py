@@ -1,6 +1,7 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
+from os import getpid
 
 from app.utils.logger.logger import logger
 from app.utils.exceptions import AggravatedException
@@ -41,11 +42,12 @@ class ModuleInitSogo:
         # Test connectivity
         cache_client.ping()
 
+        key = f"init:{getpid()}"
         # Test writting, reading and deleting
-        cache_client.set("init", "simplestring", 60)
-        if ret:= cache_client.get("init", str) != "simplestring":
-            self.errors.append(f"Cache client did not raed the correct string {ret}")
-        cache_client.delete("init")
+        cache_client.set(key, "simplestring", 60)
+        if ret:= cache_client.get(key, str) != "simplestring":
+            self.errors.append(f"Cache client did not read the correct string {ret}")
+        cache_client.delete(key)
 
         return cache_client
 
