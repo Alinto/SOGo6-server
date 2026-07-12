@@ -1,0 +1,137 @@
+= SOGo 6 - process settings
+
+SOGo 6 process settings are mandatory to run the backend server. Keep in mind the modification of those settings will
+drastically modify SOGo 6 and can provoke irrevocable loss of data. So be sure to undesrtand them and set them once for all.
+
+Note that the process settings also included the Flask settings, the python framework used for the web server.
+
+== Redis Config
+
+Redis is used both as a cache system and as the broker for the `Agent` (the process for asynchronous task)
+
+[WARNING]
+====
+Even if SOGo 6 have protection and data validation when reading them from Redis, you should think that SOGo 6 see
+its Redis server as trusted. Meaning if there are corupted dataor attack, they may be passed trough SOGo.
+====
+
+Two parameters needed:
+
+* **SOGO_P_REDIS_URL**: string, mandatory
+
+Is the url of your redis server e.g. `redis://my-redis-server:6379`.
+
+If you're using redis with `protected-mode` on, use this  `redis://<username>:<password>@redis:6379`
+
+You can use extra param in the query but SOGo 6 will add those by itself:
+
+* `decode_responses="Yes"`: to received srtings directly instead of bytes.
+* `protocol=3`: if `SOGO_P_REDIS_RESP_3` is set to True (see below)
+
+
+'''
+
+* **SOGO_P_REDIS_RESP_3**: bool = True # Version of RESP, 3 is strongly recommanded
+
+https://redis.io/docs/latest/develop/reference/protocol-spec/#resp-versions[RESP 3] is needed by the
+redis python client https://redis.io/docs/latest/develop/clients/redis-py/connect/#connect-using-client-side-caching[`redis-py`] to support client-caching.
+
+Client caching allows the client ot make query only if the data has bene updated since the last time. Hence, saving time and resources.
+
+https://redis.io/docs/latest/develop/reference/protocol-spec/#resp-versions
+
+== Database settings
+
+SOGo 6 needs a database and a user that have the rights on this database to create, modify tables and oviosuly writting and reading.
+
+SOGo 6 will handle the table creation at init and also updating them if needed after a upgrade.
+
+* **SOGO_P_DB_TYPE**: string, can be either "PostgreSQL" or "MySQL".
+* **SOGO_P_DB_USER**: string, username. E.g. "admin", "sogo".
+* **SOGO_P_DB_PASS**: string, password. E.g. "password".
+* **SOGO_P_DB_HOST**: string, hostname or IP of the database. E.g: "my-db", "127.0.0.1".
+* **SOGO_P_DB_PORT**: int, port of the database. E.g. 5432
+* **SOGO_P_DB_SSL**: bool, use ssl   *_NOT IMPLEMENTED YET_*
+* **SOGO_P_DB_ENC**: string, default to "utf8". Encoding of the database 
+
+== Database table's name
+
+SOGo 6 offers default names to its tables, that you can modify before the first init.
+
+[WARNING]
+====
+A tthe first init, SOGo 6 will create the tables. Any modification of the name afterwards will break him.
+
+If you really need to change a table name:
+* Stop SOGo 6
+* Alter your database manually
+* Change the ENV value
+* Restart SOGo 6
+====
+
+* **SOGO_P_TABLE_SETTINGS**: string, default to "sogo6_sogo_settings"
+* **SOGO_P_TABLE_DOMAINS**: string, default to "sogo6_sogo_settings_domains"
+* **SOGO_P_TABLE_RULES**: string, default to "sogo6_sogo_settings_rules"
+* **SOGO_P_TABLE_USERS**: string, default to "sogo6_sogo_user_profiles"
+* **SOGO_P_TABLE_CALENDARS**: string, default to "sogo6_calendar_calendars"
+* **SOGO_P_TABLE_EVENTS**: string, default to "sogo6_calendar_events"
+* **SOGO_P_TABLE_REMINDERS**: string, default to "sogo6_calendar_reminders"
+* **SOGO_P_TABLE_TMP_DRAFTS**: string, default to "sogo6_tmp_draft"
+
+== Secrets
+
+* **SOGO_P_VOUCHER_SECRET**: string, must be 32 characters long in utf-8
+
+Secret used to encrypted token send to the UI to identify a user session:
+
+If you change the value, all current user session will be lost and the users will have to login again.
+
+What can a malevolent person do if they get this value:
+* They will need the jwt token stored in an authenticated user's browser.
+* They will be able to decrypt the user_session_id and the user_session_key
+* They will need to access to your Redis, to find the user session with the user_session_id.
+* Then they can decrypt the user session with the user_session_key
+
+The user session have those data
+
+* USER_UID: uid of the user
+* USER_PWD: the password of the user
+* USER_DOMAIN: the mail's domain of the user
+* USER_EMAIL:  the mail of the user
+* USER_SRC_ID: the source_id (from which user source the user if from) of the user.
+
+
+'''
+
+* **SOGO_AES_ENC_KEY**: string, must be 32 characters long in utf-8
+
+Secret used to stored sensitive datas in the database. Such data are:
+* Password to external account
+* Password to external calendars or address books
+* Certificates to sign or encrypt mail
+
+[WARNING]
+====
+The tool to update the secret is not implemented in the alpha version
+====
+
+If you change the value just like that, all those data wille be lost. To change the value:
+
+* Stop SOGo 6
+* Use the script tool to update the secret value
+* Update `SOGO_AES_ENC_KEY` in your ENV
+* Restart SOGo 6
+
+== Init
+
+* **SOGO_INIT_SYSTEM_SETTINGS_PATH**: str = ""
+* **SOGO_INIT_DOMAIN_SETTINGS_PATH**: str = ""
+
+
+== Debug
+
+* **SOGO_LOG_PATH**: str = "/var/log/sogo/sogo.log"
+
+
+
+

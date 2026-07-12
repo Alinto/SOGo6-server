@@ -55,16 +55,16 @@ def test_read_is_scoped_by_key_and_source():
     db.select_from_table.return_value = iter([(memoryview(b"x"), "image/png")])
     DbFileStorage(db).read("k1", "agent")
     cond = db.select_from_table.call_args.kwargs["condition"]
-    assert cond.condition1.param_name == tbl.COL_FS_KEY.name and cond.condition1.param_value == "k1"
-    assert cond.condition2.param_name == tbl.COL_FS_SOURCE.name and cond.condition2.param_value == "agent"
+    assert cond.conditions[0].param_name == tbl.COL_FS_KEY.name and cond.conditions[0].param_value == "k1"
+    assert cond.conditions[1].param_name == tbl.COL_FS_SOURCE.name and cond.conditions[1].param_value == "agent"
 
 
 def test_delete_targets_the_key_within_its_source():
     db = MagicMock()
     DbFileStorage(db).delete("k1", "contact")
     cond = db.delete_row_in_table.call_args.kwargs["condition"]
-    assert cond.condition1.param_name == tbl.COL_FS_KEY.name and cond.condition1.param_value == "k1"
-    assert cond.condition2.param_name == tbl.COL_FS_SOURCE.name and cond.condition2.param_value == "contact"
+    assert cond.conditions[0].param_name == tbl.COL_FS_KEY.name and cond.conditions[0].param_value == "k1"
+    assert cond.conditions[1].param_name == tbl.COL_FS_SOURCE.name and cond.conditions[1].param_value == "contact"
 
 
 def test_all_keys_returns_every_stored_key_of_the_source():
@@ -79,5 +79,5 @@ def test_purge_older_than_deletes_by_source_and_age():
     db.delete_row_in_table.return_value = 3
     assert DbFileStorage(db).purge_older_than(3600, "agent") == 3
     cond = db.delete_row_in_table.call_args.kwargs["condition"]
-    assert cond.condition1.param_name == tbl.COL_FS_SOURCE.name and cond.condition1.param_value == "agent"
-    assert cond.condition2.param_name == tbl.COL_FS_CREATED_AT.name
+    assert cond.conditions[0].param_name == tbl.COL_FS_SOURCE.name and cond.conditions[0].param_value == "agent"
+    assert cond.conditions[1].param_name == tbl.COL_FS_CREATED_AT.name

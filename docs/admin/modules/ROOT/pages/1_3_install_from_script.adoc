@@ -1,0 +1,8 @@
+= SOGo 6 - Install from script
+
+
+You can install SOGo 6 directly on your OS by using our script install
+
+#TODO
+
+curl -sSL https://install_sogo6.sogo.nu | bash -

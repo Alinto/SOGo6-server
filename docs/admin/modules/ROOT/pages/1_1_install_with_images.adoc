@@ -1,0 +1,6 @@
+= SOGo 6 - Using the image
+
+[NOTE]
+====
+Official images for SOgo 6 will be provided in the future
+====

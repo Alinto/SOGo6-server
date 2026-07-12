@@ -30,6 +30,22 @@ def strip_accents(text: str) -> str:
     folded: str = no_accents.casefold()
     return "".join(_fold_latin_letter(c) if ord(c) > 127 else c for c in folded)
 
+class SecretString(str):
+    """
+    A class that override the __repr__ to censor secrets/passwords
+    """
+
+    def set_censored(self, censored_value:str="SecretString('***')") -> None:
+        """
+        :param censored_value: Value to show in the log instead of the true value
+        :type censored_value: str
+        """
+        self._censored = censored_value # pylint: disable=attribute-defined-outside-init
+
+    def __repr__(self) -> str:
+        if hasattr(self, "_censored"):
+            return self._censored
+        return "SecretString('***')"
 
 def get_domain_from_mail(string_input: str) -> str|None:
     """
@@ -57,6 +73,46 @@ def get_domain_from_contact(string_input: str) -> str|None:
         except (ValueError, IndexError) as e:
             raise ValueError(f"Contact is not conformed to 'CN <mail>': '{string_input}'") from e
     return get_domain_from_mail(mail)
+
+def parse_url_str(url_str:str) -> dict:
+    """
+    Return a dict form an url string
+
+    {
+        'protocol': str, http, https, mysql...
+        'hostname': str, hostname or ip
+        'port': int, port
+        'username': str|None, username of None value
+        'password': str|None, password of None value
+        'params': dict[str, str|list[str]], key = value
+    }
+
+    :param url_str: string of the url
+    :type url_str: str
+    :return: response dict
+    :rtype: dict
+    """
+    parsed = URL(url_str)
+
+    # Preserve all query values as lists
+    params: dict = {}
+    for k, v in parsed.query.items():
+        if k in params:
+            if isinstance(params[k], list):
+                params[k].append(v)
+            else:
+                params[k] = [params[k], v]
+        else:
+            params[k] = v
+
+    return {
+        'protocol': parsed.scheme,
+        'hostname': parsed.host if parsed.host else "", # pylint: disable=[using-constant-test]
+        'port': parsed.port if parsed.port else 80, # pylint: disable=[using-constant-test]
+        'username': parsed.user if parsed.user else "", # pylint: disable=[using-constant-test]
+        'password': parsed.password if parsed.password else "", # pylint: disable=[using-constant-test]
+        'params': params
+    }
 
 
 def get_imap_config_from_url(imap_str: str) -> dict:
@@ -121,6 +177,9 @@ def quote(input_str:str) -> str:
     return '"' + escaped + '"'
 
 def imap_join_folders(delimiter: str, first_path: str, second_path: str) -> str:
+    """
+    Join two imap folder_path together accordinf to the delimiter
+    """
     if first_path[-1] == '"':
         # first paht like this '"my name"'
         first_path = first_path[1:-1]

@@ -77,10 +77,9 @@ class ProcessSetting(FlaskConfig):
     """
     Contains all SOGo relative settings
     """
-    SOGO_P_REDIS_URL: str = "redis://redis:6379"
+    SOGO_P_REDIS_URL: str #Url of the redis server
     SOGO_P_REDIS_RESP_3: bool = True # Version of RESP, 3 is strongly recommanded
 
-    SOGO_P_SECRET: str
     SOGO_P_VOUCHER_SECRET: str #Fernet key must be 32 char string in utf-8.
     SOGO_AES_ENC_KEY: str #32 bytes key for AES-256
 

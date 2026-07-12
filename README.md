@@ -64,12 +64,12 @@ npx antora antora-playbook-dev.yml
 
 Push documentation (with vpn)
 ```
-rsync -avz /path/to/local root@192.168.69.247:/data2/sogo_doc
+rsync -avz docs/build/ root@192.168.69.247:/data2/sogo_doc
 ```
-
-
-docker run --rm -it -e SOGO_P_SECRET="bookshop's spangling fakir licencing" -e SOGO_P_VOUCHER_SECRET="dsqQHJD7dsq75aaadsqQHJD7dsq75aaa" -e SOGO_AES_ENC_KEY="A9fK2QxM7eR3PZLwH6Jd8sC4T5mNByU" sogo6-backend 
 
 # Build the local image
 
+```
 docker build -t sogo6-backend -f deploy/local/Dockerfile.local .
+```
+

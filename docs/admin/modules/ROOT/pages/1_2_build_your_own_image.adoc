@@ -1,0 +1,6 @@
+= SOGo 6 - Build your own image
+
+
+You can build your own image. There are example in both repositories
+
+#TODO

@@ -3,7 +3,6 @@
     "editor.codeActionsOnSave": {
         "source.organizeImports": "explicit"
     },
-    "javascript.format.insertSpaceBeforeFunctionParenthesis": true,
     "[python]": {
         "editor.defaultFormatter": "ms-python.black-formatter",
     },
@@ -12,10 +11,20 @@
     ],
     "python.testing.unittestEnabled": false,
     "python.testing.pytestEnabled": true,
+    "mypy-type-checker.ignorePatterns": [
+        "**/site-packages/**/*.py",
+        ".vscode/*.py",
+        "tests/*"
+    ],
+    "pylint.ignorePatterns": [
+        "**/site-packages/**/*.py",
+        ".vscode/*.py",
+        "tests/*"
+    ],
     "[html]": {
         "editor.formatOnSave": false
     },
     "python-envs.defaultEnvManager": "ms-python.python:poetry",
     "python-envs.defaultPackageManager": "ms-python.python:poetry",
-    "git.addAICoAuthor": "off"
+    "git.addAICoAuthor": "off",
 }

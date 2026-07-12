@@ -285,7 +285,7 @@ def _contains_fulltext(condition: Condition) -> bool:
     if isinstance(condition, FullTextCondition):
         return True
     if isinstance(condition, (AndCondition, OrCondition)):
-        return _contains_fulltext(condition.condition1) or _contains_fulltext(condition.condition2)
+        return _contains_fulltext(condition.conditions[0]) or _contains_fulltext(condition.conditions[1])
     return False
 
 

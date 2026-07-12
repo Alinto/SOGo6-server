@@ -28,8 +28,7 @@ def init_user_profile() -> None:
     """
     logger_api.debug("Calling before_request for ApiSystem")
     system_settings: dict = g.system_settings
-    default_domain: dict = g.default_domain_settings
-    interface_api = InterfaceSystem(system_settings=system_settings, default_domain=default_domain)
+    interface_api = InterfaceSystem(system_settings=system_settings)
     g.inter = interface_api
 
 @blp.route("")

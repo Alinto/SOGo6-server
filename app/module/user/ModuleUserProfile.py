@@ -550,7 +550,7 @@ class ModuleUserProfile:
                     identity["name"] != user.cn:
                 raise RequestException(err.ERROR_IDENTITIES_CUSTOM_NAME_FORBIDDEN.m, err.ERROR_IDENTITIES_CUSTOM_NAME_FORBIDDEN)
             if not self.user_module_settings.SOGO_D_IDENTITIES_CUSTOM_REPLY_TO_ENABLED and \
-                    identity["reply-to"] != user.cn:
+                    identity["reply-to"] != user.mail:
                 raise RequestException(err.ERROR_IDENTITIES_CUSTOM_REPLY_TO_FORBIDDEN.m, err.ERROR_IDENTITIES_CUSTOM_REPLY_TO_FORBIDDEN)
             if size_limit > 0:
                 self._validate_signatures_size_for_one_identity(identity, size_limit)

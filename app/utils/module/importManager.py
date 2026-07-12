@@ -26,10 +26,10 @@ def import_and_instantiate_manager(module_path: str, module_and_class_name: str,
         sogo_manager_class      = getattr(sogo_manager_module, module_and_class_name)
         sogo_manager  = sogo_manager_class(**module_args)
     except (ModuleNotFoundError, NameError, TypeError) as e:
-        logger.error("Cannot instantiate sogo manager, config or package problem: %s", e)
-        raise AggravatedException("Cannot instantiate sogo database") from e
+        logger.error("Cannot instantiate sogo manager '%s.%s', config or package problem: %s", module_path, module_and_class_name, e)
+        raise AggravatedException(f"Cannot instantiate sogo manager {module_path}.{module_and_class_name}") from e
     except Exception as e:
-        logger.error("Cannot instantiate sogo manager, unexpected error: %s", e)
-        raise AggravatedException("Cannot instantiate sogo database") from e
+        logger.error("Cannot instantiate sogo manager '%s.%s', unexpected error: %s", module_path, module_and_class_name, e)
+        raise AggravatedException(f"Cannot instantiate sogo manager {module_path}.{module_and_class_name}") from e
 
     return sogo_manager

@@ -19,9 +19,9 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      SOGO_P_SECRET: ${{ secrets.SOGO_P_SECRET }}
       SOGO_P_VOUCHER_SECRET: ${{ secrets.SOGO_P_VOUCHER_SECRET }}
       SOGO_AES_ENC_KEY: ${{ secrets.SOGO_AES_ENC_KEY }}
+      SOGO_P_REDIS_URL: ${{ secrets.SOGO_P_REDIS_URL }}
 
     steps:
     - uses: actions/checkout@v4

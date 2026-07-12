@@ -108,7 +108,7 @@ system_526 = {
     #Secret
     "SOGoSecretType": None, #In SOGo, secret to encrypt/decrypt sensitive data, this param was telling if the secret is in sogo.conf or an ENV.
                             #In SOGo6 secre will mandatory be ENV
-    "SOGoSecretValue": "SOGO_P_SECRET", #Was optionnal in SOGo5, now mandatory to start the application. Encrypt/decrypt sensitive data with AED-GCM-256
+    "SOGoSecretValue": None, #Was optionnal in SOGo5, Not migrated but will be used to decrypt old data values to rencrypt them again with new SOGo 6 secret
 
     # Webserver settings, now handle by flask/gunicorn
     "SOGoMaximumMessageSizeLimit": None, # see WOMaxUploadSize
