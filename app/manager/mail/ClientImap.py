@@ -22,6 +22,10 @@ from app.utils.strings import quote, imap_join_folders
 #TODO all imap are logged, including login/auth password used SecretString (on ldap branch not in develoope now)
 if logger_imap.level < WARNING:
     imaplib.Debug = 4  # type: ignore[attr-defined]
+else:
+    imaplib.Debug = 0 # type: ignore[attr-defined]
+
+print(f"IMAP DEBUG: {imaplib.Debug}")
 
 P = ParamSpec("P")
 R = TypeVar("R")

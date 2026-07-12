@@ -1,8 +1,9 @@
 
 #SOGO_STATE
-SOGO_NOT_OK   = 0 #Sogo can't run properly. Problems with database, redis or agent
-SOGO_NOT_INIT = 1 #Sogo can run but has no system or defaul_domain settings (first installation)
-SOGO_OK       = 2 #Sogo can run properly
+SOGO_UNDEFINED = -1 #Sogo has not run its init method yet
+SOGO_NOT_OK    = 0 #Sogo can't run properly. Problems with database, redis or agent
+SOGO_NOT_INIT  = 1 #Sogo can run but has no system or defaul_domain settings (first installation)
+SOGO_OK        = 2 #Sogo can run properly
 
 #App conf
 ALLOW_AUTH_BASIC = "ALLOW_AUTH_BASIC"

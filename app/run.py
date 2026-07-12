@@ -5,6 +5,7 @@ import click
 from flask_compress import Compress
 from flask import request
 from flask.typing import ResponseReturnValue
+import logging
 
 
 from app import create_app, __version__
@@ -15,10 +16,12 @@ from app.utils.logger.logger import logger
 
 if TYPE_CHECKING:
     from app.manager.cache.ClientRedis import ClientRedis
+    from app.manager.agent.ClientAgent import ClientAgent
 
 #Beware that all methods called here will be called twice because the auto-reloader is on
 #To see the correct behavior run:
 #poetry run start --no-debug
+
 
 sogo_state, cache, agent_client = init_sogo()
 set_cache(cache)
@@ -82,3 +85,9 @@ def main(host: str, port: int, debug: bool, ssl: bool, auth: tuple[str]) -> None
 
 if __name__ == "__main__":
     main()  # pylint: disable=no-value-for-parameter
+
+
+if __name__ != '__main__':
+    werkzeug_loogger = logging.getLogger('werkzeug')
+    app.logger.handlers = werkzeug_loogger.handlers
+    app.logger.setLevel(logging.INFO)

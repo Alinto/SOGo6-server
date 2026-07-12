@@ -1,0 +1,27 @@
+#base debian trixie
+FROM python:3.14-slim
+
+#"Install packages && create dir"
+RUN apt update && apt install --no-install-recommends -y \
+    curl \
+    build-essential \
+    libldap2-dev libsasl2-dev \
+    libpq5 && \
+    rm -rf /var/lib/apt/lists/* && \
+    mkdir /var/sogo
+
+# "Copy project"
+COPY app /var/sogo/app
+COPY deploy/local/pyproject.toml /var/sogo
+
+WORKDIR /var/sogo/
+
+#Update PATH for poetry
+ENV PATH="/root/.local/bin:$PATH"
+
+# "Install poetry and the project"
+RUN curl -sSL https://install.python-poetry.org | python - && \
+    poetry config virtualenvs.in-project true && \
+    poetry install --no-cache --no-ansi --no-interaction
+
+CMD ["poetry", "run", "gunicorn", "-c", "app/gunicorn.conf.py", "app.run:app"]

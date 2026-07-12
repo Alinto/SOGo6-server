@@ -4,7 +4,7 @@ build-backend = "poetry.core.masonry.api"
 
 [project]
 name = "SOGo"
-description = "SOGo 6 backend server"
+description = "SOGo 6 backend API server"
 authors = [
     {name = "Quentin Hivert", email = "quentin.hivert.fr@gmail.com"},
 ]
@@ -14,31 +14,32 @@ dynamic = [ "version" ]
 requires-python = ">=3.13,<4.0"
 keywords = ["sogo", "webmail", "mail", "calendar"]
 dependencies = [
+    "celery",
     "click",
+    "cryptography",
     "flask",
     "flask-compress",
+    "flask-cors",
     "flask-smorest",
+    "gunicorn",
+    "icalendar",
     "marshmallow",
+    "mysql-connector-python",
+    "psycopg",
     "pydantic",
     "pydantic-settings",
-    "python-ldap",
-    "redis (==7.1.1)",
-    "psycopg",
-    "pytest-mock",
-    "flask-cors",
-    "types-smorest",
     "pyjwt",
-    "yarl",
-    "cryptography",
-    "mysql-connector-python (==9.5.0)",
-    "celery",
-    "icalendar",
+    "python-ldap",
+    "pytest-mock",
+    "redis",
     "sievelib",
+    "types-smorest",
+    "yarl",
 ]
 
 
 [tool.poetry]
-version = "6.0.0"  # base version
+version = "6.0.alpha"  # base version
 packages = [
     { include = "app" },
 ]

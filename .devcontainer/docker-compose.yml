@@ -41,6 +41,38 @@ services:
     depends_on:
       - redis
 
+  # serverlocal:
+  #   image: sogo6-backend
+  #   ports:
+  #     - "8000:8000"
+  #   environment:
+  #     SOGO_P_REDIS_URL: redis://sogo:sogo@redis:6379
+  #     SECRET_KEY: "29630f23ca7c8557c75704935b6aa14a39ff28c437fcdbc10a370a4d461d0f52"
+  #     SOGO_P_SECRET: "bookshop's spangling fakir licencing"
+  #     SOGO_P_VOUCHER_SECRET: "dsqQHJD7dsq75aaadsqQHJD7dsq75aaa"
+  #     SOGO_AES_ENC_KEY: "A9fK2QxM7eR3PZLwH6Jd8sC4T5mNByU"
+  #     SOGO_P_DB_USER: sogo
+  #     SOGO_P_DB_PASS: sogo
+  #     SOGO_P_DB_HOST: postgresql
+  #     SOGO_P_DB_TYPE: PostgreSQL
+  #     SOGO_INIT_SYSTEM_SETTINGS_PATH: /workspace/scripts/init/system_settings.json
+  #     SOGO_INIT_DOMAIN_SETTINGS_PATH: /workspace/scripts/init/domain_settings.json
+  #     GUNICORN_BIND: "0.0.0.0:8000" 
+  #     # SOGO_P_DB_USER: sogo
+  #     # SOGO_P_DB_PASS: sogo
+  #     # SOGO_P_DB_HOST: mariadb
+  #     # SOGO_P_DB_PORT: 3307
+  #     # SOGO_P_DB_TYPE: MySQL
+  #   depends_on:
+  #     - redis
+
+  front:
+    image: sogo6-ui
+    ports:
+      - "3000:3000"
+    environment:
+     - REACT_APP_API_BASE_URL=http://localhost:5000/api/user/v1
+
   #https://github.com/docker-library/docs/blob/master/postgres/README.md
   postgresql:
     image: postgres:17-bookworm
