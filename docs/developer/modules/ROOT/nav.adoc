@@ -1,5 +1,4 @@
 * Introduction
-** xref:0_intro_doc.adoc[]
 ** xref:0_index.adoc[]
 * xref:1_0_archi_global.adoc[]
 ** xref:1_1_archi_core.adoc[]

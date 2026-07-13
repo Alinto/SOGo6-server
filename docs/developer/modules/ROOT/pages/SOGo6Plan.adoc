@@ -9,18 +9,18 @@
 
 == Public and Community
 
-=== Github
+=== GitHub
 
 ==== Files
 
-Those files are detected by github with easy link to them. 
+Those files are detected by GitHub with easy link to them. 
 
 '''
 
 * [ ] 80% (backend) README.md: first file a user see when going to our repo
 * [ ] 80% (frontend) README.md: first file a user see when going to our repo
 
-For now they only explain how to start the project. Needs to add to introduce the repo,
+For now, they only explain how to start the project. Needs to add to introduce the repo,
 add link to our website, docs...
 
 '''
@@ -28,7 +28,7 @@ add link to our website, docs...
 * [ ] 0% (backend) CONTRIBUTING.md: file to explain how to contribute to the repo
 * [ ] 0% (frontend) CONTRIBUTING.md: file to explain how to contribute to the repo
 
-Tell the link to our dev deoc, the coding rule, if they needs to open an issue...
+Tell the link to our dev doc, the coding rule, if they need to open an issue...
 
 '''
 
@@ -37,7 +37,7 @@ Tell the link to our dev deoc, the coding rule, if they needs to open an issue..
 
 [NOTE]
 ====
-Our license is  https://www.gnu.org/licenses/gpl-3.0.fr.html[GPLv3].
+Our license is https://www.gnu.org/licenses/gpl-3.0.fr.html[GPLv3].
 ====
 
 '''
@@ -91,8 +91,8 @@ If we keep SOGo 5 website, it's faster
 * [ ] 0%: Presentation/About
 * [ ] 0%: link to doc for installation, deployment
 * [*] 100%?: news
-* [*] 100%?: Community pannel with FAQ, docs...
-* [*] 100%?: Prenium support and Partner Page
+* [*] 100%?: Community panel with FAQ, docs...
+* [*] 100%?: Premium support and Partner Page
 
 The website must be ready for the first public release
 
@@ -101,27 +101,27 @@ The website must be ready for the first public release
 What SOGo 6 should have that SOGo's missing
 
 * [ ] 0% Security panel: that say the same thing as SECURITY.md
-* [ ] 0% Feature panel: Useful for the alpha version to make it clear to peole what is implemented and what is not.
-* [ ] 0% Roadmap panel: To tell what we're going next. USeful for alpha so they know what will comes first.
+* [ ] 0% Feature panel: Useful for the alpha version to make it clear to people what is implemented and what is not.
+* [ ] 0% Roadmap panel: To tell what we're going next. Useful for alpha so they know what will comes first.
 
-For the first release, users need the above info but it can be stored in our repos instead.
+For the first release, users does not need the above info.
 
 == Installation, deployment, update
 
-Currently SOGo 6 cannot be installed or deployed automatically. One's need to clone our repo and understand how to
+Currently, SOGo 6 cannot be installed or deployed automatically. One's need to clone our repo and understand how to
 do it with our README.md
 
 [NOTE]
 ====
 For an alpha release it's ok as it's better if only people that know what they're doing test SOGo 6. The issue
-reported will be moremMore thorough
+reported will be more thorough
 ====
 
 
 === Installation
 
 * [*] 100%: Clone our repo and do it yourself
-* [ ] 30%: Devcontainer to test (two images are custom ans dtores at alinto registry...)
+* [ ] 30%: Devcontainer to test (two images are custom ans stores at alinto registry...)
 
 '''
 
@@ -195,7 +195,7 @@ No reflexion has been made on how to updade sogo:
 == Robustness
 
 * [ ]   0%: Heavy load (lot of request)
-* [ ]   0%: test with different architetcture (postgresql vs mariadb, dovecot vs cyrus)
+* [ ]   0%: test with different architecture (postgresql vs mariadb, dovecot vs cyrus)
 * [ ]   0%: Requirement (ressource needed, python version needed...)
 
 
@@ -243,10 +243,10 @@ Document used by us and any future collaborator or contributor.
 
 [WARNING]
 ====
-Two differents features may need the same "code block" meaning their status are linked. E.g: change the password of a user and search contact in
+Two different features may need the same "code block" meaning their status are linked. E.g: change the password of a user and search contact in
 the Global Address Book both need the LDAP manager.
 
-Making it diffcult to properly evaluates the time needed. On the contrary, if we speak only abour "code block" it's very complex
+Making it difficult to properly evaluates the time needed. On the contrary, if we speak only about "code block" it's very complex
 to properly explain to which features this code is for.
 ====
 
@@ -256,7 +256,7 @@ to properly explain to which features this code is for.
 
 * [*] 100%: check process settings in ENV
 * [*] 100%: check process settings in file
-* [*] 100%: Add param to allow admin to use their own tables name (PR in review)
+* [*] 100%: Add param to allow admin to use their own tables name
 * [*] 100%: Check the cache 
 * [*] 100%: Check database connection
 * [*] 100%: Check database structure
@@ -264,7 +264,7 @@ to properly explain to which features this code is for.
 * [ ]   0%: Check the agent
 * [*] 100%: Check if SOGo 6 is already configured in database
 * [*] 100%: If not, check if files with config has been provided then populate the database
-* [*] 100%: If not, block API except Admin APi to configure SOGo 6
+* [*] 100%: If not, block API except Admin API to configure SOGo 6
 
 '''
 
@@ -285,11 +285,11 @@ to properly explain to which features this code is for.
 
 //-
 
-[.line-through]#* [ ]  0%: CSRF protection# (our backend don't rely on cookies)
+[.line-through]#* [ ]  0%: CSRF protection# (our backend doesn't rely on cookies)
 
 //-
 
-* [*] 100%: Check if request ihas correct content-type for the endpoint
+* [*] 100%: Check if request has correct content-type for the endpoint
 * [*] 100%: Protect authenticated endpoints
 * [ ] 70%: If token, check if user is still valid (not entirely implemented + missing param to add grace period)
 
@@ -313,8 +313,8 @@ The only example for now is if the UI will make the login in two steps (first us
 
 * [*] 100%: Endpoint to get auth method for this domain (plain, opendid...)
 * [*] 100%: Return error if no domain while not domainless or if domain not known while rejecting unknown domain
-* [ ]   0%: Automatically list all domains that sogo should know instead of listing them in a system settings
-* [ ]  50%: plain auth method (username + password) (missing user source link)
+* [ ]   0%: Automatically list all domains that sogo should know instead of listing them in a system setting
+* [ ]  50%: plain auth method (username + password) (only work with ldap user source)
 * [ ]   0%: check if password is strong enough on login (plain)
 * [ ]   0%: Password expired and grace policy on login (plain)
 * [ ]   0%: Password recovery secondarymail (plain)
@@ -341,9 +341,9 @@ The only example for now is if the UI will make the login in two steps (first us
 
 ==== UI
 
-* [*]  80%: Change language (miss the autodetec of language)
-* [ ]   0%: Is user already logged, requets to index or auth redicret to main view. 
-* [ ]   0%: Is user token is not valid anymore, return to login page
+* [*]  80%: Change language (miss the autodetection of language)
+* [ ]   0%: Is user already logged, requests to index or auth must redirect to main view. 
+* [*] 100%: Is user token is not valid anymore, return to login page
 
 **2 steps login**
 
@@ -353,7 +353,7 @@ The only example for now is if the UI will make the login in two steps (first us
 * [*] 100%: Get login method (plain, sso...)
 * [*] 100%: If plain, show view to enter password
 ** [ ]   0%: Show password recovery button if SOGO_D_PWD_RECOVERY
-** [ ]   20%: Show error if credendials fails (not correct view, cannot modify email)
+** [ ]   20%: Show error if credendials fail (not correct view, cannot modify email)
 * [ ]   0%: If SSO, get on "location"
 
 '''
@@ -363,7 +363,7 @@ The only example for now is if the UI will make the login in two steps (first us
 * [ ]   0%: If plain, show view to enter mail and password (1 step login)
 ** [ ]   0%: Show password recovery button if SOGO_D_PWD_RECOVERY
 ** [ ]   0%: Show view to enter password 
-** [ ]   0%: Show error if credendials fails
+** [ ]   0%: Show error if credendial fails
 * [ ]   0%: If SSO, get on "location"
 
 '''
@@ -371,11 +371,11 @@ The only example for now is if the UI will make the login in two steps (first us
 **plain login details**
 
 * [ ]   0%: if password recovery, new view to enter the mail again
-** [ ]   0%: if mail exists and method is secondary mail -> "A mail will be send to your secondary address 'q***********@gmail.com"
+** [ ]   0%: if mail exists and method is secondary mail -> "A mail will be send to your secondary address 's********@sogo.nu"
 ** [ ]   0%: if mail exists and method is question -> "Show question"
 *** [ ]   0%: Can choose question and submit answer
 *** [ ]   0%: If success -> view to change password
-** [ ]   0%: if mail does not exists or has nothing setup -> "Your accounr does not existe or has not setup any recovery method"
+** [ ]   0%: if mail does not exist or has nothing setup -> "Imposible to make a password recovery for this account"
 * [ ]   0%: If MFA TOTP, show view to enter the code
 * [ ]   0%: If any action that needs to change the password, show correct view.
 * [ ]   0%: If MFA forced, show correct view.
@@ -404,7 +404,7 @@ The only example for now is if the UI will make the login in two steps (first us
 
 **Custom Theming**
 
-* [ ]  10%: Allow admin to make custom theming (logo, colour...) -> global.css that can be customized
+* [ ]  10%: Allow admin to make custom theming (logo, color...) -> global.css that can be customized
 * [ ]   0%: Admin have an UI to change the theme .
 
 === Mail Accounts and Identities
@@ -414,7 +414,7 @@ The only example for now is if the UI will make the login in two steps (first us
 * [*] 100%: Endpoint to list accounts (main and external) or get one specific
 * [*] 100%: Return quota if mail server handles it.
 * [*] 100%: Endpoint to list delegation
-* [ ]  60%: Endpoint to delegate one or several account; means give another user the right to use our identity to send mail (not implemented)
+* [ ]  60%: Endpoint to delegate one or several accounts; means give another user the right to use our identity to send mail (not implemented)
 * [ ]  80%: Endpoint to purge all folders of an account (delete mail olders than X), if allowed by admin with a minimal date allowed. (admin settings are not used yet)
 ** [ ]   0%: Add an option to not delete message flag as important
 * [ ]  20%: Endpoint to search among all mails of all folders (in review)
@@ -424,7 +424,7 @@ The only example for now is if the UI will make the login in two steps (first us
 **Main Acount**
 
 * [*] 100%: Change profile picture if allowed by admin (global endpoint /preferences)
-* [ ]  80%: Get User infos (missing the usersource link)
+* [ ]  70%: Get User infos (not finished)
 * [*] 100%: Get identities of the main account
 ** [*] 100%: Can change name, if allowed by admin
 ** [*] 100%: Can reply-to, if allowed by admin
@@ -442,14 +442,14 @@ The only example for now is if the UI will make the login in two steps (first us
 * [ ]   0%: Endpoint to set totp
 * [ ]   0%: Endpoint to set password recovery
 ** [ ]   0%: Can set secondary mail, if allowed by admin
-** [ ]   0%: Can set quesitons/answers, if allowed by admin
+** [ ]   0%: Can set questions/answers, if allowed by admin
 
 
 '''
 
 **External account**
 
-* [*] 100%: Cand add/modify/remove external accounts if allowed
+* [*] 100%: Can add/modify/remove external accounts if allowed
 ** [*] 100%: Imap settings (hostname, port, encryption, auth - login/plain -, username and password)
 ** [*] 100%: Smtp settings (hostname, port, encryption, auth - login/plain -, username and password)
 ** [*] 100%: One, or several identities without limit from admin
@@ -467,7 +467,7 @@ The only example for now is if the UI will make the login in two steps (first us
 ** [ ]   0%: If action remove failed because of a full quota ask to delete permanently
 * [ ]  90%: Button to show delegations and modify them (backend missing)
 * [ ]    0%: Button to purge, if allowed
-** [ ]    0%: ask for date (with minimun date set by admin)
+** [ ]    0%: ask for date (with minimal date set by admin)
 ** [ ]    0%: ask for permanent deletion (instead of moving to trash)
 ** [ ]    0%: Warning after clicking on 'OK'
 
@@ -516,7 +516,7 @@ The only example for now is if the UI will make the login in two steps (first us
 * [ ]  80%: Endpoint, rename folder
 * [ ]   0%: Endpoint to move folders to
 * [ ]   0%: Endpoint to subscribe/unsubscribe to folders
-* [*] 100%: Kind of folder: Inbox, draft, sent, junk, tash, template, planned, normal
+* [*] 100%: Kind of folder: Inbox, draft, sent, junk, trash, template, planned, normal
 * [*] 100%: Create or remove folder or subfolders (except special folder)
 * [ ]  50%: Modify folder (not implemented)
 ** [ ]  80%: Share a folder with rights (rework the names of the rights)
@@ -568,7 +568,7 @@ The only example for now is if the UI will make the login in two steps (first us
 
 '''
 
-**Action on sevral mails
+**Action on several mails
 
 * [*] 100% can select several mails
 * [*] 100%: button to select/unselect all
@@ -598,15 +598,22 @@ The only example for now is if the UI will make the login in two steps (first us
 * [*] 100%: See the raw message (.eml)
 * [*] 100%: delete a mail
 
+'''
+
 * [ ]   0%: Preview an attachment
 * [ ]   50%: Download an attachment
 * [ ]   0%: Check public key validity
 * [ ]   0%: Store public key of sender
 * [ ]   0%: Check the signature (hash) of a mail
 * [ ]   0%: Decrypt encrypted mail
-* [ ]   0%: Decode TNEF attachment (microsoft kinf of attachment)
+* [ ]   0%: Decode TNEF attachment (microsoft kind of attachment)
 
 '''
+
+* [ ]   0%: Endpoint to accept an invitation
+* [ ]   0%: Endpoint to decline an invitation
+* [ ]   0%: Endpoint to delegate an invitation
+* [ ]   0%: Endpoint to add contact from mail
 
 
 ==== UI
@@ -621,6 +628,16 @@ The only example for now is if the UI will make the login in two steps (first us
 * [ ]   0%: move
 * [ ]   0%: copy
 * [ ]   0%: download
+
+'''
+
+* [ ]   0%: read mail with invitation
+** [ ]   0%: accept
+** [ ]   0%: decline
+** [ ]   0%: delegate
+* [ ]   0%: read mail with contact
+* [ ]   0%: read mail with invitation
+* [ ]   0%: read mail with invitation
 
 === Mails sending
 
@@ -704,35 +721,35 @@ state that makes the link between the "mail in progress" and the mail currently 
 ==== UI
 
 * [*] 100%: Open a new message composer
-* [*] 100%: Open several message composer (max 3) 
-* [ ]  80%: Save every X second IF new contents (bug: save directly when opening composer without data)
+* [*] 100%: Open several message composers (max 3) 
+* [*] 100%: Save every 5 second IF new contents
 * [*] 100%: X seconds defined by admin (SOGO_D_MAIL_DRAFT_AUTOSAVE stored in database) param is used in UI with default to 5s
 * [*] 100%: Check for 'to' value:
-*** [ ]  60%: Cannot send if no recipients (UI bug, the pop-up is behind the composer, hence cannot be clicked)
+*** [*] 100%: Cannot send if no recipients
 *** [*] 100%: is a mail Address
-*** [ ]   0%: remove doubles (accept it but remove it after -> list to set)
+*** [*] 100%: remove doubles
 * [*] 100%: Check for 'cc' value:
 *** [*] 100%: optional
 *** [*] 100%: is a mail Address
-*** [ ]   0%: remove doubles (accept it but remove it after -> list to set)
+*** [*] 100%: remove doubles
 * [*] 100%: Check for 'bcc' value:
 *** [*] 100%: optional
 *** [*] 100%: is a mail Address
-*** [ ]   0%: remove doubles (accept it but remove it after -> list to set)
-* [ ]   0%: Limit the max recipients (to + cc + bcc)
+*** [*] 100%: remove doubles
+* [*] 100%: Limit the max recipients (to + cc + bcc)
 * [*] 100%: No subject allows
-* [ ]   0%: Warning if no subject before sending
-* [*] 100%: No body  allows
-* [ ]   0%: Warning if no body before sending
+* [*] 100%: Warning if no subject before sending
+* [*] 100%: No body allows
+* [*] 100%: Warning if no body before sending
 * [*] 100%: No subject and no body allows
 * [*] 100%: button do delete a mail in progress (also delete in draft)
 * [*] 100%: button do close the mail composer (keep in draft)
 * [*] 100%: button to add attachment
 * [*] 100%: button to add several attachments as the same time
-* [ ]   0%: drag and drop attachment
+* [*] 100%: drag and drop attachment
 * [*] 100%: button to remove  attachment
 * [*] 100%: button to download attachment
-* [ ]  80%: button to set priority (not send in body)
+* [*] 100%: button to set priority (not send in body)
 * [*] 100%: button to ask far receipt
 
 '''
@@ -746,14 +763,14 @@ state that makes the link between the "mail in progress" and the mail currently 
 
 '''
 
-* [ ]  90% send a mail (miss priority, is_html, reply-to)
-* [ ]  80% Edit a message (missing return_receipt, priority)
+* [*] 100% send a mail (miss priority, is_html, reply-to)
+* [*] 100% Edit a message (missing return_receipt, priority)
 * [ ]  80% Reply a message (missing RE: and reply-to)
 * [ ]  80% Forward a message (missing FWD:)
 
 '''
 
-* [ ]  ??%: Show explicit smtp error to user in some cases
+* [ ]   0%: Show explicit smtp error to user in some cases
 
 '''
 
@@ -765,7 +782,7 @@ As for now, only sieve protocol are managed.
 
 ==== Backend
 
-* [*] 100%: Allow admin to enable or not mail filtering (when this one is disable, also disable the others)
+* [*] 100%: Allow admin to enable or not mail filtering (when this one is disabled, also disable the others)
 * [*] 100%: Allow admin to enable or not vacation
 * [*] 100%: Allow admin to enable or not auto-forward
 * [*] 100%: Allow admin to enable or not notification
@@ -782,7 +799,7 @@ As for now, only sieve protocol are managed.
 * [*] 100%: Can name a filter (also add a comment in sieve script)
 * [*] 100%: Can make conditions: all must be true, only one must be true, complex logic (a or (b and c))
 * [*] 100%: Condition: X equal/not equal Y: perfect match
-* [*] 100%: Condition: X contains/does not contains Y: value included
+* [*] 100%: Condition: X contains/does not contain Y: value included
 * [*] 100%: Condition: X match/does not match Y: value with wildcard
 * [*] 100%: Condition: X regex/not regex Y: value with regex
 * [*] 100%: Condition: X greater/lesser than Y: only for size
@@ -793,7 +810,7 @@ As for now, only sieve protocol are managed.
 * [*] 100%: Can choose 'cc' as field
 * [*] 100%: Can choose 'to or cc' as field
 * [*] 100%: Can choose 'size' as field
-* [*] 100%: Can choose 'header' as field and write the header (which can be tru or not)
+* [*] 100%: Can choose 'header' as field and write the header (which can be true or not)
 * [*] 100%: Can choose 'body' as field
 * [*] 100%: Can make one or several action
 * [*] 100%: Action: discard (mail is lost)
@@ -804,17 +821,17 @@ As for now, only sieve protocol are managed.
 ====
 Not found a case where `keep` is useful. from https://datatracker.ietf.org/doc/html/rfc5228#section-4.3[rfc5228]:
 
-Example:  if size :under 1M \{ keep; \} else \{ discard; \}
+Example: if size :under 1M \{ keep; \} else \{ discard; \}
 
 Note that the above script is identical to the one below.
 
-Example:  if not size :under 1M \{ discard; \}
+Example: if not size :under 1M \{ discard; \}
 
-But SOGo 6 does not managed `if (conditon) action1 else action2`, so it will always be `if (not condition) action2`
+But SOGo 6 does not manage `if (condition) action1 else action2`, so it will always be `if (not condition) action2`
 ====
 
 * [*] 100%: Action: move to a folder and option to create it if it does not exist (only one folder for now)
-* [*] 100%: Action: redirect to one or several address (only one for now)
+* [*] 100%: Action: redirect to one or several addresses (only one for now)
 * [*] 100%: Action: Copy to a folder (only one for now)
 * [*] 100%: Action: Mark the mail as (add flag)
 * [*] 100%: Action: Reject with a message
@@ -831,12 +848,12 @@ But SOGo 6 does not managed `if (conditon) action1 else action2`, so it will alw
 * [*] 100%: User can set a message
 * [ ]   0%: Admin can set a header and/or a for the message
 * [*] 100%: User can tell the delay in days between two response [0 == always, only allow by admin]
-* [*] 100%: User can set the priority of vacation compare to thers filters (do first or not)
+* [*] 100%: User can set the priority of vacation compare to their filters (do first or not)
 * [ ]   0%: User can choose to discard all the mails while in vacation (will not do)
 * [*] 100%: User can choose a start datetime
-* [*] 100%: User can choose a end datetime
+* [*] 100%: User can choose an end datetime
 * [*] 100%: User can choose a start time during the day
-* [*] 100%: User can choose a end time during the day
+* [*] 100%: User can choose an end time during the day
 * [*] 100%: user can choose a specific day when to send vacation message
 
 '''
@@ -846,25 +863,25 @@ But SOGo 6 does not managed `if (conditon) action1 else action2`, so it will alw
 * [*] 100%: Admin can allow or not Forward
 * [*] 100%: User can enable or not Forward
 * [*] 100%: User can set several addresses to forward to
-* [ ]  10%: Admin can set rules of whitelisting/blackisting (parameters exists nut not used)
+* [ ]  10%: Admin can set rules of whitelisting/blacklisting (parameters exists nut not used)
 * [*] 100%: User can choose to keep a copy of the mail
-* [*] 100%: User can choose to put the foward at the top priority
+* [*] 100%: User can choose to put the forward at the top priority
 
 **Notification**
 
-* [*] 100%: Admin can allow or not Notificaiton
-* [*] 100%: User can enable or not Notificaiton
+* [*] 100%: Admin can allow or not Notification
+* [*] 100%: User can enable or not Notification
 * [*] 100%: User can set several addresses to notify
-* [ ]  10%: Admin can set rules of whitelisting/blackisting (parameters exists nut not used)
-* [*] 100%: User set the notificaiton message
+* [ ]  10%: Admin can set rules of whitelisting/blacklisting (parameters exists nut not used)
+* [*] 100%: User set the notification message
 * [ ]   0%: User can choose to put the notification at the top priority
 
 ==== UI
 
-* [ ]  90%: Do not show filters' related pannels in user settings (filter, vacation, forward/notification) if admin doesn't allow it
-* [*] 100%: Do not show vacation pannel in user settings if admin doesn't allow it
-* [*] 100%: Do not show foward pannel in user settings if admin doesn't allow it
-* [*] 100%: Do not show notification pannel in user settings if admin doesn't allow it
+* [ ]  90%: Do not show filters' related panel in user settings (filter, vacation, forward/notification) if admin doesn't allow it
+* [*] 100%: Do not show vacation panel in user settings if admin doesn't allow it
+* [*] 100%: Do not show froward panel in user settings if admin doesn't allow it
+* [*] 100%: Do not show notification panel in user settings if admin doesn't allow it
 
 '''
 
@@ -877,7 +894,7 @@ But SOGo 6 does not managed `if (conditon) action1 else action2`, so it will alw
 * [*] 100%: Can name a filter (also add a comment in sieve script)
 * [*] 100%: Can make conditions: all must be true, only one must be true, complex logic (a or (b and c))
 * [*] 100%: Condition: X equal/not equal Y: perfect match
-* [*] 100%: Condition: X contains/does not contains Y: value included
+* [*] 100%: Condition: X contains/does not contain Y: value included
 * [*] 100%: Condition: X match/does not match Y: value with wildcard
 * [*] 100%: Condition: X regex/not regex Y: value with regex
 * [*] 100%: Condition: X greater/lesser than Y: only for size
@@ -888,16 +905,16 @@ But SOGo 6 does not managed `if (conditon) action1 else action2`, so it will alw
 * [ ]   0%: Can choose 'cc' as field
 * [ ]   0%: Can choose 'to or cc' as field
 * [ ]   0%: Can choose 'size' as field
-* [*] 100%: Can choose 'header' as field and write the header (which can be tru or not)
+* [*] 100%: Can choose 'header' as field and write the header (which can be true or not)
 * [ ]   0%: Can choose 'body' as field
-* [*] 100%: Can make one or several action
+* [*] 100%: Can make one or several actions
 * [*] 100%: Action: discard (mail is lost)
 * [*] 100%: Action: stop (stop the filtering now)
 * [ ]   0%: Action: keep (mail is kept)
 
 
 * [ ]  90%: Action: move to a folder and option to create it if it does not exist (only one folder for now)
-* [ ]  80%: Action: redirect to one or several address (only one for now)
+* [ ]  80%: Action: redirect to one or several addresses (only one for now)
 * [ ]  90%: Action: Copy to a folder (only one for now)
 * [ ]   0%: Action: Mark the mail as (add flag)
 * [ ]   0%: Action: Reject with a message

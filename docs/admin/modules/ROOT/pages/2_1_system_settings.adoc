@@ -1,6 +1,0 @@
-= SOGo 6 - system settings
-
-SOGo 6 system settings are storeds in the database. And will be empty at the first init
-
-
-

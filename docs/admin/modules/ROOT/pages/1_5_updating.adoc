@@ -1,5 +1,11 @@
 = SOGo 6 - updating
 
 
-#TODO
+[WARNING]
+====
+Not available for alpha.
+
+
+Here's only an excerpt  of what we want to achieve 
+====
 

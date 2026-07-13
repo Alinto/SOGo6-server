@@ -34,7 +34,7 @@
         "njpwerner.autodocstring",
         "xyz.local-history",
         "ms-azuretools.vscode-docker",
-        "asciidoctor.asciidoc"
+        "asciidoctor.asciidoc",
       ],
       "settings": {
         "autoDocstring.docstringFormat": "sphinx",
