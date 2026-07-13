@@ -143,10 +143,10 @@ class ProcessSetting(FlaskConfig):
     SOGO_P_TABLE_FILE_STORAGE:         str = "sogo6_file_storage"
 
     # --- Admin Authentication ---
-    # SOGO6_ADMIN: str = "" # Admin username
-    # SOGO6_ADMIN_PWD: str = "" # Admin password
-    SOGO6_ADMIN: str = "admin" # Admin username
-    SOGO6_ADMIN_PWD: str = "admin" # Admin password
+    # SOGO_P_ADMIN: str = "" # Admin username
+    # SOGO_P_ADMIN_PWD: str = "" # Admin password
+    SOGO_P_ADMIN: str = "admin" # Admin username
+    SOGO_P_ADMIN_PWD: str = "admin" # Admin password
 
     def __getitem__(self, i:str) -> Any:
         if hasattr(self, i):

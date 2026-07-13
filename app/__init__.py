@@ -145,7 +145,7 @@ def register_before_request(base_blueprint: Blueprint, kind: str, sogo_state: in
         auth_header = request.authorization
         user: User | Admin = UserAnonymous()
         admin: Admin = AdminAnonymous()
-        
+
         if auth_header:
             if auth_header.type == 'bearer':
                 if kind == cs.API_BASIC:
@@ -156,7 +156,7 @@ def register_before_request(base_blueprint: Blueprint, kind: str, sogo_state: in
                 pass
             else:
                 return create_api_base_response(error=err.ERROR_WRONG_AUTHORIZATION_TYPE)
-        
+
         if kind == cs.API_BASIC:
             g.user = user
         elif kind == cs.API_ADMIN:
@@ -194,12 +194,12 @@ def register_before_request(base_blueprint: Blueprint, kind: str, sogo_state: in
             # Skip authentication check for OPTIONS (CORS preflight)
             if request.method == "OPTIONS":
                 return None
-            
+
             # Endpoints that don't require admin authentication
             anon_admin_endpoints = {
                 "admin#AdminAuth.v1_AdminAuth.AdminAuth.ApiAdminAuthLogin",
             }
-            
+
             if (isinstance(g.admin, AdminAnonymous)
                     and request.endpoint not in anon_admin_endpoints
                     and not _is_public_endpoint()):
@@ -236,7 +236,7 @@ def register_before_request(base_blueprint: Blueprint, kind: str, sogo_state: in
                 g.system_settings = system_settings
             if 'default_domain' not in g:
                 g.default_domain_settings = default_domain_settings
-            
+
             # Handle basic API (user-based)
             if kind == cs.API_BASIC:
                 if 'user' in g:
@@ -257,7 +257,7 @@ def register_before_request(base_blueprint: Blueprint, kind: str, sogo_state: in
                 if 'admin' not in g:
                     logger.error("No admin in Flask g")
                     raise AggravatedException("No admin in Flask g")
-            
+
             return None
 
 

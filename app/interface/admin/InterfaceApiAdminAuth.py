@@ -28,11 +28,8 @@ class InterfaceAdminAuth:
         :type process: ProcessSetting
         """
         self.process_settings = process
-        try:
-            self.module_admin_auth = ModuleAdminAuth(process)
-        except RequestException:
-            # Admin auth not configured - store None and handle gracefully in methods
-            self.module_admin_auth = None
+        self.module_admin_auth = ModuleAdminAuth(process)
+
 
     def admin_login(self, username: str, password: str) -> tuple[dict, int]:
         """
@@ -46,8 +43,6 @@ class InterfaceAdminAuth:
         :rtype: tuple[dict, int]
         """
         try:
-            if self.module_admin_auth is None:
-                return create_api_base_response(None, err.ERROR_ADMIN_AUTH_NOT_CONFIG)
 
             if not self.module_admin_auth.check_admin_login(username, password):
                 return create_api_base_response(None, err.ERROR_ADMIN_LOGIN_FAILED)
@@ -68,9 +63,6 @@ class InterfaceAdminAuth:
         :rtype: tuple[dict, int]
         """
         try:
-            if self.module_admin_auth is None:
-                return create_api_base_response(None, err.ERROR_ADMIN_AUTH_NOT_CONFIG)
-
             self.module_admin_auth.logout_admin(voucher_data)
         except RequestException as e:
             return create_api_base_response(None, e.error)

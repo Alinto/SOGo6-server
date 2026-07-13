@@ -3,10 +3,11 @@ Admin authentication voucher service - simplified version without user data stor
 """
 
 from typing import Type, Any
-from cryptography.fernet import Fernet, InvalidToken
 from base64 import urlsafe_b64encode
-from json import loads as js_loads, dumps as js_dumps
 import time
+from uuid import uuid4
+
+from cryptography.fernet import Fernet, InvalidToken
 
 from app.auth.Admin import Admin, AdminAnonymous
 from app.auth.voucher.Voucher import Voucher
@@ -17,7 +18,7 @@ from app.utils.exceptions import RequestException, BugException
 from app.utils import constants as cs
 from app.utils.maths.sogo_hash import get_unique_token
 from app.utils.logger.logger import logger_auth
-from uuid import uuid4
+
 
 
 class VoucherAdminService:
@@ -49,12 +50,6 @@ class VoucherAdminService:
         # Generate session key and ID
         admin_session_id = str(uuid4())
         admin_session_key = get_unique_token(32)
-        
-        try:
-            session_fernet = Fernet(urlsafe_b64encode(admin_session_key.encode("utf-8")))
-            session_key_crypted = session_fernet.encrypt(b"")  # No sensitive data for admin
-        except (ValueError, InvalidToken) as e:
-            raise BugException("Cannot encrypt admin session") from e
 
         # Store minimal session info in Redis with 30 min TTL
         admin_session = {
@@ -87,19 +82,19 @@ class VoucherAdminService:
                 kargs[arg_name] = self.process_settings[param_name]
         voucher = voucher_class(**kargs)
         # TTL
-        voucher_data = voucher.create_voucher(voucher_payload, 30 * 60) #TODO:
+        voucher_data = voucher.create_voucher(voucher_payload, 30 * 60) #30 min validity
 
         return voucher_data
 
-    def get_redis_session_key_from_voucher(self, voucher_data: Any) -> str:
+    def get_redis_session_key_from_voucher(self, voucher_data: Any) -> tuple[str, str]:
         """
-        Extract the Redis session key from admin voucher.
+        Extract the admin uid and Redis session key from admin voucher.
 
         :param voucher_data: The raw voucher data (JWT token string)
         :type voucher_data: Any
         :raises RequestException: If the voucher is invalid or expired
-        :return: Redis key for the admin session (``admin_session:<session_id>``)
-        :rtype: str
+        :return: Admin uid and Redis key for the admin session (``admin_session:<session_id>``)
+        :rtype: tuple[str, str]
         """
         voucher_type = "JWTVoucher"
         voucher_class: Type[Voucher] = import_and_get_class("app.auth.voucher", voucher_type)
@@ -129,23 +124,7 @@ class VoucherAdminService:
         except ValueError as e:
             raise RequestException("Session key from voucher is not valid") from e
 
-        return f"admin_session:{session_id}"
-
-    def is_admin_session_valid(self, redis_key: str) -> bool:
-        """
-        Check if an admin session is still valid in Redis.
-
-        :param redis_key: The Redis key for the admin session
-        :type redis_key: str
-        :return: True if session exists and is valid
-        :rtype: bool
-        """
-        try:
-            session_data = sogo_cache().hashget(redis_key)
-            return bool(session_data)
-        except Exception as e:
-            logger_auth.error("Error checking admin session validity: %s", str(e))
-            return False
+        return payload[cs.USER_UID], f"admin_session:{session_id}"
 
     def generate_admin_from_voucher(self, voucher_data: Any) -> Admin:
         """
@@ -158,14 +137,17 @@ class VoucherAdminService:
         :rtype: Admin
         """
         try:
-            redis_key = self.get_redis_session_key_from_voucher(voucher_data)
-            
-            if not self.is_admin_session_valid(redis_key):
-                logger_auth.warning("Admin session is not valid for key: %s", redis_key)
-                return AdminAnonymous()
+            admin_uid, redis_key = self.get_redis_session_key_from_voucher(voucher_data)
 
             session_data = sogo_cache().hashget(redis_key)
-            admin_uid = session_data.get(cs.USER_UID, "anonymous")
+            if not session_data:
+                return AdminAnonymous()
+            if not admin_uid == session_data[cs.USER_UID]:
+                return AdminAnonymous()
+
+            #Update ttl and lest seen
+            sogo_cache().hashset(redis_key, {cs.SESSION_LAST_SEEN: int(time.time())}, ttl=30*60)
+
             logger_auth.info("Admin authenticated with uid: %s", admin_uid)
             return Admin(uid=admin_uid)
         except RequestException as e:

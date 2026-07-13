@@ -6,6 +6,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from app.auth.service.VoucherAdminService import VoucherAdminService
+from app.service import sogo_cache
 from app.utils.exceptions import RequestException
 from app.utils import errors as err
 
@@ -29,11 +30,6 @@ class ModuleAdminAuth:
         """
         self.process_settings = process
 
-        # Check if admin credentials are configured (not empty)
-        if not self.process_settings.SOGO6_ADMIN or not self.process_settings.SOGO6_ADMIN_PWD:
-            raise RequestException("Admin authentication not configured",
-                                 error=err.ERROR_ADMIN_AUTH_NOT_CONFIG)
-
     def check_admin_login(self, username: str, password: str) -> bool:
         """
         Check admin credentials against process settings.
@@ -46,8 +42,8 @@ class ModuleAdminAuth:
         :rtype: bool
         """
         try:
-            return (username == self.process_settings.SOGO6_ADMIN and
-                    password == self.process_settings.SOGO6_ADMIN_PWD)
+            return (username == self.process_settings.SOGO_P_ADMIN and
+                    password == self.process_settings.SOGO_P_ADMIN_PWD)
         except (AttributeError, TypeError):
             return False
 
@@ -73,8 +69,7 @@ class ModuleAdminAuth:
         :raises RequestException: If the voucher is invalid or the session cannot be revoked
         """
         voucher_admin_service = VoucherAdminService(self.process_settings)
-        redis_key = voucher_admin_service.get_redis_session_key_from_voucher(voucher_data)
+        _, redis_key = voucher_admin_service.get_redis_session_key_from_voucher(voucher_data)
 
-        from app.service import sogo_cache
         cache = sogo_cache()
         cache.revoke_user_sessions_by_key([redis_key])
