@@ -123,8 +123,8 @@ class ModuleUserSource:
         :return: Dictionary containing user contact information (uid, cn, email)
         :rtype: dict
         """
-        user.cn =   user_info["cn"]
-        user.mail = user_info["mail"]
+        user.cn =   user_info["cn"][0]
+        user.mail = user_info["mail"][0]
 
         #At this stage, the user must have a source_id as it already has been logged in.
         if not user.source_id or user.source_id not in self.all_user_sources:
@@ -142,7 +142,7 @@ class ModuleUserSource:
         if user_source_settings.US_MAPPING:
             for key_sogo, key_user_source in user_source_settings.US_MAPPING.items():
                 if info := user_info.get(key_user_source):
-                    #TODO parse into contactCard
+                    #TODO parse into contactCard, beware that each user_info is a list and my need to be a signle value
                     user.extra_info[key_sogo] = info
 
 
