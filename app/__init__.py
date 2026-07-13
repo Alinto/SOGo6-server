@@ -13,7 +13,9 @@ from flask_cors import CORS
 from marshmallow.exceptions import ValidationError
 
 from app.auth.User import User, UserAnonymous
+from app.auth.Admin import Admin, AdminAnonymous
 from app.auth.service.VoucherUserService import VoucherUserService
+from app.auth.service.VoucherAdminService import VoucherAdminService
 from app.config.settings.ProcessSetting import process_config
 from app.config.settings.SystemSettings import SystemSettingsObj
 from app.config.init_config import init_get_system_and_default_domain_settings, init_get_user_domain_settings
@@ -137,19 +139,28 @@ def register_before_request(base_blueprint: Blueprint, kind: str, sogo_state: in
     @base_blueprint.before_request
     def get_user() -> ResponseReturnValue | None:
         """
-        Add the user instance, even if there is no user
+        Add the user/admin instance to Flask g, even if there is no user/admin
         """
 
         auth_header = request.authorization
-        user: User = UserAnonymous()
+        user: User | Admin = UserAnonymous()
+        admin: Admin = AdminAnonymous()
+
         if auth_header:
             if auth_header.type == 'bearer':
-                user = VoucherUserService(process_config).generate_user_from_voucher(auth_header.token)
+                if kind == cs.API_BASIC:
+                    user = VoucherUserService(process_config).generate_user_from_voucher(auth_header.token)
+                elif kind == cs.API_ADMIN:
+                    admin = VoucherAdminService(process_config).generate_admin_from_voucher(auth_header.token)
             elif auth_header.type == 'basic' and current_app.config[cs.ALLOW_AUTH_BASIC]:
                 pass
             else:
                 return create_api_base_response(error=err.ERROR_WRONG_AUTHORIZATION_TYPE)
-        g.user = user
+
+        if kind == cs.API_BASIC:
+            g.user = user
+        elif kind == cs.API_ADMIN:
+            g.admin = admin
         return None
 
     if kind == cs.API_BASIC:
@@ -174,6 +185,27 @@ def register_before_request(base_blueprint: Blueprint, kind: str, sogo_state: in
                 return create_api_base_response(error=err.ERROR_AUTHENTICATED_ROUTE)
             return None
 
+    if kind == cs.API_ADMIN:
+        @base_blueprint.before_request
+        def check_admin_authenticated() -> ResponseReturnValue | None:
+            """
+            Check that admin is authenticated for protected endpoints
+            """
+            # Skip authentication check for OPTIONS (CORS preflight)
+            if request.method == "OPTIONS":
+                return None
+
+            # Endpoints that don't require admin authentication
+            anon_admin_endpoints = {
+                "admin#AdminAuth.v1_AdminAuth.AdminAuth.ApiAdminAuthLogin",
+            }
+
+            if (isinstance(g.admin, AdminAnonymous)
+                    and request.endpoint not in anon_admin_endpoints
+                    and not _is_public_endpoint()):
+                return create_api_base_response(error=err.ERROR_AUTHENTICATED_ROUTE)
+            return None
+
     if sogo_state == cs.SOGO_NOT_INIT:
         if kind == cs.API_BASIC:
             @base_blueprint.before_request
@@ -188,7 +220,7 @@ def register_before_request(base_blueprint: Blueprint, kind: str, sogo_state: in
                 """
                 _Add the process settings in g
                 """
-                if 'process' not in g:
+                if 'process_settings' not in g:
                     g.process_settings = process_config
 
     elif sogo_state == cs.SOGO_OK:
@@ -197,26 +229,35 @@ def register_before_request(base_blueprint: Blueprint, kind: str, sogo_state: in
             """
             Get and set the config in the global flask
             """
-            if 'process' not in g:
+            if 'process_settings' not in g:
                 g.process_settings = process_config
             system_settings, default_domain_settings = init_get_system_and_default_domain_settings()
             if 'system_settings' not in g:
                 g.system_settings = system_settings
             if 'default_domain' not in g:
                 g.default_domain_settings = default_domain_settings
-            if 'user' in g:
-                user: User = g.user
-                if isinstance(user, UserAnonymous):
-                    g.user_domain_settings = default_domain_settings
+
+            # Handle basic API (user-based)
+            if kind == cs.API_BASIC:
+                if 'user' in g:
+                    user: User = g.user
+                    if isinstance(user, UserAnonymous):
+                        g.user_domain_settings = default_domain_settings
+                    else:
+                        g.user_domain_settings = init_get_user_domain_settings(user)
+                        inter = InterfaceAuthUser(process_config, system_settings, g.user_domain_settings)
+                        creds_ok = inter.check_user_and_fill_info(user)
+                        if not creds_ok:
+                            return create_api_base_response(error=err.ERROR_USER_CREDS_NOT_VALID)
                 else:
-                    g.user_domain_settings = init_get_user_domain_settings(user)
-                    inter = InterfaceAuthUser(process_config, system_settings, g.user_domain_settings)
-                    creds_ok = inter.check_user_and_fill_info(user)
-                    if not creds_ok:
-                        return create_api_base_response(error=err.ERROR_USER_CREDS_NOT_VALID)
-            else:
-                logger.error("No user in Flask g")
-                raise AggravatedException("No user in Flask g")
+                    logger.error("No user in Flask g")
+                    raise AggravatedException("No user in Flask g")
+            # Handle admin API (admin-based)
+            elif kind == cs.API_ADMIN:
+                if 'admin' not in g:
+                    logger.error("No admin in Flask g")
+                    raise AggravatedException("No admin in Flask g")
+
             return None
 
 
