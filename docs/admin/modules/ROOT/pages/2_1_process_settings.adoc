@@ -127,10 +127,25 @@ If you change the value just like that, all those data wille be lost. To change 
 * **SOGO_INIT_SYSTEM_SETTINGS_PATH**: str = ""
 * **SOGO_INIT_DOMAIN_SETTINGS_PATH**: str = ""
 
+When your first run SOGo, only the process_settings are needed. But SOGo will be useless as it doesn't know about your mail sever or any user sources.
+Indeed, those settings are stored in the database. If the database is empty, SOGo will run in a special state called `SOGO_NOT_INIT`. Only the Admin API
+will be available to login and set the first config.
+
+However, you can set them directly by setting those two parameters above. Each one expect a path to a json file, that will fill up SOGo's database
+on first init. Just put the file on a path, and set the path above.
+
+[NOTE]
+====
+For alpha version, you can find such files in `scripts/init/`, `system_settings.json` and  `domain_settings.json`
+====
+
 
 == Debug
 
-* **SOGO_LOG_PATH**: str = "/var/log/sogo/sogo.log"
+[NOTE]
+====
+For alpha version, loggerd are hardcoded and cannot be change on the go. See `app.utils.logger.logger.py`
+====
 
 
 

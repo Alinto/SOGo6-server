@@ -25,8 +25,6 @@ if logger_imap.level < WARNING:
 else:
     imaplib.Debug = 0 # type: ignore[attr-defined]
 
-print(f"IMAP DEBUG: {imaplib.Debug}")
-
 P = ParamSpec("P")
 R = TypeVar("R")
 

@@ -1,0 +1,103 @@
+= SOGo 6 - system settings
+
+SOGo 6 system settings changes everythings on teh the webapp, whatever who is or not authenticated.
+They are stored in the database, and don't need to restart the application to be effective.
+
+== How to set/patch them
+
+=== First init
+
+You can put a json file in the filesystem of SOGo and set this process_setting: `SOGO_INIT_SYSTEM_SETTINGS_PATH`.
+
+You can use this endpoint with administrator privileges:
+* PATCH `/api/admin/v1/config/system`, body must be a json with a least one of the following parameter.
+
+=== SOGO_S_DO_DOMAIN
+
+Boolean, default to False.
+
+If your SOGo has the same configuration whatever the user, put this to True. SOGo 6 is able to make different
+behavior according to the user's domain. If that's not the case, this settings will prevent unnecessary checks and also
+simplify some of its algorithms.
+
+[NOTE]
+====
+You can enable or disable this settings on the go, the user's experience won't notice anything. It's mainly a safeguard for SOGo backend to 
+only do what it needs to do.
+====
+
+=== SOGO_S_KNOWN_DOMAIN
+
+A list of strings, default is empty/missing
+
+This setting is a way to tell SOGo all the domains it should know. It allows it to make action when it doesn't know the domain
+
+
+[NOTE]
+====
+For now, alpha, only the next setting `SOGO_S_REJECT_UNKNOWN_DOMAIN` uses that
+====
+
+[NOTE]
+====
+Later, a functionnality will be added to automatically list the domains bases on your user sources.
+====
+
+=== SOGO_S_REJECT_UNKNOWN_DOMAIN
+
+A boolean, default to False.
+
+[CAUTION]
+====
+DO NOT USE IF `SOGO_S_KNOWN_DOMAIN` is not properly set. Otherwise, nobody will be able to login.
+====
+
+This settings set SOGo 6 to directly reject plain login (username/password) or auth method (username) of the domain of the user's is not
+listed in `SOGO_S_KNOWN_DOMAIN`. That way, it prevents SOGo 6 to make an unnecessary query/requets to your user sources.
+
+
+=== SOGO_S_DOMAINLESS_LOGIN
+
+A boolean, default to False
+
+SOGo 6 relies a lot on the user's domain (except if you set `SOGO_S_DO_DOMAIN=False`). However, you may want your user to login
+with a uid which is not their email. E.g (*user* instead of *user@sogo.nu*).
+In that case, set this setting to `True`. It will tell SOGo 6 how to behave with this user.
+
+[WARNING]
+====
+With this settin at True, SOGo will have to check every user sources for the first login. After that, it will links the current user to the user
+source and its email's domain, which means `domains_settings` will be applied.
+
+It means that is your user's uid is "sogo" but its mail is "sogo@sogo.nu", settings for sogo.nu will applied after the login. Unleass you have set
+`SOGO_S_DO_DOMAIN =False`
+====
+
+=== SOGO_S_DIRECT_LOGIN
+
+[WARNING]
+====
+NOT IMPLEMENTED FOR ALPHA
+====
+
+A boolean, default to False
+
+By default, SOGo 6 will make the login phase in two steps:
+* First ask for the uid/mail/username
+* Second ask for the password or redirect to an SSO if needed
+
+This allows to easily set different authentication system according to the user's domain (E.g. sogo@sogo.nu is plain/password, sogo@ogos.un is openId).
+
+However, if you have the **same** authentication system for all of your users, you can make it in one step by setting this at True.
+
+=== SOGO_S_SENDMAIL
+
+[WARNING]
+====
+NOT IMPLEMENTED FOR ALPHA
+====
+
+A String, default to"/usr/lib/sendmail"
+
+If you're using the sendmail binary instead of a smtp server, set its path here
+

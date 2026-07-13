@@ -42,8 +42,6 @@ class SystemSettings(SogoSchema):
     #Binary
     SOGO_S_SENDMAIL = fields.String(load_default="/usr/lib/sendmail", dump_default="/usr/lib/sendmail") #Admin can decide to use sendmail instead of smtp.
 
-    #Paths
-    SOGO_S_MAILSPOOL_PATH = fields.String(load_default="/var/spool/sogo", dump_default="/var/spool/sogo") #Path where temp draft messages are stored
 
 
 
@@ -58,5 +56,4 @@ class SystemSettingsObj(SettingsObj):
     SOGO_S_DOMAINLESS_LOGIN: bool = False
     SOGO_S_DIRECT_LOGIN: bool = False
     SOGO_S_SENDMAIL: str = "/usr/lib/sendmail"
-    SOGO_S_MAILSPOOL_PATH: str = "/var/spool/sogo"
 

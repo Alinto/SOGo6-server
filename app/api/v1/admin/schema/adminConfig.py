@@ -40,7 +40,6 @@ class AdminConfigSystemGetRetSchema(ApiBaseResponse):
                 "SYSTEM_SETTINGS": {
                     "SOGO_S_DOMAINLESS_LOGIN": False,
                     "SOGO_S_DO_DOMAIN": True,
-                    "SOGO_S_MAILSPOOL_PATH": "/var/spool/sogo",
                     "SOGO_S_REJECT_UNKNOWN_DOMAIN": False,
                     "SOGO_S_SENDMAIL": "/usr/lib/sendmail"
                 }
@@ -70,8 +69,7 @@ class AdminConfigSystemPatchSchema(Schema):
                     "SOGO_S_KNOWN_DOMAIN": ["sogo.nu"],
                     "SOGO_S_REJECT_UNKNOWN_DOMAIN": False,
                     "SOGO_S_DOMAINLESS_LOGIN": False,
-                    "SOGO_S_SENDMAIL": "/usr/lib/sendmail",
-                    "SOGO_S_MAILSPOOL_PATH": "/var/spool/sogo"
+                    "SOGO_S_SENDMAIL": "/usr/lib/sendmail"
                 }
             }
         }
