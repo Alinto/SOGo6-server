@@ -6,8 +6,8 @@ The goal of SOGo 6 is to offer an API rest for any kind of client: web applicati
 
 === Not API Rest only
 
-SOGo 6 application cannot be only an API Rest as it is also a server for others protocol as Caldav or MAPI.
-However, the API rest provides all the methods needed to fully operate SOGo and its ressources.
+SOGo 6 application cannot be only an API Rest as it is also a server for other protocols such as CalDAV or MAPI.
+However, the API rest provides all the methods needed to fully operate SOGo and its resources.
 
 === Idempotency
 
@@ -15,10 +15,10 @@ SOGo 6 cannot be completely idempotent, meaning that two identical successive re
 
 For two reasons:
 
-* Sogo is a client of many services that it doesn't own nor manage their resources. The mails for example. They are managed
-by the imap server. So two SOGo request to get a mail may output differents results.
-* SOGo is a server for others protocols. The events for example, a caldav request may change an event.
-So two SOGo request to get a event may output differents results.
+* SOGo is a client of many services that it doesn't own or manage the resources of. The mails for example. They are managed
+by the IMAP server. So two SOGo requests to get a mail may output different results.
+* SOGo is a server for other protocols. The events for example, a CalDAV request may change an event.
+So two SOGo requests to get an event may output different results.
 
 === Authentication
 
@@ -38,7 +38,7 @@ https://www.rfc-editor.org/rfc/rfc5789.html[PATCH Method for HTTP]
 
 This proposal adds a new HTTP method, PATCH, to modify an existing HTTP resource.
 
-https://datatracker.ietf.org/doc/html/rfc6585[Additionnal code status]
+https://datatracker.ietf.org/doc/html/rfc6585[Additional code status]
 
 Add `428 Precondition Required`, `429 Too Many Requests`, `431 Request Header Fields Too Large` and `511 Network Authentication Required`
 
@@ -49,5 +49,3 @@ Describes their respective protocol. They both use the same HTML semantic RFC.
 https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Resources_and_specifications[HTTP specs and resources]
 
 List of all HTTP specs and resources
-
-

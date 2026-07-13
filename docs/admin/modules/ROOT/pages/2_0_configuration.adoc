@@ -9,59 +9,59 @@ In this documentation you will often see the word `domain`. In SOGo's context, i
 E.g.:
 
 * Your SOGo is available on: **https://my.company.nu**
-* User 1 connect with user1@**company.nu**, the domain from SOGo point of view is **comapny.nu**
-* User 2 connect with user1@**external.eu**, the domain from SOGo point of view is **external.eu**
+* User 1 connects with user1@**company.nu**, the domain from SOGo point of view is **company.nu**
+* User 2 connects with user1@**external.eu**, the domain from SOGo point of view is **external.eu**
 
-SOGo's domain only refers to the user's mail domain, it doesn't know about its own url or frontent domain.
+SOGo's domain only refers to the user's mail domain, it doesn't know about its own URL or frontend domain.
 ====
 
 [NOTE]
 ====
-Only the API server/backend of SOGo 6 have a configuration, the only setting of the UI/frontend being the url of the backend.
-URL used by the user browser.
+Only the API server/backend of SOGo 6 has a configuration, the only setting of the UI/frontend being the URL of the backend.
+URL used by the user's browser.
 ====
 
-There are two kind of settings: the one mandatory to run the backend application, called
-process settings, provided in ENV or a file; And the one stored in database to configure all the rest.
+There are two kinds of settings: the one mandatory to run the backend application, called
+process settings, provided in ENV or a file; and the one stored in the database to configure all the rest.
 
 == Process Settings
 
 The *process settings* are mandatory to run the API server and are meant to set once, each modification needs a restart of
-SOGo 6 to be accounted. They are provided either by ENV or a file.
+SOGo 6 to be accounted for. They are provided either by ENV or a file.
 
 == Systems, domains and rules settings.
 
-These settings are stored in the dabatase, a modification of them does not need to restart SOGo 6.
+These settings are stored in the database, a modification of them does not need to restart SOGo 6.
 They set the behavior of the webmail and the external services like the mail server, the user source...
 
 [NOTE]
 ====
-When they're empty, which happens at the first install, SOGo 6 can run but not operate cooreclyt as
-it doesn't know where is the user source, the imap server...
+When they're empty, which happens at the first install, SOGo 6 can run but not operate correctly as
+it doesn't know where the user source is, the IMAP server...
 
-However, you can easy set them up at the installation or deployment by providing a configuration file that will fill up the database at first install.
+However, you can easily set them up at the installation or deployment by providing a configuration file that will fill up the database at first install.
 ====
 
-=== Sytems settings
+=== Systems settings
 
 Settings that affect all the webmail whatever the user
 
 === Domains settings
 
-Settings that affect only user of a said domain. You have a mandatory `default_domain_settings` that set the settings for all users by default, except if
-a setting has beend defined for its domain.
+Settings that affect only users of a said domain. You have a mandatory `default_domain_settings` that sets the settings for all users by default, except if
+a setting has been defined for its domain.
 
 [NOTE]
 ====
 E.g: +
 If you want all your users to have the same domain settings, only fill up the `default_domain_settings`. If you want the user with domain *@foo.bar* to 
-have a diffrent imap server than the others, you will just have to set the imap config for the domain *@foo.bar*. All others settings for *@foo.bar* will
-fallback to `default_domain_settings`
+have a different IMAP server than the others, you will just have to set the IMAP config for the domain *@foo.bar*. All other settings for *@foo.bar* will
+fall back to `default_domain_settings`
 ====
 
 === Rules settings
 
-It's the same as domain settings, but instead of defining custom settings for one domain, you define custome settings for several domains at once.
+It's the same as domain settings, but instead of defining custom settings for one domain, you define custom settings for several domains at once.
 
 [WARNING]
 ====
@@ -70,7 +70,6 @@ Not Implemented for alpha
 
 === Precedences
 
-The settings applied to a user according to its mail's domain is:
+The settings applied to a user according to its mail's domain are:
 
 domain settings > rule settings > default_domain_settings
-

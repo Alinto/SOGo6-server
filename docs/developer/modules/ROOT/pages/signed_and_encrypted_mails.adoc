@@ -1,59 +1,59 @@
 = Signed and Encrypted Mails
 
-In the world of mails, there is two common mechanisms to add security directly into the mail content.
-Signed mails end encrypted mails, and they are both linked.
+In the world of mails, there are two common mechanisms to add security directly into the mail content.
+Signed mails and encrypted mails, and they are both linked.
 
-They both work on asymetric encryption.
+They both work on asymmetric encryption.
 
-== Asymetric Encryption, public and private keys.
+== Asymmetric Encryption, public and private keys.
 
-Obiously there is a lot to say about Asymetric Encryption but for SOGo 6, we will keep it simple.
+Obviously there is a lot to say about Asymmetric Encryption but for SOGo 6, we will keep it simple.
 
-In Asymetric Encryption there are two keys, lets say A and B.
+In Asymmetric Encryption there are two keys, let's say A and B.
 
 * With key A, you can encrypt data that you can only decrypt with key B.
 * With key B, you can encrypt data that you can only decrypt with key A.
 
-One of the key will be kept secret to the user/entity: it's the private key. The other key will be shared with other users/entities: it's the public key.
+One of the keys will be kept secret to the user/entity: it's the private key. The other key will be shared with other users/entities: it's the public key.
 
 [TIP]
 ====
-Keep in mind that the term private/public does not indiactes what the key is used for. In some protocols, like ssh, the public key will encrypt
-and the private key will decrypt. But in others protocols, the public key will decrypt and the private key encrypt
+Keep in mind that the term private/public does not indicate what the key is used for. In some protocols, like SSH, the public key will encrypt
+and the private key will decrypt. But in other protocols, the public key will decrypt and the private key will encrypt
 ====
 
-Last thing, the term Certificate. A certificate contains a key and metadata about the the key issuer, if it is trusted or not.
+Last thing, the term Certificate. A certificate contains a key and metadata about the key issuer, if it is trusted or not.
 
 
 == Signed mails
 
 **The goal is to ensure that the content of a mail received has not been altered.**
 
-User X has generated asymetric keys. Whend sending a mail to User Y, a hash of the content is generated then encrypted by the private key.
-This encrypted data is called the signature and is part of the mail. USer X has either already sent its public key to Y or add it to the mail.
+User X has generated asymmetric keys. When sending a mail to User Y, a hash of the content is generated then encrypted by the private key.
+This encrypted data is called the signature and is part of the mail. User X has either already sent its public key to Y or added it to the mail.
 
 [TIP]
 ====
 A hash is like a digital fingerprint for data. Using the same hash method, identical data will always generate the same hash.
 ====
 
-User Y receive the mail from X. It will decrypt the signature with X public key. Then, that hash is evaluated again and compare to the decrypted signature.
-If there's a match, the content has not been altered. If not, something has latered the content and the mail cannot be trusted.
+User Y receives the mail from X. It will decrypt the signature with X's public key. Then, that hash is evaluated again and compared to the decrypted signature.
+If there's a match, the content has not been altered. If not, something has altered the content and the mail cannot be trusted.
 
-**Why does it works**
+**Why does it work**
 
-Let's say someone, called H, intercepts User X mail. If H modified the mail, they can generatee a new hash but
+Let's say someone, called H, intercepts User X's mail. If H modified the mail, they can generate a new hash but
 they would not be able to encrypt it as they don't have the private key.
 
 With signed mail, all users receiving mails from X are able to verify the data integrity!
 
 == Encrypted mails
 
-**The goal is to receive encrypted emails from user that you've already shared your public key with**
+**The goal is to receive encrypted emails from users that you've already shared your public key with**
 
-User X has generated asymetric keys and has already shared its public key with several user, including User Y.
+User X has generated asymmetric keys and has already shared its public key with several users, including User Y.
 
-User Y write an email to User X. Y will use X's public key to encrypt the mail content. When X receive the mail,
+User Y writes an email to User X. Y will use X's public key to encrypt the mail content. When X receives the mail,
 it is able to decrypt it thanks to the private key.
 
 [NOTE]
@@ -61,6 +61,6 @@ it is able to decrypt it thanks to the private key.
 If both signature and encryption methods are used, note that the public key will be used to decrypt signature received by X and to encrypt mail sent to X.
 ====
 
-== What if User X want to directly send encrypted mail to User Y, without prior public key exchange?
+== What if User X wants to directly send encrypted mail to User Y, without prior public key exchange?
 
-* WKD system with pgp key
+* WKD system with PGP key

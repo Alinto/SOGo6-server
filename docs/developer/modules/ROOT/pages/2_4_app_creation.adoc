@@ -7,7 +7,7 @@
 
 == Introduction
 
-This document describes in detail the Flask application creation process in SOGo6. This process is triggered in the `/workspace/app/run.py` file by the call:
+This document describes in detail the Flask application creation process in SOGo 6. This process is triggered in the `/workspace/app/run.py` file by the call:
 
 [source,python]
 ----
@@ -632,7 +632,7 @@ class ApiBaseResponse(Schema):
 }
 ----
 
-== Comportment based on sogo state
+== Behavior based on SOGo state
 
 The behavior of the application changes significantly based on SOGo state:
 
@@ -665,4 +665,3 @@ Has full config in `g`
 All endpoints accessible +
 Has full config in `g`
 |===
-

@@ -1,17 +1,17 @@
 = SOGo 6 Interfaces
 :page-toclevels: 3
 
-Interfaces are responsible to call the different Modules needed for the request AND creating the json response and the code status.
+Interfaces are responsible for calling the different Modules needed for the request AND creating the json response and the status code.
 They have the least logic possible, so often they will just call a Module method and nothing else. They may have logic that can be
-trigger without needed the module.
+triggered without needing the module.
 
-[TIPS]
+[TIP]
 ====
-E.g. the request update the main account by adding a new identity but the admin doesn't allow that: The interface directly returns a 404
-instead of calling a modukle method.
+E.g. the request updates the main account by adding a new identity but the admin doesn't allow that: The interface directly returns a 404
+instead of calling a module method.
 ====
 
-Interface cannot import files from API, Managers or others Interfaces. They can import from utils.
+Interface cannot import files from API, Managers or other Interfaces. They can import from utils.
 
 Interface must catch RequestException that may be raised by Modules and Managers.
 
@@ -31,7 +31,7 @@ Manage User Sessions
 
 === [ADMIN] Interface Admin Action
 
-Differents admin tools
+Different admin tools
 
 === [ADMIN] Interface Auth Admin
 
@@ -43,20 +43,20 @@ Authentication for users
 
 === [User] Interface System
 
-Returns any parameters needed by UI/client when starting. E.g does the login is in two steps or one.
+Returns any parameters needed by UI/client when starting. E.g. whether the login is in two steps or one.
 
 [WARNING]
 ====
-Do not mistakes for Systems settings, manages by Admin Config
+Do not mistake for System settings, managed by Admin Config
 ====
 
 === [USER] Interface User Profile
 
-Returns all parameters that defined the UI/client behavior for a authenticated user
+Returns all parameters that define the UI/client behavior for an authenticated user
 
 [WARNING]
 ====
-Do not mistakes for table User Profiles
+Do not mistake for table User Profiles
 ====
 
 === [USER] Interface User Preferences
@@ -97,10 +97,10 @@ Manage Calendars
 
 === [USER] Interface Contacts
 
-Manage contacts of a user but also manage request to get info about a user (autocompletion, freebusy...)
+Manage contacts of a user but also manages requests to get info about a user (autocompletion, freebusy...)
 
 === [USER] Interface Drive
 
 === [USER] Interface Async
 
-Manage planned task
+Manage planned tasks
