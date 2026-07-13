@@ -61,5 +61,11 @@ class JWTVoucher(Voucher):
             return payload
         except jwt.ExpiredSignatureError as e:
             logger.error("JWT Token has expired: %s", str(e))
+        except jwt.InvalidSignatureError as e:
+            logger.error("JWT Token has invalid signature: %s", str(e))
+        except jwt.DecodeError as e:
+            logger.error("JWT Token decode error: %s", str(e))
+        except Exception as e:
+            logger.error("JWT Token error: %s", str(e))
 
         return payload
