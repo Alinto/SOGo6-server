@@ -260,6 +260,9 @@ ERROR_LDAP_CANNOT_BIND = E("S000902", "Cannot bind to the ldap server", HTTPStat
 ERROR_LDAP_CANNOT_SEARCH = E("S000903", "Cannot bind to the ldap server", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_LDAP_NOT_UNIQUE_USER = E("S000904", "Ldap server returns more than 1 entry for a unique user", HTTPStatus.INTERNAL_SERVER_ERROR)
 
+# ADMIN AUTH
+ERROR_ADMIN_LOGIN_FAILED   = E("S001000", "Admin Login Failed: Invalid Credentials", HTTPStatus.UNAUTHORIZED)
+ERROR_ADMIN_AUTH_NOT_CONFIG = E("S001001", "Admin Authentication Not Configured", HTTPStatus.PRECONDITION_FAILED)
 
 #the bugs
 ERROR_UNKOWN = E("S999999", "Undefined Error", HTTPStatus.INTERNAL_SERVER_ERROR)
