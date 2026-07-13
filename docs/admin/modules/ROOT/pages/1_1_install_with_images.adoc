@@ -1,6 +1,9 @@
 = SOGo 6 - Using the image
 
-[NOTE]
+[WARNING]
 ====
+Not available for alpha
+
+
 Official images for SOgo 6 will be provided in the future
 ====

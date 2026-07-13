@@ -2,9 +2,23 @@
 
 SOGo 6 can be configured extensively to set the behavior of the webmail and what a user can or cannot do.
 
+[WARNING]
+====
+In this documentation you will often see the word `domain`. In SOGo's context, it means the domain of the user's mail.
+
+E.g.:
+
+* Your SOGo is available on: **https://my.company.nu**
+* User 1 connect with user1@**company.nu**, the domain from SOGo point of view is **comapny.nu**
+* User 2 connect with user1@**external.eu**, the domain from SOGo point of view is **external.eu**
+
+SOGo's domain only refers to the user's mail domain, it doesn't know about its own url or frontent domain.
+====
+
 [NOTE]
 ====
 Only the API server/backend of SOGo 6 have a configuration, the only setting of the UI/frontend being the url of the backend.
+URL used by the user browser.
 ====
 
 There are two kind of settings: the one mandatory to run the backend application, called
@@ -56,7 +70,7 @@ Not Implemented for alpha
 
 === Precedences
 
-The stting applied to a user according to its domain is:
+The settings applied to a user according to its mail's domain is:
 
 domain settings > rule settings > default_domain_settings
 
