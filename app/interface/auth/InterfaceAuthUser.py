@@ -1,6 +1,7 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
+from app.auth.User import UserAnonymous
 from app.config.settings.SystemSettings import SystemSettingsObj, SystemSettings
 from app.config.settings.DomainSettings import AuthSettingsObj, AuthSettings, UserSourceSettings, UserSourceSettingsObj
 from app.config.settings.UserSettings import UserGeneralSettings
@@ -16,7 +17,7 @@ from app.utils.logger.logger import logger_api
 
 if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
-    from app.auth.User import User, UserAnonymous
+    from app.auth.User import User
 
 
 class InterfaceAuthUser:
@@ -108,7 +109,7 @@ class InterfaceAuthUser:
 
         return create_api_base_response(ret)
 
-    def check_user_and_fill_info(self, user:User) -> bool:
+    def check_user_and_fill_info(self, user:User) -> tuple[bool, User]:
         """
         Directly used by the before_request at init.
         Check that the user credentials is still relevant and fill the user instance with infos needed
@@ -120,9 +121,9 @@ class InterfaceAuthUser:
         """
         success, user_found, module_us = self._check_login(user.uid, user.password)
         if success:
-            user = user_found
-            self.module_user_profile.get_user_profile(user)
-        return success
+            self.module_user_profile.get_user_profile(user_found)
+            return True, user_found
+        return False, UserAnonymous()
 
     def logout(self, voucher_data: str) -> tuple[dict, int]:
         """

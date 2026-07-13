@@ -246,9 +246,11 @@ def register_before_request(base_blueprint: Blueprint, kind: str, sogo_state: in
                     else:
                         g.user_domain_settings = init_get_user_domain_settings(user)
                         inter = InterfaceAuthUser(process_config, system_settings, g.user_domain_settings)
-                        creds_ok = inter.check_user_and_fill_info(user)
+                        creds_ok, new_user = inter.check_user_and_fill_info(user)
                         if not creds_ok:
                             return create_api_base_response(error=err.ERROR_USER_CREDS_NOT_VALID)
+                        else:
+                            g.user = new_user
                 else:
                     logger.error("No user in Flask g")
                     raise AggravatedException("No user in Flask g")
@@ -257,7 +259,9 @@ def register_before_request(base_blueprint: Blueprint, kind: str, sogo_state: in
                 if 'admin' not in g:
                     logger.error("No admin in Flask g")
                     raise AggravatedException("No admin in Flask g")
-
+            else:
+                logger.error("No user in Flask g")
+                raise AggravatedException("No user in Flask g")
             return None
 
 
