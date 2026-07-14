@@ -17,7 +17,9 @@ It will build an image for the server called `sogo6-server:latest`
 
 [WARNING]
 ====
-The backend cannot work like that, it needs external services
+The backend cannot work like that, it needs external services (redis, a database,...) and also mandatory ENV variable.
+
+See xref:AdminDoc::2_1_process_settings.adoc[]
 ====
 
 == UI
