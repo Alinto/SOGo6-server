@@ -1,0 +1,1 @@
+**At the time being we do not accept any contribution as we are actively develloping the server**
