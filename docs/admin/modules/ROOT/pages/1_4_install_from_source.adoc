@@ -2,7 +2,5 @@
 
 
 #TODO
-Clone the repo and REAME.md
-
-
+Clone the repo and README.md
 

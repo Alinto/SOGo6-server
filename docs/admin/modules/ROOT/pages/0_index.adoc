@@ -1,18 +1,18 @@
-= SOGo6 — Documentation Admin
+= SOGo 6 — Documentation Admin
 
 [WARNING]
 ====
-SOGo 6 is still in alpha and is not suitable for productions yet.
+SOGo 6 is still in alpha and is not suitable for production yet.
 ====
 
 == Introduction
 
 Welcome to the SOGo 6 documentation for administrators!
 
-Here you will find all you need to know to :
+Here you will find all you need to know to:
 
 * Install SOGo 6
 * Add SOGo 6 to your deployment flow
 * Configure SOGo 6
 
-You will also finds some special uses case to demonstrate all you can do with SOGo 6!
+You will also find some special use cases to demonstrate all you can do with SOGo 6!

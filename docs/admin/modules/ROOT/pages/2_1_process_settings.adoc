@@ -1,9 +1,23 @@
 = SOGo 6 - process settings
 
 SOGo 6 process settings are mandatory to run the backend server. Keep in mind the modification of those settings will
-drastically modify SOGo 6 and can provoke irrevocable loss of data. So be sure to undesrtand them and set them once for all.
+drastically modify SOGo 6 and can provoke irrevocable loss of data. So be sure to understand them and set them once for all.
 
-Note that the process settings also included the Flask settings, the python framework used for the web server.
+Note that the process settings also include the Flask settings, the Python framework used for the web server.
+
+== Admin Credentials
+
+SOGo 6 has an API and a UI dedicated to Admin for configuration, action(that replace sogo-tool), user's session....
+This part does not rely on your user sources for authentication. By default it will be admin/admin but you change that with
+
+* **SOGO_P_ADMIN**: string, Admin username. Default to `admin`
+* **SOGO_P_ADMIN_PWD**: string, Admin password. Default to `admin`
+
+[NOTE]
+====
+For the alpha, it's the only way to authenticate. Later you will have an API token management that you will be able to use in your
+scripts/playbooks/CI...
+====
 
 == Redis Config
 
@@ -11,40 +25,40 @@ Redis is used both as a cache system and as the broker for the `Agent` (the proc
 
 [WARNING]
 ====
-Even if SOGo 6 have protection and data validation when reading them from Redis, you should think that SOGo 6 see
-its Redis server as trusted. Meaning if there are corupted dataor attack, they may be passed trough SOGo.
+Even if SOGo 6 has protection and data validation when reading them from Redis, you should think that SOGo 6 sees
+its Redis server as trusted. Meaning if there is corrupted data or an attack, they may be passed through SOGo.
 ====
 
 Two parameters needed:
 
 * **SOGO_P_REDIS_URL**: string, mandatory
 
-Is the url of your redis server e.g. `redis://my-redis-server:6379`.
+It is the URL of your Redis server e.g. `redis://my-redis-server:6379`.
 
-If you're using redis with `protected-mode` on, use this  `redis://<username>:<password>@redis:6379`
+If you're using Redis with `protected-mode` on, use this  `redis://<username>:<password>@redis:6379`
 
 You can use extra param in the query but SOGo 6 will add those by itself:
 
-* `decode_responses="Yes"`: to received srtings directly instead of bytes.
+* `decode_responses="Yes"`: to receive strings directly instead of bytes.
 * `protocol=3`: if `SOGO_P_REDIS_RESP_3` is set to True (see below)
 
 
 '''
 
-* **SOGO_P_REDIS_RESP_3**: bool = True # Version of RESP, 3 is strongly recommanded
+* **SOGO_P_REDIS_RESP_3**: bool = True # Version of RESP, 3 is strongly recommended
 
 https://redis.io/docs/latest/develop/reference/protocol-spec/#resp-versions[RESP 3] is needed by the
 redis python client https://redis.io/docs/latest/develop/clients/redis-py/connect/#connect-using-client-side-caching[`redis-py`] to support client-caching.
 
-Client caching allows the client ot make query only if the data has bene updated since the last time. Hence, saving time and resources.
+Client caching allows the client to make a query only if the data has been updated since the last time. Hence, saving time and resources.
 
 https://redis.io/docs/latest/develop/reference/protocol-spec/#resp-versions
 
 == Database settings
 
-SOGo 6 needs a database and a user that have the rights on this database to create, modify tables and oviosuly writting and reading.
+SOGo 6 needs a database and a user that has the rights on this database to create, modify tables and obviously writing and reading.
 
-SOGo 6 will handle the table creation at init and also updating them if needed after a upgrade.
+SOGo 6 will handle the table creation at init and also updating them if needed after an upgrade.
 
 * **SOGO_P_DB_TYPE**: string, can be either "PostgreSQL" or "MySQL".
 * **SOGO_P_DB_USER**: string, username. E.g. "admin", "sogo".
@@ -60,7 +74,7 @@ SOGo 6 offers default names to its tables, that you can modify before the first 
 
 [WARNING]
 ====
-A tthe first init, SOGo 6 will create the tables. Any modification of the name afterwards will break him.
+At the first init, SOGo 6 will create the tables. Any modification of the name afterwards will break it.
 
 If you really need to change a table name:
 * Stop SOGo 6
@@ -82,30 +96,30 @@ If you really need to change a table name:
 
 * **SOGO_P_VOUCHER_SECRET**: string, must be 32 characters long in utf-8
 
-Secret used to encrypted token send to the UI to identify a user session:
+Secret used to encrypt tokens sent to the UI to identify a user session:
 
-If you change the value, all current user session will be lost and the users will have to login again.
+If you change the value, all current user sessions will be lost and the users will have to log in again.
 
 What can a malevolent person do if they get this value:
-* They will need the jwt token stored in an authenticated user's browser.
+* They will need the JWT token stored in an authenticated user's browser.
 * They will be able to decrypt the user_session_id and the user_session_key
-* They will need to access to your Redis, to find the user session with the user_session_id.
+* They will need to access your Redis, to find the user session with the user_session_id.
 * Then they can decrypt the user session with the user_session_key
 
-The user session have those data
+The user session has those data
 
 * USER_UID: uid of the user
 * USER_PWD: the password of the user
 * USER_DOMAIN: the mail's domain of the user
 * USER_EMAIL:  the mail of the user
-* USER_SRC_ID: the source_id (from which user source the user if from) of the user.
+* USER_SRC_ID: the source_id (from which user source the user is from) of the user.
 
 
 '''
 
 * **SOGO_AES_ENC_KEY**: string, must be 32 characters long in utf-8
 
-Secret used to stored sensitive datas in the database. Such data are:
+Secret used to store sensitive data in the database. Such data are:
 * Password to external account
 * Password to external calendars or address books
 * Certificates to sign or encrypt mail
@@ -115,7 +129,7 @@ Secret used to stored sensitive datas in the database. Such data are:
 The tool to update the secret is not implemented in the alpha version
 ====
 
-If you change the value just like that, all those data wille be lost. To change the value:
+If you change the value just like that, all those data will be lost. To change the value:
 
 * Stop SOGo 6
 * Use the script tool to update the secret value
@@ -127,11 +141,11 @@ If you change the value just like that, all those data wille be lost. To change 
 * **SOGO_INIT_SYSTEM_SETTINGS_PATH**: str = ""
 * **SOGO_INIT_DOMAIN_SETTINGS_PATH**: str = ""
 
-When your first run SOGo, only the process_settings are needed. But SOGo will be useless as it doesn't know about your mail sever or any user sources.
+When you first run SOGo, only the process_settings are needed. But SOGo will be useless as it doesn't know about your mail server or any user sources.
 Indeed, those settings are stored in the database. If the database is empty, SOGo will run in a special state called `SOGO_NOT_INIT`. Only the Admin API
 will be available to login and set the first config.
 
-However, you can set them directly by setting those two parameters above. Each one expect a path to a json file, that will fill up SOGo's database
+However, you can set them directly by setting those two parameters above. Each one expects a path to a JSON file, that will fill up SOGo's database
 on first init. Just put the file on a path, and set the path above.
 
 [NOTE]
@@ -144,9 +158,7 @@ For alpha version, you can find such files in `scripts/init/`, `system_settings.
 
 [NOTE]
 ====
-For alpha version, loggerd are hardcoded and cannot be change on the go. See `app.utils.logger.logger.py`
+For alpha version, loggers are hardcoded and cannot be changed on the go. See `app.utils.logger.logger.py`
 ====
-
-
 
 

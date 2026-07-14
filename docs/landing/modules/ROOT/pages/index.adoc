@@ -2,21 +2,20 @@
 
 Welcome to SOGo 6 documentation!
 
-There are two disctinctives docs:
+There are two distinctive docs:
 
 == xref:SOGo6-AdminDoc::0_index.adoc[Administrator Documentation]
 
-This one explains how to install/deploy SOGo 6 and how to configure it. It's made for **Administrator**.
+This one explains how to install/deploy SOGo 6 and how to configure it. It's made for **Administrators**.
 
 == xref:SOGo6-DevDoc::0_index.adoc[Developer Documentation]
 
-This one is dedicated to any devellopers or contributors. It dives deep in the core architecture. You only need this one if you intend to code on it.
+This one is dedicated to any developers or contributors. It dives deep in the core architecture. You only need this one if you intend to code on it.
 
-== Others useful links 
+== Other useful links 
 
 SOGo also has a https://www.sogo.nu/[website] and a https://demov6.sogo.nu[online demo]
 
 == SOGo 5.
 
 You can find the docs of SOGo 5 https://www.sogo.nu/files/docs/SOGoInstallationGuide.html[here]
-
