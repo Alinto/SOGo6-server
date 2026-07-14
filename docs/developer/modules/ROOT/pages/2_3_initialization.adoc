@@ -53,8 +53,8 @@ File: `/workspace/app/config/init_config.py`
 ----
 def init_sogo() -> tuple[int, ClientRedis]:
     """
-    Init sogo application
-    return True if sogo is ok and already configured, False instead
+    Init SOGo application
+    return True if SOGo is ok and already configured, False instead
     raises error if the initialization has problems
     """
     sogo_state = 0
@@ -235,7 +235,7 @@ This method is currently not implemented:
 ----
 def check_agent(self) -> None:
     """
-    Check agent celery
+    Check agent Celery
     """
     pass
 ----

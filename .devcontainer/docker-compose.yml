@@ -65,12 +65,12 @@ services:
   #   depends_on:
   #     - redis
 
-  front:
-    image: sogo6-ui
-    ports:
-      - "3000:3000"
-    environment:
-     - REACT_APP_API_BASE_URL=http://localhost:5000/api/user/v1
+  # front:
+  #   image: sogo6-ui
+  #   ports:
+  #     - "3000:3000"
+  #   environment:
+  #    - REACT_APP_API_BASE_URL=http://localhost:5000/api/user/v1
 
   #https://github.com/docker-library/docs/blob/master/postgres/README.md
   postgresql:

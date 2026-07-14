@@ -4,5 +4,5 @@ Hello, this webpage contains the documentation for SOGo developers!
 
 [WARNING]
 ====
-This documentation is still in construction.
+This documentation is still under construction.
 ====

@@ -1,24 +1,24 @@
 = Core Architecture
 
-SOGo6-server is a restful API using Flask framework.
+SOGo6-server is a RESTful API using the Flask framework.
 
 SOGo 6 web application code is under the package `app`
 
 == Start
 
-* **app/run.py**: init and check sogo state, set the index endpoint, have the main function to create the Flask app
-* **app/__init__.py**: create tha Flask app, set the swagger, set global before_request and after_request.
+* **app/run.py**: init and check SOGo state, set the index endpoint, has the main function to create the Flask app
+* **app/__init__.py**: creates the Flask app, sets the swagger, sets global before_request and after_request.
 * **app/service.py**: contains the global cache object (and any future global service)
 
 == Core
 
 The goal of SOGo 6 is to be modular to easily get new features or services.
-As such, the code is mainly seperated between 4 categories:
+As such, the code is mainly separated between 4 categories:
 
 * *API*: defines the endpoints, the request or response schema.
 * *Manager*: requests external services (database, dovecot, ldap...)
-* *Module*: Use manager to read or write data. Contains the main logic of any operation
-* *Interface*: Link between API and Module; Call the right module, format the answer and code status for the API. Also catch exceptions.
+* *Module*: Uses the manager to read or write data. Contains the main logic of any operation
+* *Interface*: Link between API and Module; Calls the right module, formats the answer and status code for the API. Also catches exceptions.
 
 image::SOGo6Struct.png[SOGo 6 structure]
 
@@ -29,13 +29,13 @@ image::SOGo6Struct.png[SOGo 6 structure]
 * Interface must return ready-to-use response (meaning data + http status code)
 
 * Interface can only import the modules it needs, can be one or several.
-* *ONLY Interface* catch RequestException.
-* Interface use method create_api_base_response to format response (app/utils/api/ApiBaseResponse.py)
+* *ONLY Interface* catches RequestException.
+* Interface uses method create_api_base_response to format response (app/utils/api/ApiBaseResponse.py)
 
-* Module **dynamically** imports the proper managers. It can import one or several manager if needed (ex: ldap and sql if two kind of user sources)
+* Module **dynamically** imports the proper managers. It can import one or several managers if needed (ex: ldap and sql if two kinds of user sources)
 
-* Manager does not import enything except utils/config. Manager must do its best to catch external
-library exception and either raise SOGo exception or let the module/interface decides what to do
+* Manager does not import anything except utils/config. Manager must do its best to catch external
+library exceptions and either raise SOGo exception or let the module/interface decide what to do
 
 === Structure
 
@@ -44,8 +44,8 @@ library exception and either raise SOGo exception or let the module/interface de
 * **app/config**: The files to define SOGo 6 configuration, both parameters and database structure. Also contains the methods for initialization.
 * **app/interface**: The files of kind *Interface*, they can only import modules, utils and config
 * **app/manager**: The files of kind *Manager*, they can only import utils and config
-* **app/module**: The files of kind *Module*, they can can only import manager, utils and onfig
-* **app/utils**: The files that define methods, classes and constants uses everywhere. Can never import something from app.
+* **app/module**: The files of kind *Module*, they can only import manager, utils and config
+* **app/utils**: The files that define methods, classes and constants used everywhere. Can never import something from app.
 
 
 === API
@@ -53,7 +53,7 @@ library exception and either raise SOGo exception or let the module/interface de
 APIs are defined in path `app/api/<version>/`
 
 SOGo 6 has two distinct APIs: one for the webmail called "user" and one for the admin UI "admin".
-Admin API only have endpoints defines within `app/api/<version>/admin/` All the others folders are for the user API.
+Admin API only has endpoints defined within `app/api/<version>/admin/` All the others folders are for the user API.
 
 Each API file must start by setting the blueprint for this api
 
@@ -63,7 +63,7 @@ from flask_smorest import Blueprint
 blp = Blueprint("<name>", __name__, url_prefix="<url>")
 ```
 
-* <name> will be shown in the Swagger to regroup sames endpoints together under `user#Mail Folder`
+* <name> will be shown in the Swagger to regroup same endpoints together under `user#Mail Folder`
 * <url_prefix> is the url after /api/user/v1/<url_prefix>
 
 Next step is to add a before_request to instantiate the interface

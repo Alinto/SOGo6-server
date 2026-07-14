@@ -1,11 +1,11 @@
 = SOGo 6 - Domain Settings
 
-Domain settings defined all which are mandatory for SOGo's user app:
+Domain settings define all which are mandatory for SOGo's user app:
 
 * How to login
-* What are the users sources
-* Where is the mail server, the sendin mail sever...
-* What user can or can't do
+* What are the user sources
+* Where is the mail server, the sending mail server...
+* What users can or can't do
 * ...
 
 
@@ -17,51 +17,51 @@ In this documentation you will often see the word `domain`. In SOGo's context, i
 E.g.:
 
 * Your SOGo is available on: **https://my.company.nu**
-* User 1 connect with user1@**company.nu**, the domain from SOGo point of view is **comapny.nu**
-* User 2 connect with user1@**external.eu**, the domain from SOGo point of view is **external.eu**
+* User 1 connects with user1@**company.nu**, the domain from SOGo point of view is **company.nu**
+* User 2 connects with user1@**external.eu**, the domain from SOGo point of view is **external.eu**
 
-SOGo's domain only refers to the user's mail domain, it doesn't know about its own url or frontent domain.
+SOGo's domain only refers to the user's mail domain, it doesn't know about its own URL or frontend domain.
 ====
 
 [WARNING]
 ====
-SOGo 6 does not create or manage domain in your mail outoing (smtp) server, nor in your mail server or anithing else.
+SOGo 6 does not create or manage domains in your outgoing mail (SMTP) server, nor in your mail server or anything else.
 
-A domain settings only says that if a user's mail is sogo**@sogo.nu**, and there is settings for only **@sogo.nu**, the user will have those settings.
-The fact that your smtp server know **@sogo.nu** is not SOGo's job.
+A domain setting only says that if a user's mail is sogo**@sogo.nu**, and there are settings for only **@sogo.nu**, the user will have those settings.
+The fact that your SMTP server knows **@sogo.nu** is not SOGo's job.
 
-So, creating custom settings for **@sogo.nu** will only work is sogo.nu has been configured on your side.
+So, creating custom settings for **@sogo.nu** will only work if sogo.nu has been configured on your side.
 ====
 
 == Default and custom domain (and rules)
 
-**Default domain settings** are mandatory, the define the default beahvior of the webmail for everyone. I you don't need to set
-custom settings for some domains, you'll only have have to set the **default domain settings**.
+**Default domain settings** are mandatory, they define the default behavior of the webmail for everyone. If you don't need to set
+custom settings for some domains, you'll only have to set the **default domain settings**.
 
 **Custom domain settings** are settings that differ from default domain settings for some user's domain. Meaning that all users
-obey to the same default domain settings, but if you want to set at least one different setting from default to domain **sogo.nu**
-you can dot it.
+obey the same default domain settings, but if you want to set at least one different setting from default to domain **sogo.nu**
+you can do it.
 
 [NOTE]
 ====
-Let's say that all of your users shared the same default domain settings, but, for some reasons, you want the user from **@ogos.un** to not have
+Let's say that all of your users share the same default domain settings, but, for some reasons, you want the user from **@ogos.un** to not have
 access to filter (sieve) settings. You simply set default settings for everyone, then you can set that, for the users from **@ogos.un**, the
-setting `SOGO_D_MAIL_FILTERING_ENABLED` to False. Hence, only **@ogos.un** will not ba able to set sieve filters, while all the others can.
+setting `SOGO_D_MAIL_FILTERING_ENABLED` to False. Hence, only **@ogos.un** will not be able to set sieve filters, while all the others can.
 ====
 
-**Rule domain settings** is the same as **Custom domain settings** but instead to set settings for onde domains, you do it for several.
+**Rule domain settings** are the same as **Custom domain settings** but instead of setting settings for one domain, you do it for several.
 
 [WARNING]
 ====
 Rule domain settings are not implemented in alpha
 ====
 
-When a user make an action, the order of priority is:
+When a user makes an action, the order of priority is:
 
 **Custom** > **Rule** > **Default**
 
 == Domain settings
 
-Domain settings are separated in different topic:
+Domain settings are separated into different topics:
 
 *

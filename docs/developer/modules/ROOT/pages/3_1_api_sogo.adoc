@@ -1,11 +1,11 @@
 = SOGo API Rest
 
-Here are discribed all the rules and definitions applying to SOGo API Rest
+Here are described all the rules and definitions applying to SOGo API Rest
 
 == URI prefix
 
 All endpoints will start with: +
-`/api/\{version\}` *version* is the version of the api like `v1`
+`/api/\{version\}` *version* is the version of the API like `v1`
 
 
 == URI, Resource, Collection and Action
@@ -24,16 +24,16 @@ ____
 A resource is a name that can either be:
 
 * Directly the content: `/document.txt`
-* A partial reprensation of the content: `/12578`, 12578 being the id of a mail
+* A partial representation of the content: `/12578`, 12578 being the id of a mail
 * A map to a resource: `/0`, 0 being an account 
 
-=== What is a Collection ?
+=== What is a Collection?
 
-A collection is a set of the same kind resources and can also have actions, to represent that, the plural is use on collection's name
+A collection is a set of the same kind of resources and can also have actions, to represent that, the plural is used on the collection's name
 
-`api/v1/mailboxes` mailboxes is a collections of mailbox
+`api/v1/mailboxes` mailboxes is a collection of mailbox
 
-The part just after a collection can be a resource or a action:
+The part just after a collection can be a resource or an action:
 
 `/api/v1/mailboxes/\{mailbox_id\}` mailbox_id is a resource of the collection
 
@@ -55,19 +55,19 @@ A collection also can only have a set of actions and no resources:
 `/api/v1/auth/logout`
 
 
-=== What is an Action ?
+=== What is an Action?
 
 An action is a name that represents a function, a method that will be executed.
-It can depends of a collection:
+It can depend on a collection:
 
-* `/api/v1/auth/login`: `auth` is a collection of diferents actions related to the authentication
-* `/api/v1/admin/rename-user`: `admin` is a collection of diferents actions related to the admin tools (ex: sogo-tool)
+* `/api/v1/auth/login`: `auth` is a collection of different actions related to the authentication
+* `/api/v1/admin/rename-user`: `admin` is a collection of different actions related to the admin tools (ex: sogo-tool)
 
-It can depends of a resource:
+It can depend on a resource:
 
-* `/api/v1/mailboxes/\{mailbox_id\}/folders/\{folder_id\}/purge`: `folders` is a collection of diferent resources. `purge` is an action on those resources
+* `/api/v1/mailboxes/\{mailbox_id\}/folders/\{folder_id\}/purge`: `folders` is a collection of different resources. `purge` is an action on those resources
 
-Action can only reading data, in that case, GET method will be used. If they modify data, POST will be used instead.
+Actions can only read data, in that case, the GET method will be used. If they modify data, POST will be used instead.
 
 === URL Syntax rules
 
@@ -76,17 +76,17 @@ Only use the following for naming your collections and actions:
 * Latin alphabet lowercase: `abcdefghijklmnopqrstuvwxyz`
 * hyphen (-) to separate the words.
 
-Resources doesn't have any limitations as they can be directly a resource name. ( /my_file@@@ext.pytz). But try your
+Resources don't have any limitations as they can be directly a resource name. ( /my_file@@@ext.pytz). But try your
 best to keep it with alphanumerical only.
 
-TIP: Underscore visiblity in some softwares make it a worst choice than hyphen
+TIP: Underscore visibility in some software makes it a worse choice than hyphen
 
 Endpoints must not end by a slash (/)
 
 [WARNING]
 ====
 If an endpoint is defined with a `/` at the end and you make a request to this
-endpoint without the `/`, *Flask* will not returns 404 NOT FOUND but a 302 FOUND
+endpoint without the `/`, *Flask* will not return 404 NOT FOUND but a 302 FOUND
 to redirect to the correct URL. +
 Beware of your route definition as no errors will be seen.
 ====
@@ -101,7 +101,7 @@ Beware of your route definition as no errors will be seen.
 * On a singleton: Fetch the resource.
 * On an action: Get the result of the action.
 
-GET methods must be *safe*, meaning it only reads data, its does not update, modify or delete them.
+GET methods must be *safe*, meaning it only reads data, it does not update, modify or delete them.
 
 === POST
 
@@ -110,8 +110,8 @@ GET methods must be *safe*, meaning it only reads data, its does not update, mod
 * On a singleton: Create a resource if it does not exist.
 * On an action: Execute the action.
 
-Data given must contains all the required arguments to execute the method. +
-Data must be a json with the header `Content-Type: application/json`
+Data given must contain all the required arguments to execute the method. +
+Data must be a JSON with the header `Content-Type: application/json`
 
 === PATCH
 
@@ -122,9 +122,9 @@ Data must be a json with the header `Content-Type: application/json`
 
 The data given merged with the resource stored must be
 enough to make a viable resource. +
-Data must be a json with the header `Content-Type: application/json`
+Data must be a JSON with the header `Content-Type: application/json`
 
-The json is expected to be https://datatracker.ietf.org/doc/html/rfc7386[JSON Merge Patch]. Meaning that the following data sent by a PATCH request:
+The JSON is expected to be https://datatracker.ietf.org/doc/html/rfc7386[JSON Merge Patch]. Meaning that the following data sent by a PATCH request:
 
 [source, json]
 ----
@@ -134,7 +134,7 @@ The json is expected to be https://datatracker.ietf.org/doc/html/rfc7386[JSON Me
 }
 ----
 
-It will update the value of *PARAM1* to _value1_, end remove *PARAM2*
+It will update the value of *PARAM1* to _value1_, and remove *PARAM2*
 
 [TIP]
 ====
@@ -143,7 +143,7 @@ If a patch remove a parameter that has a default value, the result will have the
 
 [WARNING]
 ====
-PATCH is not meant to delete, meaning that if you send a json-merge-patch that removes everything, the request will failed (400 Bad Request)
+PATCH is not meant to delete, meaning that if you send a json-merge-patch that removes everything, the request will fail (400 Bad Request)
 ====
 
 [TIP]
@@ -162,17 +162,17 @@ the PUT method but not the PATCH.
 ====
 
 * On a resource: Update the resource.
-* On a collection: Method not alowed.
+* On a collection: Method not allowed.
 * On a singleton: Update the resource
-* On an action: Method not alowed.
+* On an action: Method not allowed.
 
 
 === POST, PATCH data
 
 The data must be in JSON format and set the header `Content-Type: application/json`. +
-If the header is missing or incorrect, or if the data are not JSON, en error is returned **400 Bad Request**
+If the header is missing or incorrect, or if the data are not JSON, an error is returned **400 Bad Request**
 
-The json must use `snake_case` to their keys.
+The JSON must use `snake_case` for their keys.
 
 When creating or modifying a resource:
 
@@ -181,15 +181,15 @@ When creating or modifying a resource:
 Resource can have:
 
 1. Only required parameters
-2. Both required parameters and optionnal parameters
-3. Only optionnal parameters but a least one must exist.
+2. Both required parameters and optional parameters
+3. Only optional parameters but at least one must exist.
 
-For *case 1* there is no problem. POST must give everything. PATCH that try to remove a required parameter will fail
+For *case 1* there is no problem. POST must give everything. PATCH that tries to remove a required parameter will fail
 as the merged resource is not viable anymore.
 
-For *case 2*, this is the same logic as *case1*
+For *case 2*, this is the same logic as *case 1*
 
-For *case 3*, your implementation must check itself that there is at least one parameters at the end as
+For *case 3*, your implementation must check itself that there is at least one parameter at the end as
 the Marshmallow [see the part of the doc that speaks about that] schema will not detect any errors.
 ====
 
@@ -197,7 +197,7 @@ the Marshmallow [see the part of the doc that speaks about that] schema will not
 
 ==== When creating or modifying resources
 
-They must response with the resource content as a GET requets would do.
+They must respond with the resource content as a GET request would do.
 
 There must be a header `Location` with the endpoint to the resource.
 
@@ -216,11 +216,11 @@ If the action is asynchronous and the event can be followed:
 
 The resource deleted must be in the URI. Any data, query or body, sent are not processed.
 
-Delte must not return any content if succeeded, shown by the status: *204 No Content*
+DELETE must not return any content if it succeeds, shown by the status: *204 No Content*
 
 === Batch Action
 
-If a resource A have several resources B, any action on several resources B should be implement
+If a resource A has several resources B, any action on several resources B should be implemented
 at resource B level.
 
 The action's name should start with `batch` to make it clear.
@@ -236,7 +236,7 @@ Take the endpoints for calendars and events:
 DELETE on `/api/v1/calendars/\{calendar_id\}/events/\{event_id\}` delete the event +
 DELETE on `/api/v1/calendars/\{calendar_id\}` delete the calendar
 
-To delete several events froms a calendar, implements:
+To delete several events from a calendar, implement:
 
 POST `/api/v1/calendars/\{calendar_id\}/events/batch-delete`
 ====
@@ -244,16 +244,16 @@ POST `/api/v1/calendars/\{calendar_id\}/events/batch-delete`
 
 === Summary of endpoints:
 
-* `/api/v1/../collections`: GET: all resources, POST: create a new resource, PUT: Ensures a resource exist with specified value
+* `/api/v1/../collections`: GET: all resources, POST: create a new resource, PUT: Ensures a resource exists with specified value
 * `/api/v1/../collections/\{resource_id\}`: GET: the resource, PATCH: update the resource, DELETE: remove the resource
-* `/api/v1/../collections/\{resource_id\}/action-name`: POST: Action on this resource different that PATCH or DELETE
+* `/api/v1/../collections/\{resource_id\}/action-name`: POST: Action on this resource different from PATCH or DELETE
 * `/api/v1/../collections/action-name`: POST: Action on the collection 
 
 == Code status
 
 [IMPORTANT]
 ====
-Here are given the common status code that. If in you're development you think about another status code
+Here are given the common status codes. If in your development you think about another status code
 that would be useful, open the discussion.
 ====
 
@@ -266,7 +266,7 @@ that would be useful, open the discussion.
 |Success
 |*GET*: The resource has been properly fetched +
 *POST*: The action has been properly executed +
-*PATCH*: The resource has been modfied. +
+*PATCH*: The resource has been modified. +
 *DELETE*: The resource has been deleted.
 
 |201
@@ -275,7 +275,7 @@ that would be useful, open the discussion.
 
 |202
 |Accepted
-|*POST*: Action is asynchroned and has been accepted
+|*POST*: Action is asynchronous and has been accepted
 
 |204
 |No Content
@@ -290,7 +290,7 @@ that would be useful, open the discussion.
 |The request has invalid credentials, or no credentials when credentials are required.
 
 |403
-|Forbiden
+|Forbidden
 |The request or action is not allowed.
 
 |404
@@ -299,7 +299,7 @@ that would be useful, open the discussion.
 
 |409
 |Conflict
-|Use in POST request if the resource already exist.
+|Used in POST request if the resource already exists.
 
 |412
 |Precondition Failed
@@ -307,14 +307,14 @@ that would be useful, open the discussion.
 
 |500
 |Internal error
-|The server has encouter an unexpected error
+|The server has encountered an unexpected error
 
 |===
 
 
 == API response format
 
-All response are in JSON format and they all have the same basic structure, for all status code
+All responses are in JSON format and they all have the same basic structure, for all status codes
 except *204 No Content* where there is no body in the response.
 
 [source, json]
@@ -326,11 +326,11 @@ except *204 No Content* where there is no body in the response.
 }
 ----
 
-* If the code status is `2XX`, *data* contains the actual json structure expected by the request.
+* If the code status is `2XX`, *data* contains the actual JSON structure expected by the request.
 *error_code* is S000000 and *error_msg* is an empty string.
 * Else if 4XX or 5XX, *data* is `null` and:
-** "error_code": An string, representating an error. Defines in app/utils/errors.py
-** "erro_msg": A readable message of the error.
+** "error_code": A string, representing an error. Defined in app/utils/errors.py
+** "error_msg": A readable message of the error.
 
 Having a common response structure will help _Interceptors_ to properly parse the response if needed.
 
@@ -348,16 +348,16 @@ Only a few endpoints (login and param needed before login).
 
 See xref:3_2_api_auth.adoc[] for more details.
 
-== Pagination, Sorting, Filetring
+== Pagination, Sorting, Filtering
 
 [TIP]
 ====
-Collections wich we know can have a lot of mandatory implements pagination. On those collections:
+Collections which we know can have a lot of mandatory implements pagination. On those collections:
 
-* SOGo does not allow to get all the resources at once, because it directly affects its performance
-* SOGo has paremeters to tweak the maximum result per page. It affects its performance but it will be a configuration problem, not its core design.
+* SOGo does not allow getting all the resources at once, because it directly affects its performance
+* SOGo has parameters to tweak the maximum result per page. It affects its performance but it will be a configuration problem, not its core design.
 
-If a collection, that does not have pagination, appears to need one in the future, a new api version of the method
+If a collection, that does not have pagination, appears to need one in the future, a new API version of the method
 will be created, the other one marked as deprecated. 
 ====
 
@@ -366,7 +366,7 @@ A decorator has been made to handle pagination, sorting and filtering query and 
 
 `custom_paginate from app/utils/api/paginate_sort_filter.py`
 
-This decorator only check the query and add the headers to the response, it does not actually does the paging, sorting and filtering.
+This decorator only checks the query and adds the headers to the response, it does not actually do the paging, sorting and filtering.
 
 
 * param int *page*: page number (default: 1)
@@ -389,7 +389,7 @@ The query must be like this:
 
 [TIP]
 ====
-`paginate` method to format reponse's header has been override to include links
+`paginate` method to format response's header has been overridden to include links
 ====
 
 The header `X-Pagination` is set with this json

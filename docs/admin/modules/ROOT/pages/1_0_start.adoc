@@ -1,34 +1,34 @@
-= SOGo6 Starting
+= SOGo 6 Starting
 
 [WARNING]
 ====
-SOGo 6 is still in alpha and is not suitable for productions yet.
+SOGo 6 is still in alpha and is not suitable for production yet.
 ====
 
 == Introduction
 
 SOGo 6 has been made with orchestration in mind. Meaning it's best used with containerization. However,
-you'll still be able to install sogo and use directly in a virtual machine or server.
+you'll still be able to install SOGo and use it directly in a virtual machine or server.
 
 == Requirements
 
 [WARNING]
 ====
-Requirements is ought to be updated
+Requirements ought to be updated
 ====
 
 
-SOGo 6 is split in half. One part for the UI/Frontend, one part for tha API server/Backend.
+SOGo 6 is split in half. One part for the UI/Frontend, one part for the API server/Backend.
 
 === Backend requirements
 
-All the backends run on Python >= 3.10. As long as you can install it in your OS or image you good to go.
+All the backends run on Python >= 3.10. As long as you can install it in your OS or image you're good to go.
 
-There is also some additionnal C library needed
+There are also some additional C libraries needed
 
-* https://www.openldap.org/ (e.g. libldap2-dev libsasl2-dev with ubuntu)
-* libpq C library for postgresql (e.g. libpq5 with ubuntu)
+* https://www.openldap.org/ (e.g. libldap2-dev libsasl2-dev with Ubuntu)
+* libpq C library for PostgreSQL (e.g. libpq5 with Ubuntu)
 
 === Frontend requirements
 
-The fronend run with nextjs, based on reactjs. The only requirement is 
+The frontend runs with Next.js, based on React.js. The only requirement is 

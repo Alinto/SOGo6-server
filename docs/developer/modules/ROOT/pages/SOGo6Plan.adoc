@@ -4,7 +4,7 @@
 *Last update: **2026/06/02***
 
 * [*] 100%: Done
-* [ ]  80%: Partially done (may need updates or works)
+* [ ]  80%: Partially done (may need updates or work)
 * [ ]   0%: Not started or in early stage
 
 == Public and Community
@@ -13,22 +13,22 @@
 
 ==== Files
 
-Those files are detected by GitHub with easy link to them. 
+These files are detected by GitHub, with an easy link to them.
 
 '''
 
-* [ ] 80% (backend) README.md: first file a user see when going to our repo
-* [ ] 80% (frontend) README.md: first file a user see when going to our repo
+* [ ] 80% (backend) README.md: first file a user sees when going to our repo
+* [ ] 80% (frontend) README.md: first file a user sees when going to our repo
 
-For now, they only explain how to start the project. Needs to add to introduce the repo,
-add link to our website, docs...
+For now, they only explain how to start the project. We need to add an introduction to the
+repo, a link to our website, docs...
 
 '''
 
 * [ ] 0% (backend) CONTRIBUTING.md: file to explain how to contribute to the repo
 * [ ] 0% (frontend) CONTRIBUTING.md: file to explain how to contribute to the repo
 
-Tell the link to our dev doc, the coding rule, if they need to open an issue...
+Include the link to our dev docs, the coding rules, and whether they need to open an issue...
 
 '''
 
@@ -45,7 +45,7 @@ Our license is https://www.gnu.org/licenses/gpl-3.0.fr.html[GPLv3].
 * [ ] 0% (backend) SECURITY.md: file to explain what to do if a vulnerability is found
 * [ ] 0% (frontend) SECURITY.md: file to explain what to do if a vulnerability is found
 
-Basically tell our contact to report and our policies on bug bounty.
+Basically state our contact for reporting and our bug bounty policy.
 
 '''
 
@@ -55,13 +55,13 @@ Basically tell our contact to report and our policies on bug bounty.
 Mandatory, we need to find an automatic way to populate this file between each release.
 Cannot be missed when we're going public.
 
-==== Issues and Pull Request
+==== Issues and Pull Requests
 
-The community will now report their bugs, issue or feature request directly on github.
+The community will now report their bugs, issues, or feature requests directly on GitHub.
 
 * [ ] 0%: set the rules on issues
-* [ ] 0%: set the template on issues creation
-* [ ] 0%: set the rules on Pull Request
+* [ ] 0%: set the template for issue creation
+* [ ] 0%: set the rules on Pull Requests
 
 === Website
 
@@ -69,22 +69,22 @@ Currently, https://www.sogo.nu/[SOGo website] does not have any page about SOGo 
 
 [NOTE]
 ====
-This website used an old version of the framework https://gohugo.io/[hugo] which have limitations on what can be done.
-Plus, nobody knows this framework. The current updates are made by Quentin but it's only text + image.
+This website uses an old version of the framework https://gohugo.io/[hugo], which has limitations on what can be done.
+Plus, nobody knows this framework. The current updates are made by Quentin but it's only text + images.
 ====
 
 * [ ] 0%: Decide what to do
 
-* Should the website stay like this and we add new pages/contents for SOGo 6
-* Should the website be new with a link to old SOGo 5 website
+* Should the website stay like this and we add new pages/content for SOGo 6
+* Should the website be new with a link to the old SOGo 5 website
 * Others?
 
 '''
 
-What SOGo 6 website should have that SOGo 5 already have
+What SOGo 6 website should have that SOGo 5 already has
 [NOTE]
 ====
-If we keep SOGo 5 website, it's faster
+If we keep the SOGo 5 website, it's faster
 ====
 
 
@@ -98,22 +98,22 @@ The website must be ready for the first public release
 
 '''
 
-What SOGo 6 should have that SOGo's missing
+What SOGo 6 should have that SOGo is missing
 
-* [ ] 0% Security panel: that say the same thing as SECURITY.md
+* [ ] 0% Security panel: says the same thing as SECURITY.md
 * [ ] 0% Feature panel: Useful for the alpha version to make it clear to people what is implemented and what is not.
-* [ ] 0% Roadmap panel: To tell what we're going next. Useful for alpha so they know what will comes first.
+* [ ] 0% Roadmap panel: To tell what we're going to do next. Useful for the alpha so they know what will come first.
 
-For the first release, users does not need the above info.
+For the first release, users do not need the above info.
 
 == Installation, deployment, update
 
-Currently, SOGo 6 cannot be installed or deployed automatically. One's need to clone our repo and understand how to
-do it with our README.md
+Currently, SOGo 6 cannot be installed or deployed automatically. One needs to clone our repo and understand how to
+do it via our README.md
 
 [NOTE]
 ====
-For an alpha release it's ok as it's better if only people that know what they're doing test SOGo 6. The issue
+For an alpha release it's OK, as it's better if only people who know what they're doing test SOGo 6. The issues
 reported will be more thorough
 ====
 
@@ -121,14 +121,14 @@ reported will be more thorough
 === Installation
 
 * [*] 100%: Clone our repo and do it yourself
-* [ ] 30%: Devcontainer to test (two images are custom ans stores at alinto registry...)
+* [ ] 30%: Devcontainer to test (two images are custom and stored at the Alinto registry...)
 
 '''
 
 * [ ] 70%: Dockerfile to build SOGo 6 backend
-* [ ] 70%: Dockerfile to build SOGo 6 frontent
+* [ ] 70%: Dockerfile to build SOGo 6 frontend
 
-There's already dockerfiles but for the devcontainer and they doesn't start the services. We need to make 
+There are already Dockerfiles, but for the devcontainer, and they don't start the services. We need to make
 new ones from them for no-dev mode.
 
 '''
@@ -136,44 +136,44 @@ new ones from them for no-dev mode.
 * [ ] 10%: Provide a public image of SOGo 6 backend
 * [ ] 10%: Provide a public image of SOGo 6 frontend
 
-We claim to the community that we will provide public image (on dockerhub?) that they will be able to use
+We tell the community that we will provide a public image (on DockerHub?) that they will be able to use
 in their infrastructure.
-Not mandatory needed for an alpha, uses will be able to build their own if the Dockerfile is provided.
+Not mandatory for an alpha; users will be able to build their own if the Dockerfile is provided.
 
 '''
 
-* [ ] 0%: Choose how user can install SOGo 6.
+* [ ] 0%: Choose how users can install SOGo 6.
 
 Two obvious choices:
 
-* `apt/yum install`:  -- needs to build packages (server, CI, script, package repos). ++ That's how is's done with SOGo 5
-and it's easy as apt/yum handle actions theyselves like upgrade, remove...
-* `curl -sSL https://install_sogo6.sogo.nu | bash`: A script in our repos that the user will run. -- have to handle upgrade, removal.
-must be top quality. ++ no server or CI needed, people could also contributes on it.
+* `apt/yum install`: -- needs to build packages (server, CI, script, package repos). ++ That's how it's done with SOGo 5,
+and it's easy as apt/yum handle these actions themselves, like upgrade, remove...
+* `curl -sSL https://install_sogo6.sogo.nu | bash`: A script in our repo that the user will run. -- has to handle upgrade, removal.
+Must be top quality. ++ no server or CI needed, people could also contribute to it.
 
 [NOTE]
 ====
-With SOGo 5, the package was mandatory as their is a long building phase. For SOGo 6, the build is very quick so a script is enough.
+With SOGo 5, the package was mandatory as there is a long build phase. For SOGo 6, the build is very quick so a script is enough.
 ====
 
-Both can be done or only one. 
+Both can be done, or only one.
 
 === Deployment
 
-Once SOGo 6 backend is installed, how to run it and configure.
+Once the SOGo 6 backend is installed, how to run and configure it.
 
-* [*] 100%: use either ENV of file for process params (param needed to tun SOGo 6)
-* [*] 100%: use json file for system and domain params (param stored in database)
-* [ ] 50%: Add parameters to either start the web serveur or the agent
+* [*] 100%: use either ENV or file for process params (params needed to run SOGo 6)
+* [*] 100%: use a JSON file for system and domain params (params stored in database)
+* [ ] 50%: Add parameters to either start the web server or the agent
 
 '''
 
-SOGo 6 backend uses a technology call Web Server Gateway Interface (WSGI). In brief there is two parts:
-- a web framework -> defined what happend for a http request
-- a web server gateway -> handles incoming request and dispatch them to the web framework
+The SOGo 6 backend uses a technology called Web Server Gateway Interface (WSGI). In brief there are two parts:
+- a web framework -> defines what happens for an http request
+- a web server gateway -> handles incoming requests and dispatches them to the web framework
 
-Flask is only the web framework, it cannot be used alone (only for dev purpose). There are several
-gateway but the focus is on Gunicorn, the most used. Admin will be free to replace Gunicorn if they want.
+Flask is only the web framework; it cannot be used alone (only for dev purposes). There are several
+gateways, but the focus is on Gunicorn, the most used. Admins will be free to replace Gunicorn if they want.
 
 * [ ] 0%: Add a basic gunicorn config to run SOGo
 * [ ] 0%: Expose the gunicorn config file to be modified.
@@ -187,33 +187,33 @@ The frontend has almost no parameters.
 
 ==== Update
 
-No reflexion has been made on how to updade sogo:
+No thought has been given to how to update SOGo:
 
 * In case of image -> update the image
-* In case of RAW install -> re-run ap/yum/script to update
+* In case of raw install -> re-run apt/yum/script to update
 
 == Robustness
 
-* [ ]   0%: Heavy load (lot of request)
-* [ ]   0%: test with different architecture (postgresql vs mariadb, dovecot vs cyrus)
-* [ ]   0%: Requirement (ressource needed, python version needed...)
+* [ ]   0%: Heavy load (lots of requests)
+* [ ]   0%: test with different architectures (PostgreSQL vs MariaDB, Dovecot vs Cyrus)
+* [ ]   0%: Requirements (resources needed, Python version needed...)
 
 
 == Documentation
 
-We're using https://docs.asciidoctor.org/[asciidoc] for the online and pdf documentation.
+We're using https://docs.asciidoctor.org/[asciidoc] for the online and PDF documentation.
 
 === Antora
 
-Antora is the framework that build the doc into html
+Antora is the framework that builds the docs into HTML
 
-* [ ]  80%: set up antora UI (missing version managment)
-* [ ]   0%: CI to auto deply doc on our website
-* [ ]   0%: Customize the doc (color, view...)
+* [ ]  80%: set up Antora UI (missing version management)
+* [ ]   0%: CI to auto-deploy docs on our website
+* [ ]   0%: Customize the docs (color, view...)
 
 === Admin
 
-This doc if for system administrator that will install, deploy and integrates SOGo
+This doc is for system administrators who will install, deploy, and integrate SOGo
 
 * [ ] 0%: doc on how to install, update
 * [ ] 0%: Doc on how to deploy
@@ -221,17 +221,17 @@ This doc if for system administrator that will install, deploy and integrates SO
 
 [NOTE]
 ====
-5% because the params are commented on our python files...
+5% because the params are only commented in our Python files...
 ====
 
-* [ ] 0%: Doc on specific topic (how to define an imap server, how to ass alias, resources...)
+* [ ] 0%: Doc on specific topics (how to define an IMAP server, how to add an alias, resources...)
 
 === Dev
 
-Document used by us and any future collaborator or contributor.
+Documentation used by us and any future collaborator or contributor.
 
 * [ ] 50%: How to run SOGo in dev mode
-* [ ] 50%: Coding rule
+* [ ] 50%: Coding rules
 * [ ] 50%: Core Concepts and architecture
 
 == Migration SOGo 5 to 6
@@ -243,11 +243,11 @@ Document used by us and any future collaborator or contributor.
 
 [WARNING]
 ====
-Two different features may need the same "code block" meaning their status are linked. E.g: change the password of a user and search contact in
+Two different features may need the same "code block", meaning their statuses are linked. E.g.: changing the password of a user and searching for a contact in
 the Global Address Book both need the LDAP manager.
 
-Making it difficult to properly evaluates the time needed. On the contrary, if we speak only about "code block" it's very complex
-to properly explain to which features this code is for.
+This makes it difficult to properly evaluate the time needed. On the other hand, if we speak only about "code blocks" it's very difficult
+to properly explain which features this code applies to.
 ====
 
 === starting
@@ -256,20 +256,20 @@ to properly explain to which features this code is for.
 
 * [*] 100%: check process settings in ENV
 * [*] 100%: check process settings in file
-* [*] 100%: Add param to allow admin to use their own tables name
-* [*] 100%: Check the cache 
+* [*] 100%: Add param to allow admin to use their own table names
+* [*] 100%: Check the cache
 * [*] 100%: Check database connection
 * [*] 100%: Check database structure
-* [ ]   0%: Update database structure when new version, if needed
+* [ ]   0%: Update database structure when there is a new version, if needed
 * [ ]   0%: Check the agent
-* [*] 100%: Check if SOGo 6 is already configured in database
-* [*] 100%: If not, check if files with config has been provided then populate the database
-* [*] 100%: If not, block API except Admin API to configure SOGo 6
+* [*] 100%: Check if SOGo 6 is already configured in the database
+* [*] 100%: If not, check if configuration files have been provided, then populate the database
+* [*] 100%: If not, block the API except the Admin API to configure SOGo 6
 
 '''
 
-* [ ]   0%: handle ssl mode for PostgreSQL
-* [ ]   0%: handle ssl mode for MySQL/mariadb
+* [ ]   0%: handle SSL mode for PostgreSQL
+* [ ]   0%: handle SSL mode for MySQL/MariaDB
 
 
 ==== UI
@@ -304,36 +304,36 @@ to properly explain to which features this code is for.
 
 [NOTE]
 ====
-The only example for now is if the UI will make the login in two steps (first username, then password) or in one step (username + password)
+The only example for now is whether the UI will do the login in two steps (first username, then password) or in one step (username + password)
 ====
 
 === Auth
 
 ==== Backend
 
-* [*] 100%: Endpoint to get auth method for this domain (plain, opendid...)
-* [*] 100%: Return error if no domain while not domainless or if domain not known while rejecting unknown domain
-* [ ]   0%: Automatically list all domains that sogo should know instead of listing them in a system setting
-* [ ]  50%: plain auth method (username + password) (only work with ldap user source)
+* [*] 100%: Endpoint to get auth method for this domain (plain, OpenID...)
+* [*] 100%: Return error if no domain while not domainless, or if domain not known while rejecting unknown domain
+* [ ]   0%: Automatically list all domains that SOGo should know instead of listing them in a system setting
+* [ ]  50%: plain auth method (username + password) (only works with LDAP user source)
 * [ ]   0%: check if password is strong enough on login (plain)
 * [ ]   0%: Password expired and grace policy on login (plain)
-* [ ]   0%: Password recovery secondarymail (plain)
+* [ ]   0%: Password recovery via secondary mail (plain)
 * [ ]   0%: Password recovery question (plain)
-* [ ]   0%: Password change token (a token that only allow the user to change its password)
+* [ ]   0%: Password change token (a token that only allows the user to change their password)
 * [*] 100%: logout (end user session) from SOGo
-* [ ]   0%: Force user to change its password (on admin action) (plain)
-* [ ]   0%: Force user to set a MFA method (on admin action) (plain)
+* [ ]   0%: Force user to change their password (on admin action) (plain)
+* [ ]   0%: Force user to set an MFA method (on admin action) (plain)
 
 '''
 
-* [ ]   0%: openndid auth method
-* [ ]   0%: revoke openid token
+* [ ]   0%: OpenID auth method
+* [ ]   0%: revoke OpenID token
 * [ ]   0%: Avoid loop on SSO login/logout
 
 '''
 
-* [ ]   0%: saml2 auth method
-* [ ]   0%: cas auth method
+* [ ]   0%: SAML2 auth method
+* [ ]   0%: CAS auth method
 
 '''
 
@@ -341,45 +341,45 @@ The only example for now is if the UI will make the login in two steps (first us
 
 ==== UI
 
-* [*]  80%: Change language (miss the autodetection of language)
-* [ ]   0%: Is user already logged, requests to index or auth must redirect to main view. 
-* [*] 100%: Is user token is not valid anymore, return to login page
+* [*]  80%: Change language (missing the auto-detection of language)
+* [ ]   0%: If the user is already logged in, requests to index or auth must redirect to the main view.
+* [*] 100%: If the user's token is no longer valid, return to the login page
 
-**2 steps login**
+**2-step login**
 
-* [*] 100%: Show view to enter mail only (2 steps login)
-* [ ]   0%: Show error if not domain and SOGO_S_DOMAINLESS_LOGIN = False
+* [*] 100%: Show view to enter mail only (2-step login)
+* [ ]   0%: Show error if no domain and SOGO_S_DOMAINLESS_LOGIN = False
 * [ ]   0%: Show error if domain is rejected by SOGO_S_REJECT_UNKNOWN_DOMAIN
-* [*] 100%: Get login method (plain, sso...)
+* [*] 100%: Get login method (plain, SSO...)
 * [*] 100%: If plain, show view to enter password
 ** [ ]   0%: Show password recovery button if SOGO_D_PWD_RECOVERY
-** [ ]   20%: Show error if credendials fail (not correct view, cannot modify email)
-* [ ]   0%: If SSO, get on "location"
+** [ ]   20%: Show error if credentials fail (not correct view, cannot modify email)
+* [ ]   0%: If SSO, redirect to "location"
 
 '''
 
-**one step login**
+**1-step login**
 
-* [ ]   0%: If plain, show view to enter mail and password (1 step login)
+* [ ]   0%: If plain, show view to enter mail and password (1-step login)
 ** [ ]   0%: Show password recovery button if SOGO_D_PWD_RECOVERY
-** [ ]   0%: Show view to enter password 
-** [ ]   0%: Show error if credendial fails
-* [ ]   0%: If SSO, get on "location"
+** [ ]   0%: Show view to enter password
+** [ ]   0%: Show error if credentials fail
+* [ ]   0%: If SSO, redirect to "location"
 
 '''
 
 **plain login details**
 
 * [ ]   0%: if password recovery, new view to enter the mail again
-** [ ]   0%: if mail exists and method is secondary mail -> "A mail will be send to your secondary address 's********@sogo.nu"
+** [ ]   0%: if mail exists and method is secondary mail -> "A mail will be sent to your secondary address 's********@sogo.nu"
 ** [ ]   0%: if mail exists and method is question -> "Show question"
 *** [ ]   0%: Can choose question and submit answer
 *** [ ]   0%: If success -> view to change password
-** [ ]   0%: if mail does not exist or has nothing setup -> "Imposible to make a password recovery for this account"
+** [ ]   0%: if mail does not exist or has nothing set up -> "Impossible to make a password recovery for this account"
 * [ ]   0%: If MFA TOTP, show view to enter the code
-* [ ]   0%: If any action that needs to change the password, show correct view.
-* [ ]   0%: If MFA forced, show correct view.
-* [ ]   0%: If Password recovery forced, action that needs to change the password, show correct view.
+* [ ]   0%: If any action that needs to change the password, show the correct view.
+* [ ]   0%: If MFA forced, show the correct view.
+* [ ]   0%: If password recovery is forced, or any action that needs to change the password, show the correct view.
 
 === Main UI view
 
@@ -396,16 +396,16 @@ The only example for now is if the UI will make the login in two steps (first us
 * [ ]   0%: Show Journal logo if allowed by SOGO_D_MODULE_ACCESS
 * [*] 100%: Show Contact logo if allowed by SOGO_D_MODULE_ACCESS
 * [ ]   0%: Show profile picture according to user settings
-* [*] 100%: Show CN (Commmon Name) and mail as a button for theming, profile, settings and logout
-* [ ]  20%: Show module according to user preferences (SOGO_U_FIRST_MODULE) (can set the preferences but does not affect login)
-* [ ]   0%: SHow message of the day (not done by backend)
+* [*] 100%: Show CN (Common Name) and mail as a button for theming, profile, settings, and logout
+* [ ]  20%: Show module according to user preferences (SOGO_U_FIRST_MODULE) (can set the preferences but this does not affect login)
+* [ ]   0%: Show message of the day (not done by backend)
 
 '''
 
 **Custom Theming**
 
 * [ ]  10%: Allow admin to make custom theming (logo, color...) -> global.css that can be customized
-* [ ]   0%: Admin have an UI to change the theme .
+* [ ]   0%: Admin has a UI to change the theme.
 
 === Mail Accounts and Identities
 
@@ -413,33 +413,33 @@ The only example for now is if the UI will make the login in two steps (first us
 
 * [*] 100%: Endpoint to list accounts (main and external) or get one specific
 * [*] 100%: Return quota if mail server handles it.
-* [*] 100%: Endpoint to list delegation
-* [ ]  60%: Endpoint to delegate one or several accounts; means give another user the right to use our identity to send mail (not implemented)
-* [ ]  80%: Endpoint to purge all folders of an account (delete mail olders than X), if allowed by admin with a minimal date allowed. (admin settings are not used yet)
-** [ ]   0%: Add an option to not delete message flag as important
-* [ ]  20%: Endpoint to search among all mails of all folders (in review)
+* [*] 100%: Endpoint to list delegations
+* [ ]  60%: Endpoint to delegate one or several accounts; meaning giving another user the right to use our identity to send mail (not implemented)
+* [ ]  80%: Endpoint to purge all folders of an account (delete mail older than X), if allowed by admin, with a minimal date allowed. (admin settings not used yet)
+** [ ]   0%: Add an option to not delete messages flagged as important
+* [ ]  20%: Endpoint to search among all mails in all folders (in review)
 
 '''
 
-**Main Acount**
+**Main Account**
 
 * [*] 100%: Change profile picture if allowed by admin (global endpoint /preferences)
-* [ ]  70%: Get User infos (not finished)
+* [ ]  70%: Get user info (not finished)
 * [*] 100%: Get identities of the main account
 ** [*] 100%: Can change name, if allowed by admin
-** [*] 100%: Can reply-to, if allowed by admin
+** [*] 100%: Can set reply-to, if allowed by admin
 ** [*] 100%: Can add, modify, remove one or several signatures
-* [*] 100%: Can add others identities, if allowed by admin
+* [*] 100%: Can add other identities, if allowed by admin
 
 '''
 
 **Security**
 
-* [ ]   0%: Add pkcs7 certificate to sign mail and received encrypted mail
-* [ ]   0%: Add openPGP certificate to sign mail and received encrypted mail
-* [ ]   0%: Manage certificates renewal (keep expired private key to still ba able to decrypt old mails)
+* [ ]   0%: Add PKCS7 certificate to sign mail and receive encrypted mail
+* [ ]   0%: Add OpenPGP certificate to sign mail and receive encrypted mail
+* [ ]   0%: Manage certificate renewal (keep expired private key to still be able to decrypt old mails)
 * [ ]   0%: Endpoint to update password
-* [ ]   0%: Endpoint to set totp
+* [ ]   0%: Endpoint to set TOTP
 * [ ]   0%: Endpoint to set password recovery
 ** [ ]   0%: Can set secondary mail, if allowed by admin
 ** [ ]   0%: Can set questions/answers, if allowed by admin
@@ -450,9 +450,9 @@ The only example for now is if the UI will make the login in two steps (first us
 **External account**
 
 * [*] 100%: Can add/modify/remove external accounts if allowed
-** [*] 100%: Imap settings (hostname, port, encryption, auth - login/plain -, username and password)
-** [*] 100%: Smtp settings (hostname, port, encryption, auth - login/plain -, username and password)
-** [*] 100%: One, or several identities without limit from admin
+** [*] 100%: IMAP settings (hostname, port, encryption, auth - login/plain -, username and password)
+** [*] 100%: SMTP settings (hostname, port, encryption, auth - login/plain -, username and password)
+** [*] 100%: One, or several, identities without limit from admin
 ** [ ]   0%: add certificates
 
 ==== UI
@@ -463,8 +463,8 @@ The only example for now is if the UI will make the login in two steps (first us
 * [*] 100%: Button to switch between them
 * [*] 100%: Shortcut to create them if allowed by SOGO_D_ALLOW_EXT_MAIL_ACCOUNT
 * [ ]   0%: Show quota if available, with soft quota. Add warning icon if close to max.
-** [ ]   0%: If any action, except remove, failed because of a full quota (save draft, copy mail to...), show a proper message error explaining why
-** [ ]   0%: If action remove failed because of a full quota ask to delete permanently
+** [ ]   0%: If any action, except remove, fails because of a full quota (save draft, copy mail to...), show a proper error message explaining why
+** [ ]   0%: If the remove action fails because of a full quota, ask to delete permanently
 * [ ]  90%: Button to show delegations and modify them (backend missing)
 * [ ]    0%: Button to purge, if allowed
 ** [ ]    0%: ask for date (with minimal date set by admin)
@@ -477,33 +477,33 @@ The only example for now is if the UI will make the login in two steps (first us
 **Preferences - Profile**
 
 
-* [ ] 50%: User can choose profile picture if allowed by admin (do not follow admin rules)
+* [ ] 50%: User can choose profile picture if allowed by admin (does not follow admin rules)
 ** [*] 100%: User can choose default profile picture
-** [ ]   0%: User can choose gravatar pp
-** [ ]   0%: User can choose libravatar pp
-* [ ] 80%: See user infos (not linked to usersource)
+** [ ]   0%: User can choose Gravatar profile picture
+** [ ]   0%: User can choose Libravatar profile picture
+* [ ] 80%: See user info (not linked to user source)
 * [*] 100%: Get identities of the main account
 ** [*] 100%: Can change name, if allowed by admin
-** [*] 100%: Can reply-to, if allowed by admin
+** [*] 100%: Can set reply-to, if allowed by admin
 ** [*] 100%: Can add, modify, remove one or several signatures
-* [*] 100%: Can add others identities, if allowed by admin
+* [*] 100%: Can add other identities, if allowed by admin
 
 **Security**
 
-* [ ]   0%: Add pkcs7 certificate to sign mail and received encrypted mail
-* [ ]   0%: Add openPGP certificate to sign mail and received encrypted mail
+* [ ]   0%: Add PKCS7 certificate to sign mail and receive encrypted mail
+* [ ]   0%: Add OpenPGP certificate to sign mail and receive encrypted mail
 * [ ]   0%: user can update password if allowed
-* [ ]   0%: user can set totp if allowed
-* [ ]   0%: user can set password recoveyr method
+* [ ]   0%: user can set TOTP if allowed
+* [ ]   0%: user can set password recovery method
 ** [ ]   0%: user can set secondary email
 ** [ ]   0%: user can set questions/answers
 
 **Preferences - Mail**
 
 * [ ]  80%: Show the external account button, if allowed by admin
-** [*] 100%: Imap settings (hostname, port, encryption, auth - login/plain -, username and password)
-** [*] 100%: Smtp settings (hostname, port, encryption, auth - login/plain -, username and password)
-** [*] 100%: One, or several identities without limit from admin
+** [*] 100%: IMAP settings (hostname, port, encryption, auth - login/plain -, username and password)
+** [*] 100%: SMTP settings (hostname, port, encryption, auth - login/plain -, username and password)
+** [*] 100%: One, or several, identities without limit from admin
 ** [ ]   0%: Security
 
 
@@ -511,16 +511,16 @@ The only example for now is if the UI will make the login in two steps (first us
 
 ==== Backend
 
-* [*] 100%: Endpoint, List folders or get one specific
-* [ ]   0%: Endpoint, List shared folders or get one specific
+* [*] 100%: Endpoint, list folders or get one specific
+* [ ]   0%: Endpoint, list shared folders or get one specific
 * [ ]  80%: Endpoint, rename folder
-* [ ]   0%: Endpoint to move folders to
+* [ ]   0%: Endpoint to move folders
 * [ ]   0%: Endpoint to subscribe/unsubscribe to folders
 * [*] 100%: Kind of folder: Inbox, draft, sent, junk, trash, template, planned, normal
 * [*] 100%: Create or remove folder or subfolders (except special folder)
 * [ ]  50%: Modify folder (not implemented)
 ** [ ]  80%: Share a folder with rights (rework the names of the rights)
-* [*] 100%: Expunge (=remove all mails flag as deleted from the folder) a folder
+* [*] 100%: Expunge (=remove all mails flagged as deleted from the folder) a folder
 * [*] 100%: Purge (=delete all mail older than X) a folder
 * [ ]  20%: Mark all mails in a folder as read
 
@@ -530,11 +530,11 @@ The only example for now is if the UI will make the login in two steps (first us
 ** [ ]   0%: sort by from
 ** [ ]   0%: sort by date
 ** [ ]   0%: sort by size
-** [ ]   0%: sort by order receive
+** [ ]   0%: sort by order received
 * [ ]   0%: filter mails in a folder
-** [ ]   0%: show only unread message
-** [ ]   0%: show only important message
-** [ ]   0%: show only message with tag X
+** [ ]   0%: show only unread messages
+** [ ]   0%: show only important messages
+** [ ]   0%: show only messages with tag X
 * [ ]   0%: export a folder
 * [ ]   0%: empty Trash/Junk folder
 * [ ]   0%: import .eml if allowed by Admin (or DEBUG mode?)
@@ -568,7 +568,7 @@ The only example for now is if the UI will make the login in two steps (first us
 
 '''
 
-**Action on several mails
+**Action on several mails**
 
 * [*] 100% can select several mails
 * [*] 100%: button to select/unselect all
@@ -606,7 +606,7 @@ The only example for now is if the UI will make the login in two steps (first us
 * [ ]   0%: Store public key of sender
 * [ ]   0%: Check the signature (hash) of a mail
 * [ ]   0%: Decrypt encrypted mail
-* [ ]   0%: Decode TNEF attachment (microsoft kind of attachment)
+* [ ]   0%: Decode TNEF attachment (Microsoft-style attachment)
 
 '''
 
@@ -624,7 +624,7 @@ The only example for now is if the UI will make the login in two steps (first us
 * [ ]   0%: tag/untag a mail
 * [*] 100%: Print
 * [*] 100%: View source
-* [ ]   0%: important 
+* [ ]   0%: important
 * [ ]   0%: move
 * [ ]   0%: copy
 * [ ]   0%: download
@@ -643,8 +643,8 @@ The only example for now is if the UI will make the login in two steps (first us
 
 [NOTE]
 ====
-A "mail in progress" means that the client/user is currently writting a mail. This 
-"mail in progress" is not stored in real-time into the Draft folder. Hence a temporary
+A "mail in progress" means that the client/user is currently writing a mail. This
+"mail in progress" is not stored in real time in the Draft folder. Hence, there is a temporary
 state that makes the link between the "mail in progress" and the mail currently stored in the Draft folder.
 ====
 
@@ -654,40 +654,40 @@ state that makes the link between the "mail in progress" and the mail currently 
 * [*] 100%: Endpoint for sending a mail in progress
 * [*] 100%: Check for 'to' value:
 *** [*] 100%: required
-*** [*] 100%: is a mail Address
+*** [*] 100%: is a mail address
 *** [ ]   0%: remove doubles (accept it but remove it after -> list to set)
 * [*] 100%: Check for 'cc' value:
 *** [*] 100%: optional
-*** [*] 100%: is a mail Address
+*** [*] 100%: is a mail address
 *** [ ]   0%: remove doubles (accept it but remove it after -> list to set)
 * [*] 100%: Check for 'bcc' value:
 *** [*] 100%: optional
-*** [*] 100%: is a mail Address
+*** [*] 100%: is a mail address
 *** [ ]   0%: remove doubles (accept it but remove it after -> list to set)
 * [*] 100%: No subject allowed
-* [*] 100%: No body  allowed
+* [*] 100%: No body allowed
 * [*] 100%: No subject and no body allowed
-* [ ]   0%: Admin Option to check that the "from" and "reply-to" is a mail, alias, delegate account belonging to the user before sending
+* [ ]   0%: Admin Option to check that the "from" and "reply-to" is a mail, alias, or delegate account belonging to the user before sending
 
 '''
 
-* [*] 100%: Endpoint save a "mail in progress" as Draft
-* [*] 100%: Endpoint close a "mail in progress" (last version saved in Draft)
-* [*] 100%: Endpoint cancel a "mail in progress" (delete Draft)
+* [*] 100%: Endpoint to save a "mail in progress" as Draft
+* [*] 100%: Endpoint to close a "mail in progress" (last version saved in Draft)
+* [*] 100%: Endpoint to cancel a "mail in progress" (delete Draft)
 
 '''
 
-* [*] 100%: Endpoint add attachment on new mail (a mail that still don't have a Draft)
-* [*] 100%: Endpoint add attachment on mail in progress (a mail already in Draft)
-* [*] 100%: Endpoint remove attachment on mail in progress
-* [*] 100%: Endpoint download attachment on mail in progress
+* [*] 100%: Endpoint to add attachment to new mail (a mail that doesn't have a Draft yet)
+* [*] 100%: Endpoint to add attachment to mail in progress (a mail already in Draft)
+* [*] 100%: Endpoint to remove attachment from mail in progress
+* [*] 100%: Endpoint to download attachment from mail in progress
 * [*] 100%: if same name for attachment, rename the attachment by adding suffix 1,2,3...
 
 '''
 
-* [*] 100%: Ask for receipt (add headers "Disposition-Notification-To" and ""Return-Receipt-To")
+* [*] 100%: Ask for receipt (add headers "Disposition-Notification-To" and "Return-Receipt-To")
 * [*] 100%: Add priority (custom header X-Priority)
-* [*] 100%: Add Message-id (custom id + @<user's domain>)
+* [*] 100%: Add Message-ID (custom id + @<user's domain>)
 * [*] 100%: Set optional "reply-to" header
 
 '''
@@ -697,80 +697,80 @@ state that makes the link between the "mail in progress" and the mail currently 
 
 '''
 
-* [*] 100%: Send a html mail (multipart/alternative with text/plain and text/html) -> Only send a text/plain
+* [*] 100%: Send an HTML mail (multipart/alternative with text/plain and text/html) -> Currently only sends text/plain
 * [*] 100%: Send a text mail (only text/plain)
 
 '''
 
-* [ ]  10%: Add limit on Max recipients (parameter exist but not used)
-* [ ]  10%: Add limit mails send: max emails that can be send in X minutes. X block time if exceeded  (parameters exist but not used)
+* [ ]  10%: Add limit on max recipients (parameter exists but not used)
+* [ ]  10%: Add limit on mails sent: max emails that can be sent in X minutes; blocked for X time if exceeded (parameters exist but not used)
 * [*] 100%: Add lock system to avoid concurrent requests modifying the same email
 
 '''
 
-* [*] 100%: Client smtp with plain socket
-* [ ]  80%: Client smtp with explicit tls (startTLS): *Not Tested*
-* [ ]  80%: Client smtp with implicit tls (SSL/TLS): *Not Tested*
-* [*] 100%: Client smtp with no auth
-* [ ]  80%: Client smtp with auth PLAIN (startTLS): *Not Tested*
-* [ ]  80%: Client smtp with auth XOAUTH2 (startTLS): *Not Tested*
-* [ ]  80%: Client smtp with auth OAUTHBEARER (startTLS): *Not Tested*
-* [*] 100%: Client smtp send mail with error catching and returning
+* [*] 100%: Client SMTP with plain socket
+* [ ]  80%: Client SMTP with explicit TLS (startTLS): *Not Tested*
+* [ ]  80%: Client SMTP with implicit TLS (SSL/TLS): *Not Tested*
+* [*] 100%: Client SMTP with no auth
+* [ ]  80%: Client SMTP with auth PLAIN (startTLS): *Not Tested*
+* [ ]  80%: Client SMTP with auth XOAUTH2 (startTLS): *Not Tested*
+* [ ]  80%: Client SMTP with auth OAUTHBEARER (startTLS): *Not Tested*
+* [*] 100%: Client SMTP send mail with error catching and returning
 
 
 ==== UI
 
 * [*] 100%: Open a new message composer
-* [*] 100%: Open several message composers (max 3) 
-* [*] 100%: Save every 5 second IF new contents
-* [*] 100%: X seconds defined by admin (SOGO_D_MAIL_DRAFT_AUTOSAVE stored in database) param is used in UI with default to 5s
+* [*] 100%: Open several message composers (max 3)
+* [*] 100%: Save every 5 seconds if there is new content
+* [*] 100%: X seconds defined by admin (SOGO_D_MAIL_DRAFT_AUTOSAVE stored in database), parameter is used in UI with default of 5s
 * [*] 100%: Check for 'to' value:
 *** [*] 100%: Cannot send if no recipients
-*** [*] 100%: is a mail Address
+*** [*] 100%: is a mail address
 *** [*] 100%: remove doubles
 * [*] 100%: Check for 'cc' value:
 *** [*] 100%: optional
-*** [*] 100%: is a mail Address
+*** [*] 100%: is a mail address
 *** [*] 100%: remove doubles
 * [*] 100%: Check for 'bcc' value:
 *** [*] 100%: optional
-*** [*] 100%: is a mail Address
+*** [*] 100%: is a mail address
 *** [*] 100%: remove doubles
 * [*] 100%: Limit the max recipients (to + cc + bcc)
-* [*] 100%: No subject allows
+* [*] 100%: No subject allowed
 * [*] 100%: Warning if no subject before sending
-* [*] 100%: No body allows
+* [*] 100%: No body allowed
 * [*] 100%: Warning if no body before sending
-* [*] 100%: No subject and no body allows
-* [*] 100%: button do delete a mail in progress (also delete in draft)
-* [*] 100%: button do close the mail composer (keep in draft)
+* [*] 100%: No subject and no body allowed
+* [*] 100%: button to delete a mail in progress (also delete in draft)
+* [*] 100%: button to close the mail composer (keep in draft)
 * [*] 100%: button to add attachment
-* [*] 100%: button to add several attachments as the same time
+* [*] 100%: button to add several attachments at the same time
 * [*] 100%: drag and drop attachment
-* [*] 100%: button to remove  attachment
+* [*] 100%: button to remove attachment
 * [*] 100%: button to download attachment
-* [*] 100%: button to set priority (not send in body)
-* [*] 100%: button to ask far receipt
+* [*] 100%: button to set priority (not sent in body)
+* [*] 100%: button to ask for receipt
 
 '''
 
 * [*] 100%: Can choose Identity
 * [*] 100%: Can choose Signature
-* [*] 100%: Can swicth html and full text
+* [*] 100%: Can switch between HTML and plain text
 * [ ]   0%: Can choose delegation (not done in backend)
 * [ ]   0%: Can choose alias (not done in backend)
 * [ ]   0%: Autocompletion on to, cc, bcc (not done in backend)
 
 '''
 
-* [*] 100% send a mail (miss priority, is_html, reply-to)
+* [*] 100% send a mail (missing priority, is_html, reply-to)
 * [*] 100% Edit a message (missing return_receipt, priority)
-* [ ]  80% Reply a message (missing RE: and reply-to)
+* [ ]  80% Reply to a message (missing RE: and reply-to)
 * [ ]  80% Forward a message (missing FWD:)
 
 '''
 
-* [ ]   0%: Show explicit smtp error to user in some cases
+* [ ]   0%: Show explicit SMTP error to user in some cases
 
 '''
 
@@ -778,14 +778,14 @@ state that makes the link between the "mail in progress" and the mail currently 
 
 === Mails filtering
 
-As for now, only sieve protocol are managed.
+As of now, only the Sieve protocol is managed.
 
 ==== Backend
 
-* [*] 100%: Allow admin to enable or not mail filtering (when this one is disabled, also disable the others)
-* [*] 100%: Allow admin to enable or not vacation
-* [*] 100%: Allow admin to enable or not auto-forward
-* [*] 100%: Allow admin to enable or not notification
+* [*] 100%: Allow admin to enable or disable mail filtering (when this one is disabled, also disable the others)
+* [*] 100%: Allow admin to enable or disable vacation
+* [*] 100%: Allow admin to enable or disable auto-forward
+* [*] 100%: Allow admin to enable or disable notification
 
 '''
 
@@ -795,8 +795,8 @@ As for now, only sieve protocol are managed.
 * [*] 100%: Can prioritize the filters (set the order of execution)
 * [*] 100%: Can prioritize the filters (set the order of execution)
 * [*] 100%: can create/delete a filter
-* [*] 100%: Can enable/disable a filter (but not lost in database)
-* [*] 100%: Can name a filter (also add a comment in sieve script)
+* [*] 100%: Can enable/disable a filter (without it being lost in the database)
+* [*] 100%: Can name a filter (also add a comment in the Sieve script)
 * [*] 100%: Can make conditions: all must be true, only one must be true, complex logic (a or (b and c))
 * [*] 100%: Condition: X equal/not equal Y: perfect match
 * [*] 100%: Condition: X contains/does not contain Y: value included
@@ -812,14 +812,14 @@ As for now, only sieve protocol are managed.
 * [*] 100%: Can choose 'size' as field
 * [*] 100%: Can choose 'header' as field and write the header (which can be true or not)
 * [*] 100%: Can choose 'body' as field
-* [*] 100%: Can make one or several action
+* [*] 100%: Can make one or several actions
 * [*] 100%: Action: discard (mail is lost)
 * [*] 100%: Action: stop (stop the filtering now)
 * [*] 100%: Action: keep (mail is kept)
 
 [NOTE]
 ====
-Not found a case where `keep` is useful. from https://datatracker.ietf.org/doc/html/rfc5228#section-4.3[rfc5228]:
+Haven't found a case where `keep` is useful. From https://datatracker.ietf.org/doc/html/rfc5228#section-4.3[rfc5228]:
 
 Example: if size :under 1M \{ keep; \} else \{ discard; \}
 
@@ -830,57 +830,57 @@ Example: if not size :under 1M \{ discard; \}
 But SOGo 6 does not manage `if (condition) action1 else action2`, so it will always be `if (not condition) action2`
 ====
 
-* [*] 100%: Action: move to a folder and option to create it if it does not exist (only one folder for now)
+* [*] 100%: Action: move to a folder, with option to create it if it does not exist (only one folder for now)
 * [*] 100%: Action: redirect to one or several addresses (only one for now)
 * [*] 100%: Action: Copy to a folder (only one for now)
 * [*] 100%: Action: Mark the mail as (add flag)
 * [*] 100%: Action: Reject with a message
- 
+
 '''
 
 **Vacation**
 
-* [*] 100%: Admin can allow or not Vacation message
-* [*]  90%: User can enable or not a vacation message (NOT TESTED)
-* [ ]   0%: User can set different vacation messages on condition (if send to intern@example.org this one, if extern@example.org this other one)
+* [*] 100%: Admin can allow or disallow Vacation message
+* [*]  90%: User can enable or disable a vacation message (NOT TESTED)
+* [ ]   0%: User can set different vacation messages based on condition (if sent to intern@example.org this one, if extern@example.org this other one)
 * [*] 100%: User can set a custom subject
-* [ ]   0%: User can use placeholder \{subject\} in its custom subject
+* [ ]   0%: User can use placeholder \{subject\} in their custom subject
 * [*] 100%: User can set a message
-* [ ]   0%: Admin can set a header and/or a for the message
-* [*] 100%: User can tell the delay in days between two response [0 == always, only allow by admin]
-* [*] 100%: User can set the priority of vacation compare to their filters (do first or not)
-* [ ]   0%: User can choose to discard all the mails while in vacation (will not do)
+* [ ]   0%: Admin can set a header and/or a footer for the message
+* [*] 100%: User can set the delay in days between two responses [0 == always, only allowed by admin]
+* [*] 100%: User can set the priority of vacation compared to their filters (do first or not)
+* [ ]   0%: User can choose to discard all mails while in vacation (will not do)
 * [*] 100%: User can choose a start datetime
 * [*] 100%: User can choose an end datetime
 * [*] 100%: User can choose a start time during the day
 * [*] 100%: User can choose an end time during the day
-* [*] 100%: user can choose a specific day when to send vacation message
+* [*] 100%: user can choose a specific day on which to send the vacation message
 
 '''
 
 **Forward**
 
-* [*] 100%: Admin can allow or not Forward
-* [*] 100%: User can enable or not Forward
+* [*] 100%: Admin can allow or disallow Forward
+* [*] 100%: User can enable or disable Forward
 * [*] 100%: User can set several addresses to forward to
-* [ ]  10%: Admin can set rules of whitelisting/blacklisting (parameters exists nut not used)
+* [ ]  10%: Admin can set rules for whitelisting/blacklisting (parameters exist but are not used)
 * [*] 100%: User can choose to keep a copy of the mail
 * [*] 100%: User can choose to put the forward at the top priority
 
 **Notification**
 
-* [*] 100%: Admin can allow or not Notification
-* [*] 100%: User can enable or not Notification
+* [*] 100%: Admin can allow or disallow Notification
+* [*] 100%: User can enable or disable Notification
 * [*] 100%: User can set several addresses to notify
-* [ ]  10%: Admin can set rules of whitelisting/blacklisting (parameters exists nut not used)
-* [*] 100%: User set the notification message
+* [ ]  10%: Admin can set rules for whitelisting/blacklisting (parameters exist but are not used)
+* [*] 100%: User can set the notification message
 * [ ]   0%: User can choose to put the notification at the top priority
 
 ==== UI
 
-* [ ]  90%: Do not show filters' related panel in user settings (filter, vacation, forward/notification) if admin doesn't allow it
+* [ ]  90%: Do not show filters-related panel in user settings (filter, vacation, forward/notification) if admin doesn't allow it
 * [*] 100%: Do not show vacation panel in user settings if admin doesn't allow it
-* [*] 100%: Do not show froward panel in user settings if admin doesn't allow it
+* [*] 100%: Do not show forward panel in user settings if admin doesn't allow it
 * [*] 100%: Do not show notification panel in user settings if admin doesn't allow it
 
 '''
@@ -890,8 +890,8 @@ But SOGo 6 does not manage `if (condition) action1 else action2`, so it will alw
 * [*] 100%: Can have several filters
 * [*] 100%: Can prioritize the filters (set the order of execution)
 * [*] 100%: can create/delete a filter
-* [*] 100%: Can enable/disable a filter (but not lost in database)
-* [*] 100%: Can name a filter (also add a comment in sieve script)
+* [*] 100%: Can enable/disable a filter (without it being lost in the database)
+* [*] 100%: Can name a filter (also add a comment in the Sieve script)
 * [*] 100%: Can make conditions: all must be true, only one must be true, complex logic (a or (b and c))
 * [*] 100%: Condition: X equal/not equal Y: perfect match
 * [*] 100%: Condition: X contains/does not contain Y: value included
@@ -913,42 +913,42 @@ But SOGo 6 does not manage `if (condition) action1 else action2`, so it will alw
 * [ ]   0%: Action: keep (mail is kept)
 
 
-* [ ]  90%: Action: move to a folder and option to create it if it does not exist (only one folder for now)
+* [ ]  90%: Action: move to a folder, with option to create it if it does not exist (only one folder for now)
 * [ ]  80%: Action: redirect to one or several addresses (only one for now)
 * [ ]  90%: Action: Copy to a folder (only one for now)
 * [ ]   0%: Action: Mark the mail as (add flag)
 * [ ]   0%: Action: Reject with a message
 * [ ]   0%: Action: Reject with a message (not implemented in sievelib)
- 
+
 '''
 
 **Vacation**
 
-* [*] 100%: Admin can allow or not Vacation message
-* [*] 100%: User can enable or not a vacation message
-* [ ]   0%: User can set different vacation messages on condition (if send to intern@example.org this one, if extern@example.org this other one)
+* [*] 100%: Admin can allow or disallow Vacation message
+* [*] 100%: User can enable or disable a vacation message
+* [ ]   0%: User can set different vacation messages based on condition (if sent to intern@example.org this one, if extern@example.org this other one)
 * [*] 100%: User can set a custom subject
-* [*] 100%: User can use placeholder $\{subject\} in its custom subject
+* [*] 100%: User can use placeholder $\{subject\} in their custom subject
 * [*] 100%: User can set a message
-* [ ]   0%: User can tell the delay in days between two response [0 == always, only allow by admin]
-* [ ]   0%: User can set the priority of vacation compare to thers filters (do first or not)
-* [ ]   0%: User can choose to discard all the mails while in vacation (will not do)
+* [ ]   0%: User can set the delay in days between two responses [0 == always, only allowed by admin]
+* [ ]   0%: User can set the priority of vacation compared to their filters (do first or not)
+* [ ]   0%: User can choose to discard all mails while in vacation (will not do)
 * [ ]  80%: User can choose a start datetime (only date for now)
-* [ ]  80%: User can choose a end datetime (only date for now)
+* [ ]  80%: User can choose an end datetime (only date for now)
 * [*] 100%: User can choose a start time during the day
-* [*] 100%: User can choose a end time during the day
-* [*] 100%: user can choose a specific day when to send vacation message
+* [*] 100%: User can choose an end time during the day
+* [*] 100%: user can choose a specific day on which to send the vacation message
 
 '''
 
 **Forward**
 
-* [*] 100%: Admin can allow or not Forward
-* [*] 100%: User can enable or not Forward
+* [*] 100%: Admin can allow or disallow Forward
+* [*] 100%: User can enable or disable Forward
 * [*] 100%: User can set several addresses to forward to
-* [ ]  10%: Admin can set rules of whitelisting/blackisting (parameters exists)
+* [ ]  10%: Admin can set rules for whitelisting/blacklisting (parameters exist)
 * [*] 100%: User can choose to keep a copy of the mail
-* [ ]   0%: User can choose to put the foward at the top priority
+* [ ]   0%: User can choose to put the forward at the top priority
 
 
 === Calendar
@@ -968,16 +968,16 @@ But SOGo 6 does not manage `if (condition) action1 else action2`, so it will alw
 ** [*] 100%: Default reminder duration
 ** [*] 100%: Set as default
 * [ ]   0%: share a calendar with rights
-* [*] 100%: Create a sogo-token for public share (read only)
-* [*] 100%: Delete the sogo-token for public share (read only)
-* [*] 100%: Add a external .ics calendar 
+* [*] 100%: Create a SOGo-token for public share (read only)
+* [*] 100%: Delete the SOGo-token for public share (read only)
+* [*] 100%: Add an external .ics calendar
 ** [ ]   0%: auto-sync settings
 ** [*] 100%: Name
 ** [*] 100%: Color
 ** [*] 100%: manual sync
 * [ ]   70%: export its calendar (rework because not robust)
-* [ ]   0%: subscribe to another sogo user calendar
-* [ ]   0%: subscribe to an external calendar (caldav)
+* [ ]   0%: subscribe to another SOGo user's calendar
+* [ ]   0%: subscribe to an external calendar (CalDAV)
 * [ ]  80%: generate public link (doesn't work??)
 
 '''
@@ -987,37 +987,37 @@ Events
 * [*] 100%: list all events (across calendars) or a specific one
 * [*] 100%: list all events of a calendar or a specific one
 * [*] 100%: create an event
-** [*] 100%: generate uuid
-** [*] 100%: title, mandatory 
+** [*] 100%: generate UUID
+** [*] 100%: title, mandatory
 ** [*] 100%: description
 ** [*] 100%: location
 ** [*] 100%: date start, mandatory
 ** [*] 100%: date end, mandatory
 ** [*] 100%: all day
 ** [*] 100%: timezone
-** [*] 100%: visibility (public, confidentiel, private)
+** [*] 100%: visibility (public, confidential, private)
 ** [*] 100%: status
 ** [*] 100%: priority
 ** [ ]  90%: show as busy (bug with value not busy/free)
 ** [*] 100%: URL
 ** [*] 100%: categories
 ** [*] 100%: None, one or several attendees
-*** [*] 100%: list of param for an attendee
+*** [*] 100%: list of params for an attendee
 ** [*] 100%: None, one or several reminders
-*** [*] 100%: list of param for a reminder
+*** [*] 100%: list of params for a reminder
 ** [*] 100%: Attachments, one or several (not raw files)
 ** [*] 100%: recurrence rules
-*** [*] 100%: list of param for recurrences
+*** [*] 100%: list of params for recurrences
 * [*] 100%: modify an event
 ** [*] 100%: modify a recurrent event: All
 ** [*] 100%: modify a recurrent event: This one only
-** [*] 100%: modify a recurrent event: This one and all futures
+** [*] 100%: modify a recurrent event: This one and all future ones
 * [*] 100%: remove an event
 ** [*] 100%: remove a recurrent event: All
 ** [*] 100%: remove a recurrent event: This one only
-** [*] 100%: remove a recurrent event: This one and all futures
+** [*] 100%: remove a recurrent event: This one and all future ones
 * [ ]   0%: see event raw source
-* [ ]   0%: Endpoint do create a visio link of type X (Jitsi, ...)
+* [ ]   0%: Endpoint to create a video link of type X (Jitsi, ...)
 * [ ]   0%: copy event to another calendar
 * [ ]   0%: move event to another calendar
 
@@ -1028,14 +1028,14 @@ Events
 * [ ]  80%: list all tasks (across calendars). (missing pagination)
 * [ ]  80%: list all tasks of a calendar or a specific one. (missing pagination)
 * [*] 100%: create a task
-** [*] 100%: generate uuid
-** [*] 100%: title, mandatory 
+** [*] 100%: generate UUID
+** [*] 100%: title, mandatory
 ** [*] 100%: description
 ** [*] 100%: date start
 ** [*] 100%: date due
 ** [ ]   0%: timezone
 ** [*] 100%: status
-** [*] 100%: visibility (public, confidentiel, private)
+** [*] 100%: visibility (public, confidential, private)
 ** [*] 100%: URL
 ** [*] 100%: categories
 ** [*] 100%: priority
@@ -1053,18 +1053,18 @@ Events
 
 [NOTE]
 ====
-Journal are dated notes. New feature of SOGo 6.
+Journals are dated notes. New feature of SOGo 6.
 ====
 
 * [ ]   0%: list all journals (across calendars) or a specific one
 * [ ]   0%: list all journals of a calendar or a specific one
-* [ ]   0%: create/modify/remove a task
+* [ ]   0%: create/modify/remove a journal
 
 ==== UI
 
 **Calendars**
 
-* [*] 100%: list calendar
+* [*] 100%: list calendars
 ** [*] 90%: show/unshow calendars (state not stored in database)
 * [*] 100%: Create a calendar (name, color, description)
 * [ ]  80%: modify a calendar
@@ -1075,9 +1075,9 @@ Journal are dated notes. New feature of SOGo 6.
 ** [ ]   0%: Default event duration
 ** [ ]   0%: Default reminder duration
 ** [ ]   0%: Set as default
-* [*] 100%: delete calendars except personnal
+* [*] 100%: delete calendars except personal
 * [ ]   0%: share a calendar with rights
-* [*] 100%: add a external calendar (.ics)
+* [*] 100%: add an external calendar (.ics)
 ** [*] 100%: auto-sync settings
 ** [*] 100%: Name
 ** [*] 100%: Color
@@ -1089,22 +1089,22 @@ Journal are dated notes. New feature of SOGo 6.
 **Calendar view**
 
 * [*] 100%: single click to create an event of 1 hour where we click
-* [ ]   0%: double click to create an event all_day
+* [ ]   0%: double click to create an all-day event
 * [*] 100%: view by day
 ** [*] 100% button to select day
-** [*] 100% shorthcut to view today
+** [*] 100% shortcut to view today
 * [*] 100%: view by week
 * [*] 100%: view by month
 * [ ]   0%: view by day, separated by calendar
 * [ ] 20% schedule (list events)
-** [ ]   0%: choose the timespan of events (next month, last month, next 14days ...) (NOT IMPLEMENTED, show all events)
+** [ ]   0%: choose the timespan of events (next month, last month, next 14 days...) (NOT IMPLEMENTED, shows all events)
 ** [ ]   0%: sort events
 *** [ ]   0%: by title
 *** [ ]   0%: by location
 *** [ ]   0%: by calendar
 *** [ ]   0%: by start date
 *** [ ]   0%: by end date
-*** [ ]   0%: ascendant or descendant
+*** [ ]   0%: ascending or descending
 
 
 '''
@@ -1114,28 +1114,28 @@ Journal are dated notes. New feature of SOGo 6.
 * [*] 100%: create event
 ** [ ]  80%: choose calendar where to create (missing default value for this one)
 ** [*] 100%: title
-** [*] 100% starttime, endtime
+** [*] 100% start time, end time
 ** [*] 100% timezone for both
-** [ ]   0% timezone different for endtime
-** [ ]  80%: description (pure text)
+** [ ]   0% different timezone for end time
+** [ ]  80%: description (plain text)
 ** [ ]  90%: location
 ** [*] 100%: Visibility
-** [ ]  60%: show as busy or free 
+** [ ]  60%: show as busy or free
 ** [*] 100%: Status of event
 ** [*] 100%: URL (only one can be done)
 ** [ ]  60%: Repeat (missing settings from SOGo 5)
-** [*] 100%: Attendess 
-** [ ]  90%: freebusy (buy only yestaerday and tomorrow)
-** [ ]   0%: Set attenddes as optionnals or mandatory or chair 
+** [*] 100%: Attendees
+** [ ]  90%: free/busy (but only yesterday and tomorrow)
+** [ ]   0%: Set attendees as optional, mandatory, or chair
 ** [*] 100%: add one or several reminders
 *** [*] 100%: Popup
-*** [ ]   0%: Windows Microfost notification
+*** [ ]   0%: Windows Microsoft notification
 *** [*] 100%: Mail
-** [*]  80%: categorie
-* [*] 100%:modify an event
-** [ ] 70%: modification: reccurence  (some cases missing, can only modify all events)
+** [*]  80%: category
+* [*] 100%: modify an event
+** [ ] 70%: modification: recurrence (some cases missing, can only modify all events)
 * [*] 100%: delete an event
-** [ ] 70%: delete: reccurence  (some cases missing, can only modify all events)
+** [ ] 70%: delete: recurrence (some cases missing, can only modify all events)
 
 '''
 
@@ -1144,14 +1144,14 @@ Journal are dated notes. New feature of SOGo 6.
 * [*] 100%: Create task
 ** [*] 100%: name
 ** [*] 100%: choose calendar
-** [*] 100%: start calendar
-** [*] 100%: due calendar
+** [*] 100%: start date
+** [*] 100%: due date
 ** [*] 100%: status
 ** [*] 100%: progression
-** [*] 100%: pirority
+** [*] 100%: priority
 ** [ ]  80%: description
-** [ ]   0%: Visibility (pubic, confidentiel, private)
-* [*] 100%: modify an event
+** [ ]   0%: Visibility (public, confidential, private)
+* [*] 100%: modify a task
 * [*] 100%: complete a task
 * [*] 100%: delete a task
 
@@ -1161,7 +1161,7 @@ Journal are dated notes. New feature of SOGo 6.
 
 * [ ]  80%: View all tasks (missing pagination)
 ** [ ]   0%: View all tasks without due date
-** [ ]   0%: View all tasks without not completed
+** [ ]   0%: View all tasks not completed
 * [ ]  99%: View all tasks due for today (missing pagination)
 * [ ]  99%: View all tasks due today or later (missing pagination)
 * [ ]  99%: View all tasks overdue (missing pagination)
@@ -1177,20 +1177,20 @@ Journal are dated notes. New feature of SOGo 6.
 * [*] 100%: Create an AddressBook
 * [*] 100%: Delete an AddressBook (except personal)
 * [*] 100%: modify an AddressBook (name)
-* [ ]   0%: share a AddressBook with rights
+* [ ]   0%: share an AddressBook with rights
 * [ ] 50%: import AddressBook (agent msiworks)
-* [ ] 50%: export its AddressBook (agent misworks)
-* [ ]   0%: subscribe to another sogo user AddressBook
-* [ ]   0%: subscribe to an external AddressBook (cardav)
+* [ ] 50%: export its AddressBook (agent msiworks)
+* [ ]   0%: subscribe to another SOGo user's AddressBook
+* [ ]   0%: subscribe to an external AddressBook (CardDAV)
 * [*] 100%: search
-* [ ]   0%: set a Collected Addressbook (automaticcaly set unknwon sender or recipient, for autocompletion later)
+* [ ]   0%: set a Collected AddressBook (automatically set unknown sender or recipient, for autocompletion later)
 
 '''
 
 **Contact**
 
-* [*] 100%: list all contacts 
-* [*] 100%: list all contact for an Addressbook
+* [*] 100%: list all contacts
+* [*] 100%: list all contacts for an AddressBook
 * [*] 100%: create contact
 * [*] 100%: modify a contact
 * [*] 100%: delete a contact
@@ -1200,7 +1200,7 @@ Journal are dated notes. New feature of SOGo 6.
 **List**
 
 * [*] 100%: list all lists
-* [*] 100%: list all list for an Addressbokk
+* [*] 100%: list all lists for an AddressBook
 * [ ] 50%: create a list
 * [ ] 50%: modify a list
 * [*] 100%: delete a list
@@ -1209,35 +1209,35 @@ Journal are dated notes. New feature of SOGo 6.
 
 **AddressBooks**
 
-* [*] 100%: Get All contacts
-* [*] 100%: list  AddressBook
+* [*] 100%: Get all contacts
+* [*] 100%: list AddressBooks
 * [*] 100%: Create an AddressBook
 * [*] 100%: Delete an AddressBook (except personal)
 * [ ]   0%: modify an AddressBook
-* [ ]   0%: share a AddressBook with rights
-* [*] 100%: import contacts in a AddressBook
-** [*] 100%: format JSOn (meaning SOGo 6 format)
-** [*] 100%: format Vcard 3
-** [*] 100%: format Vcard 4
+* [ ]   0%: share an AddressBook with rights
+* [*] 100%: import contacts into an AddressBook
+** [*] 100%: format JSON (meaning SOGo 6 format)
+** [*] 100%: format vCard 3
+** [*] 100%: format vCard 4
 ** [*] 100%: format ldif
 * [ ]  10%: export its AddressBook
-** [*] 100%: format JSOn (meaning SOGo 6 format)
-** [*] 100%: format Vcard 3
-** [*] 100%: format Vacrdd 4
+** [*] 100%: format JSON (meaning SOGo 6 format)
+** [*] 100%: format vCard 3
+** [*] 100%: format vCard 4
 ** [*] 100%: format ldif
-* [ ]   0%: subscribe to another sogo user AddressBook
-* [ ]   0%: subscribe to an external AddressBook (cardav)
+* [ ]   0%: subscribe to another SOGo user's AddressBook
+* [ ]   0%: subscribe to an external AddressBook (CardDAV)
 * [*] 100%: search
 * [*] 100%: filter
-* [ ]  90%: sort (trier)
+* [ ]  90%: sort
 
 '''
 
 **Contact**
 
 * [*] 100%: list all contacts (across AddressBooks) or a specific one
-* [*] 100%: list all contacts of a AddressBook or a specific one
-* [ ]  50%: create (Ui must be redone, simplified view with button for "advenced")
+* [*] 100%: list all contacts of an AddressBook or a specific one
+* [ ]  50%: create (UI must be redone, simplified view with button for "advanced")
 * [ ]  50%: modify
 * [*] 100%: remove a contact
 * [*] 100%: button to write an email to the contact
@@ -1247,29 +1247,29 @@ Journal are dated notes. New feature of SOGo 6.
 
 **List**
 
-* [ ] 20%: Create a list of contact (no button for it, contact must exist first, no GAB)
+* [ ] 20%: Create a list of contacts (no button for it, contact must exist first, no GAB)
 * [*] 100%: button to write an email to members of the list
 * [ ]   0%: button to search any data (emails, events) related to this list
 * [ ]   0%: export a list
-* [ ]   0%: view raw source of a contact
+* [ ]   0%: view raw source of a list
 
 === User Preferences
 
 ==== Backend
 
-* [*] 100%: Create defaults preferences the fist time a user login
+* [*] 100%: Create default preferences the first time a user logs in
 * [*] 100%: Update preferences
 
 ==== UI
 
 * [*] 100%: Update preferences
-* [ ]  10%: Apply users prefererences to the UI
-** [ ]   0%: Make a list and what they affect
+* [ ]  10%: Apply user preferences to the UI
+** [ ]   0%: Make a list of what they affect
 
-=== Sync with others app
+=== Sync with other apps
 
-* [ ]   0%: Caldav server
-* [ ]   0%: Cardav server
+* [ ]   0%: CalDAV server
+* [ ]   0%: CardDAV server
 * [ ]   0%: ActiveSync server
 
 === Admin
@@ -1279,35 +1279,35 @@ Journal are dated notes. New feature of SOGo 6.
 * [*] 80%: Basic auth method (username + password)
 * [ ]  0%: API token
 * [ ]  0%: Elevate users to admin
-* [ ]  0%: Make SuperAdmin (meaning can act on user API to do things (create folder, set acl...))
+* [ ]  0%: Make SuperAdmin (meaning can act on user API to do things (create folder, set ACL...))
 
 '''
 
 Config
 
-* [*] 100%: System settings (settings that affect the whole SOGo)
-* [ ] 80%: Domain settings (settings that affect specific user's domain with default value)
+* [*] 100%: System settings (settings that affect the whole of SOGo)
+* [ ] 80%: Domain settings (settings that affect a specific user's domain with a default value)
 * [ ]   0%: Rule settings (settings that affect several domains)
-* [ ]   0%: Visibility settings (settings that says who can see who in autocompletion)
+* [ ]   0%: Visibility settings (settings that say who can see whom in autocompletion)
 
 '''
 
 Tools
 
-* [*] 100%: List all user session activity (redis memory leak)
+* [*] 100%: List all user session activity (Redis memory leak)
 * [ ]  80%: revoke a user session
-* [ ]  80%: revoke all user session older than X
+* [ ]  80%: revoke all user sessions older than X
 
 //-
 
 * [ ]   0%: Clean deleted events and contacts (they are soft deleted by user)
 * [ ]   0%: Remove user (all info from database, not the user source)
-* [ ]   0%: rename user (in database, not user source) 
+* [ ]   0%: rename user (in database, not user source)
 * [ ]   0%: Update secret (for passwords, certificates...) (cannot be an endpoint but a script)
 
-//- 
+//-
 
-* [ ]   0%: Set, modfy or remove a "Message of the day"
+* [ ]   0%: Set, modify, or remove a "Message of the day"
 
 '''
 
@@ -1320,12 +1320,12 @@ Jobs (Asynchronous Tasks)
 
 Debug
 
-* [ ] 10%: Set logger for debug (logger level are hardcoded for now)
+* [ ] 10%: Set logger for debug (logger levels are hardcoded for now)
 
 ==== UI
 
 * [ ]  10%: separated UI from the webmail
-* [ ]   0%: ui for login
-* [ ]  80%: ui for systems and default domains settings (not tested)
-* [ ]  40%: translation (admin settings are dynamics, UI doesn't know them berforehands and only receive 'key' that must be translated)
-* [ ]  80%: ui for user sessions
+* [ ]   0%: UI for login
+* [ ]  80%: UI for system and default domain settings (not tested)
+* [ ]  40%: translation (admin settings are dynamic, UI doesn't know them beforehand and only receives a 'key' that must be translated)
+* [ ]  80%: UI for user sessions

@@ -1,9 +1,28 @@
 = SOGo 6 - Build your own image
 
 
-You can build your own image. There are example in both UI and server repositories
+You can build your own image. There are examples in both the UI and server repositories
 
-#TODO
-sgfsgf
+== API server
 
+In `deploy/local` is a Dockerfile to build the API server image.
+
+To build, place yourself at the root and launch this command:
+
+```bash
+docker build -t sogo6-server -f deploy/local/Dockerfile.local .
+```
+
+It will build an image for the server called `sogo6-server:latest`
+
+[WARNING]
+====
+The backend cannot work like that, it needs external services (redis, a database,...) and also mandatory ENV variable.
+
+See xref:AdminDoc::2_1_process_settings.adoc[]
+====
+
+== UI
+
+Refers to the README[https://github.com/Alinto/SOGo6-UI#build]
 
