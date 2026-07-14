@@ -32,11 +32,11 @@ def _load_json_file(path: str) -> dict | None:
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
     except FileNotFoundError:
-        logger.error(f"Init config file not found: {path}")
+        logger.error("Init config file not found: %s", path)
     except json.JSONDecodeError as e:
-        logger.error(f"Init config file is not valid JSON ({path}): {e}")
+        logger.error("Init config file is not valid JSON (%s): %s", path, e)
     except OSError as e:
-        logger.error(f"Cannot read init config file ({path}): {e}")
+        logger.error("Cannot read init config file (%s): %s", path, e)
     return None
 
 

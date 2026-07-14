@@ -98,14 +98,25 @@ poetry run start
 
 *No proper gunicorn conf is provided yet, you can only run Flask in develloper mode.*
 
+### Swaggers
+
+At the index of the server, you will find the link to the swaggers by default, got there: `http://localhost:5000/`
+
 ## Local image
 
 You can also build an image of SOGo with this [Dockerfile](deploy/local/Dockerfile.local).
 
 ## .Devcontainer
 
-Sadly, our devcontainer is not usable yet as two images (for openldap and postfix) has been deleted from docker.hub without replacement.
-Private images that replicate them are used instead. We're aware of this and will find a public replacement.
+You can also use our devcontainer with Visual Code Studio. It will run all the external services needed.
+
+Once build, simply run `poetry run start` to launch the Flask application.
+
+*If you have errors about poetry, delete the file `poetry.lock` before running the devcontainer*
+
+The swaggers will be at:
+* `http://localhost:5000/swagger-basic` for the user API
+* `http://localhost:5000/swagger-admin` for the Admin API
 
 
 ## Contributing
