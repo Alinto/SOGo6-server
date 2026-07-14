@@ -1,5 +1,6 @@
 # SOGo 6 project specific
 .history/
+README.private.md
 
 # antora
 node_modules/
