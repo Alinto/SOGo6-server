@@ -2,6 +2,11 @@
 
 Welcome to SOGo 6 documentation!
 
+[WARNING]
+====
+SOGo 6 is still in alpha and some features are missing, you can see a list xref:SOGo6-DevDoc::SOGo6Plan.adoc[here]
+====
+
 There are two distinctive docs:
 
 == xref:SOGo6-AdminDoc::0_index.adoc[Administrator Documentation]
