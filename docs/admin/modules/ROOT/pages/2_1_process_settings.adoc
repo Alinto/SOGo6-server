@@ -5,6 +5,20 @@ drastically modify SOGo 6 and can provoke irrevocable loss of data. So be sure t
 
 Note that the process settings also include the Flask settings, the Python framework used for the web server.
 
+== Admin Credentials
+
+SOGo 6 has an API and a UI dedicated to Admin for configuration, action(that replace sogo-tool), user's session....
+This part does not rely on your user sources for authentication. By default it will be admin/admin but you change that with
+
+* **SOGO_P_ADMIN**: string, Admin username. Default to `admin`
+* **SOGO_P_ADMIN_PWD**: string, Admin password. Default to `admin`
+
+[NOTE]
+====
+For the alpha, it's the only way to authenticate. Later you will have an API token management that you will be able to use in your
+scripts/playbooks/CI...
+====
+
 == Redis Config
 
 Redis is used both as a cache system and as the broker for the `Agent` (the process for asynchronous task)
