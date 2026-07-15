@@ -436,8 +436,6 @@ class ModuleMail:
                             "filename": str, name of the file,
                             "contentType": str, content type,
                             "size": int,  attachment_size,
-                            "downloadUri": str, url to download the attachment
-                            "displayUri": str, url to preview the attachment
                             "extension": str, extension of the file
                         },..]
             "is_signed": bool, true if signed,
@@ -544,8 +542,6 @@ class ModuleMail:
                             "filename": filename,
                             "contentType": content_type,
                             "size": attachment_size,
-                            "downloadUri": f"/api/v1/mailboxes/0/folders/INBOX/mails/{uid}/attachments/{filename}",
-                            "displayUri": f"/api/v1/mailboxes/0/folders/INOX/mails/{uid}/attachments/{filename}/display",
                             "extension": extension
                         })
                 except (AttributeError, TypeError) as e:
