@@ -469,9 +469,9 @@ class ModuleMail:
         try:
             from_addr = parseaddr(email_msg.get("From", ""))
             from_ = {"name": from_addr[0], "email": from_addr[1]}
-            to = [{"name": addr[0], "email": addr[1]} for addr in getaddresses([email_msg.get("To", "")])]
-            cc = [{"name": addr[0], "email": addr[1]} for addr in getaddresses([email_msg.get("Cc", "")])]
-            reply_to = [{"name": addr[0], "email": addr[1]} for addr in getaddresses([email_msg.get("In-Reply-To", "")])]
+            to = [{"name": addr[0], "email": addr[1]} for addr in getaddresses([email_msg.get("To", "")]) if addr[1]]
+            cc = [{"name": addr[0], "email": addr[1]} for addr in getaddresses([email_msg.get("Cc", "")]) if addr[1]]
+            reply_to = [{"name": addr[0], "email": addr[1]} for addr in getaddresses([email_msg.get("In-Reply-To", "")]) if addr[1]]
             return_path = email_msg.get("Return-Path", "")
         except (AttributeError, TypeError) as e:
             logger_mail_server.warning("Error parsing addresses for UID %s: %s", uid, e)
