@@ -73,3 +73,4 @@ class ModuleAdminAuth:
 
         cache = sogo_cache()
         cache.revoke_user_sessions_by_key([redis_key])
+        cache.close()

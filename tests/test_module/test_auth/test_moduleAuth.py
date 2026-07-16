@@ -561,6 +561,9 @@ class FakeSogoCache:
         self.revoke_user_sessions_by_key_args = redis_keys
         return len(redis_keys)
 
+    def close(self):
+        pass
+
 
 def test_logout_user_success(monkeypatch):
     """Test that logout_user extracts the Redis key and calls revoke."""
@@ -576,7 +579,7 @@ def test_logout_user_success(monkeypatch):
 
     with mock.patch('app.module.auth.ModuleAuth.VoucherUserService') as mock_service:
         mock_service.return_value = fake_voucher_service
-        with mock.patch('app.service.sogo_cache') as mock_cache_factory:
+        with mock.patch('app.module.auth.ModuleAuth.sogo_cache') as mock_cache_factory:
             mock_cache_factory.return_value = fake_cache
 
             module.logout_user("fake-jwt-token")

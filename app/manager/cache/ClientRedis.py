@@ -2,8 +2,9 @@ from collections.abc import Generator
 from json import dumps as json_dumps, loads as json_loads
 from json.decoder import JSONDecodeError
 from typing import cast, Type
+import logging
 
-from redis import Redis, exceptions as rexc
+from redis import Redis, exceptions as rexc, ConnectionPool
 from redis.cache import CacheConfig
 from yarl import URL
 
@@ -20,6 +21,9 @@ SORT_FIELD_TO_ZSET: dict[str, str] = {
     cs.USER_UID:          cs.ZSET_USER_SESSIONS_UID,
     cs.USER_DOMAIN:       cs.ZSET_USER_SESSIONS_DOMAIN,
 }
+
+# redis_logger = logging.getLogger("redis")
+# redis_logger.setLevel(logging.DEBUG)
 
 class ClientRedis():
     """
@@ -165,7 +169,7 @@ class ClientRedis():
         :param ttl: _description_
         :type ttl: int
         """
-
+        logger_cache.info("Hashset cached for key '%s'", key)
         self.redis.hset(key, mapping=data)
         if ttl > 0:
             self.redis.expire(key, ttl)
@@ -181,6 +185,7 @@ class ClientRedis():
         :return: _description_
         :rtype: dict|None
         """
+        logger_cache.info("Hashget cached for key '%s'", key)
         ret = cast(dict|None, self.redis.hgetall(key))
         if ret:
             logger_cache.info("Hashget cached value '%s' for key '%s'", ret, key)
@@ -534,3 +539,9 @@ class ClientRedis():
             revoked_count, timestamp,
         )
         return revoked_count
+
+    def close(self) -> None:
+        """
+        _summary_
+        """
+        self.redis.close()

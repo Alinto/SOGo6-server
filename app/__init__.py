@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING, cast
 from json import loads, dumps
 from json.decoder import JSONDecodeError
 
-
 from flask import Flask, request, g, Response, current_app
 from flask.typing import ResponseReturnValue
 from flask_smorest import Api, Blueprint
@@ -22,7 +21,7 @@ from app.config.init_config import init_get_system_and_default_domain_settings, 
 import app.utils.errors as err
 from app.utils.api.ApiBaseResponse import create_api_base_response, ApiBaseResponse
 from app.utils import constants as cs
-from app.utils.logger.logger import logger
+from app.utils.logger.logger import logger, logger_api
 from app.utils.exceptions import AggravatedException
 
 #Apis
@@ -102,6 +101,16 @@ def register_before_request(base_blueprint: Blueprint, kind: str, sogo_state: in
     :rtype: _type_
     """
 
+    @base_blueprint.before_request
+    def log_entry() -> ResponseReturnValue | None:  # pylint: disable=too-many-return-statements
+        """
+        Only used in debug to log request received
+        """
+
+        # Log the information
+        logger_api.info("Received: \"%s %s %s\"", request.method, request.path, request.environ.get('SERVER_PROTOCOL', 'Unknown'))
+        return None
+        
     @base_blueprint.before_request
     def check_content_type() -> ResponseReturnValue | None:  # pylint: disable=too-many-return-statements
         """

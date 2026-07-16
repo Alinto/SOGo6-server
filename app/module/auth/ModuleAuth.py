@@ -6,6 +6,7 @@ from app.auth.User import User
 from app.auth.service.VoucherUserService import VoucherUserService
 from app.config.db import tables as tbl
 from app.config.settings.DomainSettings import AuthSettings, AuthSettingsObj, UserSourceSettings, UserSourceSettingsObj
+from app.service import sogo_cache
 from app.utils.db.Condition import EqualCondition
 from app.utils.exceptions import RequestException
 from app.utils.strings import get_domain_from_mail
@@ -166,6 +167,6 @@ class ModuleAuth:
         voucher_user_service = VoucherUserService(self.process_settings)
         redis_key = voucher_user_service.get_redis_session_key_from_voucher(voucher_data)
 
-        from app.service import sogo_cache
         cache = sogo_cache()
         cache.revoke_user_sessions_by_key([redis_key])
+        cache.close()

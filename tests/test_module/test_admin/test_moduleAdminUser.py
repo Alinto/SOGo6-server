@@ -68,6 +68,9 @@ class FakeClientRedis:
         if isinstance(self.revoke_by_activity_result, Exception):
             raise self.revoke_by_activity_result
         return self.revoke_by_activity_result
+    
+    def close(self):
+        pass
 
 
 def _make_module(monkeypatch, fake_cache=None):
