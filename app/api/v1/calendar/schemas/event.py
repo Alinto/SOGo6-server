@@ -11,6 +11,7 @@ from app.api.v1.calendar.schemas.components import (
     AttachmentCalendarSchema, AttendeeSchema, ConferenceDataSchema, DatesWithTzSchema, EventRelationSchema,
     OrganizerSchema, RecurrenceRuleSchema, ReminderSchema,
 )
+from app.api.v1.calendar.schemas.utils import DatesValidationSchema
 from app.module.calendar.CalendarConst import MAX_EVENT_DESCRIPTION_LENGTH, MAX_EVENT_LOCATION_LENGTH, MAX_EVENT_TITLE_LENGTH
 from app.module.calendar.model.enums.EventStatus import EventStatus
 from app.module.calendar.model.enums.EventVisibility import EventVisibility
@@ -119,7 +120,7 @@ class CalendarEventSchema(Schema):
     dates_with_tz = fields.Nested(DatesWithTzSchema, allow_none=True)
 
 
-class CalendarEventCreateSchema(Schema):
+class CalendarEventCreateSchema(DatesValidationSchema):
     """Request body for creating a new event."""
 
     uid = fields.String(load_default=None, allow_none=True)
@@ -159,7 +160,7 @@ class CalendarEventCreateSchema(Schema):
     completed_at = fields.String(load_default=None, allow_none=True)
 
 
-class CalendarEventPatchSchema(Schema):
+class CalendarEventPatchSchema(DatesValidationSchema):
     """Request body for partially updating an event. All fields are optional."""
 
     title = fields.String(validate=validate.Length(max=MAX_EVENT_TITLE_LENGTH))

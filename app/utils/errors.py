@@ -223,6 +223,7 @@ ERROR_CALENDAR_IMPORT_TOO_LARGE              = E("S000622", "Import Payload Exce
 ERROR_CALENDAR_PUBLIC_LINK_DISABLED          = E("S000623", "Public Calendar Link Is Disabled For This Domain", HTTPStatus.FORBIDDEN)
 ERROR_CALENDAR_EXPORT_FORMAT_UNSUPPORTED     = E("S000624", "Requested Export Format Is Not Supported", HTTPStatus.NOT_ACCEPTABLE)
 ERROR_CALENDAR_IMIP_SENDER_MISMATCH          = E("S000625", "iMIP Sender Is Not The Event Organizer", HTTPStatus.FORBIDDEN)
+ERROR_CALENDAR_END_BEFORE_START              = E("S000626", "End Time Must Be After Start Time", HTTPStatus.BAD_REQUEST)
 
 #the contacts
 ERROR_CONTACT_JSON_PARSE_FAILED              = E("S000700", "Failed To Parse Contact JSON Content", HTTPStatus.UNPROCESSABLE_ENTITY)

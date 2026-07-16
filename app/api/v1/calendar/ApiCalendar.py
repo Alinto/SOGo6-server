@@ -219,7 +219,7 @@ class ApiCalendarEventList(MethodView):
         interface: InterfaceApiCalendarCalendar = g.inter
         return interface.get_events(key, query_args)
 
-    @blp.arguments(CalendarEventCreateSchema)
+    @blp.arguments(CalendarEventCreateSchema, error_status_code=400)
     @blp.response(201, CalendarEventResponseSchema)
     def post(self, body: dict, key: str) -> ResponseReturnValue:
         """Create a new event in the calendar."""
@@ -252,7 +252,7 @@ class ApiEventDetail(MethodView):
         interface: InterfaceApiCalendarCalendar = g.inter
         return interface.get_event(event_key)
 
-    @blp.arguments(CalendarEventPatchSchema)
+    @blp.arguments(CalendarEventPatchSchema, error_status_code=400)
     @blp.response(200, CalendarEventResponseSchema)
     def patch(self, body: dict, event_key: str) -> ResponseReturnValue:
         """Partially update an event."""
@@ -280,7 +280,7 @@ class ApiCalendarTaskList(MethodView):
         interface: InterfaceApiCalendarCalendar = g.inter
         return interface.get_tasks(key, query_args)
 
-    @blp.arguments(CalendarTaskCreateSchema)
+    @blp.arguments(CalendarTaskCreateSchema, error_status_code=400)
     @blp.response(201, CalendarTaskResponseSchema)
     def post(self, body: dict, key: str) -> ResponseReturnValue:
         """Create a new task in the calendar."""
@@ -313,7 +313,7 @@ class ApiTaskDetail(MethodView):
         interface: InterfaceApiCalendarCalendar = g.inter
         return interface.get_task(task_key)
 
-    @blp.arguments(CalendarTaskPatchSchema)
+    @blp.arguments(CalendarTaskPatchSchema, error_status_code=400)
     @blp.response(200, CalendarTaskResponseSchema)
     def patch(self, body: dict, task_key: str) -> ResponseReturnValue:
         """Partially update a task."""
