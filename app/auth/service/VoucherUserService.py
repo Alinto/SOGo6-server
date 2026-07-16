@@ -62,27 +62,28 @@ class VoucherUserService:
             cs.SESSION_SENSITIVE: sensitive_data,
             cs.SESSION_LAST_SEEN: int(time.time())
         }
-
-        sogo_cache().hashset(f"user_session:{user_session_id}", user_session, cs.TTL_1D)
+        cache = sogo_cache()
+        cache.hashset(f"user_session:{user_session_id}", user_session, cs.TTL_1D)
         # Index the session in the sorted set so that we can paginate / sort
         # active sessions by last-activity without scanning all keys.
-        sogo_cache().zset_add(
+        cache.zset_add(
             cs.ZSET_USER_SESSIONS_ACTIVITY,
             f"user_session:{user_session_id}",
             int(time.time()),
         )
         # Index the session by uid score so that sessions can be sorted / filtered by uid.
-        sogo_cache().zset_add(
+        cache.zset_add(
             cs.ZSET_USER_SESSIONS_UID,
             f"user_session:{user_session_id}",
             string_to_sort_score(user.uid),
         )
         # Index the session by domain score so that sessions can be sorted / filtered by domain.
-        sogo_cache().zset_add(
+        cache.zset_add(
             cs.ZSET_USER_SESSIONS_DOMAIN,
             f"user_session:{user_session_id}",
             string_to_sort_score(user.domain),
         )
+        cache.close()
 
         #Generate the voucher
         voucher_payload = user.get_voucher_payload()
@@ -201,16 +202,17 @@ class VoucherUserService:
         except ValueError as e:
             raise RequestException("Session key from Voucher is not valid") from e
 
-        user_session_data = sogo_cache().hashget(f"user_session:{session_id}")
+        cache = sogo_cache()
+        user_session_data = cache.hashget(f"user_session:{session_id}")
         if not user_session_data:
             # The hash has expired but sorted-set entries may linger – clean them up.
-            sogo_cache().zset_remove(
+            cache.zset_remove(
                 cs.ZSET_USER_SESSIONS_ACTIVITY, f"user_session:{session_id}"
             )
-            sogo_cache().zset_remove(
+            cache.zset_remove(
                 cs.ZSET_USER_SESSIONS_UID, f"user_session:{session_id}"
             )
-            sogo_cache().zset_remove(
+            cache.zset_remove(
                 cs.ZSET_USER_SESSIONS_DOMAIN, f"user_session:{session_id}"
             )
             logger_auth.info("User session for %s is expired or does not exist", voucher_user_uid)
@@ -238,28 +240,29 @@ class VoucherUserService:
         # Update the last activity timestamp in both the hash and the sorted set
         new_last_seen = int(time.time())
         logger.debug("Updating last_activity for session %s: %s -> %s", session_id, user_session_data.get(cs.SESSION_LAST_SEEN), new_last_seen)
-        sogo_cache().hashset(
+        cache.hashset(
             f"user_session:{session_id}",
             {cs.SESSION_LAST_SEEN: new_last_seen},
             ttl=0
         )
-        sogo_cache().zset_add(
+        cache.zset_add(
             cs.ZSET_USER_SESSIONS_ACTIVITY,
             f"user_session:{session_id}",
             new_last_seen,
         )
         # Keep the uid score index in sync.
-        sogo_cache().zset_add(
+        cache.zset_add(
             cs.ZSET_USER_SESSIONS_UID,
             f"user_session:{session_id}",
             string_to_sort_score(user.uid),
         )
         # Keep the domain score index in sync.
-        sogo_cache().zset_add(
+        cache.zset_add(
             cs.ZSET_USER_SESSIONS_DOMAIN,
             f"user_session:{session_id}",
             string_to_sort_score(user.domain),
         )
         logger.info("From voucher get user: %s", user)
+        cache.close()
 
         return user

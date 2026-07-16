@@ -1,3 +1,4 @@
+from app.config.settings.ProcessSetting import process_config
 from app.manager.agent.ClientAgent import ClientAgent
 from app.manager.cache.ClientRedis import ClientRedis
 from app.utils import exceptions as exc
@@ -13,8 +14,13 @@ def sogo_cache() -> ClientRedis:
     Using this method instead of "from app import cache_client" avoid the warning
     for potential None value.
     """
-    if isinstance(cache_client, ClientRedis):
-        return cache_client
+    #TODO there is a bug with one instance of the client, fallbacl to instaniate each time
+    # if isinstance(cache_client, ClientRedis):
+    #     return cache_client
+    
+    #Init a fresh redis client each time
+    redis_conf = process_config.get_redis_settings()
+    return ClientRedis(**redis_conf)
     raise exc.AggravatedException("Cache not instantiated when needed")
 
 def set_cache(new_cache: ClientRedis) -> None:

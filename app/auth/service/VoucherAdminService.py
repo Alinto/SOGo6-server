@@ -57,7 +57,9 @@ class VoucherAdminService:
             cs.SESSION_LAST_SEEN: int(time.time())
         }
 
-        sogo_cache().hashset(f"admin_session:{admin_session_id}", admin_session, 30 * 60)
+        cache = sogo_cache()
+        cache.hashset(f"admin_session:{admin_session_id}", admin_session, 30 * 60)
+        cache.close()
 
         # Generate the voucher
         voucher_payload = {
@@ -139,14 +141,16 @@ class VoucherAdminService:
         try:
             admin_uid, redis_key = self.get_redis_session_key_from_voucher(voucher_data)
 
-            session_data = sogo_cache().hashget(redis_key)
+            cache = sogo_cache()
+            session_data = cache.hashget(redis_key)
             if not session_data:
                 return AdminAnonymous()
             if not admin_uid == session_data[cs.USER_UID]:
                 return AdminAnonymous()
 
             #Update ttl and lest seen
-            sogo_cache().hashset(redis_key, {cs.SESSION_LAST_SEEN: int(time.time())}, ttl=30*60)
+            cache.hashset(redis_key, {cs.SESSION_LAST_SEEN: int(time.time())}, ttl=30*60)
+            cache.close()
 
             logger_auth.info("Admin authenticated with uid: %s", admin_uid)
             return Admin(uid=admin_uid)

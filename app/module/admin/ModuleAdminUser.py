@@ -47,6 +47,7 @@ class ModuleAdminUser:
             sort_by=collection_param.sort_by,
             sort_order=collection_param.sort_order
         )
+        cache.close()
 
         logger.debug("%d active user session(s) (total: %d)", len(active_users), total_count)
         return total_count, active_users
@@ -85,10 +86,13 @@ class ModuleAdminUser:
             logger.debug("Revoked %d session(s) for redis key(s): %s", revoked_count, redis_keys)
             return revoked_count
 
+        cache.close()
+
         raise RequestException(
             "Exactly one of 'uid' or 'redis_key' must be provided",
             error=err.ERROR_REVOKE_BODY_INVALID,
         )
+        
 
     def revoke_inactive_users(self, timestamp: int) -> int:
         """
@@ -104,6 +108,8 @@ class ModuleAdminUser:
         cache = sogo_cache()
 
         revoked_count = cache.revoke_user_sessions_by_activity(timestamp)
+
+        cache.close()
 
         logger.debug("Revoked %d inactive session(s) older than %d", revoked_count, timestamp)
         return revoked_count
