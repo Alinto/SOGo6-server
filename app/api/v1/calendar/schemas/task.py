@@ -5,6 +5,7 @@ from marshmallow import Schema, fields, validate
 from app.api.v1.calendar.schemas.components import (
     AttachmentCalendarSchema, AttendeeSchema, EventRelationSchema, OrganizerSchema, RecurrenceRuleSchema, ReminderSchema,
 )
+from app.api.v1.calendar.schemas.utils import DatesValidationSchema
 from app.module.calendar.CalendarConst import MAX_EVENT_DESCRIPTION_LENGTH, MAX_EVENT_TITLE_LENGTH
 from app.module.calendar.model.enums.EventStatus import EventStatus
 from app.module.calendar.model.enums.EventVisibility import EventVisibility
@@ -50,7 +51,7 @@ class CalendarTaskSchema(Schema):
     updated_at = fields.String(allow_none=True)
 
 
-class CalendarTaskCreateSchema(Schema):
+class CalendarTaskCreateSchema(DatesValidationSchema):
     """Request body for creating a new VTODO."""
 
     uid = fields.String(load_default=None, allow_none=True)
@@ -83,7 +84,7 @@ class CalendarTaskCreateSchema(Schema):
     recurrence_exceptions = fields.List(fields.String(), load_default=list, metadata={"example": []})
 
 
-class CalendarTaskPatchSchema(Schema):
+class CalendarTaskPatchSchema(DatesValidationSchema):
     """Request body for partially updating a VTODO. All fields optional."""
 
     title = fields.String(validate=validate.Length(max=MAX_EVENT_TITLE_LENGTH))
