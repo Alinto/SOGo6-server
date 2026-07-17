@@ -132,8 +132,6 @@ class MailDetailResponseSchema(ApiBaseResponse):
                         "filename": "document.pdf",
                         "contentType": "application/pdf",
                         "size": 45678,
-                        "downloadUri": "/attachments/1?dl=True",
-                        "displayUri": "???",
                         "extension": "pdf"
                     }
                 ],
@@ -208,8 +206,6 @@ class MailListResponseSchema(ApiBaseResponse):
                             "filename": "document.pdf",
                             "contentType": "application/pdf",
                             "size": 45678,
-                            "downloadUri": "/attachments/1?dl=True",
-                            "displayUri": "???",
                             "extension": "pdf"
                         }
                     ],
