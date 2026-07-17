@@ -29,7 +29,7 @@ from app.api import all_apis
 from app.interface.auth.InterfaceAuthUser import InterfaceAuthUser
 
 
-__version__ = "6.0.alpha"
+__version__ = "6.0.0-alpha1"
 
 
 def create_app(sogo_state: int) -> Flask:
