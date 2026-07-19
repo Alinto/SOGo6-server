@@ -64,7 +64,7 @@
         "secretQuestion",
         "secondaryEmail"
       ],
-      "SOGO_D_LOGIN_CHECK_TIME_SPAN": 10,
+      "SOGO_D_LOGIN_CHECK_TIME_SPAN": 600,
       "SOGO_D_OPENID_REFRESH_ENABLE": true,
       "SOGO_D_LOGIN_CHECK_BLOCK_TIME": 300,
       "SOGO_D_LOGIN_CHECK_MAX_ATTEMPT": 0,

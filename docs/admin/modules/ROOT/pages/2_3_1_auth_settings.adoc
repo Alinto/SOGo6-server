@@ -1,0 +1,86 @@
+= SOGo 6 - Authentication Settings (Domain Settings)
+
+Here you setup how a user can login into SOGo.
+
+[WARNING]
+====
+Be careful, this step basically say to SGOGo that the person with uid `sogo-tests1` or the mail `sogo-tests1@example.org` is legit and can
+access to data from `sogo-tests1` or the mail `sogo-tests1@example.org` from the User Sources and External Services.
+====
+
+== Type of Authentication
+
+This is the most important setting.
+
+* **SOGO_D_AUTH_TYPE**: a string, one of:
+** `plain`: Means the User login with one username/mail/uid and a password. You must set a User Source that can macth the credentials.
+** `openid`: Not Implemented yet
+** `cas`: Not Implemented yet
+** `saml2`: Not Implemented yet
+
+
+=== Plain
+
+While using plain authentication, you can use these folowwing settings:
+
+==== Passwords settings
+
+* **SOGO_D_PWD_CHANGE_ENABLED** (NOT IMPLEMENTED): boolean, default to False. Allow users to change their password via SOGo.
+
+[NOTE]
+====
+With ldap user sources, your users or admin bind must have the right to modify the password.
+====
+
+* **SOGO_D_PWD_RECOVERY** (NOT IMPLEMENTED): boolean, default to True. Allow Users to set a password recover method)
+
+[NOTE]
+====
+With ldap user sources, your users or admin bind must have the right to modify the password.
+====
+
+* **SOGO_D_PWD_RECOVERY_METHOD** (NOT IMPLEMENTED): a list of string. Setup what kinf of password recovery the users can set. For now, a choice between:
+** 'secretQuestion' (NOT IMPLEMENTED): the user can write a question and it answer
+** 'secondaryEmail' (NOT IMPLEMENTED): the user can set a secondary email
+** 'apiCall' (NOT IMPLEMENTED): Future Feature
+
+'''
+
+Some admin tools:
+
+* **SOGO_D_PWD_RECOVERY_FORCE** (NOT IMPLEMENTED): a boolean, default to False. Force use to set up a password recovery method (Force means := if the user login via SOGo
+, it will have a view to setup this before accessing its mails. If they use Outlook/Thunderbird, nothing happend.)
+* **SOGO_D_PWD_RECOVERY_DELAY** (NOT IMPLEMENTED): a integer greater than 0, default to 86400 (24 hours): Means how often a
+user can ask for their recovery method during this interval, in seconds.
+
+[NOTE]
+====
+With default value `86400`, it means a user can only ask for password recovery once a day.
+====
+
+You can set a login check protection. Meaning you can say that, if a user try to login with username `sogo@sogo.nu` for A times,
+during a B spantime, this user will be block for C minutes. (NOT IMPLEMENTED)
+
+* **SOGO_D_LOGIN_CHECK_MAX_ATTEMPT**: integer, default to 0. The number of attempt the user can do. 0 means not limit.
+* **SOGO_D_LOGIN_CHECK_TIME_SPAN**: integer default to 600. The timespan where the user will reach `SOGO_D_LOGIN_CHECK_MAX_ATTEMPT` in seconds
+* **SOGO_D_LOGIN_CHECK_BLOCK_TIME**: integer, default to 300 (5 minutes) = 300
+
+
+You can set rules abour Multi-factor Authentication (MFA) (NOT IMPLEMENTED)
+
+* **SOGO_D_LOGIN_MFA**: a boolean, default to True. Allow users to set or not MFA (Legacy parameter)
+* **SOGO_D_LOGIN_MFA_METHOD**: list of strings. MFA method allowed to set. Only 'totp' for now.
+* **SOGO_D_LOGIN_MFA_FORCE**: aboolean, default to False. Force users to set MFA after login. (Force means := if the user login via SOGo,
+it will have a view to setup this before accessing its mails. If they use Outlook/Thunderbird, nothing happend.)
+
+=== Openid SSO
+
+NOT IMPLEMENTED
+
+=== CAS SSO
+
+NOT IMPLEMENTED
+
+=== Saml2 SSO
+
+NOT IMPLEMENTED

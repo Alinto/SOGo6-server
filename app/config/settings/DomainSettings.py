@@ -92,13 +92,13 @@ class AuthSettings(SogoSchema):
     #SOGO_D_LOGIN_CHECK_MAX_ATTEMPT: max login attept a user can make during SOGO_D_LOGIN_CHECK_TIME_SPAN second. If limit is reach, it will be block for
     #SOGO_D_LOGIN_CHECK_BLOCK_TIME seconds. SOGO_D_LOGIN_CHECK_MAX_ATTEMPT = 0 disable any checking.
     SOGO_D_LOGIN_CHECK_MAX_ATTEMPT = fields.Integer(load_default=0, dump_default=0,validate=validate.Range(min=0)) #Number of failed attempt during SOGO_D_LOGIN_CHECK_TIME_SPAN before blocking
-    SOGO_D_LOGIN_CHECK_TIME_SPAN   = fields.Integer(load_default=10, dump_default=10,validate=validate.Range(min=5)) #Time span when user can do SOGO_D_LOGIN_CHECK_MAX_ATTEMPT failed login attempt
+    SOGO_D_LOGIN_CHECK_TIME_SPAN   = fields.Integer(load_default=600, dump_default=600,validate=validate.Range(min=5)) #Time span when user can do SOGO_D_LOGIN_CHECK_MAX_ATTEMPT failed login attempt
     SOGO_D_LOGIN_CHECK_BLOCK_TIME  = fields.Integer(load_default=300, dump_default=300,validate=validate.Range(min=5)) #Time span where a user is forbidden to login after too many fail attempt.
 
     SOGO_D_PWD_RECOVERY = fields.Boolean(load_default=True, dump_default=True) #Enable or not users to set a method for password recovery
     SOGO_D_PWD_RECOVERY_METHOD = fields.List(fields.String(), validate=validate.ContainsOnly(('secretQuestion', 'secondaryEmail', 'apiCall')))
     SOGO_D_PWD_RECOVERY_FORCE = fields.Boolean(load_default=False, dump_default=False) #Force users to set a recovery method, overwrite SOGO_D_PWD_RECOVERY
-    SOGO_D_PWD_RECOVERY_DELAY = fields.Integer() #Delay before the user can ask again for a password recovery
+    SOGO_D_PWD_RECOVERY_DELAY = fields.Integer(load_default=86400, dump_default=86400,validate=validate.Range(min=0)) #Delay in seconds before the user can ask again for a password recovery, 0 means there's no limit
     SOGO_D_LOGIN_MFA = fields.Boolean(load_default=True, dump_default=True) #Enable or not users to set a MFA method for password
     SOGO_D_LOGIN_MFA_METHOD = fields.List(fields.String(), validate=validate.ContainsOnly(('totp',)))
     SOGO_D_LOGIN_MFA_FORCE = fields.Boolean(load_default=False, dump_default=False) #Force users to set a recovery method, overwrite SOGO_D_PWD_RECOVERY
@@ -124,12 +124,12 @@ class AuthSettingsObj(SettingsObj):
     SOGO_D_SAML2_URL: str = ""
     SOGO_D_PWD_CHANGE_ENABLED: bool = False
     SOGO_D_LOGIN_CHECK_MAX_ATTEMPT: int = 0
-    SOGO_D_LOGIN_CHECK_TIME_SPAN: int = 10
+    SOGO_D_LOGIN_CHECK_TIME_SPAN: int = 600
     SOGO_D_LOGIN_CHECK_BLOCK_TIME: int = 300
     SOGO_D_PWD_RECOVERY: bool = True
     SOGO_D_PWD_RECOVERY_METHOD: list[str] = []
     SOGO_D_PWD_RECOVERY_FORCE: bool = False
-    SOGO_D_PWD_RECOVERY_DELAY: int = 0
+    SOGO_D_PWD_RECOVERY_DELAY: int = 86400
     SOGO_D_LOGIN_MFA: bool = True
     SOGO_D_LOGIN_MFA_METHOD: list[str] = []
     SOGO_D_LOGIN_MFA_FORCE: bool = False

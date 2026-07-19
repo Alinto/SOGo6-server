@@ -64,4 +64,8 @@ When a user makes an action, the order of priority is:
 
 Domain settings are separated into different topics:
 
-*
+* Authentication settings: Where you set up how users login into SOGo.
+* User Sources: Where you set up where SOGo will ftech info on authenticated user 
+* User Module: Where you set up what a user can access and do.
+* Mail Settings: Where you set up the servers for mail servers, outgoing mail server and filtering mail server
+* Calendar and AddressBooks settings: Where you set up what a user can do about calendars and addressbooks.
