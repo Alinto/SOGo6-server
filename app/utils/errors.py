@@ -233,6 +233,9 @@ ERROR_CALENDAR_EXPORT_FORMAT_UNSUPPORTED     = E("S000624", "Requested Export Fo
 ERROR_CALENDAR_IMIP_SENDER_MISMATCH          = E("S000625", "iMIP Sender Is Not The Event Organizer", HTTPStatus.FORBIDDEN)
 ERROR_CALENDAR_SHARING_DISABLED              = E("S000626", "Calendar Sharing Is Disabled For This Domain", HTTPStatus.FORBIDDEN)
 ERROR_CALENDAR_END_BEFORE_START              = E("S000627", "End Time Must Be After Start Time", HTTPStatus.BAD_REQUEST)
+ERROR_CALENDAR_IMIP_REPLY_SENDER_MISMATCH    = E("S000628", "iMIP Sender Is Not The Replying Attendee", HTTPStatus.FORBIDDEN)
+ERROR_CALENDAR_EVENT_REVISION_OBSOLETE       = E("S000629", "Event Has Been Revised Since It Was Read", HTTPStatus.CONFLICT)
+ERROR_CALENDAR_NOT_ATTENDEE                  = E("S000630", "Not An Attendee Of This Event", HTTPStatus.FORBIDDEN)
 
 #the contacts
 ERROR_CONTACT_JSON_PARSE_FAILED              = E("S000700", "Failed To Parse Contact JSON Content", HTTPStatus.UNPROCESSABLE_ENTITY)

@@ -116,7 +116,9 @@ def test_attendance_accepted():
     source = _make_source(events=[event])
     module = _build_module({"cal-key": source})
 
-    result = module.set_attendance_status(_fake_user("attendee@example.com"), "evt-key", AttendeeStatus.ACCEPTED)
+    result = module.set_attendance_status(
+        _fake_user("attendee@example.com"), "evt-key", AttendeeStatus.ACCEPTED, sequence=0,
+    )
 
     assert result.attendees[0].status == AttendeeStatus.ACCEPTED
     assert len(source.updated) == 1
@@ -127,7 +129,9 @@ def test_attendance_declined():
     source = _make_source(events=[event])
     module = _build_module({"cal-key": source})
 
-    result = module.set_attendance_status(_fake_user("attendee@example.com"), "evt-key", AttendeeStatus.DECLINED)
+    result = module.set_attendance_status(
+        _fake_user("attendee@example.com"), "evt-key", AttendeeStatus.DECLINED, sequence=0,
+    )
 
     assert result.attendees[0].status == AttendeeStatus.DECLINED
 
@@ -137,21 +141,58 @@ def test_attendance_tentative():
     source = _make_source(events=[event])
     module = _build_module({"cal-key": source})
 
-    result = module.set_attendance_status(_fake_user("attendee@example.com"), "evt-key", AttendeeStatus.TENTATIVE)
+    result = module.set_attendance_status(
+        _fake_user("attendee@example.com"), "evt-key", AttendeeStatus.TENTATIVE, sequence=0,
+    )
 
     assert result.attendees[0].status == AttendeeStatus.TENTATIVE
 
 
-def test_attendance_user_not_attendee_is_noop():
-    """If the user is not listed as an attendee, status is unchanged (no match in loop)."""
+def test_attendance_user_not_attendee_is_rejected():
+    """Answering for an event one was not invited to is reported, not silently accepted."""
     event = _make_event(key="evt-key", organizer=_organizer(), attendees=[_attendee("other@example.com")])
     source = _make_source(events=[event])
     module = _build_module({"cal-key": source})
 
-    result = module.set_attendance_status(_fake_user("attendee@example.com"), "evt-key", AttendeeStatus.ACCEPTED)
+    with pytest.raises(RequestException) as exc_info:
+        module.set_attendance_status(_fake_user("attendee@example.com"), "evt-key", AttendeeStatus.ACCEPTED, sequence=0)
 
-    assert result.attendees[0].status == AttendeeStatus.NEEDS_ACTION
-    assert len(source.updated) == 1  # still saved (no error)
+    assert exc_info.value.error == err.ERROR_CALENDAR_NOT_ATTENDEE
+    assert event.attendees[0].status == AttendeeStatus.NEEDS_ACTION
+    assert len(source.updated) == 0
+
+
+def test_attendance_already_current_skips_write():
+    """Re-sending the current status must not touch the DB - the ETag would move for nothing."""
+    event = _make_event(
+        key="evt-key", organizer=_organizer(),
+        attendees=[_attendee("attendee@example.com", AttendeeStatus.ACCEPTED)],
+    )
+    source = _make_source(events=[event])
+    module = _build_module({"cal-key": source})
+
+    result = module.set_attendance_status(_fake_user(), "evt-key", AttendeeStatus.ACCEPTED, sequence=0)
+
+    assert result.attendees[0].status == AttendeeStatus.ACCEPTED
+    assert len(source.updated) == 0
+    assert source.partstat_propagated == []
+
+
+def test_attendance_on_obsolete_revision_is_rejected():
+    """A caller reporting the revision it was shown is refused once the organizer has moved the slot."""
+    event = _make_event(
+        key="evt-key", sequence=3, organizer=_organizer(),
+        attendees=[_attendee("attendee@example.com", AttendeeStatus.NEEDS_ACTION)],
+    )
+    source = _make_source(events=[event])
+    module = _build_module({"cal-key": source})
+
+    with pytest.raises(RequestException) as exc_info:
+        module.set_attendance_status(_fake_user(), "evt-key", AttendeeStatus.ACCEPTED, sequence=2)
+
+    assert exc_info.value.error == err.ERROR_CALENDAR_EVENT_REVISION_OBSOLETE
+    assert event.attendees[0].status == AttendeeStatus.NEEDS_ACTION
+    assert len(source.updated) == 0
 
 
 def test_attendance_does_not_increment_sequence():
@@ -160,7 +201,9 @@ def test_attendance_does_not_increment_sequence():
     source = _make_source(events=[event])
     module = _build_module({"cal-key": source})
 
-    result = module.set_attendance_status(_fake_user("attendee@example.com"), "evt-key", AttendeeStatus.ACCEPTED)
+    result = module.set_attendance_status(
+        _fake_user("attendee@example.com"), "evt-key", AttendeeStatus.ACCEPTED, sequence=3,
+    )
 
     assert result.sequence == 3
 
@@ -171,7 +214,7 @@ def test_attendance_propagates_partstat_to_copies():
     source = _make_source(events=[event])
     module = _build_module({"cal-key": source})
 
-    module.set_attendance_status(_fake_user("attendee@example.com"), "evt-key", AttendeeStatus.ACCEPTED)
+    module.set_attendance_status(_fake_user("attendee@example.com"), "evt-key", AttendeeStatus.ACCEPTED, sequence=0)
 
     assert len(source.partstat_propagated) == 1
     uid, email, status = source.partstat_propagated[0]
@@ -185,7 +228,7 @@ def test_attendance_bumps_ctag():
     source = _make_source(events=[event])
     module = _build_module({"cal-key": source})
 
-    module.set_attendance_status(_fake_user("attendee@example.com"), "evt-key", AttendeeStatus.ACCEPTED)
+    module.set_attendance_status(_fake_user("attendee@example.com"), "evt-key", AttendeeStatus.ACCEPTED, sequence=0)
 
     assert source.calendar.ctag == 1
 
@@ -195,7 +238,7 @@ def test_attendance_event_not_found_raises():
     module = _build_module({"cal-key": source})
 
     with pytest.raises(RequestException) as exc_info:
-        module.set_attendance_status(_fake_user(), "nonexistent", AttendeeStatus.ACCEPTED)
+        module.set_attendance_status(_fake_user(), "nonexistent", AttendeeStatus.ACCEPTED, sequence=0)
     assert exc_info.value.error == err.ERROR_CALENDAR_EVENT_NOT_FOUND
 
 
@@ -221,7 +264,7 @@ def test_attendance_single_occurrence():
 
     module = _build_module({"cal-key": source})
     result = module.set_attendance_status(
-        _fake_user("attendee@example.com"), "evt-key", AttendeeStatus.DECLINED, recurrence_id=target_dt,
+        _fake_user("attendee@example.com"), "evt-key", AttendeeStatus.DECLINED, sequence=0, recurrence_id=target_dt,
     )
 
     assert result.recurrence_id == target_dt
@@ -237,5 +280,5 @@ def test_attendance_acl_denied_raises():
     module._acl.check_permission.side_effect = RequestException(error=err.ERROR_CALENDAR_ACCESS_DENIED)
 
     with pytest.raises(RequestException) as exc_info:
-        module.set_attendance_status(_fake_user(), "evt-key", AttendeeStatus.ACCEPTED)
+        module.set_attendance_status(_fake_user(), "evt-key", AttendeeStatus.ACCEPTED, sequence=0)
     assert exc_info.value.error == err.ERROR_CALENDAR_ACCESS_DENIED

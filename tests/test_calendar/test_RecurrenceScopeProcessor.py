@@ -221,7 +221,15 @@ def test_split_occurrence_creates_detached_row():
     assert result.recurrence_rule is None
     assert result.key is not None
     assert result.db_id is not None
-    assert result.sequence == 0
+    assert result.sequence == 1  # carries on from the series, never restarts at 0
+
+
+def test_split_occurrence_carries_on_from_the_series_revision():
+    """An override below the series revision would let any stale reply through."""
+    master = _make_event(key="evt-key", sequence=4, recurrence_rule=_daily_rule())
+    update = _merge_update(master, recurrence_id=_dt(2026, 6, 3, 9), title="Override")
+    result = RecurrenceScopeProcessor.split_occurrence(FakeSource(), master, update)
+    assert result.sequence == 5
 
 
 def test_split_occurrence_preserves_master_duration():

@@ -107,12 +107,19 @@ class CalendarSourceDb(CalendarSource):
             master,
             key=None,
             db_id=None,
+            # Own copies, not the master's list: replace() is shallow and a later PARTSTAT write on
+            # the occurrence would otherwise mutate the master's in-memory attendees through the
+            # shared objects.
+            attendees=[dataclasses.replace(a) for a in master.attendees],
             recurrence_id=recurrence_id,
             recurrence_rule=None,
             recurrence_range=None,
             date_start=recurrence_id,
             date_end=recurrence_id + duration if master.date_end is not None else None,
-            sequence=0,
+            # Inherit the series revision: the occurrence materializes an existing component at its
+            # current revision, it is not a new one. Starting it back at 0 would make every later
+            # scheduling message look newer than the instance and bypass the staleness checks.
+            sequence=master.sequence,
         )
         return self.insert_event(occurrence)
 

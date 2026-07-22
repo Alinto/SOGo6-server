@@ -1,4 +1,5 @@
 """Unit tests for ImipProcessor (REQUEST, REPLY, CANCEL flows)."""
+import dataclasses
 from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
@@ -75,6 +76,8 @@ class FakeImipSource(CalendarSource):
         self.updated = []
         self.deleted_uids = []
         self.inserted = []
+        self.occurrences = {}
+        self.partstat_propagated = []
 
     def _fetch_events(self, start, end, search=None):
         return list(self._by_uid.values())
@@ -101,6 +104,22 @@ class FakeImipSource(CalendarSource):
 
     def delete_event(self, uid):
         self.deleted_uids.append(uid)
+
+    def get_event_by_recurrence_id(self, uid, recurrence_id):
+        return self.occurrences.get((uid, recurrence_id))
+
+    def get_or_create_occurrence(self, master, recurrence_id):
+        key = (master.uid, recurrence_id)
+        if key not in self.occurrences:
+            # Detaching persists a separate row, so the occurrence owns its attendee list.
+            self.occurrences[key] = dataclasses.replace(
+                master, key="occ-key", recurrence_id=recurrence_id, recurrence_rule=None,
+                attendees=[dataclasses.replace(a) for a in master.attendees],
+            )
+        return self.occurrences[key]
+
+    def propagate_partstat_to_copies(self, event, attendee_email, status):
+        self.partstat_propagated.append((event.uid, attendee_email, status))
 
     def update_calendar(self, calendar):
         self._calendar = calendar
@@ -155,7 +174,8 @@ def test_reply_updates_partstat():
     assert len(source.updated) == 1
 
 
-def test_reply_attendee_not_matched_is_noop():
+def test_reply_sender_not_the_replying_attendee_is_rejected():
+    """A sender answering for someone else is refused - the From: is all we have to bind them."""
     org_event = _make_event(
         organizer=_organizer(),
         attendees=[_attendee("attendee@example.com", AttendeeStatus.NEEDS_ACTION)],
@@ -169,10 +189,254 @@ def test_reply_attendee_not_matched_is_noop():
     )
     raw = _build_imip_bytes(reply_event, "REPLY")
 
-    # from_email doesn't match any attendee
-    result = module.process_imip_reply(_fake_user(), raw, "nobody@example.com")
+    with pytest.raises(RequestException) as exc_info:
+        module.process_imip_reply(_fake_user(), raw, "nobody@example.com")
 
-    assert result.attendees[0].status == AttendeeStatus.NEEDS_ACTION
+    assert exc_info.value.error == err.ERROR_CALENDAR_IMIP_REPLY_SENDER_MISMATCH
+    assert org_event.attendees[0].status == AttendeeStatus.NEEDS_ACTION
+    assert len(source.updated) == 0
+
+
+def test_reply_accepts_delegate_recorded_on_the_stored_copy():
+    """A delegate is accepted when the stored guest list already records the delegation."""
+    known = _attendee("attendee@example.com", AttendeeStatus.NEEDS_ACTION)
+    known.sent_by = "assistant@example.com"
+    org_event = _make_event(organizer=_organizer(), attendees=[known])
+    source = _make_source(events=[org_event])
+    module = _build_module({"cal-key": source})
+
+    replier = _attendee("attendee@example.com", AttendeeStatus.ACCEPTED)
+    raw = _build_imip_bytes(_make_event(organizer=_organizer(), attendees=[replier]), "REPLY")
+
+    result = module.process_imip_reply(_fake_user(), raw, "assistant@example.com")
+
+    assert result.attendees[0].status == AttendeeStatus.ACCEPTED
+
+
+def test_reply_delegate_declared_only_in_the_payload_is_rejected():
+    """A forged reply cannot name its own delegate: SENT-BY is read from our copy, not the message."""
+    org_event = _make_event(
+        organizer=_organizer(),
+        attendees=[_attendee("attendee@example.com", AttendeeStatus.NEEDS_ACTION)],
+    )
+    source = _make_source(events=[org_event])
+    module = _build_module({"cal-key": source})
+
+    replier = _attendee("attendee@example.com", AttendeeStatus.ACCEPTED)
+    replier.sent_by = "attacker@example.com"
+    raw = _build_imip_bytes(_make_event(organizer=_organizer(), attendees=[replier]), "REPLY")
+
+    with pytest.raises(RequestException) as exc_info:
+        module.process_imip_reply(_fake_user(), raw, "attacker@example.com")
+
+    assert exc_info.value.error == err.ERROR_CALENDAR_IMIP_REPLY_SENDER_MISMATCH
+    assert org_event.attendees[0].status == AttendeeStatus.NEEDS_ACTION
+
+
+def test_reply_sender_matching_no_sent_by_is_rejected():
+    """A third party cannot answer for an attendee by riding on someone else's SENT-BY."""
+    org_event = _make_event(
+        organizer=_organizer(),
+        attendees=[_attendee("attendee@example.com", AttendeeStatus.NEEDS_ACTION)],
+    )
+    source = _make_source(events=[org_event])
+    module = _build_module({"cal-key": source})
+
+    replier = _attendee("attendee@example.com", AttendeeStatus.ACCEPTED)
+    replier.sent_by = "assistant@example.com"
+    raw = _build_imip_bytes(_make_event(organizer=_organizer(), attendees=[replier]), "REPLY")
+
+    with pytest.raises(RequestException) as exc_info:
+        module.process_imip_reply(_fake_user(), raw, "stranger@example.com")
+
+    assert exc_info.value.error == err.ERROR_CALENDAR_IMIP_REPLY_SENDER_MISMATCH
+    assert org_event.attendees[0].status == AttendeeStatus.NEEDS_ACTION
+
+
+def test_reply_delegate_answering_for_two_attendees_is_rejected():
+    """One delegate answering for two attendees at once leaves who is answering undecided."""
+    org_event = _make_event(
+        organizer=_organizer(),
+        attendees=[_attendee("boss1@example.com"), _attendee("boss2@example.com")],
+    )
+    source = _make_source(events=[org_event])
+    module = _build_module({"cal-key": source})
+
+    first = _attendee("boss1@example.com", AttendeeStatus.ACCEPTED)
+    first.sent_by = "assistant@example.com"
+    second = _attendee("boss2@example.com", AttendeeStatus.DECLINED)
+    second.sent_by = "assistant@example.com"
+    raw = _build_imip_bytes(_make_event(organizer=_organizer(), attendees=[first, second]), "REPLY")
+
+    with pytest.raises(RequestException) as exc_info:
+        module.process_imip_reply(_fake_user(), raw, "assistant@example.com")
+
+    assert exc_info.value.error == err.ERROR_CALENDAR_IMIP_REPLY_SENDER_MISMATCH
+
+
+def test_reply_echoing_the_guest_list_applies_only_the_sender():
+    """Clients commonly echo the whole guest list - only the sender's own answer counts."""
+    org_event = _make_event(
+        organizer=_organizer(),
+        attendees=[
+            _attendee("attendee@example.com", AttendeeStatus.NEEDS_ACTION),
+            _attendee("other@example.com", AttendeeStatus.NEEDS_ACTION),
+        ],
+    )
+    source = _make_source(events=[org_event])
+    module = _build_module({"cal-key": source})
+
+    reply_event = _make_event(
+        organizer=_organizer(),
+        attendees=[
+            _attendee("attendee@example.com", AttendeeStatus.ACCEPTED),
+            _attendee("other@example.com", AttendeeStatus.DECLINED),
+        ],
+    )
+    raw = _build_imip_bytes(reply_event, "REPLY")
+
+    result = module.process_imip_reply(_fake_user(), raw, "attendee@example.com")
+
+    assert result.attendance_status_for("attendee@example.com") == AttendeeStatus.ACCEPTED
+    assert result.attendance_status_for("other@example.com") == AttendeeStatus.NEEDS_ACTION
+
+
+def test_reply_without_sequence_is_ignored_on_a_revised_event():
+    """An omitted SEQUENCE means revision 0 (RFC 5545 §3.8.7.4), so it is stale like any other."""
+    org_event = _make_event(
+        sequence=4,
+        organizer=_organizer(),
+        attendees=[_attendee("attendee@example.com", AttendeeStatus.NEEDS_ACTION)],
+    )
+    source = _make_source(events=[org_event])
+    module = _build_module({"cal-key": source})
+
+    reply_event = _make_event(
+        sequence=0,
+        organizer=_organizer(),
+        attendees=[_attendee("attendee@example.com", AttendeeStatus.ACCEPTED)],
+    )
+    raw = _build_imip_bytes(reply_event, "REPLY")
+
+    assert module.process_imip_reply(_fake_user(), raw, "attendee@example.com") is None
+    assert org_event.attendees[0].status == AttendeeStatus.NEEDS_ACTION
+    assert len(source.updated) == 0
+
+
+def test_reply_to_a_non_organizer_copy_is_ignored():
+    """Responses are recorded on the organizer's copy only."""
+    org_event = _make_event(
+        organizer=_organizer("someone.else@example.com"),
+        attendees=[_attendee("attendee@example.com", AttendeeStatus.NEEDS_ACTION)],
+    )
+    source = _make_source(events=[org_event])
+    module = _build_module({"cal-key": source})
+
+    reply_event = _make_event(
+        organizer=_organizer("someone.else@example.com"),
+        attendees=[_attendee("attendee@example.com", AttendeeStatus.ACCEPTED)],
+    )
+    raw = _build_imip_bytes(reply_event, "REPLY")
+
+    assert module.process_imip_reply(_fake_user(), raw, "attendee@example.com") is None
+    assert org_event.attendees[0].status == AttendeeStatus.NEEDS_ACTION
+
+
+def test_reply_on_obsolete_revision_is_ignored():
+    """A reply to a slot the organizer has since moved carries the old SEQUENCE."""
+    org_event = _make_event(
+        sequence=2,
+        organizer=_organizer(),
+        attendees=[_attendee("attendee@example.com", AttendeeStatus.NEEDS_ACTION)],
+    )
+    source = _make_source(events=[org_event])
+    module = _build_module({"cal-key": source})
+
+    reply_event = _make_event(
+        sequence=1,
+        organizer=_organizer(),
+        attendees=[_attendee("attendee@example.com", AttendeeStatus.ACCEPTED)],
+    )
+    raw = _build_imip_bytes(reply_event, "REPLY")
+
+    assert module.process_imip_reply(_fake_user(), raw, "attendee@example.com") is None
+    assert org_event.attendees[0].status == AttendeeStatus.NEEDS_ACTION
+    assert len(source.updated) == 0
+
+
+def test_reply_from_someone_dropped_from_the_occurrence_is_rejected():
+    """On the guest list of the series but not of the targeted instance: the targeted row arbitrates."""
+    master = _make_event(
+        organizer=_organizer(),
+        attendees=[_attendee("attendee@example.com", AttendeeStatus.NEEDS_ACTION)],
+    )
+    source = _make_source(events=[master])
+    # The organizer already detached that date and dropped the attendee from it.
+    source.occurrences[(master.uid, _dt(2037, 6, 8, 9))] = _make_event(
+        key="occ-key", recurrence_id=_dt(2037, 6, 8, 9),
+        organizer=_organizer(), attendees=[_attendee("someone.else@example.com")],
+    )
+    source.get_event_by_recurrence_id = lambda uid, rid: source.occurrences.get((uid, rid))
+    module = _build_module({"cal-key": source})
+
+    reply_event = _make_event(
+        recurrence_id=_dt(2037, 6, 8, 9),
+        organizer=_organizer(),
+        attendees=[_attendee("attendee@example.com", AttendeeStatus.ACCEPTED)],
+    )
+    raw = _build_imip_bytes(reply_event, "REPLY")
+
+    with pytest.raises(RequestException) as exc_info:
+        module.process_imip_reply(_fake_user(), raw, "attendee@example.com")
+
+    assert exc_info.value.error == err.ERROR_CALENDAR_IMIP_REPLY_SENDER_MISMATCH
+    assert len(source.updated) == 0
+
+
+def test_reply_refused_does_not_detach_the_occurrence():
+    """Detaching punches an EXDATE hole in the master - a refused reply must not fragment the series."""
+    master = _make_event(
+        sequence=4,
+        organizer=_organizer(),
+        attendees=[_attendee("attendee@example.com", AttendeeStatus.NEEDS_ACTION)],
+    )
+    source = _make_source(events=[master])
+    module = _build_module({"cal-key": source})
+
+    reply_event = _make_event(
+        sequence=1,
+        recurrence_id=_dt(2026, 6, 8, 9),
+        organizer=_organizer(),
+        attendees=[_attendee("attendee@example.com", AttendeeStatus.DECLINED)],
+    )
+    raw = _build_imip_bytes(reply_event, "REPLY")
+
+    assert module.process_imip_reply(_fake_user(), raw, "attendee@example.com") is None
+    assert source.occurrences == {}
+    assert len(source.updated) == 0
+
+
+def test_reply_with_recurrence_id_targets_the_occurrence():
+    """Declining one occurrence must not touch the whole series."""
+    master = _make_event(
+        organizer=_organizer(),
+        attendees=[_attendee("attendee@example.com", AttendeeStatus.NEEDS_ACTION)],
+    )
+    source = _make_source(events=[master])
+    module = _build_module({"cal-key": source})
+
+    reply_event = _make_event(
+        recurrence_id=_dt(2026, 6, 8, 9),
+        organizer=_organizer(),
+        attendees=[_attendee("attendee@example.com", AttendeeStatus.DECLINED)],
+    )
+    raw = _build_imip_bytes(reply_event, "REPLY")
+
+    result = module.process_imip_reply(_fake_user(), raw, "attendee@example.com")
+
+    assert result.recurrence_id == _dt(2026, 6, 8, 9)
+    assert result.attendees[0].status == AttendeeStatus.DECLINED
+    assert master.attendees[0].status == AttendeeStatus.NEEDS_ACTION
 
 
 def test_reply_wrong_method_raises():
@@ -185,14 +449,14 @@ def test_reply_wrong_method_raises():
     assert exc_info.value.error == err.ERROR_CALENDAR_IMIP_INVALID_REQUEST
 
 
-def test_reply_event_not_found_raises():
+def test_reply_for_unknown_event_is_ignored():
+    """Aligned on CANCEL: an orphan reply is dropped, not raised - the worker sweeps whole mailboxes."""
     source = _make_source(events=[])
     module = _build_module({"cal-key": source})
     event = _make_event(organizer=_organizer(), attendees=[_attendee()])
     raw = _build_imip_bytes(event, "REPLY")
-    with pytest.raises(RequestException) as exc_info:
-        module.process_imip_reply(_fake_user(), raw, "attendee@example.com")
-    assert exc_info.value.error == err.ERROR_CALENDAR_EVENT_NOT_FOUND
+
+    assert module.process_imip_reply(_fake_user(), raw, "attendee@example.com") is None
 
 
 def test_reply_does_not_increment_sequence():
@@ -213,6 +477,53 @@ def test_reply_does_not_increment_sequence():
     raw = _build_imip_bytes(reply_event, "REPLY")
     result = module.process_imip_reply(_fake_user(), raw, "attendee@example.com")
     assert result.sequence == 5
+
+
+def test_request_with_recurrence_id_lands_on_the_occurrence_not_the_master():
+    """A single-instance REQUEST has no RRULE: applied to the master it would collapse the series."""
+    from app.module.calendar.model.CalRecurrenceRule import CalRecurrenceRule
+    from app.module.calendar.model.enums.RecurrenceFrequency import RecurrenceFrequency
+    master = _make_event(
+        sequence=1, organizer=_organizer(),
+        recurrence_rule=CalRecurrenceRule(frequency=RecurrenceFrequency.DAILY, count=10),
+    )
+    source = _make_source(events=[master])
+    module = _build_module({"cal-key": source})
+
+    update = _make_event(
+        sequence=2, recurrence_id=_dt(2037, 6, 8, 9), organizer=_organizer(),
+        title="Moved instance", date_start=_dt(2037, 6, 8, 14), date_end=_dt(2037, 6, 8, 15),
+    )
+    raw = _build_imip_bytes(update, "REQUEST")
+
+    result = module.process_imip_request(_fake_user(), raw, "organizer@example.com")
+
+    assert result.recurrence_id == _dt(2037, 6, 8, 9)
+    assert result.title == "Moved instance"
+    assert master.recurrence_rule is not None
+    assert master.title == "Meeting"
+
+
+def test_reply_from_an_occurrence_only_attendee_is_accepted():
+    """Invited to a single occurrence: absent from the master list, present on the detached row."""
+    master = _make_event(organizer=_organizer(), attendees=[])
+    source = _make_source(events=[master])
+    occ = _make_event(
+        key="occ-key", recurrence_id=_dt(2037, 6, 8, 9), organizer=_organizer(),
+        attendees=[_attendee("guest@example.com", AttendeeStatus.NEEDS_ACTION)],
+    )
+    source.occurrences[(master.uid, _dt(2037, 6, 8, 9))] = occ
+    module = _build_module({"cal-key": source})
+
+    reply_event = _make_event(
+        recurrence_id=_dt(2037, 6, 8, 9), organizer=_organizer(),
+        attendees=[_attendee("guest@example.com", AttendeeStatus.ACCEPTED)],
+    )
+    raw = _build_imip_bytes(reply_event, "REPLY")
+
+    result = module.process_imip_reply(_fake_user(), raw, "guest@example.com")
+
+    assert result.attendees[0].status == AttendeeStatus.ACCEPTED
 
 
 # ========== Tests for process_imip_request ==========
