@@ -32,6 +32,17 @@ def test_deserialize_keeps_explicit_start_over_due():
     assert task.date_start == datetime(2026, 1, 1, 8, tzinfo=timezone.utc)
 
 
+def test_deserialize_with_update_pulls_anchor_down_with_the_due_date():
+    """Patching the due date below the anchored start must not invert the interval."""
+    origin = CalEvent(
+        uid="u", title="T", component_type=ComponentType.TASK,
+        date_start=datetime(2026, 8, 10, tzinfo=timezone.utc), date_end=datetime(2026, 8, 10, tzinfo=timezone.utc),
+    )
+    updated = _deserializer.deserialize_with_update(origin, {"date_due": "2026-07-01T00:00:00+00:00"})
+    assert updated.date_start <= updated.date_end
+    assert updated.date_start == datetime(2026, 7, 1, tzinfo=timezone.utc)
+
+
 def test_deserialize_with_update_maps_due_and_keeps_origin_start():
     start = datetime(2026, 3, 1, tzinfo=timezone.utc)
     origin = CalEvent(uid="u", title="Old", date_start=start, component_type=ComponentType.TASK)

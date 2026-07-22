@@ -36,7 +36,13 @@ class CalTaskDeserializerDict(CalEventDeserializer[dict]):
         """Apply a partial task update; date_due is mapped to date_end before delegating."""
         if isinstance(update, CalEvent):
             return update
-        return self._event_deserializer.deserialize_with_update(origin, self._map_task_fields(update))
+        merged: CalEvent = self._event_deserializer.deserialize_with_update(origin, self._map_task_fields(update))
+        # Moving the due date before the anchored start would invert the interval and make the task
+        # unreachable by range queries (they test start <= window_end AND end >= window_start), so
+        # the anchor follows the due date down.
+        if merged.date_end is not None and merged.date_start is not None and merged.date_start > merged.date_end:
+            merged.date_start = merged.date_end
+        return merged
 
     @staticmethod
     def _map_task_fields(body: dict[str, Any]) -> dict[str, Any]:

@@ -11,10 +11,9 @@ from app.utils import errors as err
 from app.utils.exceptions import RequestException
 from app.utils.logger.logger import logger_calendar
 
-from app.module.calendar.model.CalAttendee import CalAttendee
-
 if TYPE_CHECKING:
     from app.auth.User import User
+    from app.module.calendar.model.CalAttendee import CalAttendee
     from app.module.calendar.imip.ImipMessage import ImipMessage
     from app.module.calendar.model.CalEvent import CalEvent
     from app.module.calendar.source.CalendarSource import CalendarSource

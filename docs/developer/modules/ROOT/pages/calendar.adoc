@@ -308,17 +308,17 @@ Gates run in this order, and a message that is simply not ours is logged and dro
 |The local event is the organizer's copy
 |Ignored, logged as a warning - the message reached the wrong mailbox
 
-|Exactly one stored attendee answers to the sender, by address or by its recorded `SENT-BY`
+|Exactly one attendee of the targeted row (the detached occurrence when the reply carries a `RECURRENCE-ID` and one exists, the master otherwise) answers to the sender, by address or by its recorded `SENT-BY`
 |Rejected - `S000626`
 
-|The message carries that attendee's `PARTSTAT`
+|The message carries an answer for that attendee (an `ATTENDEE` without `PARTSTAT` is accepted as `needs-action`, its RFC 5545 §3.2.12 default)
 |Rejected - `S000626`
+
+|The targeted slot is not cancelled - a `RECURRENCE-ID` in the master's EXDATE with no live override row
+|Ignored, logged as a warning - internally `S000613`
 
 |`CalEvent.accepts_revision` - declared `SEQUENCE` not older than the stored one
 |Ignored - the reply answers a slot that has since moved
-
-|The sender is on the guest list of the row actually targeted (the detached occurrence when the reply carries a `RECURRENCE-ID` and one exists, the master otherwise)
-|Rejected - `S000626`
 |===
 
 RFC 5546 §3.2.3 constrains a REPLY to a single `ATTENDEE`, but clients routinely echo the organizer or the whole guest list, so the sender is matched against the component instead of the message being refused outright. Only the matched attendee's status is applied.
