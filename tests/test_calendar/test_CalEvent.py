@@ -163,6 +163,19 @@ def test_set_attendance_returns_false_when_not_an_attendee():
     assert event.attendees[0].status == AttendeeStatus.NEEDS_ACTION
 
 
+# ========== accepts_revision ==========
+
+def test_accepts_revision_refuses_older():
+    event = _make_event(sequence=2)
+    assert event.accepts_revision(1) is False
+
+
+def test_accepts_revision_allows_same_or_newer():
+    event = _make_event(sequence=2)
+    assert event.accepts_revision(2) is True
+    assert event.accepts_revision(3) is True
+
+
 # ========== has_scheduling_changes ==========
 
 def test_has_scheduling_changes_on_move():

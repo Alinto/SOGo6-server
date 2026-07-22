@@ -174,7 +174,12 @@ class RecurrenceScopeProcessor:
             recurrence_range=None,
             date_start=start,
             date_end=end,
-            sequence=0,
+            # The override materializes an existing series, so it carries on from the series
+            # revision instead of restarting at 0 - otherwise every reply to that instance would be
+            # arbitrated against 0 and no stale one could ever be refused. The bump is unconditional,
+            # like the series-update branch above: any override is a new revision of that instance.
+            # The PARTSTAT reset below is narrower, firing only when the slot actually moved.
+            sequence=(original.sequence or 0) + 1,
         )
         occurrence.normalize_all_day()
         # Moving this occurrence off its slot reschedules it: attendees must re-confirm. Detection is

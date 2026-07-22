@@ -198,6 +198,12 @@ class AttendanceSchema(Schema):
         validate=validate.OneOf(["accepted", "declined", "tentative", "delegated"]),
         metadata={"description": "accepted | declined | tentative | delegated"},
     )
+    sequence = fields.Integer(
+        required=True,
+        metadata={"description": "SEQUENCE of the event revision the client was shown. The response is "
+                                 "refused when the event has been revised since, so a stale view cannot "
+                                 "answer for a slot the organizer has already moved."},
+    )
     recurrence_id = DateTimeUtcField(
         load_default=None, allow_none=True,
         metadata={"description": "ISO 8601 UTC datetime. When set, the status applies to this single occurrence only."},

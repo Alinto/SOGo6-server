@@ -28,6 +28,7 @@ It is built around two domain objects - `CalCalendar` and `CalEvent` - that flow
 
 * *InterfaceApi* - Dict-to-CalEvent conversion (via Deserializer), scope dispatch, response formatting. No business logic.
 * *ModuleCalendar* - Orchestration: event CRUD, attendance, iMIP, attendee propagation. Delegates recurrence scope to the processor.
+* *AttendanceProcessor* - Applies a participation status on a stored event, shared by the attendance endpoint and inbound iMIP REPLY (static methods). Resolves the target occurrence, arbitrates the revision, skips no-op writes, propagates to local copies.
 * *RecurrenceScopeProcessor* - Pure construction logic for recurrence-scoped modifications (static methods). Returns a `ScopeResult` carrying the resulting CalEvent and the list of touched events with their action (INSERT/UPDATE/DELETE).
 * *CalendarSources* - Factory for CalendarSource instances, multi-calendar merge. Single entry point for all attendee propagation via `propagate()` which replicates touched events and syncs the attendee list.
 * *CalendarSourceDb* - Writable source backed by the database. Handles insert, update, split, detached occurrence EXDATE. No cross-calendar propagation - that belongs to CalendarSources.
@@ -157,7 +158,7 @@ DELETE /events/evt-key
 [source,json]
 ----
 POST /events/evt-key/attendance
-{"status": "declined", "recurrence_id": "2026-06-08T07:00:00Z"}
+{"status": "declined", "sequence": 3, "recurrence_id": "2026-06-08T07:00:00Z"}
 ----
 
 == Reminders
@@ -286,3 +287,60 @@ The organizer is always set by the caller (interface) as a `CalOrganizer` object
 Three iTIP methods (RFC 5546): REQUEST (invite), REPLY (accept/decline), CANCEL (delete). `ImipProcessor` handles inbound messages. `ImipBuilder` produces outbound `ImipMessage` objects. Actual email dispatch is deferred to the Celery agent.
 
 For local attendees, `CalendarSources.propagate()` mirrors the touched events from a `ScopeResult` to each attendee's writable calendar immediately, bypassing the email roundtrip.
+
+=== Inbound REPLY validation
+
+Gates run in this order, and a message that is simply not ours is logged and dropped rather than raised, so a mailbox sweep does not turn orphan mail into errors.
+
+[cols="1,3"]
+|===
+|Gate |Outcome when it fails
+
+|`METHOD` is `REPLY`
+|Rejected - `S000616`
+
+|The `UID` resolves to a local event
+|Ignored
+
+|The source is writable
+|Rejected - `S000604`
+
+|The local event is the organizer's copy
+|Ignored, logged as a warning - the message reached the wrong mailbox
+
+|Exactly one stored attendee answers to the sender, by address or by its recorded `SENT-BY`
+|Rejected - `S000626`
+
+|The message carries that attendee's `PARTSTAT`
+|Rejected - `S000626`
+
+|`CalEvent.accepts_revision` - declared `SEQUENCE` not older than the stored one
+|Ignored - the reply answers a slot that has since moved
+
+|The sender is on the guest list of the row actually targeted (the detached occurrence when the reply carries a `RECURRENCE-ID` and one exists, the master otherwise)
+|Rejected - `S000626`
+|===
+
+RFC 5546 §3.2.3 constrains a REPLY to a single `ATTENDEE`, but clients routinely echo the organizer or the whole guest list, so the sender is matched against the component instead of the message being refused outright. Only the matched attendee's status is applied.
+
+Who is answering is decided from the stored guest list, never from the payload: matching an incoming `SENT-BY` would be circular, since a forged reply can name its own delegate. A delegated reply therefore only works once the delegation is recorded on the organizer's copy, which is what RFC 6047 §3 asks for.
+
+The `From:` header itself is taken on trust - this path holds only the extracted `text/calendar` part, so no signature can be checked. RFC 6047 §2.2.2 mandates (MUST) S/MIME for authenticating scheduling messages; that is unimplemented, and MTA-level SPF/DKIM/DMARC enforcement is a compensating control, not the mechanism the RFC names.
+
+=== Applying a response
+
+`app/module/calendar/attendance/AttendanceProcessor.py`
+
+Every entry point through which a participation status can reach a calendar - the attendance endpoint and inbound REPLY - shares `AttendanceProcessor.apply_response`, which resolves the target occurrence, arbitrates the revision, writes only on an actual change, then mirrors the status to the local copies. A `RECURRENCE-ID` targets a single instance: an existing detached occurrence is used as is, otherwise one is materialized, which also adds the date to the master's EXDATE - so answering for one instance does modify the series row, and a refused response is stopped before that happens.
+
+Writing only on a real change matters beyond saving a query: PARTSTAT is the sole field touched here, and a no-op write would move the ETag and trigger a resynchronization on every connected CalDAV client.
+
+Two refusals are reported as errors on the direct path and silently dropped on the inbound one: answering for an event one is not an attendee of (`S000628`), and answering for a single slot the organizer has cancelled (`S000613`) - materializing an occurrence for an EXDATE'd date would resurrect the cancelled instance, since overrides take precedence in expansion.
+
+Each caller keeps what is specific to it - permission checks for a direct answer, organizer and sender validation for iMIP - and each states the revision the response answers, so `incoming_sequence` is never absent. A direct answer sends the revision it was shown, refused with `S000627` when the event has been revised since. An inbound REPLY passes the `SEQUENCE` from the message, or 0 when the property is omitted, which is the default RFC 5545 §3.8.7.4 gives it.
+
+Refusing on that comparison is a deliberate implementation choice, not an RFC rule. RFC 5546 §2.1.4 expects a response's `SEQUENCE` not to always match the organizer's revision and leaves implementations free to surface the mismatch and let the user decide. With no pending-response state to surface it through, the choice is between applying the answer - showing the organizer an acceptance for a slot the attendee never saw - and refusing it, leaving a visible `needs-action`. The second is what actually happened.
+
+It cannot hit a conforming client: §3.2.3 reads `MAY be present if 0` and `If non-zero, MUST be the sequence number of the original REQUEST`, so omitting the property is only conforming when the revision answered is 0. A dropped reply means a non-conforming client or a genuinely stale answer, and both are logged.
+
+One rule is not implemented. RFC 5546 §2.1.5 orders successive replies from one attendee by `SEQUENCE`, then by `DTSTAMP` as a tie-break, and requires organizers to persist both per attendee. Since a REPLY never increments `SEQUENCE`, two replies to the same revision always tie, so `DTSTAMP` is the only discriminator - and nothing records it. Replies from one attendee are applied in arrival order. §2.1.5 names ordinary causes for that order to be wrong (queueing, retries), so this is reachable without anything replaying mail: a `tentative` then `accepted` pair delivered out of order settles on the wrong one.

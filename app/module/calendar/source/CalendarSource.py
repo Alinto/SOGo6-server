@@ -278,7 +278,7 @@ class CalendarSource(ABC):  # pylint: disable=too-many-public-methods
         """Persist an event update and return it, re-wrapping unexpected errors.
 
         `context` is a short present-participle phrase used in the failure log
-        (e.g. "updating personal fields", "processing iMIP reply").
+        (e.g. "updating personal fields", "processing iMIP request").
         """
         try:
             self.update_event(event)

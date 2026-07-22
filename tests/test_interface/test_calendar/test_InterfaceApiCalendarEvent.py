@@ -311,7 +311,7 @@ def test_set_attendance_status_sends_reply_to_organizer():
     module.set_attendance_status.return_value = _make_event()
     inter = _build_interface(module)
     with patch(_BUILD_REPLY, return_value=_imip_message(recipients=("organizer@example.com",))):
-        response, _ = inter.set_attendance_status("evt-key", {"status": "accepted"})
+        response, _ = inter.set_attendance_status("evt-key", {"status": "accepted", "sequence": 0})
     assert response["error_code"] == "S000000"
     inter._mail_outgoing.send_raw_message.assert_called_once()
 

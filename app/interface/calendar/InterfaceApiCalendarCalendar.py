@@ -276,14 +276,21 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         """Set the current user's attendance status for an event.
 
         :param event_key: Opaque key of the event in the user's calendar.
-        :param body: Validated request body with ``status`` (accepted / declined / tentative / delegated).
+        :param body: Validated request body with ``status`` (accepted / declined / tentative / delegated)
+            and ``sequence``, the event revision the client was shown.
         :return: API envelope with the updated event, plus HTTP status code.
         """
         try:
             attendance: AttendeeStatus = AttendeeStatus(body["status"])
             recurrence_id: datetime | None = body.get("recurrence_id")
             calendar_user: CalendarUser = self._event_user_for(event_key)
-            updated: CalEvent = self.module.set_attendance_status(calendar_user, event_key, attendance, recurrence_id)
+            updated: CalEvent = self.module.set_attendance_status(
+                calendar_user=calendar_user,
+                event_key=event_key,
+                status=attendance,
+                sequence=body["sequence"],
+                recurrence_id=recurrence_id,
+            )
             imip_msg: ImipMessage | None = ImipBuilder.build_reply(updated, calendar_user)
             if imip_msg is not None:
                 self._send_imip(imip_msg)

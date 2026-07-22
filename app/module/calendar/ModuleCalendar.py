@@ -16,6 +16,7 @@ from app.module.calendar.imip.ImipMethod import ImipMethod
 from app.module.calendar.imip.ImipParser import ImipParser
 from app.module.calendar.imip.ImipProcessor import ImipProcessor
 from app.module.calendar.acl.CalendarAclEngine import CalendarAclEngine
+from app.module.calendar.attendance.AttendanceProcessor import AttendanceProcessor
 from app.module.calendar.model.CalCalendar import CalCalendar
 from app.module.calendar.model.CalendarPermissions import CalendarPermissions
 from app.module.calendar.model.CalendarUser import CalendarUser
@@ -306,7 +307,8 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
     # Attendance
     #
     def set_attendance_status(
-        self, calendar_user: CalendarUser, event_key: str, status: AttendeeStatus, recurrence_id: datetime | None = None,
+        self, calendar_user: CalendarUser, event_key: str, status: AttendeeStatus, sequence: int,
+        recurrence_id: datetime | None = None,
     ) -> CalEvent:
         """Update the current user's attendance status (PARTSTAT) for an event.
 
@@ -315,26 +317,33 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         Does not increment SEQUENCE - PARTSTAT is not a content change (RFC 5545 §3.8.7.4).
         Propagates the status to all other local copies of the event (organizer + other attendees).
 
-        :param user: The attendee updating their status.
+        :param calendar_user: The attendee updating their status.
         :param event_key: Opaque key of the attendee's own copy of the event.
         :param status: The new attendance status.
+        :param sequence: Revision the caller was shown, required so a stale view cannot answer for a
+            slot the organizer has already moved.
         :param recurrence_id: When set, target a single occurrence instead of the whole event.
         :return: The updated event or occurrence.
+        :raises RequestException: ERROR_CALENDAR_EVENT_REVISION_OBSOLETE when sequence is older than
+            the stored revision - the event moved after the caller read it.
+        :raises RequestException: ERROR_CALENDAR_NOT_ATTENDEE when the owner is not on the guest list.
         """
         source, event = self._sources.require_event(calendar_user.owner.uid, event_key)
         self._acl.check_permission(
             self._acl.get_permissions(source.calendar, calendar_user), CalendarPermissionAction.RESPOND,
         )
-
-        # Single occurrence: create or find a detached occurrence for this date
-        if recurrence_id is not None:
-            event = source.get_or_create_occurrence(event, recurrence_id)
-
-        event.set_attendance(calendar_user.owner.mail, status)
         try:
-            source.update_event(event)
-            source.propagate_partstat_to_copies(event, calendar_user.owner.mail, status)
-            return event
+            applied: CalEvent | None = AttendanceProcessor.apply_response(
+                source=source,
+                event=event,
+                attendee_email=calendar_user.owner.mail,
+                status=status,
+                recurrence_id=recurrence_id,
+                incoming_sequence=sequence,
+            )
+            if applied is None:
+                raise RequestException(error=err.ERROR_CALENDAR_EVENT_REVISION_OBSOLETE)
+            return applied
         except RequestException:
             raise
         except Exception as exc:
@@ -362,7 +371,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
             self.process_imip_cancel(calendar_user, ical_bytes, from_email)
         return None
 
-    def process_imip_reply(self, calendar_user: CalendarUser, ical_bytes: bytes, from_email: str) -> CalEvent:
+    def process_imip_reply(self, calendar_user: CalendarUser, ical_bytes: bytes, from_email: str) -> CalEvent | None:
         """Process an incoming iMIP REPLY. Delegates to ImipProcessor (acts on the calendar owner)."""
         return self._imip.process_reply(calendar_user.owner, ical_bytes, from_email)
 
