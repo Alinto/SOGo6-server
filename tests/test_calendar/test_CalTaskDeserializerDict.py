@@ -19,6 +19,19 @@ def test_deserialize_defaults_start_when_absent():
     assert _deserializer.deserialize({"title": "T"}).date_start is not None
 
 
+def test_deserialize_anchors_start_on_due_date():
+    """A task entered after it was due must not end up with a start later than its end."""
+    task = _deserializer.deserialize({"title": "T", "date_due": "2020-01-15T12:00:00+00:00"})
+    assert task.date_start == datetime(2020, 1, 15, 12, tzinfo=timezone.utc)
+    assert task.date_start <= task.date_end
+
+
+def test_deserialize_keeps_explicit_start_over_due():
+    start = "2026-01-01T08:00:00+00:00"
+    task = _deserializer.deserialize({"title": "T", "date_start": start, "date_due": "2026-02-01T00:00:00+00:00"})
+    assert task.date_start == datetime(2026, 1, 1, 8, tzinfo=timezone.utc)
+
+
 def test_deserialize_with_update_maps_due_and_keeps_origin_start():
     start = datetime(2026, 3, 1, tzinfo=timezone.utc)
     origin = CalEvent(uid="u", title="Old", date_start=start, component_type=ComponentType.TASK)

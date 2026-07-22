@@ -13,8 +13,8 @@ class CalTaskDeserializerDict(CalEventDeserializer[dict]):
     """Deserializes a task API dict into a VTODO CalEvent (component_type=task).
 
     Thin wrapper over CalEventDeserializerDict mapping the task-only ``date_due`` onto the model's
-    date_end. On creation a VTODO with no explicit start defaults to now, so the component always
-    carries an anchor date.
+    date_end. A VTODO carries no mandatory start, but date_start is stored NOT NULL, so one is
+    derived on creation.
     """
 
     def __init__(self) -> None:
@@ -22,7 +22,13 @@ class CalTaskDeserializerDict(CalEventDeserializer[dict]):
 
     def deserialize(self, data: dict[str, Any]) -> CalEvent:
         body: dict[str, Any] = self._map_task_fields(data)
-        body["date_start"] = body.get("date_start") or datetime.now(timezone.utc).isoformat()
+        # Anchor a start-less VTODO on its due date rather than on the current time: a task entered
+        # after it was due would otherwise get a start later than its end, and range queries - which
+        # test start <= window_end AND end >= window_start - can never match an inverted interval,
+        # making the task unreachable. With no due date either, now is the only anchor left.
+        body["date_start"] = (
+            body.get("date_start") or body.get("date_end") or datetime.now(timezone.utc).isoformat()
+        )
         body["component_type"] = ComponentType.TASK.value
         return self._event_deserializer.deserialize(body)
 
