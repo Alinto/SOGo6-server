@@ -14,8 +14,10 @@ from app.module.calendar.model.CalAttendee import CalAttendee
 from app.module.calendar.model.CalCalendar import CalCalendar
 from app.module.calendar.model.CalEvent import CalEvent
 from app.module.calendar.model.CalOrganizer import CalOrganizer
+from app.module.calendar.model.CalRecurrenceRule import CalRecurrenceRule
 from app.module.calendar.model.CalReminder import CalReminder
 from app.module.calendar.model.enums.AttendeeStatus import AttendeeStatus
+from app.module.calendar.model.enums.RecurrenceFrequency import RecurrenceFrequency
 from app.module.calendar.model.enums.ReminderMethod import ReminderMethod
 from app.module.calendar.serializer.CalEventSerializerIcal import CalEventSerializerIcal
 from app.module.calendar.source.CalendarSource import CalendarSource
@@ -376,7 +378,6 @@ def test_reply_from_someone_dropped_from_the_occurrence_is_rejected():
         key="occ-key", recurrence_id=_dt(2037, 6, 8, 9),
         organizer=_organizer(), attendees=[_attendee("someone.else@example.com")],
     )
-    source.get_event_by_recurrence_id = lambda uid, rid: source.occurrences.get((uid, rid))
     module = _build_module({"cal-key": source})
 
     reply_event = _make_event(
@@ -390,6 +391,28 @@ def test_reply_from_someone_dropped_from_the_occurrence_is_rejected():
         module.process_imip_reply(_fake_user(), raw, "attendee@example.com")
 
     assert exc_info.value.error == err.ERROR_CALENDAR_IMIP_REPLY_SENDER_MISMATCH
+    assert len(source.updated) == 0
+
+
+def test_reply_to_a_cancelled_slot_is_swallowed():
+    """The refusal raised by the core is converted to a silent drop on the mail path."""
+    master = _make_event(
+        organizer=_organizer(),
+        attendees=[_attendee("attendee@example.com", AttendeeStatus.NEEDS_ACTION)],
+        recurrence_exceptions=[_dt(2026, 6, 8, 9)],
+    )
+    source = _make_source(events=[master])
+    module = _build_module({"cal-key": source})
+
+    reply_event = _make_event(
+        recurrence_id=_dt(2026, 6, 8, 9),
+        organizer=_organizer(),
+        attendees=[_attendee("attendee@example.com", AttendeeStatus.ACCEPTED)],
+    )
+    raw = _build_imip_bytes(reply_event, "REPLY")
+
+    assert module.process_imip_reply(_fake_user(), raw, "attendee@example.com") is None
+    assert source.occurrences == {}
     assert len(source.updated) == 0
 
 
@@ -481,8 +504,6 @@ def test_reply_does_not_increment_sequence():
 
 def test_request_with_recurrence_id_lands_on_the_occurrence_not_the_master():
     """A single-instance REQUEST has no RRULE: applied to the master it would collapse the series."""
-    from app.module.calendar.model.CalRecurrenceRule import CalRecurrenceRule
-    from app.module.calendar.model.enums.RecurrenceFrequency import RecurrenceFrequency
     master = _make_event(
         sequence=1, organizer=_organizer(),
         recurrence_rule=CalRecurrenceRule(frequency=RecurrenceFrequency.DAILY, count=10),
