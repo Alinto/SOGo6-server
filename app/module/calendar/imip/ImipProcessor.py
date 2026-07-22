@@ -2,6 +2,7 @@ from __future__ import annotations
 
 # pylint: disable=raise-missing-from
 import dataclasses
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from app.module.calendar.attendance.AttendanceProcessor import AttendanceProcessor
@@ -136,9 +137,7 @@ class ImipProcessor:
 
         # RFC 5546 §3.2.3 constrains a REPLY to one ATTENDEE, but clients routinely echo the
         # organizer or the whole guest list, so only the sender's own answer is read out of it.
-        replier: CalAttendee | None = next(
-            (att for att in message.event.attendees if att.email == answering[0].email), None
-        )
+        replier: CalAttendee | None = message.event.attendee_for(answering[0].email)
         if replier is None:
             raise RequestException(error=err.ERROR_CALENDAR_IMIP_REPLY_SENDER_MISMATCH)
 
@@ -159,6 +158,9 @@ class ImipProcessor:
                 # any other, and refusing it is what keeps the guard from being sidestepped by
                 # simply leaving the property out.
                 incoming_sequence=message.event.sequence,
+                # DTSTAMP is mandatory but clients break; a message omitting it counts as
+                # received now rather than being refused.
+                incoming_dtstamp=message.event.dtstamp or datetime.now(timezone.utc),
             )
         except RequestException as exc:
             # Not ours to apply - the sender is absent from the row actually targeted, or the slot

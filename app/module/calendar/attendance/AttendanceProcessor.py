@@ -9,6 +9,7 @@ from app.utils.logger.logger import logger_calendar
 if TYPE_CHECKING:
     from datetime import datetime
 
+    from app.module.calendar.model.CalAttendee import CalAttendee
     from app.module.calendar.model.CalEvent import CalEvent
     from app.module.calendar.model.enums.AttendeeStatus import AttendeeStatus
     from app.module.calendar.source.CalendarSource import CalendarSource
@@ -30,6 +31,7 @@ class AttendanceProcessor:
         attendee_email: str,
         status: AttendeeStatus,
         incoming_sequence: int,
+        incoming_dtstamp: datetime,
         recurrence_id: datetime | None = None,
     ) -> CalEvent | None:
         """Set attendee_email's PARTSTAT on the targeted event and mirror it to the local copies.
@@ -46,8 +48,13 @@ class AttendanceProcessor:
         :param incoming_sequence: Revision the response answers. A strictly older one is refused.
             Always known: a direct answer carries the revision the user was shown, and an iMIP
             message omitting SEQUENCE is answering revision 0 by RFC 5545 §3.8.7.4.
+        :param incoming_dtstamp: Emission time of the response, stated by the caller: the DTSTAMP
+            of the scheduling message, or the current time for an answer being made directly.
+            Orders successive responses from one attendee (RFC 5546 §2.1.5): one not newer than the
+            last applied response is refused as delivered out of order or replayed.
         :param recurrence_id: When set, target that single occurrence, detaching it if needed.
-        :return: The targeted event, or None when the response was refused as an obsolete revision.
+        :return: The targeted event, or None when the response was refused as obsolete - answering
+            a superseded revision, or older than a response already applied.
         :raises RequestException: ERROR_CALENDAR_NOT_ATTENDEE when attendee_email is absent from the
             event - answering for an event one was not invited to is reported, never silently kept.
         :raises RequestException: ERROR_CALENDAR_OCCURRENCE_NOT_FOUND when recurrence_id names a
@@ -75,16 +82,37 @@ class AttendanceProcessor:
             )
             return None
 
-        if target.attendance_status_for(attendee_email) == status:
+        # RFC 5546 §2.1.5: successive responses from one attendee are ordered by SEQUENCE then
+        # DTSTAMP, against the couple recorded with their last applied response. A REPLY never
+        # increments SEQUENCE, so DTSTAMP is what separates two answers to the same revision -
+        # without this gate, mail delivered out of order would settle on the older answer.
+        prior: CalAttendee | None = target.attendee_for(attendee_email)
+        if prior is not None and prior.reply_dtstamp is not None:
+            prior_sequence: int = prior.reply_sequence or 0
+            if incoming_sequence < prior_sequence or (
+                incoming_sequence == prior_sequence and incoming_dtstamp <= prior.reply_dtstamp
+            ):
+                logger_calendar.info(
+                    "Out-of-order attendance response for uid=%s attendee=%s "
+                    "(incoming seq=%d dtstamp=%s, last applied seq=%d dtstamp=%s) - ignored",
+                    target.uid, attendee_email, incoming_sequence, incoming_dtstamp,
+                    prior_sequence, prior.reply_dtstamp,
+                )
+                return None
+
+        if prior is not None and prior.status == status:
             return target
 
-        if attendee_email not in [a.email for a in target.attendees]:
+        if prior is None:
             raise RequestException(error=err.ERROR_CALENDAR_NOT_ATTENDEE)
 
         if recurrence_id is not None and target is event:
             target = source.get_or_create_occurrence(event, recurrence_id)
 
-        target.set_attendance(attendee_email, status)
+        target.set_attendance(
+            email=attendee_email, status=status,
+            reply_sequence=incoming_sequence, reply_dtstamp=incoming_dtstamp,
+        )
         source.update_event_or_fail(target, "applying an attendance response")
         source.propagate_partstat_to_copies(event=target, attendee_email=attendee_email, status=status)
         return target
