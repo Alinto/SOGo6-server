@@ -17,6 +17,7 @@ from app.utils.logger.logger import logger_calendar
 
 if TYPE_CHECKING:
     from app.manager.db.ClientSQL import ClientSQL
+    from app.module.calendar.model.CalAttendee import CalAttendee
     from app.module.calendar.model.CalCalendar import CalCalendar
     from app.module.calendar.model.CalEvent import CalEvent
     from app.module.calendar.model.enums.AttendeeStatus import AttendeeStatus
@@ -253,8 +254,15 @@ class CalendarSourceDb(CalendarSource):
             exclude_organizer_calendar_key=self._calendar.require_key,
             recurrence_id=event.recurrence_id,
         )
+        # The reply-ordering couple travels with the status: without it, a copy updated through
+        # propagation would accept a later out-of-order response the origin row already refused.
+        origin: CalAttendee | None = event.attendee_for(attendee_email)
         for copy in other_copies:
-            copy.set_attendance(attendee_email, status)
+            copy.set_attendance(
+                email=attendee_email, status=status,
+                reply_sequence=origin.reply_sequence if origin else None,
+                reply_dtstamp=origin.reply_dtstamp if origin else None,
+            )
             try:
                 self._repo_event.update(copy, self._date_end_recurrence(copy))
             except RequestException:

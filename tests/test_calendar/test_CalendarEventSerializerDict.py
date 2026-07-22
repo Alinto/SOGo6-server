@@ -26,6 +26,7 @@ from app.module.calendar.model.enums.ComponentType import ComponentType
 from app.module.calendar.model.CalRecurrenceRule import CalRecurrenceRule
 from app.module.calendar.model.enums.RecurrenceFrequency import RecurrenceFrequency
 from app.module.calendar.serializer.CalEventDeserializerDict import CalEventDeserializerDict
+from app.module.calendar.serializer.CalAttendeeDeserializerDict import CalAttendeeDeserializerDict
 from app.module.calendar.serializer.CalEventSerializerDict import CalEventSerializerDict
 
 _UTC = timezone.utc
@@ -131,6 +132,23 @@ def test_attendee_all_fields(serializer):
     assert att["delegated_to"] == "bob@example.com"
     assert att["sent_by"] == "proxy@example.com"
     assert att["dir_ref"] == "ldap://example.com/cn=Room"
+
+
+def test_attendee_reply_couple_roundtrips(serializer):
+    """The reply-ordering bookkeeping survives the blob roundtrip (RFC 5546 2.1.5 persistence)."""
+    stamped = CalAttendee(
+        email="bob@example.com", status=AttendeeStatus.ACCEPTED,
+        reply_sequence=2, reply_dtstamp=datetime(2026, 6, 1, 10, tzinfo=_UTC),
+    )
+    event = CalEvent(
+        uid="u@e.com", title="T",
+        date_start=datetime(2026, 1, 1, tzinfo=_UTC), date_end=datetime(2026, 1, 1, 1, tzinfo=_UTC),
+        attendees=[stamped],
+    )
+    blob = serializer.serialize(event)["attendees"][0]
+    back = CalAttendeeDeserializerDict().deserialize(blob)
+    assert back.reply_sequence == 2
+    assert back.reply_dtstamp == datetime(2026, 6, 1, 10, tzinfo=_UTC)
 
 
 def test_related_to(serializer):

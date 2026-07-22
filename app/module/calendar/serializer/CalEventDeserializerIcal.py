@@ -345,18 +345,21 @@ class CalEventDeserializerIcal(CalEventDeserializer[str]):
                 categories.append(str(cat_prop))
         return categories
 
-    def _extract_timestamps(self, vevent: Any) -> tuple[datetime | None, datetime | None]:
+    def _extract_timestamps(self, vevent: Any) -> tuple[datetime | None, datetime | None, datetime | None]:
         """
         Extract CREATED / DTSTAMP and LAST-MODIFIED.
-        Returns (created_at, updated_at).
-        DTSTAMP is used as fallback for created_at when CREATED is absent.
+        Returns (created_at, updated_at, dtstamp).
+        DTSTAMP is used as fallback for created_at when CREATED is absent, and is also returned on
+        its own: in a scheduling message it stamps the emission time, which orders successive
+        replies from one attendee (RFC 5546 sec 2.1.5).
         """
+        dtstamp, _, _ = self._parse_dt_prop(vevent, "dtstamp")
         created_at, _, _ = self._parse_dt_prop(vevent, "created")
         if created_at is None:
-            created_at, _, _ = self._parse_dt_prop(vevent, "dtstamp")
+            created_at = dtstamp
 
         updated_at, _, _ = self._parse_dt_prop(vevent, "last-modified")
-        return created_at, updated_at
+        return created_at, updated_at, dtstamp
 
     def _extract_color(self, vevent: Any) -> str | None:
         """Extract color from COLOR (RFC 7986) or X-APPLE-CALENDAR-COLOR."""
@@ -574,13 +577,13 @@ class CalEventDeserializerIcal(CalEventDeserializer[str]):
 
     # CalEvent assembler
 
-    def _build_cal_event(self, vevent: Any, alarms: list[CalReminder]) -> CalEvent:
+    def _build_cal_event(self, vevent: Any, alarms: list[CalReminder]) -> CalEvent:  # pylint: disable=too-many-locals
         """Assemble a CalEvent from a parsed VEVENT component and pre-built alarms."""
         text = self._extract_text_fields(vevent)
         date_start, date_end, all_day, timezone_str = self._extract_dates(vevent)
         status, visibility, show_as = self._extract_status_fields(vevent)
         recur = self._extract_recurrence(vevent)
-        created_at, updated_at = self._extract_timestamps(vevent)
+        created_at, updated_at, dtstamp = self._extract_timestamps(vevent)
         parts = self._extract_participant_fields(vevent)
         return CalEvent(
             uid=text.uid,
@@ -610,6 +613,7 @@ class CalEventDeserializerIcal(CalEventDeserializer[str]):
             extra_properties=parts.extra_properties,
             uid_parent_split=parts.uid_parent_split,
             created_at=created_at,
+            dtstamp=dtstamp,
             updated_at=updated_at,
             component_type=ComponentType.EVENT,
         )
@@ -620,7 +624,7 @@ class CalEventDeserializerIcal(CalEventDeserializer[str]):
         date_start, date_end, all_day, timezone_str = self._extract_dates_todo(vtodo)
         status, visibility, show_as = self._extract_status_fields(vtodo, EventStatus.NEEDS_ACTION)
         recur = self._extract_recurrence(vtodo)
-        created_at, updated_at = self._extract_timestamps(vtodo)
+        created_at, updated_at, dtstamp = self._extract_timestamps(vtodo)
         parts = self._extract_participant_fields(vtodo)
 
         pct_val = vtodo.get("percent-complete")
@@ -655,6 +659,7 @@ class CalEventDeserializerIcal(CalEventDeserializer[str]):
             extra_properties=parts.extra_properties,
             uid_parent_split=parts.uid_parent_split,
             created_at=created_at,
+            dtstamp=dtstamp,
             updated_at=updated_at,
             component_type=ComponentType.TASK,
             percent_complete=percent_complete,

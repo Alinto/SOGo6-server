@@ -195,6 +195,21 @@ def test_attendance_on_obsolete_revision_is_rejected():
     assert len(source.updated) == 0
 
 
+def test_attendance_direct_answer_overrides_a_past_mail_reply():
+    """A direct answer stamps the current time, so it always supersedes an older recorded reply."""
+    att = _attendee("attendee@example.com", AttendeeStatus.DECLINED)
+    att.reply_sequence = 0
+    att.reply_dtstamp = _dt(2020, 6, 1, 10)
+    event = _make_event(key="evt-key", organizer=_organizer(), attendees=[att])
+    source = _make_source(events=[event])
+    module = _build_module({"cal-key": source})
+
+    result = module.set_attendance_status(_fake_user(), "evt-key", AttendeeStatus.ACCEPTED, sequence=0)
+
+    assert result.attendees[0].status == AttendeeStatus.ACCEPTED
+    assert result.attendees[0].reply_dtstamp > _dt(2020, 6, 1, 10)
+
+
 def test_attendance_does_not_increment_sequence():
     """PARTSTAT update must not change SEQUENCE (RFC 5545 §3.8.7.4)."""
     event = _make_event(key="evt-key", sequence=3, organizer=_organizer(), attendees=[_attendee("attendee@example.com")])

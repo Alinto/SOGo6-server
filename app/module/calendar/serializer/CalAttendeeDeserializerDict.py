@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from app.module.calendar.model.CalAttendee import CalAttendee
 from app.module.calendar.model.enums.AttendeeRole import AttendeeRole
 from app.module.calendar.model.enums.AttendeeStatus import AttendeeStatus
 from app.module.calendar.model.enums.CalUserType import CalUserType
+from app.utils.datetime.DateTimeUtils import to_utc
 from app.utils.serializer.Deserializer import Deserializer
 
 
@@ -25,4 +27,6 @@ class CalAttendeeDeserializerDict(Deserializer[dict[str, Any], CalAttendee]):
             delegated_to=data.get("delegated_to"),
             sent_by=data.get("sent_by"),
             dir_ref=data.get("dir_ref"),
+            reply_sequence=data.get("reply_sequence"),
+            reply_dtstamp=to_utc(datetime.fromisoformat(data["reply_dtstamp"])) if data.get("reply_dtstamp") else None,
         )

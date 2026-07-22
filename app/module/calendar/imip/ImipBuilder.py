@@ -73,10 +73,7 @@ class ImipBuilder:
         # The organizer does not reply to their own event (RFC 5546): there is no one to notify.
         if event.organizer.email == owner_mail:
             return None
-        replying_attendee = next(
-            (a for a in event.attendees if a.email == owner_mail),
-            None,
-        )
+        replying_attendee = event.attendee_for(owner_mail)
         if replying_attendee is None:
             return None
         reply_event: CalEvent = dataclasses.replace(event, attendees=[replying_attendee])

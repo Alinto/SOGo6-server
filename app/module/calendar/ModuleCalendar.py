@@ -340,6 +340,9 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
                 status=status,
                 recurrence_id=recurrence_id,
                 incoming_sequence=sequence,
+                # A direct answer is being made right now - it is by construction the attendee's
+                # latest response.
+                incoming_dtstamp=datetime.now(timezone.utc),
             )
             if applied is None:
                 raise RequestException(error=err.ERROR_CALENDAR_EVENT_REVISION_OBSOLETE)

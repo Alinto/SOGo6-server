@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 
 from app.module.calendar.model.enums.AttendeeRole import AttendeeRole
 from app.module.calendar.model.enums.AttendeeStatus import AttendeeStatus
@@ -32,3 +33,9 @@ class CalAttendee:  # pylint: disable=too-many-instance-attributes
     sent_by: str | None = None
     # RFC 5545 §3.2.6 DIR parameter - URI to directory entry (e.g. LDAP)
     dir_ref: str | None = None
+
+    # Organizer-side bookkeeping mandated by RFC 5546 §2.1.5: the SEQUENCE and DTSTAMP of this
+    # attendee's last applied response, so an earlier response delivered out of order can be
+    # discarded. Persisted in the event blob, never exposed through the API nor emitted to iCal.
+    reply_sequence: int | None = None
+    reply_dtstamp: datetime | None = None

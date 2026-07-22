@@ -90,7 +90,7 @@ def test_applies_and_propagates():
 
     result = AttendanceProcessor.apply_response(
         source=source, event=event, attendee_email="bob@example.com",
-        status=AttendeeStatus.ACCEPTED, incoming_sequence=0,
+        status=AttendeeStatus.ACCEPTED, incoming_dtstamp=_dt(2037, 6, 1, 8), incoming_sequence=0,
     )
 
     assert result.attendees[0].status == AttendeeStatus.ACCEPTED
@@ -104,7 +104,7 @@ def test_already_current_writes_nothing():
 
     result = AttendanceProcessor.apply_response(
         source=source, event=event, attendee_email="bob@example.com",
-        status=AttendeeStatus.ACCEPTED, incoming_sequence=0,
+        status=AttendeeStatus.ACCEPTED, incoming_dtstamp=_dt(2037, 6, 1, 8), incoming_sequence=0,
     )
 
     assert result is event
@@ -119,7 +119,7 @@ def test_not_an_attendee_raises():
     with pytest.raises(RequestException) as exc_info:
         AttendanceProcessor.apply_response(
             source=source, event=event, attendee_email="bob@example.com",
-            status=AttendeeStatus.ACCEPTED, incoming_sequence=0,
+            status=AttendeeStatus.ACCEPTED, incoming_dtstamp=_dt(2037, 6, 1, 8), incoming_sequence=0,
         )
 
     assert exc_info.value.error == err.ERROR_CALENDAR_NOT_ATTENDEE
@@ -134,7 +134,7 @@ def test_obsolete_revision_is_refused():
 
     result = AttendanceProcessor.apply_response(
         source=source, event=event, attendee_email="bob@example.com",
-        status=AttendeeStatus.ACCEPTED, incoming_sequence=2,
+        status=AttendeeStatus.ACCEPTED, incoming_dtstamp=_dt(2037, 6, 1, 8), incoming_sequence=2,
     )
 
     assert result is None
@@ -149,10 +149,76 @@ def test_same_or_newer_revision_is_applied():
 
         result = AttendanceProcessor.apply_response(
             source=source, event=event, attendee_email="bob@example.com",
-            status=AttendeeStatus.ACCEPTED, incoming_sequence=incoming,
+            status=AttendeeStatus.ACCEPTED, incoming_dtstamp=_dt(2037, 6, 1, 8), incoming_sequence=incoming,
         )
 
         assert result.attendees[0].status == AttendeeStatus.ACCEPTED
+
+
+# ========== Reply ordering (RFC 5546 2.1.5) ==========
+
+def test_first_reply_records_the_couple():
+    event = _make_event()
+    source = _source()
+
+    result = AttendanceProcessor.apply_response(
+        source=source, event=event, attendee_email="bob@example.com",
+        status=AttendeeStatus.ACCEPTED, incoming_dtstamp=_dt(2037, 6, 1, 8), incoming_sequence=0,
+    )
+
+    assert result.attendees[0].reply_sequence == 0
+    assert result.attendees[0].reply_dtstamp == _dt(2037, 6, 1, 8)
+
+
+def test_out_of_order_reply_is_discarded():
+    """The attendee's earlier answer delivered late must not override their latest one."""
+    att = _attendee(status=AttendeeStatus.DECLINED)
+    att.reply_sequence = 0
+    att.reply_dtstamp = _dt(2037, 6, 1, 10)
+    event = _make_event(attendees=[att])
+    source = _source()
+
+    result = AttendanceProcessor.apply_response(
+        source=source, event=event, attendee_email="bob@example.com",
+        status=AttendeeStatus.ACCEPTED, incoming_dtstamp=_dt(2037, 6, 1, 9), incoming_sequence=0,
+    )
+
+    assert result is None
+    assert event.attendees[0].status == AttendeeStatus.DECLINED
+    assert not source.updated
+
+
+def test_replayed_reply_is_discarded():
+    """An identical (SEQUENCE, DTSTAMP) couple is a duplicate delivery, not a newer answer."""
+    att = _attendee(status=AttendeeStatus.DECLINED)
+    att.reply_sequence = 0
+    att.reply_dtstamp = _dt(2037, 6, 1, 10)
+    event = _make_event(attendees=[att])
+    source = _source()
+
+    result = AttendanceProcessor.apply_response(
+        source=source, event=event, attendee_email="bob@example.com",
+        status=AttendeeStatus.ACCEPTED, incoming_dtstamp=_dt(2037, 6, 1, 10), incoming_sequence=0,
+    )
+
+    assert result is None
+    assert not source.updated
+
+
+def test_newer_reply_supersedes_and_updates_the_couple():
+    att = _attendee(status=AttendeeStatus.ACCEPTED)
+    att.reply_sequence = 0
+    att.reply_dtstamp = _dt(2037, 6, 1, 10)
+    event = _make_event(attendees=[att])
+    source = _source()
+
+    result = AttendanceProcessor.apply_response(
+        source=source, event=event, attendee_email="bob@example.com",
+        status=AttendeeStatus.DECLINED, incoming_dtstamp=_dt(2037, 6, 1, 11), incoming_sequence=0,
+    )
+
+    assert result.attendees[0].status == AttendeeStatus.DECLINED
+    assert result.attendees[0].reply_dtstamp == _dt(2037, 6, 1, 11)
 
 
 # ========== Occurrences ==========
@@ -163,7 +229,7 @@ def test_recurrence_id_detaches_and_leaves_the_master_alone():
 
     result = AttendanceProcessor.apply_response(
         source=source, event=master, attendee_email="bob@example.com",
-        status=AttendeeStatus.DECLINED, incoming_sequence=2, recurrence_id=_OCC,
+        status=AttendeeStatus.DECLINED, incoming_dtstamp=_dt(2037, 6, 1, 8), incoming_sequence=2, recurrence_id=_OCC,
     )
 
     assert result.recurrence_id == _OCC
@@ -179,7 +245,7 @@ def test_existing_occurrence_is_reused():
 
     result = AttendanceProcessor.apply_response(
         source=source, event=master, attendee_email="bob@example.com",
-        status=AttendeeStatus.ACCEPTED, incoming_sequence=0, recurrence_id=_OCC,
+        status=AttendeeStatus.ACCEPTED, incoming_dtstamp=_dt(2037, 6, 1, 8), incoming_sequence=0, recurrence_id=_OCC,
     )
 
     assert result is occurrence
@@ -193,7 +259,7 @@ def test_refused_response_does_not_detach():
 
     result = AttendanceProcessor.apply_response(
         source=source, event=master, attendee_email="bob@example.com",
-        status=AttendeeStatus.ACCEPTED, incoming_sequence=1, recurrence_id=_OCC,
+        status=AttendeeStatus.ACCEPTED, incoming_dtstamp=_dt(2037, 6, 1, 8), incoming_sequence=1, recurrence_id=_OCC,
     )
 
     assert result is None
@@ -209,7 +275,7 @@ def test_reply_to_a_cancelled_occurrence_is_refused():
     with pytest.raises(RequestException) as exc_info:
         AttendanceProcessor.apply_response(
             source=source, event=master, attendee_email="bob@example.com",
-            status=AttendeeStatus.ACCEPTED, incoming_sequence=0, recurrence_id=_OCC,
+            status=AttendeeStatus.ACCEPTED, incoming_dtstamp=_dt(2037, 6, 1, 8), incoming_sequence=0, recurrence_id=_OCC,
         )
 
     assert exc_info.value.error == err.ERROR_CALENDAR_OCCURRENCE_NOT_FOUND
@@ -224,12 +290,12 @@ def test_gates_read_the_master_until_the_occurrence_exists():
 
     refused = AttendanceProcessor.apply_response(
         source=source, event=master, attendee_email="bob@example.com",
-        status=AttendeeStatus.ACCEPTED, incoming_sequence=3, recurrence_id=_OCC,
+        status=AttendeeStatus.ACCEPTED, incoming_dtstamp=_dt(2037, 6, 1, 8), incoming_sequence=3, recurrence_id=_OCC,
     )
     assert refused is None
 
     applied = AttendanceProcessor.apply_response(
         source=source, event=master, attendee_email="bob@example.com",
-        status=AttendeeStatus.ACCEPTED, incoming_sequence=4, recurrence_id=_OCC,
+        status=AttendeeStatus.ACCEPTED, incoming_dtstamp=_dt(2037, 6, 1, 8), incoming_sequence=4, recurrence_id=_OCC,
     )
     assert applied.recurrence_id == _OCC
