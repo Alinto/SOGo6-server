@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.module.calendar.model.CalAttendee import CalAttendee
+from app.utils.datetime.DateTimeUtils import fmt_dt
 from app.utils.serializer.Serializer import Serializer
 
 
@@ -22,4 +23,6 @@ class CalAttendeeSerializerDict(Serializer[CalAttendee, dict[str, Any]]):
             "delegated_to": data.delegated_to,
             "sent_by": data.sent_by,
             "dir_ref": data.dir_ref,
+            "reply_sequence": data.reply_sequence,
+            "reply_dtstamp": fmt_dt(data.reply_dtstamp) if data.reply_dtstamp else None,
         }

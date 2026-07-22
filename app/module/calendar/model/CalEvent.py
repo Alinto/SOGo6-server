@@ -241,20 +241,36 @@ class CalEvent:  # pylint: disable=too-many-instance-attributes,invalid-name,too
         """
         return incoming_sequence >= self.sequence
 
-    def attendance_status_for(self, email: str) -> AttendeeStatus | None:
-        """Return the participation status of the attendee matching email, or None if not an attendee."""
+    def attendee_for(self, email: str) -> CalAttendee | None:
+        """Return the attendee matching email, or None when not on the guest list."""
         for attendee in self.attendees:
             if attendee.email == email:
-                return attendee.status
+                return attendee
         return None
 
-    def set_attendance(self, email: str, status: AttendeeStatus) -> bool:
-        """Set the PARTSTAT of the attendee matching email. Return True if an attendee was updated."""
-        for attendee in self.attendees:
-            if attendee.email == email:
-                attendee.status = status
-                return True
-        return False
+    def attendance_status_for(self, email: str) -> AttendeeStatus | None:
+        """Return the participation status of the attendee matching email, or None if not an attendee."""
+        attendee: CalAttendee | None = self.attendee_for(email)
+        return attendee.status if attendee else None
+
+    def set_attendance(
+        self, email: str, status: AttendeeStatus,
+        reply_sequence: int | None = None, reply_dtstamp: datetime | None = None,
+    ) -> bool:
+        """Set the PARTSTAT of the attendee matching email. Return True if an attendee was updated.
+
+        The reply couple is atomic: it is recorded as the attendee's last applied response
+        (RFC 5546 §2.1.5) only when both reply_sequence and reply_dtstamp are given - half a
+        couple cannot arbitrate anything and is ignored.
+        """
+        attendee: CalAttendee | None = self.attendee_for(email)
+        if attendee is None:
+            return False
+        attendee.status = status
+        if reply_sequence is not None and reply_dtstamp is not None:
+            attendee.reply_sequence = reply_sequence
+            attendee.reply_dtstamp = reply_dtstamp
+        return True
 
     def is_attending(self, email: str) -> bool:
         """True unless email is an attendee who has not committed (declined / needs-action / delegated).

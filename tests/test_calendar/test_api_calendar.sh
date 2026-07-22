@@ -211,9 +211,9 @@ send_imip_mail() {
 # Builds a METHOD:REPLY VCALENDAR. attendee_lines is passed verbatim so a caller can declare several
 # ATTENDEE properties or a SENT-BY parameter.
 build_reply_ics() {
-    local ics_uid="$1" ics_seq="$2" ics_start="$3" attendee_lines="$4"
+    local ics_uid="$1" ics_seq="$2" ics_start="$3" attendee_lines="$4" ics_dtstamp="${5:-$3}"
     printf 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//SOGo tests//EN\r\nMETHOD:REPLY\r\nBEGIN:VEVENT\r\nUID:%s\r\nDTSTAMP:%s\r\nDTSTART:%s\r\nSEQUENCE:%s\r\nORGANIZER:mailto:%s\r\n%s\r\nEND:VEVENT\r\nEND:VCALENDAR' \
-        "$ics_uid" "$ics_start" "$ics_start" "$ics_seq" "$LOGIN_1" "$attendee_lines"
+        "$ics_uid" "$ics_dtstamp" "$ics_start" "$ics_seq" "$LOGIN_1" "$attendee_lines"
 }
 
 # Waits for a mail carrying the given subject then opens it, which is what triggers inbound iMIP
@@ -1567,12 +1567,10 @@ if [ -n "$REPLY_MAIL_UID" ]; then
         || fail "iMIP reply mail is missing METHOD:REPLY"
 
     # Inbound hook - real assertion. Same-server propagation already set the organizer copy to
-    # accepted when LOGIN_2 responded, so we move it away first; opening the reply mail via the
-    # detail endpoint must then re-apply the REPLY and flip it back to accepted.
-    #
-    # The move goes through LOGIN_2's own attendance rather than an organizer PATCH of the attendee
-    # list: that PATCH is a content change and bumps SEQUENCE, which would make the already-sent
-    # reply answer a superseded revision and be refused - the test would be staging its own failure.
+    # accepted when LOGIN_2 responded, so we move it away first, then inject a FRESH reply through
+    # the MTA and open it: applying it proves the inbound hook. Re-opening the original mail would
+    # not work anymore - its DTSTAMP predates the decline, so reply ordering (RFC 5546 2.1.5)
+    # correctly refuses it as delivered out of order.
     CODE=$(req -X POST "$BASE/events/$REPLY_KEY_L2/attendance" -H "$H_JSON" -H "$H_AUTH_2" \
         -d '{"status": "declined", "sequence": 0}')
     check_code "LOGIN_2 moves away from accepted (no SEQUENCE change)" "$CODE" "200"
@@ -1583,14 +1581,22 @@ if [ -n "$REPLY_MAIL_UID" ]; then
         && ok "organizer copy moved to declined before the inbound hook" \
         || fail "could not move the organizer copy (status='$PRE_STATUS')"
 
-    CODE=$(req "$BASE/mailboxes/0/folders/INBOX/mails/$REPLY_MAIL_UID" -H "$H_AUTH")
-    check_code "GET mail detail of the iMIP reply (inbound hook)" "$CODE" "200"
-
-    CODE=$(req "$BASE/events/$REPLY_EVT_KEY" -H "$H_AUTH")
-    POST_STATUS=$(body | jq -r --arg e "$LOGIN_2" '.data.attendees[] | select(.email == $e) | .status // empty')
-    [ "$POST_STATUS" = "accepted" ] \
-        && ok "opening the reply applied the response (LOGIN_2 -> accepted via inbound iMIP)" \
-        || fail "inbound iMIP did not update the event (status='$POST_STATUS', expected accepted)"
+    HOOK_SUBJ="Inbound hook $REPLY_NONCE"
+    # Fixed far-future stamp: guaranteed newer than the decline's server-side timestamp whatever
+    # the client/server clock offset, and deterministic across runs.
+    HOOK_DTSTAMP="20380101T120000Z"
+    send_imip_mail "$LOGIN_2" "$LOGIN_1" "$HOOK_SUBJ" \
+        "$(build_reply_ics "$REPLY_UID" 0 "20370703T090000Z" \
+            "ATTENDEE;PARTSTAT=ACCEPTED:mailto:$LOGIN_2" "$HOOK_DTSTAMP")"
+    if open_mail_by_subject "$H_AUTH" "$HOOK_SUBJ" >/dev/null; then
+        CODE=$(req "$BASE/events/$REPLY_EVT_KEY" -H "$H_AUTH")
+        POST_STATUS=$(body | jq -r --arg e "$LOGIN_2" '.data.attendees[] | select(.email == $e) | .status // empty')
+        [ "$POST_STATUS" = "accepted" ] \
+            && ok "opening the reply applied the response (LOGIN_2 -> accepted via inbound iMIP)" \
+            || fail "inbound iMIP did not update the event (status='$POST_STATUS', expected accepted)"
+    else
+        fail "crafted inbound-hook reply never reached the organizer INBOX"
+    fi
 else
     fail "Organizer LOGIN_1 did NOT receive the iMIP reply (subject '$REPLY_SUBJECT' not found)"
 fi
@@ -3195,6 +3201,33 @@ if open_mail_by_subject "$H_AUTH" "$SUBJ" >/dev/null; then
         || fail "current-revision reply was dropped (got '$(partstat_of "$LOGIN_2")')"
 else
     fail "current-revision reply never reached the organizer INBOX"
+fi
+
+# Reply ordering (RFC 5546 2.1.5): two answers to the same revision are separated by DTSTAMP only.
+# The attendee declines at T+2h, then their earlier acceptance (T+1h) is delivered late: it must be
+# discarded, not applied over the newer decline.
+SUBJ="Reply newest $IMIP_R_NONCE"
+send_imip_mail "$LOGIN_2" "$LOGIN_1" "$SUBJ" \
+    "$(build_reply_ics "$IMIP_R_UID" 1 "$IMIP_R_START" \
+        "ATTENDEE;PARTSTAT=DECLINED:mailto:$LOGIN_2" "20370810T150000Z")"
+if open_mail_by_subject "$H_AUTH" "$SUBJ" >/dev/null; then
+    [ "$(partstat_of "$LOGIN_2")" = "declined" ] \
+        && ok "newer decline applied" \
+        || fail "newer decline dropped (got '$(partstat_of "$LOGIN_2")')"
+else
+    fail "newest reply never reached the organizer INBOX"
+fi
+
+SUBJ="Reply outoforder $IMIP_R_NONCE"
+send_imip_mail "$LOGIN_2" "$LOGIN_1" "$SUBJ" \
+    "$(build_reply_ics "$IMIP_R_UID" 1 "$IMIP_R_START" \
+        "ATTENDEE;PARTSTAT=ACCEPTED:mailto:$LOGIN_2" "20370810T140000Z")"
+if open_mail_by_subject "$H_AUTH" "$SUBJ" >/dev/null; then
+    [ "$(partstat_of "$LOGIN_2")" = "declined" ] \
+        && ok "out-of-order earlier acceptance was discarded (DTSTAMP ordering)" \
+        || fail "out-of-order reply was applied (got '$(partstat_of "$LOGIN_2")')"
+else
+    fail "out-of-order reply never reached the organizer INBOX"
 fi
 
 

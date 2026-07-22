@@ -49,6 +49,24 @@ def test_propagate_partstat_of_occurrence_does_not_touch_master():
     assert kwargs["recurrence_id"] == _dt(2026, 6, 25, 8)
 
 
+def test_propagate_partstat_carries_the_reply_couple():
+    """The copies must record the same reply couple as the origin row, or they would accept a replay it refused."""
+    source = _build_source()
+    source._repo_event = MagicMock()
+    copy = _event(_dt(2026, 6, 25, 8), _dt(2026, 6, 25, 9),
+                  attendees=[CalAttendee(email="bob@example.com", status=AttendeeStatus.NEEDS_ACTION)])
+    source._repo_event.find_all_by_uid.return_value = [copy]
+    origin_att = CalAttendee(email="bob@example.com", status=AttendeeStatus.ACCEPTED,
+                             reply_sequence=1, reply_dtstamp=_dt(2026, 6, 25, 10))
+    origin = _event(_dt(2026, 6, 25, 8), _dt(2026, 6, 25, 9), attendees=[origin_att])
+
+    source.propagate_partstat_to_copies(origin, "bob@example.com", AttendeeStatus.ACCEPTED)
+
+    assert copy.attendees[0].status == AttendeeStatus.ACCEPTED
+    assert copy.attendees[0].reply_sequence == 1
+    assert copy.attendees[0].reply_dtstamp == _dt(2026, 6, 25, 10)
+
+
 def test_propagate_partstat_of_master_targets_masters():
     """Accepting the whole series targets the master copies (recurrence_id None)."""
     source = _build_source()
