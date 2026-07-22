@@ -60,7 +60,7 @@ TEST COVERAGE:
       non-recurring event)
   15  FreeBusy:
         a. Setup - LOGIN_2 (America/New_York) and LOGIN_3 (Asia/Tokyo) each create
-           a calendar and an event; LOGIN_1 creates 2 events on 2026-06-15
+           a calendar and an event; LOGIN_1 creates 2 events on 2037-06-15
         b. Multi-user JSON: LOGIN_3 queries LOGIN_1 + LOGIN_2 in one call
         c. Cross-user JSON query: LOGIN_3 -> LOGIN_1 (2 busy periods)
         d. Common slot: LOGIN_3 -> LOGIN_2, confirms LOGIN_2 busy at same 14:00 UTC
@@ -138,6 +138,22 @@ BASE="${1:-$DEFAULT_BASE_URL}"
 USER="${2:-$DEFAULT_LOGIN}"
 PASS="${3:-$DEFAULT_PASSWORD}"
 
+# Fixtures are pinned to a fixed year instead of being computed from today, because the recurrence
+# assertions constrain both the weekday (FREQ=WEEKLY;BYDAY=MO,WE,FR expects a Monday start) and the
+# day of month (FREQ=MONTHLY;BYMONTHDAY=1 expects the 1st). A single day offset cannot preserve both,
+# since months differ in length - so the year is bumped to one whose calendar repeats instead.
+#
+# Once the clock reaches that year, every "upcoming event" assumption silently inverts: reminder
+# activity windows, freebusy baselines and reschedule flows all reason about dates now in the past.
+# Rather than fail deep in some step with an unexplained mismatch, stop here. Next matching years
+# (June 1st on a Monday, non-leap like 2026): 2043, 2054. Bump every date with: sed -i '' 's/2037/2043/g'
+FIXTURE_YEAR=2037
+if [ "$(date +%Y%m%d)" -ge "${FIXTURE_YEAR}0601" ]; then
+    echo "Fixture dates expired: they are pinned to $FIXTURE_YEAR and the clock has reached that window."
+    echo "Bump them to the next year whose calendar matches (2043), see the note above this check."
+    exit 1
+fi
+
 GREEN='\033[0;32m'; RED='\033[0;31m'; YELLOW='\033[1;33m'
 CYAN='\033[0;36m';  RESET='\033[0m'
 
@@ -163,6 +179,59 @@ step() {
 }
 info() { echo -e "${YELLOW}  ->${RESET} $1"; }
 skip() { echo -e "${YELLOW}  [SKIP]${RESET} $1 (run with -d to execute)"; }
+
+SMTP_URL="smtp://localhost:25"
+
+# Injects a raw iMIP message straight into the MTA. The Mail Send API cannot be used for this: its
+# schema carries no attachment field, and the outgoing module hardcodes application/octet-stream on
+# the parts it builds, so it can never emit the text/calendar part inbound processing looks for.
+# Arguments: sender, recipient, subject, iCalendar body.
+send_imip_mail() {
+    local sender="$1" rcpt="$2" mail_subject="$3" ics_body="$4"
+    local raw
+    raw=$(mktemp)
+    {
+        printf 'From: %s\r\n' "$sender"
+        printf 'To: %s\r\n' "$rcpt"
+        printf 'Subject: %s\r\n' "$mail_subject"
+        printf 'MIME-Version: 1.0\r\n'
+        printf 'Content-Type: multipart/mixed; boundary="imipbnd"\r\n'
+        printf '\r\n--imipbnd\r\n'
+        printf 'Content-Type: text/plain; charset=UTF-8\r\n\r\n'
+        printf 'Scheduling reply.\r\n'
+        printf '\r\n--imipbnd\r\n'
+        printf 'Content-Type: text/calendar; method=REPLY; charset=UTF-8\r\n\r\n'
+        printf '%b\r\n' "$ics_body"
+        printf '%s\r\n' '--imipbnd--'
+    } > "$raw"
+    curl -s --url "$SMTP_URL" --mail-from "$sender" --mail-rcpt "$rcpt" --upload-file "$raw" >/dev/null 2>&1
+    rm -f "$raw"
+}
+
+# Builds a METHOD:REPLY VCALENDAR. attendee_lines is passed verbatim so a caller can declare several
+# ATTENDEE properties or a SENT-BY parameter.
+build_reply_ics() {
+    local ics_uid="$1" ics_seq="$2" ics_start="$3" attendee_lines="$4"
+    printf 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//SOGo tests//EN\r\nMETHOD:REPLY\r\nBEGIN:VEVENT\r\nUID:%s\r\nDTSTAMP:%s\r\nDTSTART:%s\r\nSEQUENCE:%s\r\nORGANIZER:mailto:%s\r\n%s\r\nEND:VEVENT\r\nEND:VCALENDAR' \
+        "$ics_uid" "$ics_start" "$ics_start" "$ics_seq" "$LOGIN_1" "$attendee_lines"
+}
+
+# Waits for a mail carrying the given subject then opens it, which is what triggers inbound iMIP
+# processing. Echoes the mail uid, empty when it never arrived.
+open_mail_by_subject() {
+    local auth="$1" wanted="$2" found=""
+    local i
+    for i in $(seq 1 15); do
+        req "$BASE/mailboxes/0/folders/INBOX/mails?sort_by=date&sort_order=desc&fields=contents&fields_action=exclude" \
+            -H "$auth" >/dev/null
+        found=$(body | jq -r --arg s "$wanted" '[.data[]? | select(.subject == $s)][0].uid // empty')
+        [ -n "$found" ] && break
+        sleep 1
+    done
+    [ -z "$found" ] && return 1
+    req "$BASE/mailboxes/0/folders/INBOX/mails/$found" -H "$auth" >/dev/null
+    echo "$found"
+}
 
 TMPFILE=$(mktemp)
 trap 'rm -f "$TMPFILE"' EXIT
@@ -291,8 +360,8 @@ CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
         "title": "Team Meeting",
         "description": "Weekly sync",
         "location": "Room A",
-        "date_start": "2026-06-10T09:00:00Z",
-        "date_end":   "2026-06-10T10:00:00Z",
+        "date_start": "2037-06-10T09:00:00Z",
+        "date_end":   "2037-06-10T10:00:00Z",
         "timezone": "Europe/Paris",
         "status": "confirmed",
         "visibility": "public",
@@ -341,8 +410,8 @@ CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
     -H "$H_JSON" -H "$H_AUTH" \
     -d '{
         "title": "Company Holiday",
-        "date_start": "2026-07-14T00:00:00Z",
-        "date_end":   "2026-07-14T23:59:59Z",
+        "date_start": "2037-07-14T00:00:00Z",
+        "date_end":   "2037-07-14T23:59:59Z",
         "all_day": true,
         "visibility": "public"
     }')
@@ -358,8 +427,8 @@ CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
     -d '{
         "title": "Project Kickoff",
         "location": "Conf Room B",
-        "date_start": "2026-06-15T14:00:00Z",
-        "date_end":   "2026-06-15T15:30:00Z",
+        "date_start": "2037-06-15T14:00:00Z",
+        "date_end":   "2037-06-15T15:30:00Z",
         "timezone": "Europe/Paris",
         "organizer": {"email": "organizer@example.org", "name": "Alice"},
         "attendees": [
@@ -387,8 +456,8 @@ CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
     -H "$H_JSON" -H "$H_AUTH" \
     -d '{
         "title": "Daily Standup",
-        "date_start": "2026-06-01T09:00:00Z",
-        "date_end":   "2026-06-01T09:15:00Z",
+        "date_start": "2037-06-01T09:00:00Z",
+        "date_end":   "2037-06-01T09:15:00Z",
         "timezone": "Europe/Paris",
         "recurrence_rule": {"frequency": "daily", "count": 5, "interval": 1}
     }')
@@ -406,14 +475,14 @@ CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
     -H "$H_JSON" -H "$H_AUTH" \
     -d '{
         "title": "Cardio Session",
-        "date_start": "2026-06-01T07:00:00Z",
-        "date_end":   "2026-06-01T08:00:00Z",
+        "date_start": "2037-06-01T07:00:00Z",
+        "date_end":   "2037-06-01T08:00:00Z",
         "timezone": "Europe/Paris",
         "recurrence_rule": {
             "frequency": "weekly",
             "interval": 1,
             "by_day": ["MO", "WE", "FR"],
-            "until": "2026-07-31T23:59:59Z"
+            "until": "2037-07-31T23:59:59Z"
         }
     }')
 check_code  "POST /events weekly MO/WE/FR" "$CODE" "201"
@@ -427,8 +496,8 @@ CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
     -H "$H_JSON" -H "$H_AUTH" \
     -d '{
         "title": "Monthly Review",
-        "date_start": "2026-06-01T10:00:00Z",
-        "date_end":   "2026-06-01T11:00:00Z",
+        "date_start": "2037-06-01T10:00:00Z",
+        "date_end":   "2037-06-01T11:00:00Z",
         "timezone": "Europe/Paris",
         "recurrence_rule": {
             "frequency": "monthly",
@@ -444,10 +513,10 @@ MONTHLY_KEY=$(extract '.data.key')
 # -- 6. RRULE EXPANSION --------------------------------------------------------
 
 step "15. RRULE expansion - daily event over its full range"
-info "The daily event has COUNT=5 starting 2026-06-01. A GET over June 1-5 should expand it
+info "The daily event has COUNT=5 starting 2037-06-01. A GET over June 1-5 should expand it
   into 5 occurrences. We verify total_count >= 5 and that 'Daily Standup' appears 5 times."
 
-CODE=$(req "$BASE/calendars/$CAL_KEY/events?start_date_time=2026-06-01T00:00:00Z&end_date_time=2026-06-05T23:59:59Z" \
+CODE=$(req "$BASE/calendars/$CAL_KEY/events?start_date_time=2037-06-01T00:00:00Z&end_date_time=2037-06-05T23:59:59Z" \
     -H "$H_AUTH")
 check_code  "GET /events June 1-5 (daily expansion)" "$CODE" "200"
 check_error "GET /events June 1-5 error_code"
@@ -468,10 +537,10 @@ FIRST_OCC_RECID=$(body | jq -r '[.data.events[] | select(.title == "Daily Standu
     || fail "expanded occurrence has no recurrence_id"
 
 step "16. RRULE expansion - weekly event over two months"
-info "The weekly MO/WE/FR event runs from 2026-06-01 to 2026-07-31. June has ~13 occurrences.
+info "The weekly MO/WE/FR event runs from 2037-06-01 to 2037-07-31. June has ~13 occurrences.
   We verify >= 10 for the June window."
 
-CODE=$(req "$BASE/calendars/$CAL_KEY/events?start_date_time=2026-06-01T00:00:00Z&end_date_time=2026-06-30T23:59:59Z" \
+CODE=$(req "$BASE/calendars/$CAL_KEY/events?start_date_time=2037-06-01T00:00:00Z&end_date_time=2037-06-30T23:59:59Z" \
     -H "$H_AUTH")
 check_code  "GET /events June (weekly expansion)" "$CODE" "200"
 FOUND=$(body | jq -r '[.data.events[] | select(.title == "Cardio Session")] | length')
@@ -479,10 +548,10 @@ info "Cardio Session occurrences in June: $FOUND"
 [ "$FOUND" -ge 10 ] 2>/dev/null && ok "Cardio Session appears >= 10 times in June" || fail "Cardio Session appears $FOUND times (expected >= 10)"
 
 step "17. RRULE expansion - monthly event UNTIL count boundary"
-info "Monthly event starts 2026-06-01 with COUNT=6. July 1 is the second occurrence.
+info "Monthly event starts 2037-06-01 with COUNT=6. July 1 is the second occurrence.
   We check that it appears in a July 1 query."
 
-CODE=$(req "$BASE/calendars/$CAL_KEY/events?start_date_time=2026-07-01T00:00:00Z&end_date_time=2026-07-01T23:59:59Z" \
+CODE=$(req "$BASE/calendars/$CAL_KEY/events?start_date_time=2037-07-01T00:00:00Z&end_date_time=2037-07-01T23:59:59Z" \
     -H "$H_AUTH")
 check_code  "GET /events July 1 (monthly expansion)" "$CODE" "200"
 FOUND=$(body | jq -r '[.data.events[] | select(.title == "Monthly Review")] | length')
@@ -497,7 +566,7 @@ CODE=$(req -X PATCH "$BASE/events/$DAILY_KEY" \
         "recurrence_rule": {
             "frequency": "daily",
             "interval": 1,
-            "until": "2026-06-15T23:59:59Z"
+            "until": "2037-06-15T23:59:59Z"
         }
     }')
 check_code "PATCH /events recurrence_rule" "$CODE" "200"
@@ -506,8 +575,8 @@ UNTIL=$(extract '.data.recurrence_rule.until')
 
 # -- 7. DETACHED OCCURRENCE LIFECYCLE -----------------------------------------
 
-step "19. Detached occurrence - create override for 2026-06-03"
-info "POSTs a detached occurrence for the daily event: same uid, recurrence_id=2026-06-03T09:00:00Z.
+step "19. Detached occurrence - create override for 2037-06-03"
+info "POSTs a detached occurrence for the daily event: same uid, recurrence_id=2037-06-03T09:00:00Z.
   This represents 'move/edit only the June 3rd occurrence of Daily Standup'.
   The API stores this as a separate DB row sharing the master's uid (RECURRENCE-ID override)."
 
@@ -516,18 +585,18 @@ CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
     -d "{
         \"uid\": \"$DAILY_UID\",
         \"title\": \"Daily Standup (June 3 override)\",
-        \"date_start\": \"2026-06-03T10:00:00Z\",
-        \"date_end\":   \"2026-06-03T10:30:00Z\",
+        \"date_start\": \"2037-06-03T10:00:00Z\",
+        \"date_end\":   \"2037-06-03T10:30:00Z\",
         \"timezone\": \"Europe/Paris\",
-        \"recurrence_id\": \"2026-06-03T09:00:00Z\"
+        \"recurrence_id\": \"2037-06-03T09:00:00Z\"
     }")
 check_code  "POST /events detached occurrence" "$CODE" "201"
 check_error "POST /events detached occurrence error_code"
 check_field ".data.title" "Daily Standup (June 3 override)"
 RECID=$(extract '.data.recurrence_id' | sed 's/\.000Z$/Z/')
-[ "$RECID" = "2026-06-03T09:00:00Z" ] \
-    && ok ".data.recurrence_id = '2026-06-03T09:00:00Z'" \
-    || fail ".data.recurrence_id - expected '2026-06-03T09:00:00Z', got '$RECID'"
+[ "$RECID" = "2037-06-03T09:00:00Z" ] \
+    && ok ".data.recurrence_id = '2037-06-03T09:00:00Z'" \
+    || fail ".data.recurrence_id - expected '2037-06-03T09:00:00Z', got '$RECID'"
 OCCURRENCE_KEY=$(extract '.data.key')
 info "Occurrence key: $OCCURRENCE_KEY"
 
@@ -535,7 +604,7 @@ step "20. Detached occurrence - GET expansion shows override, not original slot"
 info "When expanding over June 3, the response must include the overridden occurrence
   (10:00-10:30, '...June 3 override') instead of the original 09:00 slot."
 
-CODE=$(req "$BASE/calendars/$CAL_KEY/events?start_date_time=2026-06-03T00:00:00Z&end_date_time=2026-06-03T23:59:59Z" \
+CODE=$(req "$BASE/calendars/$CAL_KEY/events?start_date_time=2037-06-03T00:00:00Z&end_date_time=2037-06-03T23:59:59Z" \
     -H "$H_AUTH")
 check_code  "GET /events June 3 (with override)" "$CODE" "200"
 check_error "GET /events June 3 error_code"
@@ -563,7 +632,7 @@ if $DO_DELETE; then
     check_code  "GET master still exists after occurrence delete" "$CODE" "200"
     check_field ".data.title" "Daily Standup"
 
-    CODE=$(req "$BASE/calendars/$CAL_KEY/events?start_date_time=2026-06-03T00:00:00Z&end_date_time=2026-06-03T23:59:59Z" \
+    CODE=$(req "$BASE/calendars/$CAL_KEY/events?start_date_time=2037-06-03T00:00:00Z&end_date_time=2037-06-03T23:59:59Z" \
         -H "$H_AUTH")
     check_code "GET /events June 3 after occurrence delete" "$CODE" "200"
     SLOT_COUNT=$(body | jq -r "[.data.events[] | select(.uid == \"$DAILY_UID\")] | length")
@@ -584,19 +653,19 @@ fi
 # -- 8. EXDATE VIA PATCH -------------------------------------------------------
 
 step "22. EXDATE via PATCH - cancel a specific date on the weekly event"
-info "PATCHes the weekly MO/WE/FR event to add 2026-06-03T07:00:00Z to recurrence_exceptions.
+info "PATCHes the weekly MO/WE/FR event to add 2037-06-03T07:00:00Z to recurrence_exceptions.
   A subsequent GET for that slot must not return the weekly event."
 
 CODE=$(req -X PATCH "$BASE/events/$WEEKLY_KEY" \
     -H "$H_JSON" -H "$H_AUTH" \
-    -d '{"recurrence_exceptions": ["2026-06-03T07:00:00Z"]}')
+    -d '{"recurrence_exceptions": ["2037-06-03T07:00:00Z"]}')
 check_code  "PATCH /events add recurrence_exceptions" "$CODE" "200"
 EXDATES=$(extract '.data.recurrence_exceptions | length')
 [ "$EXDATES" -ge 1 ] 2>/dev/null \
     && ok "recurrence_exceptions count >= 1 after patch ($EXDATES)" \
     || fail "recurrence_exceptions empty after patch"
 
-CODE=$(req "$BASE/calendars/$CAL_KEY/events?start_date_time=2026-06-03T07:00:00Z&end_date_time=2026-06-03T07:59:59Z" \
+CODE=$(req "$BASE/calendars/$CAL_KEY/events?start_date_time=2037-06-03T07:00:00Z&end_date_time=2037-06-03T07:59:59Z" \
     -H "$H_AUTH")
 check_code "GET /events June 3 07:xx after EXDATE patch" "$CODE" "200"
 CARDIO_COUNT=$(body | jq -r '[.data.events[] | select(.title == "Cardio Session")] | length')
@@ -609,7 +678,7 @@ CARDIO_COUNT=$(body | jq -r '[.data.events[] | select(.title == "Cardio Session"
 step "23. Events - list over June date range (no tasks)"
 info "Only VEVENT components must appear; tasks created later must be absent."
 
-CODE=$(req "$BASE/calendars/$CAL_KEY/events?start_date_time=2026-06-01T00:00:00Z&end_date_time=2026-06-30T23:59:59Z" \
+CODE=$(req "$BASE/calendars/$CAL_KEY/events?start_date_time=2037-06-01T00:00:00Z&end_date_time=2037-06-30T23:59:59Z" \
     -H "$H_AUTH")
 check_code  "GET /events?start..end June" "$CODE" "200"
 check_error "GET /events date range error_code"
@@ -637,8 +706,8 @@ CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
     -d '{
         "title": "Réunion Café",
         "location": "Hôtel Joël",
-        "date_start": "2026-06-12T14:00:00Z",
-        "date_end":   "2026-06-12T15:00:00Z"
+        "date_start": "2037-06-12T14:00:00Z",
+        "date_end":   "2037-06-12T15:00:00Z"
     }')
 check_code "POST /events accented" "$CODE" "201"
 
@@ -692,7 +761,7 @@ CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/tasks" \
     -d '{
         "title": "Write release notes",
         "description": "Document all changes for v1.0",
-        "date_due": "2026-06-30T17:00:00Z",
+        "date_due": "2037-06-30T17:00:00Z",
         "percent_complete": 0,
         "categories": ["Dev", "Docs"]
     }')
@@ -703,7 +772,7 @@ check_field ".data.component_type" "task"
 # 'date_due' must be returned under the 'date_due' key (mapped back from the internal date_end),
 # and date_end must NOT leak into the task response.
 DUE_OUT=$(body | jq -r '.data.date_due // empty')
-echo "$DUE_OUT" | grep -q "2026-06-30T17:00:00" && ok "task 'date_due' returned (not 'date_end')" || fail "task date_due wrong/missing: '$DUE_OUT'"
+echo "$DUE_OUT" | grep -q "2037-06-30T17:00:00" && ok "task 'date_due' returned (not 'date_end')" || fail "task date_due wrong/missing: '$DUE_OUT'"
 [ "$(body | jq -r '.data.date_end // "ABSENT"')" = "ABSENT" ] && ok "task response has no 'date_end'" || fail "task response still exposes 'date_end'"
 TASK_KEY=$(extract '.data.key')
 info "Task key: $TASK_KEY"
@@ -717,7 +786,7 @@ check_error "GET /tasks get error_code"
 check_field ".data.title"          "Write release notes"
 check_field ".data.component_type" "task"
 DUE_GET=$(body | jq -r '.data.date_due // empty')
-echo "$DUE_GET" | grep -q "2026-06-30T17:00:00" && ok "task 'date_due' round-trips on GET" || fail "task date_due on GET: '$DUE_GET'"
+echo "$DUE_GET" | grep -q "2037-06-30T17:00:00" && ok "task 'date_due' round-trips on GET" || fail "task date_due on GET: '$DUE_GET'"
 
 
 step "27b. Task - create without due returns null due"
@@ -749,7 +818,7 @@ CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/tasks" \
     -H "$H_JSON" -H "$H_AUTH" \
     -d '{
         "title": "Review PR #42",
-        "date_due": "2026-06-20T12:00:00Z",
+        "date_due": "2037-06-20T12:00:00Z",
         "percent_complete": 50
     }')
 check_code  "POST /tasks second task" "$CODE" "201"
@@ -759,7 +828,7 @@ info "Second task key: $TASK_KEY2"
 step "30. Task - list (GET /calendars/{key}/tasks)"
 info "Lists tasks for the calendar. Both tasks must appear; no events."
 
-CODE=$(req "$BASE/calendars/$CAL_KEY/tasks?start_date_time=2026-06-01T00:00:00Z&end_date_time=2026-06-30T23:59:59Z" \
+CODE=$(req "$BASE/calendars/$CAL_KEY/tasks?start_date_time=2037-06-01T00:00:00Z&end_date_time=2037-06-30T23:59:59Z" \
     -H "$H_AUTH")
 check_code  "GET /tasks list" "$CODE" "200"
 check_error "GET /tasks list error_code"
@@ -776,7 +845,7 @@ COMPONENT_TYPES=$(body | jq -r '[.data.tasks[].component_type] | unique | .[]')
 step "31. Isolation - tasks absent from GET /events"
 info "The two tasks just created must not appear in the event list."
 
-CODE=$(req "$BASE/calendars/$CAL_KEY/events?start_date_time=2026-06-01T00:00:00Z&end_date_time=2026-06-30T23:59:59Z" \
+CODE=$(req "$BASE/calendars/$CAL_KEY/events?start_date_time=2037-06-01T00:00:00Z&end_date_time=2037-06-30T23:59:59Z" \
     -H "$H_AUTH")
 check_code "GET /events (isolation check)" "$CODE" "200"
 TASK_IN_EVENTS=$(body | jq -r '[.data.events[] | select(.component_type == "task")] | length')
@@ -787,7 +856,7 @@ TASK_IN_EVENTS=$(body | jq -r '[.data.events[] | select(.component_type == "task
 step "32. Isolation - events absent from GET /tasks"
 info "The events created earlier must not appear in the task list."
 
-CODE=$(req "$BASE/calendars/$CAL_KEY/tasks?start_date_time=2026-06-01T00:00:00Z&end_date_time=2026-06-30T23:59:59Z" \
+CODE=$(req "$BASE/calendars/$CAL_KEY/tasks?start_date_time=2037-06-01T00:00:00Z&end_date_time=2037-06-30T23:59:59Z" \
     -H "$H_AUTH")
 check_code "GET /tasks (isolation check)" "$CODE" "200"
 EVENT_IN_TASKS=$(body | jq -r '[.data.tasks[] | select(.component_type == "event" or .component_type == null)] | length')
@@ -801,7 +870,7 @@ step "33. GET /events - all calendars (no calendar key)"
 info "GET /events without a calendar key must return events from all user calendars.
   The test calendar already has several events; the response must include at least one."
 
-CODE=$(req "$BASE/events?start_date_time=2026-06-01T00:00:00Z&end_date_time=2026-06-30T23:59:59Z" \
+CODE=$(req "$BASE/events?start_date_time=2037-06-01T00:00:00Z&end_date_time=2037-06-30T23:59:59Z" \
     -H "$H_AUTH")
 check_code  "GET /events (no calendar key)" "$CODE" "200"
 check_error "GET /events (no calendar key) error_code"
@@ -818,7 +887,7 @@ TASK_LEAK=$(body | jq -r '[.data.events[] | select(.component_type == "task")] |
 step "34. GET /tasks - all calendars (no calendar key)"
 info "GET /tasks without a calendar key must return tasks from all user calendars."
 
-CODE=$(req "$BASE/tasks?start_date_time=2026-06-01T00:00:00Z&end_date_time=2026-06-30T23:59:59Z" \
+CODE=$(req "$BASE/tasks?start_date_time=2037-06-01T00:00:00Z&end_date_time=2037-06-30T23:59:59Z" \
     -H "$H_AUTH")
 check_code  "GET /tasks (no calendar key)" "$CODE" "200"
 check_error "GET /tasks (no calendar key) error_code"
@@ -856,9 +925,9 @@ CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
     -d "{
         \"uid\": \"$EVT_UID\",
         \"title\": \"Bad override\",
-        \"date_start\": \"2026-06-10T09:00:00Z\",
-        \"date_end\":   \"2026-06-10T10:00:00Z\",
-        \"recurrence_id\": \"2026-06-10T09:00:00Z\"
+        \"date_start\": \"2037-06-10T09:00:00Z\",
+        \"date_end\":   \"2037-06-10T10:00:00Z\",
+        \"recurrence_id\": \"2037-06-10T09:00:00Z\"
     }")
 [ "$CODE" != "201" ] \
     && ok "non-recurring override rejected (HTTP $CODE)" \
@@ -866,7 +935,7 @@ CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
 
 # -- 15. FREEBUSY --------------------------------------------------------------
 #
-# Timeline for 2026-06-15 (UTC):
+# Timeline for 2037-06-15 (UTC):
 #   LOGIN_1 (Europe/Paris)    : BUSY 09:00-10:00, BUSY 14:00-15:00
 #   LOGIN_2 (America/New_York): BUSY 14:00-15:00           <- common slot with LOGIN_1
 #   LOGIN_3 (Asia/Tokyo)      : BUSY 22:00-23:00           <- no overlap with LOGIN_1/LOGIN_2
@@ -898,15 +967,15 @@ TOKEN_3=$(extract '.data.jwt_token')
 [ -n "$TOKEN_3" ] && ok "LOGIN_3 token obtained" || { fail "Could not extract LOGIN_3 token"; exit 1; }
 H_AUTH_3="Authorization: Bearer $TOKEN_3"
 
-step "38. FreeBusy setup - LOGIN_1 adds 2 events on 2026-06-15 (Europe/Paris)"
+step "38. FreeBusy setup - LOGIN_1 adds 2 events on 2037-06-15 (Europe/Paris)"
 info "09:00-10:00 UTC and 14:00-15:00 UTC. The 14:00 slot will be the common slot with LOGIN_2."
 
 CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
     -H "$H_JSON" -H "$H_AUTH" \
     -d '{
         "title": "FB Morning (L1)",
-        "date_start": "2026-06-15T09:00:00Z",
-        "date_end":   "2026-06-15T10:00:00Z",
+        "date_start": "2037-06-15T09:00:00Z",
+        "date_end":   "2037-06-15T10:00:00Z",
         "timezone": "Europe/Paris",
         "show_as": "busy"
     }')
@@ -917,8 +986,8 @@ CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
     -H "$H_JSON" -H "$H_AUTH" \
     -d '{
         "title": "FB Afternoon (L1)",
-        "date_start": "2026-06-15T14:00:00Z",
-        "date_end":   "2026-06-15T15:00:00Z",
+        "date_start": "2037-06-15T14:00:00Z",
+        "date_end":   "2037-06-15T15:00:00Z",
         "timezone": "Europe/Paris",
         "show_as": "busy"
     }')
@@ -942,8 +1011,8 @@ CODE=$(req -X POST "$BASE/calendars/$CAL_KEY_2/events" \
     -H "$H_JSON" -H "$H_AUTH_2" \
     -d '{
         "title": "FB Standup (L2)",
-        "date_start": "2026-06-15T14:00:00Z",
-        "date_end":   "2026-06-15T15:00:00Z",
+        "date_start": "2037-06-15T14:00:00Z",
+        "date_end":   "2037-06-15T15:00:00Z",
         "timezone": "America/New_York",
         "show_as": "busy"
     }')
@@ -967,8 +1036,8 @@ CODE=$(req -X POST "$BASE/calendars/$CAL_KEY_3/events" \
     -H "$H_JSON" -H "$H_AUTH_3" \
     -d '{
         "title": "FB Evening (L3)",
-        "date_start": "2026-06-15T22:00:00Z",
-        "date_end":   "2026-06-15T23:00:00Z",
+        "date_start": "2037-06-15T22:00:00Z",
+        "date_end":   "2037-06-15T23:00:00Z",
         "timezone": "Asia/Tokyo",
         "show_as": "busy"
     }')
@@ -982,8 +1051,8 @@ CODE=$(req -X POST "$BASE/freebusy" \
     -H "$H_JSON" -H "$H_AUTH_3" \
     -d "{
         \"target_uids\": [\"$LOGIN_1\", \"$LOGIN_2\"],
-        \"start\": \"2026-06-15T00:00:00Z\",
-        \"end\":   \"2026-06-15T23:59:59Z\"
+        \"start\": \"2037-06-15T00:00:00Z\",
+        \"end\":   \"2037-06-15T23:59:59Z\"
     }")
 check_code  "POST /freebusy multi-user (JSON)" "$CODE" "200"
 check_error "POST /freebusy multi-user error_code"
@@ -996,20 +1065,20 @@ FB_MULTI_L2=$(body | jq -r --arg uid "$LOGIN_2" '.data.attendees[$uid].periods |
     && ok "multi-user: LOGIN_2 has >= 1 period" \
     || fail "multi-user: LOGIN_2 has $FB_MULTI_L2 period(s) (expected >= 1)"
 
-step "42. FreeBusy - cross-user JSON: LOGIN_3 queries LOGIN_1 on 2026-06-15"
+step "42. FreeBusy - cross-user JSON: LOGIN_3 queries LOGIN_1 on 2037-06-15"
 info "LOGIN_1 has 2 events (09:00 and 14:00). Both must appear as BUSY."
 
 CODE=$(req -X POST "$BASE/freebusy" \
     -H "$H_JSON" -H "$H_AUTH_3" \
     -d "{
         \"target_uids\": [\"$LOGIN_1\"],
-        \"start\": \"2026-06-15T00:00:00Z\",
-        \"end\":   \"2026-06-15T23:59:59Z\"
+        \"start\": \"2037-06-15T00:00:00Z\",
+        \"end\":   \"2037-06-15T23:59:59Z\"
     }")
 check_code  "POST /freebusy L3->L1 (JSON)" "$CODE" "200"
 check_error "POST /freebusy L3->L1 error_code"
 FB_L1_COUNT=$(body | jq -r --arg uid "$LOGIN_1" '.data.attendees[$uid].periods | length')
-info "LOGIN_1 busy periods on 2026-06-15: $FB_L1_COUNT"
+info "LOGIN_1 busy periods on 2037-06-15: $FB_L1_COUNT"
 [ "$FB_L1_COUNT" -ge 2 ] 2>/dev/null \
     && ok "LOGIN_1 has >= 2 busy periods (morning + afternoon)" \
     || fail "LOGIN_1 busy periods = $FB_L1_COUNT (expected >= 2)"
@@ -1018,24 +1087,24 @@ FB_L1_TYPES=$(body | jq -r --arg uid "$LOGIN_1" '[.data.attendees[$uid].periods[
     && ok "all LOGIN_1 periods are type=busy" \
     || fail "unexpected period types for LOGIN_1: $FB_L1_TYPES"
 
-step "43. FreeBusy - common slot: LOGIN_3 queries LOGIN_2 on 2026-06-15"
+step "43. FreeBusy - common slot: LOGIN_3 queries LOGIN_2 on 2037-06-15"
 info "LOGIN_2 has the 14:00 event - same UTC slot as LOGIN_1's afternoon event."
 
 CODE=$(req -X POST "$BASE/freebusy" \
     -H "$H_JSON" -H "$H_AUTH_3" \
     -d "{
         \"target_uids\": [\"$LOGIN_2\"],
-        \"start\": \"2026-06-15T00:00:00Z\",
-        \"end\":   \"2026-06-15T23:59:59Z\"
+        \"start\": \"2037-06-15T00:00:00Z\",
+        \"end\":   \"2037-06-15T23:59:59Z\"
     }")
 check_code  "POST /freebusy L3->L2 (JSON)" "$CODE" "200"
 check_error "POST /freebusy L3->L2 error_code"
 FB_L2_COUNT=$(body | jq -r --arg uid "$LOGIN_2" '.data.attendees[$uid].periods | length')
-info "LOGIN_2 busy periods on 2026-06-15: $FB_L2_COUNT"
+info "LOGIN_2 busy periods on 2037-06-15: $FB_L2_COUNT"
 [ "$FB_L2_COUNT" -ge 1 ] 2>/dev/null \
     && ok "LOGIN_2 has >= 1 busy period" \
     || fail "LOGIN_2 busy periods = $FB_L2_COUNT (expected >= 1)"
-FB_L2_SLOT=$(body | jq -r --arg uid "$LOGIN_2" '[.data.attendees[$uid].periods[] | select(.start == "20260615T140000Z")] | length')
+FB_L2_SLOT=$(body | jq -r --arg uid "$LOGIN_2" '[.data.attendees[$uid].periods[] | select(.start == "20370615T140000Z")] | length')
 [ "$FB_L2_SLOT" -ge 1 ] 2>/dev/null \
     && ok "LOGIN_2 is busy at 14:00 UTC (common slot with LOGIN_1 confirmed)" \
     || fail "LOGIN_2 is not busy at 14:00 UTC (expected common slot with LOGIN_1)"
@@ -1047,8 +1116,8 @@ CODE=$(req -X POST "$BASE/freebusy" \
     -H "$H_JSON" -H "$H_AUTH" \
     -d "{
         \"target_uids\": [\"$LOGIN_3\"],
-        \"start\": \"2026-06-15T14:00:00Z\",
-        \"end\":   \"2026-06-15T15:00:00Z\"
+        \"start\": \"2037-06-15T14:00:00Z\",
+        \"end\":   \"2037-06-15T15:00:00Z\"
     }")
 check_code  "POST /freebusy L1->L3 14:00 window" "$CODE" "200"
 check_error "POST /freebusy L1->L3 14:00 error_code"
@@ -1064,8 +1133,8 @@ CODE=$(req -X POST "$BASE/freebusy" \
     -H "$H_JSON" -H "$H_AUTH" \
     -d "{
         \"target_uids\": [\"$LOGIN_3\"],
-        \"start\": \"2026-06-15T22:00:00Z\",
-        \"end\":   \"2026-06-15T23:59:59Z\"
+        \"start\": \"2037-06-15T22:00:00Z\",
+        \"end\":   \"2037-06-15T23:59:59Z\"
     }")
 check_code  "POST /freebusy L1->L3 22:00 window" "$CODE" "200"
 check_error "POST /freebusy L1->L3 22:00 error_code"
@@ -1081,8 +1150,8 @@ CODE=$(req -X POST "$BASE/freebusy" \
     -H "$H_JSON" -H "$H_AUTH_2" \
     -d "{
         \"target_uids\": [\"$LOGIN_2\"],
-        \"start\": \"2026-06-15T00:00:00Z\",
-        \"end\":   \"2026-06-15T23:59:59Z\"
+        \"start\": \"2037-06-15T00:00:00Z\",
+        \"end\":   \"2037-06-15T23:59:59Z\"
     }")
 check_code  "POST /freebusy self (LOGIN_2)" "$CODE" "200"
 check_error "POST /freebusy self error_code"
@@ -1098,8 +1167,8 @@ CODE=$(req -X POST "$BASE/freebusy" \
     -H "$H_JSON" -H "$H_AUTH" \
     -d "{
         \"target_uids\": [\"$LOGIN_1\"],
-        \"start\": \"2026-01-01T00:00:00Z\",
-        \"end\":   \"2026-12-31T23:59:59Z\"
+        \"start\": \"2037-01-01T00:00:00Z\",
+        \"end\":   \"2037-12-31T23:59:59Z\"
     }")
 check_code "POST /freebusy range too large" "$CODE" "400"
 ERR=$(extract '.error_code')
@@ -1108,14 +1177,14 @@ ERR=$(extract '.error_code')
     || fail "range too large -> $ERR (expected S000614)"
 
 step "48. FreeBusy - show_as tentative -> type tentative"
-info "LOGIN_1 creates a TENTATIVE event on 2026-06-16 10:00-11:00 UTC."
+info "LOGIN_1 creates a TENTATIVE event on 2037-06-16 10:00-11:00 UTC."
 
 CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
     -H "$H_JSON" -H "$H_AUTH" \
     -d '{
         "title": "FB Tentative (L1)",
-        "date_start": "2026-06-16T10:00:00Z",
-        "date_end":   "2026-06-16T11:00:00Z",
+        "date_start": "2037-06-16T10:00:00Z",
+        "date_end":   "2037-06-16T11:00:00Z",
         "show_as": "tentative"
     }')
 check_code "POST /events FB Tentative L1" "$CODE" "201"
@@ -1125,8 +1194,8 @@ CODE=$(req -X POST "$BASE/freebusy" \
     -H "$H_JSON" -H "$H_AUTH" \
     -d "{
         \"target_uids\": [\"$LOGIN_1\"],
-        \"start\": \"2026-06-16T10:00:00Z\",
-        \"end\":   \"2026-06-16T11:00:00Z\"
+        \"start\": \"2037-06-16T10:00:00Z\",
+        \"end\":   \"2037-06-16T11:00:00Z\"
     }")
 check_code  "POST /freebusy tentative window" "$CODE" "200"
 FB_TENT_TYPE=$(body | jq -r --arg uid "$LOGIN_1" '.data.attendees[$uid].periods[0].type')
@@ -1135,14 +1204,14 @@ FB_TENT_TYPE=$(body | jq -r --arg uid "$LOGIN_1" '.data.attendees[$uid].periods[
     || fail "tentative event -> type=$FB_TENT_TYPE (expected tentative)"
 
 step "49. FreeBusy - show_as free -> excluded"
-info "LOGIN_1 creates a FREE event on 2026-06-16 12:00-13:00 UTC. Must not appear in freebusy."
+info "LOGIN_1 creates a FREE event on 2037-06-16 12:00-13:00 UTC. Must not appear in freebusy."
 
 CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
     -H "$H_JSON" -H "$H_AUTH" \
     -d '{
         "title": "FB Free (L1)",
-        "date_start": "2026-06-16T12:00:00Z",
-        "date_end":   "2026-06-16T13:00:00Z",
+        "date_start": "2037-06-16T12:00:00Z",
+        "date_end":   "2037-06-16T13:00:00Z",
         "show_as": "free"
     }')
 check_code "POST /events FB Free L1" "$CODE" "201"
@@ -1152,8 +1221,8 @@ CODE=$(req -X POST "$BASE/freebusy" \
     -H "$H_JSON" -H "$H_AUTH" \
     -d "{
         \"target_uids\": [\"$LOGIN_1\"],
-        \"start\": \"2026-06-16T12:00:00Z\",
-        \"end\":   \"2026-06-16T13:00:00Z\"
+        \"start\": \"2037-06-16T12:00:00Z\",
+        \"end\":   \"2037-06-16T13:00:00Z\"
     }")
 check_code  "POST /freebusy free window" "$CODE" "200"
 FB_FREE_COUNT=$(body | jq -r --arg uid "$LOGIN_1" '.data.attendees[$uid].periods | length')
@@ -1162,14 +1231,14 @@ FB_FREE_COUNT=$(body | jq -r --arg uid "$LOGIN_1" '.data.attendees[$uid].periods
     || fail "show_as=free returned $FB_FREE_COUNT period(s) (expected 0)"
 
 step "50. FreeBusy - status cancelled -> excluded"
-info "LOGIN_1 creates a CANCELLED event on 2026-06-16 14:00-15:00 UTC. Must not appear."
+info "LOGIN_1 creates a CANCELLED event on 2037-06-16 14:00-15:00 UTC. Must not appear."
 
 CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
     -H "$H_JSON" -H "$H_AUTH" \
     -d '{
         "title": "FB Cancelled (L1)",
-        "date_start": "2026-06-16T14:00:00Z",
-        "date_end":   "2026-06-16T15:00:00Z",
+        "date_start": "2037-06-16T14:00:00Z",
+        "date_end":   "2037-06-16T15:00:00Z",
         "show_as": "busy",
         "status": "cancelled"
     }')
@@ -1180,8 +1249,8 @@ CODE=$(req -X POST "$BASE/freebusy" \
     -H "$H_JSON" -H "$H_AUTH" \
     -d "{
         \"target_uids\": [\"$LOGIN_1\"],
-        \"start\": \"2026-06-16T14:00:00Z\",
-        \"end\":   \"2026-06-16T15:00:00Z\"
+        \"start\": \"2037-06-16T14:00:00Z\",
+        \"end\":   \"2037-06-16T15:00:00Z\"
     }")
 check_code  "POST /freebusy cancelled window" "$CODE" "200"
 FB_CANC_COUNT=$(body | jq -r --arg uid "$LOGIN_1" '.data.attendees[$uid].periods | length')
@@ -1196,8 +1265,8 @@ CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
     -H "$H_JSON" -H "$H_AUTH" \
     -d '{
         "title": "Public Title Test",
-        "date_start": "2026-06-16T08:00:00Z",
-        "date_end":   "2026-06-16T09:00:00Z",
+        "date_start": "2037-06-16T08:00:00Z",
+        "date_end":   "2037-06-16T09:00:00Z",
         "show_as": "busy",
         "visibility": "public"
     }')
@@ -1208,8 +1277,8 @@ CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
     -H "$H_JSON" -H "$H_AUTH" \
     -d '{
         "title": "Private Title Test",
-        "date_start": "2026-06-16T09:00:00Z",
-        "date_end":   "2026-06-16T10:00:00Z",
+        "date_start": "2037-06-16T09:00:00Z",
+        "date_end":   "2037-06-16T10:00:00Z",
         "show_as": "busy",
         "visibility": "private"
     }')
@@ -1220,8 +1289,8 @@ CODE=$(req -X POST "$BASE/freebusy" \
     -H "$H_JSON" -H "$H_AUTH_3" \
     -d "{
         \"target_uids\": [\"$LOGIN_1\"],
-        \"start\": \"2026-06-16T08:00:00Z\",
-        \"end\":   \"2026-06-16T09:00:00Z\"
+        \"start\": \"2037-06-16T08:00:00Z\",
+        \"end\":   \"2037-06-16T09:00:00Z\"
     }")
 check_code  "POST /freebusy public title window" "$CODE" "200"
 FB_PUB_TITLE=$(body | jq -r --arg uid "$LOGIN_1" '.data.attendees[$uid].periods[0].title // empty')
@@ -1233,8 +1302,8 @@ CODE=$(req -X POST "$BASE/freebusy" \
     -H "$H_JSON" -H "$H_AUTH_3" \
     -d "{
         \"target_uids\": [\"$LOGIN_1\"],
-        \"start\": \"2026-06-16T09:00:00Z\",
-        \"end\":   \"2026-06-16T10:00:00Z\"
+        \"start\": \"2037-06-16T09:00:00Z\",
+        \"end\":   \"2037-06-16T10:00:00Z\"
     }")
 check_code  "POST /freebusy private title window" "$CODE" "200"
 FB_PRIV_HAS_TITLE=$(body | jq -r --arg uid "$LOGIN_1" '.data.attendees[$uid].periods[0] | has("title")')
@@ -1251,8 +1320,8 @@ CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
     -H "$H_JSON" -H "$H_AUTH" \
     -d "{
         \"title\": \"Invite Meeting\",
-        \"date_start\": \"2026-07-01T14:00:00Z\",
-        \"date_end\":   \"2026-07-01T15:00:00Z\",
+        \"date_start\": \"2037-07-01T14:00:00Z\",
+        \"date_end\":   \"2037-07-01T15:00:00Z\",
         \"timezone\": \"Europe/Paris\",
         \"attendees\": [
             {\"email\": \"$LOGIN_2\", \"name\": \"User Two\", \"status\": \"needs-action\"},
@@ -1269,7 +1338,7 @@ info "Organizer event key (LOGIN_1): $INVITE_KEY_L1  uid: $INVITE_UID"
 step "48. Invitation - LOGIN_2 sees the propagated copy in their /events"
 info "Without any iMIP mail exchange, LOGIN_2's default calendar should already hold a copy of the event."
 
-CODE=$(req "$BASE/events?start_date_time=2026-07-01T00:00:00Z&end_date_time=2026-07-01T23:59:59Z" -H "$H_AUTH_2")
+CODE=$(req "$BASE/events?start_date_time=2037-07-01T00:00:00Z&end_date_time=2037-07-01T23:59:59Z" -H "$H_AUTH_2")
 check_code  "GET /events (LOGIN_2) for invite date" "$CODE" "200"
 INVITE_COUNT_L2=$(body | jq --arg uid "$INVITE_UID" '[.data.events[] | select(.uid == $uid)] | length')
 [ "$INVITE_COUNT_L2" -ge 1 ] \
@@ -1294,7 +1363,7 @@ info "POST /events/{key}/attendance with status=accepted. LOGIN_1's organizer co
 
 CODE=$(req -X POST "$BASE/events/$INVITE_KEY_L2/attendance" \
     -H "$H_JSON" -H "$H_AUTH_2" \
-    -d '{"status": "accepted"}')
+    -d '{"status": "accepted", "sequence": 0}')
 check_code  "POST /events/$INVITE_KEY_L2/attendance accepted" "$CODE" "200"
 check_error "POST attendance accepted error_code"
 L2_NEW_STATUS=$(body | jq -r --arg email "$LOGIN_2" '.data.attendees[] | select(.email == $email) | .status // empty')
@@ -1345,8 +1414,8 @@ CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
     -H "$H_JSON" -H "$H_AUTH" \
     -d "{
         \"title\": \"$IMIP_TITLE\",
-        \"date_start\": \"2026-07-02T09:00:00Z\",
-        \"date_end\":   \"2026-07-02T10:00:00Z\",
+        \"date_start\": \"2037-07-02T09:00:00Z\",
+        \"date_end\":   \"2037-07-02T10:00:00Z\",
         \"timezone\": \"Europe/Paris\",
         \"attendees\": [
             {\"email\": \"$LOGIN_2\", \"name\": \"User Two\", \"status\": \"needs-action\"}
@@ -1458,8 +1527,8 @@ CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
     -H "$H_JSON" -H "$H_AUTH" \
     -d "{
         \"title\": \"$REPLY_TITLE\",
-        \"date_start\": \"2026-07-03T09:00:00Z\",
-        \"date_end\":   \"2026-07-03T10:00:00Z\",
+        \"date_start\": \"2037-07-03T09:00:00Z\",
+        \"date_end\":   \"2037-07-03T10:00:00Z\",
         \"timezone\": \"Europe/Paris\",
         \"attendees\": [ {\"email\": \"$LOGIN_2\", \"name\": \"User Two\", \"status\": \"needs-action\"} ]
     }")
@@ -1467,13 +1536,13 @@ check_code "POST /events iMIP reply-source" "$CODE" "201"
 REPLY_UID=$(extract '.data.uid')
 REPLY_EVT_KEY=$(extract '.data.key')
 
-CODE=$(req "$BASE/events?start_date_time=2026-07-03T00:00:00Z&end_date_time=2026-07-03T23:59:59Z" -H "$H_AUTH_2")
+CODE=$(req "$BASE/events?start_date_time=2037-07-03T00:00:00Z&end_date_time=2037-07-03T23:59:59Z" -H "$H_AUTH_2")
 REPLY_KEY_L2=$(body | jq -r --arg uid "$REPLY_UID" '[.data.events[] | select(.uid == $uid)][0].key // empty')
 [ -n "$REPLY_KEY_L2" ] \
     && ok "LOGIN_2 sees the invitation copy (key=$REPLY_KEY_L2)" \
     || fail "LOGIN_2 does not see the invitation copy for uid=$REPLY_UID"
 
-CODE=$(req -X POST "$BASE/events/$REPLY_KEY_L2/attendance" -H "$H_JSON" -H "$H_AUTH_2" -d '{"status": "accepted"}')
+CODE=$(req -X POST "$BASE/events/$REPLY_KEY_L2/attendance" -H "$H_JSON" -H "$H_AUTH_2" -d '{"status": "accepted", "sequence": 0}')
 check_code "POST /events/$REPLY_KEY_L2/attendance accepted" "$CODE" "200"
 
 info "Polling LOGIN_1 INBOX for subject: $REPLY_SUBJECT"
@@ -1498,17 +1567,21 @@ if [ -n "$REPLY_MAIL_UID" ]; then
         || fail "iMIP reply mail is missing METHOD:REPLY"
 
     # Inbound hook - real assertion. Same-server propagation already set the organizer copy to
-    # accepted when LOGIN_2 responded, so we first reset it to needs-action; opening the reply mail
-    # via the detail endpoint must then re-apply the REPLY and flip it back to accepted.
-    CODE=$(req -X PATCH "$BASE/events/$REPLY_EVT_KEY" -H "$H_JSON" -H "$H_AUTH" \
-        -d "{\"attendees\": [{\"email\": \"$LOGIN_2\", \"name\": \"User Two\", \"status\": \"needs-action\"}]}")
-    check_code "PATCH reset organizer copy to needs-action" "$CODE" "200"
+    # accepted when LOGIN_2 responded, so we move it away first; opening the reply mail via the
+    # detail endpoint must then re-apply the REPLY and flip it back to accepted.
+    #
+    # The move goes through LOGIN_2's own attendance rather than an organizer PATCH of the attendee
+    # list: that PATCH is a content change and bumps SEQUENCE, which would make the already-sent
+    # reply answer a superseded revision and be refused - the test would be staging its own failure.
+    CODE=$(req -X POST "$BASE/events/$REPLY_KEY_L2/attendance" -H "$H_JSON" -H "$H_AUTH_2" \
+        -d '{"status": "declined", "sequence": 0}')
+    check_code "LOGIN_2 moves away from accepted (no SEQUENCE change)" "$CODE" "200"
 
     CODE=$(req "$BASE/events/$REPLY_EVT_KEY" -H "$H_AUTH")
     PRE_STATUS=$(body | jq -r --arg e "$LOGIN_2" '.data.attendees[] | select(.email == $e) | .status // empty')
-    [ "$PRE_STATUS" = "needs-action" ] \
-        && ok "organizer copy reset to needs-action" \
-        || fail "could not reset organizer copy (status='$PRE_STATUS')"
+    [ "$PRE_STATUS" = "declined" ] \
+        && ok "organizer copy moved to declined before the inbound hook" \
+        || fail "could not move the organizer copy (status='$PRE_STATUS')"
 
     CODE=$(req "$BASE/mailboxes/0/folders/INBOX/mails/$REPLY_MAIL_UID" -H "$H_AUTH")
     check_code "GET mail detail of the iMIP reply (inbound hook)" "$CODE" "200"
@@ -1536,8 +1609,8 @@ CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
     -H "$H_JSON" -H "$H_AUTH" \
     -d "{
         \"title\": \"Weekly Sync\",
-        \"date_start\": \"2026-07-06T14:00:00Z\",
-        \"date_end\":   \"2026-07-06T15:00:00Z\",
+        \"date_start\": \"2037-07-06T14:00:00Z\",
+        \"date_end\":   \"2037-07-06T15:00:00Z\",
         \"timezone\": \"Europe/Paris\",
         \"recurrence_rule\": {\"frequency\": \"weekly\", \"count\": 4, \"interval\": 1},
         \"attendees\": [
@@ -1552,23 +1625,23 @@ REC_INVITE_UID=$(extract '.data.uid')
 info "Recurring invite organizer key (LOGIN_1): $REC_INVITE_KEY_L1  uid: $REC_INVITE_UID"
 
 # Fetch LOGIN_2's copy
-CODE=$(req "$BASE/events?start_date_time=2026-07-06T00:00:00Z&end_date_time=2026-07-06T23:59:59Z" -H "$H_AUTH_2")
+CODE=$(req "$BASE/events?start_date_time=2037-07-06T00:00:00Z&end_date_time=2037-07-06T23:59:59Z" -H "$H_AUTH_2")
 check_code "GET /events (LOGIN_2) for recurring invite" "$CODE" "200"
 REC_INVITE_KEY_L2=$(body | jq -r --arg uid "$REC_INVITE_UID" '[.data.events[] | select(.uid == $uid)][0].key // empty')
 info "Recurring invite attendee key (LOGIN_2): $REC_INVITE_KEY_L2"
 
 step "51c. Invitation - LOGIN_2 declines single occurrence of recurring event"
-info "POST /events/{key}/attendance with status=declined and recurrence_id targeting 2026-07-13."
+info "POST /events/{key}/attendance with status=declined and recurrence_id targeting 2037-07-13."
 
 CODE=$(req -X POST "$BASE/events/$REC_INVITE_KEY_L2/attendance" \
     -H "$H_JSON" -H "$H_AUTH_2" \
-    -d '{"status": "declined", "recurrence_id": "2026-07-13T14:00:00Z"}')
+    -d '{"status": "declined", "sequence": 0, "recurrence_id": "2037-07-13T14:00:00Z"}')
 check_code  "POST /events/$REC_INVITE_KEY_L2/attendance declined single occ" "$CODE" "200"
 check_error "POST attendance declined single occ error_code"
 OCC_RECID=$(body | jq -r '.data.recurrence_id // empty' | sed 's/\.000Z$/Z/')
-[ "$OCC_RECID" = "2026-07-13T14:00:00Z" ] \
-    && ok "response has recurrence_id = 2026-07-13T14:00:00Z" \
-    || fail "response recurrence_id = '$OCC_RECID' (expected 2026-07-13T14:00:00Z)"
+[ "$OCC_RECID" = "2037-07-13T14:00:00Z" ] \
+    && ok "response has recurrence_id = 2037-07-13T14:00:00Z" \
+    || fail "response recurrence_id = '$OCC_RECID' (expected 2037-07-13T14:00:00Z)"
 OCC_ATT_KEY=$(body | jq -r '.data.key // empty')
 OCC_L2_STATUS=$(body | jq -r --arg email "$LOGIN_2" '.data.attendees[] | select(.email == $email) | .status // empty')
 [ "$OCC_L2_STATUS" = "declined" ] \
@@ -1579,7 +1652,7 @@ info "Occurrence key: $OCC_ATT_KEY"
 # -- 18. RECURRENCE SCOPE (THISANDFUTURE + SINGLE OCCURRENCE) -----------------
 
 step "52. Recurrence scope - edit single occurrence (PATCH with recurrence_id, no range)"
-info "PATCH the weekly Cardio Session event with recurrence_id=2026-06-08T07:00:00Z (a Monday).
+info "PATCH the weekly Cardio Session event with recurrence_id=2037-06-08T07:00:00Z (a Monday).
   Expected: a detached occurrence row is created; recurrence_id is set on the response."
 
 # Capture WEEKLY_UID for later assertion
@@ -1592,29 +1665,29 @@ CODE=$(req -X PATCH "$BASE/events/$WEEKLY_KEY" \
     -H "$H_JSON" -H "$H_AUTH" \
     -d '{
         "title": "Cardio Session (modified)",
-        "recurrence_id": "2026-06-08T07:00:00Z"
+        "recurrence_id": "2037-06-08T07:00:00Z"
     }')
 check_code  "PATCH /events edit single occurrence" "$CODE" "200"
 check_error "PATCH /events edit single occurrence error_code"
 RECID=$(extract '.data.recurrence_id' | sed 's/\.000Z$/Z/')
-[ "$RECID" = "2026-06-08T07:00:00Z" ] \
-    && ok "recurrence_id set to 2026-06-08T07:00:00Z" \
-    || fail "recurrence_id '$RECID' != '2026-06-08T07:00:00Z'"
+[ "$RECID" = "2037-06-08T07:00:00Z" ] \
+    && ok "recurrence_id set to 2037-06-08T07:00:00Z" \
+    || fail "recurrence_id '$RECID' != '2037-06-08T07:00:00Z'"
 OCCURRENCE_EDIT_KEY=$(extract '.data.key')
 info "Detached occurrence key: $OCCURRENCE_EDIT_KEY"
 
 step "53. Recurrence scope - THISANDFUTURE split with updates (PATCH + recurrence_range)"
-info "PATCH weekly Cardio Session with recurrence_id=2026-06-15T07:00:00Z and
+info "PATCH weekly Cardio Session with recurrence_id=2037-06-15T07:00:00Z and
   recurrence_range=THISANDFUTURE. Expected:
-  - Original series is truncated at 2026-06-14T23:59:59Z
-  - A new master event is created from 2026-06-15 with the given title
+  - Original series is truncated at 2037-06-14T23:59:59Z
+  - A new master event is created from 2037-06-15 with the given title
   - Response has no recurrence_id (it is a new master, not a detached occurrence)"
 
 CODE=$(req -X PATCH "$BASE/events/$WEEKLY_KEY" \
     -H "$H_JSON" -H "$H_AUTH" \
     -d '{
         "title": "Cardio Session - New Series",
-        "recurrence_id": "2026-06-15T07:00:00Z",
+        "recurrence_id": "2037-06-15T07:00:00Z",
         "recurrence_range": "THISANDFUTURE"
     }')
 check_code  "PATCH /events THISANDFUTURE split" "$CODE" "200"
@@ -1633,7 +1706,7 @@ info "Split master key: $SPLIT_KEY  uid: $SPLIT_UID"
 
 step "54. Recurrence scope - verify original series is truncated after split"
 info "GET the original weekly event and verify its recurrence_rule.until is set to a date
-  before 2026-06-15 (the split point). The series should no longer expand past that point."
+  before 2037-06-15 (the split point). The series should no longer expand past that point."
 
 CODE=$(req "$BASE/events/$WEEKLY_KEY" -H "$H_AUTH")
 check_code "GET /events/$WEEKLY_KEY (truncated original)" "$CODE" "200"
@@ -1642,17 +1715,17 @@ UNTIL=$(extract '.data.recurrence_rule.until // empty')
     && ok "original series has until set after split ($UNTIL)" \
     || fail "original series until is empty - series not truncated"
 
-CODE=$(req "$BASE/calendars/$CAL_KEY/events?start_date_time=2026-06-15T00:00:00Z&end_date_time=2026-06-15T23:59:59Z" \
+CODE=$(req "$BASE/calendars/$CAL_KEY/events?start_date_time=2037-06-15T00:00:00Z&end_date_time=2037-06-15T23:59:59Z" \
     -H "$H_AUTH")
 check_code "GET /events on split point date" "$CODE" "200"
 CARDIO_ORIGINAL=$(body | jq --arg uid "$WEEKLY_UID" '[.data.events[] | select(.uid == $uid)] | length')
 [ "$CARDIO_ORIGINAL" -eq 0 ] 2>/dev/null \
-    && ok "original series absent from 2026-06-15 onwards (truncated)" \
-    || fail "original series still appears on 2026-06-15 (count=$CARDIO_ORIGINAL)"
+    && ok "original series absent from 2037-06-15 onwards (truncated)" \
+    || fail "original series still appears on 2037-06-15 (count=$CARDIO_ORIGINAL)"
 CARDIO_SPLIT=$(body | jq --arg uid "$SPLIT_UID" '[.data.events[] | select(.uid == $uid)] | length')
 [ "$CARDIO_SPLIT" -ge 1 ] 2>/dev/null \
-    && ok "new split series appears on 2026-06-15 (count=$CARDIO_SPLIT)" \
-    || fail "new split series absent from 2026-06-15 (count=$CARDIO_SPLIT)"
+    && ok "new split series appears on 2037-06-15 (count=$CARDIO_SPLIT)" \
+    || fail "new split series absent from 2037-06-15 (count=$CARDIO_SPLIT)"
 
 step "55. Recurrence scope - THISANDFUTURE truncate only (no updates = delete this and following)"
 info "PATCH a recurring event with recurrence_id + recurrence_range=THISANDFUTURE but no
@@ -1662,7 +1735,7 @@ info "PATCH a recurring event with recurrence_id + recurrence_range=THISANDFUTUR
 CODE=$(req -X PATCH "$BASE/events/$SPLIT_KEY" \
     -H "$H_JSON" -H "$H_AUTH" \
     -d '{
-        "recurrence_id": "2026-06-22T07:00:00Z",
+        "recurrence_id": "2037-06-22T07:00:00Z",
         "recurrence_range": "THISANDFUTURE"
     }')
 check_code  "PATCH /events THISANDFUTURE truncate-only" "$CODE" "200"
@@ -1677,7 +1750,7 @@ TRUNC_UID=$(extract '.data.uid')
     || fail "unexpected uid change: got '$TRUNC_UID', expected '$SPLIT_UID'"
 
 step "56. Recurrence scope - THISANDFUTURE on COUNT-based series converts to UNTIL"
-info "PATCH the monthly COUNT=6 event with THISANDFUTURE at 2026-09-01 (4th occurrence).
+info "PATCH the monthly COUNT=6 event with THISANDFUTURE at 2037-09-01 (4th occurrence).
   Expected: new series has UNTIL instead of COUNT, and COUNT is null."
 
 CODE=$(req "$BASE/events/$MONTHLY_KEY" -H "$H_AUTH")
@@ -1688,7 +1761,7 @@ CODE=$(req -X PATCH "$BASE/events/$MONTHLY_KEY" \
     -H "$H_JSON" -H "$H_AUTH" \
     -d '{
         "title": "Monthly Review - New Series",
-        "recurrence_id": "2026-09-01T10:00:00Z",
+        "recurrence_id": "2037-09-01T10:00:00Z",
         "recurrence_range": "THISANDFUTURE"
     }')
 check_code "PATCH /events THISANDFUTURE on COUNT series" "$CODE" "200"
@@ -1705,10 +1778,10 @@ SPLIT_MONTHLY_UNTIL=$(extract '.data.recurrence_rule.until // empty')
 info "Split monthly key: $SPLIT_MONTHLY_KEY  until: $SPLIT_MONTHLY_UNTIL"
 
 step "57. Recurrence scope - edit occurrence then verify via GET expansion"
-info "After step 52 created a detached occurrence for the weekly event on 2026-06-08,
+info "After step 52 created a detached occurrence for the weekly event on 2037-06-08,
   GET over that date range must show the modified title, not the original."
 
-CODE=$(req "$BASE/calendars/$CAL_KEY/events?start_date_time=2026-06-08T00:00:00Z&end_date_time=2026-06-08T23:59:59Z" \
+CODE=$(req "$BASE/calendars/$CAL_KEY/events?start_date_time=2037-06-08T00:00:00Z&end_date_time=2037-06-08T23:59:59Z" \
     -H "$H_AUTH")
 check_code "GET /events June 8 (with occurrence edit)" "$CODE" "200"
 OVERRIDE_TITLE=$(body | jq -r '[.data.events[] | select(.title == "Cardio Session (modified)")] | length')
@@ -1721,10 +1794,10 @@ ORIGINAL_SLOT=$(body | jq -r '[.data.events[] | select(.title == "Cardio Session
     || fail "original slot still present alongside override (count=$ORIGINAL_SLOT)"
 
 step "58. Recurrence scope - split series then verify new series expands"
-info "After step 53 created a new series 'Cardio Session - New Series' starting 2026-06-15,
-  GET over 2026-06-15 to 2026-06-22 must show occurrences from the new series."
+info "After step 53 created a new series 'Cardio Session - New Series' starting 2037-06-15,
+  GET over 2037-06-15 to 2037-06-22 must show occurrences from the new series."
 
-CODE=$(req "$BASE/calendars/$CAL_KEY/events?start_date_time=2026-06-15T00:00:00Z&end_date_time=2026-06-22T23:59:59Z" \
+CODE=$(req "$BASE/calendars/$CAL_KEY/events?start_date_time=2037-06-15T00:00:00Z&end_date_time=2037-06-22T23:59:59Z" \
     -H "$H_AUTH")
 check_code "GET /events June 15-22 (split series expansion)" "$CODE" "200"
 SPLIT_OCCURRENCES=$(body | jq --arg uid "$SPLIT_UID" '[.data.events[] | select(.uid == $uid)] | length')
@@ -1739,7 +1812,7 @@ CODE=$(req -X PATCH "$BASE/events/$EVT_KEY" \
     -H "$H_JSON" -H "$H_AUTH" \
     -d '{
         "title": "Should fail",
-        "recurrence_id": "2026-06-10T09:00:00Z",
+        "recurrence_id": "2037-06-10T09:00:00Z",
         "recurrence_range": "THISANDFUTURE"
     }')
 [ "$CODE" != "200" ] \
@@ -1754,8 +1827,8 @@ CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
     -H "$H_JSON" -H "$H_AUTH" \
     -d '{
         "title": "Temp Recurring",
-        "date_start": "2026-06-20T08:00:00Z",
-        "date_end":   "2026-06-20T09:00:00Z",
+        "date_start": "2037-06-20T08:00:00Z",
+        "date_end":   "2037-06-20T09:00:00Z",
         "recurrence_rule": {"frequency": "daily", "count": 3, "interval": 1}
     }')
 check_code "POST /events temp recurring" "$CODE" "201"
@@ -1765,7 +1838,7 @@ TEMP_REC_UID=$(extract '.data.uid')
 CODE=$(req -X DELETE "$BASE/events/$TEMP_REC_KEY" -H "$H_AUTH")
 check_code "DELETE /events/$TEMP_REC_KEY (master)" "$CODE" "200"
 
-CODE=$(req "$BASE/calendars/$CAL_KEY/events?start_date_time=2026-06-20T00:00:00Z&end_date_time=2026-06-22T23:59:59Z" \
+CODE=$(req "$BASE/calendars/$CAL_KEY/events?start_date_time=2037-06-20T00:00:00Z&end_date_time=2037-06-22T23:59:59Z" \
     -H "$H_AUTH")
 check_code "GET /events after master delete" "$CODE" "200"
 REMAINING=$(body | jq --arg uid "$TEMP_REC_UID" '[.data.events[] | select(.uid == $uid)] | length')
@@ -1774,20 +1847,20 @@ REMAINING=$(body | jq --arg uid "$TEMP_REC_UID" '[.data.events[] | select(.uid =
     || fail "occurrences still present after master delete (count=$REMAINING)"
 
 step "61. EXDATE on slot without detached override"
-info "PATCH the daily event to add 2026-06-04T09:00:00Z to recurrence_exceptions.
+info "PATCH the daily event to add 2037-06-04T09:00:00Z to recurrence_exceptions.
   That slot has no detached override - it is a pure RRULE-generated slot.
   After the EXDATE, that slot must vanish from expansion."
 
 CODE=$(req -X PATCH "$BASE/events/$DAILY_KEY" \
     -H "$H_JSON" -H "$H_AUTH" \
-    -d '{"recurrence_exceptions": ["2026-06-03T09:00:00Z", "2026-06-04T09:00:00Z"]}')
+    -d '{"recurrence_exceptions": ["2037-06-03T09:00:00Z", "2037-06-04T09:00:00Z"]}')
 check_code "PATCH /events add EXDATE for June 4" "$CODE" "200"
 EXDATES=$(extract '.data.recurrence_exceptions | length')
 [ "$EXDATES" -ge 2 ] 2>/dev/null \
     && ok "recurrence_exceptions has $EXDATES entries (includes June 3 + June 4)" \
     || fail "recurrence_exceptions count $EXDATES < 2"
 
-CODE=$(req "$BASE/calendars/$CAL_KEY/events?start_date_time=2026-06-04T00:00:00Z&end_date_time=2026-06-04T23:59:59Z" \
+CODE=$(req "$BASE/calendars/$CAL_KEY/events?start_date_time=2037-06-04T00:00:00Z&end_date_time=2037-06-04T23:59:59Z" \
     -H "$H_AUTH")
 check_code "GET /events June 4 after EXDATE" "$CODE" "200"
 STANDUP_COUNT=$(body | jq --arg uid "$DAILY_UID" '[.data.events[] | select(.uid == $uid)] | length')
@@ -1804,8 +1877,8 @@ CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
     -H "$H_JSON" -H "$H_AUTH" \
     -d '{
         "title": "Shift Test",
-        "date_start": "2026-06-20T10:00:00Z",
-        "date_end":   "2026-06-20T11:00:00Z",
+        "date_start": "2037-06-20T10:00:00Z",
+        "date_end":   "2037-06-20T11:00:00Z",
         "recurrence_rule": {"frequency": "daily", "count": 3, "interval": 1}
     }')
 check_code "POST /events shift test" "$CODE" "201"
@@ -1815,14 +1888,14 @@ SHIFT_UID=$(extract '.data.uid')
 # Create detached occurrence for June 21 with different color
 CODE=$(req -X PATCH "$BASE/events/$SHIFT_KEY" \
     -H "$H_JSON" -H "$H_AUTH" \
-    -d '{"color": "#ff0000", "recurrence_id": "2026-06-21T10:00:00Z"}')
+    -d '{"color": "#ff0000", "recurrence_id": "2037-06-21T10:00:00Z"}')
 check_code "PATCH /events create detached for shift test" "$CODE" "200"
 SHIFT_OCC_KEY=$(extract '.data.key')
 
 # Move master +2h with "all events"
 CODE=$(req -X PATCH "$BASE/events/$SHIFT_KEY" \
     -H "$H_JSON" -H "$H_AUTH" \
-    -d '{"date_start": "2026-06-20T12:00:00Z", "date_end": "2026-06-20T13:00:00Z"}')
+    -d '{"date_start": "2037-06-20T12:00:00Z", "date_end": "2037-06-20T13:00:00Z"}')
 check_code "PATCH /events shift master +2h" "$CODE" "200"
 
 # Verify the detached occurrence shifted by +2h
@@ -1830,12 +1903,12 @@ CODE=$(req "$BASE/events/$SHIFT_OCC_KEY" -H "$H_AUTH")
 check_code "GET shifted detached occurrence" "$CODE" "200"
 OCC_RECID=$(extract '.data.recurrence_id' | sed 's/\.000Z$/Z/')
 OCC_START=$(extract '.data.date_start' | sed 's/\.000Z$/Z/')
-[ "$OCC_RECID" = "2026-06-21T12:00:00Z" ] \
+[ "$OCC_RECID" = "2037-06-21T12:00:00Z" ] \
     && ok "detached occurrence recurrence_id shifted to 12:00" \
-    || fail "recurrence_id '$OCC_RECID' (expected 2026-06-21T12:00:00Z)"
-[ "$OCC_START" = "2026-06-21T12:00:00Z" ] \
+    || fail "recurrence_id '$OCC_RECID' (expected 2037-06-21T12:00:00Z)"
+[ "$OCC_START" = "2037-06-21T12:00:00Z" ] \
     && ok "detached occurrence date_start shifted to 12:00" \
-    || fail "date_start '$OCC_START' (expected 2026-06-21T12:00:00Z)"
+    || fail "date_start '$OCC_START' (expected 2037-06-21T12:00:00Z)"
 OCC_COLOR=$(extract '.data.color')
 [ "$OCC_COLOR" = "#ff0000" ] \
     && ok "detached occurrence color preserved (#ff0000)" \
@@ -1851,8 +1924,8 @@ CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
     -H "$H_JSON" -H "$H_AUTH" \
     -d "{
         \"title\": \"Propagation Test\",
-        \"date_start\": \"2026-06-25T10:00:00Z\",
-        \"date_end\":   \"2026-06-25T11:00:00Z\",
+        \"date_start\": \"2037-06-25T10:00:00Z\",
+        \"date_end\":   \"2037-06-25T11:00:00Z\",
         \"timezone\": \"Europe/Paris\",
         \"recurrence_rule\": {\"frequency\": \"weekly\", \"interval\": 1, \"count\": 4},
         \"attendees\": [{\"email\": \"$LOGIN_2\", \"name\": \"User Two\", \"status\": \"needs-action\"}]
@@ -1865,18 +1938,18 @@ info "Propagation test key: $PROP_KEY  uid: $PROP_UID"
 # Edit single occurrence (change color) -> creates detached occurrence
 CODE=$(req -X PATCH "$BASE/events/$PROP_KEY" \
     -H "$H_JSON" -H "$H_AUTH" \
-    -d '{"color": "#ff0000", "recurrence_id": "2026-07-02T10:00:00Z"}')
+    -d '{"color": "#ff0000", "recurrence_id": "2037-07-02T10:00:00Z"}')
 check_code "PATCH /events create detached for propagation test" "$CODE" "200"
 PROP_OCC_KEY=$(extract '.data.key')
 
 # Move the detached occurrence by +1h
 CODE=$(req -X PATCH "$BASE/events/$PROP_OCC_KEY" \
     -H "$H_JSON" -H "$H_AUTH" \
-    -d '{"date_start": "2026-07-02T11:00:00Z", "date_end": "2026-07-02T12:00:00Z"}')
+    -d '{"date_start": "2037-07-02T11:00:00Z", "date_end": "2037-07-02T12:00:00Z"}')
 check_code "PATCH /events move detached occurrence" "$CODE" "200"
 
 # Verify LOGIN_2 still sees the full recurring series (not just the detached occurrence)
-CODE=$(req "$BASE/events?start_date_time=2026-06-25T00:00:00Z&end_date_time=2026-07-16T23:59:59Z" -H "$H_AUTH_2")
+CODE=$(req "$BASE/events?start_date_time=2037-06-25T00:00:00Z&end_date_time=2037-07-16T23:59:59Z" -H "$H_AUTH_2")
 check_code "GET /events (LOGIN_2) after detached move" "$CODE" "200"
 L2_SERIES=$(body | jq --arg uid "$PROP_UID" '[.data.events[] | select(.uid == $uid)] | length')
 [ "$L2_SERIES" -ge 3 ] 2>/dev/null \
@@ -1900,18 +1973,18 @@ info "LOGIN_2 tries to move their copy of the invitation from step 47 (new date_
 if [ -n "$INVITE_KEY_L2" ]; then
     CODE=$(req -X PATCH "$BASE/events/$INVITE_KEY_L2" \
         -H "$H_JSON" -H "$H_AUTH_2" \
-        -d '{"date_start": "2026-07-02T18:00:00Z", "date_end": "2026-07-02T19:00:00Z"}')
+        -d '{"date_start": "2037-07-02T18:00:00Z", "date_end": "2037-07-02T19:00:00Z"}')
     check_code "attendee reschedule rejected" "$CODE" "403"
     ERR_CODE=$(body | jq -r '.error_code // empty')
     [ "$ERR_CODE" = "S000618" ] \
         && ok "error code = S000618 (not organizer)" \
         || fail "error code = '$ERR_CODE' (expected S000618)"
 
-    # The move must not have been persisted on the attendee copy (still on 2026-07-01).
+    # The move must not have been persisted on the attendee copy (still on 2037-07-01).
     CODE=$(req "$BASE/events/$INVITE_KEY_L2" -H "$H_AUTH_2")
     NEW_START=$(body | jq -r '.data.date_start // empty')
     case "$NEW_START" in
-        2026-07-01*) ok "event not moved (date_start still $NEW_START)" ;;
+        2037-07-01*) ok "event not moved (date_start still $NEW_START)" ;;
         *)           fail "attendee moved the event (date_start=$NEW_START)" ;;
     esac
 else
@@ -1927,8 +2000,8 @@ CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
     -H "$H_JSON" -H "$H_AUTH" \
     -d "{
         \"title\": \"Foo\",
-        \"date_start\": \"2026-07-06T12:00:00Z\",
-        \"date_end\":   \"2026-07-06T13:00:00Z\",
+        \"date_start\": \"2037-07-06T12:00:00Z\",
+        \"date_end\":   \"2037-07-06T13:00:00Z\",
         \"timezone\": \"Europe/Paris\",
         \"recurrence_rule\": {\"frequency\": \"weekly\", \"interval\": 1, \"by_day\": [\"MO\", \"TH\"], \"count\": 30},
         \"attendees\": [{\"email\": \"$LOGIN_2\", \"name\": \"User Two\", \"status\": \"needs-action\"}]
@@ -1939,7 +2012,7 @@ E2E_UID=$(extract '.data.uid')
 info "E2E key: $E2E_KEY  uid: $E2E_UID"
 
 # 2. Verify LOGIN_2 sees the events
-CODE=$(req "$BASE/events?start_date_time=2026-07-06T00:00:00Z&end_date_time=2026-07-20T23:59:59Z" -H "$H_AUTH_2")
+CODE=$(req "$BASE/events?start_date_time=2037-07-06T00:00:00Z&end_date_time=2037-07-20T23:59:59Z" -H "$H_AUTH_2")
 check_code "E2E: LOGIN_2 sees events" "$CODE" "200"
 L2_E2E_COUNT=$(body | jq --arg uid "$E2E_UID" '[.data.events[] | select(.uid == $uid)] | length')
 [ "$L2_E2E_COUNT" -ge 4 ] 2>/dev/null \
@@ -1950,7 +2023,7 @@ L2_E2E_COUNT=$(body | jq --arg uid "$E2E_UID" '[.data.events[] | select(.uid == 
 # Second occurrence is Thursday July 9 at 12:00
 CODE=$(req -X PATCH "$BASE/events/$E2E_KEY" \
     -H "$H_JSON" -H "$H_AUTH" \
-    -d '{"title": "Foo Modified", "color": "#ff0000", "date_start": "2026-07-09T13:00:00Z", "date_end": "2026-07-09T14:00:00Z", "recurrence_id": "2026-07-09T12:00:00Z"}')
+    -d '{"title": "Foo Modified", "color": "#ff0000", "date_start": "2037-07-09T13:00:00Z", "date_end": "2037-07-09T14:00:00Z", "recurrence_id": "2037-07-09T12:00:00Z"}')
 check_code "E2E: create detached occurrence" "$CODE" "200"
 E2E_OCC_KEY=$(extract '.data.key')
 E2E_OCC_TITLE=$(extract '.data.title')
@@ -1962,12 +2035,12 @@ E2E_OCC_START=$(extract '.data.date_start' | sed 's/\.000Z$/Z/')
 [ "$E2E_OCC_COLOR" = "#ff0000" ] \
     && ok "detached occurrence color = '#ff0000'" \
     || fail "detached occurrence color = '$E2E_OCC_COLOR'"
-[ "$E2E_OCC_START" = "2026-07-09T13:00:00Z" ] \
+[ "$E2E_OCC_START" = "2037-07-09T13:00:00Z" ] \
     && ok "detached occurrence shifted to 13:00" \
     || fail "detached occurrence start = '$E2E_OCC_START' (expected 13:00)"
 
 # 4. Verify LOGIN_2 has the detached occurrence with modifications
-CODE=$(req "$BASE/events?start_date_time=2026-07-09T00:00:00Z&end_date_time=2026-07-09T23:59:59Z" -H "$H_AUTH_2")
+CODE=$(req "$BASE/events?start_date_time=2037-07-09T00:00:00Z&end_date_time=2037-07-09T23:59:59Z" -H "$H_AUTH_2")
 check_code "E2E: LOGIN_2 sees detached occurrence" "$CODE" "200"
 L2_OCC_TITLE=$(body | jq -r --arg uid "$E2E_UID" '[.data.events[] | select(.uid == $uid and .title == "Foo Modified")][0].title // empty')
 [ "$L2_OCC_TITLE" = "Foo Modified" ] \
@@ -1977,30 +2050,30 @@ L2_OCC_TITLE=$(body | jq -r --arg uid "$E2E_UID" '[.data.events[] | select(.uid 
 # 5. Move all events: shift master +1h (12:00 -> 13:00)
 CODE=$(req -X PATCH "$BASE/events/$E2E_KEY" \
     -H "$H_JSON" -H "$H_AUTH" \
-    -d '{"date_start": "2026-07-06T13:00:00Z", "date_end": "2026-07-06T14:00:00Z"}')
+    -d '{"date_start": "2037-07-06T13:00:00Z", "date_end": "2037-07-06T14:00:00Z"}')
 check_code "E2E: move all events +1h" "$CODE" "200"
 
 # 6. Verify organizer: all regular occurrences at 13:00, detached at 14:00 (13:00 + 1h offset)
-CODE=$(req "$BASE/events?start_date_time=2026-07-06T00:00:00Z&end_date_time=2026-07-13T23:59:59Z" -H "$H_AUTH")
+CODE=$(req "$BASE/events?start_date_time=2037-07-06T00:00:00Z&end_date_time=2037-07-13T23:59:59Z" -H "$H_AUTH")
 check_code "E2E: organizer events after shift" "$CODE" "200"
 ORG_MONDAY=$(body | jq -r --arg uid "$E2E_UID" '[.data.events[] | select(.uid == $uid and .title == "Foo")][0].date_start // empty' | sed 's/\.000Z$/Z/')
 ORG_OCC=$(body | jq -r --arg uid "$E2E_UID" '[.data.events[] | select(.uid == $uid and .title == "Foo Modified")][0].date_start // empty' | sed 's/\.000Z$/Z/')
-[ "$ORG_MONDAY" = "2026-07-06T13:00:00Z" ] \
+[ "$ORG_MONDAY" = "2037-07-06T13:00:00Z" ] \
     && ok "organizer: regular occurrence shifted to 13:00" \
     || fail "organizer: regular occurrence at '$ORG_MONDAY' (expected 13:00)"
-[ "$ORG_OCC" = "2026-07-09T14:00:00Z" ] \
+[ "$ORG_OCC" = "2037-07-09T14:00:00Z" ] \
     && ok "organizer: detached occurrence shifted to 14:00 (preserved +1h offset)" \
     || fail "organizer: detached occurrence at '$ORG_OCC' (expected 14:00)"
 
 # 7. Verify LOGIN_2: same shift applied
-CODE=$(req "$BASE/events?start_date_time=2026-07-06T00:00:00Z&end_date_time=2026-07-13T23:59:59Z" -H "$H_AUTH_2")
+CODE=$(req "$BASE/events?start_date_time=2037-07-06T00:00:00Z&end_date_time=2037-07-13T23:59:59Z" -H "$H_AUTH_2")
 check_code "E2E: LOGIN_2 events after shift" "$CODE" "200"
 L2_MONDAY=$(body | jq -r --arg uid "$E2E_UID" '[.data.events[] | select(.uid == $uid and .title == "Foo")][0].date_start // empty' | sed 's/\.000Z$/Z/')
 L2_OCC=$(body | jq -r --arg uid "$E2E_UID" '[.data.events[] | select(.uid == $uid and .title == "Foo Modified")][0].date_start // empty' | sed 's/\.000Z$/Z/')
-[ "$L2_MONDAY" = "2026-07-06T13:00:00Z" ] \
+[ "$L2_MONDAY" = "2037-07-06T13:00:00Z" ] \
     && ok "LOGIN_2: regular occurrence shifted to 13:00" \
     || fail "LOGIN_2: regular occurrence at '$L2_MONDAY' (expected 13:00)"
-[ "$L2_OCC" = "2026-07-09T14:00:00Z" ] \
+[ "$L2_OCC" = "2037-07-09T14:00:00Z" ] \
     && ok "LOGIN_2: detached occurrence shifted to 14:00" \
     || fail "LOGIN_2: detached occurrence at '$L2_OCC' (expected 14:00)"
 
@@ -2009,7 +2082,7 @@ CODE=$(req -X DELETE "$BASE/events/$E2E_KEY" -H "$H_AUTH")
 check_code "E2E: delete series (organizer)" "$CODE" "200"
 
 # 9. Verify organizer: no events left
-CODE=$(req "$BASE/events?start_date_time=2026-07-06T00:00:00Z&end_date_time=2026-07-20T23:59:59Z" -H "$H_AUTH")
+CODE=$(req "$BASE/events?start_date_time=2037-07-06T00:00:00Z&end_date_time=2037-07-20T23:59:59Z" -H "$H_AUTH")
 check_code "E2E: organizer events after delete" "$CODE" "200"
 ORG_REMAINING=$(body | jq --arg uid "$E2E_UID" '[.data.events[] | select(.uid == $uid)] | length')
 [ "$ORG_REMAINING" -eq 0 ] 2>/dev/null \
@@ -2017,7 +2090,7 @@ ORG_REMAINING=$(body | jq --arg uid "$E2E_UID" '[.data.events[] | select(.uid ==
     || fail "organizer: $ORG_REMAINING events still present"
 
 # 10. Verify LOGIN_2: no events left
-CODE=$(req "$BASE/events?start_date_time=2026-07-06T00:00:00Z&end_date_time=2026-07-20T23:59:59Z" -H "$H_AUTH_2")
+CODE=$(req "$BASE/events?start_date_time=2037-07-06T00:00:00Z&end_date_time=2037-07-20T23:59:59Z" -H "$H_AUTH_2")
 check_code "E2E: LOGIN_2 events after delete" "$CODE" "200"
 L2_REMAINING=$(body | jq --arg uid "$E2E_UID" '[.data.events[] | select(.uid == $uid)] | length')
 [ "$L2_REMAINING" -eq 0 ] 2>/dev/null \
@@ -2100,6 +2173,10 @@ step "69. Reminders - create event with reminder in active window"
 info "Creates an event whose date_start is 5 min ago and date_end is 1 hour ahead,"
 info "with a 10-min-before popup reminder. trigger_at = date_start - 10min = 15 min ago -> active now."
 
+# The title carries a per-run nonce: step 74 asserts the deleted event's reminders are gone, and a
+# run without -d leaves its event alive, so a shared title would make later runs count leftovers.
+REM_TITLE="Reminder Test Event $(date +%s)"
+
 NOW_ISO=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 START_5M_AGO=$(date -u -v-5M +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u -d "-5 minutes" +"%Y-%m-%dT%H:%M:%SZ")
 END_1H_AHEAD=$(date -u -v+1H +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u -d "+1 hour" +"%Y-%m-%dT%H:%M:%SZ")
@@ -2107,7 +2184,7 @@ END_1H_AHEAD=$(date -u -v+1H +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u -d "+1
 CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
     -H "$H_JSON" -H "$H_AUTH" \
     -d "{
-        \"title\": \"Reminder Test Event\",
+        \"title\": \"$REM_TITLE\",
         \"date_start\": \"$START_5M_AGO\",
         \"date_end\":   \"$END_1H_AHEAD\",
         \"reminders\": [
@@ -2137,7 +2214,7 @@ REM_HAS_EMAIL=$(body | jq '[.data.reminders[] | select(.method == "email")] | le
 [ "$REM_HAS_POPUP" -ge 1 ] && ok "popup reminder present" || fail "no popup reminder found"
 [ "$REM_HAS_EMAIL" -ge 1 ] && ok "email reminder present" || fail "no email reminder found"
 
-REM_HAS_EVENT=$(body | jq '[.data.reminders[] | select(.title == "Reminder Test Event")] | length')
+REM_HAS_EVENT=$(body | jq --arg t "$REM_TITLE" '[.data.reminders[] | select(.title == $t)] | length')
 [ "$REM_HAS_EVENT" -ge 1 ] && ok "reminder carries event data" || fail "reminder missing event data"
 
 REM_HAS_MIN=$(body | jq '[.data.reminders[] | select(.minutes_before == 10)] | length')
@@ -2194,7 +2271,7 @@ if $DO_DELETE; then
 
     CODE=$(req "$BASE/reminders" -H "$H_AUTH")
     check_code "GET /reminders (after delete)" "$CODE" "200"
-    REM_DELETED_MATCH=$(body | jq "[.data.reminders[] | select(.title == \"Reminder Test Event\")] | length")
+    REM_DELETED_MATCH=$(body | jq --arg t "$REM_TITLE" '[.data.reminders[] | select(.title == $t)] | length')
     [ "$REM_DELETED_MATCH" -eq 0 ] && ok "deleted event reminders gone" || fail "deleted event reminders still present"
 
     CODE=$(req -X DELETE "$BASE/events/$REM_FUTURE_KEY" -H "$H_AUTH")
@@ -2307,8 +2384,8 @@ CODE=$(req -X POST "$BASE/calendars/$EXT_CAL_KEY/events" \
     -H "$H_JSON" -H "$H_AUTH" \
     -d '{
         "title": "Should fail",
-        "date_start": "2026-06-01T10:00:00Z",
-        "date_end": "2026-06-01T11:00:00Z"
+        "date_start": "2037-06-01T10:00:00Z",
+        "date_end": "2037-06-01T11:00:00Z"
     }')
 [ "$CODE" != "201" ] && ok "write rejected on ICS mirror (HTTP $CODE)" || fail "write should have been rejected, got HTTP $CODE"
 
@@ -2346,8 +2423,8 @@ CODE=$(req -X POST "$BASE/calendars/$EXP_CAL_KEY/events" \
     -d "{
         \"uid\": \"$EXP_UID_SIMPLE\",
         \"title\": \"Roundtrip Simple\",
-        \"date_start\": \"2026-07-01T09:00:00Z\",
-        \"date_end\":   \"2026-07-01T10:00:00Z\"
+        \"date_start\": \"2037-07-01T09:00:00Z\",
+        \"date_end\":   \"2037-07-01T10:00:00Z\"
     }")
 check_code "POST simple event" "$CODE" "201"
 EXP_KEY_SIMPLE=$(extract '.data.key')
@@ -2358,8 +2435,8 @@ CODE=$(req -X POST "$BASE/calendars/$EXP_CAL_KEY/events" \
     -d "{
         \"uid\": \"$EXP_UID_ALLDAY\",
         \"title\": \"Roundtrip Allday\",
-        \"date_start\": \"2026-07-02T00:00:00Z\",
-        \"date_end\":   \"2026-07-03T00:00:00Z\",
+        \"date_start\": \"2037-07-02T00:00:00Z\",
+        \"date_end\":   \"2037-07-03T00:00:00Z\",
         \"all_day\": true
     }")
 check_code "POST all-day event" "$CODE" "201"
@@ -2371,8 +2448,8 @@ CODE=$(req -X POST "$BASE/calendars/$EXP_CAL_KEY/events" \
     -d "{
         \"uid\": \"$EXP_UID_RRULE\",
         \"title\": \"Roundtrip Weekly\",
-        \"date_start\": \"2026-07-06T08:00:00Z\",
-        \"date_end\":   \"2026-07-06T09:00:00Z\",
+        \"date_start\": \"2037-07-06T08:00:00Z\",
+        \"date_end\":   \"2037-07-06T09:00:00Z\",
         \"recurrence_rule\": {\"frequency\": \"weekly\", \"count\": 4}
     }")
 check_code "POST recurring event" "$CODE" "201"
@@ -2436,7 +2513,7 @@ check_code "DELETE all-day event" "$CODE" "200"
 CODE=$(req -X DELETE "$BASE/events/$EXP_KEY_RRULE" -H "$H_AUTH")
 check_code "DELETE recurring event" "$CODE" "200"
 
-CODE=$(req "$BASE/calendars/$EXP_CAL_KEY/events?start_date_time=2026-07-01T00:00:00Z&end_date_time=2026-07-31T00:00:00Z" -H "$H_AUTH")
+CODE=$(req "$BASE/calendars/$EXP_CAL_KEY/events?start_date_time=2037-07-01T00:00:00Z&end_date_time=2037-07-31T00:00:00Z" -H "$H_AUTH")
 check_code "GET events (after deletes)" "$CODE" "200"
 EXP_REMAINING=$(body | jq -r '.data.events | length')
 [ "$EXP_REMAINING" = "0" ] && ok "calendar empty after deletes" || fail "calendar still has $EXP_REMAINING event(s) after deletes"
@@ -2480,7 +2557,7 @@ printf 'this is definitely not an ics file\n' > "$BAD_ICS_FILE"
 
 # 0. Snapshot the calendar before the failed import (the range query expands RRULE
 # occurrences, so the count is not the number of master events).
-CODE=$(req "$BASE/calendars/$EXP_CAL_KEY/events?start_date_time=2026-07-01T00:00:00Z&end_date_time=2026-07-31T00:00:00Z" -H "$H_AUTH")
+CODE=$(req "$BASE/calendars/$EXP_CAL_KEY/events?start_date_time=2037-07-01T00:00:00Z&end_date_time=2037-07-31T00:00:00Z" -H "$H_AUTH")
 BAD_BEFORE=$(body | jq -r '.data.events | length')
 
 # 1. Enqueue: the malformed payload is accepted (parsing happens worker-side).
@@ -2506,7 +2583,7 @@ BAD_JOB_ERROR=$(extract '.data.error')
 [ -n "$BAD_JOB_ERROR" ] && ok "failed job exposes an error message" || fail "failed job has no error message"
 
 # 4. A failed import must not touch the calendar (parse fails before any write).
-CODE=$(req "$BASE/calendars/$EXP_CAL_KEY/events?start_date_time=2026-07-01T00:00:00Z&end_date_time=2026-07-31T00:00:00Z" -H "$H_AUTH")
+CODE=$(req "$BASE/calendars/$EXP_CAL_KEY/events?start_date_time=2037-07-01T00:00:00Z&end_date_time=2037-07-31T00:00:00Z" -H "$H_AUTH")
 BAD_AFTER=$(body | jq -r '.data.events | length')
 [ "$BAD_AFTER" = "$BAD_BEFORE" ] && ok "calendar unchanged after failed import ($BAD_AFTER events)" || fail "calendar changed after failed import ($BAD_BEFORE -> $BAD_AFTER)"
 
@@ -2516,7 +2593,7 @@ rm -f "$BAD_ICS_FILE"
 step "89. Export/Import - verify the three events are back"
 info "Re-fetches the calendar events and checks each original UID is present."
 
-CODE=$(req "$BASE/calendars/$EXP_CAL_KEY/events?start_date_time=2026-07-01T00:00:00Z&end_date_time=2026-07-31T00:00:00Z" -H "$H_AUTH")
+CODE=$(req "$BASE/calendars/$EXP_CAL_KEY/events?start_date_time=2037-07-01T00:00:00Z&end_date_time=2037-07-31T00:00:00Z" -H "$H_AUTH")
 check_code "GET events (after import)" "$CODE" "200"
 
 info "Original UIDs: $EXP_UID_SIMPLE | $EXP_UID_ALLDAY | $EXP_UID_RRULE"
@@ -2561,8 +2638,8 @@ CODE=$(req -X POST "$BASE/calendars/$SUB_CAL_KEY/events" \
     -d "{
         \"uid\": \"$SUB_UID\",
         \"title\": \"PublicEvent\",
-        \"date_start\": \"2026-07-10T09:00:00Z\",
-        \"date_end\":   \"2026-07-10T10:00:00Z\"
+        \"date_start\": \"2037-07-10T09:00:00Z\",
+        \"date_end\":   \"2037-07-10T10:00:00Z\"
     }")
 check_code "POST event (subscription)" "$CODE" "201"
 
@@ -2662,9 +2739,20 @@ info "Defaults calendar key: $DEF_CAL_KEY"
 
 # The free/busy exclusion/inclusion checks below are written as DELTAS against this baseline, not as
 # absolute counts: re-running without -d leaves events in the DB, so an absolute "== 0 / == 1" would
-# false-fail on the next run. The per-run year reduces noise; the delta is what makes it robust (and
-# still catches a real exclusion bug: a leaked excluded event would change the delta).
-FB_DATE="$((2027 + ($$ % 70)))-01-15"
+# false-fail on the next run. The delta still catches a real exclusion bug, since a leaked excluded
+# event changes it.
+#
+# The delta alone is not enough though, so the day has to be fresh on every run. FreeBusyEngine
+# merges overlapping periods of the same type, so a run landing on a day a previous run already used
+# creates the very same 11:00-12:00 slot, the two collapse into one period, and the expected "+1"
+# never materializes. A day derived from the clock rather than from the PID keeps the space wide
+# enough for that not to happen: 2027 + PID % 70 gave 70 candidates, and collisions were routine
+# after a handful of runs. Years stay past the 2037 fixtures so the two sets never meet.
+FB_NONCE=$(date +%s)
+FB_DATE=$(printf '%04d-%02d-%02d' \
+    "$(( 2040 + FB_NONCE % 300 ))" \
+    "$(( (FB_NONCE / 300) % 12 + 1 ))" \
+    "$(( (FB_NONCE / 60) % 28 + 1 ))")
 CODE=$(req -X POST "$BASE/freebusy" -H "$H_JSON" -H "$H_AUTH" \
     -d "{\"target_uids\": [\"$LOGIN_1\"], \"start\": \"${FB_DATE}T00:00:00Z\", \"end\": \"${FB_DATE}T23:59:59Z\"}")
 FB_BASE=$(body | jq -r --arg uid "$LOGIN_1" '.data.attendees[$uid].periods | length')
@@ -2759,8 +2847,8 @@ CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
     -H "$H_JSON" -H "$H_AUTH" \
     -d "{
         \"title\": \"Daily Invite\",
-        \"date_start\": \"2026-08-03T09:00:00Z\",
-        \"date_end\":   \"2026-08-03T10:00:00Z\",
+        \"date_start\": \"2037-08-03T09:00:00Z\",
+        \"date_end\":   \"2037-08-03T10:00:00Z\",
         \"recurrence_rule\": {\"frequency\": \"daily\", \"count\": 5, \"interval\": 1},
         \"attendees\": [{\"email\": \"$LOGIN_2\", \"name\": \"User Two\", \"status\": \"needs-action\"}]
     }")
@@ -2768,13 +2856,13 @@ check_code  "POST recurring invite" "$CODE" "201"
 REC_KEY_L1=$(extract '.data.key')
 REC_UID=$(extract '.data.uid')
 
-CODE=$(req "$BASE/events?start_date_time=2026-08-01T00:00:00Z&end_date_time=2026-08-10T23:59:59Z" -H "$H_AUTH_2")
+CODE=$(req "$BASE/events?start_date_time=2037-08-01T00:00:00Z&end_date_time=2037-08-10T23:59:59Z" -H "$H_AUTH_2")
 REC_KEY_L2=$(body | jq -r --arg uid "$REC_UID" '[.data.events[] | select(.uid == $uid)][0].key // empty')
 
 if [ -n "$REC_KEY_L2" ]; then
     CODE=$(req -X POST "$BASE/events/$REC_KEY_L2/attendance" \
         -H "$H_JSON" -H "$H_AUTH_2" \
-        -d '{"status": "accepted", "recurrence_id": "2026-08-05T09:00:00Z"}')
+        -d '{"status": "accepted", "sequence": 0, "recurrence_id": "2037-08-05T09:00:00Z"}')
     check_code "POST attendance (single occurrence)" "$CODE" "200"
     OCC_STATUS=$(body | jq -r --arg e "$LOGIN_2" '.data.attendees[] | select(.email == $e) | .status // empty')
     [ "$OCC_STATUS" = "accepted" ] \
@@ -2800,7 +2888,7 @@ info "LOGIN_2 (attendee) adds a personal reminder while the UI scopes to a singl
 if [ -n "$REC_KEY_L2" ]; then
     CODE=$(req -X PATCH "$BASE/events/$REC_KEY_L2" \
         -H "$H_JSON" -H "$H_AUTH_2" \
-        -d '{"recurrence_id": "2026-08-04T09:00:00Z", "date_start": "2026-08-04T09:00:00Z", "date_end": "2026-08-04T10:00:00Z", "reminders": [{"method": "popup", "minutes_before": 15}]}')
+        -d '{"recurrence_id": "2037-08-04T09:00:00Z", "date_start": "2037-08-04T09:00:00Z", "date_end": "2037-08-04T10:00:00Z", "reminders": [{"method": "popup", "minutes_before": 15}]}')
     check_code  "attendee reminder on occurrence accepted" "$CODE" "200"
     check_error "attendee reminder error_code"
     REM_COUNT=$(body | jq -r '.data.reminders | length')
@@ -2811,7 +2899,7 @@ if [ -n "$REC_KEY_L2" ]; then
     # The attendee must still be blocked from changing organizer content (e.g. moving the series).
     CODE=$(req -X PATCH "$BASE/events/$REC_KEY_L2" \
         -H "$H_JSON" -H "$H_AUTH_2" \
-        -d '{"date_start": "2026-09-01T09:00:00Z", "date_end": "2026-09-01T10:00:00Z"}')
+        -d '{"date_start": "2037-09-01T09:00:00Z", "date_end": "2037-09-01T10:00:00Z"}')
     check_code "attendee content change still rejected" "$CODE" "403"
 else
     skip "attendee reminder test (no LOGIN_2 copy)"
@@ -2827,8 +2915,8 @@ CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
     -H "$H_JSON" -H "$H_AUTH" \
     -d "{
         \"title\": \"TF Reminder Series\",
-        \"date_start\": \"2026-10-01T09:00:00Z\",
-        \"date_end\":   \"2026-10-01T10:00:00Z\",
+        \"date_start\": \"2037-10-01T09:00:00Z\",
+        \"date_end\":   \"2037-10-01T10:00:00Z\",
         \"recurrence_rule\": {\"frequency\": \"daily\", \"count\": 5, \"interval\": 1},
         \"reminders\": [{\"method\": \"popup\", \"minutes_before\": 30}],
         \"attendees\": [{\"email\": \"$LOGIN_2\", \"name\": \"User Two\", \"status\": \"needs-action\"}]
@@ -2837,7 +2925,7 @@ check_code "POST TF series" "$CODE" "201"
 TF_KEY_L1=$(extract '.data.key')
 TF_UID=$(extract '.data.uid')
 
-CODE=$(req "$BASE/events?start_date_time=2026-10-01T00:00:00Z&end_date_time=2026-10-01T23:59:59Z" -H "$H_AUTH_2")
+CODE=$(req "$BASE/events?start_date_time=2037-10-01T00:00:00Z&end_date_time=2037-10-01T23:59:59Z" -H "$H_AUTH_2")
 TF_KEY_L2=$(body | jq -r --arg uid "$TF_UID" '[.data.events[] | select(.uid == $uid)][0].key // empty')
 
 if [ -n "$TF_KEY_L2" ]; then
@@ -2848,7 +2936,7 @@ if [ -n "$TF_KEY_L2" ]; then
     # LOGIN_1 reschedules this-and-following from occ 3 (09:00 -> 11:00). The response is the new
     # master (new uid), so we track it to query the exact new series and avoid stale runs.
     CODE=$(req -X PATCH "$BASE/events/$TF_KEY_L1" -H "$H_JSON" -H "$H_AUTH" \
-        -d '{"recurrence_id": "2026-10-03T09:00:00Z", "recurrence_range": "THISANDFUTURE", "date_start": "2026-10-03T11:00:00Z", "date_end": "2026-10-03T12:00:00Z"}')
+        -d '{"recurrence_id": "2037-10-03T09:00:00Z", "recurrence_range": "THISANDFUTURE", "date_start": "2037-10-03T11:00:00Z", "date_end": "2037-10-03T12:00:00Z"}')
     check_code "LOGIN_1 reschedule this-and-following" "$CODE" "200"
     TF_NEW_UID=$(extract '.data.uid')
 
@@ -2859,7 +2947,7 @@ if [ -n "$TF_KEY_L2" ]; then
         || fail "organizer new series lost its reminder (count=$L1_REM)"
 
     # The attendee's copy of the new series (same new uid) keeps the attendee's own reminder.
-    CODE=$(req "$BASE/events?start_date_time=2026-10-03T00:00:00Z&end_date_time=2026-10-06T23:59:59Z" -H "$H_AUTH_2")
+    CODE=$(req "$BASE/events?start_date_time=2037-10-03T00:00:00Z&end_date_time=2037-10-06T23:59:59Z" -H "$H_AUTH_2")
     L2_REM=$(body | jq -r --arg uid "$TF_NEW_UID" '[.data.events[] | select(.uid == $uid)][0].reminders | length // 0')
     [ "$L2_REM" -ge 1 ] \
         && ok "attendee new series keeps their reminder" \
@@ -2875,9 +2963,9 @@ info "A full body whose date_start echoes an occurrence (not the master) reads a
   why the test UI sends only the changed fields (REJECT_ATTENDEE_CONTENT_CHANGE stays strict)."
 
 if [ -n "$REC_KEY_L2" ]; then
-    # Full body carrying a divergent date_start (master is 2026-08-03) - looks like a move -> 403.
+    # Full body carrying a divergent date_start (master is 2037-08-03) - looks like a move -> 403.
     CODE=$(req -X PATCH "$BASE/events/$REC_KEY_L2" -H "$H_JSON" -H "$H_AUTH_2" \
-        -d '{"date_start": "2026-08-06T09:00:00Z", "date_end": "2026-08-06T10:00:00Z", "reminders": [{"method": "popup", "minutes_before": 5}]}')
+        -d '{"date_start": "2037-08-06T09:00:00Z", "date_end": "2037-08-06T10:00:00Z", "reminders": [{"method": "popup", "minutes_before": 5}]}')
     check_code "full-body divergent date rejected" "$CODE" "403"
 
     # Minimal patch - only the changed field - is accepted.
@@ -2889,24 +2977,8 @@ else
 fi
 
 
-step "67. Delete - LOGIN_2 and LOGIN_3 freebusy events and calendars"
-info "Removes the freebusy test events and calendars created by LOGIN_2 and LOGIN_3. Skipped without -d."
-
-if $DO_DELETE; then
-    CODE=$(req -X DELETE "$BASE/events/$FB_L2_EVT" -H "$H_AUTH_2")
-    check_code "DELETE /events/$FB_L2_EVT (L2 freebusy)" "$CODE" "200"
-    CODE=$(req -X DELETE "$BASE/calendars/$CAL_KEY_2" -H "$H_AUTH_2")
-    check_code "DELETE /calendars/$CAL_KEY_2 (LOGIN_2)" "$CODE" "200"
-
-    CODE=$(req -X DELETE "$BASE/events/$FB_L3_EVT" -H "$H_AUTH_3")
-    check_code "DELETE /events/$FB_L3_EVT (L3 freebusy)" "$CODE" "200"
-    CODE=$(req -X DELETE "$BASE/calendars/$CAL_KEY_3" -H "$H_AUTH_3")
-    check_code "DELETE /calendars/$CAL_KEY_3 (LOGIN_3)" "$CODE" "200"
-else
-    skip "DELETE LOGIN_2/LOGIN_3 freebusy events and calendars"
-    info "L2: freebusy=$FB_L2_EVT  calendar=$CAL_KEY_2"
-    info "L3: event=$FB_L3_EVT  calendar=$CAL_KEY_3"
-fi
+# Deleting LOGIN_2 and LOGIN_3 calendars happens at the very end, next to step 68: later steps still
+# invite LOGIN_2, and an attendee with no calendar has nowhere to receive the propagated copy.
 
 step "N1. Negative - authentication required (401)"
 info "A protected endpoint must reject a request that carries no bearer token."
@@ -2923,7 +2995,7 @@ info "LOGIN_1 creates an event; LOGIN_2 must not reach it (or LOGIN_1's calendar
 
 CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
     -H "$H_JSON" -H "$H_AUTH" \
-    -d '{"title": "Private L1", "date_start": "2026-08-01T09:00:00Z", "date_end": "2026-08-01T10:00:00Z"}')
+    -d '{"title": "Private L1", "date_start": "2037-08-01T09:00:00Z", "date_end": "2037-08-01T10:00:00Z"}')
 check_code "POST /events (LOGIN_1 private)" "$CODE" "201"
 NEG_EVT=$(extract '.data.key')
 
@@ -2968,12 +3040,12 @@ info "Marshmallow / deserializer validation must reject bad enums, malformed dat
 
 CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
     -H "$H_JSON" -H "$H_AUTH" \
-    -d '{"title": "Bad Status", "date_start": "2026-08-02T09:00:00Z", "date_end": "2026-08-02T10:00:00Z", "status": "not-a-status"}')
+    -d '{"title": "Bad Status", "date_start": "2037-08-02T09:00:00Z", "date_end": "2037-08-02T10:00:00Z", "status": "not-a-status"}')
 check_code "POST /events invalid status enum" "$CODE" "422"
 
 CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
     -H "$H_JSON" -H "$H_AUTH" \
-    -d '{"title": "Bad Date", "date_start": "not-a-date", "date_end": "2026-08-02T10:00:00Z"}')
+    -d '{"title": "Bad Date", "date_start": "not-a-date", "date_end": "2037-08-02T10:00:00Z"}')
 check_code      "POST /events malformed date_start" "$CODE" "422"
 check_error_code "POST /events malformed date_start error_code" "S000611"
 
@@ -2995,29 +3067,155 @@ CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" \
     -H "$H_JSON" -H "$H_AUTH" \
     -d "{
         \"title\": \"Attendance Edge Invite\",
-        \"date_start\": \"2026-08-03T13:00:00Z\",
-        \"date_end\":   \"2026-08-03T14:00:00Z\",
+        \"date_start\": \"2037-08-03T13:00:00Z\",
+        \"date_end\":   \"2037-08-03T14:00:00Z\",
         \"attendees\": [{\"email\": \"$LOGIN_2\", \"status\": \"needs-action\"}]
     }")
 check_code "POST /events (attendance-edge invite)" "$CODE" "201"
 ATT_UID=$(extract '.data.uid')
+ATT_KEY_L1=$(extract '.data.key')
 
-CODE=$(req "$BASE/events?start_date_time=2026-08-03T00:00:00Z&end_date_time=2026-08-03T23:59:59Z" -H "$H_AUTH_2")
+CODE=$(req "$BASE/events?start_date_time=2037-08-03T00:00:00Z&end_date_time=2037-08-03T23:59:59Z" -H "$H_AUTH_2")
 check_code "GET /events (LOGIN_2) for attendance-edge date" "$CODE" "200"
 ATT_KEY_L2=$(body | jq -r --arg uid "$ATT_UID" '[.data.events[] | select(.uid == $uid)][0].key // empty')
 [ -n "$ATT_KEY_L2" ] && ok "LOGIN_2 sees the propagated invitation copy" || fail "LOGIN_2 copy not found - cannot test attendance"
 
 CODE=$(req -X POST "$BASE/events/$ATT_KEY_L2/attendance" \
-    -H "$H_JSON" -H "$H_AUTH_2" -d '{"status": "tentative"}')
+    -H "$H_JSON" -H "$H_AUTH_2" -d '{"status": "tentative", "sequence": 0}')
 check_code "POST attendance tentative (LOGIN_2)" "$CODE" "200"
 
 CODE=$(req -X POST "$BASE/events/$ATT_KEY_L2/attendance" \
-    -H "$H_JSON" -H "$H_AUTH_2" -d '{"status": "delegated"}')
+    -H "$H_JSON" -H "$H_AUTH_2" -d '{"status": "delegated", "sequence": 0}')
 check_code "POST attendance delegated (LOGIN_2)" "$CODE" "200"
 
 CODE=$(req -X POST "$BASE/events/$ATT_KEY_L2/attendance" \
-    -H "$H_JSON" -H "$H_AUTH_2" -d '{"status": "bogus"}')
+    -H "$H_JSON" -H "$H_AUTH_2" -d '{"status": "bogus", "sequence": 0}')
 check_code "POST attendance invalid status -> 422" "$CODE" "422"
+
+CODE=$(req -X POST "$BASE/events/$ATT_KEY_L2/attendance" \
+    -H "$H_JSON" -H "$H_AUTH_2" -d '{"status": "accepted"}')
+check_code "POST attendance without sequence -> 422" "$CODE" "422"
+
+info "The organizer moves the slot, which bumps SEQUENCE. LOGIN_2 still holds the revision it was shown, so replaying it must be refused rather than accepting a slot never seen."
+CODE=$(req -X PATCH "$BASE/events/$ATT_KEY_L1" -H "$H_JSON" -H "$H_AUTH" \
+    -d '{"date_start": "2037-08-03T16:00:00Z", "date_end": "2037-08-03T17:00:00Z"}')
+check_code "PATCH event (organizer moves the slot)" "$CODE" "200"
+
+CODE=$(req -X POST "$BASE/events/$ATT_KEY_L2/attendance" \
+    -H "$H_JSON" -H "$H_AUTH_2" -d '{"status": "accepted", "sequence": 0}')
+check_code "POST attendance on an obsolete revision -> 409" "$CODE" "409"
+
+
+step "N6. Inbound iMIP REPLY - provenance, single answer, revision"
+info "Injects crafted METHOD:REPLY mails through the MTA and opens them as the organizer, which is what
+  triggers inbound processing. Checks that a reply is only applied when it comes from the attendee it
+  answers for, that echoing the guest list changes nothing but the sender, and that a reply carrying a
+  superseded SEQUENCE is refused."
+
+IMIP_R_NONCE=$(date +%s)
+IMIP_R_START="20370810T130000Z"
+
+CODE=$(req -X POST "$BASE/calendars/$CAL_KEY/events" -H "$H_JSON" -H "$H_AUTH" \
+    -d "{
+        \"title\": \"Inbound Reply $IMIP_R_NONCE\",
+        \"date_start\": \"2037-08-10T13:00:00Z\",
+        \"date_end\":   \"2037-08-10T14:00:00Z\",
+        \"attendees\": [
+            {\"email\": \"$LOGIN_2\", \"status\": \"needs-action\"},
+            {\"email\": \"$LOGIN_3\", \"status\": \"needs-action\"}
+        ]
+    }")
+check_code "POST /events (inbound reply fixture)" "$CODE" "201"
+IMIP_R_KEY=$(extract '.data.key')
+IMIP_R_UID=$(extract '.data.uid')
+
+partstat_of() {
+    req "$BASE/events/$IMIP_R_KEY" -H "$H_AUTH" >/dev/null
+    body | jq -r --arg m "$1" '[.data.attendees[] | select(.email == $m)][0].status // empty'
+}
+
+# 1. A third party answering for someone else must be refused.
+SUBJ="Reply spoof $IMIP_R_NONCE"
+send_imip_mail "$LOGIN_3" "$LOGIN_1" "$SUBJ" \
+    "$(build_reply_ics "$IMIP_R_UID" 0 "$IMIP_R_START" "ATTENDEE;PARTSTAT=ACCEPTED:mailto:$LOGIN_2")"
+if open_mail_by_subject "$H_AUTH" "$SUBJ" >/dev/null; then
+    ok "organizer opened the spoofed reply"
+    [ "$(partstat_of "$LOGIN_2")" = "needs-action" ] \
+        && ok "reply from a third party did not change the attendee status" \
+        || fail "reply from a third party changed the status to '$(partstat_of "$LOGIN_2")'"
+else
+    fail "spoofed reply never reached the organizer INBOX"
+fi
+
+# 2. Clients commonly echo the whole guest list; only the sender's own answer counts.
+SUBJ="Reply echo $IMIP_R_NONCE"
+send_imip_mail "$LOGIN_2" "$LOGIN_1" "$SUBJ" \
+    "$(build_reply_ics "$IMIP_R_UID" 0 "$IMIP_R_START" \
+        "ATTENDEE;PARTSTAT=ACCEPTED:mailto:$LOGIN_2\r\nATTENDEE;PARTSTAT=DECLINED:mailto:$LOGIN_3")"
+if open_mail_by_subject "$H_AUTH" "$SUBJ" >/dev/null; then
+    [ "$(partstat_of "$LOGIN_2")" = "accepted" ] \
+        && ok "sender's own answer applied from an echoed guest list" \
+        || fail "sender's answer not applied (got '$(partstat_of "$LOGIN_2")')"
+    [ "$(partstat_of "$LOGIN_3")" = "needs-action" ] \
+        && ok "the other echoed attendee was left untouched" \
+        || fail "echoed attendee was modified (got '$(partstat_of "$LOGIN_3")')"
+else
+    fail "echoed reply never reached the organizer INBOX"
+fi
+
+# 3. Moving the slot bumps SEQUENCE and puts every attendee back to needs-action.
+CODE=$(req -X PATCH "$BASE/events/$IMIP_R_KEY" -H "$H_JSON" -H "$H_AUTH" \
+    -d '{"date_start": "2037-08-10T16:00:00Z", "date_end": "2037-08-10T17:00:00Z"}')
+check_code "PATCH event (organizer moves the slot)" "$CODE" "200"
+[ "$(partstat_of "$LOGIN_2")" = "needs-action" ] \
+    && ok "moving the slot reset the attendee to needs-action" \
+    || fail "attendee not reset after the move (got '$(partstat_of "$LOGIN_2")')"
+
+# SEQUENCE:0 is what an omitted property means (RFC 5545 §3.8.7.4), so it is stale against the moved
+# event - the guard cannot be sidestepped by leaving the property out.
+SUBJ="Reply stale $IMIP_R_NONCE"
+send_imip_mail "$LOGIN_2" "$LOGIN_1" "$SUBJ" \
+    "$(build_reply_ics "$IMIP_R_UID" 0 "$IMIP_R_START" "ATTENDEE;PARTSTAT=ACCEPTED:mailto:$LOGIN_2")"
+if open_mail_by_subject "$H_AUTH" "$SUBJ" >/dev/null; then
+    [ "$(partstat_of "$LOGIN_2")" = "needs-action" ] \
+        && ok "reply carrying a superseded revision was refused" \
+        || fail "superseded reply was applied (got '$(partstat_of "$LOGIN_2")')"
+else
+    fail "stale reply never reached the organizer INBOX"
+fi
+
+# Same sender, same everything, but answering the revision actually stored: it must go through, so
+# the guard is refusing staleness rather than blocking the path.
+SUBJ="Reply current $IMIP_R_NONCE"
+send_imip_mail "$LOGIN_2" "$LOGIN_1" "$SUBJ" \
+    "$(build_reply_ics "$IMIP_R_UID" 1 "$IMIP_R_START" "ATTENDEE;PARTSTAT=ACCEPTED:mailto:$LOGIN_2")"
+if open_mail_by_subject "$H_AUTH" "$SUBJ" >/dev/null; then
+    [ "$(partstat_of "$LOGIN_2")" = "accepted" ] \
+        && ok "reply answering the current revision was applied" \
+        || fail "current-revision reply was dropped (got '$(partstat_of "$LOGIN_2")')"
+else
+    fail "current-revision reply never reached the organizer INBOX"
+fi
+
+
+step "67. Delete - LOGIN_2 and LOGIN_3 freebusy events and calendars"
+info "Removes the freebusy test events and calendars created by LOGIN_2 and LOGIN_3. Skipped without -d."
+
+if $DO_DELETE; then
+    CODE=$(req -X DELETE "$BASE/events/$FB_L2_EVT" -H "$H_AUTH_2")
+    check_code "DELETE /events/$FB_L2_EVT (L2 freebusy)" "$CODE" "200"
+    CODE=$(req -X DELETE "$BASE/calendars/$CAL_KEY_2" -H "$H_AUTH_2")
+    check_code "DELETE /calendars/$CAL_KEY_2 (LOGIN_2)" "$CODE" "200"
+
+    CODE=$(req -X DELETE "$BASE/events/$FB_L3_EVT" -H "$H_AUTH_3")
+    check_code "DELETE /events/$FB_L3_EVT (L3 freebusy)" "$CODE" "200"
+    CODE=$(req -X DELETE "$BASE/calendars/$CAL_KEY_3" -H "$H_AUTH_3")
+    check_code "DELETE /calendars/$CAL_KEY_3 (LOGIN_3)" "$CODE" "200"
+else
+    skip "DELETE LOGIN_2/LOGIN_3 freebusy events and calendars"
+    info "L2: freebusy=$FB_L2_EVT  calendar=$CAL_KEY_2"
+    info "L3: event=$FB_L3_EVT  calendar=$CAL_KEY_3"
+fi
 
 
 step "68. Calendar - delete (LOGIN_1 main calendar)"

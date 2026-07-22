@@ -230,6 +230,17 @@ class CalEvent:  # pylint: disable=too-many-instance-attributes,invalid-name,too
         """True when this event's ORGANIZER matches the given email (False when no organizer)."""
         return self.organizer is not None and self.organizer.email == email
 
+    def accepts_revision(self, incoming_sequence: int) -> bool:
+        """True when incoming_sequence is not older than this event's revision (RFC 5546 §3.2.2).
+
+        Guards every entry point that applies an incoming scheduling message against a stale
+        revision: an attendee replying to a slot the organizer has since moved carries the
+        SEQUENCE it was shown, lower than the stored one. Only a strictly lower revision is
+        refused - an equal or higher one is applied, so a lagging local copy never silently
+        drops a valid message.
+        """
+        return incoming_sequence >= self.sequence
+
     def attendance_status_for(self, email: str) -> AttendeeStatus | None:
         """Return the participation status of the attendee matching email, or None if not an attendee."""
         for attendee in self.attendees:
