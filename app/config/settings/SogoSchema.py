@@ -74,7 +74,7 @@ def check_data_for_sogo_schemas(data: dict, get_all_schemas: Callable[[], list[T
         check_schema = schema()
         if check_schema.is_duplicable:
             updated_data_dict: dict = {}
-            data_dict: dict[str, dict] = data.get(check_schema.subparent, [])
+            data_dict: dict[str, dict] = data.get(check_schema.subparent, {})
             for data_uid, data_values in data_dict.items():
                 updated_value = check_schema.load(data_values, unknown=EXCLUDE)
                 updated_data_dict[data_uid]=updated_value

@@ -191,8 +191,6 @@ domain_526 = {
                                                                  #Behavior change in SOGo 6 as it is disabled by default #TODO
     "SOGoMailCustomFromEnabled": "SOGO_D_IDENTITIES_CUSTOM_FROM_ENABLED", #ALlow user to change their mail in their identities 
 
-    # LDAP
-    "SOGoLDAPContactInfoAttribute": None, #TODO Move to US_EXTRA_CONTACT_INFO
 
     # Mail Editor
     "SOGoForceRawHtmlSignature": None, #SHould be set to YES in our case (value by default in SOGo5) -> https://bugs.sogo.nu/view.php?id=5920
@@ -323,7 +321,7 @@ user_source_256 = {
     "mapping": "US_MAPPING", #TODO map sqldap field to vcard field https://www.sogo.nu/files/docs/SOGoInstallationGuide.html#_ldap_attributes_mapping
 
     #Common resource
-    "KindFieldName":      "US_KIND", #sqldap field to see the kind of 'user', if the value is among "group", "location" or "thing"
+    "KindFieldName":      "US_FIELD_KIND", #sqldap field to see the kind of 'user', if the value is among "group", "location" or "thing"
                                       #this is a resource and not a user. For ldap, SOGo also detect a resource if it has objectClass: CalendarResource
                                       #TODO warning, there is an extra parameters to set for this one US_HAS_RESOURCE
     "MultipleBookingsFieldName": "US_RESOURCE_MULTIBOOKING", #sqldap field to set how much a resource can be silmutaneously booked.
@@ -345,13 +343,13 @@ user_source_256 = {
                                          #https://www.rfc-editor.org/rfc/rfc3062.html
     "updateSambaNTLMPasswords": "US_LDAP_PWD_UPDATE_SAMBA", #For samba extension (https://www.samba.org/) update the correct field for the password
 
-    "CNFieldName": "US_LDAP_CN", #Value being the common name default to 'cn'
+    "CNFieldName": "US_FIELD_CN", #Value being the common name default to 'cn'
     "IDFieldName": "US_LDAP_ID", #Uded to make the baseDN request: meaning query where 'IDFieldName' = login + baseDN setting
                               #Login in SOGo5 can be a login completely different of the mail. default to cn
                               #TODO not sure about the diff between IDFieldName and UIDFieldName
-    "UIDFieldName": "US_LDAP_UID", #Unique ID of a user.
+    "UIDFieldName": "US_FIELD_UID", #Unique ID of a user.
     "baseDN":       "US_LDAP_BASE_DN", # The base DN use to fetch the users. We can add %d that will be replace by the current user mail domain.
-    "filter":       "US_LDAP_FILTER", #Additionnal filter for the ldap query. Careful, SOGo5 has a peculiar syntax for the value.
+    "filter":       "US_FILTER", #Additionnal filter for the ldap query. Careful, SOGo5 has a peculiar syntax for the value.
     "scope":        "US_LDAP_SCOPE", #Scope for the ldap query
 
     "bindDN":             "US_LDAP_BIND_DN", #The bind DN used to authnetify against the ldap server
@@ -372,11 +370,11 @@ user_source_256 = {
 
     #Was ldap but moved to be common to both sql and ldap
     "SOGoLDAPContactInfoAttribute": "US_EXTRA_CONTACT_INFO", #sqldap field with a string to show when doing autocompletion (it's cn <extra> mail)
-    "SOGoLDAPQueryLimit": "US_AUTO_QUERY_LIMIT", #The maximum result a query return when doing autocompletion
+    "SOGoLDAPQueryLimit": None, #Now limited by pagination
 
     #SQL
     "viewURL": "SQL_USER_URL", #database url for the user sources
-    "userPasswordPolicy": "US_PWD_POLICY", #PAssword polic yused by sogo when changing password or checkin the weakness at login.
+    "userPasswordPolicy": "US_DB_PWD_POLICY", #PAssword polic yused by sogo when changing password or checkin the weakness at login.
     "prependPasswordScheme": "SQL_PREPEND_PWD_SCHEME", #the password stored in teh database will have the scheme before the encrypte value like {scheme}encryptedPass
 
     "authenticationFilter": "SQL_USER_FILTER", #additionnal where clause when querying the users

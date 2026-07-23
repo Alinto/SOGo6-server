@@ -13,7 +13,6 @@ from .schema import userPreferences as sch
 
 if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
-    from app.utils.api.paginate_sort_filter import FakePaginationParameters
     from app.auth.User import User
 
 

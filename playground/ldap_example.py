@@ -39,7 +39,7 @@ dev_ldap_conf = {
     "ldap_id"           : "uid",
     "ldap_cn"           : "cn",
     "ldap_mails"        : ["mail"],
-    "ldap_bind_fields"  : None,
+    "ldap_bind_fields"  : ["mail", "uid"],
     "ldap_bind_as_user" : False,
     "ldap_filter"       : None,
     "ldap_pwd_policy"   : False
@@ -112,7 +112,13 @@ if USE_MANAGER:
 else:
     manager = ClientLdap(**dev_ldap_conf)
     manager.connect()
-    manager.check_login("sogo-tests1@example.org", "sogo", "example.org")
+    # manager.check_login("sogo-tests1@example.org", "sogo", "example.org")
+    # ret = manager._get_base_dn("sogo-tests1@example.org", "example.org")
+    ret = manager.ldap_conn.bind_s(LOGIN_DN, LOGIN_PW)
+    ret = manager.ldap_conn.read_rootdse_s(
+        attrlist=["supportedCapabilities"]
+    )
+    print(ret)
 # (
 #     101,
 #      [

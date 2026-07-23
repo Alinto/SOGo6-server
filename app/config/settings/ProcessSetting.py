@@ -84,7 +84,8 @@ class ProcessSetting(FlaskConfig):
     SOGO_AES_ENC_KEY: str #32 bytes key for AES-256
 
     SOGO_P_DB_TYPE: str = "PostgreSQL"
-    SOGO_P_DB_USER: str = "admin"     #TODO test all that...
+    SOGO_P_DB_NAME: str = "sogo"
+    SOGO_P_DB_USER: str = "admin"
     SOGO_P_DB_PASS: str = "admin"
     SOGO_P_DB_HOST: str = "localhost"
     SOGO_P_DB_PORT: int = 5432
@@ -128,19 +129,19 @@ class ProcessSetting(FlaskConfig):
     SOGO_P_AGENT_BEAT_SCHEDULE_PATH: str = "/var/celery/celerybeat-schedule"
 
     # --- Table names ---
-    SOGO_P_TABLE_SETTINGS:   str = "sogo6_sogo_settings"
-    SOGO_P_TABLE_DOMAINS:    str = "sogo6_sogo_settings_domains"
-    SOGO_P_TABLE_RULES:      str = "sogo6_sogo_settings_rules"
-    SOGO_P_TABLE_USERS:      str = "sogo6_sogo_user_profiles"
-    SOGO_P_TABLE_CALENDARS: str = "sogo6_calendar_calendars"
-    SOGO_P_TABLE_EVENTS:    str = "sogo6_calendar_events"
-    SOGO_P_TABLE_REMINDERS:  str = "sogo6_calendar_reminders"
-    SOGO_P_TABLE_TMP_DRAFTS:  str = "sogo6_tmp_draft"
-    SOGO_P_TABLE_ADDRESSBOOKS:         str = "sogo6_contacts_addressbooks"
-    SOGO_P_TABLE_CONTACTS:             str = "sogo6_contacts_contacts"
-    SOGO_P_TABLE_CONTACT_LISTS:        str = "sogo6_contacts_lists"
+    SOGO_P_TABLE_SETTINGS: str             = "sogo6_sogo_settings"
+    SOGO_P_TABLE_DOMAINS: str              = "sogo6_sogo_settings_domains"
+    SOGO_P_TABLE_RULES: str                = "sogo6_sogo_settings_rules"
+    SOGO_P_TABLE_USERS: str                = "sogo6_sogo_user_profiles"
+    SOGO_P_TABLE_CALENDARS: str            = "sogo6_calendar_calendars"
+    SOGO_P_TABLE_EVENTS: str               = "sogo6_calendar_events"
+    SOGO_P_TABLE_REMINDERS: str            = "sogo6_calendar_reminders"
+    SOGO_P_TABLE_TMP_DRAFTS: str           = "sogo6_tmp_draft"
+    SOGO_P_TABLE_ADDRESSBOOKS: str         = "sogo6_contacts_addressbooks"
+    SOGO_P_TABLE_CONTACTS: str             = "sogo6_contacts_contacts"
+    SOGO_P_TABLE_CONTACT_LISTS: str        = "sogo6_contacts_lists"
     SOGO_P_TABLE_CONTACT_LIST_MEMBERS: str = "sogo6_contacts_list_members"
-    SOGO_P_TABLE_FILE_STORAGE:         str = "sogo6_file_storage"
+    SOGO_P_TABLE_FILE_STORAGE: str         = "sogo6_file_storage"
 
     # --- Admin Authentication ---
     # SOGO_P_ADMIN: str = "" # Admin username
@@ -164,7 +165,8 @@ class ProcessSetting(FlaskConfig):
             "db_host": self.SOGO_P_DB_HOST,
             "db_port": self.SOGO_P_DB_PORT,
             "db_ssl":  self.SOGO_P_DB_SSL,
-            "db_enc":  self.SOGO_P_DB_ENC
+            "db_enc":  self.SOGO_P_DB_ENC,
+            "db_name": self.SOGO_P_DB_NAME
         }
         return db_dict
 

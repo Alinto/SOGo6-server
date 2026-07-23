@@ -3,35 +3,34 @@
     "USER_SOURCE": {
       "ldap_ex": {
         "US_UID": "ldap_ex",
-        "US_KIND": "description",
+        "US_FIELD_KIND": "description",
         "US_MAIL": [
           "mail"
         ],
         "US_NAME": "french_ldap",
         "US_TYPE": "ldap",
-        "US_LDAP_CN": "cn",
+        "US_FIELD_CN": "cn",
         "US_LDAP_ID": "uid",
         "US_CAN_AUTH": true,
-        "US_LDAP_UID": "uid",
+        "US_FIELD_UID": "uid",
         "US_LDAP_PORT": 390,
         "US_LDAP_SCOPE": "SUB",
-        "US_PWD_POLICY": false,
+        "US_DB_PWD_POLICY": false,
         "US_AUTO_SEARCH": false,
-        "US_PWD_LEN_MAX": 0,
-        "US_PWD_LEN_MIN": 3,
+        "US_DB_PWD_LEN_MAX": 0,
+        "US_DB_PWD_LEN_MIN": 3,
         "US_HAS_RESOURCE": true,
         "US_LDAP_BASE_DN": "ou=users,dc=example,dc=org",
         "US_LDAP_BIND_DN": "cn=admin,dc=example,dc=org",
         "US_LDAP_HOSTNAME": "openldap",
         "US_IS_ADDRESSBOOK": true,
-        "US_PWD_DIGITS_MIN": 0,
+        "US_DB_PWD_DIGITS_MIN": 0,
         "US_LDAP_ATTR_FIELD": [
           "*"
         ],
         "US_LDAP_ENCRYPTION": "None",
         "US_LDAP_PWD_POLICY": false,
-        "US_PWD_SPECIAL_MIN": 0,
-        "US_AUTO_QUERY_LIMIT": 0,
+        "US_DB_PWD_SPECIAL_MIN": 0,
         "US_LDAP_BIND_DN_PWD": "password",
         "US_LDAP_GROUP_CLASS": [
           "group",
@@ -40,10 +39,10 @@
           "posixGroup"
         ],
         "US_LDAP_BIND_AS_USER": false,
-        "US_PWD_LOWERCASE_MIN": 0,
-        "US_PWD_UPPERCASE_MIN": 0,
+        "US_DB_PWD_LOWERCASE_MIN": 0,
+        "US_DB_PWD_UPPERCASE_MIN": 0,
         "US_LDAP_QUERY_TIMEOUT": 0,
-        "US_PWD_SPECIAL_ALLOWED": "%$&*(){}[]!?\\/@#.,:;+=<>-_",
+        "US_DB_PWD_SPECIAL_ALLOWED": "%$&*(){}[]!?\\/@#.,:;+=<>-_",
         "US_LDAP_PWD_UPDATE_SAMBA": false,
         "US_RESOURCE_MULTIBOOKING": "departmentNumber"
       }

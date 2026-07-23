@@ -216,17 +216,17 @@ class ClientMySQL(ClientSQL):
     MySQL implementation of ClientSQL
     """
 
-    def __init__(self, db_user: str, db_pwd: str, db_host: str, db_port: int, db_ssl: bool, db_enc: str):
+    def __init__(self, db_user: str, db_pwd: str, db_host: str, db_port: int, db_ssl: bool, db_enc: str, db_name: str = "sogo"):
         """
         Init the MySQL client.
         """
-        self.safe_conn_string: str = f"mysql://SOGO_M_DB_USER:SOGO_M_DB_PWD@{db_host}:{db_port}/sogo?charset={db_enc}"
+        self.safe_conn_string: str = f"mysql://SOGO_M_DB_USER:SOGO_M_DB_PWD@{db_host}:{db_port}/{db_name}?charset={db_enc}"
         self.conn_config = {
             "user": db_user,
             "password": db_pwd,
             "host": db_host,
             "port": db_port,
-            "database": "sogo",
+            "database": db_name,
             "connection_timeout": 5,
             "use_pure": True,
             "charset": db_enc,

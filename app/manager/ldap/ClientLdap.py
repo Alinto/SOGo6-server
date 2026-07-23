@@ -171,9 +171,13 @@ class ClientLdap(ClientUserSource):
 
                 #init the filter with bind fields
                 or_conds = []
+                l_filter = ""
                 for field in self.bind_fields:
                     or_conds.append(Condition.EqualCondition(field, username))
-                l_filter = condition_to_filter(Condition.OrCondition(*or_conds))
+                if len(or_conds) == 1:
+                    l_filter = condition_to_filter(or_conds[0])
+                elif len(or_conds) > 1:
+                    l_filter = condition_to_filter(Condition.OrCondition(*or_conds))
 
                 #Add the others filters
                 if self.filter:
@@ -276,6 +280,9 @@ class ClientLdap(ClientUserSource):
 
         #Create the base dn
         base_dn = self._get_base_dn(username, domain)
+        if not base_dn:
+            #Can happen if SOGo first fetch the dn from the source instead of building it
+            return False, {}, {}
 
         #bind
         #TODO ret is useless for now  but wIll be useful later when the password policy will be implemented
@@ -302,7 +309,7 @@ class ClientLdap(ClientUserSource):
 
 
 
-    def _search_dn(self, base_dn:str, l_filter:str) -> Any:
+    def _search_dn(self, base_dn:str, l_filter:str) -> str:
         """
         Return the DN for a filter.
 
@@ -315,7 +322,11 @@ class ClientLdap(ClientUserSource):
         """
         if self.ldap_conn is not None and self.connected:
             ret = self.ldap_conn.search_s(base_dn, self.scope, filterstr=l_filter, attrlist=["dn"])
-            return ret
+            if ret:
+                #Typical response: [('uid=sogo-tests1@example.org,ou=users,dc=example,dc=org', {})]
+                return ret[0][0]
+            logger_ldap.info("Cannot find the dn attributes for base_dn: '%s' and filter '%s'", base_dn, l_filter)
+            return ""
         raise exc.BugException("self.connection is still None, meaning self.connect() method didn't catch or raise correctly an error")
 
     def _search(self, base_dn:str, l_filter:str|None = None, attributes: list|None = None) -> list[tuple[str, dict[str, list[bytes]]]]:

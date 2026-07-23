@@ -17,7 +17,6 @@ class ClientUserSource(metaclass=ABCMeta):
     def connect(self) -> None:
         """
         Connect to the user source server.
-        /!\\ Beware must match ClientSQL method as pylint nor mypy catch the error
         """
         logger.error("Method 'connect' of ClientUserSource must be implemented by the children %s", type(self).__name__)
         raise NotImplementedError
