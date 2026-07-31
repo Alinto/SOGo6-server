@@ -150,6 +150,7 @@ class UserSourceSettings(SogoSchema):
         "US_LDAP_BIND_DN": ("US_TYPE", "ldap"),
         "US_LDAP_BIND_DN_PWD": ("US_TYPE", "ldap"),
         "US_LDAP_BASE_DN": ("US_TYPE", "ldap"),
+        "US_LDAP_BASE_DN_USE_TLD": ("US_TYPE", "ldap"),
         "US_LDAP_ID": ("US_TYPE", "ldap"),
         "US_LDAP_SCOPE": ("US_TYPE", "ldap"),
         "US_LDAP_PWD_POLICY": ("US_TYPE", "ldap"),
@@ -164,6 +165,7 @@ class UserSourceSettings(SogoSchema):
         "US_DB_NAME": ("US_TYPE", "sql"),
         "US_DB_USER": ("US_TYPE", "sql"),
         "US_DB_PASS": ("US_TYPE", "sql"),
+        "US_DB_HOST": ("US_TYPE", "sql"),
         "US_DB_PORT": ("US_TYPE", "sql"),
         "US_DB_ENCRYPTION": ("US_TYPE", "sql"),
         "US_DB_ENCODAGE": ("US_TYPE", "sql"),
@@ -237,6 +239,10 @@ class UserSourceSettings(SogoSchema):
     US_LDAP_BIND_DN      = fields.String() #The bind DN used to authentify against the ldap server
     US_LDAP_BIND_DN_PWD  = fields.String() #The password for the bindDN
     US_LDAP_BASE_DN    = fields.String() #Example: 'dc=example,dc=com'
+    US_LDAP_BASE_DN_USE_TLD = fields.Boolean(dump_default=True, load_default=True) #When using the wildcard %d in the base DN, tell if the TLD (Top Level Domain)
+                                                    #E.g. US_LDAP_BASE_DN="ou=%d,dc=example,dc=org", for user sogo@sogo.nu
+                                                    #US_LDAP_BASE_DN_USE_TLD=True -> BASE_DN="ou=sogo.nu,dc=example,dc=org"
+                                                    #US_LDAP_BASE_DN_USE_TLD=False -> BASE_DN="ou=sogo,dc=example,dc=org"
     US_LDAP_ID         = fields.String(dump_default='uid', load_default='uid') #Field the start the DN
     US_LDAP_SCOPE      = fields.String(dump_default=cs.LDAP_SCOPE_SUB, load_default=cs.LDAP_SCOPE_SUB,
                                        validate=validate.OneOf((cs.LDAP_SCOPE_BASE, cs.LDAP_SCOPE_ONE, cs.LDAP_SCOPE_SUB)))
@@ -253,19 +259,20 @@ class UserSourceSettings(SogoSchema):
     US_DB_NAME = fields.String()
     US_DB_USER = fields.String()
     US_DB_PASS = fields.String()
+    US_DB_HOST = fields.String()
     US_DB_PORT = fields.Integer()
-    US_DB_ENCRYPTION = fields.Boolean()
+    US_DB_ENCRYPTION = fields.Boolean(load_default=False, dump_default=False)
     US_DB_ENCODAGE = fields.String(dump_default='utf8', load_default='utf8')
     US_DB_FIELD_PWD            = fields.String(dump_default='c_password', load_default='c_password') # Name of the column with the user password
-    US_DB_PREPEND_PWD_SCHEME = fields.Boolean() #IS the password stored in the db with the shceme like this '{scheme)encryptedValue'
+    US_DB_PREPEND_PWD_SCHEME = fields.Boolean(load_default=False, dump_default=False) #IS the password stored in the db with the shceme like this '{scheme)encryptedValue'
     US_DB_FIELD_DOMAIN       = fields.String() #Fields where the user's domain is.
     US_DB_PWD_POLICY       = fields.Boolean(load_default=False, dump_default=False) #Policies on password CAREFUL CONFLICT WITH LDAP_PWD_POLICY
     US_DB_PWD_LEN_MIN = fields.Integer(load_default=4, dump_default=4,validate=validate.Range(min=1)) #Minimum lenght of password
     US_DB_PWD_LEN_MAX = fields.Integer(load_default=0, dump_default=0,validate=validate.Range(min=0)) #Maximum lenght of password, 0 means no limit
-    US_DB_PWD_UPPERCASE_MIN = fields.Integer(load_default=0, dump_default=0,validate=validate.Range(min=0)) #Minimum number of uppercase letter, 0 means no need
-    US_DB_PWD_LOWERCASE_MIN = fields.Integer(load_default=0, dump_default=0,validate=validate.Range(min=0)) #Minimum number of lowercase letter, 0 means no need
-    US_DB_PWD_DIGITS_MIN     = fields.Integer(load_default=0, dump_default=0,validate=validate.Range(min=0)) #Minimum number of digits, 0 means no need
-    US_DB_PWD_SPECIAL_MIN   = fields.Integer(load_default=0, dump_default=0,validate=validate.Range(min=0)) #Minimum number of special char letter, 0 means no need
+    US_DB_PWD_UPPERCASE_MIN = fields.Integer(load_default=-1, dump_default=-1,validate=validate.Range(min=-1)) #Minimum number of uppercase letter, 0 means no need
+    US_DB_PWD_LOWERCASE_MIN = fields.Integer(load_default=-1, dump_default=-1,validate=validate.Range(min=-1)) #Minimum number of lowercase letter, 0 means no need
+    US_DB_PWD_DIGITS_MIN     = fields.Integer(load_default=-1, dump_default=-1,validate=validate.Range(min=-1)) #Minimum number of digits, 0 means no need
+    US_DB_PWD_SPECIAL_MIN   = fields.Integer(load_default=-1, dump_default=-1,validate=validate.Range(min=-1)) #Minimum number of special char letter, 0 means no need
     US_DB_PWD_SPECIAL_ALLOWED = fields.String(load_default=r'%$&*(){}[]!?\/@#.,:;+=<>-_', dump_default=r'%$&*(){}[]!?\/@#.,:;+=<>-_') #String that contains allowed special character
 
 
@@ -325,6 +332,7 @@ class UserSourceSettingsObj(SettingsObj):
     US_LDAP_BIND_DN: str = ""
     US_LDAP_BIND_DN_PWD: str = ""
     US_LDAP_BASE_DN: str = ""
+    US_LDAP_BASE_DN_USE_TLD: bool = True
     US_LDAP_ID: str = "uid"
     US_LDAP_SCOPE: str = cs.LDAP_SCOPE_SUB
     US_LDAP_PWD_POLICY: bool = False
@@ -335,9 +343,6 @@ class UserSourceSettingsObj(SettingsObj):
     US_LDAP_ATTR_FIELD: list[str] = ['*']
     US_LDAP_GROUP_CLASS: list[str] = ['group', 'groupOfNames', 'groupOfUniqueNames', 'posixGroup']
 
-    US_SQL_USER_URL: str = ""
-    US_DB_PREPEND_PWD_SCHEME: bool = False
-    US_DB_FIELD_DOMAIN: str = ""
     US_FIELD_UID: str = 'uid'
     US_FIELD_CN: str = 'cn'
     US_FIELD_EMAIL: str = 'mail'
@@ -346,14 +351,28 @@ class UserSourceSettingsObj(SettingsObj):
     US_PWD_ALGO: str = ""
     US_SIM_KEY_TYPE: str = ""
     US_SIM_KEY_VALUE: str = ""
+
+    US_DB_TYPE: str = "postgresql"
+    US_DB_NAME: str = ""
+    US_DB_USER: str = ""
+    US_DB_PASS: str = ""
+    US_DB_HOST: str = ""
+    US_DB_PORT: int = 5432
+    US_DB_ENCRYPTION: bool = False
+    US_DB_ENCODAGE: str = 'utf8'
+    US_DB_FIELD_PWD: str = 'c_password'
+    US_DB_PREPEND_PWD_SCHEME: bool = False
+    US_DB_FIELD_DOMAIN: str  = ""
     US_DB_PWD_POLICY: bool = False
     US_DB_PWD_LEN_MIN: int = 4
     US_DB_PWD_LEN_MAX: int = 0
-    US_DB_PWD_UPPERCASE_MIN: int = 0
-    US_DB_PWD_LOWERCASE_MIN: int = 0
-    US_DB_PWD_DIGITS_MIN: int = 0
-    US_DB_PWD_SPECIAL_MIN: int = 0
+    US_DB_PWD_UPPERCASE_MIN: int = -1
+    US_DB_PWD_LOWERCASE_MIN: int = -1
+    US_DB_PWD_DIGITS_MIN: int = -1
+    US_DB_PWD_SPECIAL_MIN: int = -1
     US_DB_PWD_SPECIAL_ALLOWED: str = r"%$&*(){}[]!?\/@#.,:;+=<>-_"
+
+
     US_MAIL: list[str] = ['mail']
     US_MAIL_SERVER_LOGIN: str = ""
     US_MAIL_FILTERING_LOGIN: str = ""

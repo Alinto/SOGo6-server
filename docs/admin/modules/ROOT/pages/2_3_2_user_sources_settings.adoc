@@ -1,4 +1,281 @@
 = SOGo 6 - User Sources (Domain Settings)
 
+== Introduction
 
+In SOGo 6, a User Source is the external service where it will find information about user, about others users for autocompletion and the Global Address book.
+A User Source will may also be used for the authentication step for plain login method.
+However, even if you're using a SSO or external authenticaiton system, the user source is still mandatory.
+
+[NOTE]
+====
+The authentication will only tell to SOGo that: "The User is 'XXX' and is legit". The User Source will fetch info about XXX like mail, name, aliases, rights...
+====
+
+SOGo 6 supports two kinds of User Source:
+
+* **Ldap** server: any brand as long as they support the ldap protocol. SOGo 6 support standard ldap schema but an also be tuned to match your ldap schema.
+* **Database** server: PostgreSQL or MariaDb. In this case, you will need to create and manage the users table as no "standard user table for sql" exist.
+
+_If you come from SOGo 5, your user source will work with SOGo 6, no change needed._
+
+[IMPORTANT] 
+.Domain, domain and domain
+==== 
+The term "domain" is one of those web terms that can refer to several things depending on the context. _(Top 3 confusing words with namespace and blob)_
+
+In SOGo, domain will 99% of the time refers to the user's main mail domain. It not, it will be explained.
+
+*E.g:* +
+Your SOGo 6 application is hosted on https://*my.sogo.nu*, the user login with uid +"sogo@+*main.nu*", its mail is sogo1@*sogo.nu*, has an alias sogo@*sogo.net* and
+the ldap DC is "*dc=example,dc=org*": the domain is *sogo.nu*.
+====
+
+You can have one or several User Source. Having two User Sources doesn't mean they are two differents ldap/db server.
+They can be the same but with different filters or conditions. _E.g one ldap server but in SOGo two User Sources, one with a filter
+"is_user == 1", one with "is_group == 1"; It allows user to see two distinctive Global Address Book_.
+
+[NOTE]
+====
+A Global Address Book is a Address Book that the user will see but can only read from it. Tha Admin, you, choose if a User Source is a Global Address Book or not.
+====
+
+== Some recommendations
+
+From legacy of previous SOGos and new imppovement from SOGo 6, there are several ways to make the same behavior. If you're coming from SOGo 5,
+it's worth it to read this documentation to maybe make a better, easiest configuration.
+
+In a lot of cases, you will only need one user source so don't get overwhelmed by all the settings.
+
+Some settings here, overwrite settings in other domain topics. That will be explained.
+
+Don't forget that you set default domain settings and then you can set domain settings per domain that overwrite the default. +
+E.G. you
+have one User Source with 5 differents domain. Domain  `sogo5.nu` are not allowed to authenticate. Set the default domain
+settings US_CAN_AUTH = TRUE, then create a domain sogo5.nu where US_CAN_AUTH = False.
+Some use case will be given.
+
+== Name and UID settings
+
+* *US_UID*: A string, is a unique identifier to this user source. Can be anything as long it's unique. If you're using the SOGo 6 UI, it will generates it
+for you. If you're directly using the API choose it yourself. Once it's set, it's set and cannot be changed. This uid is only used by SOGo 6 backend logic
+and no user nor admin will see it.
+
+* *US_NAME*: A string, a name for this user source that will be seen by Admins. You can use the settings `US_DISPLAY_NAME`
+to change the name that will be see by users. IS not mandatory unique, even if it would be a strange thing to do.
+
+* *US_DESCRIPTION*: A string, will also only be seen by admin. Only add information for Admins, nothing else.
+
+* *US_TYPE*: Define the kinf od User Source. Can aither be 'ldap' or 'db'
+
+== Settings for LDAP only
+
+[IMPORTANT]
+====
+As current SOGo 6 version, we cannot say any requirements about your ldap pserver (version, schemas...). But all behavior from SOGo 5 has been or will be
+carried over.
+====
+
+=== Basic 
+
+* *US_LDAP_HOSTNAME*: A string, the hostname or IP fo your ldap server.
+* *US_LDAP_PORT*: An Integer, the port of your ldap server, default to 309.
+* *US_LDAP_ENCRYPTION*: Can be one of "None", "SSL/TLS","StartTLS"; Mind the case:
+** "None": Will only do plain communication
+** "SSL/TLS": Will only do encrypted communication
+** "StartTLS": Will start as plain, then negociate a encrypted communication with the startTls command
+
+=== Admin Bind
+
+* *US_LDAP_BIND_DN*: Set the admin bind DN. E.g: "cn=admin,dc=example,dc=org"
+* *US_LDAP_BIND_DN_PWD*: : Set the admin password
+
+[NOTE]
+====
+By default, the bind dn will be used before each user search query. If you do not want that, see setting US_LDAP_BIND_AS_USER
+where the user will bind itself before search query. That changes what the search can probe (admin can genrally see everything,
+a user can be set to only see some users)
+
+_On a side note, a ldap server can be configured to allow anonymous search request. Firstly, You may not want that. And if you do,
+SOGo will still make the bind anyway; which should be without sideffect._
+====
+
+=== Base DN
+
+* *US_LDAP_BASE_DN* String, is the base DN, meaning the part of the DN common to all of your users. Will be used for bind and search. Can use the
+wildcard *%d* to insert the domain of the user. Examples are given just below.
+* *US_LDAP_BASE_DN_USE_TLD*: Boolean, only useful if you're using the wildcard *%d* in US_LDAP_BASE_DN. Just state if the Top-Level domain must be inserted:
+** If true, for domain sogo.nu *%d* will be _sogo.nu_.
+** If false, for domain sogo.nu *%d* will be _sogo_.
+* *US_LDAP_ID* A string, the field equals to the user login that must ba added to the base DN, default to 'uid'.
+* *US_LDAP_BIND_FIELD*: List of string, ony useful if you cannot form a user's DN from the base DN on the user login. SOGo will first make
+a search query to find the user DN. Only then, will make a bind the credentials. There is a example below under the IMPORTANT note.
+
+==== Examples
+
+**For binding** which, in case of SOGo 6, mainly means to check the credentials, ldap expect to be given a DN (Distinguished Name) and a password.
+The DN of a user is unique and the three parameters above will build it.
+
+A DN can be like this `uid=sogo1,ou=users,dc=sogo,dc=nu`. The only info that SOGo knows is the base DN and the user login.
+In that case the user is supposed to login with "sogo1":
+
+* US_LDAP_BASE_DN="ou=users,dc=sogo,dc=nu"
+* US_LDAP_ID="uid"
+
+'''
+
+If the user DN is `uid=+sogo1@sogo.nu+,ou=users,dc=sogo,dc=nu`, the user will have to login with +sogo1@sogo.nu+
+
+* US_LDAP_BASE_DN="ou=users,dc=sogo,dc=nu"
+* US_LDAP_ID="uid"
+
+'''
+
+If the DN is like this `mail=+sogo1@sogo.nu+,ou=users,dc=sogo,dc=nu`, the user will have to login with +sogo1@sogo.nu+
+
+* US_LDAP_BASE_DN="ou=users,dc=sogo,dc=nu"
+* US_LDAP_ID="mail"
+
+As you see, `US_LDAP_BASE_DN` is the part common to all your users, `US_LDAP_ID` set the name of the field that will
+be added before the base DN, and the value is the user login
+
+**For searching**, the base DN is used. If the users search for contact matchin "sog":
+
+* US_LDAP_BASE_DN="ou=users,dc=sogo,dc=nu"
+* The search query will try to fin all users matching words "sog" inside ou=users,dc=sogo,dc=nu.
+
+That's when the wildcard %d and US_LDAP_BASE_DN_USE_TLD become useful. If your users are separated by domain in their DN:
+
+* ou=sogo.nu,dc=example,dc=org.
+* ou=sogo.net,dc=example,dc=org.
+
+You can partition your user search by setting `US_LDAP_BASE_DN=ou=%d,dc=example,dc=org"`:
+
+*  User with domain sogo.nu will only search and find users under ou=sogo.nu
+*  User with domain sogo.net will only search and find users under ou=sogo.net
+
+The param US_LDAP_BASE_DN_USE_TLD only says how the plaeholder %d work:
+
+* US_LDAP_BASE_DN_USE_TLD=True -> sogo.nu gives sogo.nu
+* US_LDAP_BASE_DN_USE_TLD=False -> sogo.nu gives sogo
+
+[CAUTION]
+====
+Do not set US_LDAP_BASE_DN_USE_TLD=False if you have different domains with the same TLD (E.g. sogo.nu and sogo.net) or use it by knowing what that implies.
+====
+
+[NOTE]
+====
+There are others way to partition domains. It mainly depends on your ldap structure. If you can dot it 
+right away with the DN, use the wildcard. If not, see `US_DOMAIN_PARTITION`
+====
+
+[IMPORTANT]
+====
+If your DNs cannot be build from the base dn and user login, see `US_LDAP_BIND_FIELD`. It will tell SOGo to first fetch the user DN febfore binding.
+
+E.g.:
+
+[source, ldif]
+----
+DN: uid=user13245,ou=users,dc=sogo,dc=nu
+uid: sogo1
+mail: sogo1@sogo.nu
+----
+
+And you want your user to login with `sogo1`:
+
+* US_LDAP_BASE_DN="ou=users,dc=sogo,dc=nu"
+* US_LDAP_BIND_FIELD=["uid"]
+
+SOGo will first make a search for user with `uid=sogo1`, get the DN `uid=user13245,ou=users,dc=sogo,dc=nu` and then
+make the user bind to check credentials.
+
+If you want your user to login with `sogo1@sogo.nu`:
+
+* US_LDAP_BASE_DN="ou=users,dc=sogo,dc=nu"
+* US_LDAP_BIND_FIELD=["mail"]
+
+If you want your user to login with both `sogo1` or `sogo1@sogo.nu`:
+
+* US_LDAP_BASE_DN="ou=users,dc=sogo,dc=nu"
+* US_LDAP_BIND_FIELD=["uid", "mail"]
+====
+
+=== Password Policy
+
+
+[WARNING]
+====
+NOT IMPLEMENTED YET
+====
+
+If your ldap server supports the `pwdPolicy Object Class` set the setting `US_LDAP_PWD_POLICY` to true. SOGo 6 will handle it and show more details
+warning or error message when a user try to login or update their password.
+
+[NOTE]
+====
+The pwdPolicy is defined in Internet Draft https://datatracker.ietf.org/doc/html/draft-behera-ldap-password-policy-11[draft-behera-ldap-password-policy-11] which is expired
+but seems to be widely adopted nontheless.
+====
+
+* **US_LDAP_PWD_POLICY**: boolean, default to false
+* **US_LDAP_PWD_UPDATE_SAMBA**: boolean, default to false. Only set to True if you allow your users to change their password and if you're using samba
+
+=== Others
+
+* *US_LDAP_SCOPE*: Can be 'base', 'one' or 'sub'. Default to `sub`. The search scope, see https://ldap.com/the-ldap-search-operation/[ldap documenation].
+* *US_LDAP_QUERY_TIMEOUT* _NOT IMPLEMENTED_: Integer > 0. Set in second the timeout of any query. Value `0` means no limit. 
+* *US_LDAP_BIND_AS_USER*: Boolean, default to False. When a search query is made for autocompletion. SOGo binds itself with the admin crdentials. Set this to True
+if you want SOGo to use the user credentials instead. 
+* *US_LDAP_ATTR_FIELD* = List of strings. Tell SOGo which attributes to fetch when doing a search query. By default the value is ['*'], meaning all attributes.
+
+[CAUTION]
+====
+As of now, if you enable the ldap logger for debbuging, the python-ldap library will print all query and result. if US_LDAP_ATTR_FIELD=['*'], it also means
+the field userPassword.
+====
+
+* **US_LDAP_GROUP_CLASS**: List of strings, telle sogo which objectClasses represnet a group of user. Default to ['group', 'groupOfNames', 'groupOfUniqueNames', 'posixGroup']
+
+
+== Settings for Database only
+
+The database of your User Source can be completely different than the SOGo 6's own Database. The database user must have the rights to read, and write if you
+enable the password update feature.
+
+=== Basic
+
+* *US_DB_TYPE*: Can either be "postgresql" or "mysql".
+* *US_DB_NAME*: String, name of your database.
+* *US_DB_USER*: String, username
+* *US_DB_PASS*: String, password
+* *US_DB_HOST*: String, hostname of the server
+* *US_DB_PORT*: Integer, port of your databaseint = 5432
+* *US_DB_ENCRYPTION* (NOT IMPLEMENTED YET): Boolean, default to false. True if your database use SSL
+* *US_DB_ENCODAGE*: str = String, default to 'utf8'. Encodage of yyour database
+
+=== Columns
+
+* *US_DB_FIELD_PWD*: String, default to 'c_password'. Name of the column where the password are.
+* *US_DB_PREPEND_PWD_SCHEME*: Boolean, default to false. If true, add the encryption scheme before the password (E.g. '\{SHA-256\}adsqhjgdsjqgdqs')
+* *US_DB_FIELD_DOMAIN*: String. Name of the column where the user's domain is. Id set, SOGo 6 will partition user by domain when doing query.
+(E.g. for user sogo@sogo.nu, it will add a clause `"c_domain" = "sogo.nu"` to all queries).
+
+=== Password Policy
+
+The password policy is used when:
+
+* Users are changing their password (if feature enable)
+* After a successfull login if admin has enabled password strenght check. See doc #TODO
+
+The settings are:
+
+* *US_DB_PWD_POLICY*: Boolean, default to False. enable or not password policy
+* *US_DB_PWD_LEN_MIN*: Integer, default to 4. Minimum length of a password
+* *US_DB_PWD_LEN_MAX*: Integer, default to 0. Maximun length of a password. 0 means no limit. Must obiously be greater than `US_DB_PWD_LEN_MIN`
+* *US_DB_PWD_UPPERCASE_MIN*: Integer, default to -1. Required number of uppercase char in the password. -1 means not required but allowed. 0 means they are not allowed.
+* *US_DB_PWD_LOWERCASE_MIN*: Integer, default to -1. Required number of lowercase char in the password. -1 means not required but allowed. 0 means they are not allowed.
+* *US_DB_PWD_DIGITS_MIN*: Integer, default to -1. Required number of digits in the password. -1 means not required but allowed. 0 means they are not allowed.
+* *US_DB_PWD_SPECIAL_MIN*: Integer, default to -1. Required number of special char in the password. -1 means not required but allowed. 0 means they are not allowed.
+** *US_DB_PWD_SPECIAL_ALLOWED*: String, default to `%$&*(){}[]!?\/@#.,:;+=<>-_.` List of special char allowed. 
 
