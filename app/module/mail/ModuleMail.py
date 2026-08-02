@@ -194,7 +194,7 @@ class ModuleMail:
         for folder_type in special_folder_types:
             if folder_type not in existing_types:
                 try:
-                    client.create_folder(folder_type, "")
+                    client.create_folder(self.domain_mail_folder_name[folder_type], "")
                     logger_mail_server.info(
                         "Created special folder '%s' for account '%s'",
                         folder_type, account_id
