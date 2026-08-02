@@ -124,6 +124,28 @@ class FakeModuleContact:
         self.create_personal_addressbook_args = user_uid
 
 
+class FakeUser:
+    """Fake User object for testing."""
+    def __init__(self, uid, password):
+        self.uid = uid
+        self.password = password
+        self.mail = uid
+        self.source_id = "source1"
+
+
+class FakeModuleMail:
+    """Fake ModuleMail for testing."""
+    def __init__(self, user, mail_settings, process):
+        self.user = user
+        self.mail_settings = mail_settings
+        self.process = process
+        self.create_special_folders_args = None
+
+    def create_special_folders_if_not_exist(self, account_id):
+        """Create special folders if they don't exist."""
+        self.create_special_folders_args = account_id
+
+
 def patch_modules_on_interface(monkeypatch, fake_module_auth, fake_module_user_profile, fake_module_user_source_class):
     """Patch modules in InterfaceAuthUser."""
     monkeypatch.setattr(
@@ -145,6 +167,10 @@ def patch_modules_on_interface(monkeypatch, fake_module_auth, fake_module_user_p
     monkeypatch.setattr(
         "app.interface.auth.InterfaceAuthUser.ModuleContact",
         FakeModuleContact
+    )
+    monkeypatch.setattr(
+        "app.interface.auth.InterfaceAuthUser.ModuleMail",
+        FakeModuleMail
     )
 
 
@@ -197,7 +223,7 @@ def test_get_login_mech_request_exception(monkeypatch):
 def test_plain_login_success(monkeypatch):
     """Test successful plain login."""
     fake_auth = FakeModuleAuth(None, None, None, None)
-    fake_user = {"uid": "testuser@example.com", "password": "secret123"}
+    fake_user = FakeUser("testuser@example.com", "secret123")
     fake_auth.get_user_and_domain_user_sources_result = (fake_user, {"source1": {}})
 
     fake_profile = FakeModuleUserProfile(None, None)
@@ -227,7 +253,7 @@ def test_plain_login_success(monkeypatch):
 def test_plain_login_failed_authentication(monkeypatch):
     """Test failed authentication."""
     fake_auth = FakeModuleAuth(None, None, None, None)
-    fake_user = {"uid": "testuser@example.com", "password": "wrong"}
+    fake_user = FakeUser("testuser@example.com", "wrong")
     fake_auth.get_user_and_domain_user_sources_result = (fake_user, {"source1": {}})
 
     fake_profile = FakeModuleUserProfile(None, None)
@@ -254,7 +280,7 @@ def test_plain_login_failed_authentication(monkeypatch):
 def test_plain_login_create_user_profile(monkeypatch):
     """Test plain login creates user profile and personal calendar on first login."""
     fake_auth = FakeModuleAuth(None, None, None, None)
-    fake_user = {"uid": "newuser@example.com", "password": "secret123"}
+    fake_user = FakeUser("newuser@example.com", "secret123")
     fake_auth.get_user_and_domain_user_sources_result = (fake_user, {"source1": {}})
 
     fake_profile = FakeModuleUserProfile(None, None)
@@ -269,7 +295,7 @@ def test_plain_login_create_user_profile(monkeypatch):
     interface = InterfaceAuthUser(
         process={"test": "config"},
         system={"SYSTEM_SETTINGS": {"test": "value"}},
-        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}}
+        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}, "MAIL_SETTINGS": {"test": "value"}}
     )
 
     data = {"username": "newuser@example.com", "password": "secret123"}
@@ -277,7 +303,7 @@ def test_plain_login_create_user_profile(monkeypatch):
 
     assert status_code == 200
     assert fake_profile.create_user_profile_args is not None
-    assert fake_profile.create_user_profile_args["uid"] == "newuser@example.com"
+    assert fake_profile.create_user_profile_args.uid == "newuser@example.com"
     assert interface._module_calendar.create_personal_calendar_args == "newuser@example.com"  # pylint: disable=protected-access
     # The user's preferred timezone is forwarded to the default calendar.
     assert interface._module_calendar.create_personal_calendar_timezone == "Europe/Paris"  # pylint: disable=protected-access
@@ -288,7 +314,7 @@ def test_plain_login_create_user_profile(monkeypatch):
 def test_plain_login_profile_creation_request_exception(monkeypatch):
     """Test error handling when user profile creation fails with RequestException."""
     fake_auth = FakeModuleAuth(None, None, None, None)
-    fake_user = {"uid": "newuser@example.com", "password": "secret123"}
+    fake_user = FakeUser("newuser@example.com", "secret123")
     fake_auth.get_user_and_domain_user_sources_result = (fake_user, {"source1": {}})
 
     fake_profile = FakeModuleUserProfile(None, None)
@@ -306,7 +332,7 @@ def test_plain_login_profile_creation_request_exception(monkeypatch):
     interface = InterfaceAuthUser(
         process={"test": "config"},
         system={"SYSTEM_SETTINGS": {"test": "value"}},
-        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}}
+        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}, "MAIL_SETTINGS": {"test": "value"}}
     )
 
     data = {"username": "newuser@example.com", "password": "secret123"}
@@ -320,7 +346,7 @@ def test_plain_login_profile_creation_request_exception(monkeypatch):
 def test_plain_login_profile_creation_bug_exception(monkeypatch):
     """Test error handling when user profile creation fails with BugException."""
     fake_auth = FakeModuleAuth(None, None, None, None)
-    fake_user = {"uid": "newuser@example.com", "password": "secret123"}
+    fake_user = FakeUser("newuser@example.com", "secret123")
     fake_auth.get_user_and_domain_user_sources_result = (fake_user, {"source1": {}})
 
     fake_profile = FakeModuleUserProfile(None, None)
@@ -338,7 +364,7 @@ def test_plain_login_profile_creation_bug_exception(monkeypatch):
     interface = InterfaceAuthUser(
         process={"test": "config"},
         system={"SYSTEM_SETTINGS": {"test": "value"}},
-        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}}
+        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}, "MAIL_SETTINGS": {"test": "value"}}
     )
 
     data = {"username": "newuser@example.com", "password": "secret123"}

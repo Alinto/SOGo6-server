@@ -80,6 +80,7 @@ class FakeIMAPConnection:
                                              b'(\\HasNoChildren) "." "Sent"'])
         self.expunge_response     = ("OK", [b"1", b"2"])
         self.uid_response         = ("OK", [b""])
+        self.append_response      = ("OK", [b""])
         self.getacl_response      = ("OK", [b"INBOX user1 lrswipkxtea user2 lr"])
         self.setacl_response      = ("OK", [b""])
         self.deleteacl_response   = ("OK", [b""])
@@ -158,6 +159,9 @@ class FakeIMAPConnection:
         return ("OK", [b""])
 
     # --- mails ---
+    def append(self, mailbox, flags, date_time, message):
+        return self.append_response
+
     def expunge(self):
         return self.expunge_response
 
@@ -843,6 +847,41 @@ class TestUidCopy:
         with pytest.raises(RequestException):
             client.uid_copy("100", "NoSuchFolder")
 
+    def test_uid_copy_special_folder_creates_and_retries(self):
+        """Test that uid_copy creates a special folder (SENT) if it doesn't exist and retries."""
+        fake_conn = FakeIMAPConnection()
+        # First call to uid_copy fails with TRYCREATE, second succeeds
+        fake_conn.uid_response = ("NO", [b"[TRYCREATE] No such mailbox"])
+        client = authenticated_client(fake_conn)
+
+        # Mock _imap_create_folder to track calls and change uid_response for the retry
+        with mock.patch.object(client, "_imap_create_folder") as mock_create:
+            # Setup: first uid call fails, second succeeds
+            uid_responses = [
+                ("NO", [b"[TRYCREATE] No such mailbox"]),
+                ("OK", [b""])
+            ]
+            call_count = 0
+            def uid_response_side_effect(*args, **kwargs):
+                nonlocal call_count
+                result = uid_responses[call_count % len(uid_responses)]
+                call_count += 1
+                return result
+
+            with mock.patch.object(fake_conn, "uid", side_effect=uid_response_side_effect):
+                # "Sent" is a MAIL_FOLDER_SENT which is special, not NORMAL
+                client.uid_copy("100", "Sent")
+                mock_create.assert_called_once()
+
+    def test_uid_copy_normal_folder_does_not_create(self):
+        """Test that uid_copy does NOT create a NORMAL folder if it doesn't exist."""
+        fake_conn = FakeIMAPConnection()
+        fake_conn.uid_response = ("NO", [b"[TRYCREATE] No such mailbox"])
+        client = authenticated_client(fake_conn)
+        # "NoSuchFolder" is not in folders_map, so it will be NORMAL type
+        with pytest.raises(RequestException):
+            client.uid_copy("100", "NoSuchFolder")
+
     def test_uid_copy_not_authenticated_raises(self):
         client = make_client()
         client.connection = None
@@ -1122,3 +1161,115 @@ class TestCopyMailToMailbox:
         client.connection = None
         with pytest.raises(BugException):
             client.copy_mail_to_mailbox("INBOX", "100", "Sent")
+
+
+# ===========================================================================
+# Tests: save_mail_to_folder
+# ===========================================================================
+
+class TestSaveMailToFolder:
+    def test_save_mail_to_sent_folder_success(self):
+        """Test saving a mail to SENT folder successfully."""
+        from email.message import EmailMessage
+        fake_conn = FakeIMAPConnection()
+        fake_conn.uid_response = ("OK", [b""])
+        client = authenticated_client(fake_conn)
+
+        msg = EmailMessage()
+        msg["Subject"] = "Test"
+        msg.set_content("Test body")
+
+        client.save_mail_to_folder(msg, cs.MAIL_FOLDER_SENT)
+        # No exception means success
+
+    def test_save_mail_special_folder_creates_and_retries(self):
+        """Test that save_mail_to_folder creates a special folder (SENT) if it doesn't exist and retries."""
+        from email.message import EmailMessage
+        fake_conn = FakeIMAPConnection()
+        client = authenticated_client(fake_conn)
+
+        msg = EmailMessage()
+        msg["Subject"] = "Test"
+        msg.set_content("Test body")
+
+        # Setup: first append call fails, second succeeds
+        append_responses = [
+            ("NO", [b"[TRYCREATE] No such mailbox"]),
+            ("OK", [b""])
+        ]
+        call_count = 0
+        def append_response_side_effect(*args, **kwargs):
+            nonlocal call_count
+            result = append_responses[call_count % len(append_responses)]
+            call_count += 1
+            return result
+
+        with mock.patch.object(client, "_imap_create_folder") as mock_create:
+            with mock.patch.object(fake_conn, "append", side_effect=append_response_side_effect):
+                # MAIL_FOLDER_SENT is a special folder, not NORMAL
+                client.save_mail_to_folder(msg, cs.MAIL_FOLDER_SENT)
+                mock_create.assert_called_once()
+
+    def test_save_mail_normal_folder_does_not_create(self):
+        """Test that save_mail_to_folder does NOT create a NORMAL folder if it doesn't exist."""
+        from email.message import EmailMessage
+        fake_conn = FakeIMAPConnection()
+        # Setup folders_map with a NORMAL folder
+        folders_map = {
+            cs.MAIL_FOLDER_INBOX: "INBOX",
+            cs.MAIL_FOLDER_SENT: "Sent",
+            cs.MAIL_FOLDER_NORMAL: "CustomFolder",  # This is a NORMAL folder type
+        }
+        client = make_client(folders_map=folders_map)
+        client.connection = fake_conn
+        client.authenticated = True
+
+        msg = EmailMessage()
+        msg["Subject"] = "Test"
+        msg.set_content("Test body")
+
+        fake_conn.append_response = ("NO", [b"Mailbox does not exist"])
+        
+        with pytest.raises(RequestException):
+            client.save_mail_to_folder(msg, cs.MAIL_FOLDER_NORMAL)
+
+    def test_save_mail_to_folder_not_authenticated_raises(self):
+        """Test that save_mail_to_folder raises BugException if not authenticated."""
+        from email.message import EmailMessage
+        client = make_client()
+        client.connection = None
+
+        msg = EmailMessage()
+        msg["Subject"] = "Test"
+        msg.set_content("Test body")
+
+        with pytest.raises(BugException):
+            client.save_mail_to_folder(msg, cs.MAIL_FOLDER_SENT)
+
+    def test_save_mail_to_draft_folder_creates_if_missing(self):
+        """Test that save_mail_to_folder creates DRAFT folder if it doesn't exist."""
+        from email.message import EmailMessage
+        fake_conn = FakeIMAPConnection()
+        client = authenticated_client(fake_conn)
+
+        msg = EmailMessage()
+        msg["Subject"] = "Test"
+        msg.set_content("Test body")
+
+        # Setup: first append call fails, second succeeds
+        append_responses = [
+            ("NO", [b"Mailbox does not exist"]),
+            ("OK", [b""])
+        ]
+        call_count = 0
+        def append_response_side_effect(*args, **kwargs):
+            nonlocal call_count
+            result = append_responses[call_count % len(append_responses)]
+            call_count += 1
+            return result
+
+        with mock.patch.object(client, "_imap_create_folder") as mock_create:
+            with mock.patch.object(fake_conn, "append", side_effect=append_response_side_effect):
+                # MAIL_FOLDER_DRAFT is a special folder, not NORMAL
+                client.save_mail_to_folder(msg, cs.MAIL_FOLDER_DRAFT)
+                mock_create.assert_called_once()
