@@ -165,6 +165,46 @@ class ModuleMail:
         new_folder_path = client.create_folder(folder_name, parent_path)
         return client.get_one_folder(new_folder_path)
 
+    def create_special_folders_if_not_exist(self, account_id: str) -> None:
+        """Create special mail folders (Sent, Draft, Junk, Trash, Template) if they don't exist.
+
+        This is typically called during user first login to ensure all special folders are available.
+        INBOX and NORMAL folders are excluded from creation as they are typically handled differently.
+
+        :param account_id: The account identifier ("0" for main, hash for external)
+        :type account_id: str
+        :raises RequestException: If connection or manager operations fail
+        """
+        client = self._open_client_for(account_id)
+        
+        # Special folder types to create (excluding NORMAL and INBOX)
+        special_folder_types = [
+            cs.MAIL_FOLDER_SENT,
+            cs.MAIL_FOLDER_DRAFT,
+            cs.MAIL_FOLDER_JUNK,
+            cs.MAIL_FOLDER_TRASH,
+            cs.MAIL_FOLDER_TEMPLATE,
+        ]
+        
+        # Get list of existing folders
+        existing_folders = client.list_folders()
+        existing_types = {folder.get("type") for folder in existing_folders}
+        
+        # Create missing special folders
+        for folder_type in special_folder_types:
+            if folder_type not in existing_types:
+                try:
+                    client.create_folder(self.domain_mail_folder_name[folder_type], "")
+                    logger_mail_server.info(
+                        "Created special folder '%s' for account '%s'",
+                        folder_type, account_id
+                    )
+                except RequestException as e:
+                    logger_mail_server.warning(
+                        "Failed to create special folder '%s' for account '%s': %s",
+                        folder_type, account_id, str(e)
+                    )
+
     def delete_folder(self, account_id: str, folder_path: str, do_children:bool = True) -> None:
         """Delete a mail folder.
 

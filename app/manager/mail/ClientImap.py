@@ -1089,14 +1089,28 @@ class ClientImap(ClientMailServer):
                 raise RequestException(f"Mailbox name is not ascii: {dest_mailbox}", err.ERROR_IMAP_NOT_ASCII)
             if isinstance(mail_uid, (Iterator, list)):
                 mail_uid = ','.join(mail_uid)
-            dest_mailbox = quote(dest_mailbox)
-            success, datas = self._exec_imap4_method(self.connection.uid, 'COPY', mail_uid, dest_mailbox)
+            dest_mailbox_quoted = quote(dest_mailbox)
+            success, datas = self._exec_imap4_method(self.connection.uid, 'COPY', mail_uid, dest_mailbox_quoted)
             # Beware, if the uid does not exist, IMAP4 still return OK with data to None. Not a big problem, though.
             if not success:
                 if datas[0].decode().startswith("[TRYCREATE]"):
-                    raise RequestException(f"Folder '{dest_mailbox}' does not exist", err.ERROR_FOLDER_NAME_NOT_FOUND)
-                logger_imap.error("UID COPY failed for UID %s to %s", mail_uid, dest_mailbox)
-                raise RequestException(f"UID COPY failed for UID {mail_uid} to {dest_mailbox}", err.ERROR_IMAP_FAILED)
+                    # Get folder type from the unquoted path
+                    folder_type = self.folders_map_name_to_type.get(dest_mailbox, cs.MAIL_FOLDER_NORMAL)
+                    
+                    # Create folder if it's not of type NORMAL
+                    if folder_type != cs.MAIL_FOLDER_NORMAL:
+                        logger_imap.info(f"Folder '{dest_mailbox}' does not exist but is of special type '{folder_type}', creating it")
+                        self._imap_create_folder(dest_mailbox_quoted, auto_sub=True, no_error_if_exist=True)
+                        # Retry the copy after folder creation
+                        success, datas = self._exec_imap4_method(self.connection.uid, 'COPY', mail_uid, dest_mailbox_quoted)
+                        if not success:
+                            logger_imap.error(f"UID COPY failed for UID {mail_uid} to {dest_mailbox} after folder creation")
+                            raise RequestException(f"UID COPY failed for UID {mail_uid} to {dest_mailbox}", err.ERROR_IMAP_FAILED)
+                    else:
+                        raise RequestException(f"Folder '{dest_mailbox}' does not exist", err.ERROR_FOLDER_NAME_NOT_FOUND)
+                else:
+                    logger_imap.error(f"UID COPY failed for UID {mail_uid} to {dest_mailbox}")
+                    raise RequestException(f"UID COPY failed for UID {mail_uid} to {dest_mailbox}", err.ERROR_IMAP_FAILED)
         else:
             raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
 
@@ -1918,10 +1932,28 @@ class ClientImap(ClientMailServer):
             raw_bytes,
         )
         if not success:
-            raise RequestException(
-                f"Failed to append mail to folder '{folder_path}': {datas}",
-                err.ERROR_MAIL_SAVE_SENT_FAILED,
-            )
+            # Create folder if it's not of type NORMAL and retry
+            if folder_type != cs.MAIL_FOLDER_NORMAL:
+                logger_imap.info(f"Folder '{folder_path}' (type '{folder_type}') does not exist, creating it")
+                self._imap_create_folder(quoted_folder, auto_sub=True, no_error_if_exist=True)
+                # Retry the append after folder creation
+                success, datas = self._exec_imap4_method(
+                self.connection.append,  # type: ignore[arg-type]
+                quoted_folder,
+                    flags,
+                    None,  # type: ignore[arg-type]
+                    raw_bytes,
+                )
+                if not success:
+                    raise RequestException(
+                        f"Failed to append mail to folder '{folder_path}' after creation: {datas}",
+                        err.ERROR_MAIL_SAVE_SENT_FAILED,
+                    )
+            else:
+                raise RequestException(
+                    f"Failed to append mail to folder '{folder_path}': {datas}",
+                    err.ERROR_MAIL_SAVE_SENT_FAILED,
+                )
         logger_imap.info("Mail saved in folder '%s'", folder_path)
 
     def delete_mail_permanently_from_folder_type(self, folder_type: str, mail_uid: str) -> None:
