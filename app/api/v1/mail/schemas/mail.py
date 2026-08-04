@@ -52,7 +52,7 @@ class MailActionSchema(Schema):
     """
     action = fields.String(
         required=True,
-        validate=validate.OneOf(['tag', 'untag', 'move', 'spam', 'ham', 'copy'])
+        validate=validate.OneOf(['tag', 'untag', 'move', 'spam', 'ham', 'copy', 'delete'])
     )
     data = fields.Raw(required=False, allow_none=True)
 
@@ -66,6 +66,55 @@ class MailActionSchema(Schema):
         return {
             "action": "tag",
             "data": ["important", "work"]
+        }
+
+
+class MailBatchActionSchema(Schema):
+    """
+    Schema for performing an action on multiple mails at once.
+    """
+    uids = fields.List(fields.Integer(), required=True, validate=validate.Length(min=1))
+    action = fields.String(
+        required=True,
+        validate=validate.OneOf(['tag', 'untag', 'move', 'spam', 'ham', 'copy', 'delete'])
+    )
+    data = fields.Raw(required=False, allow_none=True)
+
+    @classmethod
+    def example(cls) -> dict:
+        """Example data for mail batch action.
+
+        :return: Example mail batch action payload
+        :rtype: dict
+        """
+        return {
+            "uids": [12345, 12346, 12350],
+            "action": "tag",
+            "data": ["important", "work"]
+        }
+
+
+class MailBatchActionResponseSchema(ApiBaseResponse):
+    """
+    Schema for the mail batch action response.
+    """
+    data = fields.Dict(required=False, allow_none=True)
+
+    @classmethod
+    def example(cls) -> dict:
+        """Example response for mail batch action.
+
+        :return: Example mail batch action response
+        :rtype: dict
+        """
+        return {
+            "error_code": 0,
+            "error_msg": "",
+            "data": {
+                "action": "tag",
+                "mail_uids": [12345, 12346, 12350],
+                "tags_added": ["important", "work"]
+            }
         }
 
 
