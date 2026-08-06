@@ -447,6 +447,51 @@ class ModuleMail:
         is used as-is.
         """
         return cs.USER_CLASS_ANY if to_user == cs.ANYONE_TO_USER else to_user
+    
+    def empty_folder(self, account_id: str, folder_path: str) -> dict[str, int]:
+        """Completely empty a folder by permanently deleting all mails.
+
+        Only allowed for TRASH and JUNK folders. This operation is irreversible.
+
+        :param account_id: The account identifier ("0" for main, hash for external)
+        :type account_id: str
+        :param folder_path: The path of the folder to empty
+        :type folder_path: str
+        :return: dict with count of mails permanently deleted
+        :rtype: dict[str, int]
+        :raises RequestException: If folder type is not TRASH or JUNK
+        :raises RequestException: If connection or manager operations fail
+        """
+        client = self._open_client_for(account_id)
+        
+        # Get folder details to check type
+        folder_details = client.get_one_folder(folder_path)
+        folder_type = folder_details.get("type", "").upper()
+        
+        # Only allow emptying TRASH and JUNK folders
+        if folder_type not in (cs.MAIL_FOLDER_TRASH, cs.MAIL_FOLDER_JUNK):
+            raise RequestException(
+                f"Folder type '{folder_type}' cannot be emptied. Only TRASH and JUNK folders can be emptied.",
+                error=err.ERROR_FOLDER_CANNOT_EMPTY
+            )
+        
+        mails_deleted = client.empty_folder(folder_path)
+        logger_mail_server.info("Successfully emptied folder '%s', permanently deleted %d message(s)", folder_path, mails_deleted)
+        return {"mails_deleted": mails_deleted}
+
+    def get_folder_share(self, account_id: str, folder_path: str) -> list[AclEntry]:
+        """Return all ACL entries (one per user) currently granted on a folder, read live from IMAP.
+
+        IMAP is the only storage for mail folder shares. The owner's own ACL entry is skipped.
+
+        :param account_id: The account identifier
+        :type account_id: str
+        :param folder_path: The name of the folder
+        :type folder_path: str
+        :return: List of ACL entries for the folder
+        :rtype: list[AclEntry]
+        """
+        return self._read_folder_share(self._open_client_for(account_id), folder_path)
 
     def _check_not_self_share(self, users: list[dict]) -> None:
         """Reject any share entry targeting the folder owner itself.
