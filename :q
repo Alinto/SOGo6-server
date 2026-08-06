@@ -1,0 +1,274 @@
+* [32md5f6611[m [33m(il y a 22 heures)[m [1;34mwip[m [31m<tkeriven>[m [7;37m (HEAD -> task/2802-tables-acl)[m
+* [32maa9db91[m [33m(il y a 26 heures)[m [1;34mwip[m [31m<tkeriven>[m [7;37m[m
+* [32m443e780[m [33m(il y a 2 jours)[m [1;34mfonctionne mais le reste est casse[m [31m<tkeriven>[m [7;37m[m
+* [32maa54cc5[m [33m(il y a 2 jours)[m [1;34madd tables acl[m [31m<tkeriven>[m [7;37m[m
+* [32m0ce93fb[m [33m(il y a 87 minutes)[m [1;34mFIX: fallback for imap capabilities[m [31m<Quentin Hivert>[m [7;37m (origin/develop, develop)[m
+* [32m65ec40c[m [33m(il y a 2 jours)[m [1;34mOP#2270 : add batch action API (#61)[m [31m<tkeriven>[m [7;37m[m
+* [32m20f29a6[m [33m(il y a 2 jours)[m [1;34mAsync decorator (#63)[m [31m<tkeriven>[m [7;37m[m
+* [32m4948fc3[m [33m(il y a 6 semaines)[m [1;34madd missing tests[m [31m<tkeriven>[m [7;37m[m
+* [32m553f782[m [33m(il y a 12 jours)[m [1;34mCreate folder if not exist (#50)[m [31m<tkeriven>[m [7;37m[m
+* [32m3d25472[m [33m(il y a 4 semaines)[m [1;34mchore(verison): update version[m [31m<Quentin Hivert>[m [7;37m (tag: v6.0.0-alpha1, origin/main, origin/HEAD)[m
+* [32md61ec88[m [33m(il y a 4 semaines)[m [1;34mfix(redis): find a workaround to socket timeout[m [31m<Quentin Hivert>[m [7;37m[m
+* [32m91a9152[m [33m(il y a 4 semaines)[m [1;34mchore(bug): several fixes[m [31m<tkeriven>[m [7;37m[m
+* [32md5d8da3[m [33m(il y a 4 semaines)[m [1;34mchore(github): Add Issue template[m [31m<Quentin Hivert>[m [7;37m[m
+* [32m76962d4[m [33m(il y a 4 semaines)[m [1;34mremove private image from devcontainer[m [31m<Quentin Hivert>[m [7;37m[m
+* [32m263b922[m [33m(il y a 4 semaines)[m [1;34mAdd readme[m [31m<Quentin Hivert>[m [7;37m[m
+* [32m9823d88[m [33m(il y a 4 semaines)[m [1;34mquick fix on doc[m [31m<Quentin Hivert>[m [7;37m[m
+* [32me44d088[m [33m(il y a 4 semaines)[m [1;34mFix/doc (#53)[m [31m<QHivert>[m [7;37m[m
+* [32m73c2756[m [33m(il y a 5 semaines)[m [1;34mchore(docs): add some documentation (#52)[m [31m<QHivert>[m [7;37m[m
+* [32m504162e[m [33m(il y a 5 semaines)[m [1;34mfix[mail): fix mail auth[m [31m<Quentin Hivert>[m [7;37m[m
+* [32m9fffbd2[m [33m(il y a 5 semaines)[m [1;34mTask/2711 auth for admin (#49)[m [31m<tkeriven>[m [7;37m[m
+* [32m453dc5e[m [33m(il y a 5 semaines)[m [1;34mAdd ldap client + user source login + antora docs improved[m [31m<QHivert>[m [7;37m[m
+* [32m59b1bd8[m [33m(il y a 5 semaines)[m [1;34mCretae local dockerfile with gunicorn[m [31m<Quentin Hivert>[m [7;37m[m
+* [32ma813c9f[m [33m(il y a 5 semaines)[m [1;34monly login/invalid token returns 401[m [31m<Quentin Hivert>[m [7;37m[m
+* [32mfad95a4[m [33m(il y a 5 semaines)[m [1;34mMissing vacation features (#47)[m [31m<tkeriven>[m [7;37m[m
+* [32mc3eb5d7[m [33m(il y a 7 semaines)[m [1;34mOP#2677: add logout API[m [31m<tkeriven>[m [7;37m[m
+* [32m6063578[m [33m(il y a 6 semaines)[m [1;34mfix(init): initModule didn't really checked the database tables[m [31m<Quentin Hivert>[m [7;37m[m
+* [32m243c92b[m [33m(il y a 9 semaines)[m [1;34mOP#2174 : add filters APIs[m [31m<tkeriven>[m [7;37m[m
+*   [32m7584f9c[m [33m(il y a 7 semaines)[m [1;34mMerge branch 'agent_calendar_contact' into develop[m [31m<Quentin Hivert>[m [7;37m[m
+[32m|[m[33m\[m  
+[32m|[m * [32mc1d3d62[m [33m(il y a 7 semaines)[m [1;34mOP#2417: Calendar - Improve tests[m [31m<smizrahi>[m [7;37m[m
+[32m|[m *   [32m77d9f55[m [33m(il y a 7 semaines)[m [1;34mMerge branch 'develop' into phase/2417-calendar[m [31m<smizrahi>[m [7;37m[m
+[32m|[m [34m|[m[35m\[m  
+[32m|[m * [35m|[m [32mab8a659[m [33m(il y a 7 semaines)[m [1;34mOP#2417: Calendar - Fix developer docs for calendar and contact[m [31m<smizrahi>[m [7;37m[m
+[32m|[m * [35m|[m [32mec70c51[m [33m(il y a 7 semaines)[m [1;34mOP#2417: Calendar - Architecture audit cleanup (serializers, placement, naming)[m [31m<smizrahi>[m [7;37m[m
+[32m|[m * [35m|[m [32mff775be[m [33m(il y a 7 semaines)[m [1;34mOP#2417: Calendar - Add configurable attendee content-change rejection[m [31m<smizrahi>[m [7;37m[m
+[32m|[m * [35m|[m [32m0eff42f[m [33m(il y a 7 semaines)[m [1;34mOP#2417: Calendar - Fix recurring event attendee edits, reminders and cleanup[m [31m<smizrahi>[m [7;37m[m
+[32m|[m * [35m|[m [32m1a02f7a[m [33m(il y a 7 semaines)[m [1;34mOP#2417: Calendar - Add event email reminder send job[m [31m<smizrahi>[m [7;37m[m
+[32m|[m * [35m|[m [32mb4ac4b1[m [33m(il y a 7 semaines)[m [1;34mOP#2417: Calendar - Security fix : Reject inbound iMIP REQUEST/CANCEL from a non-organizer[m [31m<smizrahi>[m [7;37m[m
+[32m|[m * [35m|[m [32mfd1ff86[m [33m(il y a 7 semaines)[m [1;34mOP#2417: Calendar - Complete iMIP scheduling and add owner-resolution plumbing[m [31m<smizrahi>[m [7;37m[m
+[32m|[m * [35m|[m [32mabb8670[m [33m(il y a 8 semaines)[m [1;34mOP#2417: Calendar - Send iMIP REQUEST invitation on event update / delete[m [31m<smizrahi>[m [7;37m[m
+[32m|[m * [35m|[m [32m3354334[m [33m(il y a 8 semaines)[m [1;34mOP#2417: Calendar - Send iMIP REQUEST invitation on event creation[m [31m<smizrahi>[m [7;37m[m
+[32m|[m * [35m|[m [32m0b206ab[m [33m(il y a 8 semaines)[m [1;34mOP#2417: Contact - Async review hardening (storage, sync, import)[m [31m<smizrahi>[m [7;37m[m
+[32m|[m * [35m|[m [32mcb86e01[m [33m(il y a 8 semaines)[m [1;34mOP#2417: Contact - Make external calendar sync ... asynchronous - and add cron task for auto sync[m [31m<smizrahi>[m [7;37m[m
+[32m|[m * [35m|[m [32m679406e[m [33m(il y a 8 semaines)[m [1;34mOP#2630: Contact - Make import / export asynchronous[m [31m<smizrahi>[m [7;37m[m
+[32m|[m * [35m|[m [32mfaf9af1[m [33m(il y a 8 semaines)[m [1;34mOP#1853 : Agent - Doc refactoring[m [31m<smizrahi>[m [7;37m[m
+[32m|[m * [35m|[m [32m8fe3d04[m [33m(il y a 8 semaines)[m [1;34mOP#1853 : Agent - Store refactoring - Move FileAdapter as a store manager, global for agent and modules.[m [31m<smizrahi>[m [7;37m[m
+[32m|[m * [35m|[m [32mad58327[m [33m(il y a 8 semaines)[m [1;34mOP#1853 : Agent - Store refactoring (work in progress) to harmonize[m [31m<smizrahi>[m [7;37m[m
+[32m|[m * [35m|[m   [32m0e62430[m [33m(il y a 8 semaines)[m [1;34mMerge branch 'phase/2630-contact' into phase/1853-agent[m [31m<smizrahi>[m [7;37m[m
+[32m|[m [36m|[m[1;31m\[m [35m\[m  
+[32m|[m [36m|[m * [35m|[m [32m4d2ed09[m [33m(il y a 8 semaines)[m [1;34mOP#2630: Contact - Align code to existing. Improve tests.[m [31m<smizrahi>[m [7;37m[m
+[32m|[m [36m|[m * [35m|[m   [32m51cf122[m [33m(il y a 8 semaines)[m [1;34mMerge branch 'develop' into phase/2630-contact[m [31m<smizrahi>[m [7;37m[m
+[32m|[m [36m|[m [1;32m|[m[1;33m\[m [35m\[m  
+[32m|[m [36m|[m * [1;33m|[m [35m|[m [32m51f5fd9[m [33m(il y a 8 semaines)[m [1;34mOP#2630: Contact - Fix LDIF DN uniqueness for ldapadd. Secure MySQL sort_by. Minor interface cleanup[m [31m<smizrahi>[m [7;37m[m
+[32m|[m [36m|[m * [1;33m|[m [35m|[m [32me3f150b[m [33m(il y a 8 semaines)[m [1;34mOP#2630: Contact - Add contact import[m [31m<smizrahi>[m [7;37m[m
+[32m|[m [36m|[m * [1;33m|[m [35m|[m [32m8304311[m [33m(il y a 8 semaines)[m [1;34mOP#2417: Calendar - Negotiate export format from the Accept header - contact module alignment[m [31m<smizrahi>[m [7;37m[m
+[32m|[m [36m|[m * [1;33m|[m [35m|[m [32m871a73f[m [33m(il y a 8 semaines)[m [1;34mOP#2630: Contact - Add contact export. Rework on serializers to match naming rule. Add contact import (work in progress)[m [31m<smizrahi>[m [7;37m[m
+[32m|[m [36m|[m * [1;33m|[m [35m|[m [32mb272d04[m [33m(il y a 8 semaines)[m [1;34mOP#2630: Contact -  Improve autocomplete api to search also on name[m [31m<smizrahi>[m [7;37m[m
+[32m|[m [36m|[m * [1;33m|[m [35m|[m [32m822a85d[m [33m(il y a 8 semaines)[m [1;34mOP#2630: Contact -  Fix year-less dates, read ACL, transverse query (optimization)[m [31m<smizrahi>[m [7;37m[m
+[32m|[m [36m|[m * [1;33m|[m [35m|[m [32m3f30cd1[m [33m(il y a 8 semaines)[m [1;34mOP#2630: Contact - Add file persistancy in database with standard mechanism. Add binary database field type. Now supports photos in contacts. Refactoring.[m [31m<smizrahi>[m [7;37m[m
+[32m|[m [36m|[m * [1;33m|[m [35m|[m [32m201eeb2[m [33m(il y a 8 semaines)[m [1;34mOP#2630: Contact - Fix vCard/LDIF RFC misimplementations. Unfold code optimization.[m [31m<smizrahi>[m [7;37m[m
+[32m|[m [36m|[m * [1;33m|[m [35m|[m [32m9a5ba80[m [33m(il y a 8 semaines)[m [1;34mOP#2630: Contact - Add ldif and vcard serializers / deserializers[m [31m<smizrahi>[m [7;37m[m
+[32m|[m [36m|[m * [1;33m|[m [35m|[m [32m919be12[m [33m(il y a 9 semaines)[m [1;34mOP#2630: Contact - Minor fixes and improve tests[m [31m<smizrahi>[m [7;37m[m
+[32m|[m [36m|[m * [1;33m|[m [35m|[m [32mc0f0df2[m [33m(il y a 9 semaines)[m [1;34mOP#2630: Contact - Add contact list[m [31m<smizrahi>[m [7;37m[m
+[32m|[m [36m|[m * [1;33m|[m [35m|[m [32m51b51ed[m [33m(il y a 9 semaines)[m [1;34mOP#2630: Contact - Add source, repository and model[m [31m<smizrahi>[m [7;37m[m
+[32m|[m [36m|[m * [1;33m|[m [35m|[m [32mdea8393[m [33m(il y a 9 semaines)[m [1;34mOP#2630: Contact - Add tables for lists[m [31m<smizrahi>[m [7;37m[m
+[32m|[m [36m|[m * [1;33m|[m [35m|[m [32m79005f7[m [33m(il y a 9 semaines)[m [1;34mOP#2630: Contact - Change contacts endpoints according to specifications. Add clean method to delete soft deleted contacts.[m [31m<smizrahi>[m [7;37m[m
+[32m|[m [36m|[m * [1;33m|[m [35m|[m [32me03797c[m [33m(il y a 9 semaines)[m [1;34mOP#2630: Contact - Add doc. Change  with  (multiple).[m [31m<smizrahi>[m [7;37m[m
+[32m|[m [36m|[m * [1;33m|[m [35m|[m [32m4d7c021[m [33m(il y a 9 semaines)[m [1;34mOP#2630: Contact - Add ACL engine part (preapre for global module)[m [31m<smizrahi>[m [7;37m[m
+[32m|[m [36m|[m * [1;33m|[m [35m|[m [32m3b45e96[m [33m(il y a 9 semaines)[m [1;34mOP#2630: Contact - Add autocomplete api. Rework contact sources[m [31m<smizrahi>[m [7;37m[m
+[32m|[m [36m|[m * [1;33m|[m [35m|[m [32m357e1c2[m [33m(il y a 9 semaines)[m [1;34mOP#2630: Contact - Add contact API (address books, contacts) - minor refactoring on calendar personal name[m [31m<smizrahi>[m [7;37m[m
+[32m|[m [36m|[m * [1;33m|[m [35m|[m [32m06580d3[m [33m(il y a 9 semaines)[m [1;34mOP#2630: Contact - Refactoring contact ApiInterface to use single contact key instead of contact key + ab key combination[m [31m<smizrahi>[m [7;37m[m
+[32m|[m [36m|[m * [1;33m|[m [35m|[m [32m4f73dee[m [33m(il y a 9 semaines)[m [1;34mOP#2630: Contact - Add interface and address book serializers. Add contact PATCH deserializer and paginated, sorted contact listing[m [31m<smizrahi>[m [7;37m[m
+[32m|[m [36m|[m * [1;33m|[m [35m|[m [32m4df5550[m [33m(il y a 9 semaines)[m [1;34mOP#2630: Contact - Add ModuleContact, repository and sources. Move DateTimeUtils to utils/datetime and refactor calendar date handling[m [31m<smizrahi>[m [7;37m[m
+[32m|[m [36m|[m * [1;33m|[m [35m|[m [32me6e90a4[m [33m(il y a 9 semaines)[m [1;34mOP#2417: Calendar - Refactoring on calendar serializer (split in sub serializers) to match contacts[m [31m<smizrahi>[m [7;37m[m
+[32m|[m [36m|[m * [1;33m|[m [35m|[m [32md00ed2d[m [33m(il y a 9 semaines)[m [1;34mOP#2630: Contact - Add database and serializers[m [31m<smizrahi>[m [7;37m[m
+[32m|[m [36m|[m * [1;33m|[m [35m|[m [32m5d256d3[m [33m(il y a 9 semaines)[m [1;34mOP#XXXX: Contact - Add model[m [31m<smizrahi>[m [7;37m[m
+[32m|[m [36m|[m * [1;33m|[m [35m|[m [32md0a28ae[m [33m(il y a 9 semaines)[m [1;34mOP#XXXX: Contact - Refactor serailizer[m [31m<smizrahi>[m [7;37m[m
+[32m|[m [36m|[m * [1;33m|[m [35m|[m [32m7735547[m [33m(il y a 9 semaines)[m [1;34mOP#2417: Calendar - Add . Will be used when analyzing email reading (not implemented yet).[m [31m<smizrahi>[m [7;37m[m
+[32m|[m [36m|[m * [1;33m|[m [35m|[m [32md7f9857[m [33m(il y a 9 semaines)[m [1;34mOP#2417: Calendar - Add per-calendar event defaults and free/busy opt-out[m [31m<smizrahi>[m [7;37m[m
+[32m|[m [36m|[m * [1;33m|[m [35m|[m [32m6a16594[m [33m(il y a 9 semaines)[m [1;34mOP#2417: Calendar - Add new ACL  in calendar[m [31m<smizrahi>[m [7;37m[m
+[32m|[m [36m|[m * [1;33m|[m [35m|[m [32mc911fbd[m [33m(il y a 9 semaines)[m [1;34mOP#2417: Calendar - Add SOGO_D_CALENDAR_PUBLIC_LINK_ENABLED domain setting to enable / disable public share[m [31m<smizrahi>[m [7;37m[m
+[32m|[m [36m|[m * [1;33m|[m [35m|[m [32m5deda96[m [33m(il y a 9 semaines)[m [1;34mOP#2417: Calendar - Remove attendees on import with[m [31m<smizrahi>[m [7;37m[m
+[32m|[m [36m|[m * [1;33m|[m [35m|[m [32m454aea2[m [33m(il y a 9 semaines)[m [1;34mOP#2417: Calendar - Add TSVECTOR support - move calendar search_vector to tsvector / fulltext[m [31m<smizrahi>[m [7;37m[m
+[32m|[m [36m|[m * [1;33m|[m [35m|[m [32m91212f1[m [33m(il y a 9 semaines)[m [1;34mOP#2417: Calendar - Fix due date misimplementation on tasks[m [31m<smizrahi>[m [7;37m[m
+[32m|[m [36m|[m * [1;33m|[m [35m|[m [32mebd5304[m [33m(il y a 10 semaines)[m [1;34mOP#2417: Calendar - Improve OpenAPI documentation[m [31m<smizrahi>[m [7;37m[m
+[32m|[m [36m|[m * [1;33m|[m [35m|[m [32mbda19ef[m [33m(il y a 10 semaines)[m [1;34mOP#2417: Calendar - Fix mypy errors[m [31m<smizrahi>[m [7;37m[m
+[32m|[m * [1;33m|[m [1;33m|[m [35m|[m [32m7d5b054[m [33m(il y a 10 semaines)[m [1;34mMerge branch 'develop' into phase/1853-agent[m [31m<smizrahi>[m [7;37m[m
+[32m|[m [1;34m|[m[1;33m\[m[1;33m|[m [1;33m|[m [35m|[m 
+[32m|[m * [1;33m|[m [1;33m|[m [35m|[m [32mfea1452[m [33m(il y a 10 semaines)[m [1;34mOP#1853 : Agent - Add celery beat scheduler and auto clean large file[m [31m<smizrahi>[m [7;37m[m
+[32m|[m * [1;33m|[m [1;33m|[m [35m|[m [32m1b8d575[m [33m(il y a 10 semaines)[m [1;34mOP#1853 : Agent - Refactoring on JobLargeStore[m [31m<smizrahi>[m [7;37m[m
+[32m|[m * [1;33m|[m [1;33m|[m [35m|[m [32mae8fab8[m [33m(il y a 10 semaines)[m [1;34mOP#1853 : Agent - Refactoring on JobLargeStore[m [31m<smizrahi>[m [7;37m[m
+[32m|[m * [1;33m|[m [1;33m|[m [35m|[m [32m9abafee[m [33m(il y a 10 semaines)[m [1;34mOP#1853 : Agent - Rework LargeStore for bidirectional use. Add doc. Add ImportIcs Job. Add cancel endpoint. Work in progress.[m [31m<smizrahi>[m [7;37m[m
+[32m|[m * [1;33m|[m [1;33m|[m [35m|[m [32m45101e5[m [33m(il y a 2 mois)[m [1;34mOP#1853 : Agent - Job cancel endpoint, storage selector and security access restriction improvements[m [31m<smizrahi>[m [7;37m[m
+[32m|[m * [1;33m|[m [1;33m|[m [35m|[m [32m072809e[m [33m(il y a 2 mois)[m [1;34mOP#1853 : Agent - Async ICS export job, large result store and concurrency gate[m [31m<smizrahi>[m [7;37m[m
+[32m|[m * [1;33m|[m [1;33m|[m [35m|[m [32m0d1da0b[m [33m(il y a 2 mois)[m [1;34mOP#1853 : Agent - Remove celery beat (useless for now)[m [31m<smizrahi>[m [7;37m[m
+[32m|[m * [1;33m|[m [1;33m|[m [35m|[m   [32m21f5379[m [33m(il y a 2 mois)[m [1;34mMerge branch 'develop' into phase/1853-agent[m [31m<smizrahi>[m [7;37m[m
+[32m|[m [1;36m|[m[31m\[m [1;33m\[m [1;33m\[m [35m\[m  
+[32m|[m * [31m|[m [1;33m|[m [1;33m|[m [35m|[m [32md2b7ab7[m [33m(il y a 2 mois)[m [1;34mOP#1853 : Agent - Add register tasks, decorators, and ExportIcsTask (work in progress)[m [31m<smizrahi>[m [7;37m[m
+[32m|[m * [31m|[m [1;33m|[m [1;33m|[m [35m|[m [32mb9a4806[m [33m(il y a 3 mois)[m [1;34mOP#1853 : Agent - Remove end to end test - work in progress[m [31m<smizrahi>[m [7;37m[m
+[32m|[m * [31m|[m [1;33m|[m [1;33m|[m [35m|[m   [32me46b470[m [33m(il y a 3 mois)[m [1;34mMerge branch 'develop' into phase/1853-agent[m [31m<smizrahi>[m [7;37m[m
+[32m|[m [32m|[m[33m\[m [31m\[m [1;33m\[m [1;33m\[m [35m\[m  
+[32m|[m * [33m|[m [31m|[m [1;33m|[m [1;33m|[m [35m|[m [32mcd9fe29[m [33m(il y a 3 mois)[m [1;34mOP#1853 : Agent - Avoid duplication between Task and TaskRequest - work in progress[m [31m<smizrahi>[m [7;37m[m
+[32m|[m * [33m|[m [31m|[m [1;33m|[m [1;33m|[m [35m|[m [32m23731fa[m [33m(il y a 3 mois)[m [1;34mOP#1853 : Agent - Add manager / task management  - work in progress[m [31m<smizrahi>[m [7;37m[m
+[32m|[m * [33m|[m [31m|[m [1;33m|[m [1;33m|[m [35m|[m [32ma4a714d[m [33m(il y a 3 mois)[m [1;34mOP#1853 : Agent - add task base[m [31m<smizrahi>[m [7;37m[m
+[32m|[m * [33m|[m [31m|[m [1;33m|[m [1;33m|[m [35m|[m [32mf8caf23[m [33m(il y a 3 mois)[m [1;34mOP#1853 : Init agent - add celery, move agent to app[m [31m<smizrahi>[m [7;37m[m
+* [33m|[m [33m|[m [31m|[m [1;33m|[m [1;33m|[m [35m|[m [32mf13a557[m [33m(il y a 7 semaines)[m [1;34mOP#2671 : add atachment download in mail[m [31m<tkeriven>[m [7;37m[m
+[35m|[m [33m|[m[35m_[m[33m|[m[35m_[m[31m|[m[35m_[m[1;33m|[m[35m_[m[1;33m|[m[35m/[m  
+[35m|[m[35m/[m[33m|[m [33m|[m [31m|[m [1;33m|[m [1;33m|[m   
+* [33m|[m [33m|[m [31m|[m [1;33m|[m [1;33m|[m [32m687b300[m [33m(il y a 7 semaines)[m [1;34mSet Antora config[m [31m<Quentin Hivert>[m [7;37m[m
+[1;33m|[m [33m|[m[1;33m_[m[33m|[m[1;33m_[m[31m|[m[1;33m_[m[1;33m|[m[1;33m/[m  
+[1;33m|[m[1;33m/[m[33m|[m [33m|[m [31m|[m [1;33m|[m   
+* [33m|[m [33m|[m [31m|[m [1;33m|[m [32m019eac1[m [33m(il y a 8 semaines)[m [1;34mOP#2618: handle html in save and send endpoint[m [31m<tkeriven>[m [7;37m[m
+* [33m|[m [33m|[m [31m|[m [1;33m|[m [32m014c877[m [33m(il y a 8 semaines)[m [1;34mOP#2618: PR Review[m [31m<Quentin Hivert>[m [7;37m[m
+* [33m|[m [33m|[m [31m|[m [1;33m|[m [32m1846709[m [33m(il y a 10 semaines)[m [1;34mOP#2618 : add Date Message-ID References In-Reply-To headers, add reply API, update mail outgoing doc"[m [31m<tkeriven>[m [7;37m[m
+* [33m|[m [33m|[m [31m|[m [1;33m|[m [32md72df3a[m [33m(il y a 2 mois)[m [1;34mOP#2603 : add delete, current, download and handle attachements for send APIs[m [31m<tkeriven>[m [7;37m[m
+* [33m|[m [33m|[m [31m|[m [1;33m|[m [32mec40247[m [33m(il y a 2 mois)[m [1;34mrefactor APIs send[m [31m<tkeriven>[m [7;37m[m
+* [33m|[m [33m|[m [31m|[m [1;33m|[m [32m5e65ea4[m [33m(il y a 2 mois)[m [1;34madd tmp draft table and use it on API send upload and save (#37)[m [31m<tkeriven>[m [7;37m[m
+* [33m|[m [33m|[m [31m|[m [1;33m|[m [32md410f06[m [33m(il y a 3 mois)[m [1;34mOP#2529 : refactor mail part[m [31m<tkeriven>[m [7;37m[m
+* [33m|[m [33m|[m [31m|[m [1;33m|[m [32m87f28ed[m [33m(il y a 3 mois)[m [1;34mOP#2529 : add draft api[m [31m<tkeriven>[m [7;37m[m
+* [33m|[m [33m|[m [31m|[m [1;33m|[m [32m196a8f3[m [33m(il y a 3 mois)[m [1;34mOP#2525 : add API mail send[m [31m<tkeriven>[m [7;37m[m
+* [33m|[m [33m|[m [31m|[m [1;33m|[m [32mf829c79[m [33m(il y a 3 mois)[m [1;34mOP#2523 : add module outgoing[m [31m<tkeriven>[m [7;37m[m
+* [33m|[m [33m|[m [31m|[m [1;33m|[m [32m7f613b5[m [33m(il y a 9 semaines)[m [1;34mOP#2417: Calendar - Add . Will be used when analyzing email reading (not implemented yet).[m [31m<smizrahi>[m [7;37m[m
+* [33m|[m [33m|[m [31m|[m [1;33m|[m [32m6489b7a[m [33m(il y a 9 semaines)[m [1;34mOP#2417: Calendar - Add per-calendar event defaults and free/busy opt-out[m [31m<smizrahi>[m [7;37m[m
+* [33m|[m [33m|[m [31m|[m [1;33m|[m [32mc974b01[m [33m(il y a 9 semaines)[m [1;34mOP#2417: Calendar - Add new ACL  in calendar[m [31m<smizrahi>[m [7;37m[m
+* [33m|[m [33m|[m [31m|[m [1;33m|[m [32ma33222c[m [33m(il y a 9 semaines)[m [1;34mOP#2417: Calendar - Add SOGO_D_CALENDAR_PUBLIC_LINK_ENABLED domain setting to enable / disable public share[m [31m<smizrahi>[m [7;37m[m
+* [33m|[m [33m|[m [31m|[m [1;33m|[m [32me81bf27[m [33m(il y a 9 semaines)[m [1;34mOP#2417: Calendar - Remove attendees on import with[m [31m<smizrahi>[m [7;37m[m
+* [33m|[m [33m|[m [31m|[m [1;33m|[m [32m47c3bb5[m [33m(il y a 9 semaines)[m [1;34mOP#2417: Calendar - Add TSVECTOR support - move calendar search_vector to tsvector / fulltext[m [31m<smizrahi>[m [7;37m[m
+* [33m|[m [33m|[m [31m|[m [1;33m|[m [32me35ad86[m [33m(il y a 9 semaines)[m [1;34mOP#2417: Calendar - Fix due date misimplementation on tasks[m [31m<smizrahi>[m [7;37m[m
+* [33m|[m [33m|[m [31m|[m [1;33m|[m [32mfb114c7[m [33m(il y a 10 semaines)[m [1;34mOP#2417: Calendar - Improve OpenAPI documentation[m [31m<smizrahi>[m [7;37m[m
+* [33m|[m [33m|[m [31m|[m [1;33m|[m [32mdebe8cd[m [33m(il y a 10 semaines)[m [1;34mOP#2417: Calendar - Fix mypy errors[m [31m<smizrahi>[m [7;37m[m
+* [33m|[m [33m|[m [31m|[m [1;33m|[m [32m0d0b8d0[m [33m(il y a 9 semaines)[m [1;34mTask/2486 renomer les tables (#34)[m [31m<tkeriven>[m [7;37m[m
+[1;33m|[m [33m|[m[1;33m_[m[33m|[m[1;33m_[m[31m|[m[1;33m/[m  
+[1;33m|[m[1;33m/[m[33m|[m [33m|[m [31m|[m   
+* [33m|[m [33m|[m [31m|[m [32mb28057e[m [33m(il y a 2 mois)[m [1;34mAdd doc on SOGo6 TODO[m [31m<Quentin Hivert>[m [7;37m[m
+[31m|[m [33m|[m[31m_[m[33m|[m[31m/[m  
+[31m|[m[31m/[m[33m|[m [33m|[m   
+* [33m|[m [33m|[m [32m877a9e4[m [33m(il y a 2 mois)[m [1;34mOP#2417: Add max time limitation to all day events[m [31m<smizrahi>[m [7;37m[m
+[33m|[m [33m|[m[33m/[m  
+[33m|[m[33m/[m[33m|[m   
+* [33m|[m [32m4bdb582[m [33m(il y a 3 mois)[m [1;34mrefactor doc + add doc (#36)[m [31m<QHivert>[m [7;37m[m
+* [33m|[m   [32m542eebc[m [33m(il y a 3 mois)[m [1;34mMerge branch 'phase/2417-calendar' into develop[m [31m<Quentin Hivert>[m [7;37m[m
+[34m|[m[35m\[m [33m\[m  
+[34m|[m * [33m|[m [32m18d9129[m [33m(il y a 3 mois)[m [1;34mMerge branch 'develop' into phase/2417-calendar[m [31m<smizrahi>[m [7;37m[m
+[34m|[m [36m|[m[33m\[m[33m|[m 
+[34m|[m * [33m|[m [32mdb72b04[m [33m(il y a 3 mois)[m [1;34mOP#2417: Calendar milestone 2bis - Improve RFC compliancy (VALARM, PRIORITY)[m [31m<smizrahi>[m [7;37m[m
+[34m|[m * [33m|[m [32mc429128[m [33m(il y a 3 mois)[m [1;34mOP#2417: Calendar milestone 2bis - Improve RFC compliancy (VALARM, PRIORITY)[m [31m<smizrahi>[m [7;37m[m
+[34m|[m * [33m|[m [32m1747bbb[m [33m(il y a 3 mois)[m [1;34mOP#2417: Calendar milestone 2bis - Add public url subscription - refactoring on calendar serializer for coherence - add public endpoint using[m [31m<smizrahi>[m [7;37m[m
+[34m|[m * [33m|[m   [32m994cfd7[m [33m(il y a 3 mois)[m [1;34mMerge branch 'develop' into phase/2417-calendar[m [31m<smizrahi>[m [7;37m[m
+[34m|[m [1;32m|[m[1;33m\[m [33m\[m  
+[34m|[m * [1;33m|[m [33m|[m [32madb6abf[m [33m(il y a 3 mois)[m [1;34mOP#2417: Calendar milestone 2bis - Add calendar import / export - change in default calendar tz, now using SOGO_U_TIMEZONE[m [31m<smizrahi>[m [7;37m[m
+[34m|[m * [1;33m|[m [33m|[m [32maeb4d7e[m [33m(il y a 3 mois)[m [1;34mOP#2417: Calendar milestone 2 - Comment and exception refactoring, add dns rebinding protection on ics fetcher, fix some bad comparison (uid vs email - uid can be different than en email)[m [31m<smizrahi>[m [7;37m[m
+[34m|[m * [1;33m|[m [33m|[m [32mc07c160[m [33m(il y a 3 mois)[m [1;34m OP#2417: Calendar milestone 2 - Introducing calendar ACL. Move ICS restriction to ACL (harmonizing). Need global ACL module.[m [31m<smizrahi>[m [7;37m[m
+[34m|[m * [1;33m|[m [33m|[m [32m68fc9af[m [33m(il y a 3 mois)[m [1;34mOP#2417: Calendar milestone 2 - Add external calendar sync (without agent)[m [31m<smizrahi>[m [7;37m[m
+[34m|[m * [1;33m|[m [33m|[m   [32mfe7aef0[m [33m(il y a 3 mois)[m [1;34mMerge branch 'develop' into phase/2417-calendar[m [31m<smizrahi>[m [7;37m[m
+[34m|[m [1;34m|[m[1;35m\[m [1;33m\[m [33m\[m  
+[34m|[m * [1;35m|[m [1;33m|[m [33m|[m [32m382b548[m [33m(il y a 3 mois)[m [1;34mOP#2417: Calendar milestone 2 - Add reminders - change dict to model in RepositoryReminder when calling find[m [31m<smizrahi>[m [7;37m[m
+[34m|[m * [1;35m|[m [1;33m|[m [33m|[m [32mc3a3fd6[m [33m(il y a 3 mois)[m [1;34mOP#2417: Calendar milestone 2 - Add reminders[m [31m<smizrahi>[m [7;37m[m
+[34m|[m * [1;35m|[m [1;33m|[m [33m|[m [32m9b7ceb7[m [33m(il y a 3 mois)[m [1;34mOP#2417: Calendar milestone 2 - CORE DB APP CHANGES - Add inner join (select_from_several_table), add create indexes support (MySQL + Postgres)[m [31m<smizrahi>[m [7;37m[m
+[34m|[m * [1;35m|[m [1;33m|[m [33m|[m [32mc5bc7ce[m [33m(il y a 4 mois)[m [1;34mOP#2417: Calendar milestone 2 - Manage detached occurences and series[m [31m<smizrahi>[m [7;37m[m
+[34m|[m * [1;35m|[m [1;33m|[m [33m|[m [32m3e7e79d[m [33m(il y a 4 mois)[m [1;34m OP#2417: Calendar milestone 2 - Add IMIP and attendance management - IMIP not testet yet - work in progress[m [31m<smizrahi>[m [7;37m[m
+[34m|[m * [1;35m|[m [1;33m|[m [33m|[m [32m0139e91[m [33m(il y a 4 mois)[m [1;34mOP#2417: Calendar milestone 2 - interface/auth cleanup — inject user per call, remove broad except, IDE typing[m [31m<smizrahi>[m [7;37m[m
+[34m|[m * [1;35m|[m [1;33m|[m [33m|[m [32mabe276f[m [33m(il y a 4 mois)[m [1;34mOP#2417: Calendar milestone 2 - change module constructor parameters / prepare for agent use[m [31m<smizrahi>[m [7;37m[m
+[34m|[m * [1;35m|[m [1;33m|[m [33m|[m   [32mc100293[m [33m(il y a 4 mois)[m [1;34mMerge branch 'develop' into phase/2417-calendar[m [31m<smizrahi>[m [7;37m[m
+[34m|[m [1;36m|[m[31m\[m [1;35m\[m [1;33m\[m [33m\[m  
+[34m|[m * [31m|[m [1;35m|[m [1;33m|[m [33m|[m [32m165a524[m [33m(il y a 4 mois)[m [1;34mOP#2417: Calendar milestone 2 - Add FreeBusy engine, POST /freebusy endpoint, and serializer architecture refactoring[m [31m<smizrahi>[m [7;37m[m
+[34m|[m * [31m|[m [1;35m|[m [1;33m|[m [33m|[m [32me320b0d[m [33m(il y a 4 mois)[m [1;34mOP#2417: Calendar milestone 2 - change recurring column to boolean[m [31m<smizrahi>[m [7;37m[m
+[34m|[m * [31m|[m [1;35m|[m [1;33m|[m [33m|[m [32m8c9627a[m [33m(il y a 4 mois)[m [1;34mOP#2417: Calendar milestone 2 - Doc rework. Change in task date limits. Fix search weakness (date limits not applied).[m [31m<smizrahi>[m [7;37m[m
+[34m|[m * [31m|[m [1;35m|[m [1;33m|[m [33m|[m   [32m3aa904f[m [33m(il y a 4 mois)[m [1;34mMerge branch 'develop' into phase/2417-calendar[m [31m<smizrahi>[m [7;37m[m
+[34m|[m [32m|[m[33m\[m [31m\[m [1;35m\[m [1;33m\[m [33m\[m  
+[34m|[m * [33m|[m [31m|[m [1;35m|[m [1;33m|[m [33m|[m [32m1a8906a[m [33m(il y a 4 mois)[m [1;34mOP#2417: Calendar milestone 2 - Refactoring, manage occurence exception, add functional testing, rework architecture[m [31m<smizrahi>[m [7;37m[m
+[34m|[m * [33m|[m [31m|[m [1;35m|[m [1;33m|[m [33m|[m [32m98296f4[m [33m(il y a 4 mois)[m [1;34mOP#2417: Calendar milestone 2 - Refactoring, default calendart, tasks endpoints[m [31m<smizrahi>[m [7;37m[m
+[34m|[m * [33m|[m [31m|[m [1;35m|[m [1;33m|[m [33m|[m [32m796837c[m [33m(il y a 4 mois)[m [1;34mOP#2417: Calendar milestone 2 - Add endpoints for calendars management. Prepare for tasks.[m [31m<smizrahi>[m [7;37m[m
+[34m|[m * [33m|[m [31m|[m [1;35m|[m [1;33m|[m [33m|[m [32m836d801[m [33m(il y a 4 mois)[m [1;34mOP#2417: Calendar milestone 2 - Prepare database structure for calendars[m [31m<smizrahi>[m [7;37m[m
+[34m|[m * [33m|[m [31m|[m [1;35m|[m [1;33m|[m [33m|[m [32m0b99e5f[m [33m(il y a 4 mois)[m [1;34mOP#2417: Change log level for 'Absolute TRIGGER DATE-TIME not supported'[m [31m<smizrahi>[m [7;37m[m
+[34m|[m * [33m|[m [31m|[m [1;35m|[m [1;33m|[m [33m|[m [32mf7bde24[m [33m(il y a 4 mois)[m [1;34mOP#2417: Calendar milestone 1 — ICS fetch, RRULE expansion, UTC domain model, REST API[m [31m<smizrahi>[m [7;37m[m
+* [33m|[m [33m|[m [31m|[m [1;35m|[m [1;33m|[m [33m|[m [32m72dac5c[m [33m(il y a 3 mois)[m [1;34mOP#2577 : fix API mailboxes error password[m [31m<tkeriven>[m [7;37m[m
+[33m|[m [33m|[m[33m_[m[33m|[m[33m_[m[31m|[m[33m_[m[1;35m|[m[33m_[m[1;33m|[m[33m/[m  
+[33m|[m[33m/[m[33m|[m [33m|[m [31m|[m [1;35m|[m [1;33m|[m   
+* [33m|[m [33m|[m [31m|[m [1;35m|[m [1;33m|[m [32me42656d[m [33m(il y a 5 mois)[m [1;34mOP#2409 : add mailbox purge[m [31m<tkeriven>[m [7;37m[m
+* [33m|[m [33m|[m [31m|[m [1;35m|[m [1;33m|[m [32ma50fe4c[m [33m(il y a 4 mois)[m [1;34mOP#2484 : automatic init bdd sogo[m [31m<tkeriven>[m [7;37m[m
+[1;33m|[m [33m|[m[1;33m_[m[33m|[m[1;33m_[m[31m|[m[1;33m_[m[1;35m|[m[1;33m/[m  
+[1;33m|[m[1;33m/[m[33m|[m [33m|[m [31m|[m [1;35m|[m   
+* [33m|[m [33m|[m [31m|[m [1;35m|[m [32m70e959f[m [33m(il y a 3 mois)[m [1;34madd Postfix devcontainer[m [31m<Quentin Hivert>[m [7;37m[m
+* [33m|[m [33m|[m [31m|[m [1;35m|[m [32mba0b393[m [33m(il y a 3 mois)[m [1;34mOP#2519 : add client smtp[m [31m<tkeriven>[m [7;37m[m
+[1;35m|[m [33m|[m[1;35m_[m[33m|[m[1;35m_[m[31m|[m[1;35m/[m  
+[1;35m|[m[1;35m/[m[33m|[m [33m|[m [31m|[m   
+* [33m|[m [33m|[m [31m|[m [32mea3def1[m [33m(il y a 4 mois)[m [1;34mOP#2485 : add env var file[m [31m<tkeriven>[m [7;37m[m
+* [33m|[m [33m|[m [31m|[m [32m5deb4dc[m [33m(il y a 4 mois)[m [1;34mOP#2472 : add delete option in delete mail API[m [31m<tkeriven>[m [7;37m[m
+[31m|[m [33m|[m[31m_[m[33m|[m[31m/[m  
+[31m|[m[31m/[m[33m|[m [33m|[m   
+* [33m|[m [33m|[m [32m16aa493[m [33m(il y a 4 mois)[m [1;34mOP#2248: add avatar preference[m [31m<cpottier>[m [7;37m[m
+[33m|[m [33m|[m[33m/[m  
+[33m|[m[33m/[m[33m|[m   
+* [33m|[m [32m2696feb[m [33m(il y a 4 mois)[m [1;34mTask/2408 quota sur api get mailboxes (#26)[m [31m<tkeriven>[m [7;37m[m
+* [33m|[m [32m9eaf302[m [33m(il y a 4 mois)[m [1;34mfix unit test (#25)[m [31m<tkeriven>[m [7;37m[m
+* [33m|[m [32m14e3ba5[m [33m(il y a 4 mois)[m [1;34mfix(cors): fix cors policy for development[m [31m<Thomas Monmousseau>[m [7;37m[m
+* [33m|[m [32mcdc1475[m [33m(il y a 5 mois)[m [1;34mOP#2129 : add revoke users older than timestamp API[m [31m<tkeriven>[m [7;37m[m
+* [33m|[m [32m09c11f6[m [33m(il y a 4 mois)[m [1;34mOP#2407: rework collction pagination and make the filter option for mails (#24)[m [31m<QHivert>[m [7;37m[m
+* [33m|[m [32m7e063bd[m [33m(il y a 5 mois)[m [1;34mfix(imap): properly sync list and status[m [31m<Thomas Monmousseau>[m [7;37m[m
+* [33m|[m [32m376cc87[m [33m(il y a 5 mois)[m [1;34mOpen redis port to host[m [31m<Quentin Hivert>[m [7;37m[m
+* [33m|[m [32m7285837[m [33m(il y a 5 mois)[m [1;34mOP#2127 : add revoke active users by redis cache key[m [31m<tkeriven>[m [7;37m[m
+* [33m|[m [32m4a1d2a3[m [33m(il y a 5 mois)[m [1;34mOP#2127 : improve sorting and add key field in list users in redis api[m [31m<tkeriven>[m [7;37m[m
+[33m|[m[33m/[m  
+* [32m3f9425f[m [33m(il y a 5 mois)[m [1;34madd doc[m [31m<Quentin Hivert>[m [7;37m[m
+* [32m80c7118[m [33m(il y a 5 mois)[m [1;34mclean main[m [31m<Quentin Hivert>[m [7;37m[m
+* [32m66057c9[m [33m(il y a 5 mois)[m [1;34mClean develop[m [31m<Quentin Hivert>[m [7;37m[m
+* [32md01c17e[m [33m(il y a 5 mois)[m [1;34mOP#2391 : add API download (#20)[m [31m<tkeriven>[m [7;37m[m
+* [32m4fae4fc[m [33m(il y a 5 mois)[m [1;34mOP#2134: fix external account[m [31m<Quentin Hivert>[m [7;37m[m
+* [32m168017a[m [33m(il y a 5 mois)[m [1;34mOP#2332 : create custom paginate return (#19)[m [31m<tkeriven>[m [7;37m[m
+* [32m2820737[m [33m(il y a 5 mois)[m [1;34mOP#2128 : add revoke user in redis API[m [31m<Quentin Hivert>[m [7;37m[m
+* [32ma589f58[m [33m(il y a 5 mois)[m [1;34mOP#2127 : add API admin list active users[m [31m<tkeriven>[m [7;37m[m
+* [32m7da3358[m [33m(il y a 5 mois)[m [1;34mOP#2126 : Add last activity timestamp in UserSession[m [31m<tkeriven>[m [7;37m[m
+* [32m3316740[m [33m(il y a 6 mois)[m [1;34mOP#2134 : add external account in init script[m [31m<tkeriven>[m [7;37m[m
+* [32m1212656[m [33m(il y a 6 mois)[m [1;34mOP#2332 : decorator custom paginate[m [31m<tkeriven>[m [7;37m[m
+* [32mfa3b47c[m [33m(il y a 6 mois)[m [1;34mOP#2326 : clean all interface response[m [31m<tkeriven>[m [7;37m[m
+* [32me74f75e[m [33m(il y a 5 mois)[m [1;34mOP#2270 : add api action[m [31m<Quentin Hivert>[m [7;37m[m
+* [32m847658c[m [33m(il y a 6 mois)[m [1;34mfix tests[m [31m<tkeriven>[m [7;37m[m
+* [32m488f3f1[m [33m(il y a 5 mois)[m [1;34mRefactor imap and mail api[m [31m<Quentin Hivert>[m [7;37m[m
+* [32m5083f94[m [33m(il y a 6 mois)[m [1;34mMega cleaning[m [31m<Quentin Hivert>[m [7;37m[m
+* [32me131024[m [33m(il y a 6 mois)[m [1;34mchange UserMailCategorySettings format[m [31m<cpottier>[m [7;37m[m
+* [32m19ef77b[m [33m(il y a 6 mois)[m [1;34mchange UserCalendarCategorySettings format[m [31m<cpottier>[m [7;37m[m
+* [32m2ddd00f[m [33m(il y a 6 mois)[m [1;34mfix typo error in usersettings schema[m [31m<tkeriven>[m [7;37m[m
+* [32m8139422[m [33m(il y a 6 mois)[m [1;34mmodify UserContactCategorySettings format[m [31m<tkeriven>[m [7;37m[m
+* [32m584075b[m [33m(il y a 6 mois)[m [1;34mOP#2266 :  simplify all response schema API (#17)[m [31m<tkeriven>[m [7;37m[m
+* [32m2088ae9[m [33m(il y a 6 mois)[m [1;34mOP#2260 : add delegate APIs (#16)[m [31m<tkeriven>[m [7;37m[m
+* [32m4ed336a[m [33m(il y a 6 mois)[m [1;34mupdate mysql manager (#15)[m [31m<tkeriven>[m [7;37m[m
+* [32mcaa9fb0[m [33m(il y a 6 mois)[m [1;34mOP#2135 : add signature size parameter and check (#14)[m [31m<tkeriven>[m [7;37m[m
+* [32m3be44e4[m [33m(il y a 6 mois)[m [1;34mReturn default domain whe nasking for domain settings not found[m [31m<Quentin Hivert>[m [7;37m[m
+* [32m5ce8eb4[m [33m(il y a 7 mois)[m [1;34mlittle fix for endpoint profile[m [31m<Quentin Hivert>[m [7;37m[m
+* [32mc375729[m [33m(il y a 7 mois)[m [1;34mTask/2113 user preferences and profile (#11)[m [31m<QHivert>[m [7;37m[m
+* [32m37393de[m [33m(il y a 7 mois)[m [1;34mOP#2134 : add accounts API (#9)[m [31m<tkeriven>[m [7;37m[m
+* [32m3be4cb9[m [33m(il y a 7 mois)[m [1;34madd sogo init doc and flask app creation doc (#12)[m [31m<QHivert>[m [7;37m[m
+* [32me8acdbc[m [33m(il y a 7 mois)[m [1;34mOP#2111 add onboard new user[m [31m<tkeriven>[m [7;37m[m
+* [32m3773d1a[m [33m(il y a 7 mois)[m [1;34mfix apibasereponse[m [31m<Quentin Hivert>[m [7;37m[m
+* [32mfd684a1[m [33m(il y a 7 mois)[m [1;34monly force auth on user api for now[m [31m<Quentin Hivert>[m [7;37m[m
+* [32m2cd47da[m [33m(il y a 7 mois)[m [1;34mMerge Branch Tibo[m [31m<Quentin Hivert>[m [7;37m[m
+* [32m2e153f5[m [33m(il y a 7 mois)[m [1;34mAdd auth and redis maanager[m [31m<QHivert>[m [7;37m[m
+* [32m935c187[m [33m(il y a 9 mois)[m [1;34mupdate post on domain[m [31m<Quentin Hivert>[m [7;37m[m
+* [32m9a3f564[m [33m(il y a 9 mois)[m [1;34mupdate admin api[m [31m<Quentin Hivert>[m [7;37m[m
+* [32me59fa02[m [33m(il y a 9 mois)[m [1;34mtypo[m [31m<Quentin Hivert>[m [7;37m[m
+* [32m7ded910[m [33m(il y a 9 mois)[m [1;34mupdate api[m [31m<Quentin Hivert>[m [7;37m[m
+* [32m862d357[m [33m(il y a 10 mois)[m [1;34mupdate endpoint[m [31m<Quentin Hivert>[m [7;37m[m
+* [32mf9cc451[m [33m(il y a 10 mois)[m [1;34madd asciidoc and antora[m [31m<Quentin Hivert>[m [7;37m[m
+* [32me00ed41[m [33m(il y a 10 mois)[m [1;34madd asciidoc[m [31m<tkeriven>[m [7;37m[m
+* [32mb47c461[m [33m(il y a 10 mois)[m [1;34madd dynamic form[m [31m<Quentin Hivert>[m [7;37m[m
+* [32mc098951[m [33m(il y a 10 mois)[m [1;34mfixes for dynamic form[m [31m<Quentin Hivert>[m [7;37m[m
+* [32m1059ad5[m [33m(il y a 10 mois)[m [1;34mprogress in dynamic form[m [31m<Quentin Hivert>[m [7;37m[m
+* [32md0961f1[m [33m(il y a 12 mois)[m [1;34madd mail apis and client imap[m [31m<tkeriven>[m [7;37m[m
+* [32m836c7ca[m [33m(il y a 11 mois)[m [1;34mAdd api admin + unit test porgress[m [31m<Quentin Hivert>[m [7;37m[m
+* [32md8b5b86[m [33m(il y a 12 mois)[m [1;34madd dovecot in docker compose[m [31m<Quentin Hivert>[m [7;37m[m
+* [32mb0a7f9f[m [33m(il y a 12 mois)[m [1;34mupdate api config[m [31m<Quentin Hivert>[m [7;37m[m
+* [32mcc978b4[m [33m(il y a 12 mois)[m [1;34mproper[m [31m<Quentin Hivert>[m [7;37m[m
+* [32mce06890[m [33m(il y a 1 an)[m [1;34madd mail detail and mail list apis[m [31m<tkeriven>[m [7;37m[m
+* [32m09d97da[m [33m(il y a 12 mois)[m [1;34madd mypy and continue adminconfig[m [31m<Quentin Hivert>[m [7;37m[m
+* [32m9408153[m [33m(il y a 12 mois)[m [1;34mstuff[m [31m<Quentin Hivert>[m [7;37m[m
+* [32m2ae1af4[m [33m(il y a 1 an)[m [1;34minit[m [31m<Quentin Hivert>[m [7;37m[m
+* [32m927e2c6[m [33m(il y a 1 an)[m [1;34madd db[m [31m<Quentin Hivert>[m [7;37m[m
+* [32mbb67a07[m [33m(il y a 1 an)[m [1;34mproper devcontainer[m [31m<Quentin Hivert>[m [7;37m[m
+* [32m1e42c9a[m [33m(il y a 1 an et 1 mois)[m [1;34mci add artifact2[m [31m<Quentin Hivert>[m [7;37m[m
+* [32m46ce67d[m [33m(il y a 1 an et 1 mois)[m [1;34mci add artifact[m [31m<Quentin Hivert>[m [7;37m[m
+* [32m351d1c9[m [33m(il y a 1 an et 1 mois)[m [1;34mfix ci 2[m [31m<Quentin Hivert>[m [7;37m[m
+* [32m1149144[m [33m(il y a 1 an et 1 mois)[m [1;34mfix ci[m [31m<Quentin Hivert>[m [7;37m[m
+* [32m0e71a35[m [33m(il y a 1 an et 1 mois)[m [1;34mprogress 4[m [31m<Quentin Hivert>[m [7;37m[m
+* [32m059301f[m [33m(il y a 1 an et 3 mois)[m [1;34mprogress 3[m [31m<Quentin Hivert>[m [7;37m[m
+* [32mdaf5666[m [33m(il y a 1 an et 3 mois)[m [1;34mprogress 2 (is unstable)[m [31m<Quentin Hivert>[m [7;37m[m
+* [32mee23ecc[m [33m(il y a 1 an et 3 mois)[m [1;34mprogress[m [31m<Quentin Hivert>[m [7;37m[m
+* [32m67d8806[m [33m(il y a 1 an et 3 mois)[m [1;34manother one 3[m [31m<Quentin Hivert>[m [7;37m[m
+* [32m9aaebd7[m [33m(il y a 1 an et 3 mois)[m [1;34manother one 2[m [31m<Quentin Hivert>[m [7;37m[m
+* [32m9897fc1[m [33m(il y a 1 an et 3 mois)[m [1;34manother one[m [31m<Quentin Hivert>[m [7;37m[m
+* [32m3f0094e[m [33m(il y a 1 an et 3 mois)[m [1;34mtest3[m [31m<Quentin Hivert>[m [7;37m[m
+* [32m9d30ce6[m [33m(il y a 1 an et 3 mois)[m [1;34mtest2[m [31m<Quentin Hivert>[m [7;37m[m
+* [32mc14d39c[m [33m(il y a 1 an et 3 mois)[m [1;34mtest[m [31m<Quentin Hivert>[m [7;37m[m
+* [32m30f5551[m [33m(il y a 1 an et 3 mois)[m [1;34madd test workflow[m [31m<Quentin Hivert>[m [7;37m[m
+* [32mfe3d0c3[m [33m(il y a 1 an et 3 mois)[m [1;34minit[m [31m<Quentin Hivert>[m [7;37m[m

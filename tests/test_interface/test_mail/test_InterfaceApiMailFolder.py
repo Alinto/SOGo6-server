@@ -85,6 +85,8 @@ class FakeModuleMail:
         self.get_folder_share_args = None
         self.share_folder_args = None
         self.export_folder_mails_args = None
+        self.rename_folder_args = None
+        self.change_folder_type_args = None
 
         # Configurable results
         self.get_folder_list_result = [{"name": "INBOX"}, {"name": "Sent"}]
@@ -97,6 +99,8 @@ class FakeModuleMail:
         # Returns list of (identifier, rights) tuples (iterable, as ModuleMail yields them)
         self.get_folder_share_result = []
         self.share_folder_result = []
+        self.rename_folder_result = {"name": "RenamedFolder", "path": "RenamedFolder"}
+        self.change_folder_type_result = {"name": "Folder", "type": "JUNK"}
 
     def get_folder_list(self, account_id):
         """Simulate getting folder list."""
@@ -148,9 +152,19 @@ class FakeModuleMail:
         return iter(self.share_folder_result)
 
     def export_folder_mails(self, folder_name):
-        """Simulate exporting mails from a folder."""
+        """Simulate exporting folder mails."""
         self.export_folder_mails_args = folder_name
         return {"exported": True, "count": 42}
+
+    def rename_folder(self, account_id, folder_path, new_name):
+        """Simulate renaming a folder."""
+        self.rename_folder_args = (folder_path, new_name)
+        return self.rename_folder_result
+
+    def change_folder_type(self, account_id, folder_path, new_type):
+        """Simulate changing folder type."""
+        self.change_folder_type_args = (folder_path, new_type)
+        return self.change_folder_type_result
 
 
 def make_interface(monkeypatch, fake_module, user_conf=None):
@@ -469,6 +483,60 @@ def test_share_folder_module_error(monkeypatch):
     interface = make_interface(monkeypatch, fake_module)
 
     result, status_code = interface.share_folder(account_id=0, folder_path="INBOX", share_data=[])
+
+    assert result["error_code"] == "S000300"
+    assert status_code == 400
+
+
+# ========== Tests for rename_folder ==========
+
+def test_rename_folder_success(monkeypatch):
+    """Test renaming a folder for a valid account."""
+    fake_module = FakeModuleMail()
+    fake_module.rename_folder_result = {"name": "RenamedFolder", "path": "RenamedFolder"}
+    interface = make_interface(monkeypatch, fake_module)
+
+    result, status_code = interface.rename_folder(account_id=0, folder_path="OldFolder", new_name="RenamedFolder")
+
+    assert status_code == 200
+    assert result["data"]["name"] == "RenamedFolder"
+    assert fake_module.rename_folder_args == ("OldFolder", "RenamedFolder")
+
+
+def test_rename_folder_module_error(monkeypatch):
+    """Test error handling when folder rename fails."""
+    fake_module = FakeModuleMail()
+    fake_module.rename_folder = lambda *args: (_ for _ in ()).throw(RequestException("Cannot rename", err.ERROR_VALIDATION_ERROR))
+    interface = make_interface(monkeypatch, fake_module)
+
+    result, status_code = interface.rename_folder(account_id=0, folder_path="INBOX", new_name="NewName")
+
+    assert result["error_code"] == "S000300"
+    assert status_code == 400
+
+
+# ========== Tests for change_folder_type ==========
+
+def test_change_folder_type_success(monkeypatch):
+    """Test changing folder type for a valid account."""
+    fake_module = FakeModuleMail()
+    fake_module.change_folder_type_result = {"name": "Archive", "type": "JUNK"}
+    interface = make_interface(monkeypatch, fake_module)
+
+    result, status_code = interface.change_folder_type(account_id=0, folder_path="Archive", new_type="JUNK")
+
+    assert status_code == 200
+    assert result["data"]["type"] == "JUNK"
+    assert fake_module.change_folder_type_args == ("Archive", "JUNK")
+
+
+def test_change_folder_type_module_error(monkeypatch):
+    """Test error handling when folder type change fails."""
+    fake_module = FakeModuleMail()
+    fake_module.change_folder_type = lambda *args: (_ for _ in ()).throw(RequestException("Cannot change type", err.ERROR_VALIDATION_ERROR))
+    interface = make_interface(monkeypatch, fake_module)
+
+    result, status_code = interface.change_folder_type(account_id=0, folder_path="INBOX", new_type="JUNK")
 
     assert result["error_code"] == "S000300"
     assert status_code == 400
