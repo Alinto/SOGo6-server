@@ -22,6 +22,10 @@ from .schemas.folder import (
     FolderExpungeResponseSchema,
     FolderPurgeResponseSchema,
     FolderShareResponseSchema,
+    FolderRenameSchema,
+    FolderRenameResponseSchema,
+    FolderTypeSchema,
+    FolderTypeResponseSchema,
 )
 
 if TYPE_CHECKING:
@@ -131,9 +135,6 @@ class ApiMailFolderId(MethodView):
         :rtype: ResponseReturnValue
         """
         raise NotImplementedError()
-        logger_api.debug("Calling ApiMailFolderId.patch for account_id: %s, folder_name: %s with data: %s", account_id, folder_name, folder_data)
-        interface: InterfaceApiMailFolder = g.inter
-        return interface.update_folder(account_id, folder_name, folder_data)
 
     @blp.response(200, FolderDetailsResponseSchema, example=FolderDetailsResponseSchema.example())
     def get(self, account_id: str, folder_name: str) -> ResponseReturnValue:
@@ -251,3 +252,54 @@ class ApiMailFolderIdShare(MethodView):
                         account_id, folder_name, share_data)
         interface: InterfaceApiMailFolder = g.inter
         return interface.share_folder(account_id, folder_name, share_data)
+
+
+@blp.route("/<path:folder_name>/rename")
+class ApiMailFolderIdRename(MethodView):
+    """API to rename a specific mail folder.
+    """
+    @blp.arguments(FolderRenameSchema, example=FolderRenameSchema.example())
+    @blp.response(200, FolderRenameResponseSchema, example=FolderRenameResponseSchema.example())
+    def post(self, rename_data: dict, account_id: str, folder_name: str) -> ResponseReturnValue:
+        """Action: Rename the specified folder.
+
+        :param rename_data: The rename configuration (name)
+        :type rename_data: dict
+        :param account_id: The ID of the account
+        :type account_id: str
+        :param folder_name: The current path of the folder
+        :type folder_name: str
+        :return: ApiBaseResponse with renamed folder info
+        :rtype: ResponseReturnValue
+        """
+        logger_api.debug("Calling ApiMailFolderIdRename.post for account_id: %s, folder_name: %s with data: %s",
+                        account_id, folder_name, rename_data)
+        interface: InterfaceApiMailFolder = g.inter
+        return interface.rename_folder(account_id, folder_name, rename_data["name"])
+
+
+@blp.route("/<path:folder_name>/type")
+class ApiMailFolderIdType(MethodView):
+    """API to change the type of a specific mail folder.
+    """
+    @blp.arguments(FolderTypeSchema, example=FolderTypeSchema.example())
+    @blp.response(200, FolderTypeResponseSchema, example=FolderTypeResponseSchema.example())
+    def post(self, type_data: dict, account_id: str, folder_name: str) -> ResponseReturnValue:
+        """Action: Change the type of the specified folder.
+
+        Only folders of type NORMAL can have their type changed.
+        Valid types are: SENT, DRAFT, JUNK, TRASH, TEMPLATE, PLANNED
+
+        :param type_data: The type configuration (type)
+        :type type_data: dict
+        :param account_id: The ID of the account
+        :type account_id: str
+        :param folder_name: The path of the folder
+        :type folder_name: str
+        :return: ApiBaseResponse with updated folder info
+        :rtype: ResponseReturnValue
+        """
+        logger_api.debug("Calling ApiMailFolderIdType.post for account_id: %s, folder_name: %s with data: %s",
+                        account_id, folder_name, type_data)
+        interface: InterfaceApiMailFolder = g.inter
+        return interface.change_folder_type(account_id, folder_name, type_data["type"])

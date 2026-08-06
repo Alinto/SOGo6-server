@@ -66,6 +66,16 @@ class FakeClientMailServer:
         if self.delete_folder_result is not None:
             raise self.delete_folder_result
 
+    def rename_folder(self, folder_path, new_name):
+        """Rename a folder."""
+        # No error handling needed for basic case
+        return new_name
+
+    def change_folder_type(self, folder_path, new_type):
+        """Change the type of a folder."""
+        # No error handling needed for basic case
+        return new_type
+
     def expunge_folder(self, folder_path, do_subfolders=True):
         return self.expunge_folder_result
 
@@ -509,6 +519,70 @@ def test_share_folder_success(monkeypatch):
     assert len(fake_client.set_acl_calls) >= 1
     # share_folder yields (identifier, rights) tuples
     assert any(item[0] == 'user1@example.com' for item in result)
+
+
+# ========== Tests for rename_folder ==========
+
+def test_rename_folder_success(monkeypatch):
+    """Test renaming a folder successfully."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.get_one_folder_result = {
+        'name': 'RenamedFolder',
+        'path': 'RenamedFolder',
+        'type': 'folder',
+        'subscribed': 1
+    }
+
+    result = module.rename_folder(ACCOUNT_ID, "OldFolder", "RenamedFolder")
+    
+    assert result['name'] == 'RenamedFolder'
+    assert result['path'] == 'RenamedFolder'
+
+
+def test_rename_folder_with_client_error(monkeypatch):
+    """Test renaming a folder with client error."""
+    module, fake_client = _make_module(monkeypatch)
+
+    def raise_error(*args, **kwargs):
+        raise RequestException("Cannot rename folder")
+
+    # Mock the rename operation to fail
+    fake_client.rename_folder = raise_error
+
+    with pytest.raises(RequestException, match="Cannot rename folder"):
+        module.rename_folder(ACCOUNT_ID, "INBOX", "NewName")
+
+
+# ========== Tests for change_folder_type ==========
+
+def test_change_folder_type_success(monkeypatch):
+    """Test changing folder type successfully."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.get_one_folder_result = {
+        'name': 'Archive',
+        'path': 'Archive',
+        'type': 'NORMAL', 
+        'subscribed': 1
+    }
+
+    result = module.change_folder_type(ACCOUNT_ID, "Archive", "JUNK")
+    
+    assert result['name'] == 'Archive'
+    # Result type will be the one from get_one_folder called again, which is 'folder'
+    # since we're not updating fake_client between calls
+
+
+def test_change_folder_type_with_client_error(monkeypatch):
+    """Test changing folder type with client error."""
+    module, fake_client = _make_module(monkeypatch)
+
+    def raise_error(*args, **kwargs):
+        raise RequestException("Cannot change folder type")
+
+    fake_client.get_one_folder = raise_error
+
+    with pytest.raises(RequestException, match="Cannot change folder type"):
+        module.change_folder_type(ACCOUNT_ID, "INBOX", "JUNK")
 
 
 # ========== Tests for perform_mail_action ==========
