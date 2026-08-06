@@ -367,3 +367,22 @@ class InterfaceApiMailFolder:
         except RequestException as ex:
             logger_api.error("Request exception in share_folder: %s", str(ex))
             return create_api_base_response(None, ex.error)
+
+    def empty_folder(self, account_id: str, folder_path: str) -> tuple[dict[str, Any], int]:
+        """Completely empty a folder by permanently deleting all mails.
+
+        Only allowed for TRASH and JUNK folders.
+
+        :param account_id: The ID of the account
+        :type account_id: str
+        :param folder_path: The path of the folder to empty
+        :type folder_path: str
+        :return: A tuple of (API response dict with mails_deleted count, status code)
+        :rtype: tuple[dict[str, Any], int]
+        """
+        try:
+            result = self.mail_module.empty_folder(account_id, folder_path)
+            return create_api_base_response(result)
+        except RequestException as ex:
+            logger_api.error("Request exception in empty_folder: %s", str(ex))
+            return create_api_base_response(None, ex.error)

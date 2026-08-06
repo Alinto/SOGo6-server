@@ -111,6 +111,19 @@ class ClientMailServer(metaclass=ABCMeta):
         """
 
     @abstractmethod
+    def empty_folder(self, folder_path: str) -> int:
+        """Completely empty a folder by permanently deleting all mails.
+
+        Performs the sequence: UID SEARCH ALL, UID STORE +FLAGS (\\Deleted), EXPUNGE.
+        Only implemented for TRASH and JUNK folders at the module level.
+
+        :param folder_path: path of the folder to empty
+        :type folder_path: str
+        :return: Number of messages permanently deleted
+        :rtype: int
+        """
+
+    @abstractmethod
     def get_acl(self, folder_path: str) -> Iterator[tuple[str, dict[str, int]]]:
         """Get the Access Control list (ACL) for a specific folder.
 

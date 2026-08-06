@@ -26,6 +26,7 @@ from .schemas.folder import (
     FolderRenameResponseSchema,
     FolderTypeSchema,
     FolderTypeResponseSchema,
+    FolderEmptyResponseSchema,
 )
 
 if TYPE_CHECKING:
@@ -195,6 +196,29 @@ class ApiMailFolderIdPurge(MethodView):
                         account_id, folder_name, purge_data)
         interface: InterfaceApiMailFolder = g.inter
         return interface.purge_folder_mails(account_id, folder_name, purge_data)
+
+
+@blp.route("/<path:folder_name>/empty")
+class ApiMailFolderIdEmpty(MethodView):
+    """API to completely empty a specific folder (TRASH or JUNK only).
+    """
+    @blp.response(200, FolderEmptyResponseSchema, example=FolderEmptyResponseSchema.example())
+    def post(self, account_id: str, folder_name: str) -> ResponseReturnValue:
+        """Action: Completely empty (permanently delete all mails) in the specified folder.
+
+        Only allowed for TRASH and JUNK folders.
+        This operation is irreversible and ignores SOGO_U_MAIL_DELETE_BEHAVIOR preference.
+
+        :param account_id: The ID of the account
+        :type account_id: str
+        :param folder_name: The ID of the folder to empty
+        :type folder_name: str
+        :return: ApiBaseResponse with mails_deleted count
+        :rtype: ResponseReturnValue
+        """
+        logger_api.debug("Calling ApiMailFolderIdEmpty.post for account_id: %s, folder_name: %s", account_id, folder_name)
+        interface: InterfaceApiMailFolder = g.inter
+        return interface.empty_folder(account_id, folder_name)
 
 
 @blp.route("/<path:folder_name>/export")
