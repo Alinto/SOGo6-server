@@ -84,6 +84,8 @@ ERROR_FOLDER_ALREADY_EXIST  = E("S000305", "Folder already exist", HTTPStatus.CO
 ERROR_FOLDER_CANNOT_RENAME  = E("S000306", "Folder cannot be renamed", HTTPStatus.BAD_REQUEST)
 ERROR_FOLDER_NOT_UNIQUE     = E("S000307", "Folder is not unique", HTTPStatus.CONFLICT)
 ERROR_FOLDER_DELIMITER      = E("S000308", "Cannot create a folder with delimiter in the name", HTTPStatus.BAD_REQUEST)
+ERROR_FOLDER_TYPE_INVALID   = E("S000328", "Invalid Folder Type Specified", HTTPStatus.BAD_REQUEST)
+ERROR_FOLDER_TYPE_CANNOT_CHANGE = E("S000327", "Folder Type Cannot Be Changed (only NORMAL folders can have their type changed)", HTTPStatus.BAD_REQUEST)
 ERROR_INVALID_ACTION         = E("S000309", "Invalid Action Specified", HTTPStatus.BAD_REQUEST)
 ERROR_MISSING_ACTION_DATA    = E("S001306", "Missing Required Data For Action", HTTPStatus.BAD_REQUEST)
 

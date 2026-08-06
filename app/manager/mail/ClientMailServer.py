@@ -74,6 +74,18 @@ class ClientMailServer(metaclass=ABCMeta):
         """
 
     @abstractmethod
+    def rename_folder(self, old_name: str, new_name: str) -> None:
+        """
+        Rename a folder (mailbox) on the mail server.
+
+        :param old_name: The current name of the folder.
+        :type old_name: str
+        :param new_name: The new name for the folder.
+        :type new_name: str
+        :raises RequestException: If not connected to the server or if renaming fails.
+        """
+
+    @abstractmethod
     def purge_folder(self, folder_path: str, before_date: str = "", do_children: bool = True, permanently: bool = False) -> int:
         """
         Delete all mails inside the folder older than before_date
