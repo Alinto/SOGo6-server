@@ -484,3 +484,42 @@ class FolderTypeResponseSchema(ApiBaseResponse):
                 "children": []
             }
         }
+
+
+class FolderEmptySchema(Schema):
+    """
+    Schema for emptying a mail folder.
+    Empty schema - no body required for this operation.
+    """
+
+    @classmethod
+    def example(cls) -> dict:
+        """
+        Example data for folder empty.
+
+        :return: Empty dict (no body required).
+        :rtype: dict
+        """
+        return {}
+
+
+class FolderEmptyResponseSchema(ApiBaseResponse):
+    """
+    Schema for POST /mailboxes/<account_id>/folders/<path:folder_name>/empty response
+    """
+    data = fields.Dict(required=False, allow_none=True)
+
+    @classmethod
+    def example(cls) -> dict:
+        """Example response for folder empty operation.
+        
+        :return: Example folder empty response with count of mails deleted
+        :rtype: dict
+        """
+        return {
+            "error_code": 0,
+            "error_msg": "",
+            "data": {
+                "mails_deleted": 42
+            }
+        }
