@@ -416,18 +416,18 @@ class ModuleMail:
         :raises RequestException: If connection or manager operations fail
         """
         client = self._open_client_for(account_id)
-        
+
         # Get folder details to check type
         folder_details = client.get_one_folder(folder_path)
         folder_type = folder_details.get("type", "").upper()
-        
+
         # Only allow emptying TRASH and JUNK folders
         if folder_type not in (cs.MAIL_FOLDER_TRASH, cs.MAIL_FOLDER_JUNK):
             raise RequestException(
                 f"Folder type '{folder_type}' cannot be emptied. Only TRASH and JUNK folders can be emptied.",
                 error=err.ERROR_FOLDER_CANNOT_EMPTY
             )
-        
+
         mails_deleted = client.empty_folder(folder_path)
         logger_mail_server.info("Successfully emptied folder '%s', permanently deleted %d message(s)", folder_path, mails_deleted)
         return {"mails_deleted": mails_deleted}

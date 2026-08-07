@@ -523,3 +523,21 @@ class FolderEmptyResponseSchema(ApiBaseResponse):
                 "mails_deleted": 42
             }
         }
+
+
+class FolderEmptyAsyncResponseSchema(Schema):
+    """
+    Schema for asynchronous POST /mailboxes/<account_id>/folders/<path:folder_name>/empty response (HTTP 202)
+    """
+    task_id = fields.Integer(required=True)
+
+    @classmethod
+    def example(cls) -> dict:
+        """Example response for asynchronous folder empty operation.
+        
+        :return: Example folder empty async response with task_id
+        :rtype: dict
+        """
+        return {
+            "task_id": 14
+        }
