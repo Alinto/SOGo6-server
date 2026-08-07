@@ -1,12 +1,13 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
-from flask import g
+from flask import g, make_response, jsonify
 from flask.views import MethodView
 from flask.typing import ResponseReturnValue
 from flask_smorest import Blueprint
 from marshmallow import Schema
 
+from app.utils.api.is_async import async_endpoint, AsyncQueryArgsSchema
 from app.interface.mail.InterfaceApiMailFolder import InterfaceApiMailFolder
 from app.utils.logger.logger import logger_api
 from .schemas.folder import (
@@ -27,6 +28,7 @@ from .schemas.folder import (
     FolderTypeSchema,
     FolderTypeResponseSchema,
     FolderEmptyResponseSchema,
+    FolderEmptyAsyncResponseSchema,
 )
 
 if TYPE_CHECKING:
@@ -203,7 +205,9 @@ class ApiMailFolderIdEmpty(MethodView):
     """API to completely empty a specific folder (TRASH or JUNK only).
     """
     @blp.response(200, FolderEmptyResponseSchema, example=FolderEmptyResponseSchema.example())
-    def post(self, account_id: str, folder_name: str) -> ResponseReturnValue:
+    @blp.response(202, FolderEmptyAsyncResponseSchema, example=FolderEmptyAsyncResponseSchema.example())
+    @async_endpoint(blp)
+    def post(self, account_id: str, folder_name: str, is_async: bool) -> ResponseReturnValue:
         """Action: Completely empty (permanently delete all mails) in the specified folder.
 
         Only allowed for TRASH and JUNK folders.
@@ -213,12 +217,19 @@ class ApiMailFolderIdEmpty(MethodView):
         :type account_id: str
         :param folder_name: The ID of the folder to empty
         :type folder_name: str
-        :return: ApiBaseResponse with mails_deleted count
+        :return: ApiBaseResponse with mails_deleted count (sync) or task_id (async with HTTP 202)
         :rtype: ResponseReturnValue
         """
-        logger_api.debug("Calling ApiMailFolderIdEmpty.post for account_id: %s, folder_name: %s", account_id, folder_name)
-        interface: InterfaceApiMailFolder = g.inter
-        return interface.empty_folder(account_id, folder_name)
+        if is_async:
+            logger_api.debug("Calling ApiMailFolderIdEmpty.post (async) for account_id: %s, folder_name: %s", account_id, folder_name)
+            raise NotImplementedError("Async processing for empty folder is not implemented yet.")
+            # Return 202 Accepted with task_id for async processing
+            #return jsonify({"task_id": 14}), 202 #TODO: Use celery agent
+        else:
+            logger_api.debug("Calling ApiMailFolderIdEmpty.post (sync) for account_id: %s, folder_name: %s", account_id, folder_name)
+            interface: InterfaceApiMailFolder = g.inter
+            response_data, status_code = interface.empty_folder(account_id, folder_name)
+            return make_response(jsonify(response_data), status_code)
 
 
 @blp.route("/<path:folder_name>/export")
