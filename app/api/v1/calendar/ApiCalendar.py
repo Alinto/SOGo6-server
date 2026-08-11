@@ -6,9 +6,11 @@ from flask import g
 from flask.views import MethodView
 from flask.typing import ResponseReturnValue
 from flask_smorest import Blueprint
+from werkzeug.datastructures import FileStorage
 
 from app.interface.calendar.InterfaceApiCalendarCalendar import InterfaceApiCalendarCalendar
 from app.utils.api.ApiBaseResponse import create_api_base_response
+from app.utils.api.is_async import AsyncQueryArgsSchema, async_endpoint
 from app.utils.errors import ERROR_CALENDAR_IMPORT_NO_FILE
 from app.utils.logger.logger import logger_api
 from .schemas.calendar import (
@@ -51,7 +53,6 @@ from .schemas.external_calendar import (
 if TYPE_CHECKING:
     from app.auth.User import User
     from app.config.settings.ProcessSetting import ProcessSetting
-    from werkzeug.datastructures import FileStorage
 
 blp = Blueprint("Calendar", __name__, url_prefix="")
 
@@ -171,30 +172,44 @@ class ApiCalendarPublicSubscription(MethodView):
 
 @blp.route("/calendars/<string:key>/import")
 class ApiCalendarImport(MethodView):
-    """API to import a VCALENDAR (.ics) payload into a calendar as an Agent job.
+    """API to import a VCALENDAR (.ics) payload into a calendar.
 
     Per the spec, the endpoint accepts a ``multipart/form-data`` upload containing a single
     ``file`` part. The ``accepted_content_types`` class attribute tells the global
     content-type middleware to skip its default ``application/json`` rule for this route.
 
-    The import runs in the background: the response carries a ``job_id`` (202). Clients poll
-    ``GET /jobs/<job_id>`` until ``status == "success"``; the counters are then in the job's
-    ``result``.
+    By default (or with ``?is_async=true``), the import runs in the background: the response
+    carries a ``job_id`` (202). Clients poll ``GET /jobs/<job_id>`` until ``status == "success"``; 
+    the counters are then in the job's ``result``.
+
+    With ``?is_async=false``, the import runs synchronously and returns the counters immediately (200).
     """
 
     accepted_content_types: set[str] = {"multipart/form-data"}
 
+    @async_endpoint
+    @blp.arguments(AsyncQueryArgsSchema, location="query", arg_name="query_args")
     @blp.arguments(CalendarImportUploadSchema, location="files")
     @blp.response(202, CalendarImportResponseSchema)
-    def post(self, files: dict, key: str) -> ResponseReturnValue:
-        """Enqueue the import of the uploaded .ics file and return the ``job_id``.
+    def post(self, files: dict, query_args: dict, key: str) -> ResponseReturnValue:
+        """Import an .ics file into a calendar, optionally synchronously or asynchronously.
+
+        By default (or with ``?is_async=true``), the import runs in the background and returns
+        status 202 with a ``job_id`` for polling. With ``?is_async=false``, the import runs
+        synchronously and returns status 200 with the import counters immediately.
 
         The total request size is already capped at the WSGI layer (MAX_CONTENT_LENGTH),
         and the module enforces the per-import size limit. The raw part is decoded to text here
         (utf-8, latin-1 fallback) - the single place the upload's charset is guessed - then handed
         to the interface as a string.
+
+        :param files: Multipart files containing the uploaded .ics file.
+        :param query_args: Query parameters including 'is_async' (defaults to true).
+        :param key: Calendar key to import into.
+        :return: Job ID and 202 status if async (query ?is_async=true, default),
+                 or import counters and 200 status if sync (?is_async=false).
         """
-        logger_api.debug("POST /calendars/%s/import user=%s", key, g.user.uid)
+        logger_api.debug("POST /calendars/%s/import user=%s is_async=%s", key, g.user.uid, g.is_async)
         interface: InterfaceApiCalendarCalendar = g.inter
         upload: FileStorage | None = files.get("file")
         if upload is None:
@@ -204,7 +219,7 @@ class ApiCalendarImport(MethodView):
             ics_text: str = raw.decode("utf-8")
         except UnicodeDecodeError:
             ics_text = raw.decode("latin-1")
-        return interface.import_calendar(key, ics_text)
+        return interface.import_calendar(key, ics_text, is_async=g.is_async)
 
 
 @blp.route("/calendars/<string:key>/events")

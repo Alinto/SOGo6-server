@@ -595,38 +595,47 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         )
         return serializer.serialize(source.calendar)
 
-    def import_calendar(self, user: User, key: str, ics_text: str) -> str:
-        """Enqueue an ICS import as an Agent job and return the job id.
+    def import_calendar(self, user: User, key: str, ics_text: str, is_async: bool = True) -> str | CalSyncResult:
+        """Import an ICS payload into a calendar, optionally synchronously or asynchronously.
 
         Size and ACL checks run synchronously so the caller sees errors immediately
         (not found / access denied / too large). The uploaded document is offloaded to the large store
         and only its reference travels in the job payload; the worker reads it
         back, applies the import via :meth:`apply_import`, then deletes the blob.
 
+        When ``is_async=True`` (default), enqueues an Agent job and returns the job id.
+        When ``is_async=False``, applies the import synchronously and returns the CalSyncResult.
+
         :param user: The user importing the file.
         :param key: Opaque key of the destination calendar.
         :param ics_text: Decoded VCALENDAR text (the byte-accurate size cap is enforced at the API read).
-        :return: id of the enqueued Agent job.
+        :param is_async: Whether to run the import asynchronously (default: True).
+        :return: Job id string (if async) or CalSyncResult (if sync).
         :raises RequestException: ERROR_CALENDAR_NOT_FOUND, ERROR_CALENDAR_ACCESS_DENIED,
             ERROR_CALENDAR_NOT_SUPPORTED, ERROR_CALENDAR_IMPORT_TOO_LARGE, or
             ERROR_JOB_CONCURRENT_LIMIT.
         """
-        if self._agent is None:
-            raise RuntimeError("ModuleCalendar.import_calendar requires a ClientAgent")
         if len(ics_text) > MAX_IMPORT_ICS_BYTES:
             raise RequestException(error=err.ERROR_CALENDAR_IMPORT_TOO_LARGE)
         source: CalendarSource = self.get_calendar(user, key)
         self._acl.check_permission(source.calendar.permissions, CalendarPermissionAction.CREATE)
         if not source.is_writable():
             raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
-        ref: str = self._agent.get_large_store().save_text(ics_text, "text/calendar")
-        try:
-            request: JobRequestImportIcs = JobRequestImportIcs(calendar_key=key, source_ref=ref)
-            return self._agent.enqueue(request, user_uid=user.uid)
-        except Exception:
-            # If we couldn't queue the job, the uploaded blob would dangle - drop it.
-            self._agent.get_large_store().delete(ref)
-            raise
+
+        if is_async:
+            if self._agent is None:
+                raise RuntimeError("ModuleCalendar.import_calendar requires a ClientAgent for async import")
+            ref: str = self._agent.get_large_store().save_text(ics_text, "text/calendar")
+            try:
+                request: JobRequestImportIcs = JobRequestImportIcs(calendar_key=key, source_ref=ref)
+                return self._agent.enqueue(request, user_uid=user.uid)
+            except Exception:
+                # If we couldn't queue the job, the uploaded blob would dangle - drop it.
+                self._agent.get_large_store().delete(ref)
+                raise
+        else:
+            # Synchronous import: apply directly and return the result
+            return self.apply_import(user, key, ics_text)
 
     def apply_import(self, user: User, key: str, ics_text: str) -> CalSyncResult:
         """Apply a VCALENDAR payload into a writable calendar (additive merge).

@@ -122,14 +122,18 @@ class CalendarExportResponseSchema(ApiBaseResponse):
 class CalendarImportDataSchema(Schema):
     """Payload returned when an import is enqueued as an Agent job."""
 
-    job_id = fields.String(required=True, metadata={"description": "Id of the enqueued Agent job. Poll GET /jobs/<job_id> until status is SUCCESS; the import counters are then in the job's result {inserted, updated, deleted, total, skipped}."})
+    job_id = fields.String(required=False, allow_none=True, metadata={"description": "Id of the enqueued Agent job (async only). Poll GET /jobs/<job_id> until status is SUCCESS; the import counters are then in the job's result {inserted, updated, deleted, total, skipped}."})
+    inserted = fields.Integer(required=False, allow_none=True, metadata={"description": "Number of events inserted (sync only)."})
+    updated = fields.Integer(required=False, allow_none=True, metadata={"description": "Number of events updated (sync only)."})
+    deleted = fields.Integer(required=False, allow_none=True, metadata={"description": "Number of events deleted (sync only)."})
+    total = fields.Integer(required=False, allow_none=True, metadata={"description": "Total number of events processed (sync only)."})
+    skipped = fields.Integer(required=False, allow_none=True, metadata={"description": "Number of events skipped (sync only)."})
 
 
 class CalendarImportResponseSchema(ApiBaseResponse):
-    """Response schema for the async import endpoint (returns a job_id, not the counters)."""
+    """Response schema for the import endpoint (handles both async and sync modes)."""
 
     data = fields.Nested(CalendarImportDataSchema, allow_none=True)
-
 
 class CalendarSubscriptionDataSchema(Schema):
     """Data returned when a public subscription is enabled."""
