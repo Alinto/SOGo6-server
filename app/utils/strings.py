@@ -2,6 +2,7 @@ import re
 import unicodedata
 
 from yarl import URL
+from . import constants as cs
 
 # Unicode names of atomic latin letters carry their ASCII base: "LATIN SMALL LETTER O WITH
 # STROKE" -> "o", "LATIN SMALL LIGATURE OE" -> "oe". Bases longer than 2 letters (THORN, ETH)
@@ -145,11 +146,11 @@ def get_imap_config_from_url(imap_str: str) -> dict:
 
     if (scheme := imap_url.scheme) and scheme.lower() == "imaps":
         # Implicit tls
-        encryption = "SSL/TLS"
+        encryption = cs.SOCKET_ENC_IMPLICIT_TLS
         default_port = 993
     if tls and tls.lower() == "yes":
         # explicit tls (starttls)
-        encryption = "Starttls"
+        encryption = cs.SOCKET_ENC_EXPLICIT_TLS
         default_port = 143
 
     if (host := imap_url.host_subcomponent):

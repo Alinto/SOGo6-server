@@ -230,6 +230,17 @@ class UserSourceSettings(SogoSchema):
     US_UID  = fields.String(required=True) #must be unique and cannot be change afterwards
     US_NAME  = fields.String(required=True) #Name of the user source
     US_DESCRIPTION = fields.String() #Description of tise user source
+    
+    #COMMON PARAM
+    US_FIELD_UID = fields.String(dump_default='uid', load_default='uid') #field with the user's login typically 'uid' or 'c_uid' but can be 'email'
+    US_FIELD_CN = fields.String(dump_default='cn', load_default='cn') #Field that return the Complete Name of the user, typically 'cn' for ldap or 'c_cn' bor db
+    US_MAIL                 = fields.List(fields.String(), required=True, dump_default=['mail']) #Names of the sqldap field with the user's mail/alias
+    US_MAIL_SERVER_LOGIN    = fields.String() #sqldap field where to fetch the imap login for a user (default to UIDFieldName for ldap or c_uid for sql)
+    US_MAIL_FILTERING_LOGIN = fields.String() #sqldap field where to fetch the sieve login for a user (default to UIDFieldName for ldap or c_uid for sql)
+    US_MAIL_OUTGOING_LOGIN  = fields.String() #sqldap field where to fecth the smtp login for a user (default to UIDFieldName for ldap or c_uid for sql)
+    US_FILTER = fields.String() #Additional filter for user source query (ex: `"active" == 1`)
+    US_IMAP_HOST_FIELDNAME = fields.String() #sqldap field where the imap hostname is stored for a user (LEGACY - DEPRECATED)
+
     US_TYPE = fields.String(required=True, validate=validate.OneOf(('ldap', 'db'))) #Type of the user source
 
     #LDAP params
@@ -275,18 +286,10 @@ class UserSourceSettings(SogoSchema):
     US_DB_PWD_SPECIAL_MIN   = fields.Integer(load_default=-1, dump_default=-1,validate=validate.Range(min=-1)) #Minimum number of special char letter, 0 means no need
     US_DB_PWD_SPECIAL_ALLOWED = fields.String(load_default=r'%$&*(){}[]!?\/@#.,:;+=<>-_', dump_default=r'%$&*(){}[]!?\/@#.,:;+=<>-_') #String that contains allowed special character
 
-
-    #COMMON PARAM
-    US_FIELD_UID = fields.String(dump_default='uid', load_default='uid') #field with the user's login typically 'uid' or 'c_uid' but can be 'email'
-    US_FIELD_CN = fields.String(dump_default='cn', load_default='cn') #Field that return the Complete Name of the user, typically 'cn' for ldap or 'c_cn' bor db
-    US_MAIL                 = fields.List(fields.String(), required=True, dump_default=['mail']) #Names of the sqldap field with the user's mail/alias
-    US_MAIL_SERVER_LOGIN    = fields.String() #sqldap field where to fetch the imap login for a user (default to UIDFieldName for ldap or c_uid for sql)
-    US_MAIL_FILTERING_LOGIN = fields.String() #sqldap field where to fetch the sieve login for a user (default to UIDFieldName for ldap or c_uid for sql)
-    US_MAIL_OUTGOING_LOGIN  = fields.String() #sqldap field where to fecth the smtp login for a user (default to UIDFieldName for ldap or c_uid for sql)
+    #MApping contact info
     US_MAPPING = fields.Dict() #TODO map sqldap field to Vcard field
-    US_FILTER = fields.String() #Additional filter for user source query (ex: `"active" == 1`)
 
-    US_IMAP_HOST_FIELDNAME = fields.String() #sqldap field where the imap hostname is stored for a user (LEGACY - DEPRECATED)
+    
 
     US_CAN_AUTH   = fields.Boolean(required=True) #The users in this US can authenticate
     US_PWD_ALGO   = fields.String() #Algo used to encrypt the user password for login (sql) and when changing password (sql and ldap without password policy or AD)

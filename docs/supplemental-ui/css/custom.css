@@ -10,3 +10,8 @@
 .doc ul.checklist i.fa-square-o::before {
   content: "\2610";
 }
+
+.doc {
+  max-width: fit-content;
+
+}

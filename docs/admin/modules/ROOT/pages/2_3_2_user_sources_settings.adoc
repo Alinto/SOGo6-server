@@ -4,7 +4,7 @@
 
 In SOGo 6, a User Source is the external service where it will find information about user, about others users for autocompletion and the Global Address book.
 A User Source will may also be used for the authentication step for plain login method.
-However, even if you're using a SSO or external authenticaiton system, the user source is still mandatory.
+However, even if you're using a SSO or external authentication system, the user source is still mandatory.
 
 [NOTE]
 ====
@@ -65,7 +65,128 @@ to change the name that will be see by users. IS not mandatory unique, even if i
 
 * *US_DESCRIPTION*: A string, will also only be seen by admin. Only add information for Admins, nothing else.
 
-* *US_TYPE*: Define the kinf od User Source. Can aither be 'ldap' or 'db'
+* *US_TYPE*: Define the kinf of User Source. Can either be 'ldap' or 'db'
+
+== Common settings
+
+[NOTE]
+====
+Some settings is asking for the name of:
+
+* a field in case of ldap
+* a column's name in case of sql
+
+This field or column must stored the ino needed by the settings. E.g. _US_FIELD_UID_ needs to know where the uid (with what your user login) is. It can be
+the field 'uid' or 'mail' in case of ldap, or the column 'c_uid' or 'login' for sql.
+
+Suach case will be refer as *field/column*.
+====
+
+* *US_FIELD_UID*: Default to 'uid'. Field/column where the unique identifier of your user is found. This is what your user will use to login.
+It must be unique.
+
+[CAUTION]
+====
+If you're using the same sql user source as SOGo 5, set this settings to 'c_uid'
+====
+
+* *US_FIELD_CN*: fDefault to 'cn',$$. Field/column where to find the Complete Name of your user.
+
+[CAUTION]
+====
+If you're using the same sql user source as SOGo 5, set this settings to 'c_cn'
+====
+
+* *US_MAIL*: Default to ['mail']. Is a list of field/column where user's mails can be found.
+
+[IMPORTANT]
+====
+The first element of the list must contains the main mail of the users. All the others will be considered as aliases. User will be able to choose a alias
+when seding a mail.
+
+For aliases, **with ldap** (considering you have a field mailAliases):
+```ldif
+mailAlias: myalias@sogo.nu
+mailAlias: myotheralias@sogo.nu
+```
+
+**With sql**: value must be a space-separated list of the aliases
+
+Obiousvly, you can also have several field/columns and add them to the list
+====
+
+* *US_MAIL_SERVER_LOGIN*: By default, SOGo use the main mail of the user for mail server (dovecot, cyrus) authentication. If this is not the case, set this setting
+with the field/column where to find the correct login
+* *US_MAIL_FILTERING_LOGIN*: Same for filtering server (sieve)
+* *US_MAIL_OUTGOING_LOGIN*: Same for outgoing server (postfix) if you have enable the authentication for it.
+* *US_FILTER*: Additional filter to use when querying the user source. Use a proto-syntax that will be converted into ldap filter or sql WHERE condition.
+
+[NOTE]
+====
+E.g. If you have a field/column 'active' you can set this setting to `active == 1`. For ldap, that will add a filter `(&(other_filters)(active=1))`. And for sql,
+`WHERE other_filters AND active = 1`
+
+Rules for the syntax:
+
+`\{field_column\}\{space\}\{operator\}\{space\}\{value\}`
+
+* \{field_column\} is unquoted
+* \{space\} before and after the operator !!
+* \{operator\} is among: `==` (equal), `!=` (not equal), `<=` (lesser or equal), `>=` (greater or equal)
+* \{value\} is directly a number, or a quoted string. E.g :
+** *`kind == group`* is not OK, do *`kind == "group"`* instead.
+
+You can also do complex filters with AND and OR:
+
+`\{opening_parenthesis\}\{filter1\}\{space\}\{operator\}\{space\}\{filter2\}\{closing_parenthesis\}`
+
+E.g. (mind the parenthesis):
+
+* *(active == 1 AND kind == user)*
+* *(active == 1 OR admin == 1)*
+
+You can chain the conditions:
+
+* *(p1 == 'v1' AND p2 == 'v2' AND p3 == 'v3' AND p4 == 'v4')*
+
+Mixed them:
+
+* *(p1 == 'v1' OR p2 == 'v2' AND p3 == 'v3')*
+
+And also make groups to control the order of evaluation:
+
+* *((p1 == 'v1' OR p2 == 'v2') AND p3 == 'v3')*
+* Same as *(p3 == 'v3' AND (p1 == 'v1' OR p2 == 'v2'))*
+* Same as *(p3 == 'v3' AND p1 == 'v1' OR  p3 == 'v3' AND p2 == 'v2')*
+
+====
+
+* *US_IMAP_HOST_FIELDNAME*: *WARNING this setting ovverides configuration done in the Mail Settings!* #TODO add links when it's done. +
+Field/Column where to find the imap hostname of the user.
+
+[WARNING]
+====
+First, you must set the IMAP settings in the Mail Settings.
+
+The value expected here is the uri or hostname that will be parsed to overwrite:
+
+* *SOGO_D_IMAP_SERVER*
+* *SOGO_D_IMAP_PORT*
+* *SOGO_D_IMAP_ENCRYPTION*
+
+If the uri is missing value or if this is only the host, the port used will fallback to *SOGO_D_IMAP_PORT* and the encryption to *SOGO_D_IMAP_ENCRYPTION*
+
+If there is no value for a user, that will fallback to the Mail Settings IMAP config.
+====
+[IMPORTANT]
+====
+This setting is here by legacy but will not be deprecated. SOGo 6 mail's configuration is mainly thought by domain and not by users, at least for now.
+
+If you do want to make different imap servers per user, you should do that in your dovecot/cyrus implementation by making a proxy server that will receives
+all imap request than redirect to the correct imap server. That way, you're only exposing one imap server to SOGo 6.
+
+If you're making a new project, do not consider this setting. Only used it if you're migrating from SOGo 5 ans was already using it.
+====
 
 == Settings for LDAP only
 
@@ -265,7 +386,7 @@ enable the password update feature.
 
 The password policy is used when:
 
-* Users are changing their password (if feature enable)
+* Users changes their password (if feature enable)
 * After a successfull login if admin has enabled password strenght check. See doc #TODO
 
 The settings are:
