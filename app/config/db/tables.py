@@ -93,8 +93,6 @@ All queries will have WHERE uid = <uid>
 # external_accounts: external accounts linked to this user
 # filters: sieve filters of this user
 # private_salt: unique salt generated for the user.
-# acl_given: acl given to users
-# acl_received: acl received from users
 # delegation_given: delegation given to users
 # delegation_received: delegation received from users
 COL_USER_UID              = Column(name="uid", data_type="str", extra_args={"max_len": 512}, is_unique=True)
@@ -104,8 +102,6 @@ COL_USER_MAIN_ACCOUNT     = Column(name="main_account", data_type="dict")
 COL_USER_EXTERNAL_ACCOUNTS = Column(name="external_accounts", data_type="dict", is_nullable=True)
 COL_USER_FILTERS          = Column(name="filters", data_type="dict", is_nullable=True)
 COL_USER_PRIVATE_SALT     = Column(name="private_salt", data_type= "str", extra_args={"max_len": 4096})
-COL_USER_ACL_GIVEN        = Column(name="acl_given", data_type="list", extra_args={"data_type": "str", "extra_args": {"max_len": 512}}, is_nullable=True)
-COL_USER_ACL_GOT          = Column(name="acl_received", data_type="list", extra_args={"data_type": "str", "extra_args": {"max_len": 512}}, is_nullable=True)
 COL_USER_DELEGATION_GIVEN = Column(name="delegation_given", data_type="list", extra_args={"data_type": "str", "extra_args": {"max_len": 512}}, is_nullable=True)
 COL_USER_DELEGATION_GOT   = Column(name="delegation_received", data_type="list", extra_args={"data_type": "str", "extra_args": {"max_len": 512}}, is_nullable=True)
 ALL_USER_COL              = [COL_ID,
@@ -117,8 +113,6 @@ ALL_USER_COL              = [COL_ID,
                              COL_USER_EXTERNAL_ACCOUNTS,
                              COL_USER_FILTERS,
                              COL_USER_PRIVATE_SALT,
-                             COL_USER_ACL_GIVEN,
-                             COL_USER_ACL_GOT,
                              COL_USER_DELEGATION_GIVEN,
                              COL_USER_DELEGATION_GOT,
                              ]
@@ -545,6 +539,44 @@ IDX_DRAFT_OWNER = Index(name="idx_draft_owner", columns=(COL_DRAFT_OWNER.name,))
 TABLE_DRAFT_STATE = Table(name=process_config.SOGO_P_TABLE_TMP_DRAFTS, columns=ALL_DRAFT_COL, primary_keys=(COL_ID.name, COL_DRAFT_KEY.name),
                           indexes=[IDX_DRAFT_OWNER])
 
+#########################
+# Table sogo6_acl       #
+#########################
+"""
+Stores access control list (ACL) for calendars and address books.
+Decentralized sharing model where each resource has explicit ACL entries.
+
+Key queries:
+  SELECT rights FROM sogo6_acl WHERE type = ? AND key = ? AND to_user = ?
+  SELECT to_user FROM sogo6_acl WHERE type = ? AND key = ? AND owner = ?
+  SELECT key FROM sogo6_acl WHERE type = ? AND to_user = ?
+"""
+# resource_type: resource type (calendar or addressbook)
+# key: opaque token referencing the calendar or addressbook
+# owner: uid of the resource owner (FK to sogo_user_profiles.uid)
+# to_user: uid of the user receiving the rights (FK to sogo_user_profiles.uid)
+# rights: JSON object storing granular permissions (read, write, create_event, etc.)
+COL_ACL_TYPE      = Column(name="type",      data_type="str",   extra_args={"max_len": 16})
+COL_ACL_KEY       = Column(name="key",       data_type="str",   extra_args={"max_len": 64})
+COL_ACL_OWNER     = Column(name="owner",     data_type="str",   extra_args={"max_len": 512})
+COL_ACL_TO_USER   = Column(name="to_user",   data_type="str",   extra_args={"max_len": 512})
+COL_ACL_RIGHTS    = Column(name="rights",    data_type="dict")
+
+ALL_ACL_COL = [COL_ID,
+               COL_ACL_TYPE,
+               COL_ACL_KEY,
+               COL_ACL_OWNER,
+               COL_ACL_TO_USER,
+               COL_ACL_RIGHTS]
+
+IDX_ACL_KEY = Index(name="idx_acl_key", columns=(COL_ACL_KEY.name,))
+IDX_ACL_OWNER = Index(name="idx_acl_owner", columns=(COL_ACL_OWNER.name,))
+IDX_ACL_TO_USER = Index(name="idx_acl_to_user", columns=(COL_ACL_TO_USER.name,))
+IDX_ACL_TYPE_KEY = Index(name="idx_acl_type_key", columns=(COL_ACL_TYPE.name, COL_ACL_KEY.name))
+
+TABLE_ACL = Table(name=process_config.SOGO_P_TABLE_ACL, columns=ALL_ACL_COL, primary_keys=(COL_ID.name, COL_ACL_TYPE.name, COL_ACL_KEY.name, COL_ACL_TO_USER.name),
+                  indexes=[IDX_ACL_KEY, IDX_ACL_OWNER, IDX_ACL_TO_USER, IDX_ACL_TYPE_KEY])
+
 ALL_TABLES = [TABLE_SETTINGS,
               TABLE_DOMAIN,
               TABLE_RULES,
@@ -557,4 +589,5 @@ ALL_TABLES = [TABLE_SETTINGS,
               TABLE_CONTACT_LIST,
               TABLE_CONTACT_LIST_MEMBER,
               TABLE_FILE_STORAGE,
-              TABLE_DRAFT_STATE]
+              TABLE_DRAFT_STATE,
+              TABLE_ACL]
