@@ -661,6 +661,165 @@ def test_perform_mail_action_invalid_action(monkeypatch):
         module.perform_mail_action(ACCOUNT_ID, "INBOX", "42", action_data)
 
 
+# ========== Tests for perform_mail_batch_action ==========
+
+def test_perform_mail_batch_action_tag_single_tag(monkeypatch):
+    """Test batch-tagging multiple mails with a single tag."""
+    module, fake_client = _make_module(monkeypatch)
+
+    batch_action_data = {"uids": [42, 43], "action": "tag", "data": "Important"}
+    result = module.perform_mail_batch_action(ACCOUNT_ID, "INBOX", batch_action_data)
+
+    assert result["action"] == "tag"
+    assert result["mail_uid"] == ["42", "43"]
+    assert result["tags_added"] == ["Important"]
+    assert ("INBOX", ["42", "43"], ["Important"]) in fake_client.add_flags_calls
+
+
+def test_perform_mail_batch_action_tag_multiple_tags(monkeypatch):
+    """Test batch-tagging multiple mails with multiple tags."""
+    module, fake_client = _make_module(monkeypatch)
+
+    batch_action_data = {"uids": [42, 43], "action": "tag", "data": ["Important", "Work"]}
+    result = module.perform_mail_batch_action(ACCOUNT_ID, "INBOX", batch_action_data)
+
+    assert result["action"] == "tag"
+    assert result["tags_added"] == ["Important", "Work"]
+    assert ("INBOX", ["42", "43"], ["Important", "Work"]) in fake_client.add_flags_calls
+
+
+def test_perform_mail_batch_action_tag_missing_data(monkeypatch):
+    """Test batch-tagging without providing tags data."""
+    module, _ = _make_module(monkeypatch)
+
+    batch_action_data = {"uids": [42, 43], "action": "tag"}
+    with pytest.raises(RequestException, match="Missing tags data for tag action"):
+        module.perform_mail_batch_action(ACCOUNT_ID, "INBOX", batch_action_data)
+
+
+def test_perform_mail_batch_action_untag_single_tag(monkeypatch):
+    """Test batch-untagging multiple mails with a single tag."""
+    module, fake_client = _make_module(monkeypatch)
+
+    batch_action_data = {"uids": [42, 43], "action": "untag", "data": "Important"}
+    result = module.perform_mail_batch_action(ACCOUNT_ID, "INBOX", batch_action_data)
+
+    assert result["action"] == "untag"
+    assert result["mail_uid"] == ["42", "43"]
+    assert result["tags_removed"] == ["Important"]
+    assert ("INBOX", ["42", "43"], ["Important"]) in fake_client.remove_flags_calls
+
+
+def test_perform_mail_batch_action_untag_multiple_tags(monkeypatch):
+    """Test batch-untagging multiple mails with multiple tags."""
+    module, fake_client = _make_module(monkeypatch)
+
+    batch_action_data = {"uids": [42, 43], "action": "untag", "data": ["Important", "Work"]}
+    result = module.perform_mail_batch_action(ACCOUNT_ID, "INBOX", batch_action_data)
+
+    assert result["action"] == "untag"
+    assert result["tags_removed"] == ["Important", "Work"]
+    assert ("INBOX", ["42", "43"], ["Important", "Work"]) in fake_client.remove_flags_calls
+
+
+def test_perform_mail_batch_action_untag_missing_data(monkeypatch):
+    """Test batch-untagging without providing tags data."""
+    module, _ = _make_module(monkeypatch)
+
+    batch_action_data = {"uids": [42, 43], "action": "untag"}
+    with pytest.raises(RequestException, match="Missing tags data for untag action"):
+        module.perform_mail_batch_action(ACCOUNT_ID, "INBOX", batch_action_data)
+
+
+def test_perform_mail_batch_action_move_success(monkeypatch):
+    """Test batch-moving multiple mails to another folder in a single IMAP call."""
+    module, fake_client = _make_module(monkeypatch)
+
+    batch_action_data = {"uids": [42, 43], "action": "move", "data": "Archive"}
+    result = module.perform_mail_batch_action(ACCOUNT_ID, "INBOX", batch_action_data)
+
+    assert result["action"] == "move"
+    assert result["mail_uid"] == ["42", "43"]
+    assert result["from_folder"] == "INBOX"
+    assert result["to_folder"] == "Archive"
+    assert ("INBOX", ["42", "43"], "Archive") in fake_client.copy_mail_to_mailbox_calls
+    assert ("INBOX", ["42", "43"], ['\\Deleted']) in fake_client.add_flags_calls
+
+
+def test_perform_mail_batch_action_move_missing_destination(monkeypatch):
+    """Test batch-moving without providing destination folder."""
+    module, _ = _make_module(monkeypatch)
+
+    batch_action_data = {"uids": [42, 43], "action": "move"}
+    with pytest.raises(RequestException, match="Missing or invalid destination folder for move action"):
+        module.perform_mail_batch_action(ACCOUNT_ID, "INBOX", batch_action_data)
+
+
+def test_perform_mail_batch_action_spam_success(monkeypatch):
+    """Test batch-marking multiple mails as spam in a single IMAP call."""
+    module, fake_client = _make_module(monkeypatch)
+    # domain_mail_folder_name is empty by default so "Junk" is the fallback
+    module.domain_mail_folder_name = {}
+
+    batch_action_data = {"uids": [42, 43], "action": "spam"}
+    result = module.perform_mail_batch_action(ACCOUNT_ID, "INBOX", batch_action_data)
+
+    assert result["action"] == "spam"
+    assert result["mail_uid"] == ["42", "43"]
+    assert result["moved_to"] == "Junk"
+    assert ("INBOX", ["42", "43"], "Junk") in fake_client.copy_mail_to_mailbox_calls
+    assert ("INBOX", ["42", "43"], ['\\Deleted']) in fake_client.add_flags_calls
+
+
+def test_perform_mail_batch_action_ham_success(monkeypatch):
+    """Test batch-marking multiple mails as ham (not spam) in a single IMAP call."""
+    module, fake_client = _make_module(monkeypatch)
+    module.domain_mail_folder_name = {}
+
+    batch_action_data = {"uids": [42, 43], "action": "ham"}
+    result = module.perform_mail_batch_action(ACCOUNT_ID, "Junk", batch_action_data)
+
+    assert result["action"] == "ham"
+    assert result["mail_uid"] == ["42", "43"]
+    assert result["moved_to"] == "INBOX"
+    assert ("Junk", ["42", "43"], "INBOX") in fake_client.copy_mail_to_mailbox_calls
+    assert ("Junk", ["42", "43"], ['\\Deleted']) in fake_client.add_flags_calls
+
+
+def test_perform_mail_batch_action_copy_success(monkeypatch):
+    """Test batch-copying multiple mails to another folder in a single IMAP call."""
+    module, fake_client = _make_module(monkeypatch)
+
+    batch_action_data = {"uids": [42, 43], "action": "copy", "data": "Archive"}
+    result = module.perform_mail_batch_action(ACCOUNT_ID, "INBOX", batch_action_data)
+
+    assert result["action"] == "copy"
+    assert result["mail_uid"] == ["42", "43"]
+    assert result["from_folder"] == "INBOX"
+    assert result["to_folder"] == "Archive"
+    assert ("INBOX", ["42", "43"], "Archive") in fake_client.copy_mail_to_mailbox_calls
+    # Copy should NOT delete the original mails
+    assert ("INBOX", ["42", "43"], ['\\Deleted']) not in fake_client.add_flags_calls
+
+
+def test_perform_mail_batch_action_copy_missing_destination(monkeypatch):
+    """Test batch-copying without providing destination folder."""
+    module, _ = _make_module(monkeypatch)
+
+    batch_action_data = {"uids": [42, 43], "action": "copy"}
+    with pytest.raises(RequestException, match="Missing or invalid destination folder for copy action"):
+        module.perform_mail_batch_action(ACCOUNT_ID, "INBOX", batch_action_data)
+
+
+def test_perform_mail_batch_action_invalid_action(monkeypatch):
+    """Test handling of invalid batch action."""
+    module, _ = _make_module(monkeypatch)
+
+    batch_action_data = {"uids": [42, 43], "action": "invalid_action"}
+    with pytest.raises(RequestException, match="Invalid action: invalid_action"):
+        module.perform_mail_batch_action(ACCOUNT_ID, "INBOX", batch_action_data)
+
+
 # ========== Tests for delete_mails error handling ==========
 
 def test_delete_mails_with_preference_flag_deleted_only(monkeypatch):

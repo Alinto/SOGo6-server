@@ -889,6 +889,20 @@ class TestUidCopy:
         with pytest.raises(BugException):
             client.uid_copy("100", "Trash")
 
+    def test_uid_copy_with_list_sends_single_joined_command(self):
+        """Test that copying a list of UIDs sends a single IMAP UID COPY command
+        with a comma-joined UID set, instead of one command per mail."""
+        fake_conn = FakeIMAPConnection()
+        fake_conn.uid_response = ("OK", [b""])
+        client = authenticated_client(fake_conn)
+
+        with mock.patch.object(fake_conn, "uid", wraps=fake_conn.uid) as mock_uid:
+            client.uid_copy(["100", "101", "102"], "Trash")
+            mock_uid.assert_called_once()
+            args = mock_uid.call_args[0]
+            assert args[0] == "COPY"
+            assert args[1] == "100,101,102"
+
 
 # ===========================================================================
 # Tests: uid_store_flags
@@ -931,6 +945,25 @@ class TestUidStoreFlags:
         client.connection = None
         with pytest.raises(BugException):
             client.uid_store_flags("100", ["\\Seen"])
+
+    def test_uid_store_flags_with_list_sends_single_joined_command(self):
+        """Test that storing flags on a list of UIDs sends a single IMAP UID STORE command
+        with a comma-joined UID set, instead of one command per mail."""
+        fake_conn = FakeIMAPConnection()
+        fake_conn.uid_response = ("OK", [
+            b"1 (UID 100 FLAGS (\\Seen))",
+            b"2 (UID 101 FLAGS (\\Seen))",
+            b"3 (UID 102 FLAGS (\\Seen))",
+        ])
+        client = authenticated_client(fake_conn)
+
+        with mock.patch.object(fake_conn, "uid", wraps=fake_conn.uid) as mock_uid:
+            count = client.uid_store_flags(["100", "101", "102"], ["\\Seen"], operation="+FLAGS")
+            mock_uid.assert_called_once()
+            args = mock_uid.call_args[0]
+            assert args[0] == "STORE"
+            assert args[1] == "100,101,102"
+            assert count == 3
 
 
 # ===========================================================================
@@ -1057,6 +1090,25 @@ class TestDeleteMailsByUid:
         with pytest.raises(BugException):
             client.delete_mails_by_uid("INBOX", "100")
 
+    def test_delete_mails_with_list_of_uids_success(self):
+        """Test deleting multiple mails at once (batch), with move to trash and expunge."""
+        fake_conn = FakeIMAPConnection()
+        fake_conn.select_response = ("OK", [b"3"])
+        fake_conn.uid_response = ("OK", [b""])
+        fake_conn.expunge_response = ("OK", [b""])
+        client = authenticated_client(fake_conn)
+
+        with mock.patch.object(fake_conn, "uid", wraps=fake_conn.uid) as mock_uid:
+            client.delete_mails_by_uid("INBOX", ["100", "101", "102"], move_to_trash=True, permanently=True)
+            # First call is the COPY to Trash, second is the STORE +FLAGS \Deleted
+            assert mock_uid.call_count == 2
+            copy_call_args = mock_uid.call_args_list[0][0]
+            assert copy_call_args[0] == "COPY"
+            assert copy_call_args[1] == "100,101,102"
+            store_call_args = mock_uid.call_args_list[1][0]
+            assert store_call_args[0] == "STORE"
+            assert store_call_args[1] == "100,101,102"
+
 
 # ===========================================================================
 # Tests: add_flags_to_mail / remove_flags_to_mail
@@ -1082,6 +1134,28 @@ class TestFlagWrappers:
         client.connection = None
         with pytest.raises(BugException):
             client.add_flags_to_mail("INBOX", "100", ["\\Seen"])
+
+    def test_add_flags_with_list_of_uids_success(self):
+        """Test adding flags to multiple mails at once (batch)."""
+        fake_conn = FakeIMAPConnection()
+        fake_conn.select_response = ("OK", [b"3"])
+        fake_conn.uid_response = ("OK", [
+            b"1 (UID 100 FLAGS (\\Seen))",
+            b"2 (UID 101 FLAGS (\\Seen))",
+        ])
+        client = authenticated_client(fake_conn)
+        client.add_flags_to_mail("INBOX", ["100", "101"], ["\\Seen"])
+
+    def test_remove_flags_with_list_of_uids_success(self):
+        """Test removing flags from multiple mails at once (batch)."""
+        fake_conn = FakeIMAPConnection()
+        fake_conn.select_response = ("OK", [b"3"])
+        fake_conn.uid_response = ("OK", [
+            b"1 (UID 100 FLAGS ())",
+            b"2 (UID 101 FLAGS ())",
+        ])
+        client = authenticated_client(fake_conn)
+        client.remove_flags_to_mail("INBOX", ["100", "101"], ["\\Seen"])
 
 
 # ===========================================================================
@@ -1162,6 +1236,20 @@ class TestCopyMailToMailbox:
         client.connection = None
         with pytest.raises(BugException):
             client.copy_mail_to_mailbox("INBOX", "100", "Sent")
+
+    def test_copy_with_list_of_uids_success(self):
+        """Test copying multiple mails at once (batch) to another folder."""
+        fake_conn = FakeIMAPConnection()
+        fake_conn.select_response = ("OK", [b"1"])
+        fake_conn.uid_response = ("OK", [b""])
+        client = authenticated_client(fake_conn)
+
+        with mock.patch.object(fake_conn, "uid", wraps=fake_conn.uid) as mock_uid:
+            client.copy_mail_to_mailbox("INBOX", ["100", "101", "102"], "Sent")
+            mock_uid.assert_called_once()
+            args = mock_uid.call_args[0]
+            assert args[0] == "COPY"
+            assert args[1] == "100,101,102"
 
 
 # ===========================================================================

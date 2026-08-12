@@ -43,6 +43,8 @@ class FakeModuleMail:
         self.reply_mail_result = {"reply": "Reply draft created"}
         self.forward_mail_result = {"forward": "Forward draft created"}
         self.perform_mail_action_result = {"action": "tag", "mail_uid": 42, "tags_added": ["Important"]}
+        self.perform_mail_batch_action_args = None
+        self.perform_mail_batch_action_result = {"action": "tag", "mail_uid": [42, 43], "tags_added": ["Important"]}
 
     def get_folder_mails(self, account_id, folder_name, collection_param):
         """Fetch a list of mails from a folder."""
@@ -77,6 +79,11 @@ class FakeModuleMail:
         """Perform an action on a mail."""
         self.perform_mail_action_args = (account_id, folder_name, mail_uid, action_data)
         return self.perform_mail_action_result
+
+    def perform_mail_batch_action(self, account_id, folder_name, batch_action_data):
+        """Perform an action on multiple mails at once."""
+        self.perform_mail_batch_action_args = (account_id, folder_name, batch_action_data)
+        return self.perform_mail_batch_action_result
 
 
 def make_interface(fake_module):
@@ -327,7 +334,128 @@ def test_mail_action_module_error():
     assert status_code == 400
     assert result["error_code"] == "S000300"
 
-# ========== Tests for download_mail ==========
+# ========== Tests for mail_batch_action ==========
+
+def test_mail_batch_action_tag_success():
+    """Test batch-tagging multiple mails for a valid account."""
+    fake_module = FakeModuleMail()
+    fake_module.perform_mail_batch_action_result = {"action": "tag", "mail_uid": [42, 43], "tags_added": ["Important"]}
+    interface = make_interface(fake_module)
+
+    batch_action_data = {"uids": [42, 43], "action": "tag", "data": ["Important"]}
+    result, status_code = interface.mail_batch_action(account_id=0, folder_name="INBOX", batch_action_data=batch_action_data)
+
+    assert status_code == 200
+    assert result["data"]["action"] == "tag"
+    assert result["data"]["mail_uid"] == [42, 43]
+    assert result["data"]["tags_added"] == ["Important"]
+    assert fake_module.perform_mail_batch_action_args == (0, "INBOX", batch_action_data)
+
+
+def test_mail_batch_action_untag_success():
+    """Test batch-untagging multiple mails for a valid account."""
+    fake_module = FakeModuleMail()
+    fake_module.perform_mail_batch_action_result = {"action": "untag", "mail_uid": [42, 43], "tags_removed": ["Important"]}
+    interface = make_interface(fake_module)
+
+    batch_action_data = {"uids": [42, 43], "action": "untag", "data": ["Important"]}
+    result, status_code = interface.mail_batch_action(account_id=0, folder_name="INBOX", batch_action_data=batch_action_data)
+
+    assert status_code == 200
+    assert result["data"]["action"] == "untag"
+    assert result["data"]["tags_removed"] == ["Important"]
+
+
+def test_mail_batch_action_move_success():
+    """Test batch-moving multiple mails for a valid account."""
+    fake_module = FakeModuleMail()
+    fake_module.perform_mail_batch_action_result = {
+        "action": "move", "mail_uid": [42, 43], "from_folder": "INBOX", "to_folder": "Archive"
+    }
+    interface = make_interface(fake_module)
+
+    batch_action_data = {"uids": [42, 43], "action": "move", "data": "Archive"}
+    result, status_code = interface.mail_batch_action(account_id=0, folder_name="INBOX", batch_action_data=batch_action_data)
+
+    assert status_code == 200
+    assert result["data"]["action"] == "move"
+    assert result["data"]["to_folder"] == "Archive"
+
+
+def test_mail_batch_action_spam_success():
+    """Test batch-marking multiple mails as spam for a valid account."""
+    fake_module = FakeModuleMail()
+    fake_module.perform_mail_batch_action_result = {"action": "spam", "mail_uid": [42, 43], "moved_to": "Junk"}
+    interface = make_interface(fake_module)
+
+    batch_action_data = {"uids": [42, 43], "action": "spam"}
+    result, status_code = interface.mail_batch_action(account_id=0, folder_name="INBOX", batch_action_data=batch_action_data)
+
+    assert status_code == 200
+    assert result["data"]["action"] == "spam"
+    assert result["data"]["moved_to"] == "Junk"
+
+
+def test_mail_batch_action_ham_success():
+    """Test batch-marking multiple mails as ham for a valid account."""
+    fake_module = FakeModuleMail()
+    fake_module.perform_mail_batch_action_result = {"action": "ham", "mail_uid": [42, 43], "moved_to": "INBOX"}
+    interface = make_interface(fake_module)
+
+    batch_action_data = {"uids": [42, 43], "action": "ham"}
+    result, status_code = interface.mail_batch_action(account_id=0, folder_name="Junk", batch_action_data=batch_action_data)
+
+    assert status_code == 200
+    assert result["data"]["action"] == "ham"
+    assert result["data"]["moved_to"] == "INBOX"
+
+
+def test_mail_batch_action_copy_success():
+    """Test batch-copying multiple mails for a valid account."""
+    fake_module = FakeModuleMail()
+    fake_module.perform_mail_batch_action_result = {
+        "action": "copy", "mail_uid": [42, 43], "from_folder": "INBOX", "to_folder": "Archive"
+    }
+    interface = make_interface(fake_module)
+
+    batch_action_data = {"uids": [42, 43], "action": "copy", "data": "Archive"}
+    result, status_code = interface.mail_batch_action(account_id=0, folder_name="INBOX", batch_action_data=batch_action_data)
+
+    assert status_code == 200
+    assert result["data"]["action"] == "copy"
+    assert result["data"]["to_folder"] == "Archive"
+
+
+def test_mail_batch_action_invalid_action():
+    """Test error handling for invalid batch action."""
+    fake_module = FakeModuleMail()
+    fake_module.perform_mail_batch_action = lambda *args: (_ for _ in ()).throw(
+        RequestException("Invalid action: unknown", err.ERROR_INVALID_ACTION)
+    )
+    interface = make_interface(fake_module)
+
+    batch_action_data = {"uids": [42, 43], "action": "unknown"}
+    result, status_code = interface.mail_batch_action(account_id=0, folder_name="INBOX", batch_action_data=batch_action_data)
+
+    assert status_code == 400
+    assert result["error_code"] == "S000309"
+
+
+def test_mail_batch_action_module_error():
+    """Test error handling when module raises RequestException."""
+    fake_module = FakeModuleMail()
+    fake_module.perform_mail_batch_action = lambda *args: (_ for _ in ()).throw(
+        RequestException("Action failed", err.ERROR_VALIDATION_ERROR)
+    )
+    interface = make_interface(fake_module)
+
+    batch_action_data = {"uids": [42, 43], "action": "tag", "data": ["Important"]}
+    result, status_code = interface.mail_batch_action(account_id=0, folder_name="INBOX", batch_action_data=batch_action_data)
+
+    assert status_code == 400
+    assert result["error_code"] == "S000300"
+
+
 
 def test_download_mail_success():
     """Test downloading a mail as .eml format."""
