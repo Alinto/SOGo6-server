@@ -84,6 +84,7 @@ class FakeModuleUserProfile:
         # Tracking
         self.is_user_profile_present_args = None
         self.create_user_profile_args = None
+        self.update_user_folders_args = None
 
         # Results
         self.is_user_profile_present_result = False
@@ -97,9 +98,19 @@ class FakeModuleUserProfile:
         """Create user profile."""
         self.create_user_profile_args = user
 
+    def update_user_folders(self, uid, calendar_key, addressbook_key):
+        """Update user folders with calendar and addressbook keys."""
+        self.update_user_folders_args = (uid, calendar_key, addressbook_key)
+
     def get_partial_user_preferences(self, uid, subparent):
         """Return fake general preferences carrying the user timezone."""
         return {"USER_GENERAL": {"SOGO_U_TIMEZONE": "Europe/Paris"}}
+
+
+class FakeCalendarObject:
+    """Fake calendar object returned by create_personal_calendar."""
+    def __init__(self, key="fake-calendar-key"):
+        self.key = key
 
 
 class FakeModuleCalendar:
@@ -112,6 +123,13 @@ class FakeModuleCalendar:
         """Create personal calendar."""
         self.create_personal_calendar_args = user_uid
         self.create_personal_calendar_timezone = tz
+        return FakeCalendarObject()
+
+
+class FakeAddressbookObject:
+    """Fake addressbook object returned by create_personal_addressbook."""
+    def __init__(self, key="fake-addressbook-key"):
+        self.key = key
 
 
 class FakeModuleContact:
@@ -122,6 +140,7 @@ class FakeModuleContact:
     def create_personal_addressbook(self, user_uid, name="Personal contacts"):
         """Create personal address book."""
         self.create_personal_addressbook_args = user_uid
+        return FakeAddressbookObject()
 
 
 class FakeUser:

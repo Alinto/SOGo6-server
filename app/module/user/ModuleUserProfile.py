@@ -125,13 +125,11 @@ class ModuleUserProfile:
             user_hash,                    # hash
             user.uid,                          # uid
             preferences,                  # preferences
-            {},                           # folders (empty dict)
+            {},                           # folders (will be updated after calendar/addressbook creation)
             main_account,                 # main_account (with default)
             {},                           # external_accounts (empty dict)
             None,                         # filters (nullable)
             "",                           # private_salt (empty)
-            None,                         # acl_given (nullable)
-            None,                         # acl_received (nullable)
             None,                         # delegation_given (nullable)
             None                          # delegation_received (nullable)
         ]]
@@ -145,8 +143,6 @@ class ModuleUserProfile:
             tbl.COL_USER_EXTERNAL_ACCOUNTS.name,
             tbl.COL_USER_FILTERS.name,
             tbl.COL_USER_PRIVATE_SALT.name,
-            tbl.COL_USER_ACL_GIVEN.name,
-            tbl.COL_USER_ACL_GOT.name,
             tbl.COL_USER_DELEGATION_GIVEN.name,
             tbl.COL_USER_DELEGATION_GOT.name
         )
@@ -166,6 +162,90 @@ class ModuleUserProfile:
             raise BugException(err.ERROR_USER_PROFILE_INSERT_MISMATCH.m, err.ERROR_USER_PROFILE_INSERT_MISMATCH)
 
         logger_user_profile.info("Successfully created user profile for uid: %s", user.uid)
+
+    def update_user_folders(self, uid: str, calendar_key: str, addressbook_key: str) -> None:
+        """
+        Update the folders column for a user with the personal calendar and addressbook keys.
+        
+        This is called during user onboarding after creating the personal calendar and addressbook.
+        
+        :param uid: User unique identifier
+        :type uid: str
+        :param calendar_key: Key of the personal calendar
+        :type calendar_key: str
+        :param addressbook_key: Key of the personal addressbook
+        :type addressbook_key: str
+        :raises RequestException: If user profile not found
+        :raises BugException: If multiple user profiles found or update fails
+        """
+        logger_user_profile.debug("Updating folders for uid: %s with calendar_key: %s and addressbook_key: %s", 
+                                  uid, calendar_key, addressbook_key)
+        
+        # Build the folders structure
+        folders_data = {
+            "CALENDAR": {
+                "OWNER": {
+                    calendar_key: True
+                }
+            },
+            "ADDRESSBOOKS": {
+                "OWNER": {
+                    addressbook_key: True
+                }
+            }
+        }
+        
+        # Use the generic _update_user_column method
+        self._update_user_column(uid, tbl.COL_USER_FOLDERS.name, folders_data)
+
+    def add_folder_key(self, uid: str, folder_type: str, key: str, owner_key: str = "OWNER") -> None:
+        """
+        Add a new calendar or addressbook key to the folders column of a user profile.
+        
+        This is called after creating a new calendar or addressbook. The folder_type can be
+        "CALENDAR" or "ADDRESSBOOKS". The key is added to the specified owner_key section of that 
+        folder type (default is "OWNER" for personal resources, but can be "EXT" for external ones).
+        
+        If the folders column doesn't exist or is empty, it initializes the structure.
+        If the key already exists, it's overwritten (harmless for boolean flags).
+        
+        :param uid: User unique identifier
+        :type uid: str
+        :param folder_type: Type of folder - "CALENDAR" or "ADDRESSBOOKS"
+        :type folder_type: str
+        :param key: Key of the calendar or addressbook to add
+        :type key: str
+        :param owner_key: Owner section key - "OWNER" for personal, "EXT" for external, etc.
+        :type owner_key: str
+        :raises RequestException: If user profile not found
+        :raises AggravatedException: If multiple user profiles found or update fails
+        """
+        logger_user_profile.debug("Adding folder key for uid: %s, folder_type: %s, owner_key: %s, key: %s", 
+                                  uid, folder_type, owner_key, key)
+        
+        # Get current folders data
+        current_folders = self._get_user_column(uid, tbl.COL_USER_FOLDERS.name)
+        
+        # Initialize structure if needed
+        if not current_folders:
+            current_folders = {
+                "CALENDAR": {"OWNER": {}},
+                "ADDRESSBOOKS": {"OWNER": {}}
+            }
+        
+        # Ensure the folder type exists
+        if folder_type not in current_folders:
+            current_folders[folder_type] = {}
+        
+        # Ensure the owner_key exists within the folder type
+        if owner_key not in current_folders[folder_type]:
+            current_folders[folder_type][owner_key] = {}
+        
+        # Add the new key
+        current_folders[folder_type][owner_key][key] = True
+        
+        # Update the database
+        self._update_user_column(uid, tbl.COL_USER_FOLDERS.name, current_folders)
 
     def _get_user_column(self, uid: str, field_name: str) -> Any:
         """

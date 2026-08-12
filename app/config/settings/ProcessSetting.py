@@ -141,6 +141,7 @@ class ProcessSetting(FlaskConfig):
     SOGO_P_TABLE_CONTACT_LISTS:        str = "sogo6_contacts_lists"
     SOGO_P_TABLE_CONTACT_LIST_MEMBERS: str = "sogo6_contacts_list_members"
     SOGO_P_TABLE_FILE_STORAGE:         str = "sogo6_file_storage"
+    SOGO_P_TABLE_ACL:                  str = "sogo6_acl"
 
     # --- Admin Authentication ---
     # SOGO_P_ADMIN: str = "" # Admin username

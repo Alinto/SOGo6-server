@@ -176,6 +176,11 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
             if not body.get("timezone"):
                 cal.timezone = self._user_timezone(self.user.uid)
             created: CalCalendar = self.module.create_calendar(self.user, cal)
+            
+            # Add the calendar key to the user's folders
+            if created.key:
+                self._user_module.add_folder_key(self.user.uid, "CALENDAR", created.key)
+            
             return create_api_base_response(self._calendar_serializer.serialize(created), code=201)
         except RequestException as ex:
             logger_api.error("create_calendar failed for user %s: %s", self.user.uid, ex)
@@ -499,6 +504,11 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
                 },
             )
             created: CalCalendar = self.module.create_calendar(self.user, cal)
+            
+            # Add the external calendar key to the user's folders under "EXT"
+            if created.key:
+                self._user_module.add_folder_key(self.user.uid, "CALENDAR", created.key, owner_key="EXT")
+            
             return create_api_base_response(self._calendar_serializer.serialize(created), code=201)
         except RequestException as ex:
             logger_api.error("create_external_calendar failed for user %s: %s", self.user.uid, ex)
