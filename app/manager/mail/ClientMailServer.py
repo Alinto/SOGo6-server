@@ -245,42 +245,42 @@ class ClientMailServer(metaclass=ABCMeta):
         """
 
     @abstractmethod
-    def add_flags_to_mail(self, folder_path: str, mail_uid: str, flags: list[str]) -> None:
-        """Add flags to a mail using UID.
+    def add_flags_to_mail(self, folder_path: str, mail_uid: str|list[str], flags: list[str]) -> None:
+        """Add flags to a mail (or list of mails) using UID.
         Wrapper selecting folder then using uid_store_flags primitive.
 
         :param folder_path: The folder containing the mail.
         :type folder_path: str
-        :param mail_uid: The UID of the mail to modify.
-        :type mail_uid: int
+        :param mail_uid: The UID or list of UIDs of the mail(s) to modify.
+        :type mail_uid: str|list[str]
         :param flags: list of flags to add (e.g., ['\\Seen', '\\Flagged']).
         :type flags: list[str]
         :raises RequestException: If the operation fails.
         """
 
     @abstractmethod
-    def remove_flags_to_mail(self, folder_path: str, mail_uid: str, flags: list[str]) -> None:
-        """remove flags to a mail using UID.
+    def remove_flags_to_mail(self, folder_path: str, mail_uid: str|list[str], flags: list[str]) -> None:
+        """remove flags to a mail (or list of mails) using UID.
         Wrapper selecting folder then using uid_store_flags primitive.
 
         :param folder_path: The folder containing the mail.
         :type folder_path: str
-        :param mail_uid: The UID of the mail to modify.
-        :type mail_uid: int
+        :param mail_uid: The UID or list of UIDs of the mail(s) to modify.
+        :type mail_uid: str|list[str]
         :param flags: list of flags to add (e.g., ['\\Seen', '\\Flagged']).
         :type flags: list[str]
         :raises RequestException: If the operation fails.
         """
 
     @abstractmethod
-    def copy_mail_to_mailbox(self, folder_path: str, mail_uid: str, dest_folder_path: str, create_dest: bool = False) -> None:
-        """Copy a mail from one mailbox to another using UID.
+    def copy_mail_to_mailbox(self, folder_path: str, mail_uid: str|list[str], dest_folder_path: str, create_dest: bool = False) -> None:
+        """Copy a mail (or list of mails) from one mailbox to another using UID.
         Wrapper selecting folder_path then using uid_copy primitive.
 
         :param folder_path: The source folder_path.
         :type folder_path: str
-        :param mail_uid: The UID of the mail to copy.
-        :type mail_uid: int
+        :param mail_uid: The UID or list of UIDs of the mail(s) to copy.
+        :type mail_uid: str|list[str]
         :param dest_folder_path: The destination folder_path.
         :type dest_folder_path: str
         :param create_dest: True if the folder needs to be created (or ensure that it's already exist)

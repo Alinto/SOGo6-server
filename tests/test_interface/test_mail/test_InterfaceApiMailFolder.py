@@ -250,33 +250,6 @@ def test_delete_folder_module_error(monkeypatch):
     assert status_code == 400
 
 
-# ========== Tests for move_mails ==========
-
-def test_move_mails_success(monkeypatch):
-    """Test moving multiple mails for a valid account."""
-    fake_module = FakeModuleMail()
-    fake_module.move_mails_result = {"moved_ids": [11, 22]}
-    interface = make_interface(monkeypatch, fake_module)
-
-    result, status_code = interface.move_mails(account_id=0, folder_name="INBOX", mail_uids=[11, 22], to_folder_name="Sent")
-
-    assert status_code == 200
-    assert result["data"]["moved_ids"] == [11, 22]
-    assert fake_module.move_mails_args == ("INBOX", [11, 22], "Sent")
-
-
-def test_move_mails_module_error(monkeypatch):
-    """Test error handling when moving mails fails."""
-    fake_module = FakeModuleMail()
-    fake_module.move_mails = lambda *args: (_ for _ in ()).throw(RequestException("Cannot move", err.ERROR_VALIDATION_ERROR))
-    interface = make_interface(monkeypatch, fake_module)
-
-    result, status_code = interface.move_mails(account_id=0, folder_name="INBOX", mail_uids=[1, 2], to_folder_name="Trash")
-
-    assert result["error_code"] == "S000300"
-    assert status_code == 400
-
-
 # ========== Tests for expunge_folder ==========
 
 def test_expunge_folder_success(monkeypatch):

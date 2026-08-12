@@ -17,6 +17,8 @@ from .schemas.mail import (
     MailDeleteResponseSchema,
     MailRawResponseSchema,
     MailActionSchema,
+    MailBatchActionSchema,
+    MailBatchActionResponseSchema,
     MailDownloadSchema,
     MailEditResponseSchema,
     MailReplyResponseSchema,
@@ -118,42 +120,46 @@ class ApiMailFolderIdMail(MethodView):
 
 @blp.route("/batch-action")
 class ApiMailFolderIdAction(MethodView):
-    """API to batch perform actions on all mails in a specific folder.
+    """API to batch perform actions on multiple mails in a specific folder.
     """
-    def post(self, batch_data: dict, account_id: str, folder_name: str) -> ResponseReturnValue:
-        """Action: Batch perform actions (tag, delete, move, spam, ham, zip, copy, forward) on selected mails in the specified folder. (NOT IMPLEMENTED)
+
+    @blp.arguments(MailBatchActionSchema, example=MailBatchActionSchema.example(), error_status_code=400)
+    @blp.response(200, MailBatchActionResponseSchema, example=MailBatchActionResponseSchema.example())
+    def post(self, data: dict, account_id: str, folder_name: str) -> ResponseReturnValue:
+        """Perform an action (tag, untag, move, spam, ham, copy) on several mails at once in the specified folder.
+
+        Behaves exactly like the single-mail action endpoint, except that the action is
+        applied to all the mails listed in ``uids`` in a single batch of IMAP commands.
+
+        **Supported actions:**
+
+        * **tag**: Add one or more tags to the selected mails. Tags are provided in the ``data`` field as a list of strings.
+        * **untag**: Remove one or more tags from the selected mails. Tags to remove are provided in the ``data`` field as a list of strings.
+        * **move**: Move the selected mails to another folder. The destination folder name must be provided in the ``data`` field as a string.
+        * **spam**: Mark the selected mails as spam.
+        * **ham**: Mark the selected mails as not spam.
+        * **copy**: Copy the selected mails to another folder. The destination folder name must be provided in the ``data`` field as a string.
+        * **delete**: Delete the selected mails, following the user's mail delete behavior preference.
+
+        :param data: The batch action data containing 'uids', 'action' and optional 'data' field
+        :type data: dict
+        :param account_id: The account identifier
+        :type account_id: str
+        :param folder_name: The folder identifier
+        :type folder_name: str
+        :return: A response indicating the result of the action
+        :rtype: ResponseReturnValue
         """
-        if batch_data.get("action") == "tag":
-            # Implement tagging logic here
-            pass
-        if batch_data.get("action") == "delete":
-            pass
-            # logger_api.debug("Calling ApiMailFolderIdMail: Deleting mails for account_id: %s, folder_name: %s, mail_uids: %s", account_id, folder_name, mail_data.get("mail_uids"))
-            # interface: InterfaceApiMailFolder = g.inter
-            # return interface.delete_mails(account_id, folder_name, mail_data["mail_uids"])
-        if batch_data.get("action") == "move":
-            # interface: InterfaceApiMailFolder = g.inter
-            # return interface.move_mails(account_id, folder_name, move_data["mail_uids"], move_data["to_folder_name"])
-            pass
-        if batch_data.get("action") == "spam":
-            # Implement spam logic here
-            pass
-        if batch_data.get("action") == "ham":
-            # Implement ham logic here
-            pass
-        if batch_data.get("action") == "zip":
-            # Implement zip logic here
-            pass
-        if batch_data.get("action") == "copy":
-            # Implement copy logic here
-            pass
-        if batch_data.get("action") == "forward":
-            # Implement forward logic here
-            pass
-        raise NotImplementedError("Batch action mails is not implemented yet.")
-        # logger_api.debug("Calling ApiMailFolderIdAction.post for account_id: %s, folder_name: %s with action: %s", account_id, folder_name, batch_data.get("action"))
-        # interface: InterfaceApiMailMail = g.inter
-        # return interface.batch_mail_action(account_id, folder_name, batch_data)
+        logger_api.debug(
+            "Calling ApiMailFolderIdAction.post for account_id: %s, folder_name: %s, uids: %s with action: %s",
+            account_id,
+            folder_name,
+            data["uids"],
+            data["action"]
+        )
+        interface: InterfaceApiMailMail = g.inter
+
+        return interface.mail_batch_action(account_id, folder_name, data)
 
 
 @blp.route("/<string:mail_uid>")
@@ -213,6 +219,16 @@ class ApiMailDetailAction(MethodView):
     @blp.response(200)
     def post(self, data: dict, account_id: str, folder_name: str, mail_uid: str) -> ResponseReturnValue:
         """Perform an action (tag, untag, move, spam, ham, copy) on a specific mail in the specified folder.
+
+        **Supported actions:**
+
+        * **tag**: Add one or more tags to the mail. Tags are provided in the ``data`` field as a list of strings.
+        * **untag**: Remove one or more tags from the mail. Tags to remove are provided in the ``data`` field as a list of strings.
+        * **move**: Move the mail to another folder. The destination folder name must be provided in the ``data`` field as a string.
+        * **spam**: Mark the mail as spam.
+        * **ham**: Mark the mail as not spam.
+        * **copy**: Copy the mail to another folder. The destination folder name must be provided in the ``data`` field as a string.
+        * **delete**: Delete the mail, following the user's mail delete behavior preference.
 
         :param data: The action data containing 'action' and optional 'data' field
         :type data: dict

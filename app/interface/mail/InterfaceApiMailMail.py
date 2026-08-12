@@ -188,6 +188,28 @@ class InterfaceApiMailMail:
             logger_api.error("Request exception in mail_action: %s", str(ex))
             return create_api_base_response(None, ex.error)
 
+    def mail_batch_action(self, account_id: str, folder_name: str, batch_action_data: dict[str, Any]) -> tuple[dict[str, Any], int]:
+        """Perform an action on multiple mails at once.
+
+        :param account_id: The ID of the account
+        :type account_id: str
+        :param folder_name: The ID of the folder
+        :type folder_name: str
+        :param batch_action_data: Dictionary containing 'uids', 'action' and optional 'data' fields
+        :type batch_action_data: dict[str, Any]
+        :return: A tuple of (API response dict, status code)
+        :rtype: tuple[dict[str, Any], int]
+        """
+        try:
+            result = self.mail_module.perform_mail_batch_action(account_id, folder_name, batch_action_data)
+            return create_api_base_response(result)
+        except ValidationError as ex:
+            logger_api.error("Validation error in mail_batch_action: %s", ex.messages)
+            return create_api_base_response(None, err.ERROR_VALIDATION_ERROR)
+        except RequestException as ex:
+            logger_api.error("Request exception in mail_batch_action: %s", str(ex))
+            return create_api_base_response(None, ex.error)
+
     def download_mail(self, account_id: str, folder_name: str, mail_uid: str, download_format: str) -> BytesIO | tuple[dict[str, Any], int]:
         """Download a specific mail as .eml or .zip.
 

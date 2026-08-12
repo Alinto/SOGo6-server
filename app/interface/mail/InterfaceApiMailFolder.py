@@ -128,31 +128,6 @@ class InterfaceApiMailFolder:
             logger_api.error("Request exception in update_folder: %s", str(ex))
             return create_api_base_response(None, ex.error)
 
-    def move_mails(
-        self, account_id: str, folder_name: str, mail_uids: list[int], to_folder_name: str
-    ) -> tuple[dict[str, Any], int]:
-        """Move multiple mails to another folder.
-        Will be used by batch-action
-
-        :param account_id: The ID of the account
-        :type account_id: str
-        :param folder_name: The ID of the source folder
-        :type folder_name: str
-        :param mail_uids: List of mail UIDs to move
-        :type mail_uids: List[int]
-        :param to_folder_name: The ID of the destination folder
-        :type to_folder_name: str
-        :return: A tuple of (API response dict, status code)
-        :rtype: tuple[dict[str, Any], int]
-        """
-        try:
-            result = self.mail_module.move_mails(folder_name, mail_uids, to_folder_name)
-            return create_api_base_response(result)
-        except RequestException as ex:
-            logger_api.error("Request exception in move_mails: %s", str(ex))
-            return create_api_base_response(None, ex.error)
-
-
     def expunge_folder(self, account_id: str, folder_name: str, expunge_data:dict) -> tuple[dict[str, Any], int]:
         """Expunge all mails in the specified folder.
         

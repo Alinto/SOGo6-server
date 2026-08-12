@@ -716,6 +716,28 @@ class ModuleMail:
 
         return mails, total_count
 
+    def _get_delete_behavior(self) -> tuple[bool, bool]:
+        """Resolve the (move_to_trash, permanently) tuple from the user's delete behavior preference.
+
+        The behaviour is driven by the user preference ``SOGO_U_MAIL_DELETE_BEHAVIOR``
+        stored in the user's mail general settings:
+
+        * ``MOVE_TO_TRASH_AND_EXPUNGE`` (default): copy to Trash + flag Deleted + expunge.
+        * ``FLAG_DELETED_ONLY``: flag Deleted only (mail appears struck-through/greyed in UI).
+        * ``EXPUNGE_ONLY``: flag Deleted + expunge, no copy to Trash.
+        * ``MOVE_TO_TRASH_ONLY``: copy to Trash + flag Deleted, no expunge.
+
+        :return: A tuple (move_to_trash, permanently)
+        :rtype: tuple[bool, bool]
+        """
+        # Get raw dict from user preferences (may be empty or missing keys)
+        raw_mail_general_prefs: dict = self.user.profile.preferences.get(UserMailGeneralSettings.subparent, {})
+        # Load through schema to apply default values for missing keys
+        mail_general_prefs: dict = UserMailGeneralSettings().load(raw_mail_general_prefs)
+
+        delete_behavior: str = mail_general_prefs["SOGO_U_MAIL_DELETE_BEHAVIOR"]
+        return DELETE_MAIL_BEHAVIOR_MAP.get(delete_behavior, (True, True))
+
     def delete_mails(self, account_id:str, folder_path: str, mail_uids: str|list[str]) -> None:
         """Delete multiple mails by UIDs in a single client session.
 
@@ -735,13 +757,7 @@ class ModuleMail:
         :type mail_uids: str or list[str]
         :raises RequestException: If deletion fails for any mail
         """
-        # Get raw dict from user preferences (may be empty or missing keys)
-        raw_mail_general_prefs: dict = self.user.profile.preferences.get(UserMailGeneralSettings.subparent, {})
-        # Load through schema to apply default values for missing keys
-        mail_general_prefs: dict = UserMailGeneralSettings().load(raw_mail_general_prefs)
-
-        delete_behavior: str = mail_general_prefs["SOGO_U_MAIL_DELETE_BEHAVIOR"]
-        move_to_trash, permanently = DELETE_MAIL_BEHAVIOR_MAP.get(delete_behavior, (True, True))
+        move_to_trash, permanently = self._get_delete_behavior()
 
         client = self._open_client_for(account_id)
         client.delete_mails_by_uid(folder_path, mail_uids, move_to_trash=move_to_trash, permanently=permanently)
@@ -757,30 +773,6 @@ class ModuleMail:
         """
         client = self._open_client_for(account_id)
         client.delete_mail_permanently_from_folder_type(cs.MAIL_FOLDER_DRAFT, draft_uid)
-
-    def move_mails(self, from_folder: str, mail_uids: list[int], to_folder: str) -> dict[str, Any]:
-        """Move multiple mails from one folder to another.
-
-        :param from_folder: The name of the source folder.
-        :type from_folder: str
-        :param mail_uids: A list of mail UIDs to move.
-        :type mail_uids: list[int]
-        :param to_folder: The name of the destination folder.
-        :type to_folder: str
-        :raises RequestException: If moving mails fails
-        :return: A dict with list of moved mail UIDs
-        :rtype: dict[str, Any]
-        """
-        raise NotImplementedError()
-        # moved_uids: list[int] = []
-        # self.client.select_mailbox(from_folder)
-        # self.client.select_mailbox(to_folder)
-        # for mail_uid in mail_uids:
-        #     self.client.uid_copy(mail_uid, to_folder)
-        #     self.client.uid_store_flags(mail_uid, ['\\Deleted'])
-        #     moved_uids.append(mail_uid)
-
-        # return {"moved_ids": moved_uids}
 
     def get_mail_detail(self, account_id: str, folder_name: str, mail_uid: str) -> dict[str, Any]:
         """Fetch the details of a specific mail.
@@ -1494,6 +1486,45 @@ class ModuleMail:
             return self._action_ham(client, folder_name, mail_uid)
         elif action == "copy":
             return self._action_copy(client, folder_name, mail_uid, data)
+        elif action == "delete":
+            return self._action_delete(client, folder_name, mail_uid, account_id=account_id)
+        else:
+            raise RequestException(f"Invalid action: {action}", err.ERROR_INVALID_ACTION)
+
+    def perform_mail_batch_action(self, account_id: str, folder_name: str, batch_action_data: dict) -> dict[str, Any]:
+        """Perform an action on multiple mails at once, in a single IMAP round-trip when possible.
+
+        :param account_id: The account identifier
+        :type account_id: str
+        :param folder_name: The name of the folder containing the mails
+        :type folder_name: str
+        :param batch_action_data: dictionary containing 'uids', 'action' and optional 'data' fields
+        :type batch_action_data: dict[str, Any]
+        :return: Result of the action
+        :rtype: dict[str, Any]
+        :raises RequestException: If validation or manager operations fail
+        """
+        action: str = batch_action_data["action"]
+        mail_uids: list = [str(uid) for uid in batch_action_data["uids"]]
+        # null if not provided
+        data = batch_action_data.get("data")
+
+        client = self._open_client_for(account_id)
+
+        if action == "tag":
+            return self._action_tag(client, folder_name, mail_uids, data)
+        elif action == "untag":
+            return self._action_untag(client, folder_name, mail_uids, data)
+        elif action == "move":
+            return self._action_move(client, folder_name, mail_uids, data)
+        elif action == "spam":
+            return self._action_spam(client, folder_name, mail_uids)
+        elif action == "ham":
+            return self._action_ham(client, folder_name, mail_uids)
+        elif action == "copy":
+            return self._action_copy(client, folder_name, mail_uids, data)
+        elif action == "delete":
+            return self._action_delete(client, folder_name, mail_uids, account_id=account_id)
         else:
             raise RequestException(f"Invalid action: {action}", err.ERROR_INVALID_ACTION)
 
@@ -1537,13 +1568,13 @@ class ModuleMail:
         else:
             return self._action_download(client, folder_name, mail_uid)
 
-    def _action_tag(self, client: ClientMailServer, folder_name: str, mail_uid: str, tags: Any) -> dict[str, Any]:
-        """Add custom flags/tags to a mail.
-        
+    def _action_tag(self, client: ClientMailServer, folder_name: str, mail_uid: str|list[str], tags: Any) -> dict[str, Any]:
+        """Add custom flags/tags to a mail or a list of mails.
+
         :param folder_name: The name of the folder
         :type folder_name: str
-        :param mail_uid: The unique identifier of the mail
-        :type mail_uid: str
+        :param mail_uid: The unique identifier of the mail, or a list of them
+        :type mail_uid: str|list[str]
         :param tags: List of tags to add or a single tag string
         :type tags: Any
         :return: Result with added tags
@@ -1565,13 +1596,13 @@ class ModuleMail:
 
         return {"action": "tag", "mail_uid": mail_uid, "tags_added": tag_list}
 
-    def _action_untag(self, client: ClientMailServer, folder_name: str, mail_uid: str, tags: Any) -> dict[str, Any]:
-        """Remove custom flags/tags from a mail.
-        
+    def _action_untag(self, client: ClientMailServer, folder_name: str, mail_uid: str|list[str], tags: Any) -> dict[str, Any]:
+        """Remove custom flags/tags from a mail or a list of mails.
+
         :param folder_name: The name of the folder
         :type folder_name: str
-        :param mail_uid: The unique identifier of the mail
-        :type mail_uid: str
+        :param mail_uid: The unique identifier of the mail, or a list of them
+        :type mail_uid: str|list[str]
         :param tags: List of tags to remove or a single tag string
         :type tags: Any
         :return: Result with removed tags
@@ -1593,17 +1624,17 @@ class ModuleMail:
 
         return {"action": "untag", "mail_uid": mail_uid, "tags_removed": tag_list}
 
-    def _action_move(self, client: ClientMailServer, folder_name: str, mail_uid: str, destination: Any) -> dict[str, Any]:
-        """Move a mail to another folder.
-        
+    def _action_move(self, client: ClientMailServer, folder_name: str, mail_uid: str|list[str], destination: Any) -> dict[str, Any]:
+        """Move a mail or a list of mails to another folder.
+
         :param folder_name: The name of the source folder
         :type folder_name: str
-        :param mail_uid: The unique identifier of the mail
-        :type mail_uid: str
+        :param mail_uid: The unique identifier of the mail, or a list of them
+        :type mail_uid: str|list[str]
         :param destination: The destination folder name
         :type destination: Any
         :return: Result with moved mail info
-        :rtype: s[str, Any]
+        :rtype: dict[str, Any]
         :raises RequestException: If destination is missing or invalid
         """
         if not destination or not isinstance(destination, str):
@@ -1614,13 +1645,13 @@ class ModuleMail:
 
         return {"action": "move", "mail_uid": mail_uid, "from_folder": folder_name, "to_folder": destination}
 
-    def _action_spam(self, client: ClientMailServer, folder_name: str, mail_uid: str) -> dict[str, Any]:
-        """Mark a mail as spam and move it to Junk folder.
-        
+    def _action_spam(self, client: ClientMailServer, folder_name: str, mail_uid: str|list[str]) -> dict[str, Any]:
+        """Mark a mail or a list of mails as spam and move them to the Junk folder.
+
         :param folder_name: The name of the folder
         :type folder_name: str
-        :param mail_uid: The unique identifier of the mail
-        :type mail_uid: str
+        :param mail_uid: The unique identifier of the mail, or a list of them
+        :type mail_uid: str|list[str]
         :return: Result with spam action info
         :rtype: dict[str, Any]
         :raises RequestException: If operation fails
@@ -1630,13 +1661,13 @@ class ModuleMail:
         client.add_flags_to_mail(folder_name, mail_uid, ['\\Deleted'])
         return {"action": "spam", "mail_uid": mail_uid, "moved_to": junk_folder}
 
-    def _action_ham(self, client: ClientMailServer, folder_name: str, mail_uid: str) -> dict[str, Any]:
-        """Mark a mail as ham (not spam) and move it to INBOX.
-        
+    def _action_ham(self, client: ClientMailServer, folder_name: str, mail_uid: str|list[str]) -> dict[str, Any]:
+        """Mark a mail or a list of mails as ham (not spam) and move them to INBOX.
+
         :param folder_name: The name of the folder
         :type folder_name: str
-        :param mail_uid: The unique identifier of the mail
-        :type mail_uid: str
+        :param mail_uid: The unique identifier of the mail, or a list of them
+        :type mail_uid: str|list[str]
         :return: Result with ham action info
         :rtype: dict[str, Any]
         :raises RequestException: If operation fails
@@ -1648,13 +1679,13 @@ class ModuleMail:
 
         return {"action": "ham", "mail_uid": mail_uid, "moved_to": inbox_folder}
 
-    def _action_copy(self, client: ClientMailServer, folder_name: str, mail_uid: str, destination: Any) -> dict[str, Any]:
-        """Copy a mail to another folder.
-        
+    def _action_copy(self, client: ClientMailServer, folder_name: str, mail_uid: str|list[str], destination: Any) -> dict[str, Any]:
+        """Copy a mail or a list of mails to another folder.
+
         :param folder_name: The name of the source folder
         :type folder_name: str
-        :param mail_uid: The unique identifier of the mail
-        :type mail_uid: str
+        :param mail_uid: The unique identifier of the mail, or a list of them
+        :type mail_uid: str|list[str]
         :param destination: The destination folder name
         :type destination: Any
         :return: Result with copied mail info
@@ -1667,6 +1698,28 @@ class ModuleMail:
         client.copy_mail_to_mailbox(folder_name, mail_uid, destination)
 
         return {"action": "copy", "mail_uid": mail_uid, "from_folder": folder_name, "to_folder": destination}
+
+    def _action_delete(self, client: ClientMailServer, folder_name: str, mail_uid: str|list[str], account_id: str) -> dict[str, Any]:
+        """Delete a mail or a list of mails, honoring the user's ``SOGO_U_MAIL_DELETE_BEHAVIOR`` preference.
+
+        Reuses the same behaviour as :meth:`delete_mails` (move to Trash / flag deleted / expunge,
+        depending on the user preference), on an already opened client.
+
+        :param folder_name: The name of the folder
+        :type folder_name: str
+        :param mail_uid: The unique identifier of the mail, or a list of them
+        :type mail_uid: str|list[str]
+        :param account_id: The account identifier
+        :type account_id: str
+        :return: Result with deleted mail info
+        :rtype: dict[str, Any]
+        :raises RequestException: If deletion fails
+        """
+        move_to_trash, permanently = self._get_delete_behavior()
+
+        client.delete_mails_by_uid(folder_name, mail_uid, move_to_trash=move_to_trash, permanently=permanently)
+
+        return {"action": "delete", "mail_uid": mail_uid, "from_folder": folder_name}
 
     def _action_download(self, client: ClientMailServer, folder_name: str, mail_uid: str) -> BytesIO:
         """Download a mail as raw .eml bytes.

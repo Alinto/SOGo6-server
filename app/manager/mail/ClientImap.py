@@ -1096,20 +1096,20 @@ class ClientImap(ClientMailServer):
                 if datas[0].decode().startswith("[TRYCREATE]"):
                     # Get folder type from the unquoted path
                     folder_type = self.folders_map_name_to_type.get(dest_mailbox, cs.MAIL_FOLDER_NORMAL)
-                    
+
                     # Create folder if it's not of type NORMAL
                     if folder_type != cs.MAIL_FOLDER_NORMAL:
-                        logger_imap.info(f"Folder '{dest_mailbox}' does not exist but is of special type '{folder_type}', creating it")
+                        logger_imap.info("Folder '%s' does not exist but is of special type '%s', creating it", dest_mailbox, folder_type)
                         self._imap_create_folder(dest_mailbox_quoted, auto_sub=True, no_error_if_exist=True)
                         # Retry the copy after folder creation
                         success, datas = self._exec_imap4_method(self.connection.uid, 'COPY', mail_uid, dest_mailbox_quoted)
                         if not success:
-                            logger_imap.error(f"UID COPY failed for UID {mail_uid} to {dest_mailbox} after folder creation")
+                            logger_imap.error("UID COPY failed for UID %s to %s after folder creation", mail_uid, dest_mailbox)
                             raise RequestException(f"UID COPY failed for UID {mail_uid} to {dest_mailbox}", err.ERROR_IMAP_FAILED)
                     else:
                         raise RequestException(f"Folder '{dest_mailbox}' does not exist", err.ERROR_FOLDER_NAME_NOT_FOUND)
                 else:
-                    logger_imap.error(f"UID COPY failed for UID {mail_uid} to {dest_mailbox}")
+                    logger_imap.error("UID COPY failed for UID %s to %s", mail_uid, dest_mailbox)
                     raise RequestException(f"UID COPY failed for UID {mail_uid} to {dest_mailbox}", err.ERROR_IMAP_FAILED)
         else:
             raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
@@ -1626,14 +1626,14 @@ class ClientImap(ClientMailServer):
         else:
             raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
 
-    def copy_mail_to_mailbox(self, folder_path: str, mail_uid: str, dest_folder_path: str, create_dest: bool = False) -> None:
-        """Copy a mail from one mailbox to another using UID.
+    def copy_mail_to_mailbox(self, folder_path: str, mail_uid: str|list[str], dest_folder_path: str, create_dest: bool = False) -> None:
+        """Copy a mail (or list of mails) from one mailbox to another using UID.
         Wrapper selecting folder_path then using uid_copy primitive.
 
         :param folder_path: The source folder_path.
         :type folder_path: str
-        :param mail_uid: The UID of the mail to copy.
-        :type mail_uid: int
+        :param mail_uid: The UID or list of UIDs of the mail(s) to copy.
+        :type mail_uid: str|list[str]
         :param dest_folder_path: The destination folder_path.
         :type dest_folder_path: str
         :param create_dest: True if the folder needs to be created (or ensure that it's already exist)
@@ -1653,14 +1653,14 @@ class ClientImap(ClientMailServer):
         else:
             raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
 
-    def add_flags_to_mail(self, folder_path: str, mail_uid: str, flags: list[str]) -> None:
-        """Add flags to a mail using UID.
+    def add_flags_to_mail(self, folder_path: str, mail_uid: str|list[str], flags: list[str]) -> None:
+        """Add flags to a mail (or list of mails) using UID.
         Wrapper selecting folder then using uid_store_flags primitive.
 
         :param folder_path: The folder containing the mail.
         :type folder_path: str
-        :param mail_uid: The UID of the mail to modify.
-        :type mail_uid: int
+        :param mail_uid: The UID or list of UIDs of the mail(s) to modify.
+        :type mail_uid: str|list[str]
         :param flags: list of flags to add (e.g., ['\\Seen', '\\Flagged']).
         :type flags: list[str]
         :raises RequestException: If the operation fails.
@@ -1675,14 +1675,14 @@ class ClientImap(ClientMailServer):
         else:
             raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
 
-    def remove_flags_to_mail(self, folder_path: str, mail_uid: str, flags: list[str]) -> None:
-        """remove flags to a mail using UID.
+    def remove_flags_to_mail(self, folder_path: str, mail_uid: str|list[str], flags: list[str]) -> None:
+        """remove flags to a mail (or list of mails) using UID.
         Wrapper selecting folder then using uid_store_flags primitive.
 
         :param folder_path: The folder containing the mail.
         :type folder_path: str
-        :param mail_uid: The UID of the mail to modify.
-        :type mail_uid: int
+        :param mail_uid: The UID or list of UIDs of the mail(s) to modify.
+        :type mail_uid: str|list[str]
         :param flags: list of flags to add (e.g., ['\\Seen', '\\Flagged']).
         :type flags: list[str]
         :raises RequestException: If the operation fails.
@@ -1934,7 +1934,7 @@ class ClientImap(ClientMailServer):
         if not success:
             # Create folder if it's not of type NORMAL and retry
             if folder_type != cs.MAIL_FOLDER_NORMAL:
-                logger_imap.info(f"Folder '{folder_path}' (type '{folder_type}') does not exist, creating it")
+                logger_imap.info("Folder '%s' (type '%s') does not exist, creating it", folder_path, folder_type)
                 self._imap_create_folder(quoted_folder, auto_sub=True, no_error_if_exist=True)
                 # Retry the append after folder creation
                 success, datas = self._exec_imap4_method(
