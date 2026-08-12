@@ -176,7 +176,7 @@ class ModuleMail:
         :raises RequestException: If connection or manager operations fail
         """
         client = self._open_client_for(account_id)
-        
+
         # Special folder types to create (excluding NORMAL and INBOX)
         special_folder_types = [
             cs.MAIL_FOLDER_SENT,
@@ -185,11 +185,11 @@ class ModuleMail:
             cs.MAIL_FOLDER_TRASH,
             cs.MAIL_FOLDER_TEMPLATE,
         ]
-        
+
         # Get list of existing folders
         existing_folders = client.list_folders()
         existing_types = {folder.get("type") for folder in existing_folders}
-        
+
         # Create missing special folders
         for folder_type in special_folder_types:
             if folder_type not in existing_types:
@@ -246,36 +246,93 @@ class ModuleMail:
         :raises RequestException: If validation or manager operations fail
         """
         raise NotImplementedError()
-        # self.client.select_mailbox(folder_name)
-        # new_name = folder_data.get("name")
-        # subscribed = folder_data.get("subscribed")
-        # folder_type = folder_data.get("type")
 
-        # # Rename folder if new name is provided and different
-        # final_folder_name = folder_name
-        # if new_name and new_name != folder_name:
-        #     self.client.rename_folder(folder_name, new_name)
-        #     final_folder_name = new_name
-        #     logger_mail_server.info("Renamed folder from '%s' to '%s'", folder_name, new_name)
 
-        # # Update subscription status if provided
-        # if subscribed is not None:
-        #     if subscribed in (1, "1", True):
-        #         self.client.subscribe_folder(final_folder_name)
-        #         logger_mail_server.info("Subscribed to folder '%s'", final_folder_name)
-        #     else:
-        #         self.client.unsubscribe_folder(final_folder_name)
-        #         logger_mail_server.info("Unsubscribed from folder '%s'", final_folder_name)
+    def rename_folder(self, account_id: str, folder_path: str, new_name: str) -> dict[str, Any]:
+        """Rename a mail folder.
 
-        # # Get updated folder details
-        # updated_details = self.client.get_one_folder(final_folder_name)
+        :param account_id: The account identifier
+        :type account_id: str
+        :param folder_path: The current path of the folder
+        :type folder_path: str
+        :param new_name: The new name for the folder
+        :type new_name: str
+        :return: Updated folder details
+        :rtype: dict[str, Any]
+        :raises RequestException: If validation or manager operations fail
+        """
+        client = self._open_client_for(account_id)
+        client.rename_folder(folder_path, new_name)
+        logger_mail_server.info("Renamed folder from '%s' to '%s'", folder_path, new_name)
+        return client.get_one_folder(new_name)
 
-        # # Update folder type if provided
-        # if folder_type:
-        #     updated_details["type"] = folder_type
-        #     #TODO: Manager BDD update quand on l'aura
 
-        # return updated_details
+    def change_folder_type(self, account_id: str, folder_path: str, new_type: str) -> dict[str, Any]:
+        """Change the type of a mail folder.
+
+        Only folders of type NORMAL can have their type changed.
+
+        :param account_id: The account identifier
+        :type account_id: str
+        :param folder_path: The path of the folder
+        :type folder_path: str
+        :param new_type: The new type for the folder (SENT, DRAFT, JUNK, TRASH, TEMPLATE, PLANNED)
+        :type new_type: str
+        :return: Updated folder details
+        :rtype: dict[str, Any]
+        :raises RequestException: If folder type cannot be changed or operation fails
+        """
+        # Validate the new type
+        valid_types = [
+            cs.MAIL_FOLDER_SENT,
+            cs.MAIL_FOLDER_DRAFT,
+            cs.MAIL_FOLDER_JUNK,
+            cs.MAIL_FOLDER_TRASH,
+            cs.MAIL_FOLDER_TEMPLATE,
+            cs.MAIL_FOLDER_PLANNED,
+        ]
+        new_type_upper = new_type.upper()
+        if new_type_upper not in valid_types:
+            raise RequestException(
+                f"Invalid folder type '{new_type}'. Valid types are: {', '.join(valid_types)}",
+                err.ERROR_FOLDER_TYPE_INVALID
+            )
+        
+        client = self._open_client_for(account_id)
+        
+        # Get current folder details to check its type
+        current_folder = client.get_one_folder(folder_path)
+        current_type = current_folder.get("type", cs.MAIL_FOLDER_NORMAL)
+        
+        # Only NORMAL folders can have their type changed
+        if current_type != cs.MAIL_FOLDER_NORMAL:
+            raise RequestException(
+                f"Cannot change type of folder '{folder_path}' (current type: {current_type}). "
+                f"Only folders of type NORMAL can have their type changed.",
+                err.ERROR_FOLDER_TYPE_CANNOT_CHANGE
+            )
+        
+        # Update the mapping in the client's folders_map_type_to_name
+        # This is ClientImap-specific, so we need to check if these attributes exist
+        if hasattr(client, 'folders_map_type_to_name') and hasattr(client, 'folders_map_name_to_type'):
+            # Store old mapping if one exists for this type
+            old_path = client.folders_map_type_to_name.get(new_type_upper)
+            if old_path and old_path != folder_path:
+                # Reset the old folder to NORMAL type
+                if old_path in client.folders_map_name_to_type:
+                    client.folders_map_name_to_type[old_path] = cs.MAIL_FOLDER_NORMAL
+            
+            # Update the mappings for the new type
+            client.folders_map_type_to_name[new_type_upper] = folder_path
+            client.folders_map_name_to_type[folder_path] = new_type_upper
+        
+        logger_mail_server.info("Changed folder '%s' type from '%s' to '%s'", folder_path, current_type, new_type_upper)
+        
+        # Get updated folder details
+        updated_folder = client.get_one_folder(folder_path)
+        # Ensure the type is reflected in the response
+        updated_folder["type"] = new_type_upper
+        return updated_folder
 
 
     def purge_folder_mails(self, account_id:str, folder_path: str, purge_data: dict[str, Any]) -> dict[str, int]:
@@ -343,6 +400,37 @@ class ModuleMail:
             account_id, total_deleted
         )
         return {"mails_deleted": total_deleted}
+
+    def empty_folder(self, account_id: str, folder_path: str) -> dict[str, int]:
+        """Completely empty a folder by permanently deleting all mails.
+
+        Only allowed for TRASH and JUNK folders. This operation is irreversible.
+
+        :param account_id: The account identifier ("0" for main, hash for external)
+        :type account_id: str
+        :param folder_path: The path of the folder to empty
+        :type folder_path: str
+        :return: dict with count of mails permanently deleted
+        :rtype: dict[str, int]
+        :raises RequestException: If folder type is not TRASH or JUNK
+        :raises RequestException: If connection or manager operations fail
+        """
+        client = self._open_client_for(account_id)
+
+        # Get folder details to check type
+        folder_details = client.get_one_folder(folder_path)
+        folder_type = folder_details.get("type", "").upper()
+
+        # Only allow emptying TRASH and JUNK folders
+        if folder_type not in (cs.MAIL_FOLDER_TRASH, cs.MAIL_FOLDER_JUNK):
+            raise RequestException(
+                f"Folder type '{folder_type}' cannot be emptied. Only TRASH and JUNK folders can be emptied.",
+                error=err.ERROR_FOLDER_CANNOT_EMPTY
+            )
+
+        mails_deleted = client.empty_folder(folder_path)
+        logger_mail_server.info("Successfully emptied folder '%s', permanently deleted %d message(s)", folder_path, mails_deleted)
+        return {"mails_deleted": mails_deleted}
 
     def get_folder_share(self, account_id: str, folder_path: str) -> Iterator[tuple[str, dict[str, int]]]:
         """

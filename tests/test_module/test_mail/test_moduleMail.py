@@ -33,6 +33,7 @@ class FakeClientMailServer:
         self.delete_folder_result = None
         self.expunge_folder_result = 5
         self.purge_folder_result = 10
+        self.empty_folder_result = 0
         self.fetch_mail_result = None   # set per test
         self.fetch_mail_raw_result = 'Subject: Test\r\n\r\nBody'
         self.get_acl_result = [('user1@example.com', {'userCanViewFolder': 1})]
@@ -65,6 +66,16 @@ class FakeClientMailServer:
         self.delete_folder_calls.append((folder_path, do_children))
         if self.delete_folder_result is not None:
             raise self.delete_folder_result
+
+    def rename_folder(self, folder_path, new_name):
+        """Rename a folder."""
+        # No error handling needed for basic case
+        return new_name
+
+    def change_folder_type(self, folder_path, new_type):
+        """Change the type of a folder."""
+        # No error handling needed for basic case
+        return new_type
 
     def expunge_folder(self, folder_path, do_subfolders=True):
         return self.expunge_folder_result
@@ -157,6 +168,10 @@ class FakeClientMailServer:
     def delete_mail_permanently_from_folder_type(self, folder_type, uid):
         """Delete a mail permanently from a folder type."""
         pass
+
+    def empty_folder(self, folder_path):
+        """Empty a folder by permanently deleting all mails."""
+        return self.empty_folder_result
 
 
 def _make_email_message(subject='Test', from_='sender@example.com',
@@ -509,6 +524,70 @@ def test_share_folder_success(monkeypatch):
     assert len(fake_client.set_acl_calls) >= 1
     # share_folder yields (identifier, rights) tuples
     assert any(item[0] == 'user1@example.com' for item in result)
+
+
+# ========== Tests for rename_folder ==========
+
+def test_rename_folder_success(monkeypatch):
+    """Test renaming a folder successfully."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.get_one_folder_result = {
+        'name': 'RenamedFolder',
+        'path': 'RenamedFolder',
+        'type': 'folder',
+        'subscribed': 1
+    }
+
+    result = module.rename_folder(ACCOUNT_ID, "OldFolder", "RenamedFolder")
+    
+    assert result['name'] == 'RenamedFolder'
+    assert result['path'] == 'RenamedFolder'
+
+
+def test_rename_folder_with_client_error(monkeypatch):
+    """Test renaming a folder with client error."""
+    module, fake_client = _make_module(monkeypatch)
+
+    def raise_error(*args, **kwargs):
+        raise RequestException("Cannot rename folder")
+
+    # Mock the rename operation to fail
+    fake_client.rename_folder = raise_error
+
+    with pytest.raises(RequestException, match="Cannot rename folder"):
+        module.rename_folder(ACCOUNT_ID, "INBOX", "NewName")
+
+
+# ========== Tests for change_folder_type ==========
+
+def test_change_folder_type_success(monkeypatch):
+    """Test changing folder type successfully."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.get_one_folder_result = {
+        'name': 'Archive',
+        'path': 'Archive',
+        'type': 'NORMAL', 
+        'subscribed': 1
+    }
+
+    result = module.change_folder_type(ACCOUNT_ID, "Archive", "JUNK")
+    
+    assert result['name'] == 'Archive'
+    # Result type will be the one from get_one_folder called again, which is 'folder'
+    # since we're not updating fake_client between calls
+
+
+def test_change_folder_type_with_client_error(monkeypatch):
+    """Test changing folder type with client error."""
+    module, fake_client = _make_module(monkeypatch)
+
+    def raise_error(*args, **kwargs):
+        raise RequestException("Cannot change folder type")
+
+    fake_client.get_one_folder = raise_error
+
+    with pytest.raises(RequestException, match="Cannot change folder type"):
+        module.change_folder_type(ACCOUNT_ID, "INBOX", "JUNK")
 
 
 # ========== Tests for perform_mail_action ==========
@@ -1031,3 +1110,217 @@ def test_share_folder_with_multiple_users(monkeypatch):
     identifiers = [call[1] for call in fake_client.set_acl_calls]
     assert 'user1@example.com' in identifiers
     assert 'user2@example.com' in identifiers
+
+
+# ========== Tests for empty_folder ==========
+
+def test_empty_folder_success_trash(monkeypatch):
+    """Test successfully emptying a TRASH folder."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.get_one_folder_result = {
+        'name': 'Trash',
+        'path': 'Trash',
+        'type': 'trash',
+        'subscribed': 1,
+        'children': []
+    }
+    fake_client.empty_folder_result = 10
+
+    result = module.empty_folder(ACCOUNT_ID, "Trash")
+    
+    assert result['mails_deleted'] == 10
+
+
+def test_empty_folder_success_junk(monkeypatch):
+    """Test successfully emptying a JUNK folder."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.get_one_folder_result = {
+        'name': 'Junk',
+        'path': 'Junk',
+        'type': 'junk',
+        'subscribed': 1,
+        'children': []
+    }
+    fake_client.empty_folder_result = 25
+
+    result = module.empty_folder(ACCOUNT_ID, "Junk")
+    
+    assert result['mails_deleted'] == 25
+
+
+def test_empty_folder_inbox_raises(monkeypatch):
+    """Test that emptying INBOX folder raises RequestException."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.get_one_folder_result = {
+        'name': 'INBOX',
+        'path': 'INBOX',
+        'type': 'inbox',
+        'subscribed': 1,
+        'children': []
+    }
+
+    with pytest.raises(RequestException, match="cannot be emptied"):
+        module.empty_folder(ACCOUNT_ID, "INBOX")
+
+
+def test_empty_folder_sent_raises(monkeypatch):
+    """Test that emptying SENT folder raises RequestException."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.get_one_folder_result = {
+        'name': 'Sent',
+        'path': 'Sent',
+        'type': 'sent',
+        'subscribed': 1,
+        'children': []
+    }
+
+    with pytest.raises(RequestException, match="cannot be emptied"):
+        module.empty_folder(ACCOUNT_ID, "Sent")
+
+
+def test_empty_folder_draft_raises(monkeypatch):
+    """Test that emptying DRAFT folder raises RequestException."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.get_one_folder_result = {
+        'name': 'Drafts',
+        'path': 'Drafts',
+        'type': 'draft',
+        'subscribed': 1,
+        'children': []
+    }
+
+    with pytest.raises(RequestException, match="cannot be emptied"):
+        module.empty_folder(ACCOUNT_ID, "Drafts")
+
+
+def test_empty_folder_custom_folder_raises(monkeypatch):
+    """Test that emptying a custom/normal folder raises RequestException."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.get_one_folder_result = {
+        'name': 'MyFolder',
+        'path': 'MyFolder',
+        'type': 'folder',
+        'subscribed': 1,
+        'children': []
+    }
+
+    with pytest.raises(RequestException, match="cannot be emptied"):
+        module.empty_folder(ACCOUNT_ID, "MyFolder")
+
+
+def test_empty_folder_empty_trash(monkeypatch):
+    """Test emptying a folder that is already empty."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.get_one_folder_result = {
+        'name': 'Trash',
+        'path': 'Trash',
+        'type': 'trash',
+        'subscribed': 1,
+        'children': []
+    }
+    fake_client.empty_folder_result = 0
+
+    result = module.empty_folder(ACCOUNT_ID, "Trash")
+    
+    assert result['mails_deleted'] == 0
+
+
+def test_empty_folder_with_client_error(monkeypatch):
+    """Test empty_folder propagates client error."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.get_one_folder_result = {
+        'name': 'Trash',
+        'path': 'Trash',
+        'type': 'trash',
+        'subscribed': 1,
+        'children': []
+    }
+    
+    def empty_folder_error(folder_path):
+        raise RequestException("Connection lost")
+    
+    fake_client.empty_folder = empty_folder_error
+
+    with pytest.raises(RequestException, match="Connection lost"):
+        module.empty_folder(ACCOUNT_ID, "Trash")
+
+
+def test_empty_folder_case_insensitive_type(monkeypatch):
+    """Test that folder type matching is case-insensitive."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.get_one_folder_result = {
+        'name': 'Trash',
+        'path': 'Trash',
+        'type': 'TRASH',  # uppercase
+        'subscribed': 1,
+        'children': []
+    }
+    fake_client.empty_folder_result = 5
+
+    result = module.empty_folder(ACCOUNT_ID, "Trash")
+    
+    assert result['mails_deleted'] == 5
+
+
+def test_empty_folder_junk_uppercase(monkeypatch):
+    """Test that JUNK folder type works in uppercase."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.get_one_folder_result = {
+        'name': 'Junk',
+        'path': 'Junk',
+        'type': 'JUNK',  # uppercase
+        'subscribed': 1,
+        'children': []
+    }
+    fake_client.empty_folder_result = 15
+
+    result = module.empty_folder(ACCOUNT_ID, "Junk")
+    
+    assert result['mails_deleted'] == 15
+
+
+def test_empty_folder_with_get_one_folder_error(monkeypatch):
+    """Test empty_folder when get_one_folder fails."""
+    module, fake_client = _make_module(monkeypatch)
+    
+    def get_one_folder_error(folder_path):
+        raise RequestException("Folder not found")
+    
+    fake_client.get_one_folder = get_one_folder_error
+
+    with pytest.raises(RequestException, match="Folder not found"):
+        module.empty_folder(ACCOUNT_ID, "NonExistent")
+
+
+def test_empty_folder_with_large_mails_count(monkeypatch):
+    """Test emptying a folder with large number of mails."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.get_one_folder_result = {
+        'name': 'Trash',
+        'path': 'Trash',
+        'type': 'trash',
+        'subscribed': 1,
+        'children': []
+    }
+    fake_client.empty_folder_result = 5000
+
+    result = module.empty_folder(ACCOUNT_ID, "Trash")
+    
+    assert result['mails_deleted'] == 5000
+
+
+def test_empty_folder_missing_type_in_response(monkeypatch):
+    """Test empty_folder when folder response is missing type field."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.get_one_folder_result = {
+        'name': 'SomeFolder',
+        'path': 'SomeFolder',
+        # missing 'type' field
+        'subscribed': 1,
+        'children': []
+    }
+
+    # Should raise because type defaults to empty string which is not TRASH or JUNK
+    with pytest.raises(RequestException, match="cannot be emptied"):
+        module.empty_folder(ACCOUNT_ID, "SomeFolder")
+

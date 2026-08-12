@@ -128,6 +128,44 @@ class InterfaceApiMailFolder:
             logger_api.error("Request exception in update_folder: %s", str(ex))
             return create_api_base_response(None, ex.error)
 
+    def rename_folder(self, account_id: str, folder_path: str, new_name: str) -> tuple[dict[str, Any], int]:
+        """Rename a mail folder.
+        
+        :param account_id: The ID of the account
+        :type account_id: str
+        :param folder_path: The current path of the folder
+        :type folder_path: str
+        :param new_name: The new name for the folder
+        :type new_name: str
+        :return: A tuple of (API response dict, status code)
+        :rtype: tuple[dict[str, Any], int]
+        """
+        try:
+            renamed_folder = self.mail_module.rename_folder(account_id, folder_path, new_name)
+            return create_api_base_response(renamed_folder)
+        except RequestException as ex:
+            logger_api.error("Request exception in rename_folder: %s", str(ex))
+            return create_api_base_response(None, ex.error)
+
+    def change_folder_type(self, account_id: str, folder_path: str, new_type: str) -> tuple[dict[str, Any], int]:
+        """Change the type of a mail folder.
+        
+        :param account_id: The ID of the account
+        :type account_id: str
+        :param folder_path: The path of the folder
+        :type folder_path: str
+        :param new_type: The new type for the folder
+        :type new_type: str
+        :return: A tuple of (API response dict, status code)
+        :rtype: tuple[dict[str, Any], int]
+        """
+        try:
+            updated_folder = self.mail_module.change_folder_type(account_id, folder_path, new_type)
+            return create_api_base_response(updated_folder)
+        except RequestException as ex:
+            logger_api.error("Request exception in change_folder_type: %s", str(ex))
+            return create_api_base_response(None, ex.error)
+
     def move_mails(
         self, account_id: str, folder_name: str, mail_uids: list[int], to_folder_name: str
     ) -> tuple[dict[str, Any], int]:
@@ -328,4 +366,23 @@ class InterfaceApiMailFolder:
             return create_api_base_response(share_info)
         except RequestException as ex:
             logger_api.error("Request exception in share_folder: %s", str(ex))
+            return create_api_base_response(None, ex.error)
+
+    def empty_folder(self, account_id: str, folder_path: str) -> tuple[dict[str, Any], int]:
+        """Completely empty a folder by permanently deleting all mails.
+
+        Only allowed for TRASH and JUNK folders.
+
+        :param account_id: The ID of the account
+        :type account_id: str
+        :param folder_path: The path of the folder to empty
+        :type folder_path: str
+        :return: A tuple of (API response dict with mails_deleted count, status code)
+        :rtype: tuple[dict[str, Any], int]
+        """
+        try:
+            result = self.mail_module.empty_folder(account_id, folder_path)
+            return create_api_base_response(result)
+        except RequestException as ex:
+            logger_api.error("Request exception in empty_folder: %s", str(ex))
             return create_api_base_response(None, ex.error)

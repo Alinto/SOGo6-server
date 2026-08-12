@@ -388,3 +388,156 @@ class FolderShareResponseSchema(ApiBaseResponse):
                 }
             }
         }
+
+
+class FolderRenameSchema(Schema):
+    """
+    Schema for renaming a mail folder.
+    """
+    name = fields.String(required=True)
+
+    @classmethod
+    def example(cls) -> dict:
+        """
+        Example data for folder rename.
+
+        :return: Example folder rename payload.
+        :rtype: dict
+        """
+        return {
+            "name": "NewFolderName"
+        }
+
+
+class FolderRenameResponseSchema(ApiBaseResponse):
+    """
+    Schema for POST /mailboxes/<account_id>/folders/<path:folder_name>/rename response
+    """
+    data = fields.Dict(required=False, allow_none=True)
+
+    @classmethod
+    def example(cls) -> dict:
+        """Example response for folder rename.
+        
+        :return: Example folder rename response
+        :rtype: dict
+        """
+        return {
+            "error_code": 0,
+            "error_msg": "",
+            "data": {
+                "name": "NewFolderName",
+                "path": "NewFolderName",
+                "subscribed": 1,
+                "type": "folder",
+                "unseen_count": 0,
+                "message_count": 10,
+                "children": []
+            }
+        }
+
+
+class FolderTypeSchema(Schema):
+    """
+    Schema for changing a mail folder type.
+    Valid types are: SENT, DRAFT, JUNK, TRASH, TEMPLATE, PLANNED
+    (note: only folders currently of type NORMAL can have their type changed)
+    """
+    type = fields.String(required=True)
+
+    @classmethod
+    def example(cls) -> dict:
+        """
+        Example data for folder type change.
+
+        :return: Example folder type change payload.
+        :rtype: dict
+        """
+        return {
+            "type": "SENT"
+        }
+
+
+class FolderTypeResponseSchema(ApiBaseResponse):
+    """
+    Schema for POST /mailboxes/<account_id>/folders/<path:folder_name>/type response
+    """
+    data = fields.Dict(required=False, allow_none=True)
+
+    @classmethod
+    def example(cls) -> dict:
+        """Example response for folder type change.
+        
+        :return: Example folder type change response
+        :rtype: dict
+        """
+        return {
+            "error_code": 0,
+            "error_msg": "",
+            "data": {
+                "name": "MyFolder",
+                "path": "MyFolder",
+                "subscribed": 1,
+                "type": "SENT",
+                "unseen_count": 0,
+                "message_count": 10,
+                "children": []
+            }
+        }
+
+
+class FolderEmptySchema(Schema):
+    """
+    Schema for emptying a mail folder.
+    Empty schema - no body required for this operation.
+    """
+
+    @classmethod
+    def example(cls) -> dict:
+        """
+        Example data for folder empty.
+
+        :return: Empty dict (no body required).
+        :rtype: dict
+        """
+        return {}
+
+
+class FolderEmptyResponseSchema(ApiBaseResponse):
+    """
+    Schema for POST /mailboxes/<account_id>/folders/<path:folder_name>/empty response
+    """
+    data = fields.Dict(required=False, allow_none=True)
+
+    @classmethod
+    def example(cls) -> dict:
+        """Example response for folder empty operation.
+        
+        :return: Example folder empty response with count of mails deleted
+        :rtype: dict
+        """
+        return {
+            "error_code": 0,
+            "error_msg": "",
+            "data": {
+                "mails_deleted": 42
+            }
+        }
+
+
+class FolderEmptyAsyncResponseSchema(Schema):
+    """
+    Schema for asynchronous POST /mailboxes/<account_id>/folders/<path:folder_name>/empty response (HTTP 202)
+    """
+    task_id = fields.Integer(required=True)
+
+    @classmethod
+    def example(cls) -> dict:
+        """Example response for asynchronous folder empty operation.
+        
+        :return: Example folder empty async response with task_id
+        :rtype: dict
+        """
+        return {
+            "task_id": 14
+        }

@@ -870,6 +870,66 @@ class ClientImap(ClientMailServer):
         else:
             raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
 
+    def empty_folder(self, folder_path: str) -> int:
+        """Completely empty a folder by deleting all mails permanently.
+
+        Performs the following IMAP operations in sequence:
+        1. UID STORE 1:* +FLAGS.SILENT (\\Deleted) - Mark all as deleted
+        2. EXPUNGE - Permanently remove deleted mails
+        3. DELETE ALL SUBFOLDERS - Remove all subfolders of the specified folder
+
+        :param folder_path: The name of the folder to empty.
+        :type folder_path: str
+        :return: The number of messages that were permanently deleted.
+        :rtype: int
+        :raises RequestException: If not connected to the server or if the operation fails.
+        """
+        logger_imap.debug("Emptying mailbox '%s'", folder_path)
+        if self.connection is not None and self.authenticated:
+            # select_mailbox will handle _fix_folder_path and quote
+            nb_mails = self.select_mailbox(folder_path)
+
+            expunged_count = 0
+
+            # If folder is not empty, mark and expunge all mails
+            if nb_mails > 0:
+                # Step 1: UID STORE 1:* +FLAGS.SILENT (\Deleted) - Mark all as deleted
+                success, datas = self._exec_imap4_method(self.connection.uid, 'STORE', '1:*', '+FLAGS.SILENT', '(\\Deleted)')
+                if not success:
+                    raise RequestException(f"Failed to mark mails as deleted in {folder_path}", err.ERROR_IMAP_FAILED)
+
+                logger_imap.debug("Marked mails as deleted in mailbox '%s': %s", folder_path, datas)
+
+                # Step 2: EXPUNGE - Permanently remove deleted mails
+                success, datas = self.connection.expunge()
+                if not success:
+                    raise RequestException(f"Failed to expunge mailbox {folder_path}", err.ERROR_IMAP_FAILED)
+
+                # Count only valid EXPUNGE responses (which contain message IDs)
+                # Filter out empty or non-tuple responses
+                if datas:
+                    expunged_count = len([d for d in datas if d])
+
+                logger_imap.debug("EXPUNGE response for '%s': %s (expunged_count=%d)", folder_path, datas, expunged_count)
+            else:
+                logger_imap.info("Mailbox '%s' is already empty", folder_path)
+
+            # Step 3: DELETE ALL SUBFOLDERS (always execute this, even if folder is empty)
+            delimiter = self._get_delimiter_for(folder_path)
+            pattern_folder_path = quote(f"{folder_path}{delimiter}*")
+            try:
+                for folder in self._imap_list_folders(pattern_folder_path):
+                    logger_imap.debug("Deleting subfolder '%s' of '%s'", folder.path, folder_path)
+                    success, _ = self._exec_imap4_method(self.connection.delete, folder.path)
+                    if not success:
+                        logger_imap.warning("Failed to delete subfolder '%s', continuing anyway", folder.path)
+            except RequestException as e:
+                logger_imap.warning("Error while listing subfolders of '%s': %s, continuing anyway", folder_path, e)
+
+            logger_imap.info("Emptied mailbox '%s', permanently deleted %d message(s)", folder_path, expunged_count)
+            return expunged_count
+        else:
+            raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
 
     def _is_folder_subscribed(self, folder_path: str) -> bool:
         """Check if a folder is subscribed.
