@@ -105,8 +105,11 @@ class InterfaceAuthUser:
                 self.module_user_profile.create_user_profile(user)
                 raw_gen: dict = self.module_user_profile.get_partial_user_preferences(uid, UserGeneralSettings.subparent.lower())
                 user_tz: str = raw_gen.get(UserGeneralSettings.subparent, {}).get("SOGO_U_TIMEZONE", "UTC")
-                self._module_calendar.create_personal_calendar(uid, tz=user_tz)
-                self._module_contact.create_personal_addressbook(uid)
+                personal_calendar = self._module_calendar.create_personal_calendar(uid, tz=user_tz)
+                personal_addressbook = self._module_contact.create_personal_addressbook(uid)
+                # Update the folders column with the personal calendar and addressbook keys
+                if personal_calendar.key and personal_addressbook.key:
+                    self.module_user_profile.update_user_folders(uid, personal_calendar.key, personal_addressbook.key)
                 module_mail = ModuleMail(user, MailSettingsObj(self.default_domain[MailSettings.subparent]), self.process)
                 module_mail.create_special_folders_if_not_exist(cs.DEFAULT_IDENTITY_KEY_VALUE)
         except RequestException as ex:
