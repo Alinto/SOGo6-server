@@ -20,6 +20,7 @@ from app.module.calendar.model.CalCalendar import CalCalendar
 from app.module.calendar.model.CalendarUser import CalendarUser
 from app.module.calendar.model.CalEventReminder import CalEventReminder
 from app.module.calendar.model.CalOrganizer import CalOrganizer
+from app.module.calendar.model.CalSyncResult import CalSyncResult
 from app.module.calendar.model.enums.AttendeeStatus import AttendeeStatus
 from app.module.calendar.model.enums.CalendarSourceType import CalendarSourceType
 from app.module.calendar.model.enums.CalendarSyncStatus import CalendarSyncStatus
@@ -552,23 +553,30 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
             logger_api.error("export_calendar failed for user %s key %s: %s", self.user.uid, key, ex)
             return create_api_base_response(None, ex.error)
 
-    def import_calendar(self, key: str, ics_text: str) -> tuple[dict[str, Any], int]:
-        """Enqueue an ICS import as an Agent job and return its ``job_id``.
+    def import_calendar(self, key: str, ics_text: str, is_async: bool = True) -> tuple[dict[str, Any], int]:
+        """Import an ICS payload into a calendar, optionally synchronously or asynchronously.
 
-        The import always runs in the background: the response carries a ``job_id``
-        (202). The caller polls ``GET /jobs/<job_id>`` until SUCCESS; the import
-        counters are then available in the job's ``result``.
+        When ``is_async=True`` (default), enqueues an Agent job and returns a ``job_id`` (202).
+        The caller polls ``GET /jobs/<job_id>`` until SUCCESS; the import counters are then
+        available in the job's ``result``.
+
+        When ``is_async=False``, applies the import synchronously and returns the counters
+        immediately (200).
 
         :param key: Opaque calendar key.
         :param ics_text: Decoded VCALENDAR text.
-        :return: API envelope with ``{"job_id": "..."}`` and status 202, or the
-            standard error envelope on failure.
+        :param is_async: Whether to run the import asynchronously (default: True).
+        :return: API envelope with counters and status 200 (sync), or job_id and status 202 (async).
         """
         try:
-            job_id: str = self.module.import_calendar(self.user, key, ics_text)
-            return create_api_base_response({"job_id": job_id}, code=202)
+            result = self.module.import_calendar(self.user, key, ics_text, is_async=is_async)
+            if is_async:
+                return create_api_base_response({"job_id": result}, code=202)
+            if isinstance(result, CalSyncResult):
+                return create_api_base_response(result.to_dict())
+            raise TypeError("Expected CalSyncResult for sync import")
         except RequestException as ex:
-            logger_api.error("import_calendar failed for user %s key %s: %s", self.user.uid, key, ex)
+            logger_api.error("import_calendar failed for user %s key %s is_async %s: %s", self.user.uid, key, is_async, ex)
             return create_api_base_response(None, ex.error)
 
     #
