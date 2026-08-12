@@ -68,7 +68,7 @@ def test_import_forwards_text_to_module():
     ics_text = "BEGIN:VCALENDAR\r\nFOO:bar\r\nEND:VCALENDAR\r\n"
     inter.import_calendar("cal-key", ics_text)
     # The route already decoded the upload; the interface hands the text through.
-    module.import_calendar.assert_called_once_with(inter.user, "cal-key", ics_text)
+    module.import_calendar.assert_called_once_with(inter.user, "cal-key", ics_text, is_async=True)
 
 
 def test_import_translates_request_exception_to_error_envelope():
