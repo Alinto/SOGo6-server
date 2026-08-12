@@ -122,7 +122,6 @@ class CalendarExportResponseSchema(ApiBaseResponse):
 class CalendarImportDataSchema(Schema):
     """Payload returned when an import is enqueued as an Agent job."""
 
-    job_id = fields.String(required=False, allow_none=True, metadata={"description": "Id of the enqueued Agent job (async only). Poll GET /jobs/<job_id> until status is SUCCESS; the import counters are then in the job's result {inserted, updated, deleted, total, skipped}."})
     inserted = fields.Integer(required=False, allow_none=True, metadata={"description": "Number of events inserted (sync only)."})
     updated = fields.Integer(required=False, allow_none=True, metadata={"description": "Number of events updated (sync only)."})
     deleted = fields.Integer(required=False, allow_none=True, metadata={"description": "Number of events deleted (sync only)."})

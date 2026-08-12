@@ -3,22 +3,36 @@ Decorator and schema to add an optional 'is_async' query parameter to Flask API 
 """
 from functools import wraps
 from typing import Callable, Any
-from marshmallow import Schema, fields
-from flask import g, request
 
+
+from flask import request
+from flask_smorest import Blueprint
+from marshmallow import Schema, fields
+from webargs.flaskparser import FlaskParser
+
+from app.utils.api.ApiBaseResponse import ApiBaseResponse
 
 class AsyncQueryArgsSchema(Schema):
     """Schema for optional 'is_async' query parameter."""
     is_async = fields.Boolean(
-        load_default=True,
-        dump_default=True,
+        load_default=False,
+        dump_default=False,
         metadata={
-            "description": "Whether to perform the action asynchronously. Defaults to true.",
+            "description": "Whether to perform the action asynchronously. Defaults to False.",
         }
     )
+    #TODO add a timeout parameter for is_async=False, emaning to call the main func using threading
 
+class AsyncResultSchema(Schema):
+    """Schema for async tasks"""
+    job_id = fields.String(required=False, allow_none=True)
 
-def async_endpoint(func: Callable) -> Callable:
+class ApiAsyncResultSchema(ApiBaseResponse):
+    """Response schema for the import endpoint (handles both async and sync modes)."""
+
+    data = fields.Nested(AsyncResultSchema, allow_none=True)
+
+def async_endpoint(blp: Blueprint) -> Callable:
     """
     Decorator to add an optional 'is_async' boolean query parameter to a Flask endpoint method.
     
@@ -32,14 +46,22 @@ def async_endpoint(func: Callable) -> Callable:
     :param func: The Flask view method function to decorate
     :return: The wrapped function
     """
-    @wraps(func)
-    def wrapper(*args: Any, **kwargs: Any) -> Any:
-        # Extract is_async directly from the query string
-        # Defaults to True (async execution) if not specified
-        is_async_value = request.args.get('is_async', 'true').lower()
-        g.is_async = is_async_value in ('true', '1', 'yes')
+    flask_parser = FlaskParser()
 
-        # Call the original function
-        return func(*args, **kwargs)
+    def decorator(func: Callable) -> Callable:
+        @wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            # Extract is_async directly from the query string
+            # Defaults to True (async execution) if not specified
+            is_async_obj = flask_parser.parse(AsyncQueryArgsSchema, request, location="query")
 
-    return wrapper
+            kwargs["is_async"] = is_async_obj["is_async"]
+
+            # Call the original function
+            return func(*args, **kwargs)
+
+        wrapped = blp.arguments(AsyncQueryArgsSchema, location="query", arg_name="is_async")(wrapper)
+        wrapped = blp.response(202, ApiAsyncResultSchema)(wrapped)
+        return wrapped
+
+    return decorator

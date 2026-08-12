@@ -187,11 +187,10 @@ class ApiCalendarImport(MethodView):
 
     accepted_content_types: set[str] = {"multipart/form-data"}
 
-    @async_endpoint
-    @blp.arguments(AsyncQueryArgsSchema, location="query", arg_name="query_args")
     @blp.arguments(CalendarImportUploadSchema, location="files")
-    @blp.response(202, CalendarImportResponseSchema)
-    def post(self, files: dict, query_args: dict, key: str) -> ResponseReturnValue:
+    @blp.response(200, CalendarImportResponseSchema)
+    @async_endpoint(blp)
+    def post(self, files: dict, is_async:bool, key: str) -> ResponseReturnValue:
         """Import an .ics file into a calendar, optionally synchronously or asynchronously.
 
         By default (or with ``?is_async=true``), the import runs in the background and returns
@@ -209,7 +208,7 @@ class ApiCalendarImport(MethodView):
         :return: Job ID and 202 status if async (query ?is_async=true, default),
                  or import counters and 200 status if sync (?is_async=false).
         """
-        logger_api.debug("POST /calendars/%s/import user=%s is_async=%s", key, g.user.uid, g.is_async)
+        logger_api.debug("POST /calendars/%s/import user=%s is_async=%s", key, g.user.uid, is_async)
         interface: InterfaceApiCalendarCalendar = g.inter
         upload: FileStorage | None = files.get("file")
         if upload is None:
@@ -219,7 +218,7 @@ class ApiCalendarImport(MethodView):
             ics_text: str = raw.decode("utf-8")
         except UnicodeDecodeError:
             ics_text = raw.decode("latin-1")
-        return interface.import_calendar(key, ics_text, is_async=g.is_async)
+        return interface.import_calendar(key, ics_text, is_async=is_async)
 
 
 @blp.route("/calendars/<string:key>/events")
