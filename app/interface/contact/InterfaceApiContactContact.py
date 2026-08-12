@@ -24,6 +24,7 @@ from app.module.contact.serializer.CardListSerializerDict import CardListSeriali
 from app.module.contact.serializer.CardListsSerializerList import CardListsSerializerList
 from app.module.contact.serializer.CardContactSerializerDict import CardContactSerializerDict
 from app.module.contact.serializer.CardContactsSerializerList import CardContactsSerializerList
+from app.module.user.ModuleUserProfile import ModuleUserProfile
 from app.service import sogo_agent, sogo_cache
 from app.utils.api.ApiBaseResponse import create_api_base_response
 from app.utils.db.Condition import Order
@@ -59,6 +60,7 @@ class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attribute
             user_domain_settings[UserModuleSettings.subparent]
         )
         self.module: ModuleContact = ModuleContact(process_setting, cache=sogo_cache(), agent=sogo_agent())
+        self._user_module: ModuleUserProfile = ModuleUserProfile(process_setting, user_domain_settings)
         self._addressbook_serializer: CardAddressBookSerializerDict = CardAddressBookSerializerDict()
         self._addressbooks_serializer: CardAddressBooksSerializerList = CardAddressBooksSerializerList()
         self._contact_serializer: CardContactSerializerDict = CardContactSerializerDict()
@@ -102,6 +104,11 @@ class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attribute
                 source_type=CardSourceType.LOCAL,
             )
             created: CardAddressBook = self.module.create_addressbook(self.user, book)
+            
+            # Add the addressbook key to the user's folders
+            if created.key:
+                self._user_module.add_folder_key(self.user.uid, "ADDRESSBOOKS", created.key)
+            
             return create_api_base_response(self._addressbook_serializer.serialize(created), code=201)
         except RequestException as ex:
             logger_api.error("create_addressbook failed for user %s: %s", self.user.uid, ex)
