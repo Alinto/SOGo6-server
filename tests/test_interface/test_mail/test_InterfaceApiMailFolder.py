@@ -51,17 +51,19 @@ class FakeUser:
 
 class InterfaceApiMailFolderWithInjectedConf(InterfaceApiMailFolder):
     """Subclass of InterfaceApiMailFolder that allows injecting user configuration directly for testing."""
-    def __init__(self, user_conf, mail_module=None):
+    def __init__(self, user_conf, mail_module=None, user_module=None):
         """Initialize with injected user configuration for testing.
         
         Does not call the parent __init__ to avoid requiring process_setting,
-        user_domain_settings and user. Sets mail_module directly if provided.
+        user_domain_settings and user. Sets mail_module and user_module directly if provided.
         """
         # Does not call the parent __init__ to avoid requiring all the parameters it needs
         self._user_conf = user_conf  # noqa: SLF001
         self.mail_module = mail_module
+        self.user_module = user_module
         self.user = FakeUser()
         self.user_domain_settings = {}
+        self.mail_settings = {}  # Empty dict for testing
 
 
 class FakeModuleMail:
@@ -167,15 +169,31 @@ class FakeModuleMail:
         return self.change_folder_type_result
 
 
-def make_interface(monkeypatch, fake_module, user_conf=None):
+class FakeModuleUserProfile:
+    """Fake ModuleUserProfile for testing InterfaceApiMailFolder.
+    
+    Provides a mock implementation of change_folder_type.
+    """
+    def __init__(self):
+        self.change_folder_type_args = None
+        self.change_folder_type_result = {"name": "Folder", "path": "Folder", "type": "SENT"}
+    
+    def change_folder_type(self, user, mail_settings, folder_path, new_type):
+        """Simulate changing folder type."""
+        self.change_folder_type_args = (folder_path, new_type)
+        return self.change_folder_type_result
+
+def make_interface(monkeypatch, fake_module, user_conf=None, fake_user_module=None):
     """Create an InterfaceApiMailFolderWithInjectedConf with the fake module injected."""
     if user_conf is None:
         user_conf = {"username": "test@example.com", "password": "pass", "type": "imap"}
+    if fake_user_module is None:
+        fake_user_module = FakeModuleUserProfile()
     monkeypatch.setattr(
         "app.interface.mail.InterfaceApiMailFolder.ModuleMail",
         lambda *args, **kwargs: fake_module
     )
-    return InterfaceApiMailFolderWithInjectedConf(user_conf, mail_module=fake_module)
+    return InterfaceApiMailFolderWithInjectedConf(user_conf, mail_module=fake_module, user_module=fake_user_module)
 
 
 def patch_module_on_interface(monkeypatch, fake_module):
@@ -519,22 +537,24 @@ def test_rename_folder_module_error(monkeypatch):
 
 def test_change_folder_type_success(monkeypatch):
     """Test changing folder type for a valid account."""
+    fake_user_module = FakeModuleUserProfile()
+    fake_user_module.change_folder_type_result = {"name": "Archive", "type": "JUNK"}
     fake_module = FakeModuleMail()
-    fake_module.change_folder_type_result = {"name": "Archive", "type": "JUNK"}
-    interface = make_interface(monkeypatch, fake_module)
+    interface = make_interface(monkeypatch, fake_module, fake_user_module=fake_user_module)
 
     result, status_code = interface.change_folder_type(account_id=0, folder_path="Archive", new_type="JUNK")
 
     assert status_code == 200
     assert result["data"]["type"] == "JUNK"
-    assert fake_module.change_folder_type_args == ("Archive", "JUNK")
+    assert fake_user_module.change_folder_type_args == ("Archive", "JUNK")
 
 
 def test_change_folder_type_module_error(monkeypatch):
     """Test error handling when folder type change fails."""
+    fake_user_module = FakeModuleUserProfile()
+    fake_user_module.change_folder_type = lambda *args, **kwargs: (_ for _ in ()).throw(RequestException("Cannot change type", err.ERROR_VALIDATION_ERROR))
     fake_module = FakeModuleMail()
-    fake_module.change_folder_type = lambda *args: (_ for _ in ()).throw(RequestException("Cannot change type", err.ERROR_VALIDATION_ERROR))
-    interface = make_interface(monkeypatch, fake_module)
+    interface = make_interface(monkeypatch, fake_module, fake_user_module=fake_user_module)
 
     result, status_code = interface.change_folder_type(account_id=0, folder_path="INBOX", new_type="JUNK")
 
