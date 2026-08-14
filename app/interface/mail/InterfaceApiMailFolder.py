@@ -4,6 +4,8 @@ from http import HTTPStatus
 
 from app.auth.User import User
 from app.factory.share.RepositoryAcl import AclEntry
+from app.module.mail.ModuleMail import ModuleMail
+from app.module.user.ModuleUserProfile import ModuleUserProfile
 from app.module.auth.ModuleUserSource import ModuleUserSource
 from app.module.mail.ModuleMail import ModuleMail
 from app.factory.share.shareMailFolder import FOLDER_PERMISSION_CODE_TO_RIGHT, right_to_camel
@@ -165,7 +167,7 @@ class InterfaceApiMailFolder:
         :rtype: tuple[dict[str, Any], int]
         """
         try:
-            updated_folder = self.mail_module.change_folder_type(account_id, folder_path, new_type)
+            updated_folder = self.user_module.change_folder_type(self.user, self.mail_settings, folder_path, new_type)
             return create_api_base_response(updated_folder)
         except RequestException as ex:
             logger_api.error("Request exception in change_folder_type: %s", str(ex))

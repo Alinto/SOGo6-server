@@ -281,6 +281,7 @@ def get_all_user_settings_schema() -> list[Type[SogoSchema]]:
                    UserContactCategorySettings,
                    UserMailGeneralSettings,
                    UserMailCategorySettings,
+                   UserMailViewSettings,
                    UserExtraSettings]
     return all_schemas
 
