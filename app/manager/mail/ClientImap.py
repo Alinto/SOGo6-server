@@ -394,7 +394,15 @@ class ClientImap(ClientMailServer):
 
             #Get capabilities
             capabilities: bytes = self.connection.response('CAPABILITY')[1][0]
-            self.capabilities = set(capabilities.decode().split())
+            if capabilities is None:
+                #Issue on getting the capabilities starting at pyhton 3.14.7 -> https://github.com/python/cpython/issues/155775
+                # The capabiltiies are nos in the datas [b'[CAPABILITY IMAP4rev1 XXX YYY ...] Logged in']
+                raw = datas[0].decode()
+                if raw.startswith("[CAPABILITY ") and raw.endswith("] Logged in"):
+                    capabilities = raw[12:-11]
+                    self.capabilities = capabilities.split()
+            else:
+                self.capabilities = set(capabilities.decode().split())
 
             #Get namespace
             self.namespace()
