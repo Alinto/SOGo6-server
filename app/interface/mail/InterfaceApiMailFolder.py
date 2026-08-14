@@ -4,6 +4,7 @@ from http import HTTPStatus
 
 from app.auth.User import User
 from app.module.mail.ModuleMail import ModuleMail
+from app.module.user.ModuleUserProfile import ModuleUserProfile
 from app.module.auth.ModuleUserSource import ModuleUserSource
 from app.config.settings.DomainSettings import MailSettings, MailSettingsObj
 from app.utils.exceptions import RequestException
@@ -29,6 +30,7 @@ class InterfaceApiMailFolder:
         self.user = user
 
         self.mail_module = ModuleMail(self.user, self.mail_settings)
+        self.user_module = ModuleUserProfile(process_setting, user_domain_settings)
 
     def get_folder_list(self, account_id: str) -> tuple[dict[str, Any], int]:
         """Retrieve the list of mail folders for a given account and return an ApiBaseResponse.
@@ -160,7 +162,7 @@ class InterfaceApiMailFolder:
         :rtype: tuple[dict[str, Any], int]
         """
         try:
-            updated_folder = self.mail_module.change_folder_type(account_id, folder_path, new_type)
+            updated_folder = self.user_module.change_folder_type(self.user, self.mail_settings, folder_path, new_type)
             return create_api_base_response(updated_folder)
         except RequestException as ex:
             logger_api.error("Request exception in change_folder_type: %s", str(ex))

@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, cast, Any
 from marshmallow import EXCLUDE, ValidationError
 
 from app.config.db import tables as tbl
-from app.config.settings.UserSettings import get_all_user_settings_schema, user_settings_dict
+from app.config.settings.UserSettings import get_all_user_settings_schema, user_settings_dict, UserMailViewSettings, UserMailViewSettingsObj
 from app.config.settings.SogoSchema import check_data_for_sogo_schemas
 from app.config.settings.DomainSettings import UserModuleSettingsObj, UserModuleSettings
 from app.utils import constants as cs
@@ -19,6 +19,7 @@ from app.utils.module.importManager import import_and_instantiate_manager
 
 if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
+    from app.config.settings.DomainSettings import MailSettingsObj
     from app.manager.db.ClientSQL import ClientSQL
     from app.auth.User import User
 
@@ -641,6 +642,77 @@ class ModuleUserProfile:
             real_subparent = user_settings_dict[subparent.lower()].subparent
             return new_data[real_subparent]
         return new_data
+
+    #Map a folder "type" to the domain setting (fixed by admin) and user setting (override by user)
+    #that hold the actual name of the corresponding special folder.
+    _SPECIAL_FOLDER_SETTINGS_MAP: dict[str, tuple[str, str]] = {
+        cs.MAIL_FOLDER_SENT: ("SOGO_D_MAIL_SENT", "SOGO_U_SENT_FOLDER_NAME"),
+        cs.MAIL_FOLDER_DRAFT: ("SOGO_D_MAIL_DRAFT", "SOGO_U_DRAFT_FOLDER_NAME"),
+        cs.MAIL_FOLDER_JUNK: ("SOGO_D_MAIL_JUNK", "SOGO_U_JUNK_FOLDER_NAME"),
+        cs.MAIL_FOLDER_TRASH: ("SOGO_D_MAIL_TRASH", "SOGO_U_TRASH_FOLDER_NAME"),
+        cs.MAIL_FOLDER_TEMPLATE: ("SOGO_D_MAIL_TEMPLATE", "SOGO_U_TEMPLATE_FOLDER_NAME"),
+    }
+
+    def change_folder_type(self, user: User, mail_settings: MailSettingsObj, folder_path: str, new_type: str) -> dict[str, Any]:
+        """Change the type of a mail folder.
+
+        Assigns the folder ``folder_path`` as the special folder for the given type (SENT, DRAFT, etc).
+        This updates the user's preference to associate that folder name with the special type.
+
+        :param user: The current user
+        :type user: User
+        :param mail_settings: The domain mail settings (holds admin-fixed folder names)
+        :type mail_settings: MailSettingsObj
+        :param folder_path: The path/name of the folder to assign as the special folder
+        :type folder_path: str
+        :param new_type: The new type for the folder (SENT, DRAFT, JUNK, TRASH, TEMPLATE)
+        :type new_type: str
+        :return: The updated folder data
+        :rtype: dict[str, Any]
+        :raises RequestException: If the type is invalid or the folder is already assigned to another special type
+        """
+        new_type_upper = new_type.upper()
+        setting_names = self._SPECIAL_FOLDER_SETTINGS_MAP.get(new_type_upper)
+        if setting_names is None:
+            logger_user_profile.error("Invalid folder type requested in change_folder_type: %s", new_type)
+            raise RequestException(err.ERROR_FOLDER_TYPE_INVALID.m, err.ERROR_FOLDER_TYPE_INVALID)
+        _, user_setting_name = setting_names
+
+        # Get the current user mail view settings
+        user_mail_view_prefs: dict = user.profile.preferences.get(UserMailViewSettings.subparent, {})
+        # Create a UserMailViewSettingsObj to access the current special folder names
+        user_mail_view_settings = UserMailViewSettingsObj(user_mail_view_prefs)
+
+        # Check that this folder is not already assigned to another special type
+        for other_type, (other_domain_setting, other_user_setting) in self._SPECIAL_FOLDER_SETTINGS_MAP.items():
+            if other_type == new_type_upper:
+                continue  # Skip the type we're trying to assign
+
+            # Get the current name for this other type, either from user settings or domain settings
+            other_current_name = getattr(user_mail_view_settings, other_user_setting) or getattr(mail_settings, other_domain_setting)
+
+            # If folder_path is already assigned to another special type, reject it
+            if folder_path == other_current_name:
+                logger_user_profile.error(
+                    "Folder '%s' is already assigned as '%s' type, cannot assign it to '%s'",
+                    folder_path, other_type, new_type_upper
+                )
+                raise RequestException(err.ERROR_FOLDER_TYPE_CANNOT_CHANGE.m, err.ERROR_FOLDER_TYPE_CANNOT_CHANGE)
+
+        # Update user preference to assign this folder as the special type
+        self.update_user_preferences(
+            user.uid,
+            {user_setting_name: folder_path},
+            subparent=UserMailViewSettings.subparent.lower()
+        )
+
+        logger_user_profile.info("Changed folder '%s' type to '%s' for uid: %s", folder_path, new_type_upper, user.uid)
+
+        return {
+            "name": folder_path,
+            "path": folder_path,
+            "type": new_type_upper,
+        }
 
     def get_delegations_given(self, user: User) -> list[str]:
         """
