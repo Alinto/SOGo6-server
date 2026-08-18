@@ -11,6 +11,8 @@ from app.utils import errors as err
 from app.utils.exceptions import BugException, RequestException
 
 if TYPE_CHECKING:
+    from app.factory.share.RepositoryAcl import AclEntry
+    from app.factory.share.shareCalendar import ShareCalendar
     from app.module.calendar.model.CalCalendar import CalCalendar
     from app.module.calendar.model.CalEvent import CalEvent
     from app.module.calendar.model.CalendarUser import CalendarUser
@@ -22,14 +24,20 @@ class CalendarAclEngine:
     """Resolves and enforces calendar permissions.
 
     Centralizes all ACL logic: permission resolution, action checks, and event sanitization.
-    Currently stubbed - owner gets full access, non-owner is denied.
-    Will be connected to the ACL module when it is implemented.
+    Owner gets full access; a non-owner's permissions are resolved from the sogo6_acl-backed
+    ``ShareCalendar`` when one is supplied, denied otherwise (e.g. legacy/unit-test callers that
+    construct the engine without a share resolver).
     """
+
+    def __init__(self, share: ShareCalendar | None = None) -> None:
+        self._share: ShareCalendar | None = share
 
     def get_permissions(self, calendar: CalCalendar, calendar_user: CalendarUser) -> CalendarPermissions:
         """Resolve the permissions for a user on a specific calendar.
 
-        Owner gets full access on local calendars. Non-owner is denied (stub).
+        Owner gets full access on local calendars. Non-owner's permissions come from the
+        sogo6_acl entry granted on this calendar (see ShareCalendar), or denied when none exists
+        or no share resolver was supplied.
         ICS calendars can be shared with overridden permissions, but events are never
         writable: levels are capped at VIEW_ALL and create/modify are always denied.
         """
@@ -44,13 +52,26 @@ class CalendarAclEngine:
                     can_delete=False,
                 )
             else:
-                # TODO: lookup shared permissions from the ACL module, then cap below
-                base = CalendarPermissions.denied()
+                base = self._resolve_shared_permissions(calendar, calendar_user)
             return self._cap_ics_permissions(base)
         if is_owner:
             return CalendarPermissions.owner()
-        # TODO: lookup real permissions from the ACL module
-        return CalendarPermissions.denied()
+        return self._resolve_shared_permissions(calendar, calendar_user)
+
+    def _resolve_shared_permissions(self, calendar: CalCalendar, calendar_user: CalendarUser) -> CalendarPermissions:
+        """Look up calendar_user.user's sogo6_acl entry on this calendar, or deny if none.
+
+        Falls back to the "anyone" share ("<default>") when calendar_user.user and the calendar
+        owner share the same mail domain - see ShareCalendar.get_user_or_anyone.
+        """
+        if self._share is None or calendar.key is None:
+            return CalendarPermissions.denied()
+        entry: AclEntry | None = self._share.get_user_or_anyone(
+            calendar_user.user.uid, calendar_user.owner.uid, calendar.key,
+        )
+        if entry is None:
+            return CalendarPermissions.denied()
+        return self._share.to_calendar_permissions(entry.rights)
 
     def check_permission(self, permissions: CalendarPermissions | None, action: CalendarPermissionAction,
                          event: CalEvent | None = None, calendar_user: CalendarUser | None = None) -> None:
