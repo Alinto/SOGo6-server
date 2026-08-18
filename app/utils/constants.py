@@ -30,6 +30,7 @@ USER_CLASS_GROUP = "group"     #Group of one or sevral users
 USER_CLASS_RES   = "ressource" #Ressource, location, room, things...
 USER_CLASS_ANY   = "anyone"    #Anyone (and anything) that can be authenticated
 USER_CLASS_ANON  = "anonymous"
+ANYONE_TO_USER = "<default>" #SOGo convention: the pseudo to_user marking a share granted to "anyone" (any authenticated user).
 # Sorted set used to index user sessions by last activity timestamp.
 # Each member is a ``user_session:<uuid>`` key and its score is the
 # Unix timestamp of the last activity.

@@ -247,6 +247,42 @@ class ModuleUserProfile:
         # Update the database
         self._update_user_column(uid, tbl.COL_USER_FOLDERS.name, current_folders)
 
+    def remove_folder_key(self, uid: str, folder_type: str, key: str, owner_key: str = "OWNER") -> None:
+        """
+        Remove a calendar or addressbook key from the folders column of a user profile.
+
+        Symmetric counterpart of :meth:`add_folder_key`. This is a no-op (besides a debug log) if
+        the folders column, folder_type, owner_key, or key don't exist.
+
+        :param uid: User unique identifier
+        :type uid: str
+        :param folder_type: Type of folder - "CALENDAR" or "ADDRESSBOOKS"
+        :type folder_type: str
+        :param key: Key of the calendar or addressbook to remove
+        :type key: str
+        :param owner_key: Owner section key - "OWNER" for personal, "EXT"/"SUBS" for external/shared, etc.
+        :type owner_key: str
+        :raises RequestException: If user profile not found
+        :raises AggravatedException: If multiple user profiles found or update fails
+        """
+        logger_user_profile.debug("Removing folder key for uid: %s, folder_type: %s, owner_key: %s, key: %s",
+                                  uid, folder_type, owner_key, key)
+
+        current_folders = self._get_user_column(uid, tbl.COL_USER_FOLDERS.name)
+
+        if not current_folders:
+            return
+
+        if folder_type not in current_folders or owner_key not in current_folders[folder_type]:
+            return
+
+        if key not in current_folders[folder_type][owner_key]:
+            return
+
+        del current_folders[folder_type][owner_key][key]
+
+        self._update_user_column(uid, tbl.COL_USER_FOLDERS.name, current_folders)
+
     def _get_user_column(self, uid: str, field_name: str) -> Any:
         """
         Generic method to get a specific field from user profile
