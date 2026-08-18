@@ -172,6 +172,8 @@ ERROR_SIEVE_SCRIPT_INVALID        = E("S001506", "Sieve script content is invali
 ERROR_SIEVE_LOGOUT                = E("S001507", "Sieve command issued while not connected", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_SIEVE_PUSH_FAILED           = E("S001508", "Failed To Push Filters To Sieve", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_SIEVE_CAPABILITY_NOT_FOUND  = E("S001509", "Sieve capability not found in server response", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_MAIL_FILTERING_DISABLED     = E("S001510", "Mail Filtering Is Disabled For This Domain", HTTPStatus.FORBIDDEN)
+ERROR_MAIL_FILTER_FEATURE_DISABLED = E("S001511", "This Mail Filter Feature Is Disabled For This Domain", HTTPStatus.FORBIDDEN)
 
 #Quota
 ERROR_IMAP_QUOTA_NOT_SUPPORTED = E("S000336", "IMAP server does not support QUOTA extension", HTTPStatus.NOT_IMPLEMENTED)
@@ -223,6 +225,7 @@ ERROR_CALENDAR_IMPORT_TOO_LARGE              = E("S000622", "Import Payload Exce
 ERROR_CALENDAR_PUBLIC_LINK_DISABLED          = E("S000623", "Public Calendar Link Is Disabled For This Domain", HTTPStatus.FORBIDDEN)
 ERROR_CALENDAR_EXPORT_FORMAT_UNSUPPORTED     = E("S000624", "Requested Export Format Is Not Supported", HTTPStatus.NOT_ACCEPTABLE)
 ERROR_CALENDAR_IMIP_SENDER_MISMATCH          = E("S000625", "iMIP Sender Is Not The Event Organizer", HTTPStatus.FORBIDDEN)
+ERROR_CALENDAR_SHARING_DISABLED              = E("S000626", "Calendar Sharing Is Disabled For This Domain", HTTPStatus.FORBIDDEN)
 
 #the contacts
 ERROR_CONTACT_JSON_PARSE_FAILED              = E("S000700", "Failed To Parse Contact JSON Content", HTTPStatus.UNPROCESSABLE_ENTITY)
@@ -263,6 +266,11 @@ ERROR_LDAP_NOT_UNIQUE_USER = E("S000904", "Ldap server returns more than 1 entry
 # ADMIN AUTH
 ERROR_ADMIN_LOGIN_FAILED   = E("S001000", "Admin Login Failed: Invalid Credentials", HTTPStatus.UNAUTHORIZED)
 ERROR_ADMIN_AUTH_NOT_CONFIG = E("S001001", "Admin Authentication Not Configured", HTTPStatus.PRECONDITION_FAILED)
+
+#SHARE (generic resource sharing: calendars, addressbooks, mail folders - sogo6_acl)
+ERROR_SHARE_NOT_FOUND             = E("S001100", "Share Not Found", HTTPStatus.NOT_FOUND)
+ERROR_SHARE_TARGET_USER_NOT_FOUND = E("S001101", "Target User Not Found", HTTPStatus.NOT_FOUND)
+ERROR_SHARE_CANNOT_SHARE_WITH_SELF = E("S001102", "Cannot Share A Resource With Its Own Owner", HTTPStatus.BAD_REQUEST)
 
 #the bugs
 ERROR_UNKOWN = E("S999999", "Undefined Error", HTTPStatus.INTERNAL_SERVER_ERROR)
