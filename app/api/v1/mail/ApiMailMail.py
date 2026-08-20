@@ -140,6 +140,8 @@ class ApiMailFolderIdAction(MethodView):
         * **ham**: Mark the selected mails as not spam.
         * **copy**: Copy the selected mails to another folder. The destination folder name must be provided in the ``data`` field as a string.
         * **delete**: Delete the selected mails, following the user's mail delete behavior preference.
+        * **illegal**: Report the selected mails as illegal content and move them to the Junk folder.
+        * **phishing**: Report the selected mails as phishing and move them to the Junk folder.
 
         :param data: The batch action data containing 'uids', 'action' and optional 'data' field
         :type data: dict
@@ -229,6 +231,8 @@ class ApiMailDetailAction(MethodView):
         * **ham**: Mark the mail as not spam.
         * **copy**: Copy the mail to another folder. The destination folder name must be provided in the ``data`` field as a string.
         * **delete**: Delete the mail, following the user's mail delete behavior preference.
+        * **illegal**: Report the mail as illegal content and move it to the Junk folder.
+        * **phishing**: Report the mail as phishing and move it to the Junk folder.
 
         :param data: The action data containing 'action' and optional 'data' field
         :type data: dict

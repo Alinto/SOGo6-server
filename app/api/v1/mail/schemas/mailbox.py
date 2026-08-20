@@ -583,6 +583,67 @@ class MailboxPurgeSchema(Schema):
         }
 
 
+class MailboxBatchActionSchema(Schema):
+    """
+    Schema for POST /mailboxes/<account_id>/batch-action - Perform an action on multiple mails
+    spanning multiple folders of the same account in a single call.
+    """
+    uids = fields.Dict(
+        keys=fields.String(),
+        values=fields.List(fields.Integer(), validate=validate.Length(min=1)),
+        required=True,
+        validate=validate.Length(min=1)
+    )
+    action = fields.String(
+        required=True,
+        validate=validate.OneOf(['tag', 'untag', 'move', 'spam', 'ham', 'copy', 'delete', 'illegal', 'phishing'])
+    )
+    data = fields.Raw(required=False, allow_none=True)
+
+    @classmethod
+    def example(cls) -> dict:
+        """Example data for mailbox batch action.
+
+        :return: Example mailbox batch action payload
+        :rtype: dict
+        """
+        return {
+            "uids": {
+                "INBOX": [42, 43, 27, 21],
+                "Trash": [42, 43]
+            },
+            "action": "tag",
+            "data": ["important"]
+        }
+
+
+class MailboxBatchActionResponseSchema(ApiBaseResponse):
+    """
+    Schema for POST /mailboxes/<account_id>/batch-action response
+    """
+    data = fields.Dict(required=False, allow_none=True)
+
+    @classmethod
+    def example(cls) -> dict:
+        """Example response for mailbox batch action.
+
+        :return: Example mailbox batch action response
+        :rtype: dict
+        """
+        return {
+            "error_code": 0,
+            "error_msg": "",
+            "data": {
+                "action": "tag",
+                "results": {
+                    "INBOX": {"action": "tag", "mail_uid": ["42", "43", "27", "21"], "tags_added": ["important"]},
+                    "Trash": {"action": "tag", "mail_uid": ["42", "43"], "tags_added": ["important"]}
+                },
+                "errors": {}
+            }
+        }
+
+
 class MailboxPurgeResponseSchema(ApiBaseResponse):
     """
     Schema for POST /mailboxes/<account_id>/purge response
