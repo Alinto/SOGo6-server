@@ -22,7 +22,7 @@ from app.utils.exceptions import RequestException, BugException
 from app.utils.maths.crypto_utils import decrypt_password
 from app.utils.module.importManager import import_and_instantiate_manager
 from app.utils.logger.logger import logger_mail_server
-from app.utils.strings import get_imap_config_from_url, get_domain_from_mail, get_domain_from_contact
+from app.utils.strings import get_imap_config_from_url, get_domain_from_mail, get_domain_from_contact, encode_imap_tag, decode_imap_tag
 from app.utils.constants import DELETE_MAIL_BEHAVIOR_MAP
 
 if TYPE_CHECKING:
@@ -654,7 +654,7 @@ class ModuleMail:
             "answered": flags_dict.get('answered', False),
             "forwarded": flags_dict.get('forwarded', False),
             "deleted": flags_dict.get('deleted', False),
-            "flags": flags_dict.get('all', []),
+            "flags": [decode_imap_tag(flag) for flag in flags_dict.get('all', [])],
             "to": to,
             "from": from_,
             "cc": cc,
@@ -1592,7 +1592,10 @@ class ModuleMail:
         else:
             raise RequestException("Tags must be a string or list of strings", err.ERROR_MISSING_ACTION_DATA)
 
-        client.add_flags_to_mail(folder_name, mail_uid, tag_list)
+        # IMAP flags are atoms and cannot contain spaces/special chars; encode (reversibly) before sending
+        encoded_tags = [encode_imap_tag(tag) for tag in tag_list]
+
+        client.add_flags_to_mail(folder_name, mail_uid, encoded_tags)
 
         return {"action": "tag", "mail_uid": mail_uid, "tags_added": tag_list}
 
@@ -1620,7 +1623,10 @@ class ModuleMail:
         else:
             raise RequestException("Tags must be a string or list of strings", err.ERROR_MISSING_ACTION_DATA)
 
-        client.remove_flags_to_mail(folder_name, mail_uid, tag_list)
+        # IMAP flags are atoms and cannot contain spaces/special chars; encode (reversibly) before sending
+        encoded_tags = [encode_imap_tag(tag) for tag in tag_list]
+
+        client.remove_flags_to_mail(folder_name, mail_uid, encoded_tags)
 
         return {"action": "untag", "mail_uid": mail_uid, "tags_removed": tag_list}
 
