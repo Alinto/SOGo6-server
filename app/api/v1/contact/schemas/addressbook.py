@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from marshmallow import Schema, fields, validate
+from typing import Any
+
+from marshmallow import Schema, fields, validate, validates_schema, ValidationError
 
 from app.utils.api.ApiBaseResponse import ApiBaseResponse
 
@@ -83,3 +85,164 @@ class ContactImportUploadSchema(Schema):
         metadata={"type": "string", "format": "binary",
                   "description": "The JSON (.json), vCard (.vcf) or LDIF (.ldif) file to import."},
     )
+
+
+class ContactShareRightsSchema(Schema):
+    """Permission rights for an address book share."""
+
+    can_view = fields.Boolean(required=True, metadata={"description": "Can view contacts and lists", "example": True})
+    can_create_objects = fields.Boolean(required=True, metadata={"description": "Can create contacts and lists", "example": True})
+    can_edit_objects = fields.Boolean(required=True, metadata={"description": "Can edit contacts and lists", "example": True})
+    can_erase_objects = fields.Boolean(required=True, metadata={"description": "Can delete contacts and lists", "example": False})
+
+
+class ContactShareUserSchema(Schema):
+    """User permission entry in address book sharing.
+
+    ``c_email`` and ``uid`` are required unless ``user_class`` is ``"anyone"``, in which case
+    they are ignored (the share applies to any authenticated user, not a specific one).
+    """
+
+    c_email = fields.String(required=False, allow_none=True, metadata={"description": "User email address", "example": "jdoe@example.org"})
+    uid = fields.String(required=False, allow_none=True, metadata={"description": "User UID", "example": "jdoe"})
+    user_class = fields.String(
+        required=True,
+        validate=validate.OneOf(["user", "anyone"]),
+    )
+    rights = fields.Nested(ContactShareRightsSchema, required=True, metadata={"description": "Permission rights for this user"})
+
+    @validates_schema
+    def validate_user_identity(self, data: dict[str, Any], **kwargs: Any) -> None:  # pylint: disable=unused-argument
+        """Require c_email and uid unless user_class is 'anyone'."""
+        if data.get("user_class") == "anyone":
+            return
+        errors: dict[str, list[str]] = {}
+        if not data.get("c_email"):
+            errors["c_email"] = ["Missing data for required field."]
+        if not data.get("uid"):
+            errors["uid"] = ["Missing data for required field."]
+        if errors:
+            raise ValidationError(errors)
+
+
+class ContactSharePatchSchema(ContactShareUserSchema):
+    """Request body item for PATCH /addressbooks/{key}/share - partial update of user permissions.
+
+    The endpoint expects a JSON list of these objects (use with ``many=True``).
+    Only the users specified in the request are modified. Other existing permissions remain unchanged.
+    """
+
+    class Meta:
+        ordered = True
+
+    @staticmethod
+    def example() -> list[dict[str, Any]]:
+        """Example data for Swagger documentation."""
+        return [
+            {
+                "c_email": "jdoe@example.org",
+                "uid": "jdoe",
+                "user_class": "user",
+                "rights": {
+                    "can_view": True,
+                    "can_create_objects": True,
+                    "can_edit_objects": True,
+                    "can_erase_objects": False
+                }
+            }
+        ]
+
+
+class ContactSharePutSchema(ContactShareUserSchema):
+    """Request body item for PUT /addressbooks/{key}/share - replace all user permissions.
+
+    The endpoint expects a JSON list of these objects (use with ``many=True``).
+    All existing permissions are replaced by the users specified in the request.
+    """
+
+    class Meta:
+        ordered = True
+
+    @staticmethod
+    def example() -> list[dict[str, Any]]:
+        """Example data for Swagger documentation."""
+        return [
+            {
+                "c_email": "jdoe@example.org",
+                "uid": "jdoe",
+                "user_class": "user",
+                "rights": {
+                    "can_view": True,
+                    "can_create_objects": True,
+                    "can_edit_objects": True,
+                    "can_erase_objects": False
+                }
+            },
+            {
+                "c_email": "alice@example.org",
+                "uid": "alice",
+                "user_class": "user",
+                "rights": {
+                    "can_view": True,
+                    "can_create_objects": True,
+                    "can_edit_objects": True,
+                    "can_erase_objects": True
+                }
+            }
+        ]
+
+
+class ContactSharePostSchema(ContactShareUserSchema):
+    """Request body item for POST /addressbooks/{key}/share - grant full permissions to users.
+
+    The endpoint expects a JSON list of these objects (use with ``many=True``).
+    Grants full view/create/edit/erase rights to the specified users, regardless of the rights
+    carried in the request body.
+    """
+
+    class Meta:
+        ordered = True
+
+    @staticmethod
+    def example() -> list[dict[str, Any]]:
+        """Example data for Swagger documentation."""
+        return [
+            {
+                "c_email": "jdoe@example.org",
+                "uid": "jdoe",
+                "user_class": "user",
+                "rights": {
+                    "can_view": True,
+                    "can_create_objects": True,
+                    "can_edit_objects": True,
+                    "can_erase_objects": True
+                }
+            }
+        ]
+
+
+class ContactShareResponseSchema(ApiBaseResponse):
+    """Response schema for address book sharing endpoints. ``data`` is a plain list of users."""
+
+    data = fields.List(fields.Nested(ContactShareUserSchema), allow_none=True)
+
+    @staticmethod
+    def example() -> dict[str, Any]:
+        """Example full envelope for Swagger documentation."""
+        return {
+            "data": [
+                {
+                    "c_email": "jdoe@example.org",
+                    "uid": "jdoe",
+                    "user_class": "user",
+                    "rights": {
+                        "can_view": True,
+                        "can_create_objects": True,
+                        "can_edit_objects": True,
+                        "can_erase_objects": False
+                    }
+                }
+            ],
+            "error_code": "S000000",
+            "error_msg": "No Error"
+        }
