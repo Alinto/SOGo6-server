@@ -8,6 +8,7 @@ from app.module.contact.ContactConst import (
     ALLOWED_FILE_MIME_TYPES, DEFAULT_ADDRESSBOOK_NAME, FILE_MAX_SIZE_KB, IMPORT_MAX_BYTES,
 )
 from app.module.contact.acl.ContactAclEngine import ContactAclEngine
+from app.factory.share.shareContact import FULL_MODIFY_RIGHTS, ShareContact
 from app.module.contact.jobs.ContactJobKind import ContactJobKind
 from app.module.contact.jobs.JobRequestExportContact import JobRequestExportContact
 from app.module.contact.jobs.JobRequestImportContact import JobRequestImportContact
@@ -28,6 +29,7 @@ if TYPE_CHECKING:
     from app.auth.User import User
     from app.config.settings.DomainSettings import UserSourceSettingsObj
     from app.config.settings.ProcessSetting import ProcessSetting
+    from app.factory.share.RepositoryAcl import AclEntry
     from app.manager.agent.ClientAgent import ClientAgent
     from app.manager.cache.ClientRedis import ClientRedis
     from app.manager.db.ClientSQL import ClientSQL
@@ -52,8 +54,9 @@ class ModuleContact:  # pylint: disable=too-many-public-methods
         self._db.connect()
         self._cache: ClientRedis | None = cache
         self._agent: ClientAgent | None = agent
-        self._sources: ContactSources = ContactSources(self._db)
-        self._acl: ContactAclEngine = ContactAclEngine()
+        self._share: ShareContact = ShareContact(self._db)
+        self._sources: ContactSources = ContactSources(self._db, share=self._share)
+        self._acl: ContactAclEngine = ContactAclEngine(share=self._share)
         self._file: ClientStorage = import_and_instantiate_manager(
             module_path="app.manager.storage",
             module_and_class_name=f"ClientStorage{process_settings.SOGO_P_STORAGE_TYPE.capitalize()}",
@@ -141,10 +144,93 @@ class ModuleContact:  # pylint: disable=too-many-public-methods
     def delete_addressbook(
         self, user: User, key: str, hard_delete: bool = False,
         user_sources: dict[str, UserSourceSettingsObj] | None = None,
-    ) -> None:
-        """Delete an address book; its contacts are tombstoned and detached (soft) or removed (hard)."""
+    ) -> list[str]:
+        """Delete an address book; its contacts are tombstoned and detached (soft) or removed (hard).
+
+        Also cleans up any sogo6_acl rows granting other users access to this address book.
+
+        :return: the list of uids that had a share on this address book (so the interface layer can
+            clean up their folders.ADDRESSBOOKS.SUBS entry too).
+        """
         source: ContactSource = self._get_writable_addressbook(user, key, user_sources)
+        shared_uids: list[str] = [entry.to_user for entry in self._share.get_permissions(key)]
         source.delete_addressbook(hard_delete=hard_delete)
+        self._share.remove_all_permissions_for_key(key)
+        return shared_uids
+
+    #
+    # Address book sharing
+    #
+    def _require_owned_addressbook(self, user: User, key: str) -> ContactSource:
+        """Return the address book source, raising ACCESS_DENIED if user is not its owner.
+
+        Sharing management (list / grant / patch / put) is an owner-only operation: get_addressbook
+        now also resolves address books merely shared with user, so an explicit ownership check is
+        required here to prevent a sharee from managing the resource's ACL.
+        """
+        source: ContactSource = self.get_addressbook(user, key)
+        if source.addressbook.user_uid != user.uid:
+            raise RequestException(error=err.ERROR_CONTACT_ACCESS_DENIED)
+        return source
+
+    def get_addressbook_share(self, user: User, key: str) -> list[AclEntry]:
+        """Return all ACL entries (one per user) granted on the address book identified by key.
+
+        The caller must be the owner of the address book.
+        """
+        self._require_owned_addressbook(user, key)
+        return self._share.get_permissions(key)
+
+    def grant_addressbook_share(self, user: User, key: str, target_uids: list[str]) -> list[AclEntry]:
+        """Grant full permissions on the address book to one or several users.
+
+        :param user: the acting user, must own the address book.
+        :param key: opaque key of the address book to share.
+        :param target_uids: uids to grant full permissions to.
+        :raises RequestException: ERROR_CONTACT_ADDRESSBOOK_NOT_FOUND if the address book does not
+            exist; ERROR_CONTACT_ACCESS_DENIED if user does not own it;
+            ERROR_SHARE_CANNOT_SHARE_WITH_SELF if a target uid is the owner itself.
+        """
+        book: CardAddressBook = self._require_owned_addressbook(user, key).addressbook
+        for target_uid in target_uids:
+            self._share.add_permissions(target_uid, key, book.user_uid, dict(FULL_MODIFY_RIGHTS))
+        return self._share.get_permissions(key)
+
+    def patch_addressbook_share(self, user: User, key: str, users: list[dict]) -> list[AclEntry]:
+        """Grant or update rights for one or several users, leaving other existing shares untouched.
+
+        :param user: the acting user, must own the address book.
+        :param key: opaque key of the address book to share.
+        :param users: list of ``{"uid": ..., "rights": {...}}`` entries to upsert.
+        :raises RequestException: ERROR_CONTACT_ADDRESSBOOK_NOT_FOUND if the address book does not
+            exist; ERROR_CONTACT_ACCESS_DENIED if user does not own it;
+            ERROR_SHARE_CANNOT_SHARE_WITH_SELF if a target uid is the owner itself.
+        """
+        book: CardAddressBook = self._require_owned_addressbook(user, key).addressbook
+        for entry in users:
+            self._share.add_permissions(entry["uid"], key, book.user_uid, entry["rights"])
+        return self._share.get_permissions(key)
+
+    def put_addressbook_share(self, user: User, key: str, users: list[dict]) -> list[AclEntry]:
+        """Replace all existing shares on the address book with exactly the given users' rights.
+
+        Any user currently shared with but absent from ``users`` is revoked.
+
+        :param user: the acting user, must own the address book.
+        :param key: opaque key of the address book to share.
+        :param users: list of ``{"uid": ..., "rights": {...}}`` entries; becomes the full set of shares.
+        :raises RequestException: ERROR_CONTACT_ADDRESSBOOK_NOT_FOUND if the address book does not
+            exist; ERROR_CONTACT_ACCESS_DENIED if user does not own it;
+            ERROR_SHARE_CANNOT_SHARE_WITH_SELF if a target uid is the owner itself.
+        """
+        book: CardAddressBook = self._require_owned_addressbook(user, key).addressbook
+        new_uids: set[str] = {entry["uid"] for entry in users}
+        for existing in self._share.get_permissions(key):
+            if existing.to_user not in new_uids:
+                self._share.remove_permissions(existing.to_user, key)
+        for entry in users:
+            self._share.add_permissions(entry["uid"], key, book.user_uid, entry["rights"])
+        return self._share.get_permissions(key)
 
     #
     # Contacts
