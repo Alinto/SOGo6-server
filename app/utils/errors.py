@@ -248,6 +248,7 @@ ERROR_CONTACT_IMPORT_NO_FILE                 = E("S000716", "No File Provided In
 ERROR_CONTACT_IMPORT_TOO_LARGE               = E("S000717", "Import Payload Exceeds Maximum Allowed Size", HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
 ERROR_CONTACT_IMPORT_PARSE_FAILED            = E("S000718", "Failed To Parse The Import Document", HTTPStatus.UNPROCESSABLE_ENTITY)
 ERROR_CONTACT_DISPLAY_NAME_REQUIRED          = E("S000719", "Contact Display Name Is Required", HTTPStatus.UNPROCESSABLE_ENTITY)
+ERROR_CONTACT_SHARING_DISABLED               = E("S000720", "Address Book Sharing Is Disabled For This Domain", HTTPStatus.FORBIDDEN)
 
 #AGENT / TASK
 ERROR_JOB_NOT_FOUND        = E("S000800", "Job Not Found", HTTPStatus.NOT_FOUND)

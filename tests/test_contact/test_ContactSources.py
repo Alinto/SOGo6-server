@@ -17,6 +17,7 @@ def _build():
     sources = object.__new__(ContactSources)
     sources._db = MagicMock()
     sources._repo_addressbook = MagicMock()
+    sources._share = None
     return sources
 
 

@@ -748,7 +748,7 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         """
         for target_uid in target_uids:
             if target_uid == cs.ANYONE_TO_USER:
-                continue
+                continue # The "anyone" pseudo-user has no real folders to update, so skip it.
             self._user_module.add_folder_key(target_uid, "CALENDAR", key, owner_key="SUBS")
 
     def _serialize_share_entries(self, entries: list[AclEntry]) -> list[dict[str, Any]]:

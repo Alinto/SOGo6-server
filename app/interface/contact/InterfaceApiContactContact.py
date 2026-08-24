@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any
 
 from app.config.settings.DomainSettings import (
@@ -8,6 +9,8 @@ from app.config.settings.DomainSettings import (
     UserModuleSettings,
     UserModuleSettingsObj,
 )
+from app.factory.share.RepositoryAcl import AclEntry
+from app.module.auth.ModuleUserSource import ModuleUserSource
 from app.module.contact.ContactConst import AUTOCOMPLETE_DEFAULT_LIMIT
 from app.module.contact.ModuleContact import ModuleContact
 from app.module.contact.jobs.ContactJobKind import ContactJobKind
@@ -35,6 +38,7 @@ from app.utils.errors import (
 from app.utils.exceptions import RequestException
 from app.auth.User import User
 from app.utils.logger.logger import logger_api
+from app.utils import constants as cs
 
 if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
@@ -53,6 +57,7 @@ class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attribute
     def __init__(self, process_setting: ProcessSetting, user_domain_settings: dict, user: User) -> None:
         self.user: User = user
         self._process_setting: ProcessSetting = process_setting
+        self._user_domain_settings: dict = user_domain_settings
         self.settings: CalendarContactSettingsObj = CalendarContactSettingsObj(
             user_domain_settings[CalendarContactSettings.subparent]
         )
@@ -126,11 +131,130 @@ class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attribute
     def delete_addressbook(self, key: str) -> tuple[dict[str, Any], int]:
         """Delete an address book and all its contacts."""
         try:
-            self.module.delete_addressbook(self.user, key)
+            shared_uids: list[str] = self.module.delete_addressbook(self.user, key)
+            for shared_uid in shared_uids:
+                self._user_module.remove_folder_key(shared_uid, "ADDRESSBOOKS", key, owner_key="SUBS")
             return create_api_base_response(None)
         except RequestException as ex:
             logger_api.error("delete_addressbook failed for user %s key %s: %s", self.user.uid, key, ex)
             return create_api_base_response(None, ex.error)
+
+    #
+    # Address book sharing
+    #
+    def get_addressbook_share(self, key: str) -> tuple[dict[str, Any], int]:
+        """Get all user permissions for an address book.
+
+        :param key: Address book key.
+        :return: API envelope with list of users and their permission levels.
+        """
+        try:
+            entries: list[AclEntry] = self.module.get_addressbook_share(self.user, key)
+            return create_api_base_response(self._serialize_share_entries(entries))
+        except RequestException as ex:
+            logger_api.error("get_addressbook_share failed for user %s key %s: %s", self.user.uid, key, ex)
+            return create_api_base_response(None, ex.error)
+
+    def patch_addressbook_share(self, key: str, body: list[dict[str, Any]]) -> tuple[dict[str, Any], int]:
+        """Partially update user permissions for an address book.
+
+        Only the users specified in the request body are modified.
+        Other existing permissions remain unchanged.
+
+        :param key: Address book key.
+        :param body: List of users (uid and rights) to update.
+        :return: API envelope with updated user permissions.
+        """
+        try:
+            users: list[dict[str, Any]] = [{"uid": self._resolve_to_user(entry), "rights": entry["rights"]} for entry in body]
+            entries: list[AclEntry] = self.module.patch_addressbook_share(self.user, key, users)
+            self._grant_folder_subs_keys([u["uid"] for u in users], key)
+            return create_api_base_response(self._serialize_share_entries(entries))
+        except RequestException as ex:
+            logger_api.error("patch_addressbook_share failed for user %s key %s: %s", self.user.uid, key, ex)
+            return create_api_base_response(None, ex.error)
+
+    def put_addressbook_share(self, key: str, body: list[dict[str, Any]]) -> tuple[dict[str, Any], int]:
+        """Replace all user permissions for an address book.
+
+        All existing permissions are replaced by the users specified in the request body.
+
+        :param key: Address book key.
+        :param body: List of users (uid and rights) that becomes the full set of shares.
+        :return: API envelope with new user permissions.
+        """
+        try:
+            previous_uids: set[str] = {entry.to_user for entry in self.module.get_addressbook_share(self.user, key)}
+            users: list[dict[str, Any]] = [{"uid": self._resolve_to_user(entry), "rights": entry["rights"]} for entry in body]
+            entries: list[AclEntry] = self.module.put_addressbook_share(self.user, key, users)
+            new_uids: set[str] = {u["uid"] for u in users}
+            self._grant_folder_subs_keys(new_uids, key)
+            for revoked_uid in previous_uids - new_uids:
+                if revoked_uid == cs.ANYONE_TO_USER:
+                    continue
+                self._user_module.remove_folder_key(revoked_uid, "ADDRESSBOOKS", key, owner_key="SUBS")
+            return create_api_base_response(self._serialize_share_entries(entries))
+        except RequestException as ex:
+            logger_api.error("put_addressbook_share failed for user %s key %s: %s", self.user.uid, key, ex)
+            return create_api_base_response(None, ex.error)
+
+    def post_addressbook_share(self, key: str, body: list[dict[str, Any]]) -> tuple[dict[str, Any], int]:
+        """Grant full permissions to one or several users.
+
+        :param key: Address book key.
+        :param body: List of users (UIDs) to grant full permissions to.
+        :return: API envelope with updated user permissions.
+        """
+        try:
+            target_uids: list[str] = [self._resolve_to_user(entry) for entry in body]
+            entries: list[AclEntry] = self.module.grant_addressbook_share(self.user, key, target_uids)
+            self._grant_folder_subs_keys(target_uids, key)
+            return create_api_base_response(self._serialize_share_entries(entries))
+        except RequestException as ex:
+            logger_api.error("post_addressbook_share failed for user %s key %s: %s", self.user.uid, key, ex)
+            return create_api_base_response(None, ex.error)
+
+    @staticmethod
+    def _resolve_to_user(entry: dict[str, Any]) -> str:
+        """A "anyone" user_class always collapses to the SOGo pseudo-user "<default>"."""
+        if entry.get("user_class") == cs.USER_CLASS_ANY:
+            return cs.ANYONE_TO_USER
+        return entry["uid"]
+
+    def _grant_folder_subs_keys(self, target_uids: Iterable[str], key: str) -> None:
+        """Add ``key`` to folders.ADDRESSBOOKS.SUBS for each target uid so it surfaces in their webmail.
+
+        Cross-module orchestration (ModuleContact + ModuleUserProfile) is intentionally kept in
+        this interface layer, since a module must never call another module directly.
+        """
+        for target_uid in target_uids:
+            if target_uid == cs.ANYONE_TO_USER:
+                continue # The "anyone" pseudo-user has no real folders to update, so skip it.
+            self._user_module.add_folder_key(target_uid, "ADDRESSBOOKS", key, owner_key="SUBS")
+
+    def _serialize_share_entries(self, entries: list[AclEntry]) -> list[dict[str, Any]]:
+        """Resolve each ACL entry's to_user into the API's ContactShareUserSchema shape.
+
+        A to_user not known by any user source is still returned (user_class ANON) so the caller
+        can see the raw grant instead of silently losing it.
+        """
+        module_us: ModuleUserSource | None = None
+        result: list[dict[str, Any]] = []
+        for entry in entries:
+            if entry.to_user == cs.ANYONE_TO_USER:
+                result.append({"c_email": "", "uid": "", "user_class": cs.USER_CLASS_ANY, "rights": entry.rights})
+                continue
+            if module_us is None:
+                module_us = ModuleUserSource.init_from_domain_settings(self._user_domain_settings)
+            target: User = User(uid=entry.to_user)
+            module_us.get_contact_info_for_user(target)
+            result.append({
+                "c_email": target.uid, #TODO provisoire pour l'UI, target.mail if not target.anonymous else "", #TODO : return empty string for unknown users?
+                "uid": entry.to_user,
+                "user_class": cs.USER_CLASS_ANON if target.anonymous else "", #TODO : quand on aura user sources? on mettra le user_class de la source, sinon on mettra ANON pour les inconnus?
+                "rights": entry.rights,
+            })
+        return result
 
     #
     # Contacts
