@@ -3,12 +3,15 @@ from typing import TYPE_CHECKING, Any
 from http import HTTPStatus
 
 from app.auth.User import User
-from app.module.mail.ModuleMail import ModuleMail
+from app.factory.share.RepositoryAcl import AclEntry
 from app.module.auth.ModuleUserSource import ModuleUserSource
+from app.module.mail.ModuleMail import ModuleMail
+from app.factory.share.shareMailFolder import FOLDER_PERMISSION_CODE_TO_RIGHT
 from app.config.settings.DomainSettings import MailSettings, MailSettingsObj
+from app.utils import constants as cs
+from app.utils import errors as err
 from app.utils.exceptions import RequestException
 from app.utils.api.ApiBaseResponse import create_api_base_response
-from app.utils import constants as cs
 from app.utils.logger.logger import logger_api
 
 if TYPE_CHECKING:
@@ -28,7 +31,7 @@ class InterfaceApiMailFolder:
         self.mail_settings = MailSettingsObj(user_domain_settings[MailSettings.subparent])
         self.user = user
 
-        self.mail_module = ModuleMail(self.user, self.mail_settings)
+        self.mail_module = ModuleMail(self.user, self.mail_settings, process_setting=process_setting)
 
     def get_folder_list(self, account_id: str) -> tuple[dict[str, Any], int]:
         """Retrieve the list of mail folders for a given account and return an ApiBaseResponse.
@@ -186,7 +189,7 @@ class InterfaceApiMailFolder:
 
     def get_folder_share(self, account_id: str, folder_path: str) -> tuple[dict[str, Any], int]:
         """Get share information for the specified folder.
-        
+
         :param account_id: The ID of the account
         :type account_id: str
         :param folder_path: The ID of the folder
@@ -195,112 +198,147 @@ class InterfaceApiMailFolder:
         :rtype: tuple[dict[str, Any], int]
         """
         try:
-            share_info: dict[str, dict[str, Any]] = {}
-
-            # Only Instantiate Module User Source if we need it
-            module_us: ModuleUserSource|None = None
-
-            for identifier, rights in  self.mail_module.get_folder_share(account_id, folder_path):
-                if identifier == self.user.login_mail_server:
-                    continue
-                if identifier == "anyone":
-                    #Special indentifier means it is acl for everyone than can auth on the mail server
-                    share_info[identifier] = {
-                        "user_class": cs.USER_CLASS_ANY,
-                        "c_email": "",
-                        "cn": "",
-                        "uid": "",
-                        "rights": rights
-                    }
-                    continue
-
-                if module_us is None:
-                    module_us = ModuleUserSource.init_from_domain_settings(self.user_domain_settings)
-                #See if the identifier is known by us
-                user = User(identifier)
-                user.source_id = self.user.source_id
-                module_us.get_contact_info_for_user(user)
-                if user.anonymous:
-                    #The user was not found
-                    share_info[identifier] = {
-                        "user_class": cs.USER_CLASS_ANON,
-                        "c_email": "",
-                        "cn": "",
-                        "uid": identifier,
-                        "rights": rights
-                    }
-                else:
-                    #TODO handlre groups. They start with '@'
-                    share_info[identifier] = {
-                        "user_class": cs.USER_CLASS_USER,
-                        "c_email": user.mail,
-                        "cn": user.cn,
-                        "uid": user.uid,
-                        "rights": rights
-                    }
-            return create_api_base_response(share_info)
+            entries: list[AclEntry] = self.mail_module.get_folder_share(account_id, folder_path)
         except RequestException as ex:
             logger_api.error("Request exception in get_folder_share: %s", str(ex))
             return create_api_base_response(None, ex.error)
+        return create_api_base_response(self._serialize_share_entries(entries))
 
-    def share_folder(self, account_id: str, folder_path: str, share_data: list[dict[str, Any]]) -> tuple[dict[str, Any], int]:
-        """Share the specified folder with another user.
-        
+    def patch_folder_share(self, account_id: str, folder_path: str, share_data: list[dict[str, Any]]) -> tuple[dict[str, Any], int]:
+        """Partially update sharing rights for the specified folder.
+
+        Only the users specified in share_data are modified; other existing shares are
+        left unchanged.
+
         :param account_id: The ID of the account
         :type account_id: str
         :param folder_path: The ID of the folder
         :type folder_path: str
         :param share_data: List of users with their rights configuration
-        :type share_data: List[dict[str, Any]]
+        :type share_data: list[dict[str, Any]]
         :return: A tuple of (API response dict, status code)
         :rtype: tuple[dict[str, Any], int]
         """
         try:
-            share_info: dict[str, dict[str, Any]] = {}
-
-            # Only Instantiate Module User Source if we need it
-            module_us: ModuleUserSource|None = None
-
-            for identifier, rights in self.mail_module.share_folder(account_id, folder_path, share_data):
-                #TODO find a clerver way to factor this loop with get_folder_share()
-                if identifier == self.user.login_mail_server:
-                    continue
-                if identifier == "anyone":
-                    #Special indentifier means it is acl for everyone than can auth on the mail server
-                    share_info[identifier] = {
-                        "user_class": cs.USER_CLASS_ANY,
-                        "c_email": "",
-                        "cn": "",
-                        "uid": "",
-                        "rights": rights
-                    }
-                    continue
-
-                if module_us is None:
-                    module_us = ModuleUserSource.init_from_domain_settings(self.user_domain_settings)
-                #See if the identifier is known by us
-                user = User(identifier)
-                module_us.get_contact_info_for_user(user)
-                if user.anonymous:
-                    #The user was not found
-                    share_info[identifier] = {
-                        "user_class": cs.USER_CLASS_ANON,
-                        "c_email": "",
-                        "cn": "",
-                        "uid": identifier,
-                        "rights": rights
-                    }
-                else:
-                    #TODO handlre groups. They start with '@'
-                    share_info[identifier] = {
-                        "user_class": cs.USER_CLASS_USER,
-                        "c_email": user.mail,
-                        "cn": user.cn,
-                        "uid": user.uid,
-                        "rights": rights
-                    }
-
-            return create_api_base_response(share_info)
+            users = [{"uid": self._resolve_to_user(entry), "rights": self._resolve_rights(entry)} for entry in share_data]
+            entries: list[AclEntry] = self.mail_module.patch_folder_share(account_id, folder_path, users)
         except RequestException as ex:
-            logger_api.error("Request exception in share_folder: %s", str(ex))
+            logger_api.error("Request exception in patch_folder_share: %s", str(ex))
             return create_api_base_response(None, ex.error)
+        return create_api_base_response(self._serialize_share_entries(entries))
+
+    def put_folder_share(self, account_id: str, folder_path: str, share_data: list[dict[str, Any]]) -> tuple[dict[str, Any], int]:
+        """Replace all sharing rights for the specified folder.
+
+        Existing shares are entirely replaced by the users specified in share_data.
+
+        :param account_id: The ID of the account
+        :type account_id: str
+        :param folder_path: The ID of the folder
+        :type folder_path: str
+        :param share_data: List of users with their rights configuration
+        :type share_data: list[dict[str, Any]]
+        :return: A tuple of (API response dict, status code)
+        :rtype: tuple[dict[str, Any], int]
+        """
+        try:
+            users = [{"uid": self._resolve_to_user(entry), "rights": self._resolve_rights(entry)} for entry in share_data]
+            entries: list[AclEntry] = self.mail_module.put_folder_share(account_id, folder_path, users)
+        except RequestException as ex:
+            logger_api.error("Request exception in put_folder_share: %s", str(ex))
+            return create_api_base_response(None, ex.error)
+        return create_api_base_response(self._serialize_share_entries(entries))
+
+    def post_folder_share(self, account_id: str, folder_path: str, share_data: list[dict[str, Any]]) -> tuple[dict[str, Any], int]:
+        """Grant sharing rights on the specified folder to one or several users.
+
+        :param account_id: The ID of the account
+        :type account_id: str
+        :param folder_path: The ID of the folder
+        :type folder_path: str
+        :param share_data: List of users with their rights configuration
+        :type share_data: list[dict[str, Any]]
+        :return: A tuple of (API response dict, status code)
+        :rtype: tuple[dict[str, Any], int]
+        """
+        try:
+            users = [{"uid": self._resolve_to_user(entry), "rights": self._resolve_rights(entry)} for entry in share_data]
+            entries: list[AclEntry] = self.mail_module.post_folder_share(account_id, folder_path, users)
+        except RequestException as ex:
+            logger_api.error("Request exception in post_folder_share: %s", str(ex))
+            return create_api_base_response(None, ex.error)
+        return create_api_base_response(self._serialize_share_entries(entries))
+
+    def _resolve_to_user(self, entry: dict[str, Any]) -> str:
+        """Resolve the ACL to_user for a share entry.
+
+        A "anyone" user_class always collapses to the SOGo pseudo-user "<default>" in
+        sogo6_acl.to_user, regardless of whatever uid the caller may have supplied.
+        """
+        if entry.get("user_class") == cs.USER_CLASS_ANY:
+            return cs.ANYONE_TO_USER
+        return entry["uid"]
+
+    @staticmethod
+    def _resolve_rights(entry: dict[str, Any]) -> dict[str, int]:
+        """Build the full rights dict (one 0/1 flag per IMAP ACL right) for a share entry.
+
+        When ``permissions`` is provided, any right not listed is not granted (0) - it fully
+        determines the entry's rights. When only ``rights`` is provided, any right it omits is
+        likewise not granted (0). When both are provided, they must agree on every right
+        ``permissions`` covers (i.e. every right, since an omitted code means "not granted").
+
+        :raises RequestException: ERROR_SHARE_PERMISSIONS_RIGHTS_MISMATCH if permissions and
+            rights disagree on a right they both cover.
+        """
+        permissions: list[str] | None = entry.get("permissions")
+        rights_in: dict[str, int] = entry.get("rights") or {}
+
+        if permissions is not None:
+            derived = {right: (1 if code in permissions else 0) for code, right in FOLDER_PERMISSION_CODE_TO_RIGHT.items()}
+            for right_name, value in rights_in.items():
+                if derived.get(right_name) != value:
+                    raise RequestException(error=err.ERROR_SHARE_PERMISSIONS_RIGHTS_MISMATCH)
+            return derived
+
+        resolved: dict[str, int] = dict.fromkeys(FOLDER_PERMISSION_CODE_TO_RIGHT.values(), 0)
+        resolved.update(rights_in)
+        return resolved
+
+    @staticmethod
+    def _snake_to_camel(name: str) -> str:
+        """Convert a snake_case right name (e.g. "user_can_view_folder") to camelCase."""
+        first, *rest = name.split("_")
+        return first + "".join(word.capitalize() for word in rest)
+
+    def _serialize_share_entries(self, entries: list[AclEntry]) -> dict[str, Any]:
+        """Resolve ACL entries into the API's FolderShareResponseSchema shape.
+
+        A to_user not known by any user source is still returned (user_class ANON) so the
+        caller can see the raw grant instead of silently losing it. The "<default>" pseudo
+        to_user is the "anyone" share and is never resolved through the user source.
+        """
+        module_us: ModuleUserSource | None = None
+        users: dict[str, Any] = {}
+        for entry in entries:
+            granted_rights = {self._snake_to_camel(right): 1 for right, value in entry.rights.items() if value}
+            if entry.to_user == cs.ANYONE_TO_USER:
+                users[cs.USER_CLASS_ANY] = {
+                    "user_class": cs.USER_CLASS_ANY,
+                    "cn": "Tout utilisateur identifié",
+                    "uid": cs.USER_CLASS_ANY,
+                    "rights": granted_rights,
+                }
+                continue
+            if module_us is None:
+                module_us = ModuleUserSource.init_from_domain_settings(self.user_domain_settings)
+            target: User = User(uid=entry.to_user)
+            module_us.get_contact_info_for_user(target)
+            users[entry.to_user] = {
+                "user_class": cs.USER_CLASS_ANON if target.anonymous else cs.USER_CLASS_USER,
+                "c_email": target.uid,
+                "cn": target.cn,
+                "uid": entry.to_user,
+                "rights": granted_rights,
+            }
+        return {"users": users}

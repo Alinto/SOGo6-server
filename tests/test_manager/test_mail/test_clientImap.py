@@ -817,6 +817,45 @@ class TestAcl:
         with pytest.raises(BugException):
             client.delete_acl("INBOX", "user")
 
+    def test_get_acl_raw_yields_raw_pairs(self):
+        fake_conn = FakeIMAPConnection()
+        fake_conn.getacl_response = ("OK", [b"INBOX user1 lrswipkxtea user2 lr"])
+        client = authenticated_client(fake_conn)
+
+        acl_list = list(client.get_acl_raw("INBOX"))
+        assert acl_list == [("user1", "lrswipkxtea"), ("user2", "lr")]
+
+    def test_get_acl_raw_not_authenticated_raises(self):
+        client = make_client()
+        client.connection = None
+        with pytest.raises(BugException):
+            list(client.get_acl_raw("INBOX"))
+
+    def test_get_acl_raw_failure_raises_request_exception(self):
+        fake_conn = FakeIMAPConnection()
+        fake_conn.getacl_response = ("NO", [b"Mailbox doesn't exist"])
+        client = authenticated_client(fake_conn)
+        with pytest.raises(RequestException):
+            list(client.get_acl_raw("Ghost"))
+
+    def test_set_acl_raw_success(self):
+        fake_conn = FakeIMAPConnection()
+        client = authenticated_client(fake_conn)
+        client.set_acl_raw("INBOX", "anyone", "lr")
+
+    def test_set_acl_raw_not_authenticated_raises(self):
+        client = make_client()
+        client.connection = None
+        with pytest.raises(BugException):
+            client.set_acl_raw("INBOX", "user", "lr")
+
+    def test_set_acl_raw_failure_raises_request_exception(self):
+        fake_conn = FakeIMAPConnection()
+        fake_conn.setacl_response = ("NO", [b"Mailbox doesn't exist"])
+        client = authenticated_client(fake_conn)
+        with pytest.raises(RequestException):
+            client.set_acl_raw("Ghost", "user", "lr")
+
 
 # ===========================================================================
 # Tests: uid_copy

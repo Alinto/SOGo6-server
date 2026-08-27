@@ -1,5 +1,10 @@
-from marshmallow import Schema, fields
+from typing import Any
+
+from marshmallow import Schema, fields, validate, validates_schema, ValidationError
 from app.utils.api.ApiBaseResponse import ApiBaseResponse
+# The correspondence table lives in app.factory.share.shareMailFolder - shared with ModuleMail's
+# IMAP ACL calls (see ClientImap.set_acl_raw/get_acl_raw) - and re-imported here for schema use.
+from app.factory.share.shareMailFolder import FOLDER_SHARE_PERMISSION_CODES, FOLDER_PERMISSION_CODE_TO_RIGHT
 
 
 class FolderCreateSchema(Schema):
@@ -69,75 +74,180 @@ class FolderPurgeSchema(Schema):
         }
 
 
-class FolderShareRightsSchema(Schema):
+class FolderShareRightsInputSchema(Schema):
     """
-    Schema for folder sharing rights.
+    Advanced permission rights (one flag per IMAP ACL code) for the folder sharing request body.
+
+    Every field is a 0/1 flag and optional: only pass the rights you want to state explicitly.
+    See ``FOLDER_PERMISSION_CODE_TO_RIGHT`` for the IMAP code each field corresponds to.
     """
-    userCanEraseMails = fields.Integer()
-    userCanExpungeFolder = fields.Integer()
-    userCanInsertMails = fields.Integer()
-    userIsAdministrator = fields.Integer()
-    userCanWriteMails = fields.Integer()
-    userCanMarkMailsRead = fields.Integer()
-    userCanViewFolder = fields.Integer()
-    userCanCreateSubfolders = fields.Integer()
-    userCanPostMails = fields.Integer()
-    userCanReadMails = fields.Integer()
-    userCanRemoveFolder = fields.Integer()
+    user_can_view_folder = fields.Integer(validate=validate.OneOf([0, 1]), metadata={"description": "Voir le dossier (l)"})
+    user_can_read_mails = fields.Integer(validate=validate.OneOf([0, 1]), metadata={"description": "Lire les mails (r)"})
+    user_can_mark_mails_read = fields.Integer(validate=validate.OneOf([0, 1]), metadata={"description": "Marquer comme lu/non lu (s)"})
+    user_can_write_mails = fields.Integer(validate=validate.OneOf([0, 1]), metadata={"description": "Modifier les indicateurs des mails (w)"})
+    user_can_insert_mails = fields.Integer(validate=validate.OneOf([0, 1]), metadata={"description": "Insérer, copier des mails (i)"})
+    user_can_post_mails = fields.Integer(validate=validate.OneOf([0, 1]), metadata={"description": "Envoyer des mails (p)"})
+    user_can_create_subfolders = fields.Integer(validate=validate.OneOf([0, 1]), metadata={"description": "Créer des sous-dossiers (k)"})
+    user_can_remove_folder = fields.Integer(validate=validate.OneOf([0, 1]), metadata={"description": "Supprimer le dossier (x)"})
+    user_can_erase_mails = fields.Integer(validate=validate.OneOf([0, 1]), metadata={"description": "Effacer les mails (t)"})
+    user_can_expunge_folder = fields.Integer(validate=validate.OneOf([0, 1]), metadata={"description": "Purger le dossier (e)"})
+    user_is_administrator = fields.Integer(validate=validate.OneOf([0, 1]), metadata={"description": "Administrer les droits du dossier (a)"})
 
 
-class FolderShareSchema(Schema):
+class FolderShareEntrySchema(Schema):
     """
-    Schema for a user entry in folder sharing.
-    Use with many=True to validate a list of users.
+    Base schema for a user (or "anyone") entry in a mail folder sharing request.
+
+    Rights can be expressed two ways, and at least one of them must be provided:
+
+    - ``permissions``: a simplified list of IMAP ACL codes to grant (``l r s w i p k x t e a``).
+      Any code not listed is considered not granted.
+    - ``rights``: an advanced object with one explicit 0/1 flag per right
+      (see :class:`FolderShareRightsInputSchema`).
+
+    If both ``permissions`` and ``rights`` are provided, they must agree: each code in
+    ``permissions`` must match its corresponding ``rights`` flag (see
+    ``FOLDER_PERMISSION_CODE_TO_RIGHT`` for the code <-> flag mapping). Otherwise the API
+    answers ``400 S001103`` (see ``ERROR_SHARE_PERMISSIONS_RIGHTS_MISMATCH`` in
+    ``app/utils/errors.py``).
+
+    ``c_email`` and ``uid`` are required unless ``user_class`` is ``"anyone"``, in which case
+    they are ignored (the share applies to any authenticated user, not a specific one).
     """
-    is_group = fields.Integer()
-    c_email = fields.String(required=True)
-    cn = fields.String()
-    uid = fields.String(required=True)
-    user_class = fields.String()
-    rights = fields.Nested(FolderShareRightsSchema, )
+    c_email = fields.String(required=False, allow_none=True, metadata={"description": "User email address", "example": "a@a.fr"})
+    uid = fields.String(required=False, allow_none=True, metadata={"description": "User UID", "example": "a@a.fr"})
+    user_class = fields.String(
+        required=True,
+        validate=validate.OneOf(["user", "anyone"]),
+        metadata={"description": "'user' for a specific user (needs c_email/uid), 'anyone' for every authenticated user"}
+    )
+    permissions = fields.List(
+        fields.String(validate=validate.OneOf(FOLDER_SHARE_PERMISSION_CODES)),
+        required=False,
+        metadata={"description": "Simplified list of IMAP ACL codes to grant: l, r, s, w, i, p, k, x, t, e, a"}
+    )
+    rights = fields.Nested(
+        FolderShareRightsInputSchema,
+        required=False,
+        metadata={"description": "Advanced per-right 0/1 flags, cross-checked against 'permissions' if both are given"}
+    )
+    do_subfolders = fields.Boolean(
+        load_default=False, dump_default=False,
+        metadata={"description": "Also apply these rights to all subfolders"}
+    )
 
-    @classmethod
-    def example(cls) -> list:
-        """
-        Example data for folder sharing.
+    @validates_schema
+    def validate_user_identity(self, data: dict[str, Any], **kwargs: Any) -> None:  # pylint: disable=unused-argument
+        """Require c_email and uid unless user_class is 'anyone'."""
+        if data.get("user_class") == "anyone":
+            return
+        errors: dict[str, list[str]] = {}
+        if not data.get("c_email"):
+            errors["c_email"] = ["Missing data for required field."]
+        if not data.get("uid"):
+            errors["uid"] = ["Missing data for required field."]
+        if errors:
+            raise ValidationError(errors)
 
-        :return: Example folder share payload (a list).
-        :rtype: list
-        """
+    @validates_schema
+    def validate_permissions_or_rights(self, data: dict[str, Any], **kwargs: Any) -> None:  # pylint: disable=unused-argument
+        """Require at least one of 'permissions' or 'rights'."""
+        if not data.get("permissions") and not data.get("rights"):
+            raise ValidationError(
+                "At least one of 'permissions' or 'rights' must be provided.",
+                field_name="_schema"
+            )
+
+
+class FolderSharePatchSchema(FolderShareEntrySchema):
+    """Request body item for PATCH /mailboxes/{account_id}/folders/{folder_name}/share.
+
+    Partially updates the sharing rights of the specified users: only the users listed in the
+    request body are modified, other existing shares are left untouched.
+    The endpoint expects a JSON list of these objects (use with ``many=True``).
+    """
+
+    class Meta:
+        ordered = True
+
+    @staticmethod
+    def example() -> list[dict[str, Any]]:
+        """Example data for Swagger documentation."""
         return [
             {
-                "c_email": "tkeriven@snapshot.alinto.org",
-                "cn": "tkeriven",
-                "uid": "tkeriven@snapshot.alinto.org",
+                "uid": "a@a.fr",
+                "c_email": "a@a.fr",
                 "user_class": "user",
-                "rights": {
-                    "userCanInsertMails": 1,
-                    "userCanMarkMailsRead": 1,
-                    "userCanPostMails": 1,
-                    "userCanReadMails": 1,
-                    "userCanRemoveFolder": 1,
-                    "userCanViewFolder": 1,
-                    "userCanWriteMails": 1,
-                    "userIsAdministrator": 1
-                }
+                "permissions": ["l", "r"],
+                "do_subfolders": False
+            }
+        ]
+
+
+class FolderSharePutSchema(FolderShareEntrySchema):
+    """Request body item for PUT /mailboxes/{account_id}/folders/{folder_name}/share.
+
+    Replaces all sharing rights on the folder: existing shares are entirely replaced by the
+    users listed in the request body.
+    The endpoint expects a JSON list of these objects (use with ``many=True``).
+    """
+
+    class Meta:
+        ordered = True
+
+    @staticmethod
+    def example() -> list[dict[str, Any]]:
+        """Example data for Swagger documentation."""
+        return [
+            {
+                "user_class": "anyone",
+                "permissions": ["l", "r", "s", "w", "i", "p", "t", "e", "a"],
+                "do_subfolders": True
             },
             {
-                "c_email": "jnadal@snapshot.alinto.org",
-                "cn": "jnadal",
-                "uid": "jnadal@snapshot.alinto.org",
+                "c_email": "a@a.fr",
+                "uid": "a@a.fr",
+                "user_class": "user",
+                "permissions": ["l", "r"],
+                "do_subfolders": False
+            }
+        ]
+
+
+class FolderSharePostSchema(FolderShareEntrySchema):
+    """Request body item for POST /mailboxes/{account_id}/folders/{folder_name}/share.
+
+    Grants (or creates) sharing rights for the specified users, in addition to any existing share.
+    The endpoint expects a JSON list of these objects (use with ``many=True``).
+    """
+
+    class Meta:
+        ordered = True
+
+    @staticmethod
+    def example() -> list[dict[str, Any]]:
+        """Example data for Swagger documentation."""
+        return [
+            {
+                "c_email": "sogo-tests1@example.org",
+                "uid": "sogo-tests1@example.org",
                 "user_class": "user",
                 "rights": {
-                    "userCanInsertMails": 1,
-                    "userCanMarkMailsRead": 1,
-                    "userCanPostMails": 1,
-                    "userCanReadMails": 1,
-                    "userCanRemoveFolder": 1,
-                    "userCanViewFolder": 1,
-                    "userCanWriteMails": 1,
-                    "userIsAdministrator": 1
-                }
+                    "user_can_insert_mails": 1,
+                    "user_can_mark_mails_read": 1,
+                    "user_can_post_mails": 1,
+                    "user_can_read_mails": 1,
+                    "user_can_remove_folder": 1,
+                    "user_can_view_folder": 1,
+                    "user_can_write_mails": 1,
+                    "user_is_administrator": 1
+                },
+                "permissions": ["l", "r", "s", "w", "i", "p", "x", "a"]
+            },
+            {
+                "user_class": "anyone",
+                "permissions": ["l", "r"],
+                "do_subfolders": False
             }
         ]
 
@@ -357,11 +467,10 @@ class FolderShareResponseSchema(ApiBaseResponse):
             "error_msg": "",
             "data": {
                 "users": {
-                    "tkeriven@snapshot.alinto.org": {
+                    "sogo-tests1@example.org": {
                         "user_class": "user",
-                        "c_email": "tkeriven@snapshot.alinto.org",
-                        "cn": "tkeriven",
-                        "uid": "tkeriven@snapshot.alinto.org",
+                        "c_email": "sogo-tests1@example.org",
+                        "uid": "sogo-tests1@example.org",
                         "rights": {
                             "userCanEraseMails": 1,
                             "userCanExpungeFolder": 1,
@@ -378,7 +487,6 @@ class FolderShareResponseSchema(ApiBaseResponse):
                     },
                     "anyone": {
                         "user_class": "anyone",
-                        "cn": "Tout utilisateur identifié",
                         "uid": "anyone",
                         "rights": {
                             "userCanViewFolder": 1,
