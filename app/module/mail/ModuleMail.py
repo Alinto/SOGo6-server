@@ -8,12 +8,17 @@ from email.header import decode_header, make_header
 from email.message import EmailMessage
 from email.message import Message
 from email.utils import parseaddr, getaddresses, make_msgid, formatdate
+from hashlib import sha256
 from io import BytesIO
 from re import search as reg_search
 import zipfile
 
 
 from app.config.settings.UserSettings import UserMailViewSettings, UserMailViewSettingsObj, UserMailGeneralSettings
+from app.factory.share.RepositoryAcl import AclEntry
+from app.factory.share.shareMailFolder import (
+    FOLDER_RESOURCE_TYPE, ShareMailFolder, imap_permissions_to_rights, rights_to_imap_permissions,
+)
 from app.module.mail.model.TmpDraftManager import TmpDraftManager
 from app.manager.mail.ClientMailServer import ClientMailServer
 from app.utils import constants as cs
@@ -49,6 +54,7 @@ class ModuleMail:
         self.domain_mail_folder_name: dict = {}
         self._process_setting: ProcessSetting | None = process_setting
         self._db: ClientSQL | None = None
+        self._share: ShareMailFolder | None = None
 
     def _get_db(self) -> ClientSQL:
         """Return the DB client, lazily initialising it on first call.
@@ -67,6 +73,23 @@ class ModuleMail:
             )
             self._db.connect()
         return self._db
+
+    def _get_share(self) -> ShareMailFolder:
+        """Return the mail folder ACL sharing helper, lazily initialising it on first call."""
+        if self._share is None:
+            self._share = ShareMailFolder(self._get_db())
+        return self._share
+
+    @staticmethod
+    def _folder_acl_key(account_id: str, folder_path: str) -> str:
+        """Build a stable sogo6_acl key for a folder from (account_id, folder_path).
+
+        Mail folders have no opaque key like calendars/addressbooks - they are addressed by
+        their literal IMAP path, which can exceed sogo6_acl.key's 64-char cap for deep folder
+        hierarchies. Hashed so the key stays deterministic and within bounds regardless of
+        path length.
+        """
+        return sha256(f"{account_id}\x00{folder_path}".encode("utf-8")).hexdigest()
 
     def _get_user_conf(self, account_id: str) -> dict:
         user_mail_conf: dict = {}
@@ -344,91 +367,108 @@ class ModuleMail:
         )
         return {"mails_deleted": total_deleted}
 
-    def get_folder_share(self, account_id: str, folder_path: str) -> Iterator[tuple[str, dict[str, int]]]:
-        """
-        Yield the acl for a folder.
-        (identifier, {right1: 1, right2: 0, ...})
+    @staticmethod
+    def _imap_identifier(to_user: str) -> str:
+        """Map a sogo6_acl to_user to the IMAP ACL identifier.
 
-        :param account_id: _description_
+        The "<default>" pseudo to_user (cs.ANYONE_TO_USER, a SOGo/DB-only convention) maps to
+        the real IMAP special identifier "anyone" (RFC 4314); any other to_user is used as-is.
+        """
+        return cs.USER_CLASS_ANY if to_user == cs.ANYONE_TO_USER else to_user
+
+    def get_folder_share(self, account_id: str, folder_path: str) -> list[AclEntry]:
+        """Return all ACL entries (one per user) currently granted on a folder, read live from IMAP.
+
+        IMAP is the source of truth for actual mail access.
+
+        :param account_id: The account identifier
         :type account_id: str
-        :param folder_path: _description_
+        :param folder_path: The name of the folder
         :type folder_path: str
-        :yield: _description_
-        :rtype: Iterator[tuple[str, dict[str, int]]]
+        :return: List of ACL entries for the folder
+        :rtype: list[AclEntry]
         """
         client = self._open_client_for(account_id)
-        # Get ACL from client (already converted to SOGo rights format)
-        yield from client.get_acl(folder_path)
+        key = self._folder_acl_key(account_id, folder_path)
+        entries: list[AclEntry] = []
+        for identifier, imap_rights in client.get_acl_raw(folder_path):
+            to_user = cs.ANYONE_TO_USER if identifier == cs.USER_CLASS_ANY else identifier
+            entries.append(AclEntry(
+                resource_type=FOLDER_RESOURCE_TYPE, key=key, owner=self.user.uid, to_user=to_user,
+                rights=imap_permissions_to_rights(imap_rights),
+            ))
+        return entries
 
+    def patch_folder_share(self, account_id: str, folder_path: str, users: list[dict]) -> list[AclEntry]:
+        """Grant or update rights for one or several users on a folder, leaving other shares untouched.
 
+        Writes the live IMAP ACL (source of truth for mail access) and mirrors it into
+        sogo6_acl (type='folder').
 
-    def share_folder(self, account_id:str, folder_path: str, share_data: list[dict[str, Any]]) -> Iterator[tuple[str, dict[str, int]]]:
-        """Share the specified folder with another user.
-        
-        :param folder_name: The name of the folder
-        :type folder_name: str
-        :param share_data: list of users with their rights configuration
-        :type share_data: list[dict[str, Any]]
-        :return: Share result data
-        :rtype: dict[str, Any]
-        :raises RequestException: If validation or manager operations fail
+        :param account_id: The account identifier
+        :type account_id: str
+        :param folder_path: The name of the folder
+        :type folder_path: str
+        :param users: list of ``{"uid": ..., "rights": {...}}`` entries to upsert
+        :type users: list[dict]
+        :return: List of ACL entries for the folder after the update
+        :rtype: list[AclEntry]
+        :raises RequestException: ERROR_SHARE_CANNOT_SHARE_WITH_SELF if a target uid is the owner itself
         """
         client = self._open_client_for(account_id)
+        key = self._folder_acl_key(account_id, folder_path)
+        share = self._get_share()
+        for entry in users:
+            client.set_acl_raw(folder_path, self._imap_identifier(entry["uid"]), rights_to_imap_permissions(entry["rights"]))
+            share.add_permissions(entry["uid"], key, self.user.uid, entry["rights"])
+        return share.get_permissions(key)
 
-        # Step 1: Get current ACL to know which users currently have permissions
-        current_acl = client.get_acl(folder_path)
-        current_users = {identifier for identifier, _ in current_acl}
+    def put_folder_share(self, account_id: str, folder_path: str, users: list[dict]) -> list[AclEntry]:
+        """Replace all existing shares on a folder with exactly the given users' rights.
 
-        # Step 2: Build list of users from the incoming share_data
-        new_users_dict: dict[str, dict[str, Any]] = {}  # identifier -> rights_dict
+        Any user currently shared with but absent from ``users`` is revoked. Writes the live
+        IMAP ACL (source of truth for mail access) and mirrors it into sogo6_acl (type='folder').
 
-        for user_entry in share_data:
-            # Extract user identifier (uid or c_email)
-            #TODO in fact, we need the user.login_mail_server
-            identifier = user_entry["c_email"]
-            rights_dict = user_entry.get("rights", {})
+        :param account_id: The account identifier
+        :type account_id: str
+        :param folder_path: The name of the folder
+        :type folder_path: str
+        :param users: list of ``{"uid": ..., "rights": {...}}`` entries; becomes the full set of shares
+        :type users: list[dict]
+        :return: List of ACL entries for the folder after the replacement
+        :rtype: list[AclEntry]
+        :raises RequestException: ERROR_SHARE_CANNOT_SHARE_WITH_SELF if a target uid is the owner itself
+        """
+        client = self._open_client_for(account_id)
+        key = self._folder_acl_key(account_id, folder_path)
+        share = self._get_share()
+        new_uids = {entry["uid"] for entry in users}
+        for existing in share.get_permissions(key):
+            if existing.to_user not in new_uids:
+                client.delete_acl(folder_path, self._imap_identifier(existing.to_user))
+                share.remove_permissions(existing.to_user, key)
+        for entry in users:
+            client.set_acl_raw(folder_path, self._imap_identifier(entry["uid"]), rights_to_imap_permissions(entry["rights"]))
+            share.add_permissions(entry["uid"], key, self.user.uid, entry["rights"])
+        return share.get_permissions(key)
 
-            # Store rights dict directly (client will handle conversion)
-            new_users_dict[identifier] = rights_dict
+    def post_folder_share(self, account_id: str, folder_path: str, users: list[dict]) -> list[AclEntry]:
+        """Grant sharing rights on a folder to one or several users, in addition to any existing share.
 
-        logger_mail_server.info("New users dict from share_data: %s", new_users_dict)
+        Structurally identical to patch_folder_share (upsert the given users, leave others
+        untouched); kept as its own method so the API's PATCH/POST endpoints map 1:1 to ModuleMail.
 
-        # Step 3: Determine which users need to be removed (present in current but not in new)
-        users_to_remove = current_users - set(new_users_dict.keys())
-        logger_mail_server.info("Users to be removed: %s", users_to_remove)
-
-        # Step 4: Remove ACL for users not in the new list (except owner)
-        for user_to_remove in users_to_remove:
-            # Skip owner to avoid locking them out
-            if user_to_remove == self.user.login_mail_server:
-                continue
-            try:
-                client.delete_acl(folder_path, user_to_remove)
-                logger_mail_server.info("Removed ACL for folder '%s', user '%s'", folder_path, user_to_remove)
-            except RequestException as e:
-                logger_mail_server.warning("Failed to remove ACL for user '%s': %s", user_to_remove, e)
-
-        # Step 5: Set/update ACL for users in the new list
-        for identifier, rights_dict in new_users_dict.items():
-            # Check if any rights are set (at least one truthy value)
-            has_rights = any(rights_dict.values()) if rights_dict else False
-
-            if has_rights:
-                # Set ACL for this user (client handles conversion)
-                try:
-                    client.set_acl(folder_path, identifier, rights_dict)
-                    logger_mail_server.info("Set ACL for folder '%s', user '%s', rights %s", folder_path, identifier, rights_dict)
-                except RequestException as e:
-                    logger_mail_server.error("Failed to set ACL for user '%s': %s", identifier, e)
-            else:
-                # If no rights specified, delete the ACL entry
-                try:
-                    client.delete_acl(folder_path, identifier)
-                    logger_mail_server.info("Deleted ACL for folder '%s', user '%s' (no rights specified)", folder_path, identifier)
-                except RequestException as e:
-                    logger_mail_server.warning("Failed to delete ACL for user '%s': %s", identifier, e)
-
-        yield from client.get_acl(folder_path)
+        :param account_id: The account identifier
+        :type account_id: str
+        :param folder_path: The name of the folder
+        :type folder_path: str
+        :param users: list of ``{"uid": ..., "rights": {...}}`` entries to upsert
+        :type users: list[dict]
+        :return: List of ACL entries for the folder after the update
+        :rtype: list[AclEntry]
+        :raises RequestException: ERROR_SHARE_CANNOT_SHARE_WITH_SELF if a target uid is the owner itself
+        """
+        return self.patch_folder_share(account_id, folder_path, users)
 
 ##############
 #MAILS SERVER#

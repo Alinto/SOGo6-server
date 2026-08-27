@@ -1044,6 +1044,71 @@ class ClientImap(ClientMailServer):
         else:
             raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
 
+    def get_acl_raw(self, folder_path: str) -> Iterator[tuple[str, str]]:
+        """Get the raw Access Control List (ACL) for a folder, with no SOGo rights conversion.
+
+        Uses the IMAP GETACL command and yields the IMAP rights characters exactly as returned
+        by the server (e.g. "lrswipkxtea"), for callers that already work with their own
+        rights-code correspondence table instead of the legacy SOGo rights dictionary.
+
+        :param folder_path: The name of the folder to get ACL for.
+        :type folder_path: str
+        :yield: tuples of (identifier, imap_rights) where imap_rights is the raw ACL string.
+        :rtype: Iterator[tuple[str, str]]
+        :raises RequestException: If not connected to the server or if getting ACL fails.
+        """
+        logger_imap.debug("Getting raw ACL for folder '%s'", folder_path)
+        if self.connection is not None and self.authenticated:
+            folder_path = self._fix_folder_path(folder_path)
+            folder_path = quote(folder_path)
+            success, datas = self._exec_imap4_method(self.connection.getacl, folder_path)
+            if not success:
+                if datas[0].decode().startswith("Mailbox doesn't exist"):
+                    raise RequestException(f"Folder '{folder_path}' does not exist", err.ERROR_FOLDER_NAME_NOT_FOUND)
+                raise RequestException(f"Failed to get ACL for {folder_path}", err.ERROR_IMAP_FAILED)
+
+            # Parse the response: data[0] is typically bytes like b'INBOX identifier1 rights1 identifier2 rights2 ...'
+            parts = datas[0].decode().split()
+
+            # Skip first part (folder name) and yield identifier/rights pairs
+            i = 1
+            while i < len(parts) - 1:
+                yield (parts[i], parts[i + 1])
+                i += 2
+        else:
+            raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
+
+    def set_acl_raw(self, folder_path: str, identifier: str, imap_rights: str) -> None:
+        """Set ACL rights for a specific user/identifier on a folder, with no SOGo rights conversion.
+
+        Uses the IMAP SETACL command directly with the given IMAP rights characters (e.g.
+        "lrswipkxtea"), for callers that already work with their own rights-code correspondence
+        table instead of the legacy SOGo rights dictionary.
+
+        :param folder_path: The name of the folder.
+        :type folder_path: str
+        :param identifier: The user identifier (email, username, or special like 'anyone').
+        :type identifier: str
+        :param imap_rights: Raw IMAP ACL rights characters to grant (empty string revokes all).
+        :type imap_rights: str
+        :raises RequestException: If not connected to the server or if setting ACL fails.
+        """
+        logger_imap.debug("Setting raw ACL for folder '%s', identifier '%s', IMAP rights '%s'", folder_path, identifier, imap_rights)
+        if self.connection is not None and self.authenticated:
+            folder_path = self._fix_folder_path(folder_path)
+            folder_path = quote(folder_path)
+
+            success, datas = self._exec_imap4_method(self.connection.setacl, folder_path, identifier, imap_rights)
+            if not success:
+                if datas[0].decode().startswith("Mailbox doesn't exist"):
+                    raise RequestException(f"Folder '{folder_path}' does not exist", err.ERROR_FOLDER_NAME_NOT_FOUND)
+                raise RequestException(f"Failed to set ACL for {folder_path}", err.ERROR_IMAP_FAILED)
+
+            logger_imap.info("Successfully set raw ACL for folder '%s', identifier '%s', IMAP rights '%s'",
+                           folder_path, identifier, imap_rights)
+        else:
+            raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
+
 #######
 #MAILS#
 #######

@@ -3,6 +3,7 @@ Tests unitaires pour InterfaceApiMailFolder (Interface layer).
 Ces tests utilisent un fake ModuleMail pour tester la logique de l'interface.
 """
 from app.interface.mail.InterfaceApiMailFolder import InterfaceApiMailFolder
+from app.factory.share.RepositoryAcl import AclEntry
 from app.utils.exceptions import RequestException
 from app.utils import errors as err
 
@@ -66,10 +67,8 @@ class InterfaceApiMailFolderWithInjectedConf(InterfaceApiMailFolder):
 
 class FakeModuleMail:
     """Fake ModuleMail for testing InterfaceApiMailFolder.
-    
+
     Method signatures match ModuleMail (most methods receive account_id as first argument).
-    get_folder_share and share_folder return an iterator of (identifier, rights) tuples,
-    matching ModuleMail's Iterator[tuple[str, dict[str, int]]] return type.
     """
     def __init__(self, user_conf=None):
         self.user_conf = user_conf
@@ -83,7 +82,9 @@ class FakeModuleMail:
         self.get_one_folder_args = None
         self.purge_folder_mails_args = None
         self.get_folder_share_args = None
-        self.share_folder_args = None
+        self.patch_folder_share_args = None
+        self.put_folder_share_args = None
+        self.post_folder_share_args = None
         self.export_folder_mails_args = None
 
         # Configurable results
@@ -94,9 +95,11 @@ class FakeModuleMail:
         self.update_folder_result = {"name": "UpdatedFolder"}
         self.get_one_folder_result = {"name": "INBOX", "path": "INBOX"}
         self.purge_folder_mails_result = {"mails_deleted": 10}
-        # Returns list of (identifier, rights) tuples (iterable, as ModuleMail yields them)
+        # Returns list of AclEntry, matching ModuleMail's DB+IMAP-backed ACL methods
         self.get_folder_share_result = []
-        self.share_folder_result = []
+        self.patch_folder_share_result = []
+        self.put_folder_share_result = []
+        self.post_folder_share_result = []
 
     def get_folder_list(self, account_id):
         """Simulate getting folder list."""
@@ -138,14 +141,24 @@ class FakeModuleMail:
         return self.purge_folder_mails_result
 
     def get_folder_share(self, account_id, folder_path):
-        """Simulate getting folder share information. Returns iterable of (identifier, rights) tuples."""
+        """Simulate reading a folder's live ACL entries from IMAP."""
         self.get_folder_share_args = folder_path
-        return iter(self.get_folder_share_result)
+        return self.get_folder_share_result
 
-    def share_folder(self, account_id, folder_path, share_data):
-        """Simulate sharing a folder. Returns iterable of (identifier, rights) tuples."""
-        self.share_folder_args = (folder_path, share_data)
-        return iter(self.share_folder_result)
+    def patch_folder_share(self, account_id, folder_path, users):
+        """Simulate granting/updating a folder's ACL entries (IMAP + sogo6_acl), leaving others untouched."""
+        self.patch_folder_share_args = (folder_path, users)
+        return self.patch_folder_share_result
+
+    def put_folder_share(self, account_id, folder_path, users):
+        """Simulate replacing all of a folder's ACL entries (IMAP + sogo6_acl)."""
+        self.put_folder_share_args = (folder_path, users)
+        return self.put_folder_share_result
+
+    def post_folder_share(self, account_id, folder_path, users):
+        """Simulate granting a folder's ACL entries (IMAP + sogo6_acl), leaving others untouched."""
+        self.post_folder_share_args = (folder_path, users)
+        return self.post_folder_share_result
 
     def export_folder_mails(self, folder_name):
         """Simulate exporting mails from a folder."""
@@ -388,87 +401,142 @@ def test_export_folder_mails_module_error(monkeypatch):
     assert status_code == 400
 
 
-# ========== Tests for get_folder_share ==========
+# ========== Tests for folder share (GET/PATCH/PUT/POST) ==========
+# ModuleMail is responsible for both the live IMAP ACL and its sogo6_acl (type "folder")
+# mirror; the interface only resolves the request body then forwards to ModuleMail.
 
 def test_get_folder_share_success(monkeypatch):
-    """Test getting folder share information for a valid account (empty share list)."""
-    fake_module = FakeModuleMail()
-    fake_module.get_folder_share_result = []  # No shares: yields nothing
-    interface = make_interface(monkeypatch, fake_module)
-
-    result, status_code = interface.get_folder_share(account_id=0, folder_path="INBOX")
-
-    assert status_code == 200
-    assert result["data"] == {}
-    assert fake_module.get_folder_share_args == "INBOX"
-
-
-def test_get_folder_share_with_users(monkeypatch):
-    """Test getting folder share with existing users returns an 'anyone' entry."""
+    """Test getting share info for a folder, including the 'anyone' pseudo entry."""
     fake_module = FakeModuleMail()
     fake_module.get_folder_share_result = [
-        ("anyone", {"read": 1, "write": 0}),
+        AclEntry(
+            resource_type="folder", key="k", owner="owner@example.com", to_user="<default>",
+            rights={"user_can_view_folder": 1, "user_can_read_mails": 1, "user_can_write_mails": 0},
+        ),
     ]
     interface = make_interface(monkeypatch, fake_module)
 
     result, status_code = interface.get_folder_share(account_id=0, folder_path="INBOX")
 
     assert status_code == 200
-    assert "anyone" in result["data"]
-    assert result["data"]["anyone"]["rights"] == {"read": 1, "write": 0}
+    assert fake_module.get_folder_share_args == "INBOX"
+    users = result["data"]["users"]
+    assert "anyone" in users
+    assert users["anyone"]["user_class"] == "anyone"
+    assert users["anyone"]["rights"] == {"userCanViewFolder": 1, "userCanReadMails": 1}
 
 
 def test_get_folder_share_module_error(monkeypatch):
-    """Test error handling when getting folder share fails."""
+    """Test error handling when reading the folder's live IMAP ACL fails."""
     fake_module = FakeModuleMail()
-    fake_module.get_folder_share = lambda *args: (_ for _ in ()).throw(RequestException("Cannot get share", err.ERROR_VALIDATION_ERROR))
+    fake_module.get_folder_share = lambda *args, **kwargs: (_ for _ in ()).throw(RequestException(error=err.ERROR_SHARE_NOT_FOUND))
     interface = make_interface(monkeypatch, fake_module)
 
     result, status_code = interface.get_folder_share(account_id=0, folder_path="INBOX")
 
-    assert result["error_code"] == "S000300"
-    assert status_code == 400
+    assert status_code == 404
+    assert result["error_code"] == "S001100"
 
 
-# ========== Tests for share_folder ==========
-
-def test_share_folder_success(monkeypatch):
-    """Test sharing a folder for a valid account (empty result)."""
+def test_patch_folder_share_success(monkeypatch):
+    """Test that 'permissions' codes resolve to a full 11-flag rights dict, unlisted rights denied."""
     fake_module = FakeModuleMail()
-    fake_module.share_folder_result = []  # No shares returned after update
     interface = make_interface(monkeypatch, fake_module)
 
-    share_data = [{"email": "user2@example.com", "read": True, "write": True}]
-    result, status_code = interface.share_folder(account_id=0, folder_path="INBOX", share_data=share_data)
+    share_data = [{"uid": "bob@example.com", "c_email": "bob@example.com", "user_class": "user", "permissions": ["l", "r"]}]
+    result, status_code = interface.patch_folder_share(account_id=0, folder_path="INBOX", share_data=share_data)
 
     assert status_code == 200
-    assert result["data"] == {}
-    assert fake_module.share_folder_args == ("INBOX", share_data)
+    folder_path, users = fake_module.patch_folder_share_args
+    assert folder_path == "INBOX"
+    assert users == [{
+        "uid": "bob@example.com",
+        "rights": {
+            "user_can_view_folder": 1,
+            "user_can_read_mails": 1,
+            "user_can_mark_mails_read": 0,
+            "user_can_write_mails": 0,
+            "user_can_insert_mails": 0,
+            "user_can_post_mails": 0,
+            "user_can_create_subfolders": 0,
+            "user_can_remove_folder": 0,
+            "user_can_erase_mails": 0,
+            "user_can_expunge_folder": 0,
+            "user_is_administrator": 0,
+        },
+    }]
 
 
-def test_share_folder_with_anyone(monkeypatch):
-    """Test sharing a folder returns an 'anyone' ACL entry."""
+def test_patch_folder_share_anyone_user_class(monkeypatch):
+    """Test that user_class 'anyone' resolves to the ANYONE_TO_USER pseudo-uid."""
     fake_module = FakeModuleMail()
-    fake_module.share_folder_result = [
-        ("anyone", {"read": 1, "write": 1}),
-    ]
     interface = make_interface(monkeypatch, fake_module)
 
-    share_data = [{"email": "anyone", "read": True, "write": True}]
-    result, status_code = interface.share_folder(account_id=0, folder_path="INBOX", share_data=share_data)
+    share_data = [{"user_class": "anyone", "permissions": ["l", "r"]}]
+    interface.patch_folder_share(account_id=0, folder_path="INBOX", share_data=share_data)
+
+    _, users = fake_module.patch_folder_share_args
+    assert users[0]["uid"] == "<default>"
+
+
+def test_patch_folder_share_permissions_rights_mismatch(monkeypatch):
+    """Test that conflicting 'permissions' and 'rights' fields return the mismatch error."""
+    fake_module = FakeModuleMail()
+    interface = make_interface(monkeypatch, fake_module)
+
+    share_data = [{
+        "uid": "bob@example.com", "c_email": "bob@example.com", "user_class": "user",
+        "permissions": ["l"], "rights": {"user_can_view_folder": 0},
+    }]
+    result, status_code = interface.patch_folder_share(account_id=0, folder_path="INBOX", share_data=share_data)
+
+    assert status_code == 400
+    assert result["error_code"] == "S001103"
+
+
+def test_patch_folder_share_module_error(monkeypatch):
+    """Test error handling when the module rejects the share (e.g. sharing with oneself)."""
+    fake_module = FakeModuleMail()
+    fake_module.patch_folder_share = lambda *args, **kwargs: (_ for _ in ()).throw(RequestException(error=err.ERROR_SHARE_CANNOT_SHARE_WITH_SELF))
+    interface = make_interface(monkeypatch, fake_module)
+
+    result, status_code = interface.patch_folder_share(
+        account_id=0, folder_path="INBOX",
+        share_data=[{"uid": "bob@example.com", "c_email": "bob@example.com", "user_class": "user", "permissions": ["l"]}],
+    )
+
+    assert status_code == 400
+    assert result["error_code"] == "S001102"
+
+
+def test_put_folder_share_success(monkeypatch):
+    """Test that PUT resolves rights and forwards them to put_folder_share."""
+    fake_module = FakeModuleMail()
+    interface = make_interface(monkeypatch, fake_module)
+
+    share_data = [{"uid": "bob@example.com", "c_email": "bob@example.com", "user_class": "user", "permissions": ["a"]}]
+    result, status_code = interface.put_folder_share(account_id=0, folder_path="INBOX", share_data=share_data)
 
     assert status_code == 200
-    assert "anyone" in result["data"]
-    assert result["data"]["anyone"]["rights"] == {"read": 1, "write": 1}
+    folder_path, users = fake_module.put_folder_share_args
+    assert folder_path == "INBOX"
+    assert users[0]["uid"] == "bob@example.com"
+    assert users[0]["rights"]["user_is_administrator"] == 1
 
 
-def test_share_folder_module_error(monkeypatch):
-    """Test error handling when sharing folder fails."""
+def test_post_folder_share_success(monkeypatch):
+    """Test that POST resolves rights from the 'rights' field and forwards them to post_folder_share."""
     fake_module = FakeModuleMail()
-    fake_module.share_folder = lambda *args: (_ for _ in ()).throw(RequestException("Cannot share", err.ERROR_VALIDATION_ERROR))
     interface = make_interface(monkeypatch, fake_module)
 
-    result, status_code = interface.share_folder(account_id=0, folder_path="INBOX", share_data=[])
+    share_data = [{
+        "uid": "bob@example.com", "c_email": "bob@example.com", "user_class": "user",
+        "rights": {"user_can_view_folder": 1, "user_can_read_mails": 1},
+    }]
+    result, status_code = interface.post_folder_share(account_id=0, folder_path="INBOX", share_data=share_data)
 
-    assert result["error_code"] == "S000300"
-    assert status_code == 400
+    assert status_code == 200
+    folder_path, users = fake_module.post_folder_share_args
+    assert folder_path == "INBOX"
+    assert users[0]["rights"]["user_can_view_folder"] == 1
+    assert users[0]["rights"]["user_can_write_mails"] == 0
