@@ -16,7 +16,7 @@ from app.utils import constants as cs
 
 SERVER   = "192.168.69.34"
 PORT     = 10125
-USERNAME = "tkeriven@snapshot.alinto.org"
+USERNAME = "sogo-tests1@example.org"
 PASSWORD = "Banane2!"
 
 FROM_ADDR = USERNAME
