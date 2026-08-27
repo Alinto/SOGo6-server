@@ -272,6 +272,7 @@ ERROR_ADMIN_AUTH_NOT_CONFIG = E("S001001", "Admin Authentication Not Configured"
 ERROR_SHARE_NOT_FOUND             = E("S001100", "Share Not Found", HTTPStatus.NOT_FOUND)
 ERROR_SHARE_TARGET_USER_NOT_FOUND = E("S001101", "Target User Not Found", HTTPStatus.NOT_FOUND)
 ERROR_SHARE_CANNOT_SHARE_WITH_SELF = E("S001102", "Cannot Share A Resource With Its Own Owner", HTTPStatus.BAD_REQUEST)
+ERROR_SHARE_PERMISSIONS_RIGHTS_MISMATCH = E("S001103", "Simplified 'permissions' And Advanced 'rights' Fields Are Inconsistent", HTTPStatus.BAD_REQUEST)
 
 #the bugs
 ERROR_UNKOWN = E("S999999", "Undefined Error", HTTPStatus.INTERNAL_SERVER_ERROR)
