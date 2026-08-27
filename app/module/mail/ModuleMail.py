@@ -8,6 +8,7 @@ from email.header import decode_header, make_header
 from email.message import EmailMessage
 from email.message import Message
 from email.utils import parseaddr, getaddresses, make_msgid, formatdate
+from hashlib import sha256
 from io import BytesIO
 from re import search as reg_search
 import zipfile
@@ -53,6 +54,7 @@ class ModuleMail:
         self.domain_mail_folder_name: dict = {}
         self._process_setting: ProcessSetting | None = process_setting
         self._db: ClientSQL | None = None
+        self._share: ShareMailFolder | None = None
 
     def _get_db(self) -> ClientSQL:
         """Return the DB client, lazily initialising it on first call.
@@ -71,6 +73,23 @@ class ModuleMail:
             )
             self._db.connect()
         return self._db
+
+    def _get_share(self) -> ShareMailFolder:
+        """Return the mail folder ACL sharing helper, lazily initialising it on first call."""
+        if self._share is None:
+            self._share = ShareMailFolder(self._get_db())
+        return self._share
+
+    @staticmethod
+    def _folder_acl_key(account_id: str, folder_path: str) -> str:
+        """Build a stable sogo6_acl key for a folder from (account_id, folder_path).
+
+        Mail folders have no opaque key like calendars/addressbooks - they are addressed by
+        their literal IMAP path, which can exceed sogo6_acl.key's 64-char cap for deep folder
+        hierarchies. Hashed so the key stays deterministic and within bounds regardless of
+        path length.
+        """
+        return sha256(f"{account_id}\x00{folder_path}".encode("utf-8")).hexdigest()
 
     def _get_user_conf(self, account_id: str) -> dict:
         user_mail_conf: dict = {}

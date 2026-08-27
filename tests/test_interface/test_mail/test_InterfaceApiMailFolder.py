@@ -484,6 +484,7 @@ def test_patch_folder_share_success(monkeypatch):
 def test_patch_folder_share_anyone_user_class(monkeypatch):
     """Test that user_class 'anyone' resolves to the ANYONE_TO_USER pseudo-uid."""
     fake_module = FakeModuleMail()
+<<<<<<< HEAD
     interface = make_interface(monkeypatch, fake_module)
 
     share_data = [{"user_class": "anyone", "permissions": ["l", "r"]}]
@@ -591,3 +592,75 @@ def test_post_folder_share_unknown_user_accepted_as_anonymous(monkeypatch):
     _, users = fake_module.post_folder_share_args
     assert users[0]["uid"] == "ghost@example.com"
     assert result["data"][0]["user_class"] == "anonymous"
+=======
+    interface = make_interface(monkeypatch, fake_module)
+
+    share_data = [{"user_class": "anyone", "permissions": ["l", "r"]}]
+    interface.patch_folder_share(account_id=0, folder_path="INBOX", share_data=share_data)
+
+    _, users = fake_module.patch_folder_share_args
+    assert users[0]["uid"] == "<default>"
+
+
+def test_patch_folder_share_permissions_rights_mismatch(monkeypatch):
+    """Test that conflicting 'permissions' and 'rights' fields return the mismatch error."""
+    fake_module = FakeModuleMail()
+    interface = make_interface(monkeypatch, fake_module)
+
+    share_data = [{
+        "uid": "bob@example.com", "c_email": "bob@example.com", "user_class": "user",
+        "permissions": ["l"], "rights": {"user_can_view_folder": 0},
+    }]
+    result, status_code = interface.patch_folder_share(account_id=0, folder_path="INBOX", share_data=share_data)
+
+    assert status_code == 400
+    assert result["error_code"] == "S001103"
+
+
+def test_patch_folder_share_module_error(monkeypatch):
+    """Test error handling when the module rejects the share (e.g. sharing with oneself)."""
+    fake_module = FakeModuleMail()
+    fake_module.patch_folder_share = lambda *args, **kwargs: (_ for _ in ()).throw(RequestException(error=err.ERROR_SHARE_CANNOT_SHARE_WITH_SELF))
+    interface = make_interface(monkeypatch, fake_module)
+
+    result, status_code = interface.patch_folder_share(
+        account_id=0, folder_path="INBOX",
+        share_data=[{"uid": "bob@example.com", "c_email": "bob@example.com", "user_class": "user", "permissions": ["l"]}],
+    )
+
+    assert status_code == 400
+    assert result["error_code"] == "S001102"
+
+
+def test_put_folder_share_success(monkeypatch):
+    """Test that PUT resolves rights and forwards them to put_folder_share."""
+    fake_module = FakeModuleMail()
+    interface = make_interface(monkeypatch, fake_module)
+
+    share_data = [{"uid": "bob@example.com", "c_email": "bob@example.com", "user_class": "user", "permissions": ["a"]}]
+    result, status_code = interface.put_folder_share(account_id=0, folder_path="INBOX", share_data=share_data)
+
+    assert status_code == 200
+    folder_path, users = fake_module.put_folder_share_args
+    assert folder_path == "INBOX"
+    assert users[0]["uid"] == "bob@example.com"
+    assert users[0]["rights"]["user_is_administrator"] == 1
+
+
+def test_post_folder_share_success(monkeypatch):
+    """Test that POST resolves rights from the 'rights' field and forwards them to post_folder_share."""
+    fake_module = FakeModuleMail()
+    interface = make_interface(monkeypatch, fake_module)
+
+    share_data = [{
+        "uid": "bob@example.com", "c_email": "bob@example.com", "user_class": "user",
+        "rights": {"user_can_view_folder": 1, "user_can_read_mails": 1},
+    }]
+    result, status_code = interface.post_folder_share(account_id=0, folder_path="INBOX", share_data=share_data)
+
+    assert status_code == 200
+    folder_path, users = fake_module.post_folder_share_args
+    assert folder_path == "INBOX"
+    assert users[0]["rights"]["user_can_view_folder"] == 1
+    assert users[0]["rights"]["user_can_write_mails"] == 0
+>>>>>>> 9df5cb5 (OP#2822 : add folders share API)

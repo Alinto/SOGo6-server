@@ -156,6 +156,14 @@ class FakeClientMailServer:
         self.get_acl_raw_result = [(ident, rights) for ident, rights in self.get_acl_raw_result if ident != identifier]
         self.get_acl_raw_result.append((identifier, imap_rights))
 
+    def get_acl_raw(self, folder_path):
+        """Get the raw IMAP ACL for a folder (no SOGo rights conversion)."""
+        return self.get_acl_raw_result
+
+    def set_acl_raw(self, folder_path, identifier, imap_rights):
+        """Set the raw IMAP ACL rights string for identifier on folder (no SOGo rights conversion)."""
+        self.set_acl_raw_calls.append((folder_path, identifier, imap_rights))
+
     def get_mail_uids_before_date(self, mailbox, before_date=None, exclude_deleted=True):
         """Get mail UIDs in a mailbox before a certain date."""
         if before_date:
@@ -311,6 +319,35 @@ def _make_module(monkeypatch, fake_client=None):
     mock_db = MagicMock()
     monkeypatch.setattr(module, '_get_db', lambda: mock_db)
     return module, fake_client
+
+
+class FakeShare:
+    """Fake ShareMailFolder for testing ModuleMail's sogo6_acl (type='folder') mirror."""
+
+    def __init__(self):
+        self.entries = {}  # (key, to_user) -> AclEntry
+        self.add_permissions_calls = []
+        self.remove_permissions_calls = []
+
+    def get_permissions(self, key):
+        return [entry for (stored_key, _), entry in self.entries.items() if stored_key == key]
+
+    def add_permissions(self, for_user, on_key, owner, rights):
+        self.add_permissions_calls.append((for_user, on_key, owner, rights))
+        self.entries[(on_key, for_user)] = AclEntry(
+            resource_type="folder", key=on_key, owner=owner, to_user=for_user, rights=rights,
+        )
+
+    def remove_permissions(self, for_user, on_key):
+        self.remove_permissions_calls.append((for_user, on_key))
+        self.entries.pop((on_key, for_user), None)
+
+
+def _make_share(monkeypatch, module):
+    """Patch module._get_share to return a fresh FakeShare, and return it for assertions."""
+    fake_share = FakeShare()
+    monkeypatch.setattr(module, '_get_share', lambda: fake_share)
+    return fake_share
 
 
 # ========== Tests for initialization ==========
