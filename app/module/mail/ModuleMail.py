@@ -1641,7 +1641,7 @@ class ModuleMail:
             raise RequestException("Missing or invalid destination folder for move action", err.ERROR_MISSING_ACTION_DATA)
 
         client.copy_mail_to_mailbox(folder_name, mail_uid, destination)
-        client.add_flags_to_mail(folder_name, mail_uid, ['\\Deleted'])
+        self._flag_deleted_and_expunge(client, folder_name, mail_uid)
 
         return {"action": "move", "mail_uid": mail_uid, "from_folder": folder_name, "to_folder": destination}
 
@@ -1658,7 +1658,7 @@ class ModuleMail:
         """
         junk_folder = self.domain_mail_folder_name.get(cs.MAIL_FOLDER_JUNK, "Junk")
         client.copy_mail_to_mailbox(folder_name, mail_uid, junk_folder, create_dest=True)
-        client.add_flags_to_mail(folder_name, mail_uid, ['\\Deleted'])
+        self._flag_deleted_and_expunge(client, folder_name, mail_uid)
         return {"action": "spam", "mail_uid": mail_uid, "moved_to": junk_folder}
 
     def _action_ham(self, client: ClientMailServer, folder_name: str, mail_uid: str|list[str]) -> dict[str, Any]:
@@ -1675,7 +1675,7 @@ class ModuleMail:
         inbox_folder = self.domain_mail_folder_name.get(cs.MAIL_FOLDER_INBOX, "INBOX")
         junk_folder = self.domain_mail_folder_name.get(cs.MAIL_FOLDER_JUNK, "Junk")
         client.copy_mail_to_mailbox(junk_folder, mail_uid, inbox_folder)
-        client.add_flags_to_mail(folder_name, mail_uid, ['\\Deleted'])
+        self._flag_deleted_and_expunge(client, folder_name, mail_uid)
 
         return {"action": "ham", "mail_uid": mail_uid, "moved_to": inbox_folder}
 
@@ -1698,6 +1698,18 @@ class ModuleMail:
         client.copy_mail_to_mailbox(folder_name, mail_uid, destination)
 
         return {"action": "copy", "mail_uid": mail_uid, "from_folder": folder_name, "to_folder": destination}
+
+    def _flag_deleted_and_expunge(
+        self, client: ClientMailServer, folder_name: str, mail_uid: str|list[str]
+    ) -> None:
+        """Flag mails as deleted then expunge the source folder.
+
+        IMAP COPY + ``\\Deleted`` is not a move until EXPUNGE: without it the
+        original stays visible in the source folder (and a later move copies it
+        again, producing duplicates).
+        """
+        client.add_flags_to_mail(folder_name, mail_uid, ['\\Deleted'])
+        client.expunge_folder(folder_name, do_children=False)
 
     def _action_delete(self, client: ClientMailServer, folder_name: str, mail_uid: str|list[str], account_id: str) -> dict[str, Any]:
         """Delete a mail or a list of mails, honoring the user's ``SOGO_U_MAIL_DELETE_BEHAVIOR`` preference.
