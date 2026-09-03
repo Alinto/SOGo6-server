@@ -76,6 +76,10 @@ class CalendarEventQueryArgsSchema(Schema):
         validate=[validate.Length(max=_SEARCH_MAX_LENGTH), _validate_search],
         metadata={"description": "Full-text search in title, description and location. Must contain at least 2 non-whitespace characters."},
     )
+    only_subscribe = fields.Boolean(
+        load_default=True,
+        metadata={"description": "When true, only return events from calendars the user marked as subscribed (folders.CALENDAR.* = true)."},
+    )
 
 
 class CalendarEventSchema(Schema):
