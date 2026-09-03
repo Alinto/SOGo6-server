@@ -72,6 +72,8 @@ class CalendarSchema(Schema):
     public_url         = fields.String(allow_none=True, dump_only=True)
     # `dump_only`` because permissions are only available when retrieving calendar but can't be set in that way
     permissions        = fields.Nested(CalendarPermissionsSchema, allow_none=True, dump_only=True)
+    owner              = fields.String(allow_none=True, dump_only=True,
+                                metadata={"description": "UID of the calendar's owner (creator, resolved via sogo6_acl for shared calendars).", "example": "jdoe"})
     created_at         = fields.DateTime(allow_none=True)
     updated_at         = fields.DateTime(allow_none=True)
 
