@@ -58,6 +58,20 @@ class ApiUserPreferences(MethodView):
         return interface_api.update_all_preferences(new_data["settings"])
 
 
+@blp.route("/folders")
+class ApiUserPreferencesFolders(MethodView):
+    """
+    Return user's shared folders (calendars and addressbooks)
+    """
+    @blp.response(200)
+    def get(self) -> ResponseReturnValue:
+        """
+        Get user's folders structure
+        """
+        interface_api: InterfaceUserPreferences = g.inter
+        return interface_api.get_user_folders()
+
+
 # @blp.route("/<string:pref_type>")
 # class ApiUserPreferencesPart(MethodView):
 #     """

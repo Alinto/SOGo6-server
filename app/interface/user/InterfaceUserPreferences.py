@@ -41,6 +41,20 @@ class InterfaceUserPreferences:
         return create_api_base_response(data)
 
 
+    def get_user_folders(self) -> tuple[dict, int]:
+        """
+        Get the user's folders (calendars and addressbooks)
+
+        :return: Tuple containing response dict and HTTP status code
+        :rtype: tuple[dict, int]
+        """
+        try:
+            folders = self.module_user_profile.get_user_folders(self.user.uid)
+        except RequestException as ex:
+            return create_api_base_response(None, ex.error)
+
+        return create_api_base_response(folders)
+
     def get_partial_preferences(self, subparent:str) -> tuple[dict, int]:
         """Get partial user preferences for a specific subparent
 
