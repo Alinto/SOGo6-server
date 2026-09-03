@@ -604,3 +604,102 @@ class MailboxPurgeResponseSchema(ApiBaseResponse):
             }
         }
 
+class DateRangeSchema(Schema):
+    """
+    Schema for date range filter in advanced search
+    """
+    start = fields.String(required=False, allow_none=True, metadata={"description": "Start date in ISO 8601 format (e.g. 2026-05-01T00:00:00Z), or a bare date (e.g. 2026-05-01). A bare date includes the entire day regardless of time."})
+    end = fields.String(required=False, allow_none=True, metadata={"description": "End date in ISO 8601 format (e.g. 2026-05-19T23:59:59Z), or a bare date (e.g. 2026-05-19). A bare date includes the entire day regardless of time."})
+
+    @classmethod
+    def example(cls) -> dict:
+        return {
+            "start": "2026-05-01T00:00:00Z",
+            "end": "2026-05-19T23:59:59Z"
+        }
+
+
+class MailboxSearchSchema(Schema):
+    """
+    Schema for POST /mailboxes/<account_id>/search - Advanced mail search.
+
+    All fields are optional. When multiple criteria are provided, they are combined
+    using the "operator" field: "AND" (default, every criterion must match) or
+    "OR" (at least one criterion must match).
+    """
+    operator = fields.String(
+        required=False,
+        allow_none=True,
+        load_default="AND",
+        validate=validate.OneOf(["AND", "OR"]),
+        metadata={"description": "Logical operator combining the search criteria below: 'AND' (default) requires every provided criterion to match, 'OR' requires at least one to match"}
+    )
+    text = fields.String(required=False, allow_none=True, load_default=None, metadata={"description": "Full-text search in body and headers"})
+    from_ = fields.String(required=False, allow_none=True, load_default=None, data_key="from", metadata={"description": "Filter by sender email address"})
+    to = fields.String(required=False, allow_none=True, load_default=None, metadata={"description": "Filter by recipient email address (matches either the To or the Cc header)"})
+    bcc = fields.String(required=False, allow_none=True, load_default=None, metadata={"description": "Filter by Bcc recipient email address"})
+    subject = fields.String(required=False, allow_none=True, load_default=None, metadata={"description": "Filter by subject (substring match)"})
+    has_attachment = fields.Boolean(required=False, allow_none=True, load_default=None, metadata={"description": "Filter mails that have (or don't have) attachments"})
+    attachment_type = fields.List(fields.String(), required=False, allow_none=True, load_default=None, metadata={"description": "Filter by attachment file extensions (e.g. ['pdf', 'jpg'])"})
+    date_range = fields.Nested(DateRangeSchema, required=False, allow_none=True, load_default=None, metadata={"description": "Filter by date range"})
+    is_read = fields.Boolean(required=False, allow_none=True, load_default=None, metadata={"description": "Filter by read/unread status"})
+    is_flagged = fields.Boolean(required=False, allow_none=True, load_default=None, metadata={"description": "Filter by starred (flagged) status"})
+    folders = fields.List(fields.String(), required=False, allow_none=True, load_default=None, metadata={"description": "Folders to search in (use ['all'] for entire mailbox)"})
+    include_subfolders = fields.Boolean(required=False, allow_none=True, load_default=True, metadata={"description": "If True (default), also search in the subfolders of each folder listed in 'folders'. If False, search only in the exact folders listed"})
+    labels = fields.List(fields.String(), required=False, allow_none=True, load_default=None, metadata={"description": "Filter by IMAP keyword labels"})
+
+    @classmethod
+    def example(cls) -> dict:
+        """Example data for advanced mail search.
+
+        :return: Example search payload
+        :rtype: dict
+        """
+        return {
+            "operator": "AND",
+            "text": "contrat urgent",
+            "from": "customer@entreprise.com",
+            "to": "jdoe@domaine.com",
+            "bcc": "hidden@domaine.com",
+            "subject": "Projet X",
+            "has_attachment": True,
+            "attachment_type": ["pdf", "jpg"],
+            "date_range": {
+                "start": "2025-05-01T00:00:00Z",
+                "end": "2026-05-19T23:59:59Z"
+            },
+            "is_read": False,
+            "is_flagged": True,
+            "folders": ["INBOX", "Archive"],
+            "include_subfolders": True,
+            "labels": ["important", "work"],
+        }
+
+
+class MailboxSearchResponseSchema(ApiBaseResponse):
+    """
+    Schema for the response of the advanced mail search endpoint.
+    """
+    data = fields.Dict(required=False, allow_none=True, metadata={"description": "Search results with mails list and total count"})
+
+    @classmethod
+    def example(cls) -> dict:
+        return {
+            "error_code": 0,
+            "error_msg": "",
+            "data": {
+                "total": 2,
+                "mails": [
+                    {
+                        "uid": "42",
+                        "subject": "Projet X - Contrat urgent",
+                        "from": {"name": "Client", "email": "client@entreprise.com"},
+                        "date": "Tue, 19 May 2026 10:00:00 +0000",
+                        "seen": False,
+                        "flagged": True,
+                        "has_attachment": True,
+                        "folder": "INBOX"
+                    }
+                ]
+            }
+        }

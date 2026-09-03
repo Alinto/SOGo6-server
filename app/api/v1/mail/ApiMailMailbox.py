@@ -8,6 +8,7 @@ from flask_smorest import Blueprint
 from app.interface.mail.InterfaceApiMailMailbox import InterfaceApiMailMailbox
 from app.utils.logger.logger import logger_api
 from app.utils.api.ApiBaseResponse import ApiBaseResponse
+from app.utils.api.paginate_sort_filter import collection_paginate, CustomPaginateResponse
 from app.api.v1.mail.schemas.mailbox import (
     MailboxCreateSchema,
     MailboxUpdateSchema,
@@ -18,11 +19,14 @@ from app.api.v1.mail.schemas.mailbox import (
     DelegationResponseSchema,
     MailboxPurgeSchema,
     MailboxPurgeResponseSchema,
+    MailboxSearchSchema,
+    MailboxSearchResponseSchema,
 )
 
 if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
     from app.auth.User import User
+    from app.utils.api.paginate_sort_filter import CollectionPaginateArgs
 
 blp = Blueprint("Mail Account", __name__, url_prefix="/mailboxes")
 
@@ -155,3 +159,38 @@ class ApiMailBoxesAccountPurge(MethodView):
         interface: InterfaceApiMailMailbox = g.inter
         return interface.purge_mailbox(account_id, purge_data)
 
+
+@blp.route("/<string:account_id>/search")
+class ApiMailBoxesAccountSearch(MethodView):
+    """
+    Resource: Advanced Mail Search
+    """
+    @blp.arguments(MailboxSearchSchema, example=MailboxSearchSchema.example(), error_status_code=400)
+    @blp.response(200, MailboxSearchResponseSchema)
+    @collection_paginate(blp, can_sort=True, sort_value_set={"date", "relevance", "sender", "subject", "size"},
+                         can_filter=True, filter_value_set={"contents", "deleted"})
+    def post(self, search_params: dict, collection_param: "CollectionPaginateArgs", account_id: str) -> CustomPaginateResponse:
+        """
+        Advanced mail search across one or multiple folders.
+
+        * **operator**: str, 'AND' (default) or 'OR' - how the criteria below are combined.
+          With 'AND' every provided criterion must match, with 'OR' at least one must match.
+        * **text**: str, full text search in subject/sender/recipients/body
+        * **folders**: list[str], list of folder paths to search in (e.g. ["INBOX", "Sent"] or ["all"] for all folders)
+        * **include_subfolders**: bool, default True - when True, also search the subfolders of each folder listed in "folders"; when False, search only the exact folders listed. Ignored when "folders" is empty or ["all"].
+        * **date_range**: dict, date range for the search (e.g. {"from": "2023-01-01", "to": "2023-01-31"})
+        * **has_attachments**: bool, whether to search for emails with attachments
+        * **to**: str, email address to search for in either the recipient (To) or copy (Cc) headers
+        * **bcc**: str, blind copy (Bcc) email address to search for
+        * **from**: list[str], list of sender email addresses to search for
+        * **subject** : str, keywords to search for in the email subject
+        * **attachment_type**: list[str], list of attachment types to search for (e.g. ["pdf", "jpg"])
+        * **is_read**: bool, whether to search for read or unread emails
+        * **labels**: list[str], list of labels/tags to search for
+
+        All search criteria are optional and combined using the "operator" field (AND by default, OR to match any criterion).
+        Pagination, sorting and field filtering are controlled via query parameters (page, page_size, sort_by, sort_order, fields, fields_action).
+        """
+        logger_api.debug("Calling ApiMailBoxesAccountSearch.post for account_id: %s with params: %s", account_id, search_params)
+        interface: InterfaceApiMailMailbox = g.inter
+        return interface.search_mailbox(account_id, search_params, collection_param)

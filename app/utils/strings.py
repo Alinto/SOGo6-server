@@ -194,3 +194,8 @@ def string_to_sort_score(s: str) -> int:
     for char in s:
         score = (score << 8) | ord(char)  # Décalage de 8 bits pour chaque caractère
     return score
+
+def escape_imap_string(value: str) -> str:
+    """Escape special characters for IMAP protocol."""
+    # RFC 9051: Escape backslashes and double quotes
+    return value.replace("\\", "\\\\").replace('"', '\\"')
