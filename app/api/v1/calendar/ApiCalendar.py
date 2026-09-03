@@ -262,6 +262,8 @@ class ApiEventList(MethodView):
     @blp.response(200, CalendarEventListResponseSchema)
     def get(self, query_args: dict) -> ResponseReturnValue:
         """List events across all calendars of the current user."""
+        print("________")
+        print(g.user.folders)
         logger_api.debug("GET /events args=%s user=%s", query_args, g.user.uid)
         interface: InterfaceApiCalendarCalendar = g.inter
         return interface.get_events(None, query_args)
