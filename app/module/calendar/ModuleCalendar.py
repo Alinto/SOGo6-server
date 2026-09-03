@@ -116,7 +116,6 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         :param user: The authenticated user.
         :param shared_keys: Additional calendar keys to include (from the ACL module).
         """
-        calendar_user: CalendarUser = CalendarUser(user=user, owner=user)
         # Owned calendars
         sources: list[CalendarSource] = self._sources.get_all(user.uid)
         # Delegated calendars (shared by other users, keys provided by the ACL module)
@@ -128,6 +127,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         calendars: list[CalCalendar] = []
         for source in sources:
             cal: CalCalendar = source.calendar
+            calendar_user: CalendarUser = CalendarUser(user=user, owner=User(uid=cal.user_uid))
             cal.permissions = self._acl.get_permissions(cal, calendar_user)
             calendars.append(cal)
         return calendars
@@ -297,6 +297,11 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         """Return a single event by key across the user's calendars, or raise NOT_FOUND."""
         _, event = self._sources.require_event(calendar_user.owner.uid, event_key)
         return event
+
+    def get_event_permissions(self, calendar_user: CalendarUser, event_key: str) -> CalendarPermissions:
+        """Return the acting user's permissions on the calendar holding the given event, or raise NOT_FOUND."""
+        source, _ = self._sources.require_event(calendar_user.owner.uid, event_key)
+        return self._acl.get_permissions(source.calendar, calendar_user)
 
     def update_event(self, calendar_user: CalendarUser, event_key: str, event_update: CalEvent, organizer: CalOrganizer) -> CalEvent:
         """Update an event, handling recurrence scope and attendee propagation."""

@@ -252,9 +252,9 @@ Centralizes all permission logic. Three responsibilities:
 
 `CalendarPermissions` has one `CalendarShareLevel` per visibility class (public, confidential, private) plus `can_create` and `can_delete` flags. Share levels are ordered: `NONE < VIEW_DATETIME < VIEW_ALL < RESPOND < MODIFY_IF_ORG < MODIFY`.
 
-`MODIFY_IF_ORG` is the conditional level between `RESPOND` and `MODIFY`: the user gets `MODIFY` only on events they ORGANIZE, and behaves as `RESPOND` on everything else. Levels serialise by *name* (`modify_if_org` in the API), so the numbering is internal.
+`MODIFY_IF_ORG` is the conditional level between `RESPOND` and `MODIFY`: the user gets `MODIFY` only on events they ORGANIZE, and behaves as `RESPOND` on everything else. In the API the levels serialise with the same strings as the sharing API (`none`, `view-date-time`, `view-all`, `respond-to`, `modify`); `MODIFY_IF_ORG` has no API string and is exposed as `respond-to`.
 
-Each `CalCalendar` carries a transient `permissions` field populated at read time - the API response includes the user's permissions so the UI knows which actions to enable.
+Each `CalCalendar` carries a transient `permissions` field populated at read time. The API exposes it as `rights` (`public`, `confidential`, `private`, `can_create_objects`, `can_erase_objects` - the same shape as the sogo6_acl rights blob) on `GET /calendars`, `GET /calendars/<key>` and `GET /events/<event_key>` (the latter resolves the rights on the event's calendar), so the UI knows which actions to enable.
 
 == Repositories
 
