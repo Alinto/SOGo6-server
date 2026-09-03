@@ -326,7 +326,8 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         When no dates are provided and there is no search query, defaults to the current calendar day (UTC).
 
         :param key: Calendar key, or None to query all user calendars.
-        :param query_args: Parsed query arguments: ``start_date_time``, ``end_date_time``, ``search`` (all optional).
+        :param query_args: Parsed query arguments: ``start_date_time``, ``end_date_time``, ``search``,
+            ``only_subscribe`` (all optional).
         :return: API envelope with ``events`` list and ``total_count``, plus HTTP status code.
         """
         try:
@@ -338,12 +339,29 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
                 start = datetime(today.year, today.month, today.day, 0, 0, 0, tzinfo=timezone.utc)
                 end = datetime(today.year, today.month, today.day, 23, 59, 59, tzinfo=timezone.utc)
             calendar_user: CalendarUser = self._calendar_user_for(key) if key else CalendarUser(user=self.user, owner=self.user)
-            events: list[CalEvent] = self.module.get_all_events(calendar_user, start, end, search, key)
+            subscribed_keys: set[str] | None = self._subscribed_calendar_keys() if query_args.get("only_subscribe") else None
+            events: list[CalEvent] = self.module.get_all_events(calendar_user, start, end, search, key, subscribed_keys)
             event_list: list[dict[str, Any]] = self._events_serializer.serialize(events)
             return create_api_base_response({"events": event_list, "total_count": len(event_list)})
         except RequestException as ex:
             logger_api.error("get_events failed for user %s, calendar %s: %s", self.user.uid, key, ex)
             return create_api_base_response(None, ex.error)
+
+    def _subscribed_calendar_keys(self) -> set[str]:
+        """Return the calendar keys marked True under folders.CALENDAR (any of OWNER/SUBS/EXT/...).
+
+        ``folders`` is the raw JSON blob from sogo_user_profile: ``{"CALENDAR": {"OWNER": {key: bool, ...}, ...}}``.
+        Only the "CALENDAR" branch is relevant here; every sub-group is scanned generically so a
+        calendar counts as subscribed regardless of which group (owned, shared, external) it lives in.
+        """
+        calendar_groups: dict[str, Any] = self.user.folders.get("CALENDAR", {})
+        return {
+            calendar_key
+            for group in calendar_groups.values()
+            if isinstance(group, dict)
+            for calendar_key, is_subscribed in group.items()
+            if is_subscribed is True
+        }
 
     #
     # Tasks

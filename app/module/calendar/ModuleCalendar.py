@@ -381,17 +381,19 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         end: datetime | None,
         search: str | None,
         key: str | None = None,
+        subscribed_keys: set[str] | None = None,
     ) -> list[CalEvent]:
         """Return events within [start, end], optionally restricted to a single calendar.
 
         When key is None, events from all user calendars are merged.
         The date-range limit is bypassed when a search query is present.
+        When subscribed_keys is not None, only events whose calendar is in that set are returned.
         """
         if search is None and start is not None and end is not None:
             if (end - start) > timedelta(days=MAX_EVENT_FETCH_DAYS):
                 raise RequestException(error=err.ERROR_CALENDAR_DATE_RANGE_TOO_LARGE)
         try:
-            events: list[CalEvent] = self._sources.get_all_events(calendar_user.owner.uid, start, end, search, key)
+            events: list[CalEvent] = self._sources.get_all_events(calendar_user.owner.uid, start, end, search, key, subscribed_keys)
             logger_calendar.debug("returned %d events (calendar=%s)", len(events), key or "all")
             return self._sanitize_listing(calendar_user, events)
         except RequestException:

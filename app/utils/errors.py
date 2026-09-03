@@ -181,6 +181,7 @@ ERROR_IMAP_QUOTA_FAILED        = E("S000337", "IMAP GETQUOTAROOT command failed"
 
 #Preferences
 ERROR_PREF_UNKNOWN_SUB = E("S000340", "Subparent of User Settings does not exist", HTTPStatus.BAD_REQUEST)
+ERROR_FOLDER_KEY_NOT_FOUND = E("S000341", "Folder Key Not Found In Folders Preferences", HTTPStatus.NOT_FOUND)
 
 #Delegations
 ERROR_DELEGATION_NOT_FOUND = E("S000350", "Delegation Not Found", HTTPStatus.NOT_FOUND)
