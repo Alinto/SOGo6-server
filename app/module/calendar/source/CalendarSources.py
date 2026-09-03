@@ -147,19 +147,26 @@ class CalendarSources:
         end: datetime | None = None,
         search: str | None = None,
         calendar_key: str | None = None,
+        subscribed_keys: set[str] | None = None,
     ) -> list[CalEvent]:
         """Return events for user_uid, optionally restricted to a single calendar.
 
         When calendar_key is None, events from all user calendars are merged and sorted.
+        When subscribed_keys is not None, calendars whose key is not in that set are skipped
+        entirely (e.g. ``only_subscribe`` filtering from folders.CALENDAR).
         Raises ERROR_CALENDAR_NOT_FOUND if calendar_key is given but does not exist.
         """
         if calendar_key is not None:
             source = self.get_by_key(user_uid, calendar_key)
             if source is None:
                 raise RequestException(error=err.ERROR_CALENDAR_NOT_FOUND)
+            if subscribed_keys is not None and calendar_key not in subscribed_keys:
+                return []
             return source.get_all_events(start, end, search)
         events: list[CalEvent] = []
         for source in self.get_all(user_uid):
+            if subscribed_keys is not None and source.calendar.key not in subscribed_keys:
+                continue
             events.extend(source.get_all_events(start, end, search))
         events.sort(key=lambda e: e.require_date_start)
         return events

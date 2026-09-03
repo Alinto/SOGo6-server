@@ -71,6 +71,15 @@ class ApiUserPreferencesFolders(MethodView):
         interface_api: InterfaceUserPreferences = g.inter
         return interface_api.get_user_folders()
 
+    @blp.arguments(sch.UserPreferencesFoldersPatch, example=sch.UserPreferencesFoldersPatch.example(), error_status_code=400)
+    @blp.response(200)
+    def patch(self, new_data: dict) -> ResponseReturnValue:
+        """
+        Update a single folder key's value in the user's folders structure
+        """
+        interface_api: InterfaceUserPreferences = g.inter
+        return interface_api.update_folder_value(new_data["resource"], new_data["id"], new_data["value"])
+
 
 # @blp.route("/<string:pref_type>")
 # class ApiUserPreferencesPart(MethodView):

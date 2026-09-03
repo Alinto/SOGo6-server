@@ -207,7 +207,22 @@ class ApiContactList(MethodView):
     @blp.arguments(ContactSearchQueryArgsSchema, location="query", arg_name="query_args")
     @collection_paginate(blp, sort_value_set=_SORT_VALUES, can_filter=False)
     def get(self, query_args: dict, collection_param: CollectionPaginateArgs) -> CustomPaginateResponse:
-        """List contacts across every address book, with search, sort and pagination."""
+        """List contacts across every address book, with search, sort and pagination.
+
+        Returns the contacts of all the address books the current user can access (owned and shared),
+        each one carrying its ``addressbook_key``. To restrict the list to a single address book, use
+        ``GET /addressbooks/{key}/contacts``.
+
+        Query parameters:
+        - ``search``: optional full-text query (minimum 2 non-whitespace characters, otherwise 422).
+        - ``sort_by``: ``display_name`` (default), ``last_name``, ``first_name``, ``organization``,
+          ``created_at`` or ``updated_at``. An unknown value falls back to ``display_name``.
+        - ``sort_order``: ``asc`` (default) or ``desc``.
+        - ``page`` (default 1) / ``page_size`` (default 20, max 100): pagination.
+
+        The total number of matching contacts is returned in the ``X-Pagination`` response header,
+        not in the body. The response body holds the current page under ``data.contacts``.
+        """
         logger_api.debug("GET /contacts user=%s params=%s", g.user.uid, collection_param)
         interface: InterfaceApiContactContact = g.inter
         return interface.get_contacts(None, collection_param, search=query_args.get("search"))
@@ -220,7 +235,19 @@ class ApiContactAutocomplete(MethodView):
     @blp.response(200, ContactAutocompleteResponseSchema)
     @blp.arguments(ContactAutocompleteQueryArgsSchema, location="query", arg_name="query_args")
     def get(self, query_args: dict) -> ResponseReturnValue:
-        """Return recipient suggestions for the ``q`` query string."""
+        """Suggest recipients (contacts and distribution lists) for a partially typed name or email.
+
+        Meant for the recipient field of a mail composer. The search spans all the address books of the
+        current user and returns lightweight suggestions, not full contact cards:
+        - ``type = "contact"``: one suggestion per email address of a matching contact (``name``,
+          ``email``, ``contact_key`` and the ``address_book`` it belongs to).
+        - ``type = "list"``: a matching distribution list, with ``list_key``, ``member_count`` and its
+          resolved ``members`` (``name`` + ``email``) instead of a single ``email``.
+
+        Contacts and lists are each capped to a fixed number of results. When ``q`` is shorter than the
+        domain's minimum autocompletion length (``SOGO_D_AUTOCOMPLETION_MIN_LEN``), the endpoint returns
+        an empty ``suggestions`` list rather than an error. The ``q`` parameter is required (422 if missing).
+        """
         logger_api.debug("GET /contacts/autocomplete user=%s q=%s", g.user.uid, query_args.get("q"))
         interface: InterfaceApiContactContact = g.inter
         return interface.autocomplete(query_args["q"])
