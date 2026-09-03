@@ -19,20 +19,20 @@ CALENDAR_RESOURCE_TYPE: str = "calendar"
 # API-facing share level strings (see CalendarShareRightsSchema) <-> internal CalendarShareLevel.
 # MODIFY_IF_ORG is never exposed through the sharing API - it can only be reached by the
 # CalendarAclEngine stub today (not settable by a user), so no API string maps to it.
-_LEVEL_TO_STR: dict[CalendarShareLevel, str] = {
+LEVEL_TO_STR: dict[CalendarShareLevel, str] = {
     CalendarShareLevel.NONE: "none",
     CalendarShareLevel.VIEW_DATETIME: "view-date-time",
     CalendarShareLevel.VIEW_ALL: "view-all",
     CalendarShareLevel.RESPOND: "respond-to",
     CalendarShareLevel.MODIFY: "modify",
 }
-_STR_TO_LEVEL: dict[str, CalendarShareLevel] = {v: k for k, v in _LEVEL_TO_STR.items()}
+STR_TO_LEVEL: dict[str, CalendarShareLevel] = {v: k for k, v in LEVEL_TO_STR.items()}
 
 # Rights blob granted by POST /calendars/{key}/share (full modify access, per the endpoint's contract).
 FULL_MODIFY_RIGHTS: dict = {
-    "public": _LEVEL_TO_STR[CalendarShareLevel.MODIFY],
-    "confidential": _LEVEL_TO_STR[CalendarShareLevel.MODIFY],
-    "private": _LEVEL_TO_STR[CalendarShareLevel.MODIFY],
+    "public": LEVEL_TO_STR[CalendarShareLevel.MODIFY],
+    "confidential": LEVEL_TO_STR[CalendarShareLevel.MODIFY],
+    "private": LEVEL_TO_STR[CalendarShareLevel.MODIFY],
     "can_create_objects": True,
     "can_erase_objects": True,
 }
@@ -79,7 +79,7 @@ class ShareCalendar(Share):
             EventVisibility.CONFIDENTIAL: "confidential",
             EventVisibility.PRIVATE: "private",
         }.get(visibility, "public")
-        return _STR_TO_LEVEL.get(rights.get(key, "none"), CalendarShareLevel.NONE)
+        return STR_TO_LEVEL.get(rights.get(key, "none"), CalendarShareLevel.NONE)
 
     @staticmethod
     def to_calendar_permissions(rights: dict) -> CalendarPermissions:
