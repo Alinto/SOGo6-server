@@ -36,6 +36,7 @@ from app.module.calendar.serializer.CalEventsSerializerDict import CalEventsSeri
 from app.module.calendar.serializer.CalTaskDeserializerDict import CalTaskDeserializerDict
 from app.module.calendar.serializer.CalTaskSerializerDict import CalTaskSerializerDict
 from app.module.calendar.serializer.CalCalendarSerializerDict import CalCalendarSerializerDict
+from app.module.calendar.serializer.CalendarPermissionsSerializerDict import CalendarPermissionsSerializerDict
 from app.module.calendar.serializer.CalCalendarsSerializerList import CalCalendarsSerializerList
 from app.module.calendar.serializer.CalEventReminderSerializerDict import CalEventReminderSerializerDict
 from app.module.calendar.serializer.CalFreeBusyResultSerializerDict import CalFreeBusyResultSerializerDict
@@ -84,6 +85,7 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         self._calendar_deserializer: CalCalendarDeserializerDict = CalCalendarDeserializerDict()
         self._calendar_serializer: CalCalendarSerializerDict = CalCalendarSerializerDict()
         self._calendars_serializer: CalCalendarsSerializerList = CalCalendarsSerializerList()
+        self._permissions_serializer: CalendarPermissionsSerializerDict = CalendarPermissionsSerializerDict()
         self._freebusy_serializer: CalFreeBusyResultSerializerDict = CalFreeBusyResultSerializerDict()
         self._reminder_serializer: CalEventReminderSerializerDict = CalEventReminderSerializerDict()
         self._sync_status_serializer: CalSyncStatusSerializerDict = CalSyncStatusSerializerDict()
@@ -256,8 +258,13 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
     def get_event(self, event_key: str) -> tuple[dict[str, Any], int]:
         """Get a single event by key."""
         try:
-            event: CalEvent = self.module.get_event(self._event_user_for(event_key), event_key)
-            return create_api_base_response(self._event_serializer.serialize(event))
+            calendar_user: CalendarUser = self._event_user_for(event_key)
+            event: CalEvent = self.module.get_event(calendar_user, event_key)
+            event_dict: dict[str, Any] = self._event_serializer.serialize(event)
+            event_dict["rights"] = self._permissions_serializer.serialize(
+                self.module.get_event_permissions(calendar_user, event_key),
+            )
+            return create_api_base_response(event_dict)
         except RequestException as ex:
             logger_api.error("get_event failed for user %s event %s: %s", self.user.uid, event_key, ex)
             return create_api_base_response(None, ex.error)

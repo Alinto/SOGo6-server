@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 from marshmallow import Schema, fields, validate, validates_schema, ValidationError
 
-from app.api.v1.calendar.schemas.components import CalendarPermissionsSchema
+from app.api.v1.calendar.schemas.components import CalendarRightsSchema
 from app.api.v1.calendar.schemas.event import DateTimeEndUtcField, DateTimeUtcField
 from app.module.calendar.model.enums.EventVisibility import EventVisibility
 from app.utils.api.ApiBaseResponse import ApiBaseResponse
@@ -70,8 +70,10 @@ class CalendarSchema(Schema):
     default_type               = fields.String(allow_none=True)
     # Full public subscription URL, computed server-side from the share token when active.
     public_url         = fields.String(allow_none=True, dump_only=True)
-    # `dump_only`` because permissions are only available when retrieving calendar but can't be set in that way
-    permissions        = fields.Nested(CalendarPermissionsSchema, allow_none=True, dump_only=True)
+    # `dump_only` because rights are only available when retrieving calendar but can't be set in that way
+    rights             = fields.Nested(CalendarRightsSchema, allow_none=True, dump_only=True)
+    owner              = fields.String(allow_none=True, dump_only=True,
+                                metadata={"description": "UID of the calendar's owner (creator, resolved via sogo6_acl for shared calendars).", "example": "jdoe"})
     created_at         = fields.DateTime(allow_none=True)
     updated_at         = fields.DateTime(allow_none=True)
 
