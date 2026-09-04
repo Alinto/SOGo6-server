@@ -55,6 +55,26 @@ class InterfaceUserPreferences:
 
         return create_api_base_response(folders)
 
+    def update_folder_value(self, resource: str, folder_id: str, value: bool) -> tuple[dict, int]:
+        """
+        Update a single folder key's boolean value in the user's folders structure (CALENDAR or ADDRESSBOOKS)
+
+        :param resource: Resource type - "CALENDAR" or "ADDRESSBOOKS"
+        :type resource: str
+        :param folder_id: Unique id of the folder to update
+        :type folder_id: str
+        :param value: New boolean value to set
+        :type value: bool
+        :return: Tuple containing response dict and HTTP status code
+        :rtype: tuple[dict, int]
+        """
+        try:
+            folders = self.module_user_profile.update_folder_value(self.user.uid, resource, folder_id, value)
+        except RequestException as ex:
+            return create_api_base_response(None, ex.error)
+
+        return create_api_base_response(folders)
+
     def get_partial_preferences(self, subparent:str) -> tuple[dict, int]:
         """Get partial user preferences for a specific subparent
 
