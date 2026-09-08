@@ -2,16 +2,17 @@ from __future__ import annotations  # pylint: disable=duplicate-code
 
 from typing import TYPE_CHECKING
 
-from flask import g
+from flask import g, request
 from flask.views import MethodView
 from flask.typing import ResponseReturnValue
 from flask_smorest import Blueprint
 from werkzeug.datastructures import FileStorage
 
+from app.config.settings.DomainSettings import UserModuleSettings
 from app.interface.calendar.InterfaceApiCalendarCalendar import InterfaceApiCalendarCalendar
 from app.utils.api.ApiBaseResponse import create_api_base_response
-from app.utils.api.is_async import AsyncQueryArgsSchema, async_endpoint
-from app.utils.errors import ERROR_CALENDAR_IMPORT_NO_FILE
+from app.utils.api.is_async import async_endpoint
+from app.utils.errors import ERROR_CALENDAR_IMPORT_NO_FILE, ERROR_CALENDAR_SHARING_DISABLED
 from app.utils.logger.logger import logger_api
 from .schemas.calendar import (
     CalendarCreateSchema,
@@ -23,6 +24,10 @@ from .schemas.calendar import (
     CalendarImportResponseSchema,
     CalendarImportUploadSchema,
     CalendarSubscriptionResponseSchema,
+    CalendarSharePatchSchema,
+    CalendarSharePutSchema,
+    CalendarSharePostSchema,
+    CalendarShareResponseSchema,
 )
 from .schemas.event import (
     AttendanceSchema,
@@ -58,7 +63,14 @@ blp = Blueprint("Calendar", __name__, url_prefix="")
 
 
 @blp.before_request
-def init_calendar_config() -> None:  # pylint: disable=missing-function-docstring
+def init_calendar_config() -> ResponseReturnValue | None:  # pylint: disable=missing-function-docstring
+    if request.path.endswith("/share"):
+        user_domain_settings: dict = g.user_domain_settings
+        user_module_settings: dict = user_domain_settings.get(UserModuleSettings.subparent, {})
+        if "calendar" in user_module_settings.get("SOGO_D_FOLDER_DISABLE_SHARING", []):
+            logger_api.debug("Access denied for %s: calendar sharing is disabled", request.path)
+            return create_api_base_response(None, ERROR_CALENDAR_SHARING_DISABLED)
+
     g.inter = InterfaceApiCalendarCalendar(
         process_setting=g.process_settings,
         user_domain_settings=g.user_domain_settings,
@@ -380,6 +392,49 @@ class ApiReminderList(MethodView):
         logger_api.debug("GET /reminders user=%s args=%s", g.user.uid, query_args)
         interface: InterfaceApiCalendarCalendar = g.inter
         return interface.get_reminders(query_args)
+
+
+@blp.route("/calendars/<string:key>/share")
+class ApiCalendarShare(MethodView):
+    """API to manage calendar sharing and user permissions."""
+
+    @blp.response(200, CalendarShareResponseSchema, example=CalendarShareResponseSchema.example())
+    def get(self, key: str) -> ResponseReturnValue:
+        """Get all user permissions for a calendar."""
+        logger_api.debug("GET /calendars/%s/share user=%s", key, g.user.uid)
+        interface: InterfaceApiCalendarCalendar = g.inter
+        return interface.get_calendar_share(key)
+
+    @blp.arguments(CalendarSharePatchSchema(many=True), example=CalendarSharePatchSchema.example())  # type: ignore [arg-type]
+    @blp.response(200, CalendarShareResponseSchema, example=CalendarShareResponseSchema.example())
+    def patch(self, body: list[dict], key: str) -> ResponseReturnValue:
+        """Partially update user permissions for a calendar.
+        
+        Only the users specified in the request body are modified.
+        Other existing permissions remain unchanged.
+        """
+        logger_api.debug("PATCH /calendars/%s/share user=%s body=%s", key, g.user.uid, body)
+        interface: InterfaceApiCalendarCalendar = g.inter
+        return interface.patch_calendar_share(key, body)
+
+    @blp.arguments(CalendarSharePutSchema(many=True), example=CalendarSharePutSchema.example())  # type: ignore [arg-type]
+    @blp.response(200, CalendarShareResponseSchema, example=CalendarShareResponseSchema.example())
+    def put(self, body: list[dict], key: str) -> ResponseReturnValue:
+        """Replace all user permissions for a calendar.
+        
+        All existing permissions are replaced by the users specified in the request body.
+        """
+        logger_api.debug("PUT /calendars/%s/share user=%s body=%s", key, g.user.uid, body)
+        interface: InterfaceApiCalendarCalendar = g.inter
+        return interface.put_calendar_share(key, body)
+
+    @blp.arguments(CalendarSharePostSchema(many=True), example=CalendarSharePostSchema.example())  # type: ignore [arg-type]
+    @blp.response(200, CalendarShareResponseSchema, example=CalendarShareResponseSchema.example())
+    def post(self, body: list[dict], key: str) -> ResponseReturnValue:
+        """Grant full modify permissions to one or several users."""
+        logger_api.debug("POST /calendars/%s/share user=%s body=%s", key, g.user.uid, body)
+        interface: InterfaceApiCalendarCalendar = g.inter
+        return interface.post_calendar_share(key, body)
 
 
 @blp.route("/external-calendars")

@@ -247,6 +247,76 @@ class ModuleUserProfile:
         # Update the database
         self._update_user_column(uid, tbl.COL_USER_FOLDERS.name, current_folders)
 
+    def remove_folder_key(self, uid: str, folder_type: str, key: str, owner_key: str = "OWNER") -> None:
+        """
+        Remove a calendar or addressbook key from the folders column of a user profile.
+
+        Symmetric counterpart of :meth:`add_folder_key`. This is a no-op (besides a debug log) if
+        the folders column, folder_type, owner_key, or key don't exist.
+
+        :param uid: User unique identifier
+        :type uid: str
+        :param folder_type: Type of folder - "CALENDAR" or "ADDRESSBOOKS"
+        :type folder_type: str
+        :param key: Key of the calendar or addressbook to remove
+        :type key: str
+        :param owner_key: Owner section key - "OWNER" for personal, "EXT"/"SUBS" for external/shared, etc.
+        :type owner_key: str
+        :raises RequestException: If user profile not found
+        :raises AggravatedException: If multiple user profiles found or update fails
+        """
+        logger_user_profile.debug("Removing folder key for uid: %s, folder_type: %s, owner_key: %s, key: %s",
+                                  uid, folder_type, owner_key, key)
+
+        current_folders = self._get_user_column(uid, tbl.COL_USER_FOLDERS.name)
+
+        if not current_folders:
+            return
+
+        if folder_type not in current_folders or owner_key not in current_folders[folder_type]:
+            return
+
+        if key not in current_folders[folder_type][owner_key]:
+            return
+
+        del current_folders[folder_type][owner_key][key]
+
+        self._update_user_column(uid, tbl.COL_USER_FOLDERS.name, current_folders)
+
+    def update_folder_value(self, uid: str, resource: str, folder_id: str, value: bool) -> dict:
+        """
+        Update the boolean value of a single folder key within the folders column (CALENDAR or ADDRESSBOOKS).
+
+        Searches every owner-type sub-section (OWNER, SUBS, EXT, ...) of the given resource for folder_id
+        and updates the first match found; folder_id is expected to be unique across the whole structure.
+
+        :param uid: User unique identifier
+        :type uid: str
+        :param resource: Resource type - "CALENDAR" or "ADDRESSBOOKS"
+        :type resource: str
+        :param folder_id: Unique id of the folder to update
+        :type folder_id: str
+        :param value: New boolean value to set
+        :type value: bool
+        :return: The updated folders dictionary
+        :rtype: dict
+        :raises RequestException: If user profile not found or folder_id not found for this resource
+        :raises AggravatedException: If multiple user profiles found
+        """
+        logger_user_profile.debug("Updating folder value for uid: %s, resource: %s, id: %s, value: %s",
+                                  uid, resource, folder_id, value)
+
+        current_folders = self._get_user_column(uid, tbl.COL_USER_FOLDERS.name)
+
+        for section in current_folders.get(resource, {}).values():
+            if folder_id in section:
+                section[folder_id] = value
+                self._update_user_column(uid, tbl.COL_USER_FOLDERS.name, current_folders)
+                return current_folders
+
+        logger_user_profile.error("Folder key not found for uid: %s, resource: %s, id: %s", uid, resource, folder_id)
+        raise RequestException(err.ERROR_FOLDER_KEY_NOT_FOUND.m, err.ERROR_FOLDER_KEY_NOT_FOUND)
+
     def _get_user_column(self, uid: str, field_name: str) -> Any:
         """
         Generic method to get a specific field from user profile
@@ -666,6 +736,21 @@ class ModuleUserProfile:
         """
 
         return self._get_user_column(uid, tbl.COL_USER_DEFAULTS.name)
+
+    def get_user_folders(self, uid: str) -> dict:
+        """
+        Get the folders column content for a user (contains calendar and addressbook keys)
+
+        :param uid: User unique identifier
+        :type uid: str
+        :return: Folders dictionary containing CALENDAR and ADDRESSBOOKS structure
+        :rtype: dict
+        :raises RequestException: If user profile not found
+        :raises AggravatedException: If multiple user profiles found
+        """
+        logger_user_profile.debug("Getting folders for uid: %s", uid)
+
+        return self._get_user_column(uid, tbl.COL_USER_FOLDERS.name)
 
     def get_partial_user_preferences(self, uid:str, subparent:str) -> dict:
         """

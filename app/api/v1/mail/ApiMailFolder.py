@@ -13,7 +13,9 @@ from .schemas.folder import (
     FolderCreateSchema,
     FolderUpdateSchema,
     FolderPurgeSchema,
-    FolderShareSchema,
+    FolderSharePatchSchema,
+    FolderSharePutSchema,
+    FolderSharePostSchema,
     FolderListResponseSchema,
     FolderCreateResponseSchema,
     FolderDetailsResponseSchema,
@@ -211,14 +213,46 @@ class ApiMailFolderIdExport(MethodView):
 
 @blp.route("/<path:folder_name>/share")
 class ApiMailFolderIdShare(MethodView):
-    """API to share a specific mail folder.
+    """API to manage sharing of a specific mail folder and its users' permissions.
+
+    Rights can be expressed two ways in the request body, and at least one of them must be
+    provided for each user entry:
+
+    - ``permissions``: a simplified list of IMAP ACL codes to grant, e.g. ``["l", "r"]``.
+      Any code not listed is considered not granted.
+    - ``rights``: an advanced object with one explicit 0/1 flag per right, e.g.
+      ``{"user_can_view_folder": 1, "user_can_read_mails": 1}``.
+
+    Correspondence between simplified codes and advanced rights (see
+    ``FOLDER_PERMISSION_CODE_TO_RIGHT`` in ``app/api/v1/mail/schemas/folder.py``):
+
+    | Code IMAP | Droit avancé |
+    |---|---|
+    | l | user_can_view_folder (Voir le dossier) |
+    | r | user_can_read_mails (Lire les mails) |
+    | s | user_can_mark_mails_read (Marquer comme lu/non lu) |
+    | w | user_can_write_mails (Modifier les indicateurs des mails) |
+    | i | user_can_insert_mails (Insérer, copier des mails) |
+    | p | user_can_post_mails (Envoyer des mails) |
+    | k | user_can_create_subfolders (Créer des sous-dossiers) |
+    | x | user_can_remove_folder (Supprimer le dossier) |
+    | t | user_can_erase_mails (Effacer les mails) |
+    | e | user_can_expunge_folder (Purger le dossier) |
+    | a | user_is_administrator (Administrer les droits du dossier) |
+
+    If both ``permissions`` and ``rights`` are provided for the same entry, they must agree on
+    every right they both cover. Otherwise the API answers ``400 S001103``
+    (``ERROR_SHARE_PERMISSIONS_RIGHTS_MISMATCH``).
+
+    Each entry also requires ``user_class`` (``"user"`` or ``"anyone"``); ``c_email`` and ``uid``
+    are required when ``user_class`` is ``"user"``.
     """
     @blp.response(200, FolderShareResponseSchema, example=FolderShareResponseSchema.example())
     def get(self, account_id: str, folder_name: str) -> ResponseReturnValue:    #TODO: pagination?
         """Get share information for the specified folder.
-        
+
         Returns the list of users who have access to this folder and their permissions.
-        
+
         :param account_id: The ID of the account
         :type account_id: str
         :param folder_name: The ID of the folder
@@ -230,14 +264,58 @@ class ApiMailFolderIdShare(MethodView):
         interface: InterfaceApiMailFolder = g.inter
         return interface.get_folder_share(account_id, folder_name)
 
-    @blp.arguments(FolderShareSchema(many=True), example=FolderShareSchema.example(), error_status_code=400) #type: ignore [arg-type]
+    @blp.arguments(FolderSharePatchSchema(many=True), example=FolderSharePatchSchema.example(), error_status_code=400)  # type: ignore [arg-type]
+    @blp.response(200, FolderShareResponseSchema, example=FolderShareResponseSchema.example())
+    def patch(self, share_data: list, account_id: str, folder_name: str) -> ResponseReturnValue:
+        """Partially update sharing rights for the specified folder.
+
+        Only the users specified in the request body are modified. Other existing shares
+        remain unchanged. See the resource docstring for the ``permissions``/``rights`` format.
+
+        :param share_data: List of users with their rights configuration
+        :type share_data: list
+        :param account_id: The ID of the account
+        :type account_id: str
+        :param folder_name: The ID of the folder
+        :type folder_name: str
+        :return: ApiBaseResponse with share result
+        :rtype: ResponseReturnValue
+        """
+        logger_api.debug("Calling ApiMailFolderIdShare.patch for account_id: %s, folder_name: %s with data: %s",
+                        account_id, folder_name, share_data)
+        interface: InterfaceApiMailFolder = g.inter
+        return interface.patch_folder_share(account_id, folder_name, share_data)
+
+    @blp.arguments(FolderSharePutSchema(many=True), example=FolderSharePutSchema.example(), error_status_code=400)  # type: ignore [arg-type]
+    @blp.response(200, FolderShareResponseSchema, example=FolderShareResponseSchema.example())
+    def put(self, share_data: list, account_id: str, folder_name: str) -> ResponseReturnValue:
+        """Replace all sharing rights for the specified folder.
+
+        All existing shares are replaced by the users specified in the request body.
+        See the resource docstring for the ``permissions``/``rights`` format.
+
+        :param share_data: List of users with their rights configuration
+        :type share_data: list
+        :param account_id: The ID of the account
+        :type account_id: str
+        :param folder_name: The ID of the folder
+        :type folder_name: str
+        :return: ApiBaseResponse with share result
+        :rtype: ResponseReturnValue
+        """
+        logger_api.debug("Calling ApiMailFolderIdShare.put for account_id: %s, folder_name: %s with data: %s",
+                        account_id, folder_name, share_data)
+        interface: InterfaceApiMailFolder = g.inter
+        return interface.put_folder_share(account_id, folder_name, share_data)
+
+    @blp.arguments(FolderSharePostSchema(many=True), example=FolderSharePostSchema.example(), error_status_code=400)  # type: ignore [arg-type]
     @blp.response(200, FolderShareResponseSchema, example=FolderShareResponseSchema.example())
     def post(self, share_data: list, account_id: str, folder_name: str) -> ResponseReturnValue:
-        """Action: Share the specified folder with another user.
-        
-        Sets ACL permissions on the folder for the specified users.
-        The request body should be a list of user objects with their rights.
-        
+        """Grant sharing rights on the specified folder to one or several users.
+
+        Adds or updates ACL permissions on the folder for the specified users, in addition to
+        any existing share. See the resource docstring for the ``permissions``/``rights`` format.
+
         :param share_data: List of users with their rights configuration
         :type share_data: list
         :param account_id: The ID of the account
@@ -250,4 +328,4 @@ class ApiMailFolderIdShare(MethodView):
         logger_api.debug("Calling ApiMailFolderIdShare.post for account_id: %s, folder_name: %s with data: %s",
                         account_id, folder_name, share_data)
         interface: InterfaceApiMailFolder = g.inter
-        return interface.share_folder(account_id, folder_name, share_data)
+        return interface.post_folder_share(account_id, folder_name, share_data)

@@ -127,6 +127,15 @@ class User:
         #DEPRECATED but legacy, only work with imap
         self.imap_host: str = ""
 
+    @property
+    def folders(self) -> dict:
+        """
+        Shortcut to the folders stored in the user profile (column ``folders`` of TABLE_USER).
+
+        :return: The user's folders
+        :rtype: dict
+        """
+        return self.profile.folders
 
     def get_user_session(self) -> dict:
         """
