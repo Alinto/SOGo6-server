@@ -22,7 +22,7 @@ from app.utils.exceptions import RequestException, BugException
 from app.utils.maths.crypto_utils import decrypt_password
 from app.utils.module.importManager import import_and_instantiate_manager
 from app.utils.logger.logger import logger_mail_server
-from app.utils.strings import get_imap_config_from_url, get_domain_from_mail, get_domain_from_contact
+from app.utils.strings import get_imap_config_from_url, get_domain_from_mail, get_domain_from_contact, encode_imap_tag, decode_imap_tag
 from app.utils.constants import DELETE_MAIL_BEHAVIOR_MAP
 
 if TYPE_CHECKING:
@@ -654,7 +654,7 @@ class ModuleMail:
             "answered": flags_dict.get('answered', False),
             "forwarded": flags_dict.get('forwarded', False),
             "deleted": flags_dict.get('deleted', False),
-            "flags": flags_dict.get('all', []),
+            "flags": [decode_imap_tag(flag) for flag in flags_dict.get('all', [])],
             "to": to,
             "from": from_,
             "cc": cc,
@@ -1488,6 +1488,10 @@ class ModuleMail:
             return self._action_copy(client, folder_name, mail_uid, data)
         elif action == "delete":
             return self._action_delete(client, folder_name, mail_uid, account_id=account_id)
+        elif action == "illegal":
+            return self._action_illegal(client, folder_name, mail_uid)
+        elif action == "phishing":
+            return self._action_phishing(client, folder_name, mail_uid)
         else:
             raise RequestException(f"Invalid action: {action}", err.ERROR_INVALID_ACTION)
 
@@ -1525,8 +1529,43 @@ class ModuleMail:
             return self._action_copy(client, folder_name, mail_uids, data)
         elif action == "delete":
             return self._action_delete(client, folder_name, mail_uids, account_id=account_id)
+        elif action == "illegal":
+            return self._action_illegal(client, folder_name, mail_uids)
+        elif action == "phishing":
+            return self._action_phishing(client, folder_name, mail_uids)
         else:
             raise RequestException(f"Invalid action: {action}", err.ERROR_INVALID_ACTION)
+
+    def perform_mailbox_batch_action(self, account_id: str, batch_action_data: dict) -> dict[str, Any]:
+        """Perform an action on multiple mails spanning multiple folders of the same account.
+
+        Loops over ``perform_mail_batch_action`` for each folder listed in ``uids``. A failure on
+        one folder is recorded in ``errors`` but does not prevent the remaining folders from being
+        processed.
+
+        :param account_id: The account identifier
+        :type account_id: str
+        :param batch_action_data: dictionary containing 'uids' (folder name -> list of uids),
+            'action' and optional 'data' fields
+        :type batch_action_data: dict[str, Any]
+        :return: Dict with the action, the per-folder results, and the per-folder errors
+        :rtype: dict[str, Any]
+        """
+        action: str = batch_action_data["action"]
+        data = batch_action_data.get("data")
+        uids_by_folder: dict = batch_action_data["uids"]
+
+        results: dict[str, Any] = {}
+        errors: dict[str, str] = {}
+
+        for folder_name, uids in uids_by_folder.items():
+            try:
+                results[folder_name] = self.perform_mail_batch_action(account_id, folder_name, {"uids": uids, "action": action, "data": data})
+            except RequestException as ex:
+                logger_mail_server.warning("perform_mailbox_batch_action: action '%s' failed for folder '%s': %s", action, folder_name, str(ex))
+                errors[folder_name] = ex.error.c
+
+        return {"action": action, "results": results, "errors": errors}
 
     def download_attachment(self, account_id: str, folder_name: str, mail_uid: str, filename: str) -> tuple[bytes, str]:
         """Download a specific attachment from a mail.
@@ -1592,7 +1631,10 @@ class ModuleMail:
         else:
             raise RequestException("Tags must be a string or list of strings", err.ERROR_MISSING_ACTION_DATA)
 
-        client.add_flags_to_mail(folder_name, mail_uid, tag_list)
+        # IMAP flags are atoms and cannot contain spaces/special chars; encode (reversibly) before sending
+        encoded_tags = [encode_imap_tag(tag) for tag in tag_list]
+
+        client.add_flags_to_mail(folder_name, mail_uid, encoded_tags)
 
         return {"action": "tag", "mail_uid": mail_uid, "tags_added": tag_list}
 
@@ -1620,7 +1662,10 @@ class ModuleMail:
         else:
             raise RequestException("Tags must be a string or list of strings", err.ERROR_MISSING_ACTION_DATA)
 
-        client.remove_flags_to_mail(folder_name, mail_uid, tag_list)
+        # IMAP flags are atoms and cannot contain spaces/special chars; encode (reversibly) before sending
+        encoded_tags = [encode_imap_tag(tag) for tag in tag_list]
+
+        client.remove_flags_to_mail(folder_name, mail_uid, encoded_tags)
 
         return {"action": "untag", "mail_uid": mail_uid, "tags_removed": tag_list}
 
@@ -1678,6 +1723,40 @@ class ModuleMail:
         client.add_flags_to_mail(folder_name, mail_uid, ['\\Deleted'])
 
         return {"action": "ham", "mail_uid": mail_uid, "moved_to": inbox_folder}
+
+    def _action_illegal(self, client: ClientMailServer, folder_name: str, mail_uid: str|list[str]) -> dict[str, Any]:
+        """Report a mail or a list of mails as illegal content, copy them to the Junk folder
+        and permanently remove them (no Trash copy) from their source folder.
+
+        :param folder_name: The name of the folder
+        :type folder_name: str
+        :param mail_uid: The unique identifier of the mail, or a list of them
+        :type mail_uid: str|list[str]
+        :return: Result with illegal action info
+        :rtype: dict[str, Any]
+        :raises RequestException: If operation fails
+        """
+        junk_folder = self.domain_mail_folder_name.get(cs.MAIL_FOLDER_JUNK, "Junk")
+        client.copy_mail_to_mailbox(folder_name, mail_uid, junk_folder, create_dest=True)
+        client.delete_mails_by_uid(folder_name, mail_uid, move_to_trash=False, permanently=True)
+        return {"action": "illegal", "mail_uid": mail_uid, "moved_to": junk_folder}
+
+    def _action_phishing(self, client: ClientMailServer, folder_name: str, mail_uid: str|list[str]) -> dict[str, Any]:
+        """Report a mail or a list of mails as phishing, copy them to the Junk folder
+        and permanently remove them (no Trash copy) from their source folder.
+
+        :param folder_name: The name of the folder
+        :type folder_name: str
+        :param mail_uid: The unique identifier of the mail, or a list of them
+        :type mail_uid: str|list[str]
+        :return: Result with phishing action info
+        :rtype: dict[str, Any]
+        :raises RequestException: If operation fails
+        """
+        junk_folder = self.domain_mail_folder_name.get(cs.MAIL_FOLDER_JUNK, "Junk")
+        client.copy_mail_to_mailbox(folder_name, mail_uid, junk_folder, create_dest=True)
+        client.delete_mails_by_uid(folder_name, mail_uid, move_to_trash=False, permanently=True)
+        return {"action": "phishing", "mail_uid": mail_uid, "moved_to": junk_folder}
 
     def _action_copy(self, client: ClientMailServer, folder_name: str, mail_uid: str|list[str], destination: Any) -> dict[str, Any]:
         """Copy a mail or a list of mails to another folder.
