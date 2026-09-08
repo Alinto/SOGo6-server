@@ -1,13 +1,15 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
-from flask import abort, g, request
+from flask import g, request
 from flask.views import MethodView
 from flask.typing import ResponseReturnValue
 from flask_smorest import Blueprint
 
 from app.config.settings.DomainSettings import MailSettings
 from app.interface.mail.InterfaceApiMailFilter import InterfaceApiMailFilter
+from app.utils.api.ApiBaseResponse import create_api_base_response
+from app.utils.errors import ERROR_MAIL_FILTERING_DISABLED, ERROR_MAIL_FILTER_FEATURE_DISABLED
 from app.utils.logger.logger import logger_api
 from .schemas.filter import (
     FiltersPayloadSchema,
@@ -29,7 +31,7 @@ blp = Blueprint("Mail Filters", __name__, url_prefix="/mailboxes/<string:account
 
 
 @blp.before_request
-def init_filter_config() -> None:
+def init_filter_config() -> ResponseReturnValue | None:
     """Initialize the filter interface for the request."""
     logger_api.debug("Calling before_request for ApiMailFilter")
     process: ProcessSetting = g.process_settings
@@ -40,7 +42,7 @@ def init_filter_config() -> None:
 
 
     if not mail_settings.get("SOGO_D_MAIL_FILTERING_ENABLED", True):
-        abort(403)
+        return create_api_base_response(None, ERROR_MAIL_FILTERING_DISABLED)
 
     _ROUTE_SETTING_MAP = {
         "/vacation": "SOGO_D_VACATION_ENABLED",
@@ -54,7 +56,7 @@ def init_filter_config() -> None:
                 logger_api.debug(
                     "Access denied for %s: %s is False", request.path, setting_key
                 )
-                abort(403)
+                return create_api_base_response(None, ERROR_MAIL_FILTER_FEATURE_DISABLED)
             break
 
     g.inter = InterfaceApiMailFilter(

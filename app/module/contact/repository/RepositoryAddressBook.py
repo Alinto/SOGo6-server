@@ -102,6 +102,23 @@ class RepositoryAddressBook:
             return None
         return self._row_to_addressbook(rows[0])
 
+    def find_by_key_only(self, key: str) -> CardAddressBook | None:
+        """Return the address book matching key, regardless of owner.
+
+        Unlike find_by_key, not scoped to a user_uid: used by the sharing feature, where the
+        caller (a prospective sharee, or the share management module) does not necessarily own
+        the address book. The key itself (an opaque generated uuid) is the lookup capability.
+        """
+        rows = list(self._db.select_from_table(
+            table_name=tbl.TABLE_ADDRESSBOOK.name,
+            column_tuple=_ALL_COLS,
+            condition=EqualCondition(tbl.COL_AB_KEY.name, key),
+            limit=1,
+        ))
+        if not rows:
+            return None
+        return self._row_to_addressbook(rows[0])
+
     def get_default_for_user(self, user_uid: str) -> CardAddressBook | None:
         """Return the default address book for user_uid, or None if not found."""
         condition = AndCondition(

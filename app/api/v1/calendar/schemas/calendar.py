@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from marshmallow import Schema, fields, validate
+from typing import Any
+from marshmallow import Schema, fields, validate, validates_schema, ValidationError
 
 from app.api.v1.calendar.schemas.components import CalendarPermissionsSchema
 from app.api.v1.calendar.schemas.event import DateTimeEndUtcField, DateTimeUtcField
@@ -158,3 +159,180 @@ class CalendarImportUploadSchema(Schema):
         required=True,
         metadata={"type": "string", "format": "binary", "description": "The .ics file to import."},
     )
+
+
+class CalendarShareRightsSchema(Schema):
+    """Permission rights for different event visibility levels."""
+
+    public = fields.String(
+        required=True,
+        validate=validate.OneOf(["view-all", "view-date-time", "respond-to", "modify", "none"]),
+        metadata={"description": "Permission for public events: view-all | view-date-time | respond-to | modify | none", "example": "view-all"}
+    )
+    confidential = fields.String(
+        required=True,
+        validate=validate.OneOf(["view-all", "view-date-time", "respond-to", "modify", "none"]),
+        metadata={"description": "Permission for confidential events: view-all | view-date-time | respond-to | modify | none", "example": "view-date-time"}
+    )
+    private = fields.String(
+        required=True,
+        validate=validate.OneOf(["view-all", "view-date-time", "respond-to", "modify", "none"]),
+        metadata={"description": "Permission for private events: view-all | view-date-time | respond-to | modify | none", "example": "none"}
+    )
+    can_create_objects = fields.Boolean(required=True, metadata={"description": "Can create new events", "example": True})
+    can_erase_objects = fields.Boolean(required=True, metadata={"description": "Can delete events", "example": False})
+
+
+class CalendarShareUserSchema(Schema):
+    """User permission entry in calendar sharing.
+
+    ``c_email`` and ``uid`` are required unless ``user_class`` is ``"anyone"``, in which case
+    they are ignored (the share applies to any authenticated user, not a specific one).
+    """
+
+    c_email = fields.String(required=False, allow_none=True, metadata={"description": "User email address", "example": "jdoe@example.org"})
+    uid = fields.String(required=False, allow_none=True, metadata={"description": "User UID", "example": "jdoe"})
+    user_class = fields.String(
+        required=True,
+        validate=validate.OneOf(["user", "anyone"]),
+    )
+    rights = fields.Nested(CalendarShareRightsSchema, required=True, metadata={"description": "Permission rights for this user"})
+
+    @validates_schema
+    def validate_user_identity(self, data: dict[str, Any], **kwargs: Any) -> None:  # pylint: disable=unused-argument
+        """Require c_email and uid unless user_class is 'anyone'."""
+        if data.get("user_class") == "anyone":
+            return
+        errors: dict[str, list[str]] = {}
+        if not data.get("c_email"):
+            errors["c_email"] = ["Missing data for required field."]
+        if not data.get("uid"):
+            errors["uid"] = ["Missing data for required field."]
+        if errors:
+            raise ValidationError(errors)
+
+class CalendarSharePatchSchema(CalendarShareUserSchema):
+    """Request body item for PATCH /calendars/{key}/share - partial update of user permissions.
+
+    The endpoint expects a JSON list of these objects (use with ``many=True``).
+    Only the users specified in the request are modified. Other existing permissions remain unchanged.
+    """
+
+    class Meta:
+        ordered = True
+
+    @staticmethod
+    def example() -> list[dict[str, Any]]:
+        """Example data for Swagger documentation."""
+        return [
+            {
+                "c_email": "jdoe@example.org",
+                "uid": "jdoe",
+                "user_class": "user",
+                "rights": {
+                    "public": "view-all",
+                    "confidential": "view-date-time",
+                    "private": "none",
+                    "can_create_objects": True,
+                    "can_erase_objects": False
+                }
+            }
+        ]
+
+
+class CalendarSharePutSchema(CalendarShareUserSchema):
+    """Request body item for PUT /calendars/{key}/share - replace all user permissions.
+
+    The endpoint expects a JSON list of these objects (use with ``many=True``).
+    All existing permissions are replaced by the users specified in the request.
+    """
+
+    class Meta:
+        ordered = True
+
+    @staticmethod
+    def example() -> list[dict[str, Any]]:
+        """Example data for Swagger documentation."""
+        return [
+            {
+                "c_email": "jdoe@example.org",
+                "uid": "jdoe",
+                "user_class": "user",
+                "rights": {
+                    "public": "view-all",
+                    "confidential": "view-date-time",
+                    "private": "none",
+                    "can_create_objects": True,
+                    "can_erase_objects": False
+                }
+            },
+            {
+                "c_email": "alice@example.org",
+                "uid": "alice",
+                "user_class": "user",
+                "rights": {
+                    "public": "modify",
+                    "confidential": "modify",
+                    "private": "view-date-time",
+                    "can_create_objects": True,
+                    "can_erase_objects": True
+                }
+            }
+        ]
+
+
+class CalendarSharePostSchema(CalendarShareUserSchema):
+    """Request body item for POST /calendars/{key}/share - grant full modify permissions to users.
+
+    The endpoint expects a JSON list of these objects (use with ``many=True``).
+    Grants 'modify' permission for all event types and object management rights to the specified users.
+    """
+
+    class Meta:
+        ordered = True
+
+    @staticmethod
+    def example() -> list[dict[str, Any]]:
+        """Example data for Swagger documentation."""
+        return [
+            {
+                "c_email": "jdoe@example.org",
+                "uid": "jdoe",
+                "user_class": "user",
+                "rights": {
+                    "public": "modify",
+                    "confidential": "modify",
+                    "private": "modify",
+                    "can_create_objects": True,
+                    "can_erase_objects": True
+                }
+            }
+        ]
+
+
+class CalendarShareResponseSchema(ApiBaseResponse):
+    """Response schema for calendar sharing endpoints. ``data`` is a plain list of users."""
+
+    data = fields.List(fields.Nested(CalendarShareUserSchema), allow_none=True)
+
+    @staticmethod
+    def example() -> dict[str, Any]:
+        """Example full envelope for Swagger documentation."""
+        return {
+            "data": [
+                {
+                    "c_email": "jdoe@example.org",
+                    "uid": "jdoe",
+                    "user_class": "user",
+                    "rights": {
+                        "public": "view-all",
+                        "confidential": "view-date-time",
+                        "private": "none",
+                        "can_create_objects": True,
+                        "can_erase_objects": False
+                    }
+                }
+            ],
+            "error_code": "S000000",
+            "error_msg": "No Error"
+        }
