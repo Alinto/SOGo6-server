@@ -18,6 +18,8 @@ from app.api.v1.mail.schemas.mailbox import (
     DelegationResponseSchema,
     MailboxPurgeSchema,
     MailboxPurgeResponseSchema,
+    MailboxBatchActionSchema,
+    MailboxBatchActionResponseSchema,
 )
 
 if TYPE_CHECKING:
@@ -138,6 +140,51 @@ class ApiMailBoxesAccountDelegates(MethodView):
         logger_api.debug("Calling ApiMailBoxesAccountDelegates.post for account_id: %s with data: %s", account_id, data)
         interface: InterfaceApiMailMailbox = g.inter
         return interface.create_mailbox_delegate(account_id, data)
+
+
+@blp.route("/<string:account_id>/batch-action")
+class ApiMailBoxesAccountBatchAction(MethodView):
+    """
+    Resource: Batch actions across the whole mailbox
+    """
+    @blp.arguments(MailboxBatchActionSchema, example=MailboxBatchActionSchema.example(), error_status_code=400)
+    @blp.response(200, MailboxBatchActionResponseSchema, example=MailboxBatchActionResponseSchema.example())
+    def post(self, data: dict, account_id: str) -> ResponseReturnValue:
+        """Perform an action (tag, untag, move, spam, ham, copy) on mails from several folders of the account at once.
+
+        Behaves like the per-folder batch action endpoint, except that ``uids`` maps folder names
+        to their list of mail UIDs, so mails from multiple folders can be processed in a single call.
+        Each folder is processed independently: a failure on one folder does not prevent the others
+        from being processed, and the per-folder outcome is reported in the response's ``results``
+        and ``errors`` fields.
+
+        **Supported actions:**
+
+        * **tag**: Add one or more tags to the selected mails. Tags are provided in the ``data`` field as a list of strings.
+        * **untag**: Remove one or more tags from the selected mails. Tags to remove are provided in the ``data`` field as a list of strings.
+        * **move**: Move the selected mails to another folder. The destination folder name must be provided in the ``data`` field as a string.
+        * **spam**: Mark the selected mails as spam.
+        * **ham**: Mark the selected mails as not spam.
+        * **copy**: Copy the selected mails to another folder. The destination folder name must be provided in the ``data`` field as a string.
+        * **delete**: Delete the selected mails, following the user's mail delete behavior preference.
+        * **illegal**: Report the selected mails as illegal content and move them to the Junk folder.
+        * **phishing**: Report the selected mails as phishing and move them to the Junk folder.
+
+        :param data: The batch action data containing 'uids' (folder name -> list of uids), 'action' and optional 'data' field
+        :type data: dict
+        :param account_id: The account identifier
+        :type account_id: str
+        :return: A response indicating the per-folder result of the action
+        :rtype: ResponseReturnValue
+        """
+        logger_api.debug(
+            "Calling ApiMailBoxesAccountBatchAction.post for account_id: %s, uids: %s with action: %s",
+            account_id,
+            data["uids"],
+            data["action"]
+        )
+        interface: InterfaceApiMailMailbox = g.inter
+        return interface.mailbox_batch_action(account_id, data)
 
 
 @blp.route("/<string:account_id>/purge")
