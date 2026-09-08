@@ -7,12 +7,13 @@ from flask.views import MethodView
 from flask.typing import ResponseReturnValue
 from flask_smorest import Blueprint
 
+from app.config.settings.DomainSettings import UserModuleSettings
 from app.interface.contact.InterfaceApiContactContact import InterfaceApiContactContact
 from app.module.contact.ContactConst import IMPORT_MAX_BYTES
 from app.module.contact.source.ContactSourceDb import LIST_SORTABLE_COLUMNS, SORTABLE_COLUMNS
 from app.utils.api.ApiBaseResponse import create_api_base_response
 from app.utils.api.paginate_sort_filter import collection_paginate, CustomPaginateResponse
-from app.utils.errors import ERROR_CONTACT_IMPORT_NO_FILE, ERROR_CONTACT_IMPORT_TOO_LARGE
+from app.utils.errors import ERROR_CONTACT_IMPORT_NO_FILE, ERROR_CONTACT_IMPORT_TOO_LARGE, ERROR_CONTACT_SHARING_DISABLED
 from app.utils.logger.logger import logger_api
 from .schemas.addressbook import (
     AddressBookCreateSchema,
@@ -22,6 +23,10 @@ from .schemas.addressbook import (
     ContactImportQueryArgsSchema,
     ContactImportUploadSchema,
     ContactJobResponseSchema,
+    ContactSharePatchSchema,
+    ContactSharePutSchema,
+    ContactSharePostSchema,
+    ContactShareResponseSchema,
 )
 from .schemas.contact import (
     ContactCreateSchema,
@@ -67,7 +72,14 @@ blp = Blueprint("Contact", __name__, url_prefix="")
 
 
 @blp.before_request
-def init_contact_config() -> None:  # pylint: disable=missing-function-docstring
+def init_contact_config() -> ResponseReturnValue | None:  # pylint: disable=missing-function-docstring
+    if request.path.endswith("/share"):
+        user_domain_settings: dict = g.user_domain_settings
+        user_module_settings: dict = user_domain_settings.get(UserModuleSettings.subparent, {})
+        if "contact" in user_module_settings.get("SOGO_D_FOLDER_DISABLE_SHARING", []):
+            logger_api.debug("Access denied for %s: contact sharing is disabled", request.path)
+            return create_api_base_response(None, ERROR_CONTACT_SHARING_DISABLED)
+
     g.inter = InterfaceApiContactContact(
         process_setting=g.process_settings,
         user_domain_settings=g.user_domain_settings,
@@ -120,6 +132,49 @@ class ApiAddressBookDetail(MethodView):
         logger_api.debug("DELETE /addressbooks/%s user=%s", key, g.user.uid)
         interface: InterfaceApiContactContact = g.inter
         return interface.delete_addressbook(key)
+
+
+@blp.route("/addressbooks/<string:key>/share")
+class ApiAddressBookShare(MethodView):
+    """API to manage address book sharing and user permissions."""
+
+    @blp.response(200, ContactShareResponseSchema, example=ContactShareResponseSchema.example())
+    def get(self, key: str) -> ResponseReturnValue:
+        """Get all user permissions for an address book."""
+        logger_api.debug("GET /addressbooks/%s/share user=%s", key, g.user.uid)
+        interface: InterfaceApiContactContact = g.inter
+        return interface.get_addressbook_share(key)
+
+    @blp.arguments(ContactSharePatchSchema(many=True), example=ContactSharePatchSchema.example())  # type: ignore [arg-type]
+    @blp.response(200, ContactShareResponseSchema, example=ContactShareResponseSchema.example())
+    def patch(self, body: list[dict], key: str) -> ResponseReturnValue:
+        """Partially update user permissions for an address book.
+
+        Only the users specified in the request body are modified.
+        Other existing permissions remain unchanged.
+        """
+        logger_api.debug("PATCH /addressbooks/%s/share user=%s body=%s", key, g.user.uid, body)
+        interface: InterfaceApiContactContact = g.inter
+        return interface.patch_addressbook_share(key, body)
+
+    @blp.arguments(ContactSharePutSchema(many=True), example=ContactSharePutSchema.example())  # type: ignore [arg-type]
+    @blp.response(200, ContactShareResponseSchema, example=ContactShareResponseSchema.example())
+    def put(self, body: list[dict], key: str) -> ResponseReturnValue:
+        """Replace all user permissions for an address book.
+
+        All existing permissions are replaced by the users specified in the request body.
+        """
+        logger_api.debug("PUT /addressbooks/%s/share user=%s body=%s", key, g.user.uid, body)
+        interface: InterfaceApiContactContact = g.inter
+        return interface.put_addressbook_share(key, body)
+
+    @blp.arguments(ContactSharePostSchema(many=True), example=ContactSharePostSchema.example())  # type: ignore [arg-type]
+    @blp.response(200, ContactShareResponseSchema, example=ContactShareResponseSchema.example())
+    def post(self, body: list[dict], key: str) -> ResponseReturnValue:
+        """Grant full permissions to one or several users."""
+        logger_api.debug("POST /addressbooks/%s/share user=%s body=%s", key, g.user.uid, body)
+        interface: InterfaceApiContactContact = g.inter
+        return interface.post_addressbook_share(key, body)
 
 
 @blp.route("/addressbooks/<string:key>/contacts")

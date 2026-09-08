@@ -16,6 +16,8 @@ from app.module.calendar.imip.ImipMethod import ImipMethod
 from app.module.calendar.imip.ImipParser import ImipParser
 from app.module.calendar.imip.ImipProcessor import ImipProcessor
 from app.module.calendar.acl.CalendarAclEngine import CalendarAclEngine
+from app.factory.share.RepositoryAcl import AclEntry
+from app.factory.share.shareCalendar import FULL_MODIFY_RIGHTS, ShareCalendar
 from app.module.calendar.model.CalCalendar import CalCalendar
 from app.module.calendar.model.CalendarPermissions import CalendarPermissions
 from app.module.calendar.model.CalendarUser import CalendarUser
@@ -74,9 +76,10 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         self._db.connect()
         self._cache: ClientRedis | None = cache
         self._agent: ClientAgent | None = agent
-        self._sources: CalendarSources = CalendarSources(self._db)
+        self._share: ShareCalendar = ShareCalendar(self._db)
+        self._sources: CalendarSources = CalendarSources(self._db, share=self._share)
         self._imip: ImipProcessor = ImipProcessor(self._sources)
-        self._acl: CalendarAclEngine = CalendarAclEngine()
+        self._acl: CalendarAclEngine = CalendarAclEngine(share=self._share)
 
     def __del__(self) -> None:
         if hasattr(self, "_db"):
@@ -130,11 +133,16 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         return calendars
 
     def get_calendar(self, user: User, key: str) -> CalendarSource:
-        """Return the source for a calendar, or raise NOT_FOUND. Populates permissions."""
-        calendar_user: CalendarUser = CalendarUser(user=user, owner=user)
+        """Return the source for a calendar, or raise NOT_FOUND. Populates permissions.
+
+        calendar_user.owner is the calendar's actual owner (not necessarily ``user``): a shared
+        calendar keeps its own owner uid so CalendarAclEngine can tell an owner access from a
+        shared one and resolve the acting user's real permissions.
+        """
         source: CalendarSource | None = self._sources.get_by_key(user.uid, key)
         if source is None:
             raise RequestException(error=err.ERROR_CALENDAR_NOT_FOUND)
+        calendar_user: CalendarUser = CalendarUser(user=user, owner=User(uid=source.calendar.user_uid))
         source.calendar.permissions = self._acl.get_permissions(source.calendar, calendar_user)
         return source
 
@@ -161,17 +169,107 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         source.update_calendar(calendar)
         return calendar
 
-    def delete_calendar(self, user: User, key: str) -> None:
-        """Delete a calendar and all its events."""
+    def delete_calendar(self, user: User, key: str) -> list[str]:
+        """Delete a calendar and all its events.
+
+        Also cleans up any sogo6_acl rows granting other users access to this calendar.
+
+        :return: the list of uids that had a share on this calendar (so the interface layer can
+            clean up their folders.CALENDAR.SUBS entry too).
+        """
         source: CalendarSource = self.get_calendar(user, key)
+        shared_uids: list[str] = [entry.to_user for entry in self._share.get_permissions(key)]
         source.delete_calendar()
+        self._share.remove_all_permissions_for_key(key)
+        return shared_uids
+
+    #
+    # Calendar sharing
+    #
+    def _require_owned_calendar(self, user: User, key: str) -> CalendarSource:
+        """Return the calendar source, raising ACCESS_DENIED if user is not its owner.
+
+        Sharing management (list / grant / patch / put) is an owner-only operation: get_calendar
+        now also resolves calendars merely shared with user, so an explicit ownership check is
+        required here to prevent a sharee from managing the resource's ACL.
+        """
+        source: CalendarSource = self.get_calendar(user, key)
+        if source.calendar.user_uid != user.uid:
+            raise RequestException(error=err.ERROR_CALENDAR_ACCESS_DENIED)
+        return source
+
+    def get_calendar_share(self, user: User, key: str) -> list[AclEntry]:
+        """Return all ACL entries (one per user) granted on the calendar identified by key.
+
+        The caller must be the owner of the calendar.
+        """
+        self._require_owned_calendar(user, key)
+        return self._share.get_permissions(key)
+
+    def grant_calendar_share(self, user: User, key: str, target_uids: list[str]) -> list[AclEntry]:
+        """Grant full modify permissions on the calendar to one or several users.
+
+        :param user: the acting user, must own the calendar.
+        :param key: opaque key of the calendar to share.
+        :param target_uids: uids to grant full modify permissions to.
+        :raises RequestException: ERROR_CALENDAR_NOT_FOUND if the calendar does not exist;
+            ERROR_CALENDAR_ACCESS_DENIED if user does not own it;
+            ERROR_SHARE_CANNOT_SHARE_WITH_SELF if a target uid is the owner itself.
+        """
+        source: CalendarSource = self._require_owned_calendar(user, key)
+        owner_uid: str = source.calendar.user_uid
+        for target_uid in target_uids:
+            self._share.add_permissions(target_uid, key, owner_uid, dict(FULL_MODIFY_RIGHTS))
+        return self._share.get_permissions(key)
+
+    def patch_calendar_share(self, user: User, key: str, users: list[dict]) -> list[AclEntry]:
+        """Grant or update rights for one or several users, leaving other existing shares untouched.
+
+        :param user: the acting user, must own the calendar.
+        :param key: opaque key of the calendar to share.
+        :param users: list of ``{"uid": ..., "rights": {...}}`` entries to upsert.
+        :raises RequestException: ERROR_CALENDAR_NOT_FOUND if the calendar does not exist;
+            ERROR_CALENDAR_ACCESS_DENIED if user does not own it;
+            ERROR_SHARE_CANNOT_SHARE_WITH_SELF if a target uid is the owner itself.
+        """
+        source: CalendarSource = self._require_owned_calendar(user, key)
+        owner_uid: str = source.calendar.user_uid
+        for entry in users:
+            self._share.add_permissions(entry["uid"], key, owner_uid, entry["rights"])
+        return self._share.get_permissions(key)
+
+    def put_calendar_share(self, user: User, key: str, users: list[dict]) -> list[AclEntry]:
+        """Replace all existing shares on the calendar with exactly the given users' rights.
+
+        Any user currently shared with but absent from ``users`` is revoked.
+
+        :param user: the acting user, must own the calendar.
+        :param key: opaque key of the calendar to share.
+        :param users: list of ``{"uid": ..., "rights": {...}}`` entries; becomes the full set of shares.
+        :raises RequestException: ERROR_CALENDAR_NOT_FOUND if the calendar does not exist;
+            ERROR_CALENDAR_ACCESS_DENIED if user does not own it;
+            ERROR_SHARE_CANNOT_SHARE_WITH_SELF if a target uid is the owner itself.
+        """
+        source: CalendarSource = self._require_owned_calendar(user, key)
+        owner_uid: str = source.calendar.user_uid
+        new_uids: set[str] = {entry["uid"] for entry in users}
+        for existing in self._share.get_permissions(key):
+            if existing.to_user not in new_uids:
+                self._share.remove_permissions(existing.to_user, key)
+        for entry in users:
+            self._share.add_permissions(entry["uid"], key, owner_uid, entry["rights"])
+        return self._share.get_permissions(key)
 
     #
     # Events - CRUD
     #
     def create_event(self, calendar_user: CalendarUser, calendar_key: str, event: CalEvent, organizer: CalOrganizer) -> CalEvent:
         """Persist a new event in the calendar and propagate it to local attendees."""
-        source: CalendarSource = self.get_calendar(calendar_user.owner, calendar_key)
+        # get_calendar must resolve as the acting user, not the owner: passing the owner would make
+        # get_calendar see "owner accessing their own calendar" and grant full owner permissions,
+        # bypassing the acting user's actual ACL rights (see update_event/delete_event, which
+        # resolve permissions from the full calendar_user and don't have this issue).
+        source: CalendarSource = self.get_calendar(calendar_user.user, calendar_key)
         self._acl.check_permission(source.calendar.permissions, CalendarPermissionAction.CREATE)
         calendar: CalCalendar = source.calendar
         event.apply_defaults(
@@ -380,7 +478,8 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
     #
     def create_task(self, calendar_user: CalendarUser, calendar_key: str, task: CalEvent) -> CalEvent:
         """Persist a new VTODO in the calendar and return it."""
-        source: CalendarSource = self.get_calendar(calendar_user.owner, calendar_key)
+        # See create_event: resolve as the acting user, not the owner, or the ACL check is bypassed.
+        source: CalendarSource = self.get_calendar(calendar_user.user, calendar_key)
         self._acl.check_permission(source.calendar.permissions, CalendarPermissionAction.CREATE)
         # Mark it a task before defaulting so the calendar default duration never forces a due date.
         task.component_type = ComponentType.TASK

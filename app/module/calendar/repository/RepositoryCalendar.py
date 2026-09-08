@@ -129,6 +129,23 @@ class RepositoryCalendar:
             return None
         return self._row_to_calendar(rows[0])
 
+    def find_by_key_only(self, key: str) -> CalCalendar | None:
+        """Return the calendar matching key, regardless of owner.
+
+        Unlike find_by_key, not scoped to a user_uid: used by the sharing feature, where the
+        caller (a prospective sharee, or the share management module) does not necessarily own
+        the calendar. The key itself (an opaque generated uuid) is the lookup capability.
+        """
+        rows = list(self._db.select_from_table(
+            table_name=tbl.TABLE_CALENDAR.name,
+            column_tuple=_ALL_COLS,
+            condition=EqualCondition(tbl.COL_CAL_KEY.name, key),
+            limit=1,
+        ))
+        if not rows:
+            return None
+        return self._row_to_calendar(rows[0])
+
     def find_by_share_token(self, share_token: str) -> CalCalendar | None:
         """Return the calendar matching the public subscription token, or None.
 
