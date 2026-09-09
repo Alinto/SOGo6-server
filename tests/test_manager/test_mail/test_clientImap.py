@@ -1678,6 +1678,8 @@ class TestFetchMailsByUids:
         client = authenticated_client(fake_conn)
         mails = client.fetch_mails_by_uids("INBOX", ["100", "101"])
         assert isinstance(mails, list)
+        assert len(mails) == 2
+        assert all(mail is not None for mail in mails)
 
     def test_fetch_mails_by_uids_not_authenticated_raises(self):
         client = make_client()
