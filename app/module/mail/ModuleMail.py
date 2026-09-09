@@ -4,12 +4,14 @@ from typing import TYPE_CHECKING, Any, Iterator, cast
 import email as email_existing
 import email.mime.text
 import email.policy
+from datetime import datetime, timezone
 from email.header import decode_header, make_header
 from email.message import EmailMessage
 from email.message import Message
-from email.utils import parseaddr, getaddresses, make_msgid, formatdate
+from email.utils import parseaddr, getaddresses, make_msgid, formatdate, parsedate_to_datetime
 from io import BytesIO
 from re import search as reg_search
+import threading
 import zipfile
 
 
@@ -765,6 +767,10 @@ class ModuleMail:
         syntax, JMAP filter, ...) to the mail client, queries each requested folder
         and returns a paginated list of matching mails together with the total count.
 
+        When searching the whole mailbox (``folders`` empty or ``["all"]``), delegates to
+        :meth:`_search_mails_all_folders`, which searches every folder in parallel and only
+        fetches the mails needed for the requested page instead of the full result set.
+
         :param account_id: The account identifier.
         :type account_id: str
         :param search_params: Validated search parameters (from MailboxSearchSchema).
@@ -792,17 +798,16 @@ class ModuleMail:
         # --- Determine folders to search ---
         folder_list = search_params.get("folders") or []
         if not folder_list or folder_list == ["all"]:
-            raw_folders = client.list_folders()
-            folders_to_search = self._flatten_selectable_folder_paths(raw_folders)
-        else:
-            include_subfolders = search_params.get("include_subfolders", True)
-            folders_to_search = []
-            seen_folders: set[str] = set()
-            for folder in folder_list:
-                for folder_path in client.get_folder_with_subfolders(folder, include_subfolders):
-                    if folder_path not in seen_folders:
-                        seen_folders.add(folder_path)
-                        folders_to_search.append(folder_path)
+            return self._search_mails_all_folders(account_id, client, criteria, without_content, deleted, search_params, collection_param)
+
+        include_subfolders = search_params.get("include_subfolders", True)
+        folders_to_search = []
+        seen_folders: set[str] = set()
+        for folder in folder_list:
+            for folder_path in client.get_folder_with_subfolders(folder, include_subfolders):
+                if folder_path not in seen_folders:
+                    seen_folders.add(folder_path)
+                    folders_to_search.append(folder_path)
 
         # --- Determine if content should be fetched ---
         mail_iter = (
@@ -823,32 +828,10 @@ class ModuleMail:
                 parsed.pop("mail_type_data", None)
             all_mails.append(parsed)
 
-        # --- Post-filter by attachment_type (IMAP has no direct extension filter) ---
-        # Applied as an additional AND filter regardless of search_params["operator"],
-        # since it runs after the mail-server search rather than as part of the IMAP criteria.
-        if search_params.get("attachment_type"):
-            ext_filter = {e.lower() for e in search_params["attachment_type"]}
-            all_mails = [
-                m for m in all_mails
-                if any(
-                    att.get("extension", "").lower() in ext_filter
-                    for att in m.get("attachments", [])
-                )
-            ]
+        all_mails = self._filter_by_attachment_type(all_mails, search_params)
 
         # --- Sort ---
-        sort_by: str = collection_param.sort_by or "date"
-        sort_order: str = collection_param.sort_order or "desc"
-        reverse = sort_order == "desc"
-
-        sort_key_map: dict[str, Any] = {
-            "date":      lambda m: m.get("date", ""),
-            "sender":    lambda m: m.get("from", {}).get("email", ""),
-            "subject":   lambda m: m.get("subject", ""),
-            "size":      lambda m: m.get("size", 0),
-            "relevance": lambda m: m.get("date", ""),  # fallback: by date TODO: what??
-        }
-        key_fn = sort_key_map.get(sort_by, sort_key_map["date"])
+        key_fn, reverse = self._mail_sort_key_fn(collection_param.sort_by, collection_param.sort_order)
         all_mails.sort(key=key_fn, reverse=reverse)
 
         # --- Paginate ---
@@ -858,6 +841,256 @@ class ModuleMail:
         page = all_mails[offset: offset + nb_mails]
 
         return page, total
+
+    @staticmethod
+    def _filter_by_attachment_type(mails: list[dict[str, Any]], search_params: dict) -> list[dict[str, Any]]:
+        """Post-filter mails by attachment file extension (IMAP has no direct extension filter).
+
+        Applied as an additional AND filter regardless of search_params["operator"], since it
+        runs after the mail-server search rather than as part of the IMAP criteria.
+
+        :param mails: Parsed mail dicts to filter.
+        :type mails: list[dict[str, Any]]
+        :param search_params: Validated search parameters (from MailboxSearchSchema).
+        :type search_params: dict
+        :return: The filtered list of mails.
+        :rtype: list[dict[str, Any]]
+        """
+        if not search_params.get("attachment_type"):
+            return mails
+        ext_filter = {e.lower() for e in search_params["attachment_type"]}
+        return [
+            m for m in mails
+            if any(
+                att.get("extension", "").lower() in ext_filter
+                for att in m.get("attachments", [])
+            )
+        ]
+
+    @staticmethod
+    def _mail_sort_key_fn(sort_by: str | None, sort_order: str | None) -> tuple[Any, bool]:
+        """Resolve the (key function, reverse) pair used to sort parsed mail dicts.
+
+        :param sort_by: One of "date", "sender", "subject", "size", "relevance", or None (defaults to "date").
+        :type sort_by: str | None
+        :param sort_order: "asc" or "desc" (defaults to "desc").
+        :type sort_order: str | None
+        :return: A tuple of (key function, reverse flag) usable with ``list.sort``.
+        :rtype: tuple[Any, bool]
+        """
+        sort_key_map: dict[str, Any] = {
+            "date":      lambda m: m.get("date", ""),
+            "sender":    lambda m: m.get("from", {}).get("email", ""),
+            "subject":   lambda m: m.get("subject", ""),
+            "size":      lambda m: m.get("size", 0),
+            "relevance": lambda m: m.get("date", ""),  # fallback: by date TODO: what??
+        }
+        key_fn = sort_key_map.get(sort_by or "date", sort_key_map["date"])
+        reverse = (sort_order or "desc") == "desc"
+        return key_fn, reverse
+
+    @staticmethod
+    def _parse_candidate_date(date_str: str) -> datetime:
+        """Parse an RFC822 ``Date`` header into an aware datetime usable for sorting.
+
+        Falls back to the epoch (timezone-aware) when the date is missing or unparsable, so a
+        malformed date sorts as the oldest mail instead of raising.
+
+        :param date_str: Raw ``Date`` header value.
+        :type date_str: str
+        :return: A timezone-aware datetime.
+        :rtype: datetime
+        """
+        if date_str:
+            try:
+                parsed_date = parsedate_to_datetime(date_str)
+                if parsed_date.tzinfo is None:
+                    parsed_date = parsed_date.replace(tzinfo=timezone.utc)
+                return parsed_date
+            except (TypeError, ValueError):
+                pass
+        return datetime.min.replace(tzinfo=timezone.utc)
+
+    def _search_folder_recent_candidates_threaded(
+        self,
+        account_id: str,
+        folders: list[str],
+        criteria: str,
+        limit: int,
+        attachment_extensions: set[str] | None = None,
+        operator: str = "AND",
+        base_criteria: str | None = None,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Search every folder in parallel for its most recent matching candidates.
+
+        Each folder is searched on its own IMAP connection, since an IMAP connection is
+        stateful and cannot be shared across threads. Follows the threading pattern from
+        ``playground/join_thread_example.py::publish_thread_2``: one thread per folder, all
+        started immediately and then joined.
+
+        :param account_id: The account identifier.
+        :type account_id: str
+        :param folders: Folder paths to search.
+        :type folders: list[str]
+        :param criteria: IMAP SEARCH criteria string.
+        :type criteria: str
+        :param limit: Maximum number of candidates to keep per folder.
+        :type limit: int
+        :param attachment_extensions: Lowercase file extensions to filter by, or None to skip
+            attachment_type filtering (see ``ClientImap.search_folder_recent_candidates``).
+        :type attachment_extensions: set[str] | None
+        :param operator: "AND" or "OR", how `criteria` combines with `attachment_extensions`.
+        :type operator: str
+        :param base_criteria: IMAP SEARCH criteria matching every non-deleted message, needed
+            when `operator` is "OR" and `attachment_extensions` is given.
+        :type base_criteria: str | None
+        :raises RequestException: If the search fails in any folder.
+        :return: A tuple of (candidates merged across folders, total match count across folders).
+        :rtype: tuple[list[dict[str, Any]], int]
+        """
+        results: list[tuple[list[dict[str, Any]], int] | None] = [None] * len(folders)
+        errors: list[RequestException | None] = [None] * len(folders)
+
+        def _search_one_folder(index: int, folder_path: str) -> None:
+            client = None
+            try:
+                client = self._open_client_for(account_id)
+                results[index] = client.search_folder_recent_candidates(
+                    folder_path, criteria, limit,
+                    attachment_extensions=attachment_extensions, operator=operator, base_criteria=base_criteria,
+                )
+            except RequestException as ex:
+                errors[index] = ex
+            finally:
+                if client is not None:
+                    client.logout()
+
+        threads = [
+            threading.Thread(target=_search_one_folder, args=(index, folder_path))
+            for index, folder_path in enumerate(folders)
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()  # If a thread has already ended, join will do nothing nor raise error
+
+        for error in errors:
+            if error is not None:
+                raise error
+
+        all_candidates: list[dict[str, Any]] = []
+        total_matches = 0
+        for folder_candidates, folder_total in results:  # type: ignore[misc]
+            all_candidates.extend(folder_candidates)
+            total_matches += folder_total
+
+        return all_candidates, total_matches
+
+    def _search_mails_all_folders(
+        self,
+        account_id: str,
+        client: ClientMailServer,
+        criteria: str,
+        without_content: bool,
+        include_deleted: bool,
+        search_params: dict,
+        collection_param: CollectionPaginateArgs,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Advanced search across the whole mailbox (``folders``: ``["all"]`` or empty).
+
+        :param account_id: The account identifier.
+        :type account_id: str
+        :param client: An already-connected mail client, used to list the account's folders.
+        :type client: ClientMailServer
+        :param criteria: The protocol-specific search criteria already built from search_params
+            (every criterion except attachment_type, which IMAP SEARCH cannot express).
+        :type criteria: str
+        :param without_content: Whether the mail body/attachments should be omitted from the result.
+        :type without_content: bool
+        :param include_deleted: Whether mails flagged deleted should be included.
+        :type include_deleted: bool
+        :param search_params: Validated search parameters (from MailboxSearchSchema).
+        :type search_params: dict
+        :param collection_param: Pagination, sorting and filtering parameters.
+        :type collection_param: CollectionPaginateArgs
+        :return: A tuple of (list of mail dicts for the requested page, total match count).
+        :rtype: tuple[list[dict[str, Any]], int]
+        :raises RequestException: If mail server operations fail.
+        """
+        # --- Step 1: list every selectable folder of the account ---
+        raw_folders = client.list_folders()
+        folders_to_search = self._flatten_selectable_folder_paths(raw_folders)
+        print(f"Searching in folders: {folders_to_search}")
+
+        # attachment_type cannot be expressed as an IMAP SEARCH criterion, so it is resolved
+        # per candidate (via BODYSTRUCTURE) directly in step 2, combined with `operator` like
+        # every other criterion - instead of being AND-ed on the final page after the fact.
+        operator = search_params.get("operator") or "AND"
+        attachment_type = search_params.get("attachment_type")
+        attachment_extensions = {e.lower() for e in attachment_type} if attachment_type else None
+        # Only needed for the OR case, where every non-deleted message must be scanned.
+        base_criteria = (
+            client.build_search_criteria({}, include_deleted)
+            if attachment_extensions and operator == "OR"
+            else None
+        )
+
+        # --- Step 2: in parallel, get each folder's most recent matching candidates ---
+        # Cumulative through the requested page (page 1 -> page_size, page 2 -> 2*page_size, ...)
+        # so step 3 can safely keep the current page's slice after a global sort.
+        candidates_limit = collection_param.page * collection_param.page_size
+        all_candidates, total = self._search_folder_recent_candidates_threaded(
+            account_id, folders_to_search, criteria, candidates_limit,
+            attachment_extensions=attachment_extensions, operator=operator, base_criteria=base_criteria,
+        )
+        print(f"Found {len(all_candidates)} candidates across {len(folders_to_search)} folders, total matches: {total}")
+        print(f"Candidates: {all_candidates[:10]}...")  # Print first 10 candidates for debugging
+        # --- Step 3: merge every folder's candidates, sort by date and keep the current page window ---
+        reverse = (collection_param.sort_order or "desc") != "asc"
+        all_candidates.sort(key=lambda c: self._parse_candidate_date(c["date"]), reverse=reverse)
+        print(f"Sorted candidates: {all_candidates[:10]}...")  # Print first 10 sorted candidates for debugging
+        top_candidates = all_candidates[:candidates_limit]
+        print(f"Top candidates for pagination: {top_candidates[:10]}...")  # Print first 10 top candidates for debugging
+        page_candidates = top_candidates[collection_param.first_item: collection_param.first_item + collection_param.page_size]
+
+        # --- Step 4: fetch the actual mails for the page, one fetch per folder ---
+        uids_by_folder: dict[str, list[str]] = {}
+        for candidate in page_candidates:
+            uids_by_folder.setdefault(candidate["folder"], []).append(candidate["uid"])
+
+        fetched_mails_by_key: dict[tuple[str, str], dict] = {}
+        for folder_path, uids in uids_by_folder.items():
+            fetched_mails = (
+                client.fetch_mails_by_uids_without_content(folder_path, uids)
+                if without_content
+                else client.fetch_mails_by_uids(folder_path, uids)
+            )
+            for mail_dict in fetched_mails:
+                fetched_mails_by_key[(folder_path, str(mail_dict["uid"]))] = mail_dict
+            print(f"Fetched {len(fetched_mails)} mails from folder '{folder_path}' for UIDs: {uids}")
+        # --- Step 5: rebuild the page mails, following the merged/sorted candidate order ---
+        page_mails: list[dict[str, Any]] = []
+        for candidate in page_candidates:
+            mail_dict = fetched_mails_by_key.get((candidate["folder"], candidate["uid"]))
+            if mail_dict is None:
+                continue
+            parsed = self._parse_mail(mail_dict)
+            parsed["folder"] = candidate["folder"]
+            if without_content:
+                parsed.pop("contents", None)
+                parsed.pop("attachments", None)
+                parsed.pop("certificates", None)
+                parsed.pop("mail_type_data", None)
+            page_mails.append(parsed)
+        print(f"Final page mails count: {len(page_mails)}")
+        # attachment_type was already applied per candidate in step 2 (combined with `operator`),
+        # so `total` above already accounts for it and nothing is left to filter here.
+
+        # --- Re-apply the requested sort order to the (small) page result for display ---
+        key_fn, sort_reverse = self._mail_sort_key_fn(collection_param.sort_by, collection_param.sort_order)
+        page_mails.sort(key=key_fn, reverse=sort_reverse)
+
+        return page_mails, total
 
     def delete_mails(self, account_id:str, folder_path: str, mail_uids: str|list[str]) -> None:
         """Delete multiple mails by UIDs in a single client session.
