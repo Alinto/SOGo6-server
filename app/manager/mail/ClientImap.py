@@ -291,7 +291,7 @@ def parse_uids_from_bytes(byte_data: bytes) -> Iterator[str]:
     """
     current_uid: list[bytes] = []
     for byte in byte_data:
-        if byte == b' ':
+        if byte == ord(' '):
             if current_uid:  # Avoid yielding empty strings
                 yield b''.join(current_uid).decode('utf-8')
                 current_uid = []
@@ -872,7 +872,7 @@ class ClientImap(ClientMailServer):
 
             folder_path = quote(folder_path)
             self.select_mailbox(folder_path)
-            success, datas = self.connection.expunge()
+            success, datas = self._exec_imap4_method(self.connection.expunge)
             if not success:
                 raise RequestException(f"Failed to expunge mailbox {folder_path}", err.ERROR_IMAP_FAILED)
             expunged_count += len(datas)
@@ -1211,6 +1211,8 @@ class ClientImap(ClientMailServer):
         if self.connection is not None and self.authenticated:
             if isinstance(mail_uid, (Iterator, list)):
                 mail_uid = ','.join(mail_uid)
+            if not mail_uid:
+                return 0
             flags_str = '(' + ' '.join(flags) + ')'
             success, datas = self._exec_imap4_method(self.connection.uid, 'STORE', mail_uid, operation, flags_str)
             if not success:
