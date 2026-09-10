@@ -291,7 +291,7 @@ def parse_uids_from_bytes(byte_data: bytes) -> Iterator[str]:
     """
     current_uid: list[bytes] = []
     for byte in byte_data:
-        if byte == b' ':
+        if byte == ord(' '):
             if current_uid:  # Avoid yielding empty strings
                 yield b''.join(current_uid).decode('utf-8')
                 current_uid = []
@@ -872,7 +872,7 @@ class ClientImap(ClientMailServer):
 
             folder_path = quote(folder_path)
             self.select_mailbox(folder_path)
-            success, datas = self.connection.expunge()
+            success, datas = self._exec_imap4_method(self.connection.expunge)
             if not success:
                 raise RequestException(f"Failed to expunge mailbox {folder_path}", err.ERROR_IMAP_FAILED)
             expunged_count += len(datas)
@@ -1211,6 +1211,8 @@ class ClientImap(ClientMailServer):
         if self.connection is not None and self.authenticated:
             if isinstance(mail_uid, (Iterator, list)):
                 mail_uid = ','.join(mail_uid)
+            if not mail_uid:
+                return 0
             flags_str = '(' + ' '.join(flags) + ')'
             success, datas = self._exec_imap4_method(self.connection.uid, 'STORE', mail_uid, operation, flags_str)
             if not success:
@@ -2119,6 +2121,10 @@ class ClientImap(ClientMailServer):
         operator. When ``deleted`` is True, no filter on the deleted flag is applied
         at all, so mails are matched whether or not they are flagged \\Deleted.
 
+        ``size`` filters by mail size using the native IMAP ``LARGER``/``SMALLER`` search
+        keys: operator ">" maps to ``LARGER`` and "<" maps to ``SMALLER``. ``value`` is
+        converted to bytes according to ``unit`` (kb/mb/gb, binary multiples of 1024).
+
         ``date_range.start``/``date_range.end`` accept either a full ISO 8601 timestamp
         or a bare date (``YYYY-MM-DD``). IMAP's ``SINCE``/``BEFORE`` only compare dates
         (time is ignored), so a bare ``start`` date is already inclusive of that whole
@@ -2172,6 +2178,13 @@ class ClientImap(ClientMailServer):
         if search_params.get("labels"):
             label_parts = [f'KEYWORD "{label}"' for label in search_params["labels"]]
             field_groups.append(_group_imap_search_parts(label_parts))
+
+        if search_params.get("size"):
+            size = search_params["size"]
+            unit_multiplier = {"kb": 1024, "mb": 1024 ** 2, "gb": 1024 ** 3}[size.get("unit") or "kb"]
+            size_in_bytes = size["value"] * unit_multiplier
+            size_keyword = "LARGER" if size["operator"] == ">" else "SMALLER"
+            field_groups.append(f"{size_keyword} {size_in_bytes}")
 
         if search_params.get("date_range"):
             date_range = search_params["date_range"]

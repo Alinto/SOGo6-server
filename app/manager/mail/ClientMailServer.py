@@ -64,7 +64,8 @@ class ClientMailServer(metaclass=ABCMeta):
 
         :param search_params: Validated search parameters (from MailboxSearchSchema),
             with keys like "text", "from_", "to" (matches To or Cc), "bcc", "subject",
-            "is_read", "is_flagged", "has_attachment", "labels", "date_range", and
+            "is_read", "is_flagged", "has_attachment", "labels", "date_range", "size"
+            (dict with "value", "operator" ">"/"<" and "unit" kb/mb/gb), and
             "operator" ("AND"/"OR", controlling how the other criteria are combined).
         :type search_params: dict
         :param deleted: If False, mails flagged as deleted are excluded from the
