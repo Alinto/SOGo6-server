@@ -673,7 +673,7 @@ class ModuleMail:
             "mail_type_data": mail_type_data
         }
 
-    def get_folder_mails(self, account_id: str, folder_name: str, collection_param: CollectionPaginateArgs) -> tuple[list[dict[str, Any]], int]:
+    def get_folder_mails(self, account_id: str, folder_name: str, collection_param: CollectionPaginateArgs, deleted: bool = False) -> tuple[list[dict[str, Any]], int]:
         """Retrieve a list of mails in a specific folder with full details.
 
         :param folder_name: The name of the folder to fetch mails from.
@@ -682,6 +682,11 @@ class ModuleMail:
         :type first: int
         :param last: The ending index for pagination (exclusive).
         :type last: int
+        :param deleted: If False (default), mails flagged as deleted are excluded. If
+            True, they are included alongside non-deleted mails (no filtering on the
+            deleted flag). Applied as an IMAP search criterion before pagination, so
+            the returned page is never short because of it.
+        :type deleted: bool
         :raises RequestException: If fetching mails fails
         :return: A tuple of (list of mail dicts with full details, total mail count)
         :rtype: tuple[list[dict[str, Any]], int]
@@ -693,12 +698,11 @@ class ModuleMail:
 
         fields_params = client.parse_fields_param(collection_param.fields, collection_param.fields_action)
         without_content = not fields_params["with_content"]
-        include_deleted = fields_params["include_deleted"]
 
         if without_content:
-            mail_iter = client.fetch_all_mails_without_content(folder_name, number_of_mails=nb_mails, offset=offset, include_deleted=include_deleted)
+            mail_iter = client.fetch_all_mails_without_content(folder_name, number_of_mails=nb_mails, offset=offset, deleted=deleted)
         else:
-            mail_iter = client.fetch_all_mails_with_content(folder_name, number_of_mails=nb_mails, offset=offset, include_deleted=include_deleted)
+            mail_iter = client.fetch_all_mails_with_content(folder_name, number_of_mails=nb_mails, offset=offset, deleted=deleted)
         total_count = next(mail_iter)["nb_mails"]
         mails = []
 
@@ -754,7 +758,7 @@ class ModuleMail:
                 paths.extend(ModuleMail._flatten_selectable_folder_paths(children))
         return paths
 
-    def search_mails(self, account_id: str, search_params: dict, collection_param: CollectionPaginateArgs) -> tuple[list[dict[str, Any]], int]:
+    def search_mails(self, account_id: str, search_params: dict, collection_param: CollectionPaginateArgs, deleted: bool = False) -> tuple[list[dict[str, Any]], int]:
         """Execute an advanced search across one or multiple folders.
 
         Delegates the building of the protocol-specific search criteria (IMAP SEARCH
@@ -767,19 +771,23 @@ class ModuleMail:
         :type search_params: dict
         :param collection_param: Pagination, sorting and filtering parameters.
         :type collection_param: CollectionPaginateArgs
+        :param deleted: If False (default), mails flagged as deleted are excluded. If
+            True, they are included alongside non-deleted mails (no filtering on the
+            deleted flag). Applied as part of the IMAP search criteria, not as a
+            post-fetch filter.
+        :type deleted: bool
         :return: A tuple of (list of mail dicts, total count).
         :rtype: tuple[list[dict[str, Any]], int]
         :raises RequestException: If mail server operations fail or search_params are invalid.
         """
         client = self._open_client_for(account_id)
 
-        # --- Determine content/deleted handling from generic fields param ---
+        # --- Determine content handling from generic fields param ---
         fields_params = client.parse_fields_param(collection_param.fields, collection_param.fields_action)
         without_content = not fields_params["with_content"]
-        include_deleted = fields_params["include_deleted"]
 
         # --- Build the protocol-specific search criteria (delegated to the client) ---
-        criteria = client.build_search_criteria(search_params, include_deleted)
+        criteria = client.build_search_criteria(search_params, deleted)
 
         # --- Determine folders to search ---
         folder_list = search_params.get("folders") or []

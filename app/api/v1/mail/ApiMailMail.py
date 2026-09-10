@@ -10,7 +10,7 @@ from flask_smorest import Blueprint
 
 from app.interface.mail.InterfaceApiMailMail import InterfaceApiMailMail
 from app.utils.logger.logger import logger_api
-from app.utils.api.paginate_sort_filter import collection_paginate, CustomPaginateResponse
+from app.utils.api.paginate_sort_filter import collection_paginate, CustomPaginateResponse, DeletedFilterQueryArgsSchema
 from .schemas.mail import (
     MailDetailResponseSchema,
     MailListResponseSchema,
@@ -60,8 +60,9 @@ class ApiMailFolderIdMail(MethodView):
     """
 
     @blp.response(200, MailListResponseSchema, example=MailListResponseSchema.example())
+    @blp.arguments(DeletedFilterQueryArgsSchema, location="query", arg_name="deleted_query")
     @collection_paginate(blp, sort_value_set=MailListResponseSchema.sort_by_values(), filter_value_set=MailListResponseSchema.filter_by_values())
-    def get(self, collection_param: CollectionPaginateArgs, account_id: str, folder_name: str) -> CustomPaginateResponse:
+    def get(self, collection_param: CollectionPaginateArgs, deleted_query: dict, account_id: str, folder_name: str) -> CustomPaginateResponse:
         """Fetch the list of mails in a specific folder.
 
         The filtering for this endpoint is special:\r\n
@@ -100,10 +101,17 @@ class ApiMailFolderIdMail(MethodView):
         If you want just to list the mails while not needing the actual content,
         set `fields="contents"` and `fields_action="exclude"`.
 
+        The `deleted` query parameter (boolean, default `false`) controls whether mails
+        flagged `\\Deleted` are included: `false` (default) excludes them, `true` includes
+        them alongside non-deleted mails. It is applied as an IMAP search criterion, not
+        a post-fetch filter, so pagination is unaffected by it.
+
         ---
 
         :param collection_param: pagination, sorting and filtering args
         :type collection_param: CollectionPaginateArgs
+        :param deleted_query: parsed "deleted" query param
+        :type deleted_query: dict
         :param account_id: The account identifier
         :type account_id: str
         :param folder_name: The folder identifier
@@ -114,7 +122,7 @@ class ApiMailFolderIdMail(MethodView):
         logger_api.debug("Calling ApiMailFolderIdMail: Fetching mail list for account_id: %s, folder_name: %s, params: %s", account_id, folder_name, collection_param)
         interface: InterfaceApiMailMail = g.inter
 
-        item_count, response, status_code = interface.get_mail_list(account_id, folder_name, collection_param)
+        item_count, response, status_code = interface.get_mail_list(account_id, folder_name, collection_param, deleted_query["deleted"])
 
         return item_count, response, status_code
 

@@ -81,6 +81,7 @@ class FakeIMAPConnection:
                                              b'(\\HasNoChildren) "." "Sent"'])
         self.expunge_response     = ("OK", [b"1", b"2"])
         self.uid_response         = ("OK", [b""])
+        self.uid_search_response  = ("OK", [b""])
         self.append_response      = ("OK", [b""])
         self.getacl_response      = ("OK", [b"INBOX user1 lrswipkxtea user2 lr"])
         self.setacl_response      = ("OK", [b""])
@@ -167,6 +168,8 @@ class FakeIMAPConnection:
         return self.expunge_response
 
     def uid(self, command, *args):
+        if command == 'SEARCH':
+            return self.uid_search_response
         return self.uid_response
 
     def fetch(self, message_set, parts):
@@ -604,7 +607,8 @@ def test_fetch_mails_success():
     """Test fetching mails from a mailbox."""
     fake_conn = FakeIMAPConnection()
     fake_conn.select_response = ('OK', [b'10'])
-    fake_conn.fetch_response = ('OK', [
+    fake_conn.uid_search_response = ('OK', [b'100 101'])
+    fake_conn.uid_response = ('OK', [
         (b'1 (UID 100 FLAGS (\\Seen))', b'Subject: Test\r\n\r\nBody'),
         (b'2 (UID 101 FLAGS ())', b'Subject: Test2\r\n\r\nBody2')
     ])
@@ -612,7 +616,7 @@ def test_fetch_mails_success():
 
     results = list(client.fetch_all_mails_with_content('INBOX', number_of_mails=2, offset=0))
     # First yielded item is the total count dict
-    assert results[0] == 10 or isinstance(results[0], (int, dict))
+    assert results[0] == {"nb_mails": 2}
 
 
 def test_fetch_mail_success():
@@ -974,7 +978,8 @@ class TestFetchAllMails:
     def test_yields_count_dict_first(self):
         fake_conn = FakeIMAPConnection()
         fake_conn.select_response = ("OK", [b"2"])
-        fake_conn.fetch_response = (
+        fake_conn.uid_search_response = ("OK", [b"100 101"])
+        fake_conn.uid_response = (
             "OK",
             [
                 (b"1 (UID 100 FLAGS (\\Seen) BODY[] {10}", b"Subject: A\r\n\r\nA"),
@@ -997,6 +1002,72 @@ class TestFetchAllMails:
 
         results = list(client.fetch_all_mails_with_content("INBOX", number_of_mails=10, offset=0))
         assert results == [{"nb_mails": 0}]
+
+    def test_deleted_true_uses_all_search_criteria(self):
+        """When deleted=True, deleted and non-deleted mails are both fetched (no filter)."""
+        fake_conn = FakeIMAPConnection()
+        fake_conn.select_response = ("OK", [b"5"])
+        captured_criteria = []
+        original_uid = fake_conn.uid
+
+        def tracking_uid(command, *args):
+            if command == "SEARCH":
+                captured_criteria.append(args[0])
+            return original_uid(command, *args)
+
+        fake_conn.uid = tracking_uid
+        fake_conn.uid_search_response = ("OK", [b"100"])
+        fake_conn.uid_response = (
+            "OK",
+            [(b"1 (UID 100 FLAGS (\\Deleted) BODY[] {10}", b"Subject: A\r\n\r\nA"), b")"],
+        )
+        client = authenticated_client(fake_conn)
+
+        results = list(client.fetch_all_mails_with_content("INBOX", number_of_mails=10, offset=0, deleted=True))
+        assert captured_criteria == ["ALL"]
+        assert results[0] == {"nb_mails": 1}
+
+    def test_deleted_false_uses_not_deleted_search_criteria(self):
+        fake_conn = FakeIMAPConnection()
+        fake_conn.select_response = ("OK", [b"5"])
+        captured_criteria = []
+        original_uid = fake_conn.uid
+
+        def tracking_uid(command, *args):
+            if command == "SEARCH":
+                captured_criteria.append(args[0])
+            return original_uid(command, *args)
+
+        fake_conn.uid = tracking_uid
+        client = authenticated_client(fake_conn)
+
+        list(client.fetch_all_mails_with_content("INBOX", number_of_mails=10, offset=0))
+        assert captured_criteria == ["NOT DELETED"]
+
+    def test_pagination_does_not_short_change_page_when_filtering(self):
+        """A page must contain up to number_of_mails matching mails: the filter is
+        applied by the IMAP SEARCH, not after fetching a fixed sequence-number window."""
+        fake_conn = FakeIMAPConnection()
+        fake_conn.select_response = ("OK", [b"3"])
+        # Only 3 of, say, 10 mails in the mailbox are not deleted (already filtered by SEARCH)
+        fake_conn.uid_search_response = ("OK", [b"10 20 30"])
+        fake_conn.uid_response = (
+            "OK",
+            [
+                (b"1 (UID 10 FLAGS () BODY[] {5}", b"Subject: A\r\n\r\nA"),
+                b")",
+                (b"2 (UID 20 FLAGS () BODY[] {5}", b"Subject: B\r\n\r\nB"),
+                b")",
+                (b"3 (UID 30 FLAGS () BODY[] {5}", b"Subject: C\r\n\r\nC"),
+                b")",
+            ],
+        )
+        client = authenticated_client(fake_conn)
+
+        results = list(client.fetch_all_mails_with_content("INBOX", number_of_mails=3, offset=1))
+        assert results[0] == {"nb_mails": 3}
+        mail_dicts = [r for r in results[1:] if isinstance(r, dict) and "uid" in r]
+        assert len(mail_dicts) == 3
 
     def test_not_authenticated_raises_bug_exception(self):
         client = make_client()
@@ -1166,7 +1237,7 @@ class TestGetMailUidsBeforeDate:
     def test_returns_uids(self):
         fake_conn = FakeIMAPConnection()
         fake_conn.select_response = ("OK", [b"5"])
-        fake_conn.uid_response = ("OK", [b"1 2 3"])
+        fake_conn.uid_search_response = ("OK", [b"1 2 3"])
         client = authenticated_client(fake_conn)
 
         uids = list(client.get_mail_uids_before_date("INBOX"))
@@ -1177,7 +1248,7 @@ class TestGetMailUidsBeforeDate:
     def test_with_before_date(self):
         fake_conn = FakeIMAPConnection()
         fake_conn.select_response = ("OK", [b"5"])
-        fake_conn.uid_response = ("OK", [b"1"])
+        fake_conn.uid_search_response = ("OK", [b"1"])
         client = authenticated_client(fake_conn)
 
         uids = list(client.get_mail_uids_before_date("INBOX", before_date="2024-01-01"))
@@ -1532,19 +1603,55 @@ class TestFetchAllMailsWithoutContent:
     def test_fetch_all_mails_without_content_success(self):
         fake_conn = FakeIMAPConnection()
         fake_conn.select_response = ("OK", [b"2"])
+        fake_conn.uid_search_response = ("OK", [b"100 101"])
         fake_conn.uid_response = ("OK", [
-            b"1 (UID 100 FLAGS (\\Seen) RFC822.SIZE 1000)",
-            b"2 (UID 101 FLAGS () RFC822.SIZE 2000)",
+            (b"1 (UID 100 FLAGS (\\Seen) RFC822.SIZE 1000 BODY[HEADER] {20}", b"Subject: A\r\n\r\n"),
+            b'BODYSTRUCTURE ("TEXT" "PLAIN" NIL NIL NIL "7BIT" 5 1 NIL NIL NIL)',
+            (b"2 (UID 101 FLAGS () RFC822.SIZE 2000 BODY[HEADER] {20}", b"Subject: B\r\n\r\n"),
+            b'BODYSTRUCTURE ("TEXT" "PLAIN" NIL NIL NIL "7BIT" 5 1 NIL NIL NIL)',
         ])
         client = authenticated_client(fake_conn)
         results = list(client.fetch_all_mails_without_content("INBOX", number_of_mails=2, offset=0))
-        assert len(results) > 0
+        assert results[0] == {"nb_mails": 2}
+        mail_dicts = [r for r in results[1:] if isinstance(r, dict) and "uid" in r]
+        assert len(mail_dicts) == 2
 
     def test_fetch_all_mails_without_content_not_authenticated_raises(self):
         client = make_client()
         client.connection = None
         with pytest.raises(BugException):
             list(client.fetch_all_mails_without_content("INBOX", number_of_mails=5, offset=0))
+
+    def test_deleted_true_uses_all_search_criteria(self):
+        fake_conn = FakeIMAPConnection()
+        fake_conn.select_response = ("OK", [b"5"])
+        captured_criteria = []
+        original_uid = fake_conn.uid
+
+        def tracking_uid(command, *args):
+            if command == "SEARCH":
+                captured_criteria.append(args[0])
+            return original_uid(command, *args)
+
+        fake_conn.uid = tracking_uid
+        fake_conn.uid_search_response = ("OK", [b"100"])
+        fake_conn.uid_response = ("OK", [
+            (b"1 (UID 100 FLAGS (\\Deleted) RFC822.SIZE 1000 BODY[HEADER] {20}", b"Subject: A\r\n\r\n"),
+            b'BODYSTRUCTURE ("TEXT" "PLAIN" NIL NIL NIL "7BIT" 5 1 NIL NIL NIL)',
+        ])
+        client = authenticated_client(fake_conn)
+
+        results = list(client.fetch_all_mails_without_content("INBOX", number_of_mails=10, offset=0, deleted=True))
+        assert captured_criteria == ["ALL"]
+        assert results[0] == {"nb_mails": 1}
+
+    def test_empty_search_result_yields_only_count(self):
+        fake_conn = FakeIMAPConnection()
+        fake_conn.select_response = ("OK", [b"0"])
+        client = authenticated_client(fake_conn)
+
+        results = list(client.fetch_all_mails_without_content("INBOX", number_of_mails=10, offset=0))
+        assert results == [{"nb_mails": 0}]
 
 
 # ===========================================================================
@@ -1671,21 +1778,21 @@ class TestBuildSearchCriteria:
     def test_default_operator_is_and(self):
         client = make_client()
         criteria = client.build_search_criteria(
-            {"subject": "Projet X", "from_": "a@b.com"}, include_deleted=False
+            {"subject": "Projet X", "from_": "a@b.com"}, deleted=False
         )
         assert criteria == '(NOT DELETED FROM "a@b.com" SUBJECT "Projet X")'
 
     def test_explicit_and_operator_same_as_default(self):
         client = make_client()
         criteria = client.build_search_criteria(
-            {"operator": "AND", "subject": "Projet X", "from_": "a@b.com"}, include_deleted=False
+            {"operator": "AND", "subject": "Projet X", "from_": "a@b.com"}, deleted=False
         )
         assert criteria == '(NOT DELETED FROM "a@b.com" SUBJECT "Projet X")'
 
     def test_or_operator_combines_two_fields(self):
         client = make_client()
         criteria = client.build_search_criteria(
-            {"operator": "OR", "subject": "Projet X", "from_": "a@b.com"}, include_deleted=False
+            {"operator": "OR", "subject": "Projet X", "from_": "a@b.com"}, deleted=False
         )
         assert criteria == '(NOT DELETED OR FROM "a@b.com" SUBJECT "Projet X")'
 
@@ -1693,21 +1800,21 @@ class TestBuildSearchCriteria:
         client = make_client()
         criteria = client.build_search_criteria(
             {"operator": "OR", "subject": "Projet X", "from_": "a@b.com", "is_read": False},
-            include_deleted=False,
+            deleted=False,
         )
         assert criteria == '(NOT DELETED OR FROM "a@b.com" (OR SUBJECT "Projet X" UNSEEN))'
 
     def test_or_operator_with_single_field_has_no_or_keyword(self):
         client = make_client()
         criteria = client.build_search_criteria(
-            {"operator": "OR", "subject": "Projet X"}, include_deleted=False
+            {"operator": "OR", "subject": "Projet X"}, deleted=False
         )
         assert criteria == '(NOT DELETED SUBJECT "Projet X")'
 
-    def test_not_deleted_is_always_anded_regardless_of_operator(self):
+    def test_deleted_true_applies_no_deleted_filter_regardless_of_operator(self):
         client = make_client()
         criteria = client.build_search_criteria(
-            {"operator": "OR", "subject": "Projet X", "from_": "a@b.com"}, include_deleted=True
+            {"operator": "OR", "subject": "Projet X", "from_": "a@b.com"}, deleted=True
         )
         assert criteria == '(OR FROM "a@b.com" SUBJECT "Projet X")'
 
@@ -1715,7 +1822,7 @@ class TestBuildSearchCriteria:
         client = make_client()
         criteria = client.build_search_criteria(
             {"operator": "OR", "to": "x@y.com", "subject": "Projet X"},
-            include_deleted=False,
+            deleted=False,
         )
         assert criteria == (
             '(NOT DELETED OR (OR TO "x@y.com" CC "x@y.com") SUBJECT "Projet X")'
@@ -1724,21 +1831,21 @@ class TestBuildSearchCriteria:
     def test_to_field_matches_to_or_cc_header(self):
         client = make_client()
         criteria = client.build_search_criteria(
-            {"to": "x@y.com"}, include_deleted=False
+            {"to": "x@y.com"}, deleted=False
         )
         assert criteria == '(NOT DELETED (OR TO "x@y.com" CC "x@y.com"))'
 
     def test_bcc_field(self):
         client = make_client()
         criteria = client.build_search_criteria(
-            {"bcc": "x@y.com"}, include_deleted=False
+            {"bcc": "x@y.com"}, deleted=False
         )
         assert criteria == '(NOT DELETED BCC "x@y.com")'
 
-    def test_no_criteria_returns_all(self):
+    def test_no_user_criteria_and_deleted_true_returns_all(self):
         client = make_client()
-        assert client.build_search_criteria({}, include_deleted=True) == "ALL"
+        assert client.build_search_criteria({}, deleted=True) == "ALL"
 
     def test_no_user_criteria_still_applies_not_deleted(self):
         client = make_client()
-        assert client.build_search_criteria({}, include_deleted=False) == "(NOT DELETED)"
+        assert client.build_search_criteria({}, deleted=False) == "(NOT DELETED)"

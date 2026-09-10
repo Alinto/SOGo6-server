@@ -321,7 +321,7 @@ class InterfaceApiMailMailbox:
 
         return create_api_base_response(None)
 
-    def search_mailbox(self, account_id: str, search_params: dict, collection_param: "CollectionPaginateArgs") -> tuple[int, dict, int]:
+    def search_mailbox(self, account_id: str, search_params: dict, collection_param: "CollectionPaginateArgs", deleted: bool = False) -> tuple[int, dict, int]:
         """Advanced mail search across one or multiple folders for the given account.
 
         :param account_id: The account identifier ("0" for main account)
@@ -330,6 +330,10 @@ class InterfaceApiMailMailbox:
         :type search_params: dict
         :param collection_param: Pagination, sorting and filtering parameters.
         :type collection_param: CollectionPaginateArgs
+        :param deleted: If False (default), mails flagged as deleted are excluded. If
+            True, they are included alongside non-deleted mails (no filtering on the
+            deleted flag).
+        :type deleted: bool
         :return: A tuple of (total_count, API response dict, status code)
         :rtype: tuple[int, dict, int]
         """
@@ -337,7 +341,7 @@ class InterfaceApiMailMailbox:
             return 0, *create_api_base_response(error=err.ERROR_EXTERNAL_ACCOUNT_FORBIDDEN)
 
         try:
-            result, total = self.mail_module.search_mails(account_id, search_params, collection_param)
+            result, total = self.mail_module.search_mails(account_id, search_params, collection_param, deleted)
         except RequestException as ex:
             logger_api.error("Request exception in search_mailbox for user %s, account %s: %s", self.user.uid, account_id, str(ex))
             return 0, *create_api_base_response(None, ex.error)

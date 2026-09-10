@@ -8,7 +8,7 @@ from flask_smorest import Blueprint
 from app.interface.mail.InterfaceApiMailMailbox import InterfaceApiMailMailbox
 from app.utils.logger.logger import logger_api
 from app.utils.api.ApiBaseResponse import ApiBaseResponse
-from app.utils.api.paginate_sort_filter import collection_paginate, CustomPaginateResponse
+from app.utils.api.paginate_sort_filter import collection_paginate, CustomPaginateResponse, DeletedFilterQueryArgsSchema
 from app.api.v1.mail.schemas.mailbox import (
     MailboxCreateSchema,
     MailboxUpdateSchema,
@@ -214,9 +214,10 @@ class ApiMailBoxesAccountSearch(MethodView):
     """
     @blp.arguments(MailboxSearchSchema, example=MailboxSearchSchema.example(), error_status_code=400)
     @blp.response(200, MailboxSearchResponseSchema)
+    @blp.arguments(DeletedFilterQueryArgsSchema, location="query", arg_name="deleted_query")
     @collection_paginate(blp, can_sort=True, sort_value_set={"date", "relevance", "sender", "subject", "size"},
-                         can_filter=True, filter_value_set={"contents", "deleted"})
-    def post(self, search_params: dict, collection_param: "CollectionPaginateArgs", account_id: str) -> CustomPaginateResponse:
+                         can_filter=True, filter_value_set={"contents"})
+    def post(self, search_params: dict, collection_param: "CollectionPaginateArgs", deleted_query: dict, account_id: str) -> CustomPaginateResponse:
         """
         Advanced mail search across one or multiple folders.
 
@@ -237,7 +238,12 @@ class ApiMailBoxesAccountSearch(MethodView):
 
         All search criteria are optional and combined using the "operator" field (AND by default, OR to match any criterion).
         Pagination, sorting and field filtering are controlled via query parameters (page, page_size, sort_by, sort_order, fields, fields_action).
+
+        The `deleted` query parameter (boolean, default `false`) controls whether mails
+        flagged `\\Deleted` are included: `false` (default) excludes them, `true` includes
+        them alongside non-deleted mails. It is applied as part of the IMAP search
+        criteria, not a post-fetch filter, so pagination is unaffected by it.
         """
         logger_api.debug("Calling ApiMailBoxesAccountSearch.post for account_id: %s with params: %s", account_id, search_params)
         interface: InterfaceApiMailMailbox = g.inter
-        return interface.search_mailbox(account_id, search_params, collection_param)
+        return interface.search_mailbox(account_id, search_params, collection_param, deleted_query["deleted"])
