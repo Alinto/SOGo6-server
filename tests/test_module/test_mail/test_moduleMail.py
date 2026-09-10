@@ -92,7 +92,7 @@ class FakeClientMailServer:
 
     # ---- mail methods ----
 
-    def fetch_all_mails_with_content(self, folder_name, number_of_mails, offset=0, include_deleted=True):
+    def fetch_all_mails_with_content(self, folder_name, number_of_mails, offset=0, deleted=False):
         """Returns an iterator: first item has {'nb_mails': int}, then mail dicts."""
         yield {'nb_mails': 0}
 
@@ -164,7 +164,7 @@ class FakeClientMailServer:
             {'name': 'Sent', 'path': 'Sent'}
         ]
 
-    def fetch_all_mails_without_content(self, mailbox, number_of_mails, offset=0, include_deleted=True):
+    def fetch_all_mails_without_content(self, mailbox, number_of_mails, offset=0, deleted=False):
         """Fetch all mails from a mailbox without content (used by get_folder_mails)."""
         yield {'nb_mails': 0}
 
@@ -184,10 +184,10 @@ class FakeClientMailServer:
         """Search mails without body content across folders. Yields (folder_path, mail_dict)."""
         return iter(self.search_mails_result if hasattr(self, 'search_mails_result') else [])
 
-    def build_search_criteria(self, search_params, include_deleted):
+    def build_search_criteria(self, search_params, deleted):
         """Build search criteria from params (simplified for fake client).
-        
-        This is called by ModuleMail to convert generic search params into 
+
+        This is called by ModuleMail to convert generic search params into
         protocol-specific criteria. The fake implementation just returns
         a simple string representation.
         """
@@ -226,34 +226,31 @@ class FakeClientMailServer:
                     raise RequestException(f"Invalid end date format: {dr['end']}, expected YYYY-MM-DD")
                 criteria_parts.append(f"BEFORE:{dr['end']}")
         
-        if not include_deleted:
+        if not deleted:
             criteria_parts.append("NOT_DELETED")
-        
+
         return " ".join(criteria_parts) if criteria_parts else "ALL"
 
     @staticmethod
     def parse_fields_param(fields, fields_action):
         """Parse the generic "fields"/"fields_action" query params into flags.
-        
+
         This is a static method from ClientMailServer base class that handles:
         - "contents": whether to fetch mail content (heavy operation)
-        - "deleted": whether to include deleted mails
         """
         from app.utils import constants as cs
 
         requested = set(fields.split(",")) if fields else set()
 
         if not requested:
-            return {"with_content": True, "include_deleted": False}
+            return {"with_content": True}
 
         if fields_action == "include":
             with_content = cs.MAIL_FIELD_CONTENTS in requested
-            include_deleted = cs.MAIL_FIELD_DELETED in requested
         else:
             with_content = cs.MAIL_FIELD_CONTENTS not in requested
-            include_deleted = False
 
-        return {"with_content": with_content, "include_deleted": include_deleted}
+        return {"with_content": with_content}
 
 
 def _make_email_message(subject='Test', from_='sender@example.com',
@@ -387,7 +384,7 @@ def test_get_folder_mails_success(monkeypatch):
     mail1 = _make_email_message(subject='Test1')
     mail2 = _make_email_message(subject='Test2')
 
-    def fetch_all(folder_name, number_of_mails, offset=0, include_deleted=True):
+    def fetch_all(folder_name, number_of_mails, offset=0, deleted=False):
         yield {'nb_mails': 100}
         yield {'uid': '1', 'mail': mail1, 'flags': {'seen': True, 'flagged': False, 'answered': False, 'forwarded': False, 'deleted': False, 'all': ['\\Seen']}, 'size': 120}
         yield {'uid': '2', 'mail': mail2, 'flags': {'seen': False, 'flagged': False, 'answered': False, 'forwarded': False, 'deleted': False, 'all': []}, 'size': 120}
@@ -406,7 +403,7 @@ def test_get_folder_mails_empty_folder(monkeypatch):
     """Test getting mails from empty folder."""
     module, fake_client = _make_module(monkeypatch)
 
-    def fetch_all(folder_name, number_of_mails, offset=0, include_deleted=True):
+    def fetch_all(folder_name, number_of_mails, offset=0, deleted=False):
         yield {'nb_mails': 0}
 
     fake_client.fetch_all_mails_with_content = fetch_all
@@ -1169,7 +1166,7 @@ def test_get_folder_mails_without_content_include_filter(monkeypatch):
 
     mail1 = _make_email_message(subject='Test1')
 
-    def fetch_all_without_content(mailbox, number_of_mails, offset=0, include_deleted=True):
+    def fetch_all_without_content(mailbox, number_of_mails, offset=0, deleted=False):
         yield {'nb_mails': 50}
         yield {'uid': '1', 'mail': mail1, 'flags': {'seen': True, 'flagged': False, 'answered': False, 'forwarded': False, 'deleted': False, 'all': ['\\Seen']}, 'size': 120}
 
@@ -1196,7 +1193,7 @@ def test_get_folder_mails_without_content_exclude_filter(monkeypatch):
 
     mail1 = _make_email_message(subject='Test1')
 
-    def fetch_all_without_content(mailbox, number_of_mails, offset=0, include_deleted=True):
+    def fetch_all_without_content(mailbox, number_of_mails, offset=0, deleted=False):
         yield {'nb_mails': 25}
         yield {'uid': '1', 'mail': mail1, 'flags': {'seen': False, 'flagged': False, 'answered': False, 'forwarded': False, 'deleted': False, 'all': []}, 'size': 120}
 

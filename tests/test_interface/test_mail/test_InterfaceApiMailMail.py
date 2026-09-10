@@ -46,9 +46,9 @@ class FakeModuleMail:
         self.perform_mail_batch_action_args = None
         self.perform_mail_batch_action_result = {"action": "tag", "mail_uid": [42, 43], "tags_added": ["Important"]}
 
-    def get_folder_mails(self, account_id, folder_name, collection_param):
+    def get_folder_mails(self, account_id, folder_name, collection_param, deleted=False):
         """Fetch a list of mails from a folder."""
-        self.get_folder_mails_args = (account_id, folder_name, collection_param.first_item, collection_param.last_item)
+        self.get_folder_mails_args = (account_id, folder_name, collection_param.first_item, collection_param.last_item, deleted)
         return self.get_folder_mails_result
 
     def get_mail_detail(self, account_id, folder_name, mail_uid):
@@ -104,7 +104,7 @@ def test_get_mail_list_success():
     assert status_code == 200
     assert total == 100
     assert result["data"] == [{"uid": 1, "subject": "Test"}]
-    assert fake_module.get_folder_mails_args == (0, "INBOX", 0, 10)
+    assert fake_module.get_folder_mails_args == (0, "INBOX", 0, 10, False)
 
 def test_get_mail_list_module_exception():
     """Test error handling when module raises RequestException."""

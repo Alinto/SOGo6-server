@@ -799,8 +799,8 @@ def create_interface_with_search(monkeypatch, fake_module, allow_external=True,
         def get_mailbox_quota(self, account_id):
             return None
 
-        def search_mails(self, account_id, search_params, collection_param):
-            self.search_mails_args = (account_id, search_params, collection_param)
+        def search_mails(self, account_id, search_params, collection_param, deleted=False):
+            self.search_mails_args = (account_id, search_params, collection_param, deleted)
             if _search_raises is not None:
                 raise _search_raises
             return _search_result, _search_total

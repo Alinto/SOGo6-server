@@ -1276,7 +1276,38 @@ class ClientImap(ClientMailServer):
             "size": size
         }
 
-    def fetch_all_mails_with_content(self, folder_path: str, number_of_mails: int, offset: int, include_deleted: bool = True) -> Iterator[dict]:
+    def _search_deleted_filtered_uids(self, folder_path: str, deleted: bool) -> list[str]:
+        """Select ``folder_path`` and run an IMAP UID SEARCH filtering on the deleted flag.
+
+        Filtering on the deleted flag is done as an IMAP search criterion (not a
+        post-fetch filter) so that pagination on the result is always accurate:
+        slicing a fixed-size page out of this list can never yield fewer than the
+        requested number of mails just because some in-range mails were filtered out.
+
+        :param folder_path: IMAP folder path (already quoted as needed by the caller).
+        :type folder_path: str
+        :param deleted: If False, mails flagged \\Deleted are excluded. If True, they
+            are included alongside non-deleted mails (no filtering on the deleted flag).
+        :type deleted: bool
+        :raises RequestException: If selecting the folder or the SEARCH command fails.
+        :return: Matching UIDs, most recent (highest UID) first.
+        :rtype: list[str]
+        """
+        self.select_mailbox(folder_path)
+
+        criteria = "ALL" if deleted else "NOT DELETED"
+        success, datas = self._exec_imap4_method(self.connection.uid, 'SEARCH', criteria)
+        if not success:
+            raise RequestException(
+                f"IMAP SEARCH failed in folder '{folder_path}' with criteria: {criteria}",
+                err.ERROR_MAIL_SEARCH_FAILED
+            )
+
+        uid_list = datas[0].decode().split() if datas and datas[0] else []
+        uid_list.reverse()  # Recent mails have the highest UID, so most recent first
+        return uid_list
+
+    def fetch_all_mails_with_content(self, folder_path: str, number_of_mails: int, offset: int, deleted: bool = False) -> Iterator[dict]:
         """
         https://datatracker.ietf.org/doc/html/rfc9051#name-fetch-response
         Fetch a specific number of mails from a mailbox with full details.
@@ -1288,7 +1319,7 @@ class ClientImap(ClientMailServer):
             "size": size, int
         }
 
-        Always yield the totla number of mails of the folder
+        Always yield the total number of mails matching the ``deleted`` filter
         Then yield mail by mail, from the most recent to the oldest
 
         :param mailbox: The mailbox to fetch mails from.
@@ -1297,8 +1328,10 @@ class ClientImap(ClientMailServer):
         :type number_of_mails: int
         :param offset: The offset of the mail to fetch.
         :type number_of_mails: int
-        :param include_deleted: If False, mails flagged \\Deleted are excluded from the result.
-        :type include_deleted: bool
+        :param deleted: If False (default), mails flagged \\Deleted are excluded. If
+            True, they are included alongside non-deleted mails (no filtering on the
+            deleted flag).
+        :type deleted: bool
         :raises RequestException: If fetching mails fails
         :return: A tuple of (list of mail dicts with full details, total count)
         :rtype: tuple[list[dict[str, Any]], int]
@@ -1308,33 +1341,35 @@ class ClientImap(ClientMailServer):
             if not folder_path.isascii():
                 raise RequestException(f"Mailbox name is not ascii: {folder_path}", err.ERROR_IMAP_NOT_ASCII)
             folder_path = quote(folder_path)
-            mailbox_len = self.select_mailbox(folder_path)
+            uid_list = self._search_deleted_filtered_uids(folder_path, deleted)
 
             #yield length
-            yield {"nb_mails": mailbox_len}
-            if mailbox_len == 0:
+            yield {"nb_mails": len(uid_list)}
+            if not uid_list:
                 return
 
-            #Recent mail have the higest ID number, so we fetch from descending
-            range_arg = f'{max(1, mailbox_len - offset + 1 - number_of_mails + 1)}:{mailbox_len - offset + 1}'
+            start = max(0, offset - 1)
+            page_uids = uid_list[start: start + number_of_mails]
+            if not page_uids:
+                return
+
             # Fetch full message, flags, and UID (size is included in BODY.PEEK[] response)
-            # If success, datas will be of length 2*nb_mails. Each mail is
-            # a tuple (b'metadata', b'body') and  a singular b')'
-            success, datas = self._exec_imap4_method(self.connection.fetch, range_arg, '(BODY.PEEK[] FLAGS UID)')
+            success, datas = self._exec_imap4_method(self.connection.uid, 'FETCH', ",".join(page_uids), '(BODY.PEEK[] FLAGS UID)')
 
             if not success:
-                if isinstance(datas[0], str) and "Invalid messageset" in datas[0]:
-                    #Goes here means our range args is wrong, it should'nt happen
-                    raise BugException(f"Try to fetch mail with an unvalid messageset: {range_arg}")
                 raise RequestException(f"Fail to fetch mails: {datas}", err.ERROR_IMAP_FAILED)
 
-            for part in reversed(datas):
+            mails_by_uid: dict[str, dict] = {}
+            for part in datas:
                 if not isinstance(part, tuple):
                     continue
                 mail_dict = self._parse_mail_with_content_fetching(part)
-                if not include_deleted and mail_dict["flags"]["deleted"]:
-                    continue
-                yield mail_dict
+                mails_by_uid[str(mail_dict["uid"])] = mail_dict
+
+            for uid in page_uids:
+                mail_dict = mails_by_uid.get(uid)
+                if mail_dict is not None:
+                    yield mail_dict
         else:
             raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
 
@@ -1435,7 +1470,7 @@ class ClientImap(ClientMailServer):
 
         return ret
 
-    def fetch_all_mails_without_content(self, folder_path: str, number_of_mails: int, offset: int, include_deleted: bool = True) -> Iterator[dict]:
+    def fetch_all_mails_without_content(self, folder_path: str, number_of_mails: int, offset: int, deleted: bool = False) -> Iterator[dict]:
         """
         https://datatracker.ietf.org/doc/html/rfc9051#name-fetch-response
         Fetch a specific number of mails from a mailbox with full details.
@@ -1448,7 +1483,7 @@ class ClientImap(ClientMailServer):
             "has_attachment": bool
         }
 
-        Always yield the total number of mails of the folder
+        Always yield the total number of mails matching the ``deleted`` filter
         Then yield mail by mail, from the most recent to the oldest
 
         :param mailbox: The mailbox to fetch mails from.
@@ -1457,8 +1492,10 @@ class ClientImap(ClientMailServer):
         :type number_of_mails: int
         :param offset: The offset of the mail to fetch.
         :type number_of_mails: int
-        :param include_deleted: If False, mails flagged \\Deleted are excluded from the result.
-        :type include_deleted: bool
+        :param deleted: If False (default), mails flagged \\Deleted are excluded. If
+            True, they are included alongside non-deleted mails (no filtering on the
+            deleted flag).
+        :type deleted: bool
         :raises RequestException: If fetching mails fails
         :return: A tuple of (list of mail dicts with full details, total count)
         :rtype: tuple[list[dict[str, Any]], int]
@@ -1468,26 +1505,27 @@ class ClientImap(ClientMailServer):
             if not folder_path.isascii():
                 raise RequestException(f"Mailbox name is not ascii: {folder_path}", err.ERROR_IMAP_NOT_ASCII)
             folder_path = quote(folder_path)
-            mailbox_len = self.select_mailbox(folder_path)
+            uid_list = self._search_deleted_filtered_uids(folder_path, deleted)
 
             #yield length
-            yield {"nb_mails": mailbox_len}
-            if mailbox_len == 0:
+            yield {"nb_mails": len(uid_list)}
+            if not uid_list:
                 return
 
-            #Recent mail have the higest ID number, so we fetch from descending
-            range_arg = f'{max(1, mailbox_len - offset + 1 - number_of_mails + 1)}:{mailbox_len - offset + 1}'
-            # Fetch headers, bodystruscture, flags, UID and size
-            # If success, datas will be of length 2*nb_mails. Each mail is
+            start = max(0, offset - 1)
+            page_uids = uid_list[start: start + number_of_mails]
+            if not page_uids:
+                return
+
+            # Fetch headers, bodystructure, flags, UID and size
+            # If success, datas will be of length 2*len(page_uids). Each mail is
             # a tuple (b'metadata', b'body') and  a singular b'BODYSTRUCTURE'
-            success, datas = self._exec_imap4_method(self.connection.fetch, range_arg, '(BODY.PEEK[HEADER] BODYSTRUCTURE FLAGS UID RFC822.SIZE)')
+            success, datas = self._exec_imap4_method(self.connection.uid, 'FETCH', ",".join(page_uids), '(BODY.PEEK[HEADER] BODYSTRUCTURE FLAGS UID RFC822.SIZE)')
 
             if not success:
-                if isinstance(datas[0], str) and "Invalid messageset" in datas[0]:
-                    #Goes here means our range args is wrong, it should'nt happen
-                    raise BugException(f"Try to fetch mail with an unvalid messageset: {range_arg}")
                 raise RequestException(f"Fail to fetch mails: {datas}", err.ERROR_IMAP_FAILED)
 
+            mails_by_uid: dict[str, dict] = {}
             # Iterate from the end, two items at a time
             for i in range(len(datas) - 1, -1, -2):
                 pair = datas[i-1:i+1]  # Get the current and previous item
@@ -1496,9 +1534,12 @@ class ClientImap(ClientMailServer):
                 has_attachment = self._parse_body_structure_for_attachment(bodystruct)
                 #b'1 (FLAGS (\\Draft) UID 47 RFC822.SIZE 74732 BODY[HEADER] {1080}
                 mail_dict = self._parse_mail_without_content_fetching(message_parts, has_attachment)
-                if not include_deleted and mail_dict["flags"]["deleted"]:
-                    continue
-                yield mail_dict
+                mails_by_uid[str(mail_dict["uid"])] = mail_dict
+
+            for uid in page_uids:
+                mail_dict = mails_by_uid.get(uid)
+                if mail_dict is not None:
+                    yield mail_dict
         else:
             raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
 
@@ -2059,7 +2100,7 @@ class ClientImap(ClientMailServer):
         folder_path = self.folders_map_type_to_name[folder_type]
         self.delete_mails_by_uid(folder_path, mail_uid, move_to_trash=False, permanently=True)
 
-    def build_search_criteria(self, search_params: dict, include_deleted: bool) -> str:
+    def build_search_criteria(self, search_params: dict, deleted: bool) -> str:
         """Build an IMAP SEARCH criteria string from the generic search_params dict.
 
         Each populated field produces one independent search-key "group". Groups are
@@ -2073,8 +2114,10 @@ class ClientImap(ClientMailServer):
         * "OR": groups are combined with a right-nested IMAP ``OR`` operator, so that
           a mail matches if it satisfies *any* of the provided criteria.
 
-        ``NOT DELETED`` is a system-level filter (not a user search criterion) and is
-        therefore always AND-ed in regardless of the operator.
+        When ``deleted`` is False, ``NOT DELETED`` is a system-level filter (not a
+        user search criterion) and is therefore always AND-ed in regardless of the
+        operator. When ``deleted`` is True, no filter on the deleted flag is applied
+        at all, so mails are matched whether or not they are flagged \\Deleted.
 
         ``date_range.start``/``date_range.end`` accept either a full ISO 8601 timestamp
         or a bare date (``YYYY-MM-DD``). IMAP's ``SINCE``/``BEFORE`` only compare dates
@@ -2084,8 +2127,10 @@ class ClientImap(ClientMailServer):
 
         :param search_params: Validated search parameters (from MailboxSearchSchema).
         :type search_params: dict
-        :param include_deleted: Whether mails flagged \\Deleted should be included.
-        :type include_deleted: bool
+        :param deleted: If False, mails flagged \\Deleted are excluded from the
+            results. If True, they are included alongside non-deleted mails (no
+            filtering on the deleted flag).
+        :type deleted: bool
         :raises RequestException: If a date value cannot be parsed.
         :return: IMAP SEARCH criteria string (e.g. "(NOT DELETED SUBJECT \"foo\")" or "ALL").
         :rtype: str
@@ -2159,9 +2204,7 @@ class ClientImap(ClientMailServer):
 
         combined = _combine_imap_search_or(field_groups) if operator == "OR" else " ".join(field_groups)
 
-        criteria_parts: list[str] = []
-        if not include_deleted:
-            criteria_parts.append("NOT DELETED")
+        criteria_parts: list[str] = [] if deleted else ["NOT DELETED"]
         if combined:
             criteria_parts.append(combined)
 
