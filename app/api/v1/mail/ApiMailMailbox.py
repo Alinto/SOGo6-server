@@ -8,6 +8,7 @@ from flask_smorest import Blueprint
 from app.interface.mail.InterfaceApiMailMailbox import InterfaceApiMailMailbox
 from app.utils.logger.logger import logger_api
 from app.utils.api.ApiBaseResponse import ApiBaseResponse
+from app.utils.api.paginate_sort_filter import collection_paginate, CustomPaginateResponse, DeletedFilterQueryArgsSchema
 from app.api.v1.mail.schemas.mailbox import (
     MailboxCreateSchema,
     MailboxUpdateSchema,
@@ -18,11 +19,16 @@ from app.api.v1.mail.schemas.mailbox import (
     DelegationResponseSchema,
     MailboxPurgeSchema,
     MailboxPurgeResponseSchema,
+    MailboxBatchActionSchema,
+    MailboxBatchActionResponseSchema,
+    MailboxSearchSchema,
+    MailboxSearchResponseSchema,
 )
 
 if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
     from app.auth.User import User
+    from app.utils.api.paginate_sort_filter import CollectionPaginateArgs
 
 blp = Blueprint("Mail Account", __name__, url_prefix="/mailboxes")
 
@@ -140,6 +146,51 @@ class ApiMailBoxesAccountDelegates(MethodView):
         return interface.create_mailbox_delegate(account_id, data)
 
 
+@blp.route("/<string:account_id>/batch-action")
+class ApiMailBoxesAccountBatchAction(MethodView):
+    """
+    Resource: Batch actions across the whole mailbox
+    """
+    @blp.arguments(MailboxBatchActionSchema, example=MailboxBatchActionSchema.example(), error_status_code=400)
+    @blp.response(200, MailboxBatchActionResponseSchema, example=MailboxBatchActionResponseSchema.example())
+    def post(self, data: dict, account_id: str) -> ResponseReturnValue:
+        """Perform an action (tag, untag, move, spam, ham, copy) on mails from several folders of the account at once.
+
+        Behaves like the per-folder batch action endpoint, except that ``uids`` maps folder names
+        to their list of mail UIDs, so mails from multiple folders can be processed in a single call.
+        Each folder is processed independently: a failure on one folder does not prevent the others
+        from being processed, and the per-folder outcome is reported in the response's ``results``
+        and ``errors`` fields.
+
+        **Supported actions:**
+
+        * **tag**: Add one or more tags to the selected mails. Tags are provided in the ``data`` field as a list of strings.
+        * **untag**: Remove one or more tags from the selected mails. Tags to remove are provided in the ``data`` field as a list of strings.
+        * **move**: Move the selected mails to another folder. The destination folder name must be provided in the ``data`` field as a string.
+        * **spam**: Mark the selected mails as spam.
+        * **ham**: Mark the selected mails as not spam.
+        * **copy**: Copy the selected mails to another folder. The destination folder name must be provided in the ``data`` field as a string.
+        * **delete**: Delete the selected mails, following the user's mail delete behavior preference.
+        * **illegal**: Report the selected mails as illegal content and move them to the Junk folder.
+        * **phishing**: Report the selected mails as phishing and move them to the Junk folder.
+
+        :param data: The batch action data containing 'uids' (folder name -> list of uids), 'action' and optional 'data' field
+        :type data: dict
+        :param account_id: The account identifier
+        :type account_id: str
+        :return: A response indicating the per-folder result of the action
+        :rtype: ResponseReturnValue
+        """
+        logger_api.debug(
+            "Calling ApiMailBoxesAccountBatchAction.post for account_id: %s, uids: %s with action: %s",
+            account_id,
+            data["uids"],
+            data["action"]
+        )
+        interface: InterfaceApiMailMailbox = g.inter
+        return interface.mailbox_batch_action(account_id, data)
+
+
 @blp.route("/<string:account_id>/purge")
 class ApiMailBoxesAccountPurge(MethodView):
     """
@@ -155,3 +206,44 @@ class ApiMailBoxesAccountPurge(MethodView):
         interface: InterfaceApiMailMailbox = g.inter
         return interface.purge_mailbox(account_id, purge_data)
 
+
+@blp.route("/<string:account_id>/search")
+class ApiMailBoxesAccountSearch(MethodView):
+    """
+    Resource: Advanced Mail Search
+    """
+    @blp.arguments(MailboxSearchSchema, example=MailboxSearchSchema.example(), error_status_code=400)
+    @blp.response(200, MailboxSearchResponseSchema)
+    @blp.arguments(DeletedFilterQueryArgsSchema, location="query", arg_name="deleted_query")
+    @collection_paginate(blp, can_sort=True, sort_value_set={"date", "relevance", "sender", "subject", "size"},
+                         can_filter=True, filter_value_set={"contents"})
+    def post(self, search_params: dict, collection_param: "CollectionPaginateArgs", deleted_query: dict, account_id: str) -> CustomPaginateResponse:
+        """
+        Advanced mail search across one or multiple folders.
+
+        * **operator**: str, 'AND' (default) or 'OR' - how the criteria below are combined.
+          With 'AND' every provided criterion must match, with 'OR' at least one must match.
+        * **text**: str, full text search in subject/sender/recipients/body
+        * **folders**: list[str], list of folder paths to search in (e.g. ["INBOX", "Sent"] or ["all"] for all folders)
+        * **include_subfolders**: bool, default True - when True, also search the subfolders of each folder listed in "folders"; when False, search only the exact folders listed. Ignored when "folders" is empty or ["all"].
+        * **date_range**: dict, date range for the search (e.g. {"from": "2023-01-01", "to": "2023-01-31"})
+        * **has_attachments**: bool, whether to search for emails with attachments
+        * **to**: str, email address to search for in either the recipient (To) or copy (Cc) headers
+        * **bcc**: str, blind copy (Bcc) email address to search for
+        * **from**: list[str], list of sender email addresses to search for
+        * **subject** : str, keywords to search for in the email subject
+        * **attachment_type**: list[str], list of attachment types to search for (e.g. ["pdf", "jpg"])
+        * **is_read**: bool, whether to search for read or unread emails
+        * **labels**: list[str], list of labels/tags to search for
+
+        All search criteria are optional and combined using the "operator" field (AND by default, OR to match any criterion).
+        Pagination, sorting and field filtering are controlled via query parameters (page, page_size, sort_by, sort_order, fields, fields_action).
+
+        The `deleted` query parameter (boolean, default `false`) controls whether mails
+        flagged `\\Deleted` are included: `false` (default) excludes them, `true` includes
+        them alongside non-deleted mails. It is applied as part of the IMAP search
+        criteria, not a post-fetch filter, so pagination is unaffected by it.
+        """
+        logger_api.debug("Calling ApiMailBoxesAccountSearch.post for account_id: %s with params: %s", account_id, search_params)
+        interface: InterfaceApiMailMailbox = g.inter
+        return interface.search_mailbox(account_id, search_params, collection_param, deleted_query["deleted"])

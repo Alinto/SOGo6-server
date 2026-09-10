@@ -2,6 +2,8 @@ from abc import ABCMeta, abstractmethod
 from typing import Any, Iterator
 from email.message import EmailMessage
 
+from app.utils import constants as cs
+
 class ClientMailServer(metaclass=ABCMeta):
     """
     Abstract class for mail clients.
@@ -13,6 +15,68 @@ class ClientMailServer(metaclass=ABCMeta):
         """
         self.connected = False
         self.authenticated = False
+
+    @staticmethod
+    def parse_fields_param(fields: str | None, fields_action: str | None) -> dict[str, bool]:
+        """Parse the generic "fields"/"fields_action" query params (see CollectionPaginateArgs)
+        into flags telling the caller how mails should be fetched.
+
+        This centralizes the handling of every field name that impacts *how* mails are
+        fetched from the mail server (as opposed to fields that are simply stripped from
+        the already-built response). For now one field name is recognized:
+
+        * ``"contents"``: whether the mail content (body, attachments, ...) should be fetched.
+          Fetching content is a heavy operation, both for the mail server and for this API.
+
+        ``"contents"`` is present by default (opt-out): with ``fields_action == "include"`` it
+        must be explicitly listed to stay on; with ``fields_action == "exclude"`` it is turned
+        off only if listed.
+
+        When ``fields`` is empty/None, the default value is used: fetch content.
+
+        :param fields: Comma separated list of field names, or None.
+        :type fields: str | None
+        :param fields_action: "include" or "exclude".
+        :type fields_action: str | None
+        :return: dict with key "with_content"
+        :rtype: dict[str, bool]
+        """
+        requested: set[str] = set(fields.split(",")) if fields else set()
+
+        if not requested:
+            return {"with_content": True}
+
+        if fields_action == "include":
+            with_content = cs.MAIL_FIELD_CONTENTS in requested
+        else:
+            with_content = cs.MAIL_FIELD_CONTENTS not in requested
+
+        return {"with_content": with_content}
+
+    @abstractmethod
+    def build_search_criteria(self, search_params: dict, deleted: bool) -> Any:
+        """Build a protocol-specific search criteria object/string from the generic,
+        protocol-agnostic ``search_params`` dict (as validated by MailboxSearchSchema).
+
+        This keeps every bit of protocol-specific search syntax (IMAP SEARCH syntax,
+        JMAP filter objects, ...) confined to the concrete client implementation, so
+        that callers (e.g. ModuleMail) stay protocol agnostic.
+
+        :param search_params: Validated search parameters (from MailboxSearchSchema),
+            with keys like "text", "from_", "to" (matches To or Cc), "bcc", "subject",
+            "is_read", "is_flagged", "has_attachment", "labels", "date_range", and
+            "operator" ("AND"/"OR", controlling how the other criteria are combined).
+        :type search_params: dict
+        :param deleted: If False, mails flagged as deleted are excluded from the
+            results. If True, they are included alongside non-deleted mails (no
+            filtering on the deleted flag).
+        :type deleted: bool
+        :raises RequestException: If a value in search_params cannot be translated
+            (e.g. an invalid date).
+        :return: A protocol-specific criteria value to pass to search_mails_with_content
+            / search_mails_without_content.
+        :rtype: Any
+        """
 
     @abstractmethod
     def connect(self) -> None:
@@ -143,12 +207,12 @@ class ClientMailServer(metaclass=ABCMeta):
         """
 
     @abstractmethod
-    def fetch_all_mails_with_content(self, folder_path: str, number_of_mails: int, offset: int) -> Iterator[dict]:
+    def fetch_all_mails_with_content(self, folder_path: str, number_of_mails: int, offset: int, deleted: bool = False) -> Iterator[dict]:
         """
         https://datatracker.ietf.org/doc/html/rfc9051#name-fetch-response
         Fetch a specific number of mails from a mailbox with full details.
 
-        First yield the total number of mails into the folder:
+        First yield the total number of mails matching the ``deleted`` filter:
         {"nb_mails": 500}
         If not 0, yield a dict for each mail, from most recent to oldest
         {
@@ -164,13 +228,18 @@ class ClientMailServer(metaclass=ABCMeta):
         :type number_of_mails: int
         :param offset: The offset of the mail to fetch.
         :type number_of_mails: int
+        :param deleted: If False (default), mails flagged \\Deleted are excluded. If
+            True, they are included alongside non-deleted mails (no filtering on the
+            deleted flag). This is applied as a search criterion before pagination,
+            so the page always contains up to ``number_of_mails`` matching mails.
+        :type deleted: bool
         :raises RequestException: If fetching mails fails
         :return: A tuple of (list of mail dicts with full details, total count)
         :rtype: tuple[list[dict[str, Any]], int]
         """
 
     @abstractmethod
-    def fetch_all_mails_without_content(self, folder_path: str, number_of_mails: int, offset: int) -> Iterator[dict]:
+    def fetch_all_mails_without_content(self, folder_path: str, number_of_mails: int, offset: int, deleted: bool = False) -> Iterator[dict]:
         """
         https://datatracker.ietf.org/doc/html/rfc9051#name-fetch-response
         Fetch a specific number of mails from a mailbox with full details.
@@ -183,7 +252,7 @@ class ClientMailServer(metaclass=ABCMeta):
             "has_attachment": bool
         }
 
-        Always yield the total number of mails of the folder
+        Always yield the total number of mails matching the ``deleted`` filter
         Then yield mail by mail, from the most recent to the oldest
 
         :param mailbox: The mailbox to fetch mails from.
@@ -192,6 +261,11 @@ class ClientMailServer(metaclass=ABCMeta):
         :type number_of_mails: int
         :param offset: The offset of the mail to fetch.
         :type number_of_mails: int
+        :param deleted: If False (default), mails flagged \\Deleted are excluded. If
+            True, they are included alongside non-deleted mails (no filtering on the
+            deleted flag). This is applied as a search criterion before pagination,
+            so the page always contains up to ``number_of_mails`` matching mails.
+        :type deleted: bool
         :raises RequestException: If fetching mails fails
         :return: A tuple of (list of mail dicts with full details, total count)
         :rtype: tuple[list[dict[str, Any]], int]
@@ -349,4 +423,32 @@ class ClientMailServer(metaclass=ABCMeta):
                 "storage_limit": int,  # storage limit in KB (0 if unlimited)
             }
         :rtype: dict[str, Any] | None
+        """
+
+    @abstractmethod
+    def search_mails_without_content(self, folders: list[str], criteria: str) -> Iterator[tuple[str, dict]]:
+        """Search mails (headers only, no body) across the given folders.
+
+        Yields tuples of (folder_path, mail_dict) for every matching mail.
+
+        :param folders: List of folder paths to search in.
+        :type folders: list[str]
+        :param criteria: IMAP SEARCH criteria string.
+        :type criteria: str
+        :return: Yields (folder_path, mail_dict) tuples.
+        :rtype: Iterator[tuple[str, dict]]
+        """
+
+    @abstractmethod
+    def search_mails_with_content(self, folders: list[str], criteria: str) -> Iterator[tuple[str, dict]]:
+        """Search mails with full body content across the given folders.
+
+        Yields tuples of (folder_path, mail_dict) for every matching mail.
+
+        :param folders: List of folder paths to search in.
+        :type folders: list[str]
+        :param criteria: IMAP SEARCH criteria string.
+        :type criteria: str
+        :return: Yields (folder_path, mail_dict) tuples.
+        :rtype: Iterator[tuple[str, dict]]
         """

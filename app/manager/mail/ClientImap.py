@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import Any, Callable, TypeVar, ParamSpec, Iterator, cast
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from email import message_from_bytes
 from email.header import decode_header, make_header
 from email.message import EmailMessage
@@ -16,7 +16,7 @@ from app.utils.logger.logger import logger_imap
 from app.manager.mail.ClientMailServer import ClientMailServer
 from app.utils import errors as err
 from app.utils import constants as cs
-from app.utils.strings import quote, imap_join_folders
+from app.utils.strings import quote, imap_join_folders, escape_imap_string
 
 # Maximum debug output from imaplib
 #TODO all imap are logged, including login/auth password used SecretString (on ldap branch not in develoope now)
@@ -133,6 +133,50 @@ def _convert_imap_to_rights(imap_rights: str) -> dict[str, int]:
         sogo_rights[cs.USER_CAN_VIEW_FOLDER] = 1
 
     return sogo_rights
+
+
+def _group_imap_search_parts(parts: list[str]) -> str:
+    """Group several IMAP search-key strings belonging to the same search field into one search-key.
+
+    A parenthesized list of search-keys is itself a single search-key that matches
+    when all the keys it contains match (RFC 3501), so this lets a multi-valued field
+    (e.g. several ``to`` addresses or ``labels``) keep its own AND semantics while being
+    usable as one atomic group when combined with sibling fields, whatever the top-level
+    operator (AND/OR) is.
+
+    :param parts: IMAP search-key strings for a single field (e.g. one per address).
+    :type parts: list[str]
+    :return: A single search-key string.
+    :rtype: str
+    """
+    if len(parts) == 1:
+        return parts[0]
+    return "(" + " ".join(parts) + ")"
+
+
+def _combine_imap_search_or(criteria: list[str]) -> str:
+    """Combine independent IMAP search-key strings with OR.
+
+    RFC 3501's ``OR`` search-key takes exactly two search-keys, so combining more than
+    two terms requires right-nesting: ``OR a (OR b c)``. Parentheses are only added
+    around a nested ``OR`` (never around a single trailing search-key), keeping the
+    output minimal while staying unambiguous. This also works transparently for 0 or 1
+    criteria.
+
+    :param criteria: Independent IMAP search-key strings to OR together.
+    :type criteria: list[str]
+    :return: A single combined search-key string ("" if criteria is empty).
+    :rtype: str
+    """
+    if not criteria:
+        return ""
+    if len(criteria) == 1:
+        return criteria[0]
+    rest = _combine_imap_search_or(criteria[1:])
+    if len(criteria) > 2:
+        rest = f"({rest})"
+    return f"OR {criteria[0]} {rest}"
+
 
 class ImapFolder:
     """
@@ -828,7 +872,7 @@ class ClientImap(ClientMailServer):
 
             folder_path = quote(folder_path)
             self.select_mailbox(folder_path)
-            success, datas = self.connection.expunge()
+            success, datas = self._exec_imap4_method(self.connection.expunge)
             if not success:
                 raise RequestException(f"Failed to expunge mailbox {folder_path}", err.ERROR_IMAP_FAILED)
             expunged_count += len(datas)
@@ -875,6 +919,33 @@ class ClientImap(ClientMailServer):
                 #expunge the folders
                 self.expunge_folder(folder_path)
             return nb_mails
+        else:
+            raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
+
+
+    def get_folder_with_subfolders(self, folder_path: str, include_subfolders: bool = True) -> list[str]:
+        """Return the given folder path, optionally followed by the paths of all its subfolders.
+
+        :param folder_path: The folder to start from.
+        :type folder_path: str
+        :param include_subfolders: If True, also list every subfolder (at any depth) below folder_path.
+        :type include_subfolders: bool
+        :return: List of folder paths, folder_path first.
+        :rtype: list[str]
+        :raises RequestException: If not connected to the server.
+        """
+        if self.connection is not None and self.authenticated:
+            folder_path = self._fix_folder_path(folder_path)
+            folder_paths = [folder_path]
+
+            if include_subfolders:
+                delimiter = self._get_delimiter_for(folder_path)
+                pattern_folder_path = quote(f"{folder_path}{delimiter}*")
+                for folder in self._imap_list_folders(pattern_folder_path):
+                    if folder.can_be_select:
+                        folder_paths.append(folder.path)
+
+            return folder_paths
         else:
             raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
 
@@ -1205,7 +1276,38 @@ class ClientImap(ClientMailServer):
             "size": size
         }
 
-    def fetch_all_mails_with_content(self, folder_path: str, number_of_mails: int, offset: int) -> Iterator[dict]:
+    def _search_deleted_filtered_uids(self, folder_path: str, deleted: bool) -> list[str]:
+        """Select ``folder_path`` and run an IMAP UID SEARCH filtering on the deleted flag.
+
+        Filtering on the deleted flag is done as an IMAP search criterion (not a
+        post-fetch filter) so that pagination on the result is always accurate:
+        slicing a fixed-size page out of this list can never yield fewer than the
+        requested number of mails just because some in-range mails were filtered out.
+
+        :param folder_path: IMAP folder path (already quoted as needed by the caller).
+        :type folder_path: str
+        :param deleted: If False, mails flagged \\Deleted are excluded. If True, they
+            are included alongside non-deleted mails (no filtering on the deleted flag).
+        :type deleted: bool
+        :raises RequestException: If selecting the folder or the SEARCH command fails.
+        :return: Matching UIDs, most recent (highest UID) first.
+        :rtype: list[str]
+        """
+        self.select_mailbox(folder_path)
+
+        criteria = "ALL" if deleted else "NOT DELETED"
+        success, datas = self._exec_imap4_method(self.connection.uid, 'SEARCH', criteria)
+        if not success:
+            raise RequestException(
+                f"IMAP SEARCH failed in folder '{folder_path}' with criteria: {criteria}",
+                err.ERROR_MAIL_SEARCH_FAILED
+            )
+
+        uid_list = datas[0].decode().split() if datas and datas[0] else []
+        uid_list.reverse()  # Recent mails have the highest UID, so most recent first
+        return uid_list
+
+    def fetch_all_mails_with_content(self, folder_path: str, number_of_mails: int, offset: int, deleted: bool = False) -> Iterator[dict]:
         """
         https://datatracker.ietf.org/doc/html/rfc9051#name-fetch-response
         Fetch a specific number of mails from a mailbox with full details.
@@ -1217,7 +1319,7 @@ class ClientImap(ClientMailServer):
             "size": size, int
         }
 
-        Always yield the totla number of mails of the folder
+        Always yield the total number of mails matching the ``deleted`` filter
         Then yield mail by mail, from the most recent to the oldest
 
         :param mailbox: The mailbox to fetch mails from.
@@ -1226,6 +1328,10 @@ class ClientImap(ClientMailServer):
         :type number_of_mails: int
         :param offset: The offset of the mail to fetch.
         :type number_of_mails: int
+        :param deleted: If False (default), mails flagged \\Deleted are excluded. If
+            True, they are included alongside non-deleted mails (no filtering on the
+            deleted flag).
+        :type deleted: bool
         :raises RequestException: If fetching mails fails
         :return: A tuple of (list of mail dicts with full details, total count)
         :rtype: tuple[list[dict[str, Any]], int]
@@ -1235,30 +1341,35 @@ class ClientImap(ClientMailServer):
             if not folder_path.isascii():
                 raise RequestException(f"Mailbox name is not ascii: {folder_path}", err.ERROR_IMAP_NOT_ASCII)
             folder_path = quote(folder_path)
-            mailbox_len = self.select_mailbox(folder_path)
+            uid_list = self._search_deleted_filtered_uids(folder_path, deleted)
 
             #yield length
-            yield {"nb_mails": mailbox_len}
-            if mailbox_len == 0:
+            yield {"nb_mails": len(uid_list)}
+            if not uid_list:
                 return
 
-            #Recent mail have the higest ID number, so we fetch from descending
-            range_arg = f'{max(1, mailbox_len - offset + 1 - number_of_mails + 1)}:{mailbox_len - offset + 1}'
+            start = max(0, offset - 1)
+            page_uids = uid_list[start: start + number_of_mails]
+            if not page_uids:
+                return
+
             # Fetch full message, flags, and UID (size is included in BODY.PEEK[] response)
-            # If success, datas will be of length 2*nb_mails. Each mail is
-            # a tuple (b'metadata', b'body') and  a singular b')'
-            success, datas = self._exec_imap4_method(self.connection.fetch, range_arg, '(BODY.PEEK[] FLAGS UID)')
+            success, datas = self._exec_imap4_method(self.connection.uid, 'FETCH', ",".join(page_uids), '(BODY.PEEK[] FLAGS UID)')
 
             if not success:
-                if isinstance(datas[0], str) and "Invalid messageset" in datas[0]:
-                    #Goes here means our range args is wrong, it should'nt happen
-                    raise BugException(f"Try to fetch mail with an unvalid messageset: {range_arg}")
                 raise RequestException(f"Fail to fetch mails: {datas}", err.ERROR_IMAP_FAILED)
 
-            for part in reversed(datas):
+            mails_by_uid: dict[str, dict] = {}
+            for part in datas:
                 if not isinstance(part, tuple):
                     continue
-                yield self._parse_mail_with_content_fetching(part)
+                mail_dict = self._parse_mail_with_content_fetching(part)
+                mails_by_uid[str(mail_dict["uid"])] = mail_dict
+
+            for uid in page_uids:
+                mail_dict = mails_by_uid.get(uid)
+                if mail_dict is not None:
+                    yield mail_dict
         else:
             raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
 
@@ -1359,7 +1470,7 @@ class ClientImap(ClientMailServer):
 
         return ret
 
-    def fetch_all_mails_without_content(self, folder_path: str, number_of_mails: int, offset: int) -> Iterator[dict]:
+    def fetch_all_mails_without_content(self, folder_path: str, number_of_mails: int, offset: int, deleted: bool = False) -> Iterator[dict]:
         """
         https://datatracker.ietf.org/doc/html/rfc9051#name-fetch-response
         Fetch a specific number of mails from a mailbox with full details.
@@ -1372,7 +1483,7 @@ class ClientImap(ClientMailServer):
             "has_attachment": bool
         }
 
-        Always yield the total number of mails of the folder
+        Always yield the total number of mails matching the ``deleted`` filter
         Then yield mail by mail, from the most recent to the oldest
 
         :param mailbox: The mailbox to fetch mails from.
@@ -1381,6 +1492,10 @@ class ClientImap(ClientMailServer):
         :type number_of_mails: int
         :param offset: The offset of the mail to fetch.
         :type number_of_mails: int
+        :param deleted: If False (default), mails flagged \\Deleted are excluded. If
+            True, they are included alongside non-deleted mails (no filtering on the
+            deleted flag).
+        :type deleted: bool
         :raises RequestException: If fetching mails fails
         :return: A tuple of (list of mail dicts with full details, total count)
         :rtype: tuple[list[dict[str, Any]], int]
@@ -1390,26 +1505,27 @@ class ClientImap(ClientMailServer):
             if not folder_path.isascii():
                 raise RequestException(f"Mailbox name is not ascii: {folder_path}", err.ERROR_IMAP_NOT_ASCII)
             folder_path = quote(folder_path)
-            mailbox_len = self.select_mailbox(folder_path)
+            uid_list = self._search_deleted_filtered_uids(folder_path, deleted)
 
             #yield length
-            yield {"nb_mails": mailbox_len}
-            if mailbox_len == 0:
+            yield {"nb_mails": len(uid_list)}
+            if not uid_list:
                 return
 
-            #Recent mail have the higest ID number, so we fetch from descending
-            range_arg = f'{max(1, mailbox_len - offset + 1 - number_of_mails + 1)}:{mailbox_len - offset + 1}'
-            # Fetch headers, bodystruscture, flags, UID and size
-            # If success, datas will be of length 2*nb_mails. Each mail is
+            start = max(0, offset - 1)
+            page_uids = uid_list[start: start + number_of_mails]
+            if not page_uids:
+                return
+
+            # Fetch headers, bodystructure, flags, UID and size
+            # If success, datas will be of length 2*len(page_uids). Each mail is
             # a tuple (b'metadata', b'body') and  a singular b'BODYSTRUCTURE'
-            success, datas = self._exec_imap4_method(self.connection.fetch, range_arg, '(BODY.PEEK[HEADER] BODYSTRUCTURE FLAGS UID RFC822.SIZE)')
+            success, datas = self._exec_imap4_method(self.connection.uid, 'FETCH', ",".join(page_uids), '(BODY.PEEK[HEADER] BODYSTRUCTURE FLAGS UID RFC822.SIZE)')
 
             if not success:
-                if isinstance(datas[0], str) and "Invalid messageset" in datas[0]:
-                    #Goes here means our range args is wrong, it should'nt happen
-                    raise BugException(f"Try to fetch mail with an unvalid messageset: {range_arg}")
                 raise RequestException(f"Fail to fetch mails: {datas}", err.ERROR_IMAP_FAILED)
 
+            mails_by_uid: dict[str, dict] = {}
             # Iterate from the end, two items at a time
             for i in range(len(datas) - 1, -1, -2):
                 pair = datas[i-1:i+1]  # Get the current and previous item
@@ -1417,7 +1533,13 @@ class ClientImap(ClientMailServer):
                 message_parts = cast(tuple[bytes, bytes], pair[0])
                 has_attachment = self._parse_body_structure_for_attachment(bodystruct)
                 #b'1 (FLAGS (\\Draft) UID 47 RFC822.SIZE 74732 BODY[HEADER] {1080}
-                yield self._parse_mail_without_content_fetching(message_parts, has_attachment)
+                mail_dict = self._parse_mail_without_content_fetching(message_parts, has_attachment)
+                mails_by_uid[str(mail_dict["uid"])] = mail_dict
+
+            for uid in page_uids:
+                mail_dict = mails_by_uid.get(uid)
+                if mail_dict is not None:
+                    yield mail_dict
         else:
             raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
 
@@ -1648,7 +1770,9 @@ class ClientImap(ClientMailServer):
         :param type: bool, default to False
         :raises RequestException: If the operation fails.
         """
-        logger_imap.debug("Copying mail UID '%s' from '%s' to '%s'", mail_uid, folder_path, dest_folder_path)
+        print("HAAAAAA")
+        print("Copying mail UID '%s' from '%s' to '%s'", mail_uid, folder_path, dest_folder_path)
+        logger_imap.info("Copying mail UID '%s' from '%s' to '%s'", mail_uid, folder_path, dest_folder_path)
         if self.connection is not None and self.authenticated:
             if not folder_path.isascii() or not dest_folder_path.isascii():
                 raise RequestException(f"Mailbox name is not ascii: {folder_path} and/or {dest_folder_path}", err.ERROR_IMAP_NOT_ASCII)
@@ -1975,6 +2099,249 @@ class ClientImap(ClientMailServer):
         """
         folder_path = self.folders_map_type_to_name[folder_type]
         self.delete_mails_by_uid(folder_path, mail_uid, move_to_trash=False, permanently=True)
+
+    def build_search_criteria(self, search_params: dict, deleted: bool) -> str:
+        """Build an IMAP SEARCH criteria string from the generic search_params dict.
+
+        Each populated field produces one independent search-key "group". Groups are
+        then combined using ``search_params["operator"]``:
+
+        ``to`` matches a mail whose ``To`` *or* ``Cc`` header contains the address
+        (OR-ed across the two headers). ``bcc`` only matches against the ``Bcc``
+        header.
+
+        * "AND" (default): groups are simply space-joined (IMAP's implicit AND).
+        * "OR": groups are combined with a right-nested IMAP ``OR`` operator, so that
+          a mail matches if it satisfies *any* of the provided criteria.
+
+        When ``deleted`` is False, ``NOT DELETED`` is a system-level filter (not a
+        user search criterion) and is therefore always AND-ed in regardless of the
+        operator. When ``deleted`` is True, no filter on the deleted flag is applied
+        at all, so mails are matched whether or not they are flagged \\Deleted.
+
+        ``date_range.start``/``date_range.end`` accept either a full ISO 8601 timestamp
+        or a bare date (``YYYY-MM-DD``). IMAP's ``SINCE``/``BEFORE`` only compare dates
+        (time is ignored), so a bare ``start`` date is already inclusive of that whole
+        day. A bare ``end`` date is made inclusive of that whole day by searching
+        ``BEFORE`` the following day.
+
+        :param search_params: Validated search parameters (from MailboxSearchSchema).
+        :type search_params: dict
+        :param deleted: If False, mails flagged \\Deleted are excluded from the
+            results. If True, they are included alongside non-deleted mails (no
+            filtering on the deleted flag).
+        :type deleted: bool
+        :raises RequestException: If a date value cannot be parsed.
+        :return: IMAP SEARCH criteria string (e.g. "(NOT DELETED SUBJECT \"foo\")" or "ALL").
+        :rtype: str
+        """
+        operator = search_params.get("operator") or "AND"
+        field_groups: list[str] = []
+
+        if search_params.get("text"):
+            field_groups.append(f'TEXT "{search_params["text"]}"')
+
+        if search_params.get("from_"):
+            escaped = escape_imap_string(search_params["from_"])
+            field_groups.append(f'FROM "{escaped}"')
+
+        if search_params.get("to"):
+            escaped = escape_imap_string(search_params["to"])
+            field_groups.append(f'(OR TO "{escaped}" CC "{escaped}")')
+
+        if search_params.get("bcc"):
+            escaped = escape_imap_string(search_params["bcc"])
+            field_groups.append(f'BCC "{escaped}"')
+
+        if search_params.get("subject"):
+            field_groups.append(f'SUBJECT "{search_params["subject"]}"')
+
+        if search_params.get("is_read") is True:
+            field_groups.append("SEEN")
+        elif search_params.get("is_read") is False:
+            field_groups.append("UNSEEN")
+
+        if search_params.get("is_flagged") is True:
+            field_groups.append("FLAGGED")
+        elif search_params.get("is_flagged") is False:
+            field_groups.append("UNFLAGGED")
+
+        if search_params.get("has_attachment") is True:
+            field_groups.append('HEADER Content-Type "multipart/mixed"')
+
+        if search_params.get("labels"):
+            label_parts = [f'KEYWORD "{label}"' for label in search_params["labels"]]
+            field_groups.append(_group_imap_search_parts(label_parts))
+
+        if search_params.get("date_range"):
+            date_range = search_params["date_range"]
+            date_parts: list[str] = []
+            if date_range.get("start"):
+                try:
+                    dt = datetime.fromisoformat(date_range["start"].replace("Z", "+00:00"))
+                    date_parts.append(f'SINCE {dt.strftime("%d-%b-%Y")}')
+                except (ValueError, AttributeError) as exc:
+                    raise RequestException(
+                        f"Invalid start date: {date_range['start']}",
+                        err.ERROR_MAIL_SEARCH_INVALID_DATE
+                    ) from exc
+            if date_range.get("end"):
+                end_str = date_range["end"]
+                try:
+                    dt = datetime.fromisoformat(end_str.replace("Z", "+00:00"))
+                except (ValueError, AttributeError) as exc:
+                    raise RequestException(
+                        f"Invalid end date: {end_str}",
+                        err.ERROR_MAIL_SEARCH_INVALID_DATE
+                    ) from exc
+                if "T" not in end_str:
+                    # Date-only end (no time given): IMAP BEFORE excludes the given day,
+                    # so push to the next day to make the end date itself inclusive.
+                    dt = dt + timedelta(days=1)
+                date_parts.append(f'BEFORE {dt.strftime("%d-%b-%Y")}')
+            if date_parts:
+                field_groups.append(_group_imap_search_parts(date_parts))
+
+        combined = _combine_imap_search_or(field_groups) if operator == "OR" else " ".join(field_groups)
+
+        criteria_parts: list[str] = [] if deleted else ["NOT DELETED"]
+        if combined:
+            criteria_parts.append(combined)
+
+        return "(" + " ".join(criteria_parts) + ")" if criteria_parts else "ALL"
+
+    def _search_uids_in_folder(self, folder_path: str, criteria: str) -> str | None:
+        """Execute an IMAP SEARCH in a single folder and return the UID set string, or None if no results.
+
+        :param folder_path: IMAP folder path to search in.
+        :type folder_path: str
+        :param criteria: IMAP SEARCH criteria string.
+        :type criteria: str
+        :raises RequestException: If the SEARCH command fails.
+        :raises BugException: If not authenticated.
+        :return: Space-separated UID string, or None if no matches.
+        :rtype: str | None
+        """
+        if self.connection is None or not self.authenticated:
+            raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
+        
+        if not folder_path.isascii():
+            raise RequestException(f"Mailbox name is not ascii: {folder_path}", err.ERROR_IMAP_NOT_ASCII)
+
+        try:
+            self.select_mailbox(folder_path, readonly=True)
+        except RequestException:
+            logger_imap.warning("Folder '%s' not found or not selectable, skipping", folder_path)
+            return None
+
+        success, datas = self._exec_imap4_method(self.connection.uid, 'SEARCH', criteria)
+        if not success:
+            raise RequestException(
+                f"IMAP SEARCH failed in folder '{folder_path}' with criteria: {criteria}",
+                err.ERROR_MAIL_SEARCH_FAILED
+            )
+
+        if not datas or not datas[0]:
+            return None
+
+        uid_set = datas[0].decode().strip()
+        return uid_set if uid_set else None
+
+    def search_mails_without_content(self, folders: list[str], criteria: str) -> Iterator[tuple[str, dict]]:
+        """Execute an IMAP SEARCH with the given criteria string on each folder and
+        fetch the matching mails (headers only, no body content).
+
+        Yields tuples of (folder_path, mail_dict) for every matching mail across
+        all requested folders.  ``mail_dict`` has the same shape as
+        ``_parse_mail_without_content_fetching`` output, enriched with
+        ``"folder"`` (the IMAP folder path).
+
+        :param folders: List of IMAP folder paths to search in.
+        :type folders: list[str]
+        :param criteria: IMAP SEARCH criteria string
+        :type criteria: str
+        :raises RequestException: If a SEARCH or FETCH command fails.
+        :raises BugException: If not authenticated.
+        :return: Yields (folder_path, mail_dict) tuples.
+        :rtype: Iterator[tuple[str, dict]]
+        """
+        logger_imap.debug("Searching mails (without content) in folders %s with criteria: %s", folders, criteria)
+        if self.connection is None or not self.authenticated:
+            raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
+
+        for folder_path in folders:
+            uid_set = self._search_uids_in_folder(folder_path, criteria)
+            if uid_set is None:
+                continue
+
+            # Fetch headers + bodystructure for all matching UIDs in one round-trip
+            success, fetch_datas = self._exec_imap4_method(
+                self.connection.uid, 'FETCH', uid_set.replace(' ', ','),
+                '(BODY.PEEK[HEADER] BODYSTRUCTURE FLAGS UID RFC822.SIZE)'
+            )
+            if not success:
+                raise RequestException(
+                    f"IMAP FETCH failed in folder '{folder_path}' for UIDs {uid_set}",
+                    err.ERROR_MAIL_SEARCH_FAILED
+                )
+
+            for i in range(len(fetch_datas) - 1, -1, -2):
+                pair = fetch_datas[i - 1:i + 1]
+                if len(pair) < 2:
+                    continue
+                bodystruct = pair[1]
+                message_parts = cast(tuple[bytes, bytes], pair[0])
+                if not isinstance(message_parts, tuple):
+                    continue
+                has_attachment = self._parse_body_structure_for_attachment(bodystruct)
+                mail_dict = self._parse_mail_without_content_fetching(message_parts, has_attachment)
+                mail_dict["folder"] = folder_path
+                yield folder_path, mail_dict
+
+    def search_mails_with_content(self, folders: list[str], criteria: str) -> Iterator[tuple[str, dict]]:
+        """Execute an IMAP SEARCH with the given criteria string on each folder and
+        fetch the matching mails with full body content.
+
+        Yields tuples of (folder_path, mail_dict) for every matching mail across
+        all requested folders.  ``mail_dict`` has the same shape as
+        ``_parse_mail_with_content_fetching`` output, enriched with
+        ``"folder"`` (the IMAP folder path).
+
+        :param folders: List of IMAP folder paths to search in.
+        :type folders: list[str]
+        :param criteria: IMAP SEARCH criteria string
+        :type criteria: str
+        :raises RequestException: If a SEARCH or FETCH command fails.
+        :raises BugException: If not authenticated.
+        :return: Yields (folder_path, mail_dict) tuples.
+        :rtype: Iterator[tuple[str, dict]]
+        """
+        logger_imap.debug("Searching mails (with content) in folders %s with criteria: %s", folders, criteria)
+        if self.connection is None or not self.authenticated:
+            raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
+
+        for folder_path in folders:
+            uid_set = self._search_uids_in_folder(folder_path, criteria)
+            if uid_set is None:
+                continue
+
+            # Fetch full body for all matching UIDs in one round-trip
+            success, fetch_datas = self._exec_imap4_method(
+                self.connection.uid, 'FETCH', uid_set.replace(' ', ','),
+                '(BODY.PEEK[] FLAGS UID)'
+            )
+            if not success:
+                raise RequestException(
+                    f"IMAP FETCH failed in folder '{folder_path}' for UIDs {uid_set}",
+                    err.ERROR_MAIL_SEARCH_FAILED
+                )
+
+            for part in fetch_datas:
+                if not isinstance(part, tuple):
+                    continue
+                mail_dict = self._parse_mail_with_content_fetching(part)
+                mail_dict["folder"] = folder_path
+                yield folder_path, mail_dict
 
     def logout(self) -> None:
         """

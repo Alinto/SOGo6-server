@@ -173,6 +173,10 @@ ERROR_SIEVE_LOGOUT                = E("S001507", "Sieve command issued while not
 ERROR_SIEVE_PUSH_FAILED           = E("S001508", "Failed To Push Filters To Sieve", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_SIEVE_CAPABILITY_NOT_FOUND  = E("S001509", "Sieve capability not found in server response", HTTPStatus.INTERNAL_SERVER_ERROR)
 
+#Search
+ERROR_MAIL_SEARCH_FAILED = E("S000338", "IMAP search command failed", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_MAIL_SEARCH_INVALID_DATE = E("S000339", "Invalid date format in search parameters, expected ISO 8601", HTTPStatus.BAD_REQUEST)
+
 #Quota
 ERROR_IMAP_QUOTA_NOT_SUPPORTED = E("S000336", "IMAP server does not support QUOTA extension", HTTPStatus.NOT_IMPLEMENTED)
 ERROR_IMAP_QUOTA_FAILED        = E("S000337", "IMAP GETQUOTAROOT command failed", HTTPStatus.INTERNAL_SERVER_ERROR)

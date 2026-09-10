@@ -118,6 +118,25 @@ def collection_pagination_parameters(def_max_page_size:int, can_sort:bool, sort_
 
 
 
+class DeletedFilterQueryArgsSchema(Schema):
+    """Deserializes the "deleted" query param used by mail-listing endpoints.
+
+    Kept separate from the "fields" include/exclude query param (see
+    ``collection_pagination_parameters``) because, unlike a display field, it must be
+    applied as a search criterion before pagination: a post-fetch filter could yield
+    fewer results than the requested page size.
+    """
+
+    class Meta:
+        """Set behavior for unknown param"""
+        unknown = EXCLUDE
+
+    deleted = ma_fields.Boolean(
+        load_default=False,
+        metadata={"description": "If false (default), exclude mails flagged \\Deleted. If true, include them alongside non-deleted mails."}
+    )
+
+
 class PaginationMetadataSchema(Schema):
     """Pagination metadata schema
 
