@@ -872,7 +872,7 @@ class ClientImap(ClientMailServer):
 
             folder_path = quote(folder_path)
             self.select_mailbox(folder_path)
-            success, datas = self.connection.expunge()
+            success, datas = self._exec_imap4_method(self.connection.expunge)
             if not success:
                 raise RequestException(f"Failed to expunge mailbox {folder_path}", err.ERROR_IMAP_FAILED)
             expunged_count += len(datas)
