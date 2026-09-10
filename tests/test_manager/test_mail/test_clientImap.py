@@ -280,13 +280,10 @@ class TestParseUidsFromBytes:
         assert list(parse_uids_from_bytes(b"42")) == ["42"]
 
     def test_multiple_uids(self):
-        # bytes iteration yields integers; comparison `byte == b' '` never matches,
-        # so the entire input is returned as one string
-        assert list(parse_uids_from_bytes(b"1 2 3 4 5")) == ["1 2 3 4 5"]
+        assert list(parse_uids_from_bytes(b"1 2 3 4 5")) == ["1", "2", "3", "4", "5"]
 
     def test_trailing_space(self):
-        # same reason: no splitting occurs, trailing space is included in the single string
-        assert list(parse_uids_from_bytes(b"10 20 ")) == ["10 20 "]
+        assert list(parse_uids_from_bytes(b"10 20 ")) == ["10", "20"]
 
     def test_empty_bytes(self):
         assert list(parse_uids_from_bytes(b"")) == []
@@ -950,6 +947,20 @@ class TestUidStoreFlags:
         with pytest.raises(BugException):
             client.uid_store_flags("100", ["\\Seen"])
 
+    def test_empty_uid_list_is_noop(self):
+        """No mails to store flags on should skip the IMAP command entirely,
+        instead of sending an empty uidset which the server rejects."""
+        fake_conn = FakeIMAPConnection()
+        client = authenticated_client(fake_conn)
+        count = client.uid_store_flags([], ["\\Deleted"])
+        assert count == 0
+
+    def test_empty_uid_iterator_is_noop(self):
+        fake_conn = FakeIMAPConnection()
+        client = authenticated_client(fake_conn)
+        count = client.uid_store_flags(iter([]), ["\\Deleted"])
+        assert count == 0
+
     def test_uid_store_flags_with_list_sends_single_joined_command(self):
         """Test that storing flags on a list of UIDs sends a single IMAP UID STORE command
         with a comma-joined UID set, instead of one command per mail."""
@@ -1241,9 +1252,7 @@ class TestGetMailUidsBeforeDate:
         client = authenticated_client(fake_conn)
 
         uids = list(client.get_mail_uids_before_date("INBOX"))
-        # parse_uids_from_bytes iterates bytes as integers so space splitting
-        # never triggers; the whole payload is returned as one string
-        assert uids == ["1 2 3"]
+        assert uids == ["1", "2", "3"]
 
     def test_with_before_date(self):
         fake_conn = FakeIMAPConnection()
@@ -1491,6 +1500,35 @@ class TestImapListFolders:
         client.connection = None
         with pytest.raises(BugException):
             list(client._imap_list_folders())
+
+    def test_extended_empty_match_returns_no_folders(self):
+        """LIST-EXTENDED/LIST-STATUS matching zero mailboxes (e.g. a folder with no
+        children, or a nonexistent base folder) must yield an empty result, not raise.
+
+        Regression test: this used to raise RequestException(ERROR_IMAP_FAILED),
+        which surfaced as a 500 when searching folders that don't exist.
+        """
+        fake_conn = FakeIMAPConnection()
+        client = authenticated_client(fake_conn)
+        client.capabilities = {"LIST-EXTENDED", "LIST-STATUS"}
+        fake_conn.response = lambda name: ("OK", [None])
+
+        folders = list(client._imap_list_folders('"NonExistent.*"'))
+        assert folders == []
+
+    def test_extended_non_empty_match_is_parsed(self):
+        fake_conn = FakeIMAPConnection()
+        client = authenticated_client(fake_conn)
+        client.capabilities = {"LIST-EXTENDED", "LIST-STATUS"}
+        responses = {
+            "LIST": ("OK", [b'(\\HasNoChildren) "." INBOX.Sent']),
+            "STATUS": ("OK", [b"INBOX.Sent (MESSAGES 3 UNSEEN 1)"]),
+        }
+        fake_conn.response = lambda name: responses[name]
+
+        folders = list(client._imap_list_folders('"INBOX.*"'))
+        assert len(folders) == 1
+        assert folders[0].path == "INBOX.Sent"
 
 
 # ===========================================================================

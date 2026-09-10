@@ -680,6 +680,23 @@ class DateRangeSchema(Schema):
         }
 
 
+class SizeFilterSchema(Schema):
+    """
+    Schema for the size filter in advanced search
+    """
+    value = fields.Integer(required=True, validate=validate.Range(min=0), metadata={"description": "Size threshold, expressed in the given unit"})
+    operator = fields.String(required=True, validate=validate.OneOf([">", "<"]), metadata={"description": "'>' for mails larger than value, '<' for mails smaller than value"})
+    unit = fields.String(required=False, load_default="kb", validate=validate.OneOf(["kb", "mb", "gb"]), metadata={"description": "Unit of 'value': kb, mb or gb"})
+
+    @classmethod
+    def example(cls) -> dict:
+        return {
+            "value": 15,
+            "operator": ">",
+            "unit": "kb"
+        }
+
+
 class MailboxSearchSchema(Schema):
     """
     Schema for POST /mailboxes/<account_id>/search - Advanced mail search.
@@ -708,6 +725,7 @@ class MailboxSearchSchema(Schema):
     folders = fields.List(fields.String(), required=False, allow_none=True, load_default=None, metadata={"description": "Folders to search in (use ['all'] for entire mailbox)"})
     include_subfolders = fields.Boolean(required=False, allow_none=True, load_default=True, metadata={"description": "If True (default), also search in the subfolders of each folder listed in 'folders'. If False, search only in the exact folders listed"})
     labels = fields.List(fields.String(), required=False, allow_none=True, load_default=None, metadata={"description": "Filter by IMAP keyword labels"})
+    size = fields.Nested(SizeFilterSchema, required=False, allow_none=True, load_default=None, metadata={"description": "Filter by mail size"})
 
     @classmethod
     def example(cls) -> dict:
@@ -734,6 +752,11 @@ class MailboxSearchSchema(Schema):
             "folders": ["INBOX", "Archive"],
             "include_subfolders": True,
             "labels": ["important", "work"],
+            "size": {
+                "value": 15,
+                "operator": ">",
+                "unit": "kb"
+            },
         }
 
 

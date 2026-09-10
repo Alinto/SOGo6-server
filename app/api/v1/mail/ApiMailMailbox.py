@@ -235,6 +235,9 @@ class ApiMailBoxesAccountSearch(MethodView):
         * **attachment_type**: list[str], list of attachment types to search for (e.g. ["pdf", "jpg"])
         * **is_read**: bool, whether to search for read or unread emails
         * **labels**: list[str], list of labels/tags to search for
+        * **size**: dict, filter by mail size (e.g. {"value": 15, "operator": ">", "unit": "kb"}).
+          ``operator`` is ">" (larger than) or "<" (smaller than), ``unit`` is "kb", "mb" or "gb"
+          (default "kb"). Uses the native IMAP LARGER/SMALLER search keys.
 
         All search criteria are optional and combined using the "operator" field (AND by default, OR to match any criterion).
         Pagination, sorting and field filtering are controlled via query parameters (page, page_size, sort_by, sort_order, fields, fields_action).
