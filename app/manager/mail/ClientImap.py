@@ -707,6 +707,35 @@ class ClientImap(ClientMailServer):
                     rights_by_folder[folder_path] = self._get_my_rights_raw_or_empty(folder_path)
             return rights_by_folder
         raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
+    def get_all_tags(self) -> set[str]:
+        """List all distinct tags (IMAP flags/keywords) used across every mail of every folder.
+
+        For each selectable folder, EXAMINE (read-only SELECT) is used to retrieve the
+        untagged FLAGS response, without fetching any message. The cost is therefore
+        proportional to the number of folders, not to the number of messages.
+
+        :return: Set of tag names.
+        :rtype: set[str]
+        :raises RequestException: If not connected to the server.
+        """
+        if self.connection is not None and self.authenticated:
+            tags: set[str] = set()
+            for folder in self._imap_list_folders():
+                if not folder.can_be_select:
+                    continue
+                try:
+                    self.select_mailbox(folder.path, readonly=True)
+                except RequestException as e:
+                    logger_imap.warning("get_all_tags: could not examine folder '%s': %s", folder.path, e)
+                    continue
+                _, flags_data = self.connection.response('FLAGS')
+                for raw_flags in flags_data:
+                    if not raw_flags:
+                        continue
+                    tags.update(raw_flags.decode().strip('()').split())
+            return tags
+        else:
+            raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
 
     def _imap_create_folder(self, folder_path: str, auto_sub:bool = True, no_error_if_exist:bool = False) -> None:
         """
@@ -1317,6 +1346,7 @@ class ClientImap(ClientMailServer):
                     raise
                 logger_imap.info("Mailbox '%s' is read-only, selecting it with EXAMINE", mailbox)
                 success, datas = self._exec_imap4_method(self.connection.select, mailbox, True)
+            success, datas = self._exec_imap4_method(self.connection.select, mailbox, readonly)
             if not success:
                 if datas[0].decode().startswith("Mailbox doesn't exist"):
                     raise RequestException(f"Folder '{mailbox}' does not exist", err.ERROR_FOLDER_NAME_NOT_FOUND)
