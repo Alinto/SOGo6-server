@@ -483,6 +483,31 @@ class MailboxListResponseSchema(ApiBaseResponse):
         }
 
 
+class MailboxTagsResponseSchema(ApiBaseResponse):
+    """
+    Schema for response when listing all mail tags of the mailbox
+    The 'data' field contains a sorted list of tag names
+    """
+    data = fields.List(fields.String(), required=False, allow_none=True)
+
+    @classmethod
+    def example(cls) -> dict:
+        """Example response for listing mail tags.
+
+        :return: Example mail tags list response
+        :rtype: dict
+        """
+        return {
+            "error_code": 0,
+            "error_msg": "",
+            "data": [
+                "Facture",
+                "Projet-X",
+                "Urgent"
+            ]
+        }
+
+
 class DelegationSchema(Schema):
     """
     Schema for a single delegation entry

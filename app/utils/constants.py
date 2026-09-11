@@ -70,6 +70,10 @@ MAIL_FOLDER_NORMAL   = "NORMAL"   #Folder with no special used except to store m
 IMAP_DEFAULT_DELIMITER = "/./." #It will be a key (not the value) to get the default delimiter of all namespaces.
                                 #the strange key value is just to make sure it won't overwritte a real prefix name (see ClientImap.py)
 
+# System IMAP flags (RFC 3501), excluded when listing custom mail tags/keywords.
+# Compared uppercase since system flags are case-insensitive.
+IMAP_SYSTEM_FLAGS = {"\\ANSWERED", "\\FLAGGED", "\\DELETED", "\\SEEN", "\\DRAFT", "\\RECENT", "\\*"}
+
 #TTL
 TTL_1D = 86400
 TTL_1H =  3600

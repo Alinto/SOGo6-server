@@ -87,6 +87,7 @@ class FakeIMAPConnection:
         self.deleteacl_response   = ("OK", [b""])
         self.status_response      = ("OK", [b"INBOX (MESSAGES 10 UNSEEN 2)"])
         self.namespace_response   = ("OK", [b'(("" ".")) NIL NIL'])
+        self.flags_response       = ("OK", [b'(\\Answered \\Flagged \\Deleted \\Seen \\Draft)'])
         self.fetch_response       = (
             "OK",
             [
@@ -118,6 +119,8 @@ class FakeIMAPConnection:
     def response(self, name):
         if name == "CAPABILITY":
             return ("OK", [b"IMAP4rev1 LIST-EXTENDED LIST-STATUS ACL"])
+        if name == "FLAGS":
+            return self.flags_response
         return ("OK", [None])
 
     # --- folders ---
@@ -1441,6 +1444,48 @@ class TestListFolders:
         client.connection = None
         with pytest.raises(BugException):
             client.list_folders()
+
+
+# ===========================================================================
+# Tests: get_all_tags
+# ===========================================================================
+
+class TestGetAllTags:
+    def test_get_all_tags_excludes_system_flags(self):
+        fake_conn = FakeIMAPConnection()
+        fake_conn.list_response = ("OK", [b'(\\HasNoChildren) "." "INBOX"'])
+        fake_conn.flags_response = ("OK", [b'(\\Answered \\Flagged \\Deleted \\Seen \\Draft Urgent Projet-X)'])
+        client = authenticated_client(fake_conn)
+
+        tags = client.get_all_tags()
+        assert tags == {"Urgent", "Projet-X"}
+
+    def test_get_all_tags_unions_across_folders(self):
+        fake_conn = FakeIMAPConnection()
+        fake_conn.list_response = ("OK", [
+            b'(\\HasNoChildren) "." "INBOX"',
+            b'(\\HasNoChildren) "." "Sent"',
+        ])
+        fake_conn.flags_response = ("OK", [b'(\\Seen Urgent)'])
+        client = authenticated_client(fake_conn)
+
+        tags = client.get_all_tags()
+        assert tags == {"Urgent"}
+
+    def test_get_all_tags_skips_unselectable_folders(self):
+        fake_conn = FakeIMAPConnection()
+        fake_conn.list_response = ("OK", [b'(\\Noselect) "." "AllMail"'])
+        fake_conn.flags_response = ("OK", [b'(\\Seen Urgent)'])
+        client = authenticated_client(fake_conn)
+
+        tags = client.get_all_tags()
+        assert tags == set()
+
+    def test_get_all_tags_not_authenticated_raises_bug_exception(self):
+        client = make_client()
+        client.connection = None
+        with pytest.raises(BugException):
+            client.get_all_tags()
 
 
 # ===========================================================================

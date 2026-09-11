@@ -18,6 +18,7 @@ from app.api.v1.mail.schemas.mailbox import (
     DelegationResponseSchema,
     MailboxPurgeSchema,
     MailboxPurgeResponseSchema,
+    MailboxTagsResponseSchema,
 )
 
 if TYPE_CHECKING:
@@ -155,3 +156,17 @@ class ApiMailBoxesAccountPurge(MethodView):
         interface: InterfaceApiMailMailbox = g.inter
         return interface.purge_mailbox(account_id, purge_data)
 
+
+@blp.route("/<string:account_id>/tags")
+class ApiMailBoxesAccountTags(MethodView):
+    """
+    Resource: All mail tags of a mailbox
+    """
+    @blp.response(200, MailboxTagsResponseSchema)
+    def get(self, account_id: str) -> ResponseReturnValue:
+        """
+        List all distinct tags used across every mail in every folder of the specified mailbox
+        """
+        logger_api.debug("Calling ApiMailBoxesAccountTags.get for account_id: %s", account_id)
+        interface: InterfaceApiMailMailbox = g.inter
+        return interface.get_mailbox_tags(account_id)

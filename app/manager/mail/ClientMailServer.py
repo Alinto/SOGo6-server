@@ -57,6 +57,18 @@ class ClientMailServer(metaclass=ABCMeta):
         """
 
     @abstractmethod
+    def get_all_tags(self) -> set[str]:
+        """List all distinct tags (custom keywords) used across every mail of every folder.
+
+        Implementations should avoid iterating over every mail; the cost should be
+        proportional to the number of folders, not to the number of messages.
+
+        :return: Set of tag names, excluding standard system flags.
+        :rtype: set[str]
+        :raises RequestException: If the operation fails.
+        """
+
+    @abstractmethod
     def create_folder(self, folder_name: str, parent_path: str = "", auto_sub:bool = True) -> str:
         """
         Create the specified mail folder, automatically sub by default.
