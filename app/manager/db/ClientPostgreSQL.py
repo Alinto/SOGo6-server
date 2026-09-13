@@ -229,13 +229,13 @@ class ClientPostgreSQL(ClientSQL):
     Class to connect, read and write into a sql database
     """
 
-    def __init__(self, db_user: str, db_pwd: str, db_host: str, db_port: int,  db_ssl: bool, db_enc: str):
+    def __init__(self, db_user: str, db_pwd: str, db_host: str, db_port: int,  db_ssl: bool, db_enc: str, db_name:str = "sogo"):
         """
         Init the PostgreSQL client.
         It shouldn't raise any Exception as SOGo will instantiate the object but not necessarily use it right on spot
         """
-        self.conn_string: str      = f"postgresql://{quote_plus(db_user)}:{quote_plus(db_pwd)}@{db_host}:{db_port}/sogo?client_encoding={db_enc}"
-        self.safe_conn_string: str = f"postgresql://SOGO_P_DB_USER:SOGO_P_DB_PWD@{db_host}:{db_port}/sogo?client_encoding={db_enc}"
+        self.conn_string: str      = f"postgresql://{quote_plus(db_user)}:{quote_plus(db_pwd)}@{db_host}:{db_port}/{db_name}?client_encoding={db_enc}"
+        self.safe_conn_string: str = f"postgresql://SOGO_P_DB_USER:SOGO_P_DB_PWD@{db_host}:{db_port}/{db_name}?client_encoding={db_enc}"
         self.db_conn: psycopg.Connection | None = None
 
         #TODO for db_ssl, see sslmode https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-PARAMKEYWORDS

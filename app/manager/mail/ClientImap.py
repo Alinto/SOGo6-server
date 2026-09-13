@@ -30,18 +30,19 @@ R = TypeVar("R")
 
 # IMAP ACL rights conversion utilities
 # Mapping constants to centralize conversions between SOGo rights and IMAP ACL chars.
+# https://www.rfc-editor.org/info/rfc4314/#section-2.1
 RIGHTS_MAP: dict[str, str] = {
-    cs.USER_CAN_VIEW_FOLDER: "lr",            # lookup + read
-    cs.USER_CAN_READ_MAILS: "s",              # keep seen/unseen information (s)
-    cs.USER_CAN_MARK_MAILS_READ: "w",          # write (w)
-    cs.USER_CAN_INSERT_MAILS: "i",            # insert (i)
-    cs.USER_CAN_POST_MAILS: "p",              # post (p)
-    cs.USER_CAN_CREATE_SUBFOLDERS: "k",       # create subfolders (k) (c is obsolete/alias)
-    cs.USER_CAN_REMOVE_FOLDER: "x",           # delete mailbox (x)
-    cs.USER_CAN_ERASE_MAILS: "t",             # delete messages (t)
-    cs.USER_CAN_EXPUNGE_FOLDER: "e",          # expunge (e)
-    cs.USER_CAN_WRITE_EMAILS: "w",             # same as mark mails read/write flags
-    cs.USER_CAN_ADMINISTRATOR: "a",          # administer (a)
+    cs.USER_CAN_VIEW_FOLDER:       "lr", # lookup + read
+    cs.USER_CAN_READ_MAILS:        "s",  # keep seen/unseen information (s)
+    cs.USER_CAN_MARK_MAILS_READ:   "w",  # write (w)
+    cs.USER_CAN_INSERT_MAILS:      "i",  # insert (i)
+    cs.USER_CAN_POST_MAILS:        "p",  # post (p)
+    cs.USER_CAN_CREATE_SUBFOLDERS: "k",  # create subfolders (k) (c is obsolete/alias)
+    cs.USER_CAN_REMOVE_FOLDER:     "x",  # delete mailbox (x)
+    cs.USER_CAN_ERASE_MAILS:       "t",  # delete messages (t)
+    cs.USER_CAN_EXPUNGE_FOLDER:    "e",  # expunge (e)
+    cs.USER_CAN_WRITE_EMAILS:      "w",  # same as mark mails read/write flags
+    cs.USER_CAN_ADMINISTRATOR:     "a",  # administer (a)
 }
 
 # IMAP char -> list of SOGo keys to set when char present.

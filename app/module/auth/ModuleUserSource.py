@@ -12,14 +12,13 @@ if TYPE_CHECKING:
 
 MAP_KEY_CLASS = {
     "ldap": "ClientLdap",
-    "mysql": "ClientMySQL",
-    "postgresql": "ClientPostgreSQL"
+    "mysql": "ClientSQLUserSOurce",
+    "postgresql": "ClientSQLUserSOurce"
 }
 
 MAP_KEY_PATH = {
     "ldap": "app.manager.ldap",
-    "mysql": "app.manager.db",
-    "postgresql": "app.manager.db"
+    "db": "app.manager.db"
 }
 
 class ModuleUserSource:
