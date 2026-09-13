@@ -59,7 +59,7 @@ logger_agent = getLogger("sogolog.agent")
 logger_contact = getLogger("sogolog.contact")
 logger_ldap = getLogger("sogolog.ldap")
 
-logger_imap.setLevel(WARNING)
+logger_imap.setLevel(DEBUG)
 # logger_cache.setLevel(DEBUG)
 # logger_sql.setLevel(DEBUG)
 # logger_sql.setLevel(ERROR)

@@ -1,17 +1,27 @@
-passdb {
-  driver = ldap
+ldap_auth_dn = cn=admin,dc=example,dc=org
+ldap_auth_dn_password = password
+ldap_base = dc=example,dc=org
+ldap_uris = ldap://openldap:390
+ldap_version = 3
 
-  # Path for LDAP configuration file, see example-config/dovecot-ldap.conf.ext
-  args = /etc/dovecot/dovecot-ldap.conf.ext
+
+
+passdb ldap {
+  ldap_bind = yes
+  ldap_filter = (&(objectClass=posixAccount)(uid=%{user}))
+
+  fields {
+    # user=%{ldap:uid}
+    # password=%{ldap:userPassword}
+    # userdb_home=/home/mail/%{ldap:uid}
+    #userdb_uid=%{ldap:uidNumber}
+    #userdb_gid=%{ldap:gidNumber}
+  }
 }
 
-userdb {
-  driver = ldap
-  args = /etc/dovecot/dovecot-ldap.conf.ext
-  
-  # Default fields can be used to specify defaults that LDAP may override
-  #default_fields = home=/home/virtual/%u
+userdb ldap {
+  ldap_filter = (|(uid=%{user})(mail=%{user}))
+  #fields {
+  #  home=/home/mail/%{username}
+  #}
 }
-
-mail_gid = 8
-
