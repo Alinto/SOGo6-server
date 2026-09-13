@@ -492,10 +492,10 @@ class ClientImap(ClientMailServer):
                     raise RequestException("Failed to list mailboxes", err.ERROR_IMAP_FAILED)
                 if success:
                     success_list, datas_list = self._exec_imap4_method(self.connection.response, 'LIST')
-                    if not success_list:
+                    if not success_list or not datas_list:
                         raise RequestException(f"Failed to list mailboxes: {datas_list}", err.ERROR_IMAP_FAILED)
                     success_status, datas_status = self._exec_imap4_method(self.connection.response, 'STATUS')
-                    if not success_status:
+                    if not success_status or not datas_status:
                         raise RequestException(f"Failed to status mailboxes: {datas_status}", err.ERROR_IMAP_FAILED)
                     idx_status = 0
                     for data in datas_list:
