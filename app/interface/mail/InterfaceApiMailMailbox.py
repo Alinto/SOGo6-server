@@ -66,6 +66,24 @@ class InterfaceApiMailMailbox:
 
         return create_api_base_response(list_accounts)
 
+    def get_mailbox_tags(self, account_id: str) -> tuple[dict, int]:
+        """Get all distinct tags used across every mail in every folder of the specified mailbox.
+
+        :param account_id: The account identifier ("0" for main account, hash for external)
+        :type account_id: str
+        :return: A tuple of (API response dict, status code)
+        :rtype: tuple[dict, int]
+        """
+        if account_id != cs.DEFAULT_IDENTITY_KEY_VALUE and not self.user_module_settings.SOGO_D_ALLOW_EXT_MAIL_ACCOUNT:
+            return create_api_base_response(error=err.ERROR_EXTERNAL_ACCOUNT_FORBIDDEN)
+
+        try:
+            tags = self.mail_module.get_all_mail_tags(account_id)
+            return create_api_base_response(tags)
+        except RequestException as ex:
+            logger_api.error("Request exception in get_mailbox_tags for user %s, account %s: %s", self.user.uid, account_id, str(ex))
+            return create_api_base_response(None, ex.error)
+
     def create_mailbox(self, account_data: dict) -> tuple[dict, int]:
         """Create a new mailbox (add external account).
         
