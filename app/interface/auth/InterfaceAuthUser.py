@@ -28,7 +28,7 @@ class InterfaceAuthUser:
     Interface for user authentication
     """
 
-    def __init__(self, process: ProcessSetting, system: dict, default_domain: dict):
+    def __init__(self, process: ProcessSetting, system: dict, default_domain: dict, user: User):
         system_settings = SystemSettingsObj(system[SystemSettings.subparent])
         default_auth = AuthSettingsObj(default_domain[AuthSettings.subparent])
 
@@ -39,6 +39,7 @@ class InterfaceAuthUser:
 
         self.process = process
         self.default_domain = default_domain
+        self.user = user
         self.module_auth = ModuleAuth(process, system_settings, default_auth, default_us_source)
         self.module_user_profile = ModuleUserProfile(process, default_domain)
         self._module_calendar: ModuleCalendar = ModuleCalendar(process)
@@ -91,6 +92,8 @@ class InterfaceAuthUser:
         """
         uid = data["username"]
         password = data["password"]
+        if self.user.authenticated and self.user.uid == data.get("username"):
+            return create_api_base_response(None, err.ERROR_ALREADY_LOGGED_IN)
 
         success, user, module_us = self._check_login(uid, password)
 
