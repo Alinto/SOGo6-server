@@ -28,7 +28,7 @@ def init_admin_config() -> None:
     process: ProcessSetting = g.process_settings
     system_settings: dict = g.system_settings
     default_domain: dict = g.default_domain_settings
-    interface_api = InterfaceAuthUser(process, system_settings, default_domain)
+    interface_api = InterfaceAuthUser(process, system_settings, default_domain, user=g.user)
     g.inter = interface_api
 
 
@@ -60,10 +60,15 @@ class ApiAuthUserLogin(MethodView):
     @blp.response(200)
     def post(self, new_data:dict) -> ResponseReturnValue:
         """
-        Action, Authenticate the user for plain mode
+        Action, Authenticate the user for plain mode.
+        If already authenticated as this user, the JWT token from the Authorization header is returned.
         """
+        auth_header = request.authorization
+        voucher_data: str = ""
+        if auth_header and auth_header.token:
+            voucher_data = auth_header.token
         interface_api : InterfaceAuthUser = g.inter
-        return interface_api.plain_login(new_data)
+        return interface_api.plain_login(new_data, voucher_data)
 
 
 @blp.route("/callback/<string:domain>")

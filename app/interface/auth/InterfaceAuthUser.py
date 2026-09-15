@@ -28,7 +28,7 @@ class InterfaceAuthUser:
     Interface for user authentication
     """
 
-    def __init__(self, process: ProcessSetting, system: dict, default_domain: dict):
+    def __init__(self, process: ProcessSetting, system: dict, default_domain: dict, user: User):
         system_settings = SystemSettingsObj(system[SystemSettings.subparent])
         default_auth = AuthSettingsObj(default_domain[AuthSettings.subparent])
 
@@ -39,6 +39,7 @@ class InterfaceAuthUser:
 
         self.process = process
         self.default_domain = default_domain
+        self.user = user
         self.module_auth = ModuleAuth(process, system_settings, default_auth, default_us_source)
         self.module_user_profile = ModuleUserProfile(process, default_domain)
         self._module_calendar: ModuleCalendar = ModuleCalendar(process)
@@ -80,17 +81,23 @@ class InterfaceAuthUser:
         module_us = ModuleUserSource(domain_user_sources)
         return module_us.check_login(user), user, module_us
 
-    def plain_login(self, data:dict) -> tuple[dict, int]:
+    def plain_login(self, data:dict, voucher_data:str = "") -> tuple[dict, int]:
         """
         Check a plain login uid/password.
+        If the user is already authenticated as this uid, no new session is created
+        and the current voucher is returned as is.
 
         :param data: Dictionary containing 'username' and 'password' keys
         :type data: dict
+        :param voucher_data: The raw JWT token from the Authorization header, if any
+        :type voucher_data: str
         :return: Tuple containing the API response dict and HTTP status code
         :rtype: tuple[dict, int]
         """
         uid = data["username"]
         password = data["password"]
+        if voucher_data and self.user.authenticated and self.user.uid == uid:
+            return create_api_base_response({"jwt_token": voucher_data})
 
         success, user, module_us = self._check_login(uid, password)
 
