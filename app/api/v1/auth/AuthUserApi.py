@@ -28,7 +28,7 @@ def init_admin_config() -> None:
     process: ProcessSetting = g.process_settings
     system_settings: dict = g.system_settings
     default_domain: dict = g.default_domain_settings
-    interface_api = InterfaceAuthUser(process, system_settings, default_domain)
+    interface_api = InterfaceAuthUser(process, system_settings, default_domain, user=g.user)
     g.inter = interface_api
 
 
