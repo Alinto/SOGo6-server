@@ -72,7 +72,6 @@ ERROR_VALIDITY_TIME_BELOW_0    = E("S000206", "Voucher Validity Time Below 0", H
 ERROR_USER_CREDS_NOT_VALID     = E("S000207", "User credentials stores in session are not valid anymore", HTTPStatus.UNAUTHORIZED)
 ERROR_LOGIN_FAILED             = E("S000208", "Login Failed: Invalid Credentials", HTTPStatus.UNAUTHORIZED)
 
-
 #API
 ERROR_VALIDATION_ERROR      = E("S000300", "Request Data Incorrect Format", HTTPStatus.BAD_REQUEST)
 ERROR_DOMAIN_NAME_TAKEN     = E("S000301", "Domain's Name Already Taken", HTTPStatus.BAD_REQUEST)
