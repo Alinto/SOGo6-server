@@ -145,11 +145,15 @@ class FakeModuleContact:
 
 class FakeUser:
     """Fake User object for testing."""
-    def __init__(self, uid, password):
+    def __init__(self, uid, password, authenticated=False):
         self.uid = uid
         self.password = password
         self.mail = uid
         self.source_id = "source1"
+        self.authenticated = authenticated
+
+
+ANONYMOUS_USER = FakeUser("anonymous", "anonymous", authenticated=False)
 
 
 class FakeModuleMail:
@@ -205,7 +209,8 @@ def test_get_login_mech_success(monkeypatch):
     interface = InterfaceAuthUser(
         process={"test": "config"},
         system={"SYSTEM_SETTINGS": {"test": "value"}},
-        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}}
+        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}},
+        user=ANONYMOUS_USER
     )
 
     result, status_code = interface.get_login_mech(user_uid="testuser@example.com", redirect="/dashboard")
@@ -228,7 +233,8 @@ def test_get_login_mech_request_exception(monkeypatch):
     interface = InterfaceAuthUser(
         process={"test": "config"},
         system={"SYSTEM_SETTINGS": {"test": "value"}},
-        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}}
+        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}},
+        user=ANONYMOUS_USER
     )
 
     result, status_code = interface.get_login_mech(user_uid="unknown@example.com", redirect="/dashboard")
@@ -257,7 +263,8 @@ def test_plain_login_success(monkeypatch):
     interface = InterfaceAuthUser(
         process={"test": "config"},
         system={"SYSTEM_SETTINGS": {"test": "value"}},
-        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}}
+        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}},
+        user=ANONYMOUS_USER
     )
 
     data = {"username": "testuser@example.com", "password": "secret123"}
@@ -287,13 +294,73 @@ def test_plain_login_failed_authentication(monkeypatch):
     interface = InterfaceAuthUser(
         process={"test": "config"},
         system={"SYSTEM_SETTINGS": {"test": "value"}},
-        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}}
+        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}},
+        user=ANONYMOUS_USER
     )
 
     data = {"username": "testuser@example.com", "password": "wrong"}
     _result, status_code = interface.plain_login(data)
 
     assert status_code == 401
+
+
+def test_plain_login_already_logged_in_same_user(monkeypatch):
+    """Test that a login request from an already authenticated user for the same uid is short-circuited."""
+    fake_auth = FakeModuleAuth(None, None, None, None)
+    fake_profile = FakeModuleUserProfile(None, None)
+
+    fake_us_instance = FakeModuleUserSource({})
+    def fake_us_class(sources):
+        return fake_us_instance
+
+    patch_modules_on_interface(monkeypatch, fake_auth, fake_profile, fake_us_class)
+
+    logged_user = FakeUser("testuser@example.com", "secret123", authenticated=True)
+    interface = InterfaceAuthUser(
+        process={"test": "config"},
+        system={"SYSTEM_SETTINGS": {"test": "value"}},
+        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}},
+        user=logged_user
+    )
+
+    data = {"username": "testuser@example.com", "password": "secret123"}
+    result, status_code = interface.plain_login(data)
+
+    assert status_code == err.ERROR_ALREADY_LOGGED_IN.h
+    assert result["error_code"] == err.ERROR_ALREADY_LOGGED_IN.c
+    # No new session should have been created
+    assert fake_auth.get_user_and_domain_user_sources_args is None
+
+
+def test_plain_login_already_logged_in_different_user_proceeds(monkeypatch):
+    """Test that an authenticated user trying to login as someone else goes through the normal flow."""
+    fake_auth = FakeModuleAuth(None, None, None, None)
+    fake_user = FakeUser("otheruser@example.com", "secret123")
+    fake_auth.get_user_and_domain_user_sources_result = (fake_user, {"source1": {}})
+
+    fake_profile = FakeModuleUserProfile(None, None)
+    fake_profile.is_user_profile_present_result = True  # User already exists
+
+    fake_us_instance = FakeModuleUserSource({})
+    def fake_us_class(sources):
+        return fake_us_instance
+
+    patch_modules_on_interface(monkeypatch, fake_auth, fake_profile, fake_us_class)
+
+    logged_user = FakeUser("testuser@example.com", "secret123", authenticated=True)
+    interface = InterfaceAuthUser(
+        process={"test": "config"},
+        system={"SYSTEM_SETTINGS": {"test": "value"}},
+        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}},
+        user=logged_user
+    )
+
+    data = {"username": "otheruser@example.com", "password": "secret123"}
+    result, status_code = interface.plain_login(data)
+
+    assert status_code == 200
+    assert result["data"]["voucher"] == "test-voucher-123"
+    assert fake_auth.get_user_and_domain_user_sources_args == ("otheruser@example.com", "secret123")
 
 
 def test_plain_login_create_user_profile(monkeypatch):
@@ -314,7 +381,8 @@ def test_plain_login_create_user_profile(monkeypatch):
     interface = InterfaceAuthUser(
         process={"test": "config"},
         system={"SYSTEM_SETTINGS": {"test": "value"}},
-        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}, "MAIL_SETTINGS": {"test": "value"}}
+        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}, "MAIL_SETTINGS": {"test": "value"}},
+        user=ANONYMOUS_USER
     )
 
     data = {"username": "newuser@example.com", "password": "secret123"}
@@ -351,7 +419,8 @@ def test_plain_login_profile_creation_request_exception(monkeypatch):
     interface = InterfaceAuthUser(
         process={"test": "config"},
         system={"SYSTEM_SETTINGS": {"test": "value"}},
-        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}, "MAIL_SETTINGS": {"test": "value"}}
+        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}, "MAIL_SETTINGS": {"test": "value"}},
+        user=ANONYMOUS_USER
     )
 
     data = {"username": "newuser@example.com", "password": "secret123"}
@@ -383,7 +452,8 @@ def test_plain_login_profile_creation_bug_exception(monkeypatch):
     interface = InterfaceAuthUser(
         process={"test": "config"},
         system={"SYSTEM_SETTINGS": {"test": "value"}},
-        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}, "MAIL_SETTINGS": {"test": "value"}}
+        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}, "MAIL_SETTINGS": {"test": "value"}},
+        user=ANONYMOUS_USER
     )
 
     data = {"username": "newuser@example.com", "password": "secret123"}
@@ -407,7 +477,8 @@ def test_logout_success(monkeypatch):
     interface = InterfaceAuthUser(
         process={"test": "config"},
         system={"SYSTEM_SETTINGS": {"test": "value"}},
-        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}}
+        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}},
+        user=ANONYMOUS_USER
     )
 
     result, status_code = interface.logout("fake-jwt-token")
@@ -427,7 +498,8 @@ def test_logout_empty_token(monkeypatch):
     interface = InterfaceAuthUser(
         process={"test": "config"},
         system={"SYSTEM_SETTINGS": {"test": "value"}},
-        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}}
+        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}},
+        user=ANONYMOUS_USER
     )
 
     result, status_code = interface.logout("")
@@ -449,7 +521,8 @@ def test_logout_request_exception_returns_error_response(monkeypatch):
     interface = InterfaceAuthUser(
         process={"test": "config"},
         system={"SYSTEM_SETTINGS": {"test": "value"}},
-        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}}
+        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}},
+        user=ANONYMOUS_USER
     )
 
     result, status_code = interface.logout("expired-jwt-token")
@@ -471,7 +544,8 @@ def test_logout_invalid_voucher_type_returns_error_response(monkeypatch):
     interface = InterfaceAuthUser(
         process={"test": "config"},
         system={"SYSTEM_SETTINGS": {"test": "value"}},
-        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}}
+        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}},
+        user=ANONYMOUS_USER
     )
 
     result, status_code = interface.logout(12345)  # wrong type
