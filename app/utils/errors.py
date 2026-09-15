@@ -148,6 +148,7 @@ ERROR_IDENTITIES_CUSTOM_FROM_FORBIDDEN = E("S000332", "Custom 'from' email in id
 ERROR_IDENTITIES_CUSTOM_NAME_FORBIDDEN = E("S000333", "Custom name in identities is forbidden for your domain", HTTPStatus.FORBIDDEN)
 ERROR_IDENTITIES_CUSTOM_REPLY_TO_FORBIDDEN = E("S000334", "Custom reply-to email in identities is forbidden for your domain", HTTPStatus.FORBIDDEN)
 ERROR_SIGNATURE_SIZE_EXCEEDED = E("S000335", "Signature size exceeds the maximum allowed limit for your domain", HTTPStatus.FORBIDDEN)
+ERROR_MAIL_MAX_RECIPIENT_EXCEEDED = E("S000338", "Number of recipients (to + cc + bcc) exceeds the maximum allowed for your domain", HTTPStatus.FORBIDDEN)
 
 #SMTP
 ERROR_SMTP_CONNECTION_FAILED      = E("S001400", "SMTP connection failed", HTTPStatus.SERVICE_UNAVAILABLE)
