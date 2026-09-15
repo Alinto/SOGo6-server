@@ -1,5 +1,6 @@
 # pylint: disable=invalid-sequence-index
 from app.interface.mail.InterfaceApiMailSend import InterfaceApiMailSend
+from app.config.settings.DomainSettings import MailSettingsObj
 from app.utils.exceptions import RequestException
 from app.utils import errors as err
 
@@ -7,7 +8,7 @@ from app.utils import errors as err
 class InterfaceApiMailSendWithInjectedConf(InterfaceApiMailSend):
     """Subclass of InterfaceApiMailSend that allows injecting modules directly for testing."""
 
-    def __init__(self, mail_module, mail_outgoing_module):
+    def __init__(self, mail_module, mail_outgoing_module, mail_settings=None):
         """Initialize with injected modules for testing.
 
         Does not call the parent __init__ to avoid requiring all the parameters it needs.
@@ -15,6 +16,7 @@ class InterfaceApiMailSendWithInjectedConf(InterfaceApiMailSend):
         """
         self.mail_module = mail_module  # noqa: SLF001
         self.mail_outgoing_module = mail_outgoing_module  # noqa: SLF001
+        self.mail_settings = mail_settings if mail_settings is not None else MailSettingsObj()
         self.user = _FakeUser()
 
 
@@ -104,13 +106,13 @@ class FakeModuleMailOutgoing:
         return self.send_mail_result
 
 
-def make_interface(fake_mail_module=None, fake_outgoing_module=None):
+def make_interface(fake_mail_module=None, fake_outgoing_module=None, mail_settings=None):
     """Create an InterfaceApiMailSendWithInjectedConf with the given fake modules."""
     if fake_mail_module is None:
         fake_mail_module = FakeModuleMail()
     if fake_outgoing_module is None:
         fake_outgoing_module = FakeModuleMailOutgoing()
-    return InterfaceApiMailSendWithInjectedConf(fake_mail_module, fake_outgoing_module)
+    return InterfaceApiMailSendWithInjectedConf(fake_mail_module, fake_outgoing_module, mail_settings=mail_settings)
 
 
 # ========== Tests for save_draft ==========
@@ -151,6 +153,46 @@ def test_save_draft_success_with_close():
 
     assert status_code == 200
     assert fake_mail.save_draft_args == ("0", mail_data, "abc123", True)
+
+
+def test_save_draft_recipient_limit_exceeded():
+    """Test that saving a draft over the domain's max recipient count is rejected with 403."""
+    fake_mail = FakeModuleMail()
+    mail_settings = MailSettingsObj({"SOGO_D_MAIL_MAX_RECIPIENT": 2})
+    interface = make_interface(fake_mail_module=fake_mail, mail_settings=mail_settings)
+
+    mail_data = {"to": ["a@example.com", "b@example.com"], "cc": ["c@example.com"], "bcc": []}
+    result, status_code = interface.save_draft(account_id="0", mail_data=mail_data)
+
+    assert result["error_code"] == "S000338"
+    assert status_code == 403
+    assert fake_mail.save_draft_args is None  # save_draft must NOT have been called
+
+
+def test_save_draft_recipient_limit_not_exceeded():
+    """Test that saving a draft at exactly the domain's max recipient count is allowed."""
+    fake_mail = FakeModuleMail()
+    mail_settings = MailSettingsObj({"SOGO_D_MAIL_MAX_RECIPIENT": 3})
+    interface = make_interface(fake_mail_module=fake_mail, mail_settings=mail_settings)
+
+    mail_data = {"to": ["a@example.com", "b@example.com"], "cc": ["c@example.com"], "bcc": []}
+    result, status_code = interface.save_draft(account_id="0", mail_data=mail_data)
+
+    assert status_code == 200
+    assert fake_mail.save_draft_args is not None
+
+
+def test_save_draft_recipient_limit_zero_means_unlimited():
+    """Test that SOGO_D_MAIL_MAX_RECIPIENT == 0 disables the check."""
+    fake_mail = FakeModuleMail()
+    mail_settings = MailSettingsObj({"SOGO_D_MAIL_MAX_RECIPIENT": 0})
+    interface = make_interface(fake_mail_module=fake_mail, mail_settings=mail_settings)
+
+    mail_data = {"to": [f"user{i}@example.com" for i in range(50)]}
+    result, status_code = interface.save_draft(account_id="0", mail_data=mail_data)
+
+    assert status_code == 200
+    assert fake_mail.save_draft_args is not None
 
 
 def test_save_draft_module_error():
@@ -217,6 +259,37 @@ def test_send_mail_with_key_merges_draft_attachments():
     filenames = [a["filename"] for a in sent_mail_data["attachments"]]
     assert "existing.txt" in filenames
     assert "draft_attach.pdf" in filenames
+
+
+def test_send_mail_recipient_limit_exceeded():
+    """Test that sending a mail over the domain's max recipient count is rejected with 403."""
+    fake_mail = FakeModuleMail()
+    fake_outgoing = FakeModuleMailOutgoing()
+    mail_settings = MailSettingsObj({"SOGO_D_MAIL_MAX_RECIPIENT": 2})
+    interface = make_interface(fake_mail_module=fake_mail, fake_outgoing_module=fake_outgoing, mail_settings=mail_settings)
+
+    mail_data = {"to": ["a@example.com"], "cc": ["b@example.com"], "bcc": ["c@example.com"]}
+    result, status_code = interface.send_mail(account_id="0", mail_data=mail_data)
+
+    assert result["error_code"] == "S000338"
+    assert status_code == 403
+    assert fake_outgoing.send_mail_args is None  # send_mail must NOT have been called
+
+
+def test_send_mail_recipient_limit_exceeded_with_key_skips_draft_processing():
+    """Test that the recipient limit is enforced before any tmp_draft key handling."""
+    fake_mail = FakeModuleMail()
+    fake_outgoing = FakeModuleMailOutgoing()
+    mail_settings = MailSettingsObj({"SOGO_D_MAIL_MAX_RECIPIENT": 1})
+    interface = make_interface(fake_mail_module=fake_mail, fake_outgoing_module=fake_outgoing, mail_settings=mail_settings)
+
+    mail_data = {"to": ["a@example.com", "b@example.com"]}
+    result, status_code = interface.send_mail(account_id="0", mail_data=mail_data, key="abc123")
+
+    assert result["error_code"] == "S000338"
+    assert status_code == 403
+    assert fake_mail.validate_tmp_draft_key_args is None
+    assert fake_outgoing.send_mail_args is None
 
 
 def test_send_mail_invalid_key_returns_error():
