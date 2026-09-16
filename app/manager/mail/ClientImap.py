@@ -1648,7 +1648,9 @@ class ClientImap(ClientMailServer):
         :param type: bool, default to False
         :raises RequestException: If the operation fails.
         """
-        logger_imap.debug("Copying mail UID '%s' from '%s' to '%s'", mail_uid, folder_path, dest_folder_path)
+        print("HAAAAAA")
+        print("Copying mail UID '%s' from '%s' to '%s'", mail_uid, folder_path, dest_folder_path)
+        logger_imap.info("Copying mail UID '%s' from '%s' to '%s'", mail_uid, folder_path, dest_folder_path)
         if self.connection is not None and self.authenticated:
             if not folder_path.isascii() or not dest_folder_path.isascii():
                 raise RequestException(f"Mailbox name is not ascii: {folder_path} and/or {dest_folder_path}", err.ERROR_IMAP_NOT_ASCII)
