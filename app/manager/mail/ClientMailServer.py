@@ -74,6 +74,18 @@ class ClientMailServer(metaclass=ABCMeta):
         """
 
     @abstractmethod
+    def rename_folder(self, old_name: str, new_name: str) -> None:
+        """
+        Rename a folder (mailbox) on the mail server.
+
+        :param old_name: The current name of the folder.
+        :type old_name: str
+        :param new_name: The new name for the folder.
+        :type new_name: str
+        :raises RequestException: If not connected to the server or if renaming fails.
+        """
+
+    @abstractmethod
     def purge_folder(self, folder_path: str, before_date: str = "", do_children: bool = True, permanently: bool = False) -> int:
         """
         Delete all mails inside the folder older than before_date
@@ -95,6 +107,19 @@ class ClientMailServer(metaclass=ABCMeta):
         :param folder_path: path of the folder
         :type folder_path: str
         :return: Nymber of messages expunged
+        :rtype: int
+        """
+
+    @abstractmethod
+    def empty_folder(self, folder_path: str) -> int:
+        """Completely empty a folder by permanently deleting all mails.
+
+        Performs the sequence: UID SEARCH ALL, UID STORE +FLAGS (\\Deleted), EXPUNGE.
+        Only implemented for TRASH and JUNK folders at the module level.
+
+        :param folder_path: path of the folder to empty
+        :type folder_path: str
+        :return: Number of messages permanently deleted
         :rtype: int
         """
 

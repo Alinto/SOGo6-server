@@ -1,12 +1,13 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
-from flask import g
+from flask import g, make_response, jsonify
 from flask.views import MethodView
 from flask.typing import ResponseReturnValue
 from flask_smorest import Blueprint
 from marshmallow import Schema
 
+from app.utils.api.is_async import async_endpoint, AsyncQueryArgsSchema
 from app.interface.mail.InterfaceApiMailFolder import InterfaceApiMailFolder
 from app.utils.logger.logger import logger_api
 from .schemas.folder import (
@@ -22,6 +23,12 @@ from .schemas.folder import (
     FolderExpungeResponseSchema,
     FolderPurgeResponseSchema,
     FolderShareResponseSchema,
+    FolderRenameSchema,
+    FolderRenameResponseSchema,
+    FolderTypeSchema,
+    FolderTypeResponseSchema,
+    FolderEmptyResponseSchema,
+    FolderEmptyAsyncResponseSchema,
 )
 
 if TYPE_CHECKING:
@@ -131,9 +138,6 @@ class ApiMailFolderId(MethodView):
         :rtype: ResponseReturnValue
         """
         raise NotImplementedError()
-        logger_api.debug("Calling ApiMailFolderId.patch for account_id: %s, folder_name: %s with data: %s", account_id, folder_name, folder_data)
-        interface: InterfaceApiMailFolder = g.inter
-        return interface.update_folder(account_id, folder_name, folder_data)
 
     @blp.response(200, FolderDetailsResponseSchema, example=FolderDetailsResponseSchema.example())
     def get(self, account_id: str, folder_name: str) -> ResponseReturnValue:
@@ -196,6 +200,38 @@ class ApiMailFolderIdPurge(MethodView):
         return interface.purge_folder_mails(account_id, folder_name, purge_data)
 
 
+@blp.route("/<path:folder_name>/empty")
+class ApiMailFolderIdEmpty(MethodView):
+    """API to completely empty a specific folder (TRASH or JUNK only).
+    """
+    @blp.response(200, FolderEmptyResponseSchema, example=FolderEmptyResponseSchema.example())
+    @blp.response(202, FolderEmptyAsyncResponseSchema, example=FolderEmptyAsyncResponseSchema.example())
+    @async_endpoint(blp)
+    def post(self, account_id: str, folder_name: str, is_async: bool) -> ResponseReturnValue:
+        """Action: Completely empty (permanently delete all mails) in the specified folder.
+
+        Only allowed for TRASH and JUNK folders.
+        This operation is irreversible and ignores SOGO_U_MAIL_DELETE_BEHAVIOR preference.
+
+        :param account_id: The ID of the account
+        :type account_id: str
+        :param folder_name: The ID of the folder to empty
+        :type folder_name: str
+        :return: ApiBaseResponse with mails_deleted count (sync) or task_id (async with HTTP 202)
+        :rtype: ResponseReturnValue
+        """
+        if is_async:
+            logger_api.debug("Calling ApiMailFolderIdEmpty.post (async) for account_id: %s, folder_name: %s", account_id, folder_name)
+            raise NotImplementedError("Async processing for empty folder is not implemented yet.")
+            # Return 202 Accepted with task_id for async processing
+            #return jsonify({"task_id": 14}), 202 #TODO: Use celery agent
+        else:
+            logger_api.debug("Calling ApiMailFolderIdEmpty.post (sync) for account_id: %s, folder_name: %s", account_id, folder_name)
+            interface: InterfaceApiMailFolder = g.inter
+            response_data, status_code = interface.empty_folder(account_id, folder_name)
+            return make_response(jsonify(response_data), status_code)
+
+
 @blp.route("/<path:folder_name>/export")
 class ApiMailFolderIdExport(MethodView):
     """API to export all mails in a specific folder. 
@@ -251,3 +287,54 @@ class ApiMailFolderIdShare(MethodView):
                         account_id, folder_name, share_data)
         interface: InterfaceApiMailFolder = g.inter
         return interface.share_folder(account_id, folder_name, share_data)
+
+
+@blp.route("/<path:folder_name>/rename")
+class ApiMailFolderIdRename(MethodView):
+    """API to rename a specific mail folder.
+    """
+    @blp.arguments(FolderRenameSchema, example=FolderRenameSchema.example())
+    @blp.response(200, FolderRenameResponseSchema, example=FolderRenameResponseSchema.example())
+    def post(self, rename_data: dict, account_id: str, folder_name: str) -> ResponseReturnValue:
+        """Action: Rename the specified folder.
+
+        :param rename_data: The rename configuration (name)
+        :type rename_data: dict
+        :param account_id: The ID of the account
+        :type account_id: str
+        :param folder_name: The current path of the folder
+        :type folder_name: str
+        :return: ApiBaseResponse with renamed folder info
+        :rtype: ResponseReturnValue
+        """
+        logger_api.debug("Calling ApiMailFolderIdRename.post for account_id: %s, folder_name: %s with data: %s",
+                        account_id, folder_name, rename_data)
+        interface: InterfaceApiMailFolder = g.inter
+        return interface.rename_folder(account_id, folder_name, rename_data["name"])
+
+
+@blp.route("/<path:folder_name>/type")
+class ApiMailFolderIdType(MethodView):
+    """API to change the type of a specific mail folder.
+    """
+    @blp.arguments(FolderTypeSchema, example=FolderTypeSchema.example())
+    @blp.response(200, FolderTypeResponseSchema, example=FolderTypeResponseSchema.example())
+    def post(self, type_data: dict, account_id: str, folder_name: str) -> ResponseReturnValue:
+        """Action: Change the type of the specified folder.
+
+        Only folders of type NORMAL can have their type changed.
+        Valid types are: SENT, DRAFT, JUNK, TRASH, TEMPLATE, PLANNED
+
+        :param type_data: The type configuration (type)
+        :type type_data: dict
+        :param account_id: The ID of the account
+        :type account_id: str
+        :param folder_name: The path of the folder
+        :type folder_name: str
+        :return: ApiBaseResponse with updated folder info
+        :rtype: ResponseReturnValue
+        """
+        logger_api.debug("Calling ApiMailFolderIdType.post for account_id: %s, folder_name: %s with data: %s",
+                        account_id, folder_name, type_data)
+        interface: InterfaceApiMailFolder = g.inter
+        return interface.change_folder_type(account_id, folder_name, type_data["type"])

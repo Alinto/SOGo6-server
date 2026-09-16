@@ -51,17 +51,19 @@ class FakeUser:
 
 class InterfaceApiMailFolderWithInjectedConf(InterfaceApiMailFolder):
     """Subclass of InterfaceApiMailFolder that allows injecting user configuration directly for testing."""
-    def __init__(self, user_conf, mail_module=None):
+    def __init__(self, user_conf, mail_module=None, user_module=None):
         """Initialize with injected user configuration for testing.
         
         Does not call the parent __init__ to avoid requiring process_setting,
-        user_domain_settings and user. Sets mail_module directly if provided.
+        user_domain_settings and user. Sets mail_module and user_module directly if provided.
         """
         # Does not call the parent __init__ to avoid requiring all the parameters it needs
         self._user_conf = user_conf  # noqa: SLF001
         self.mail_module = mail_module
+        self.user_module = user_module
         self.user = FakeUser()
         self.user_domain_settings = {}
+        self.mail_settings = {}  # Empty dict for testing
 
 
 class FakeModuleMail:
@@ -85,6 +87,8 @@ class FakeModuleMail:
         self.get_folder_share_args = None
         self.share_folder_args = None
         self.export_folder_mails_args = None
+        self.rename_folder_args = None
+        self.change_folder_type_args = None
 
         # Configurable results
         self.get_folder_list_result = [{"name": "INBOX"}, {"name": "Sent"}]
@@ -97,6 +101,8 @@ class FakeModuleMail:
         # Returns list of (identifier, rights) tuples (iterable, as ModuleMail yields them)
         self.get_folder_share_result = []
         self.share_folder_result = []
+        self.rename_folder_result = {"name": "RenamedFolder", "path": "RenamedFolder"}
+        self.change_folder_type_result = {"name": "Folder", "type": "JUNK"}
 
     def get_folder_list(self, account_id):
         """Simulate getting folder list."""
@@ -148,20 +154,46 @@ class FakeModuleMail:
         return iter(self.share_folder_result)
 
     def export_folder_mails(self, folder_name):
-        """Simulate exporting mails from a folder."""
+        """Simulate exporting folder mails."""
         self.export_folder_mails_args = folder_name
         return {"exported": True, "count": 42}
 
+    def rename_folder(self, account_id, folder_path, new_name):
+        """Simulate renaming a folder."""
+        self.rename_folder_args = (folder_path, new_name)
+        return self.rename_folder_result
 
-def make_interface(monkeypatch, fake_module, user_conf=None):
+    def change_folder_type(self, account_id, folder_path, new_type):
+        """Simulate changing folder type."""
+        self.change_folder_type_args = (folder_path, new_type)
+        return self.change_folder_type_result
+
+
+class FakeModuleUserProfile:
+    """Fake ModuleUserProfile for testing InterfaceApiMailFolder.
+    
+    Provides a mock implementation of change_folder_type.
+    """
+    def __init__(self):
+        self.change_folder_type_args = None
+        self.change_folder_type_result = {"name": "Folder", "path": "Folder", "type": "SENT"}
+    
+    def change_folder_type(self, user, mail_settings, folder_path, new_type):
+        """Simulate changing folder type."""
+        self.change_folder_type_args = (folder_path, new_type)
+        return self.change_folder_type_result
+
+def make_interface(monkeypatch, fake_module, user_conf=None, fake_user_module=None):
     """Create an InterfaceApiMailFolderWithInjectedConf with the fake module injected."""
     if user_conf is None:
         user_conf = {"username": "test@example.com", "password": "pass", "type": "imap"}
+    if fake_user_module is None:
+        fake_user_module = FakeModuleUserProfile()
     monkeypatch.setattr(
         "app.interface.mail.InterfaceApiMailFolder.ModuleMail",
         lambda *args, **kwargs: fake_module
     )
-    return InterfaceApiMailFolderWithInjectedConf(user_conf, mail_module=fake_module)
+    return InterfaceApiMailFolderWithInjectedConf(user_conf, mail_module=fake_module, user_module=fake_user_module)
 
 
 def patch_module_on_interface(monkeypatch, fake_module):
@@ -469,6 +501,62 @@ def test_share_folder_module_error(monkeypatch):
     interface = make_interface(monkeypatch, fake_module)
 
     result, status_code = interface.share_folder(account_id=0, folder_path="INBOX", share_data=[])
+
+    assert result["error_code"] == "S000300"
+    assert status_code == 400
+
+
+# ========== Tests for rename_folder ==========
+
+def test_rename_folder_success(monkeypatch):
+    """Test renaming a folder for a valid account."""
+    fake_module = FakeModuleMail()
+    fake_module.rename_folder_result = {"name": "RenamedFolder", "path": "RenamedFolder"}
+    interface = make_interface(monkeypatch, fake_module)
+
+    result, status_code = interface.rename_folder(account_id=0, folder_path="OldFolder", new_name="RenamedFolder")
+
+    assert status_code == 200
+    assert result["data"]["name"] == "RenamedFolder"
+    assert fake_module.rename_folder_args == ("OldFolder", "RenamedFolder")
+
+
+def test_rename_folder_module_error(monkeypatch):
+    """Test error handling when folder rename fails."""
+    fake_module = FakeModuleMail()
+    fake_module.rename_folder = lambda *args: (_ for _ in ()).throw(RequestException("Cannot rename", err.ERROR_VALIDATION_ERROR))
+    interface = make_interface(monkeypatch, fake_module)
+
+    result, status_code = interface.rename_folder(account_id=0, folder_path="INBOX", new_name="NewName")
+
+    assert result["error_code"] == "S000300"
+    assert status_code == 400
+
+
+# ========== Tests for change_folder_type ==========
+
+def test_change_folder_type_success(monkeypatch):
+    """Test changing folder type for a valid account."""
+    fake_user_module = FakeModuleUserProfile()
+    fake_user_module.change_folder_type_result = {"name": "Archive", "type": "JUNK"}
+    fake_module = FakeModuleMail()
+    interface = make_interface(monkeypatch, fake_module, fake_user_module=fake_user_module)
+
+    result, status_code = interface.change_folder_type(account_id=0, folder_path="Archive", new_type="JUNK")
+
+    assert status_code == 200
+    assert result["data"]["type"] == "JUNK"
+    assert fake_user_module.change_folder_type_args == ("Archive", "JUNK")
+
+
+def test_change_folder_type_module_error(monkeypatch):
+    """Test error handling when folder type change fails."""
+    fake_user_module = FakeModuleUserProfile()
+    fake_user_module.change_folder_type = lambda *args, **kwargs: (_ for _ in ()).throw(RequestException("Cannot change type", err.ERROR_VALIDATION_ERROR))
+    fake_module = FakeModuleMail()
+    interface = make_interface(monkeypatch, fake_module, fake_user_module=fake_user_module)
+
+    result, status_code = interface.change_folder_type(account_id=0, folder_path="INBOX", new_type="JUNK")
 
     assert result["error_code"] == "S000300"
     assert status_code == 400
