@@ -453,3 +453,16 @@ class ClientMailServer(metaclass=ABCMeta):
         :return: Yields (folder_path, mail_dict) tuples.
         :rtype: Iterator[tuple[str, dict]]
         """
+
+    @abstractmethod
+    def get_folder_with_subfolders(self, folder_path: str, include_subfolders: bool = True) -> list[str]:
+        """Return the given folder path, optionally followed by the paths of all its subfolders.
+
+        :param folder_path: The folder to start from.
+        :type folder_path: str
+        :param include_subfolders: If True, also list every subfolder (at any depth) below folder_path.
+        :type include_subfolders: bool
+        :return: List of folder paths, folder_path first.
+        :rtype: list[str]
+        :raises RequestException: If not connected to the server.
+        """

@@ -1299,6 +1299,8 @@ class ClientImap(ClientMailServer):
         :return: Matching UIDs, most recent (highest UID) first.
         :rtype: list[str]
         """
+        if self.connection is None or not self.authenticated:
+            raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
         self.select_mailbox(folder_path)
 
         criteria = "ALL" if deleted else "NOT DELETED"
@@ -1543,9 +1545,9 @@ class ClientImap(ClientMailServer):
                 mails_by_uid[str(mail_dict["uid"])] = mail_dict
 
             for uid in page_uids:
-                mail_dict = mails_by_uid.get(uid)
-                if mail_dict is not None:
-                    yield mail_dict
+                mail_dict_tmp = mails_by_uid.get(uid)
+                if mail_dict_tmp is not None:
+                    yield mail_dict_tmp
         else:
             raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
 
