@@ -22,7 +22,7 @@ from app.utils.exceptions import RequestException, BugException
 from app.utils.maths.crypto_utils import decrypt_password
 from app.utils.module.importManager import import_and_instantiate_manager
 from app.utils.logger.logger import logger_mail_server
-from app.utils.strings import get_imap_config_from_url, get_domain_from_mail, get_domain_from_contact
+from app.utils.strings import get_imap_config_from_url, get_domain_from_mail, get_domain_from_contact, encode_imap_tag, decode_imap_tag
 from app.utils.constants import DELETE_MAIL_BEHAVIOR_MAP
 
 if TYPE_CHECKING:
@@ -654,7 +654,7 @@ class ModuleMail:
             "answered": flags_dict.get('answered', False),
             "forwarded": flags_dict.get('forwarded', False),
             "deleted": flags_dict.get('deleted', False),
-            "flags": flags_dict.get('all', []),
+            "flags": [decode_imap_tag(flag) for flag in flags_dict.get('all', [])],
             "to": to,
             "from": from_,
             "cc": cc,
@@ -673,7 +673,7 @@ class ModuleMail:
             "mail_type_data": mail_type_data
         }
 
-    def get_folder_mails(self, account_id: str, folder_name: str, collection_param: CollectionPaginateArgs) -> tuple[list[dict[str, Any]], int]:
+    def get_folder_mails(self, account_id: str, folder_name: str, collection_param: CollectionPaginateArgs, deleted: bool = False) -> tuple[list[dict[str, Any]], int]:
         """Retrieve a list of mails in a specific folder with full details.
 
         :param folder_name: The name of the folder to fetch mails from.
@@ -682,6 +682,11 @@ class ModuleMail:
         :type first: int
         :param last: The ending index for pagination (exclusive).
         :type last: int
+        :param deleted: If False (default), mails flagged as deleted are excluded. If
+            True, they are included alongside non-deleted mails (no filtering on the
+            deleted flag). Applied as an IMAP search criterion before pagination, so
+            the returned page is never short because of it.
+        :type deleted: bool
         :raises RequestException: If fetching mails fails
         :return: A tuple of (list of mail dicts with full details, total mail count)
         :rtype: tuple[list[dict[str, Any]], int]
@@ -690,18 +695,14 @@ class ModuleMail:
         offset = collection_param.first_item + 1 #First mail is index 1 not zero
         nb_mails = collection_param.last_item - collection_param.first_item + 1
         logger_mail_server.info("Try to fetch %s mails with offset %s", nb_mails, offset)
-        mail_iter: Iterator|None = None
-        without_content = False
-        if collection_param.fields:
-            requested = collection_param.fields.split(",")
-            if collection_param.fields_action == "include" and "contents" not in requested:
-                without_content = True
-                mail_iter = client.fetch_all_mails_without_content(folder_name, number_of_mails=nb_mails, offset=offset)
-            if collection_param.fields_action == "exclude" and "contents" in requested:
-                without_content = True
-                mail_iter = client.fetch_all_mails_without_content(folder_name, number_of_mails=nb_mails, offset=offset)
-        if mail_iter is None:
-            mail_iter = client.fetch_all_mails_with_content(folder_name, number_of_mails=nb_mails, offset=offset)
+
+        fields_params = client.parse_fields_param(collection_param.fields, collection_param.fields_action)
+        without_content = not fields_params["with_content"]
+
+        if without_content:
+            mail_iter = client.fetch_all_mails_without_content(folder_name, number_of_mails=nb_mails, offset=offset, deleted=deleted)
+        else:
+            mail_iter = client.fetch_all_mails_with_content(folder_name, number_of_mails=nb_mails, offset=offset, deleted=deleted)
         total_count = next(mail_iter)["nb_mails"]
         mails = []
 
@@ -737,6 +738,126 @@ class ModuleMail:
 
         delete_behavior: str = mail_general_prefs["SOGO_U_MAIL_DELETE_BEHAVIOR"]
         return DELETE_MAIL_BEHAVIOR_MAP.get(delete_behavior, (True, True))
+
+    @staticmethod
+    def _flatten_selectable_folder_paths(folders: list[dict[str, Any]]) -> list[str]:
+        """Recursively flatten a folder tree (as returned by ClientImap.list_folders) into a flat
+        list of selectable folder paths, including every nested subfolder at any depth.
+
+        :param folders: List of folder dicts, each possibly containing nested "children" folders.
+        :type folders: list[dict[str, Any]]
+        :return: Flat list of selectable folder paths.
+        :rtype: list[str]
+        """
+        paths: list[str] = []
+        for folder in folders:
+            if folder.get(cs.FOLDER_SELECTABLE, True):
+                paths.append(folder[cs.FOLDER_PATH])
+            children = folder.get(cs.FOLDER_CHILDREN) or []
+            if children:
+                paths.extend(ModuleMail._flatten_selectable_folder_paths(children))
+        return paths
+
+    def search_mails(self, account_id: str, search_params: dict, collection_param: CollectionPaginateArgs, deleted: bool = False) -> tuple[list[dict[str, Any]], int]:
+        """Execute an advanced search across one or multiple folders.
+
+        Delegates the building of the protocol-specific search criteria (IMAP SEARCH
+        syntax, JMAP filter, ...) to the mail client, queries each requested folder
+        and returns a paginated list of matching mails together with the total count.
+
+        :param account_id: The account identifier.
+        :type account_id: str
+        :param search_params: Validated search parameters (from MailboxSearchSchema).
+        :type search_params: dict
+        :param collection_param: Pagination, sorting and filtering parameters.
+        :type collection_param: CollectionPaginateArgs
+        :param deleted: If False (default), mails flagged as deleted are excluded. If
+            True, they are included alongside non-deleted mails (no filtering on the
+            deleted flag). Applied as part of the IMAP search criteria, not as a
+            post-fetch filter.
+        :type deleted: bool
+        :return: A tuple of (list of mail dicts, total count).
+        :rtype: tuple[list[dict[str, Any]], int]
+        :raises RequestException: If mail server operations fail or search_params are invalid.
+        """
+        client = self._open_client_for(account_id)
+
+        # --- Determine content handling from generic fields param ---
+        fields_params = client.parse_fields_param(collection_param.fields, collection_param.fields_action)
+        without_content = not fields_params["with_content"]
+
+        # --- Build the protocol-specific search criteria (delegated to the client) ---
+        criteria = client.build_search_criteria(search_params, deleted)
+
+        # --- Determine folders to search ---
+        folder_list = search_params.get("folders") or []
+        if not folder_list or folder_list == ["all"]:
+            raw_folders = client.list_folders()
+            folders_to_search = self._flatten_selectable_folder_paths(raw_folders)
+        else:
+            include_subfolders = search_params.get("include_subfolders", True)
+            folders_to_search = []
+            seen_folders: set[str] = set()
+            for folder in folder_list:
+                for folder_path in client.get_folder_with_subfolders(folder, include_subfolders):
+                    if folder_path not in seen_folders:
+                        seen_folders.add(folder_path)
+                        folders_to_search.append(folder_path)
+
+        # --- Determine if content should be fetched ---
+        mail_iter = (
+            client.search_mails_without_content(folders_to_search, criteria)
+            if without_content
+            else client.search_mails_with_content(folders_to_search, criteria)
+        )
+
+        # --- Collect all results ---
+        all_mails: list[dict] = []
+        for _folder_path, mail_dict in mail_iter:
+            parsed = self._parse_mail(mail_dict)
+            parsed["folder"] = mail_dict.get("folder", _folder_path)
+            if without_content:
+                parsed.pop("contents", None)
+                parsed.pop("attachments", None)
+                parsed.pop("certificates", None)
+                parsed.pop("mail_type_data", None)
+            all_mails.append(parsed)
+
+        # --- Post-filter by attachment_type (IMAP has no direct extension filter) ---
+        # Applied as an additional AND filter regardless of search_params["operator"],
+        # since it runs after the mail-server search rather than as part of the IMAP criteria.
+        if search_params.get("attachment_type"):
+            ext_filter = {e.lower() for e in search_params["attachment_type"]}
+            all_mails = [
+                m for m in all_mails
+                if any(
+                    att.get("extension", "").lower() in ext_filter
+                    for att in m.get("attachments", [])
+                )
+            ]
+
+        # --- Sort ---
+        sort_by: str = collection_param.sort_by or "date"
+        sort_order: str = collection_param.sort_order or "desc"
+        reverse = sort_order == "desc"
+
+        sort_key_map: dict[str, Any] = {
+            "date":      lambda m: m.get("date", ""),
+            "sender":    lambda m: m.get("from", {}).get("email", ""),
+            "subject":   lambda m: m.get("subject", ""),
+            "size":      lambda m: m.get("size", 0),
+            "relevance": lambda m: m.get("date", ""),  # fallback: by date TODO: what??
+        }
+        key_fn = sort_key_map.get(sort_by, sort_key_map["date"])
+        all_mails.sort(key=key_fn, reverse=reverse)
+
+        # --- Paginate ---
+        total = len(all_mails)
+        offset = collection_param.first_item
+        nb_mails = collection_param.page_size
+        page = all_mails[offset: offset + nb_mails]
+
+        return page, total
 
     def delete_mails(self, account_id:str, folder_path: str, mail_uids: str|list[str]) -> None:
         """Delete multiple mails by UIDs in a single client session.
@@ -1488,6 +1609,10 @@ class ModuleMail:
             return self._action_copy(client, folder_name, mail_uid, data)
         elif action == "delete":
             return self._action_delete(client, folder_name, mail_uid, account_id=account_id)
+        elif action == "illegal":
+            return self._action_illegal(client, folder_name, mail_uid)
+        elif action == "phishing":
+            return self._action_phishing(client, folder_name, mail_uid)
         else:
             raise RequestException(f"Invalid action: {action}", err.ERROR_INVALID_ACTION)
 
@@ -1525,8 +1650,43 @@ class ModuleMail:
             return self._action_copy(client, folder_name, mail_uids, data)
         elif action == "delete":
             return self._action_delete(client, folder_name, mail_uids, account_id=account_id)
+        elif action == "illegal":
+            return self._action_illegal(client, folder_name, mail_uids)
+        elif action == "phishing":
+            return self._action_phishing(client, folder_name, mail_uids)
         else:
             raise RequestException(f"Invalid action: {action}", err.ERROR_INVALID_ACTION)
+
+    def perform_mailbox_batch_action(self, account_id: str, batch_action_data: dict) -> dict[str, Any]:
+        """Perform an action on multiple mails spanning multiple folders of the same account.
+
+        Loops over ``perform_mail_batch_action`` for each folder listed in ``uids``. A failure on
+        one folder is recorded in ``errors`` but does not prevent the remaining folders from being
+        processed.
+
+        :param account_id: The account identifier
+        :type account_id: str
+        :param batch_action_data: dictionary containing 'uids' (folder name -> list of uids),
+            'action' and optional 'data' fields
+        :type batch_action_data: dict[str, Any]
+        :return: Dict with the action, the per-folder results, and the per-folder errors
+        :rtype: dict[str, Any]
+        """
+        action: str = batch_action_data["action"]
+        data = batch_action_data.get("data")
+        uids_by_folder: dict = batch_action_data["uids"]
+
+        results: dict[str, Any] = {}
+        errors: dict[str, str] = {}
+
+        for folder_name, uids in uids_by_folder.items():
+            try:
+                results[folder_name] = self.perform_mail_batch_action(account_id, folder_name, {"uids": uids, "action": action, "data": data})
+            except RequestException as ex:
+                logger_mail_server.warning("perform_mailbox_batch_action: action '%s' failed for folder '%s': %s", action, folder_name, str(ex))
+                errors[folder_name] = ex.error.c
+
+        return {"action": action, "results": results, "errors": errors}
 
     def download_attachment(self, account_id: str, folder_name: str, mail_uid: str, filename: str) -> tuple[bytes, str]:
         """Download a specific attachment from a mail.
@@ -1592,7 +1752,10 @@ class ModuleMail:
         else:
             raise RequestException("Tags must be a string or list of strings", err.ERROR_MISSING_ACTION_DATA)
 
-        client.add_flags_to_mail(folder_name, mail_uid, tag_list)
+        # IMAP flags are atoms and cannot contain spaces/special chars; encode (reversibly) before sending
+        encoded_tags = [encode_imap_tag(tag) for tag in tag_list]
+
+        client.add_flags_to_mail(folder_name, mail_uid, encoded_tags)
 
         return {"action": "tag", "mail_uid": mail_uid, "tags_added": tag_list}
 
@@ -1620,7 +1783,10 @@ class ModuleMail:
         else:
             raise RequestException("Tags must be a string or list of strings", err.ERROR_MISSING_ACTION_DATA)
 
-        client.remove_flags_to_mail(folder_name, mail_uid, tag_list)
+        # IMAP flags are atoms and cannot contain spaces/special chars; encode (reversibly) before sending
+        encoded_tags = [encode_imap_tag(tag) for tag in tag_list]
+
+        client.remove_flags_to_mail(folder_name, mail_uid, encoded_tags)
 
         return {"action": "untag", "mail_uid": mail_uid, "tags_removed": tag_list}
 
@@ -1678,6 +1844,40 @@ class ModuleMail:
         client.add_flags_to_mail(folder_name, mail_uid, ['\\Deleted'])
 
         return {"action": "ham", "mail_uid": mail_uid, "moved_to": inbox_folder}
+
+    def _action_illegal(self, client: ClientMailServer, folder_name: str, mail_uid: str|list[str]) -> dict[str, Any]:
+        """Report a mail or a list of mails as illegal content, copy them to the Junk folder
+        and permanently remove them (no Trash copy) from their source folder.
+
+        :param folder_name: The name of the folder
+        :type folder_name: str
+        :param mail_uid: The unique identifier of the mail, or a list of them
+        :type mail_uid: str|list[str]
+        :return: Result with illegal action info
+        :rtype: dict[str, Any]
+        :raises RequestException: If operation fails
+        """
+        junk_folder = self.domain_mail_folder_name.get(cs.MAIL_FOLDER_JUNK, "Junk")
+        client.copy_mail_to_mailbox(folder_name, mail_uid, junk_folder, create_dest=True)
+        client.delete_mails_by_uid(folder_name, mail_uid, move_to_trash=False, permanently=True)
+        return {"action": "illegal", "mail_uid": mail_uid, "moved_to": junk_folder}
+
+    def _action_phishing(self, client: ClientMailServer, folder_name: str, mail_uid: str|list[str]) -> dict[str, Any]:
+        """Report a mail or a list of mails as phishing, copy them to the Junk folder
+        and permanently remove them (no Trash copy) from their source folder.
+
+        :param folder_name: The name of the folder
+        :type folder_name: str
+        :param mail_uid: The unique identifier of the mail, or a list of them
+        :type mail_uid: str|list[str]
+        :return: Result with phishing action info
+        :rtype: dict[str, Any]
+        :raises RequestException: If operation fails
+        """
+        junk_folder = self.domain_mail_folder_name.get(cs.MAIL_FOLDER_JUNK, "Junk")
+        client.copy_mail_to_mailbox(folder_name, mail_uid, junk_folder, create_dest=True)
+        client.delete_mails_by_uid(folder_name, mail_uid, move_to_trash=False, permanently=True)
+        return {"action": "phishing", "mail_uid": mail_uid, "moved_to": junk_folder}
 
     def _action_copy(self, client: ClientMailServer, folder_name: str, mail_uid: str|list[str], destination: Any) -> dict[str, Any]:
         """Copy a mail or a list of mails to another folder.

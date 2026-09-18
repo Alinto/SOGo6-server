@@ -52,7 +52,7 @@ class MailActionSchema(Schema):
     """
     action = fields.String(
         required=True,
-        validate=validate.OneOf(['tag', 'untag', 'move', 'spam', 'ham', 'copy', 'delete'])
+        validate=validate.OneOf(['tag', 'untag', 'move', 'spam', 'ham', 'copy', 'delete', 'illegal', 'phishing'])
     )
     data = fields.Raw(required=False, allow_none=True)
 
@@ -76,7 +76,7 @@ class MailBatchActionSchema(Schema):
     uids = fields.List(fields.Integer(), required=True, validate=validate.Length(min=1))
     action = fields.String(
         required=True,
-        validate=validate.OneOf(['tag', 'untag', 'move', 'spam', 'ham', 'copy', 'delete'])
+        validate=validate.OneOf(['tag', 'untag', 'move', 'spam', 'ham', 'copy', 'delete', 'illegal', 'phishing'])
     )
     data = fields.Raw(required=False, allow_none=True)
 

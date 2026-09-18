@@ -2,6 +2,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 from http import HTTPStatus
 
+from marshmallow import ValidationError
+
 from app.config.settings.DomainSettings import UserModuleSettings, UserModuleSettingsObj, MailSettings, MailSettingsObj
 from app.module.mail.ModuleMail import ModuleMail
 from app.module.mail.ModuleMailOutgoing import ModuleMailOutgoing
@@ -15,6 +17,7 @@ from app.utils.logger.logger import logger_api
 if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
     from app.auth.User import User
+    from app.utils.api.paginate_sort_filter import CollectionPaginateArgs
 
 
 class InterfaceApiMailMailbox:
@@ -243,6 +246,27 @@ class InterfaceApiMailMailbox:
             return create_api_base_response(None, ex.error)
 
 
+    def mailbox_batch_action(self, account_id: str, batch_action_data: dict[str, Any]) -> tuple[dict[str, Any], int]:
+        """Perform an action on multiple mails spanning multiple folders of the same account.
+
+        :param account_id: The account identifier
+        :type account_id: str
+        :param batch_action_data: Dictionary containing 'uids' (folder name -> list of uids),
+            'action' and optional 'data' fields
+        :type batch_action_data: dict[str, Any]
+        :return: A tuple of (API response dict, status code)
+        :rtype: tuple[dict[str, Any], int]
+        """
+        try:
+            result = self.mail_module.perform_mailbox_batch_action(account_id, batch_action_data)
+            return create_api_base_response(result)
+        except ValidationError as ex:
+            logger_api.error("Validation error in mailbox_batch_action: %s", ex.messages)
+            return create_api_base_response(None, err.ERROR_VALIDATION_ERROR)
+        except RequestException as ex:
+            logger_api.error("Request exception in mailbox_batch_action for user %s, account %s: %s", self.user.uid, account_id, str(ex))
+            return create_api_base_response(None, ex.error)
+
     def save_draft(self, account_id: str, mail_data: dict, key: str | None = None) -> tuple[dict, int]:
         """Save a mail as a draft in the account's Drafts folder.
 
@@ -296,3 +320,29 @@ class InterfaceApiMailMailbox:
                 logger_api.warning("Failed to delete draft mail uid %s for user %s, account %s: %s", draft_uid, self.user.uid, account_id, str(ex))
 
         return create_api_base_response(None)
+
+    def search_mailbox(self, account_id: str, search_params: dict, collection_param: "CollectionPaginateArgs", deleted: bool = False) -> tuple[int, dict, int]:
+        """Advanced mail search across one or multiple folders for the given account.
+
+        :param account_id: The account identifier ("0" for main account)
+        :type account_id: str
+        :param search_params: Validated search parameters (from MailboxSearchSchema)
+        :type search_params: dict
+        :param collection_param: Pagination, sorting and filtering parameters.
+        :type collection_param: CollectionPaginateArgs
+        :param deleted: If False (default), mails flagged as deleted are excluded. If
+            True, they are included alongside non-deleted mails (no filtering on the
+            deleted flag).
+        :type deleted: bool
+        :return: A tuple of (total_count, API response dict, status code)
+        :rtype: tuple[int, dict, int]
+        """
+        if account_id != cs.DEFAULT_IDENTITY_KEY_VALUE and not self.user_module_settings.SOGO_D_ALLOW_EXT_MAIL_ACCOUNT:
+            return 0, *create_api_base_response(error=err.ERROR_EXTERNAL_ACCOUNT_FORBIDDEN)
+
+        try:
+            result, total = self.mail_module.search_mails(account_id, search_params, collection_param, deleted)
+        except RequestException as ex:
+            logger_api.error("Request exception in search_mailbox for user %s, account %s: %s", self.user.uid, account_id, str(ex))
+            return 0, *create_api_base_response(None, ex.error)
+        return total, *create_api_base_response(result)
