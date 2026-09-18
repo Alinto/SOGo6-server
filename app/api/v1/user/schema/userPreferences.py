@@ -1,4 +1,4 @@
-from marshmallow import Schema, fields
+from marshmallow import Schema, fields, validate
 
 from app.utils.api.ApiBaseResponse import ApiBaseResponse
 
@@ -86,4 +86,28 @@ class UserPreferencesPatch(Schema):
                     "SOGO_U_LANGUAGE": "French",
                 }
             }
+        }
+
+class UserPreferencesFoldersPatch(Schema):
+    """
+    Schema of the body expected for PATCH /preferences/folders
+
+    Updates a single folder key's boolean value within the folders column (CALENDAR or ADDRESSBOOKS)
+    """
+    resource = fields.String(required=True, validate=validate.OneOf(["CALENDAR", "ADDRESSBOOKS"]))
+    id = fields.String(required=True)
+    value = fields.Boolean(required=True)
+
+    @classmethod
+    def example(cls) -> dict:
+        """
+        Example of data for the patch request
+
+        :return: Example data
+        :rtype: dict
+        """
+        return {
+            "resource": "CALENDAR",
+            "id": "3c4b0bc9-3aab-4243-abb2-75a5edc8c239",
+            "value": True
         }

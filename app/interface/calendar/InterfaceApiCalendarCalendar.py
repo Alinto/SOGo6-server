@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import replace
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
@@ -11,7 +12,9 @@ from app.config.settings.DomainSettings import (
 )
 from app.config.settings.UserSettings import UserCalendarGeneralSettings, UserGeneralSettings
 from app.module.admin.ModuleAdminConfig import ModuleAdminConfig
+from app.module.auth.ModuleUserSource import ModuleUserSource
 from app.module.calendar.ModuleCalendar import ModuleCalendar
+from app.factory.share.RepositoryAcl import AclEntry
 from app.module.calendar.imip.ImipBuilder import ImipBuilder
 from app.module.calendar.imip.ImipEmailBuilder import ImipEmailBuilder
 from app.module.mail.ModuleMailOutgoing import ModuleMailOutgoing
@@ -65,6 +68,7 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
     def __init__(self, process_setting: ProcessSetting, user_domain_settings: dict, user: User) -> None:
         self.user: User = user
         self._process_setting: ProcessSetting = process_setting
+        self._user_domain_settings: dict = user_domain_settings
         self.settings: CalendarContactSettingsObj = CalendarContactSettingsObj(user_domain_settings[CalendarContactSettings.subparent])
         self.module: ModuleCalendar = ModuleCalendar(process_setting, cache=sogo_cache(), agent=sogo_agent())
         # iMIP is sent through the mail module: cross-module collaboration lives in the interface.
@@ -90,7 +94,7 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         We need the owner's email. The uid is not necessarily the email - it has to be resolved
         through the user module (ModuleUserProfile). The architecture rule forbids a module calling
         another module, so this resolution cannot live in ModuleCalendar; it stays here in the
-        interface, which is why the caller pays a second lookup (the calendar module looks the
+        interface, which is why the caller pays a second lookup (the calendar/event looks the
         calendar/event up again to operate on it). When the owner is the acting user (personal
         calendar) we skip the profile fetch entirely - it would be pointless.
         """
@@ -200,7 +204,9 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
     def delete_calendar(self, key: str) -> tuple[dict[str, Any], int]:
         """Delete a calendar."""
         try:
-            self.module.delete_calendar(self.user, key)
+            shared_uids: list[str] = self.module.delete_calendar(self.user, key)
+            for shared_uid in shared_uids:
+                self._user_module.remove_folder_key(shared_uid, "CALENDAR", key, owner_key="SUBS")
             return create_api_base_response(None)
         except RequestException as ex:
             logger_api.error("delete_calendar failed for user %s key %s: %s", self.user.uid, key, ex)
@@ -320,7 +326,8 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         When no dates are provided and there is no search query, defaults to the current calendar day (UTC).
 
         :param key: Calendar key, or None to query all user calendars.
-        :param query_args: Parsed query arguments: ``start_date_time``, ``end_date_time``, ``search`` (all optional).
+        :param query_args: Parsed query arguments: ``start_date_time``, ``end_date_time``, ``search``,
+            ``only_subscribe`` (all optional).
         :return: API envelope with ``events`` list and ``total_count``, plus HTTP status code.
         """
         try:
@@ -332,12 +339,29 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
                 start = datetime(today.year, today.month, today.day, 0, 0, 0, tzinfo=timezone.utc)
                 end = datetime(today.year, today.month, today.day, 23, 59, 59, tzinfo=timezone.utc)
             calendar_user: CalendarUser = self._calendar_user_for(key) if key else CalendarUser(user=self.user, owner=self.user)
-            events: list[CalEvent] = self.module.get_all_events(calendar_user, start, end, search, key)
+            subscribed_keys: set[str] | None = self._subscribed_calendar_keys() if query_args.get("only_subscribe") else None
+            events: list[CalEvent] = self.module.get_all_events(calendar_user, start, end, search, key, subscribed_keys)
             event_list: list[dict[str, Any]] = self._events_serializer.serialize(events)
             return create_api_base_response({"events": event_list, "total_count": len(event_list)})
         except RequestException as ex:
             logger_api.error("get_events failed for user %s, calendar %s: %s", self.user.uid, key, ex)
             return create_api_base_response(None, ex.error)
+
+    def _subscribed_calendar_keys(self) -> set[str]:
+        """Return the calendar keys marked True under folders.CALENDAR (any of OWNER/SUBS/EXT/...).
+
+        ``folders`` is the raw JSON blob from sogo_user_profile: ``{"CALENDAR": {"OWNER": {key: bool, ...}, ...}}``.
+        Only the "CALENDAR" branch is relevant here; every sub-group is scanned generically so a
+        calendar counts as subscribed regardless of which group (owned, shared, external) it lives in.
+        """
+        calendar_groups: dict[str, Any] = self.user.folders.get("CALENDAR", {})
+        return {
+            calendar_key
+            for group in calendar_groups.values()
+            if isinstance(group, dict)
+            for calendar_key, is_subscribed in group.items()
+            if is_subscribed is True
+        }
 
     #
     # Tasks
@@ -647,3 +671,130 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         domain: str = get_domain_from_mail(user_uid) or ""
         raw: dict = config_module.get_one_domain_setting(domain)["settings"]
         return CalendarContactSettingsObj(raw[CalendarContactSettings.subparent])
+
+    #
+    # Calendar sharing
+    #
+    def get_calendar_share(self, key: str) -> tuple[dict[str, Any], int]:
+        """Get all user permissions for a calendar.
+        
+        :param key: Calendar key.
+        :return: API envelope with list of users and their permission levels.
+        """
+        try:
+            entries: list[AclEntry] = self.module.get_calendar_share(self.user, key)
+            return create_api_base_response(self._serialize_share_entries(entries))
+        except RequestException as ex:
+            logger_api.error("get_calendar_share failed for user %s key %s: %s", self.user.uid, key, ex)
+            return create_api_base_response(None, ex.error)
+
+    def patch_calendar_share(self, key: str, body: list[dict[str, Any]]) -> tuple[dict[str, Any], int]:
+        """Partially update user permissions for a calendar.
+
+        Only the users specified in the request body are modified.
+        Other existing permissions remain unchanged.
+
+        :param key: Calendar key.
+        :param body: List of users (uid and rights) to update.
+        :return: API envelope with updated user permissions.
+        """
+        try:
+            users: list[dict[str, Any]] = [{"uid": self._resolve_to_user(entry), "rights": entry["rights"]} for entry in body]
+            entries: list[AclEntry] = self.module.patch_calendar_share(self.user, key, users)
+            self._grant_folder_subs_keys([u["uid"] for u in users], key)
+            return create_api_base_response(self._serialize_share_entries(entries))
+        except RequestException as ex:
+            logger_api.error("patch_calendar_share failed for user %s key %s: %s", self.user.uid, key, ex)
+            return create_api_base_response(None, ex.error)
+
+    def put_calendar_share(self, key: str, body: list[dict[str, Any]]) -> tuple[dict[str, Any], int]:
+        """Replace all user permissions for a calendar.
+
+        All existing permissions are replaced by the users specified in the request body.
+
+        :param key: Calendar key.
+        :param body: List of users (uid and rights) that becomes the full set of shares.
+        :return: API envelope with new user permissions.
+        """
+        try:
+            previous_uids: set[str] = {entry.to_user for entry in self.module.get_calendar_share(self.user, key)}
+            users: list[dict[str, Any]] = [{"uid": self._resolve_to_user(entry), "rights": entry["rights"]} for entry in body]
+            entries: list[AclEntry] = self.module.put_calendar_share(self.user, key, users)
+            new_uids: set[str] = {u["uid"] for u in users}
+            self._grant_folder_subs_keys(new_uids, key)
+            for revoked_uid in previous_uids - new_uids:
+                if revoked_uid == cs.ANYONE_TO_USER:
+                    continue
+                self._user_module.remove_folder_key(revoked_uid, "CALENDAR", key, owner_key="SUBS")
+            return create_api_base_response(self._serialize_share_entries(entries))
+        except RequestException as ex:
+            logger_api.error("put_calendar_share failed for user %s key %s: %s", self.user.uid, key, ex)
+            return create_api_base_response(None, ex.error)
+
+    def post_calendar_share(self, key: str, body: list[dict[str, Any]]) -> tuple[dict[str, Any], int]:
+        """Grant full modify permissions to one or several users.
+
+        :param key: Calendar key.
+        :param body: List of users (UIDs) to grant full permissions to.
+        :return: API envelope with updated user permissions.
+        """
+        try:
+            target_uids: list[str] = [self._resolve_to_user(entry) for entry in body]
+            entries: list[AclEntry] = self.module.grant_calendar_share(self.user, key, target_uids)
+            self._grant_folder_subs_keys(target_uids, key)
+            return create_api_base_response(self._serialize_share_entries(entries))
+        except RequestException as ex:
+            logger_api.error("post_calendar_share failed for user %s key %s: %s", self.user.uid, key, ex)
+            return create_api_base_response(None, ex.error)
+
+    def _resolve_to_user(self, entry: dict[str, Any]) -> str:
+        """Resolve the ACL to_user for a share entry.
+
+        A "anyone" user_class always collapses to the SOGo pseudo-user "<default>" in
+        sogo6_acl.to_user, regardless of whatever uid the caller may have supplied.
+        """
+        if entry.get("user_class") == cs.USER_CLASS_ANY:
+            return cs.ANYONE_TO_USER
+        return entry["uid"]
+
+    def _grant_folder_subs_keys(self, target_uids: Iterable[str], key: str) -> None:
+        """Add ``key`` to folders.CALENDAR.SUBS for each target uid so it surfaces in their webmail.
+
+        Cross-module orchestration (ModuleCalendar + ModuleUserProfile) is intentionally kept in
+        this interface layer, since a module must never call another module directly. The
+        "anyone" pseudo-user has no real folders to update, so it is skipped.
+        """
+        for target_uid in target_uids:
+            if target_uid == cs.ANYONE_TO_USER:
+                continue # The "anyone" pseudo-user has no real folders to update, so skip it.
+            self._user_module.add_folder_key(target_uid, "CALENDAR", key, owner_key="SUBS")
+
+    def _serialize_share_entries(self, entries: list[AclEntry]) -> list[dict[str, Any]]:
+        """Resolve each ACL entry's to_user into the API's CalendarShareUserSchema shape.
+
+        A to_user not known by any user source is still returned (user_class ANY) so the caller
+        can see the raw grant instead of silently losing it. The "<default>" pseudo to_user is
+        the "anyone" share and is never resolved through the user source.
+        """
+        module_us: ModuleUserSource | None = None
+        result: list[dict[str, Any]] = []
+        for entry in entries:
+            if entry.to_user == cs.ANYONE_TO_USER:
+                result.append({
+                    "c_email": "",
+                    "uid": "",
+                    "user_class": cs.USER_CLASS_ANY,
+                    "rights": entry.rights,
+                })
+                continue
+            if module_us is None:
+                module_us = ModuleUserSource.init_from_domain_settings(self._user_domain_settings)
+            target: User = User(uid=entry.to_user)
+            module_us.get_contact_info_for_user(target)
+            result.append({
+                "c_email": target.uid, #TODO provisoire pour l'UI, target.mail if not target.anonymous else "", #TODO : return empty string for unknown users?
+                "uid": entry.to_user,
+                "user_class": cs.USER_CLASS_ANON if target.anonymous else "", #TODO : quand on aura user sources? on mettra le user_class de la source, sinon on mettra ANON pour les inconnus?
+                "rights": entry.rights,
+            })
+        return result

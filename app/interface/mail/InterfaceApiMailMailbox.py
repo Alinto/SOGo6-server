@@ -2,6 +2,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 from http import HTTPStatus
 
+from marshmallow import ValidationError
+
 from app.config.settings.DomainSettings import UserModuleSettings, UserModuleSettingsObj, MailSettings, MailSettingsObj
 from app.module.mail.ModuleMail import ModuleMail
 from app.module.mail.ModuleMailOutgoing import ModuleMailOutgoing
@@ -242,6 +244,27 @@ class InterfaceApiMailMailbox:
             logger_api.error("Request exception in purge_mailbox for user %s, account %s: %s", self.user.uid, account_id, str(ex))
             return create_api_base_response(None, ex.error)
 
+
+    def mailbox_batch_action(self, account_id: str, batch_action_data: dict[str, Any]) -> tuple[dict[str, Any], int]:
+        """Perform an action on multiple mails spanning multiple folders of the same account.
+
+        :param account_id: The account identifier
+        :type account_id: str
+        :param batch_action_data: Dictionary containing 'uids' (folder name -> list of uids),
+            'action' and optional 'data' fields
+        :type batch_action_data: dict[str, Any]
+        :return: A tuple of (API response dict, status code)
+        :rtype: tuple[dict[str, Any], int]
+        """
+        try:
+            result = self.mail_module.perform_mailbox_batch_action(account_id, batch_action_data)
+            return create_api_base_response(result)
+        except ValidationError as ex:
+            logger_api.error("Validation error in mailbox_batch_action: %s", ex.messages)
+            return create_api_base_response(None, err.ERROR_VALIDATION_ERROR)
+        except RequestException as ex:
+            logger_api.error("Request exception in mailbox_batch_action for user %s, account %s: %s", self.user.uid, account_id, str(ex))
+            return create_api_base_response(None, ex.error)
 
     def save_draft(self, account_id: str, mail_data: dict, key: str | None = None) -> tuple[dict, int]:
         """Save a mail as a draft in the account's Drafts folder.
