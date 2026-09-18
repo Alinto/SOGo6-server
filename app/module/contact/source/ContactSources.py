@@ -15,6 +15,7 @@ from app.utils.logger.logger import logger_contact
 
 if TYPE_CHECKING:
     from app.config.settings.DomainSettings import UserSourceSettingsObj
+    from app.factory.share.shareContact import ShareContact
     from app.manager.db.ClientSQL import ClientSQL
     from app.manager.storage.ClientStorage import ClientStorage
     from app.module.contact.model.CardAddressBook import CardAddressBook
@@ -35,9 +36,10 @@ class ContactSources:
     for the annuaire (SQL or LDAP), one ContactSourceDirectory per source.
     """
 
-    def __init__(self, db: ClientSQL) -> None:
+    def __init__(self, db: ClientSQL, share: ShareContact | None = None) -> None:
         self._db = db
         self._repo_addressbook = RepositoryAddressBook(db)
+        self._share: ShareContact | None = share
 
     def purge_orphans(self, file_store: ClientStorage) -> int:
         """Physically remove soft-deleted rows, dangling list memberships and orphan media; return total reclaimed.
@@ -80,12 +82,21 @@ class ContactSources:
     def get_by_key(
         self, user_uid: str, key: str, user_sources: dict[str, UserSourceSettingsObj] | None = None,
     ) -> ContactSource | None:
-        """Return the source for a specific address book, or None if not found."""
+        """Return the source for a specific address book, or None if not found.
+
+        Resolves address books owned by user_uid, shared with user_uid directly (sogo6_acl),
+        and shared with "anyone" when user_uid shares the owner's mail domain (see
+        ShareContact.get_user_or_anyone).
+        """
         # TODO directory: route on the key. Directory books carry a reserved "dir:<source_uid>"
         # prefix (a raw UUID never starts with it), so the branch is unambiguous: strip the prefix,
         # look the source_uid up in user_sources, build a synthetic directory book. A plain UUID
         # falls through to the DB lookup below. Blocked on the user source query primitive.
         book = self._repo_addressbook.find_by_key(user_uid, key)
+        if book is None and self._share is not None:
+            candidate: CardAddressBook | None = self._repo_addressbook.find_by_key_only(key)
+            if candidate is not None and self._share.get_user_or_anyone(user_uid, candidate.user_uid, key) is not None:
+                book = candidate
         return self.get(book, user_sources) if book is not None else None
 
     def get_contacts(  # pylint: disable=too-many-locals
