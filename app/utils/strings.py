@@ -1,3 +1,4 @@
+import base64
 import re
 import unicodedata
 
@@ -187,6 +188,62 @@ def imap_join_folders(delimiter: str, first_path: str, second_path: str) -> str:
         # second path like this '"my name"'
         second_path = second_path[1:-1]
     return quote(f"{first_path}{delimiter}{second_path}")
+
+# Prefix marking a tag as base32-encoded. Kept short and IMAP-atom-safe (letters/digits only)
+# so it never collides with a plain user tag that happens to look like base32.
+_IMAP_TAG_ENCODED_PREFIX = "B32-"
+
+
+def encode_imap_tag(tag: str) -> str:
+    """Encode a user-provided tag into a value that is safe to use as an IMAP flag/keyword.
+
+    Per RFC 3501, a flag is an "atom" and cannot contain spaces, control characters or any of
+    the special chars ( ) { % * " \\ ] plus SP and CTL. IMAP servers (Dovecot included) will
+    otherwise silently split on whitespace, turning a single tag like "test avec espace" into
+    three distinct flags ("test", "avec", "espace").
+
+    To keep the round-trip lossless (spaces, accents, underscores, punctuation...), the tag is
+    base32-encoded (padding stripped) and prefixed with a marker. Base32 only produces
+    ``[A-Z2-7]`` characters, which are always valid IMAP atom characters.
+
+    Tags that are already plain IMAP-safe atoms (letters/digits/._- only, no spaces) are
+    returned unchanged to keep flags human-readable on the wire when possible.
+    System flags (starting with '\\', e.g. \\Seen, \\Deleted) are always returned unchanged.
+
+    :param tag: The raw tag value to encode.
+    :type tag: str
+    :return: A value safe to use as a single IMAP flag.
+    :rtype: str
+    """
+    if tag.startswith('\\'):
+        return tag
+    if re.fullmatch(r'[A-Za-z0-9._-]+', tag):
+        return tag
+    encoded = base64.b32encode(tag.encode('utf-8')).decode('ascii').rstrip('=')
+    return _IMAP_TAG_ENCODED_PREFIX + encoded
+
+
+def decode_imap_tag(flag: str) -> str:
+    """Decode an IMAP flag/keyword previously encoded with :func:`encode_imap_tag`.
+
+    Flags that don't carry the encoding prefix (system flags, or plain tags that were kept
+    as-is because they were already IMAP-safe) are returned unchanged.
+
+    :param flag: The IMAP flag value as received from the server.
+    :type flag: str
+    :return: The original, human-readable tag value.
+    :rtype: str
+    """
+    if not flag.startswith(_IMAP_TAG_ENCODED_PREFIX):
+        return flag
+    encoded = flag[len(_IMAP_TAG_ENCODED_PREFIX):]
+    padding = '=' * (-len(encoded) % 8)
+    try:
+        return base64.b32decode(encoded + padding).decode('utf-8')
+    except (ValueError, UnicodeDecodeError):
+        # Not actually one of our encoded tags (unlikely collision); return as-is.
+        return flag
+
 
 def string_to_sort_score(s: str) -> int:
     """Convert a string to an integer score for sorting purposes."""
