@@ -277,13 +277,13 @@ class UserSourceSettings(SogoSchema):
     US_DB_FIELD_PWD            = fields.String(dump_default='c_password', load_default='c_password') # Name of the column with the user password
     US_DB_PREPEND_PWD_SCHEME = fields.Boolean(load_default=False, dump_default=False) #IS the password stored in the db with the shceme like this '{scheme)encryptedValue'
     US_DB_FIELD_DOMAIN       = fields.String() #Fields where the user's domain is.
-    US_DB_PWD_POLICY       = fields.Boolean(load_default=False, dump_default=False) #Policies on password CAREFUL CONFLICT WITH LDAP_PWD_POLICY
+    US_DB_PWD_POLICY       = fields.Boolean(load_default=False, dump_default=False) #Policies on password
     US_DB_PWD_LEN_MIN = fields.Integer(load_default=4, dump_default=4,validate=validate.Range(min=1)) #Minimum lenght of password
     US_DB_PWD_LEN_MAX = fields.Integer(load_default=0, dump_default=0,validate=validate.Range(min=0)) #Maximum lenght of password, 0 means no limit
-    US_DB_PWD_UPPERCASE_MIN = fields.Integer(load_default=-1, dump_default=-1,validate=validate.Range(min=-1)) #Minimum number of uppercase letter, 0 means no need
-    US_DB_PWD_LOWERCASE_MIN = fields.Integer(load_default=-1, dump_default=-1,validate=validate.Range(min=-1)) #Minimum number of lowercase letter, 0 means no need
-    US_DB_PWD_DIGITS_MIN     = fields.Integer(load_default=-1, dump_default=-1,validate=validate.Range(min=-1)) #Minimum number of digits, 0 means no need
-    US_DB_PWD_SPECIAL_MIN   = fields.Integer(load_default=-1, dump_default=-1,validate=validate.Range(min=-1)) #Minimum number of special char letter, 0 means no need
+    US_DB_PWD_UPPERCASE_MIN = fields.Integer(load_default=-1, dump_default=-1,validate=validate.Range(min=-1)) #Minimum number of lowercase letter, 0 means not allowed, -1 means not needed but allowed
+    US_DB_PWD_LOWERCASE_MIN = fields.Integer(load_default=-1, dump_default=-1,validate=validate.Range(min=-1)) #Minimum number of uppercase letter, 0 means not allowed, -1 means not needed but allowed
+    US_DB_PWD_DIGITS_MIN     = fields.Integer(load_default=-1, dump_default=-1,validate=validate.Range(min=-1)) #Minimum number of digits, 0 means not allowed, -1 means not needed but allowed
+    US_DB_PWD_SPECIAL_MIN   = fields.Integer(load_default=-1, dump_default=-1,validate=validate.Range(min=-1)) #Minimum number of special char, 0 means not allowed, -1 means not needed but allowed
     US_DB_PWD_SPECIAL_ALLOWED = fields.String(load_default=r'%$&*(){}[]!?\/@#.,:;+=<>-_', dump_default=r'%$&*(){}[]!?\/@#.,:;+=<>-_') #String that contains allowed special character
 
     #MApping contact info
@@ -311,7 +311,7 @@ class UserSourceSettings(SogoSchema):
     US_HIDDEN_USER = fields.List(fields.String()) #List of user's uid to never show to others when searching or autocompletion ex: noreply@sogo.nu
     US_DOMAIN_PARTITION = fields.Boolean(load_default=False, dump_default=False) #If true, User can only see users from the same domain.
     US_DOMAIN_VISIBLE = fields.List(fields.String()) #If US_DOMAIN_PARTITION == True, add domains that will still be see by all
-                                            #"ALL" -> all domains, "sogo.nu" -> sogo.nu is visible by all, "!sogo.nu", sogo is visible for no on (to be used wih ALL))
+                                            #"ALL" -> all domains, "sogo.nu" -> sogo.nu is visible by all, "!sogo.nu", sogo is visible for no one (to be used wih ALL))
 
     #Resource
     US_HAS_RESOURCE = fields.Boolean(required=True) #Does this user source has resources

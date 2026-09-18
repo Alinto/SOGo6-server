@@ -65,7 +65,7 @@ to change the name that will be see by users. IS not mandatory unique, even if i
 
 * *US_DESCRIPTION*: A string, will also only be seen by admin. Only add information for Admins, nothing else.
 
-* *US_TYPE*: Define the kinf of User Source. Can either be 'ldap' or 'db'
+* *US_TYPE*: Define the kind of User Source. Can either be 'ldap' or 'db'
 
 == Common settings
 
@@ -76,10 +76,10 @@ Some settings is asking for the name of:
 * a field in case of ldap
 * a column's name in case of sql
 
-This field or column must stored the ino needed by the settings. E.g. _US_FIELD_UID_ needs to know where the uid (with what your user login) is. It can be
+This field or column must stored the info needed by the setting. E.g. _US_FIELD_UID_ needs to know where the uid (with what your user login) is. It can be
 the field 'uid' or 'mail' in case of ldap, or the column 'c_uid' or 'login' for sql.
 
-Suach case will be refer as *field/column*.
+Such case will be refer as *field/column*.
 ====
 
 * *US_FIELD_UID*: Default to 'uid'. Field/column where the unique identifier of your user is found. This is what your user will use to login.
@@ -90,7 +90,7 @@ It must be unique.
 If you're using the same sql user source as SOGo 5, set this settings to 'c_uid'
 ====
 
-* *US_FIELD_CN*: fDefault to 'cn',$$. Field/column where to find the Complete Name of your user.
+* *US_FIELD_CN*: Default to 'cn'. Field/column where to find the Complete Name of your user.
 
 [CAUTION]
 ====
@@ -102,9 +102,11 @@ If you're using the same sql user source as SOGo 5, set this settings to 'c_cn'
 [IMPORTANT]
 ====
 The first element of the list must contains the main mail of the users. All the others will be considered as aliases. User will be able to choose a alias
-when seding a mail.
+when sending a mail.
 
-For aliases, **with ldap** (considering you have a field mailAliases):
+For aliases, 
+
+**with ldap** (considering you have a field mailAliases):
 ```ldif
 mailAlias: myalias@sogo.nu
 mailAlias: myotheralias@sogo.nu
@@ -115,8 +117,8 @@ mailAlias: myotheralias@sogo.nu
 Obiousvly, you can also have several field/columns and add them to the list
 ====
 
-* *US_MAIL_SERVER_LOGIN*: By default, SOGo use the main mail of the user for mail server (dovecot, cyrus) authentication. If this is not the case, set this setting
-with the field/column where to find the correct login
+* *US_MAIL_SERVER_LOGIN*: By default, SOGo use the user uid for mail server (dovecot, cyrus) authentication. If this is not the case, set this setting
+with the field/column where to find the correct login.
 * *US_MAIL_FILTERING_LOGIN*: Same for filtering server (sieve)
 * *US_MAIL_OUTGOING_LOGIN*: Same for outgoing server (postfix) if you have enable the authentication for it.
 * *US_FILTER*: Additional filter to use when querying the user source. Use a proto-syntax that will be converted into ldap filter or sql WHERE condition.
@@ -298,7 +300,7 @@ E.g.:
 
 [source, ldif]
 ----
-DN: uid=user13245,ou=users,dc=sogo,dc=nu
+Ddn: uid=user13245,ou=users,dc=sogo,dc=nu
 uid: sogo1
 mail: sogo1@sogo.nu
 ----
@@ -379,8 +381,10 @@ enable the password update feature.
 
 * *US_DB_FIELD_PWD*: String, default to 'c_password'. Name of the column where the password are.
 * *US_DB_PREPEND_PWD_SCHEME*: Boolean, default to false. If true, add the encryption scheme before the password (E.g. '\{SHA-256\}adsqhjgdsjqgdqs')
-* *US_DB_FIELD_DOMAIN*: String. Name of the column where the user's domain is. Id set, SOGo 6 will partition user by domain when doing query.
-(E.g. for user sogo@sogo.nu, it will add a clause `"c_domain" = "sogo.nu"` to all queries).
+* *US_DB_FIELD_DOMAIN*: String. Name of the column where the user's domain is. If set, SOGo 6 will partition user by domain when doing query.
+(E.g. for user sogo@sogo.nu, it will add a clause `"c_domain" = "sogo.nu"` to all queries). #TODO Not exactly this, here column domain is more a OU,
+so users from differents mail's domain can be in the sams OU/domain. When logging the user, it will get the value of colum domain and keep it in cache for all
+following query. SO user "sogo@sogo.nu" and "saga@saga.nu" can be together if they have the same domain value.
 
 === Password Policy
 
@@ -398,5 +402,43 @@ The settings are:
 * *US_DB_PWD_LOWERCASE_MIN*: Integer, default to -1. Required number of lowercase char in the password. -1 means not required but allowed. 0 means they are not allowed.
 * *US_DB_PWD_DIGITS_MIN*: Integer, default to -1. Required number of digits in the password. -1 means not required but allowed. 0 means they are not allowed.
 * *US_DB_PWD_SPECIAL_MIN*: Integer, default to -1. Required number of special char in the password. -1 means not required but allowed. 0 means they are not allowed.
-** *US_DB_PWD_SPECIAL_ALLOWED*: String, default to `%$&*(){}[]!?\/@#.,:;+=<>-_.` List of special char allowed. 
+* *US_DB_PWD_SPECIAL_ALLOWED*: String, default to `%$&*(){}[]!?\/@#.,:;+=<>-_.` List of special char allowed. 
+
+== Contact Info
+
+**NOT IMPLEMENTED**
+
+As you can see, only the Common Name and Mail are needed. However you can map any others colmuns/fields you have with the param
+**US_MAPPING**.
+
+[NOTE]
+====
+E.g. if you those infos:
+
+[source, ldif]
+----
+Ddn: uid=user13245,ou=users,dc=sogo,dc=nu
+uid: sogo1
+mail: sogo1@sogo.nu
+department: R&D
+job: Lead Dev
+----
+
+US_MAPPING = {
+    "job_title": "job",
+    "department": "department"
+}
+====
+
+Those info will be visible by the user itself on its profile page and by the others if the user source is an Address Book.
+
+== Auth and Address Book
+
+A User Source can be used for Authentication and/or be an Address Book.
+
+Authentication is used when **SOGO_D_AUTH_TYPE** is set to `plain` (See Auth Setting). If several user sources are provided for authentication, SOGo 6
+will try user's login for each source until a match. If there is nos user source set for authentication, SOGo will throw an error.
+
+Address Book means the user will see a Global Address Book in this contact view. It also enable the autcompletion feature when writring a mail,
+adding an attendee to an event... 
 

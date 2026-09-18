@@ -33,7 +33,7 @@ dev_ldap_conf = {
     "ldap_enc"          : "None",
     "ldap_bind_dn"      : LOGIN_DN,
     "ldap_bind_pwd"     : LOGIN_PW,
-    "ldap_base_dn"      : "ou=users,dc=example,dc=org",
+    "ldap_base_dn"      : "ou=%d,dc=example,dc=org",
     "ldap_scope"        : "SUB",
     "ldap_uid"          : "uid",
     "ldap_id"           : "uid",
@@ -45,7 +45,7 @@ dev_ldap_conf = {
     "ldap_pwd_policy"   : False
 }
 
-USE_MANAGER = False
+USE_MANAGER = True
 
 ################
 #LDAP LIB ALONE#
@@ -97,17 +97,18 @@ if USE_MANAGER:
     #     print(type(e))
     #     print(e)
 
-    # ret = l.search_s("ou=users,dc=example,dc=org", ldap.SCOPE_SUBTREE, "objectclass=*") # pylint: disable=no-member
-    # print(ret)
+    l.bind_s(LOGIN_DN, LOGIN_PW)
+    ret = l.search_s("dc=example,dc=org", ldap.SCOPE_SUBTREE, "(dn:dn:=ou=sogo.com)") # pylint: disable=no-member
+    print(ret)
 
     # #Beware of ret param are str but value are bytes
 
-    s="Joe*"
-    print(s)
-    s = ldap.filter.escape_filter_chars(s,escape_mode=0)
-    print(s)
-    s = s.replace(r"\2a", '*')
-    print(s)
+    # s="Joe*"
+    # print(s)
+    # s = ldap.filter.escape_filter_chars(s,escape_mode=0)
+    # print(s)
+    # s = s.replace(r"\2a", '*')
+    # print(s)
 
 else:
     manager = ClientLdap(**dev_ldap_conf)
