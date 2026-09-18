@@ -12,11 +12,14 @@ from app.module.calendar.repository.RepositoryCalendar import RepositoryCalendar
 from app.module.calendar.rrule.RecurrenceScopeProcessor import EventAction, ScopeResult
 from app.module.calendar.source.CalendarSourceDb import CalendarSourceDb
 from app.module.calendar.source.CalendarSourceIcsMirror import CalendarSourceIcsMirror
+from app.utils import constants as cs
 from app.utils import errors as err
 from app.utils.exceptions import RequestException
 from app.utils.logger.logger import logger_calendar
+from app.utils.strings import get_domain_from_mail
 
 if TYPE_CHECKING:
+    from app.factory.share.shareCalendar import ShareCalendar
     from app.manager.db.ClientSQL import ClientSQL
     from app.module.calendar.source.CalendarSource import CalendarSource
 
@@ -30,9 +33,10 @@ class CalendarSources:
     operate across calendars rather than on a single resolved source.
     """
 
-    def __init__(self, db: ClientSQL) -> None:
+    def __init__(self, db: ClientSQL, share: ShareCalendar | None = None) -> None:
         self._db = db
         self._repo_calendar = RepositoryCalendar(db)
+        self._share: ShareCalendar | None = share
 
     def get(self, calendar: CalCalendar) -> CalendarSource:
         """Return the appropriate CalendarSource for the given calendar.
@@ -50,17 +54,41 @@ class CalendarSources:
         logger_calendar.error("Unknown source_type=%s for calendar key=%s", calendar.source_type, calendar.key)
         raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
 
-    def get_all(self, user_uid: str) -> list[CalendarSource]:
-        """Return a source for every calendar owned by user_uid.
+    def _get_shared_calendars(self, user_uid: str) -> list[CalCalendar]:
+        """Return every calendar shared with user_uid, directly or via an "anyone" share.
 
-        TODO(ACL module): this is the single scope chokepoint for resolution, operations and
-        listings. Today it returns only calendars OWNED by user_uid. When calendar sharing lands,
-        it must also surface calendars SHARED WITH user_uid (own + shared, read from
-        sogo_calendar_shares) - that one change activates delegated access everywhere downstream
-        (owner resolution, event lookups, get_all_events/get_all_tasks), with per-calendar permissions then
-        enforced by CalendarAclEngine.
+        Directly: sogo6_acl entries where to_user=user_uid. Via "anyone": sogo6_acl entries where
+        to_user="<default>", restricted to calendars whose owner shares user_uid's mail domain
+        (see ShareCalendar.get_user_or_anyone). Skips entries whose key no longer resolves to a
+        calendar (deleted resource, stale ACL row).
         """
-        return [self.get(cal) for cal in self._repo_calendar.find_all(user_uid)]
+        if self._share is None:
+            return []
+        shared: list[CalCalendar] = []
+        seen_keys: set[str] = set()
+        for entry in self._share.get_keys_shared_with(user_uid):
+            cal: CalCalendar | None = self._repo_calendar.find_by_key_only(entry.key)
+            if cal is not None and cal.key not in seen_keys:
+                shared.append(cal)
+                seen_keys.add(cal.key)
+        user_domain: str | None = get_domain_from_mail(user_uid)
+        if user_domain:
+            for entry in self._share.get_keys_shared_with(cs.ANYONE_TO_USER):
+                if entry.key in seen_keys:
+                    continue
+                cal = self._repo_calendar.find_by_key_only(entry.key)
+                if (cal is not None and cal.key not in seen_keys
+                        and cal.user_uid != user_uid
+                        and get_domain_from_mail(cal.user_uid) == user_domain):
+                    shared.append(cal)
+                    seen_keys.add(cal.key)
+        return shared
+
+    def get_all(self, user_uid: str) -> list[CalendarSource]:
+        """Return a source for every calendar owned by, or shared with, user_uid."""
+        owned: list[CalCalendar] = self._repo_calendar.find_all(user_uid)
+        shared: list[CalCalendar] = self._get_shared_calendars(user_uid)
+        return [self.get(cal) for cal in owned + shared]
 
     def get_default(self, user_uid: str) -> CalendarSource | None:
         """Return the default writable calendar source for user_uid, or None if the user has no local calendar."""
@@ -91,8 +119,17 @@ class CalendarSources:
         raise RequestException(error=err.ERROR_CALENDAR_EVENT_NOT_FOUND)
 
     def get_by_key(self, user_uid: str, key: str) -> CalendarSource | None:
-        """Return the source for a specific calendar, or None if not found."""
+        """Return the source for a specific calendar, or None if not found.
+
+        Resolves calendars owned by user_uid, calendars shared with user_uid directly (sogo6_acl),
+        and calendars shared with "anyone" when user_uid shares the owner's mail domain
+        (see ShareCalendar.get_user_or_anyone).
+        """
         cal = self._repo_calendar.find_by_key(user_uid, key)
+        if cal is None and self._share is not None:
+            candidate: CalCalendar | None = self._repo_calendar.find_by_key_only(key)
+            if candidate is not None and self._share.get_user_or_anyone(user_uid, candidate.user_uid, key) is not None:
+                cal = candidate
         return self.get(cal) if cal is not None else None
 
     def get_by_share_token(self, share_token: str) -> CalendarSource | None:

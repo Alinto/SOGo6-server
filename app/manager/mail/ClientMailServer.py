@@ -114,6 +114,21 @@ class ClientMailServer(metaclass=ABCMeta):
         """
 
     @abstractmethod
+    def get_acl_raw(self, folder_path: str) -> Iterator[tuple[str, str]]:
+        """Get the raw Access Control List (ACL) for a folder, with no SOGo rights conversion.
+
+        Uses the IMAP GETACL command and yields the IMAP rights characters exactly as returned
+        by the server (e.g. "lrswipkxtea"), for callers that already work with their own
+        rights-code correspondence table instead of the legacy SOGo rights dictionary.
+
+        :param folder_path: The name of the folder to get ACL for.
+        :type folder_path: str
+        :yield: tuples of (identifier, imap_rights) where imap_rights is the raw ACL string.
+        :rtype: Iterator[tuple[str, str]]
+        :raises RequestException: If not connected to the server or if getting ACL fails.
+        """
+
+    @abstractmethod
     def set_acl(self, folder_path: str, identifier: str, rights: dict[str, Any]) -> None:
         """Set ACL rights for a specific user/identifier on a folder.
 
