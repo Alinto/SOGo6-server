@@ -713,9 +713,9 @@ class MailboxSearchSchema(Schema):
         metadata={"description": "Logical operator combining the search criteria below: 'AND' (default) requires every provided criterion to match, 'OR' requires at least one to match"}
     )
     text = fields.String(required=False, allow_none=True, load_default=None, metadata={"description": "Full-text search in body and headers"})
-    from_ = fields.String(required=False, allow_none=True, load_default=None, data_key="from", metadata={"description": "Filter by sender email address"})
-    to = fields.String(required=False, allow_none=True, load_default=None, metadata={"description": "Filter by recipient email address (matches either the To or the Cc header)"})
-    bcc = fields.String(required=False, allow_none=True, load_default=None, metadata={"description": "Filter by Bcc recipient email address"})
+    from_ = fields.List(fields.String(), required=False, allow_none=True, load_default=None, data_key="from", metadata={"description": "Filter by sender email address(es). A mail matches if its sender is any of the given addresses"})
+    to = fields.List(fields.String(), required=False, allow_none=True, load_default=None, metadata={"description": "Filter by recipient email address(es) (matches either the To or the Cc header). A mail matches if any of the given addresses appears in either header"})
+    bcc = fields.List(fields.String(), required=False, allow_none=True, load_default=None, metadata={"description": "Filter by Bcc recipient email address(es). A mail matches if its Bcc header contains any of the given addresses"})
     subject = fields.String(required=False, allow_none=True, load_default=None, metadata={"description": "Filter by subject (substring match)"})
     has_attachment = fields.Boolean(required=False, allow_none=True, load_default=None, metadata={"description": "Filter mails that have (or don't have) attachments"})
     attachment_type = fields.List(fields.String(), required=False, allow_none=True, load_default=None, metadata={"description": "Filter by attachment file extensions (e.g. ['pdf', 'jpg'])"})
@@ -737,9 +737,9 @@ class MailboxSearchSchema(Schema):
         return {
             "operator": "AND",
             "text": "contrat urgent",
-            "from": "customer@entreprise.com",
-            "to": "jdoe@domaine.com",
-            "bcc": "hidden@domaine.com",
+            "from": ["customer@entreprise.com", "provider@entreprise.com"],
+            "to": ["jdoe@domaine.com"],
+            "bcc": ["hidden@domaine.com"],
             "subject": "Projet X",
             "has_attachment": True,
             "attachment_type": ["pdf", "jpg"],

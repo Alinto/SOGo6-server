@@ -1855,28 +1855,28 @@ class TestBuildSearchCriteria:
     def test_default_operator_is_and(self):
         client = make_client()
         criteria = client.build_search_criteria(
-            {"subject": "Projet X", "from_": "a@b.com"}, deleted=False
+            {"subject": "Projet X", "from_": ["a@b.com"]}, deleted=False
         )
         assert criteria == '(NOT DELETED FROM "a@b.com" SUBJECT "Projet X")'
 
     def test_explicit_and_operator_same_as_default(self):
         client = make_client()
         criteria = client.build_search_criteria(
-            {"operator": "AND", "subject": "Projet X", "from_": "a@b.com"}, deleted=False
+            {"operator": "AND", "subject": "Projet X", "from_": ["a@b.com"]}, deleted=False
         )
         assert criteria == '(NOT DELETED FROM "a@b.com" SUBJECT "Projet X")'
 
     def test_or_operator_combines_two_fields(self):
         client = make_client()
         criteria = client.build_search_criteria(
-            {"operator": "OR", "subject": "Projet X", "from_": "a@b.com"}, deleted=False
+            {"operator": "OR", "subject": "Projet X", "from_": ["a@b.com"]}, deleted=False
         )
         assert criteria == '(NOT DELETED OR FROM "a@b.com" SUBJECT "Projet X")'
 
     def test_or_operator_combines_more_than_two_fields(self):
         client = make_client()
         criteria = client.build_search_criteria(
-            {"operator": "OR", "subject": "Projet X", "from_": "a@b.com", "is_read": False},
+            {"operator": "OR", "subject": "Projet X", "from_": ["a@b.com"], "is_read": False},
             deleted=False,
         )
         assert criteria == '(NOT DELETED OR FROM "a@b.com" (OR SUBJECT "Projet X" UNSEEN))'
@@ -1891,14 +1891,14 @@ class TestBuildSearchCriteria:
     def test_deleted_true_applies_no_deleted_filter_regardless_of_operator(self):
         client = make_client()
         criteria = client.build_search_criteria(
-            {"operator": "OR", "subject": "Projet X", "from_": "a@b.com"}, deleted=True
+            {"operator": "OR", "subject": "Projet X", "from_": ["a@b.com"]}, deleted=True
         )
         assert criteria == '(OR FROM "a@b.com" SUBJECT "Projet X")'
 
     def test_or_operator_combines_to_with_another_field(self):
         client = make_client()
         criteria = client.build_search_criteria(
-            {"operator": "OR", "to": "x@y.com", "subject": "Projet X"},
+            {"operator": "OR", "to": ["x@y.com"], "subject": "Projet X"},
             deleted=False,
         )
         assert criteria == (
@@ -1908,16 +1908,48 @@ class TestBuildSearchCriteria:
     def test_to_field_matches_to_or_cc_header(self):
         client = make_client()
         criteria = client.build_search_criteria(
-            {"to": "x@y.com"}, deleted=False
+            {"to": ["x@y.com"]}, deleted=False
         )
         assert criteria == '(NOT DELETED (OR TO "x@y.com" CC "x@y.com"))'
 
     def test_bcc_field(self):
         client = make_client()
         criteria = client.build_search_criteria(
-            {"bcc": "x@y.com"}, deleted=False
+            {"bcc": ["x@y.com"]}, deleted=False
         )
         assert criteria == '(NOT DELETED BCC "x@y.com")'
+
+    def test_from_field_multiple_addresses_are_ored(self):
+        client = make_client()
+        criteria = client.build_search_criteria(
+            {"from_": ["a@b.com", "c@d.com"]}, deleted=False
+        )
+        assert criteria == '(NOT DELETED (OR FROM "a@b.com" FROM "c@d.com"))'
+
+    def test_from_field_more_than_two_addresses_are_ored(self):
+        client = make_client()
+        criteria = client.build_search_criteria(
+            {"from_": ["a@b.com", "c@d.com", "e@f.com"]}, deleted=False
+        )
+        assert criteria == (
+            '(NOT DELETED (OR FROM "a@b.com" (OR FROM "c@d.com" FROM "e@f.com")))'
+        )
+
+    def test_to_field_multiple_addresses_are_ored(self):
+        client = make_client()
+        criteria = client.build_search_criteria(
+            {"to": ["a@b.com", "c@d.com"]}, deleted=False
+        )
+        assert criteria == (
+            '(NOT DELETED (OR (OR TO "a@b.com" CC "a@b.com") (OR TO "c@d.com" CC "c@d.com")))'
+        )
+
+    def test_bcc_field_multiple_addresses_are_ored(self):
+        client = make_client()
+        criteria = client.build_search_criteria(
+            {"bcc": ["a@b.com", "c@d.com"]}, deleted=False
+        )
+        assert criteria == '(NOT DELETED (OR BCC "a@b.com" BCC "c@d.com"))'
 
     def test_no_user_criteria_and_deleted_true_returns_all(self):
         client = make_client()

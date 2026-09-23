@@ -228,9 +228,10 @@ class ApiMailBoxesAccountSearch(MethodView):
         * **include_subfolders**: bool, default True - when True, also search the subfolders of each folder listed in "folders"; when False, search only the exact folders listed. Ignored when "folders" is empty or ["all"].
         * **date_range**: dict, date range for the search (e.g. {"from": "2023-01-01", "to": "2023-01-31"})
         * **has_attachments**: bool, whether to search for emails with attachments
-        * **to**: str, email address to search for in either the recipient (To) or copy (Cc) headers
-        * **bcc**: str, blind copy (Bcc) email address to search for
-        * **from**: list[str], list of sender email addresses to search for
+        * **to**: list[str], recipient email addresses to search for in either the recipient (To) or copy (Cc) headers.
+          A mail matches if any of the given addresses appears in either header.
+        * **bcc**: list[str], blind copy (Bcc) email addresses to search for. A mail matches if any of the given addresses appears in the Bcc header.
+        * **from**: list[str], list of sender email addresses to search for. A mail matches if its sender is any of the given addresses.
         * **subject** : str, keywords to search for in the email subject
         * **attachment_type**: list[str], list of attachment types to search for (e.g. ["pdf", "jpg"])
         * **is_read**: bool, whether to search for read or unread emails
