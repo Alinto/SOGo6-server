@@ -3,7 +3,9 @@ from __future__ import annotations
 import dataclasses
 from typing import TYPE_CHECKING
 
+from app.auth.User import User
 from app.module.calendar.model.CalendarPermissions import CalendarPermissions
+from app.module.calendar.model.CalendarUser import CalendarUser
 from app.module.calendar.model.enums.CalendarPermissionAction import CalendarPermissionAction
 from app.module.calendar.model.enums.CalendarShareLevel import CalendarShareLevel
 from app.module.calendar.model.enums.CalendarSourceType import CalendarSourceType
@@ -15,7 +17,6 @@ if TYPE_CHECKING:
     from app.factory.share.shareCalendar import ShareCalendar
     from app.module.calendar.model.CalCalendar import CalCalendar
     from app.module.calendar.model.CalEvent import CalEvent
-    from app.module.calendar.model.CalendarUser import CalendarUser
 
 _BUSY_TITLE = "Busy"
 
@@ -153,7 +154,11 @@ class CalendarAclEngine:
                 result.append(item)
                 continue
             if calendar_key not in permissions_cache:
-                permissions_cache[calendar_key] = self.get_permissions(calendar, calendar_user)
+                owner_calendar_user: CalendarUser = (
+                    calendar_user if calendar.user_uid == calendar_user.owner.uid
+                    else CalendarUser(user=calendar_user.user, owner=User(uid=calendar.user_uid))
+                )
+                permissions_cache[calendar_key] = self.get_permissions(calendar, owner_calendar_user)
             result.extend(self.sanitize_events([item], permissions_cache[calendar_key]))
         return result
 

@@ -156,14 +156,6 @@ class FakeClientMailServer:
         self.get_acl_raw_result = [(ident, rights) for ident, rights in self.get_acl_raw_result if ident != identifier]
         self.get_acl_raw_result.append((identifier, imap_rights))
 
-    def get_acl_raw(self, folder_path):
-        """Get the raw IMAP ACL for a folder (no SOGo rights conversion)."""
-        return self.get_acl_raw_result
-
-    def set_acl_raw(self, folder_path, identifier, imap_rights):
-        """Set the raw IMAP ACL rights string for identifier on folder (no SOGo rights conversion)."""
-        self.set_acl_raw_calls.append((folder_path, identifier, imap_rights))
-
     def get_mail_uids_before_date(self, mailbox, before_date=None, exclude_deleted=True):
         """Get mail UIDs in a mailbox before a certain date."""
         if before_date:

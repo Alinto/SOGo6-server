@@ -74,6 +74,26 @@ def test_sanitize_listing_non_owner_hidden():
     assert result == []
 
 
+def test_sanitize_listing_cross_calendar_self_acting_user_not_treated_as_owner():
+    """A self-acting CalendarUser (user == owner, e.g. GET /events with no calendar key) must not
+    be treated as the owner of every calendar in the listing: each item's real calendar owner
+    (calendar.user_uid) has to be substituted before resolving permissions, otherwise a calendar
+    merely shared with the acting user would wrongly grant full owner permissions."""
+    engine = CalendarAclEngine()
+    items = [_make_event(key="e1", calendar_key="cal-key")]
+    self_acting = _make_calendar_user("bob@test")
+    result = engine.sanitize_listing(self_acting, items, {"cal-key": _make_cal()})
+    assert result == []
+
+
+def test_sanitize_listing_cross_calendar_keeps_events_for_own_calendar():
+    engine = CalendarAclEngine()
+    items = [_make_event(key="e1", calendar_key="cal-key")]
+    self_acting = _make_calendar_user("owner@test")
+    result = engine.sanitize_listing(self_acting, items, {"cal-key": _make_cal()})
+    assert result == items
+
+
 def test_sanitize_listing_unknown_calendar_passthrough():
     engine = CalendarAclEngine()
     items = [_make_event(key="e1", calendar_key="other-key")]
