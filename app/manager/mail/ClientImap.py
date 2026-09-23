@@ -178,6 +178,24 @@ def _combine_imap_search_or(criteria: list[str]) -> str:
     return f"OR {criteria[0]} {rest}"
 
 
+def _group_imap_search_parts_or(parts: list[str]) -> str:
+    """Group several IMAP search-key strings for the same multi-valued field with OR.
+
+    Used for fields accepting a list of values (e.g. several ``from`` addresses),
+    where a mail should match if it satisfies *any* of the values. The combined
+    OR-key is parenthesized when it has more than one part so it stays atomic once
+    embedded among sibling field groups, whatever the top-level operator (AND/OR) is.
+
+    :param parts: IMAP search-key strings for a single field (e.g. one per address).
+    :type parts: list[str]
+    :return: A single search-key string.
+    :rtype: str
+    """
+    if len(parts) == 1:
+        return parts[0]
+    return "(" + _combine_imap_search_or(parts) + ")"
+
+
 class ImapFolder:
     """
     Simple class to parse folder response and store useful values
@@ -2181,9 +2199,11 @@ class ClientImap(ClientMailServer):
         Each populated field produces one independent search-key "group". Groups are
         then combined using ``search_params["operator"]``:
 
-        ``to`` matches a mail whose ``To`` *or* ``Cc`` header contains the address
-        (OR-ed across the two headers). ``bcc`` only matches against the ``Bcc``
-        header.
+        ``from``, ``to`` and ``bcc`` each accept a list of addresses: a mail matches
+        the field if it matches *any* of the given addresses (OR-ed across the list),
+        regardless of the top-level ``operator``. ``to`` additionally matches a mail
+        whose ``To`` *or* ``Cc`` header contains the address (OR-ed across the two
+        headers). ``bcc`` only matches against the ``Bcc`` header.
 
         * "AND" (default): groups are simply space-joined (IMAP's implicit AND).
         * "OR": groups are combined with a right-nested IMAP ``OR`` operator, so that
@@ -2221,16 +2241,19 @@ class ClientImap(ClientMailServer):
             field_groups.append(f'TEXT "{search_params["text"]}"')
 
         if search_params.get("from_"):
-            escaped = escape_imap_string(search_params["from_"])
-            field_groups.append(f'FROM "{escaped}"')
+            from_parts = [f'FROM "{escape_imap_string(addr)}"' for addr in search_params["from_"]]
+            field_groups.append(_group_imap_search_parts_or(from_parts))
 
         if search_params.get("to"):
-            escaped = escape_imap_string(search_params["to"])
-            field_groups.append(f'(OR TO "{escaped}" CC "{escaped}")')
+            to_parts = [
+                f'(OR TO "{escape_imap_string(addr)}" CC "{escape_imap_string(addr)}")'
+                for addr in search_params["to"]
+            ]
+            field_groups.append(_group_imap_search_parts_or(to_parts))
 
         if search_params.get("bcc"):
-            escaped = escape_imap_string(search_params["bcc"])
-            field_groups.append(f'BCC "{escaped}"')
+            bcc_parts = [f'BCC "{escape_imap_string(addr)}"' for addr in search_params["bcc"]]
+            field_groups.append(_group_imap_search_parts_or(bcc_parts))
 
         if search_params.get("subject"):
             field_groups.append(f'SUBJECT "{search_params["subject"]}"')
