@@ -27,5 +27,6 @@ class CalCalendarSerializerDict(CalCalendarSerializer[dict]):
             "default_event_duration_min": data.default_event_duration_min,
             "default_alarm_duration_min": data.default_alarm_duration_min,
             "default_type": data.default_type.value if data.default_type else None,
-            "permissions": self._permissions_serializer.serialize(data.permissions) if data.permissions else None,
+            "rights": self._permissions_serializer.serialize(data.permissions) if data.permissions else None,
+            "owner": data.user_uid,
         }
