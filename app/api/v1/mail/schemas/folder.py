@@ -261,6 +261,9 @@ class FolderSharePostSchema(FolderShareEntrySchema):
 class FolderListResponseSchema(ApiBaseResponse):
     """
     Schema for GET /mailboxes/<account_id>/folders response
+
+    Each folder (own or shared with the user) holds ``rights``: the rights the user has on it,
+    only the granted ones, camelCase named (see FOLDER_PERMISSION_CODE_TO_RIGHT).
     """
     data = fields.List(fields.Dict(), required=False, allow_none=True)
 
@@ -282,6 +285,19 @@ class FolderListResponseSchema(ApiBaseResponse):
                     "type": "inbox",
                     "unseen_count": 5,
                     "message_count": 42,
+                    "rights": {
+                        "userCanCreateSubfolders": 1,
+                        "userCanEraseMails": 1,
+                        "userCanExpungeFolder": 1,
+                        "userCanInsertMails": 1,
+                        "userCanMarkMailsRead": 1,
+                        "userCanPostMails": 1,
+                        "userCanReadMails": 1,
+                        "userCanRemoveFolder": 1,
+                        "userCanViewFolder": 1,
+                        "userCanWriteMails": 1,
+                        "userIsAdministrator": 1
+                    },
                     "children": []
                 },
                 {
@@ -291,6 +307,19 @@ class FolderListResponseSchema(ApiBaseResponse):
                     "type": "trash",
                     "unseen_count": 0,
                     "message_count": 50,
+                    "rights": {
+                        "userCanCreateSubfolders": 1,
+                        "userCanEraseMails": 1,
+                        "userCanExpungeFolder": 1,
+                        "userCanInsertMails": 1,
+                        "userCanMarkMailsRead": 1,
+                        "userCanPostMails": 1,
+                        "userCanReadMails": 1,
+                        "userCanRemoveFolder": 1,
+                        "userCanViewFolder": 1,
+                        "userCanWriteMails": 1,
+                        "userIsAdministrator": 1
+                    },
                     "children": []
                 },
                 {
@@ -300,6 +329,11 @@ class FolderListResponseSchema(ApiBaseResponse):
                     "type": "folder",
                     "unseen_count": 0,
                     "message_count": 50,
+                    "rights": {
+                        "userCanViewFolder": 1,
+                        "userCanReadMails": 1,
+                        "userCanMarkMailsRead": 1
+                    },
                     "children": [
                         {
                             "name": "test",
@@ -308,6 +342,10 @@ class FolderListResponseSchema(ApiBaseResponse):
                             "type": "folder",
                             "unseen_count": 0,
                             "message_count": 10,
+                            "rights": {
+                                "userCanViewFolder": 1,
+                                "userCanReadMails": 1
+                            },
                             "children": []
                         }
                     ]

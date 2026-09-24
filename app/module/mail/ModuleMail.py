@@ -16,7 +16,7 @@ import zipfile
 from app.config.settings.UserSettings import UserMailViewSettings, UserMailViewSettingsObj, UserMailGeneralSettings
 from app.factory.share.RepositoryAcl import AclEntry
 from app.factory.share.shareMailFolder import (
-    FOLDER_RESOURCE_TYPE, imap_permissions_to_rights, rights_to_imap_permissions,
+    FOLDER_RESOURCE_TYPE, imap_permissions_to_rights, rights_to_imap_permissions, right_to_camel,
 )
 from app.module.mail.model.TmpDraftManager import TmpDraftManager
 from app.manager.mail.ClientMailServer import ClientMailServer
@@ -135,13 +135,27 @@ class ModuleMail:
     def get_folder_list(self, account_id:str) -> list[dict[str, Any]]:
         """Retrieve a list of folders in the user's mailbox with detailed information.
 
-        :return: A list of folders with complete details including name, path, type, counts, and children.
+        Each folder also holds the user's own rights on it (``rights``: only the granted ones,
+        camelCase named, like the share endpoints), for the user's folders as well as the ones
+        shared with them.
+
+        :return: A list of folders with complete details including name, path, type, counts, rights and children.
         :rtype: list[dict[str, Any]]
         :raises RequestException: If connection or manager operations fail
         """
         client = self._open_client_for(account_id)
+        folders = client.list_folders(with_rights=True)
+        self._convert_folders_rights(folders)
+        return folders
 
-        return client.list_folders()
+    @staticmethod
+    def _convert_folders_rights(folders: list[dict[str, Any]]) -> None:
+        """Convert in place the raw IMAP rights of a folder tree (children included) into
+        the API shape: only granted rights, camelCase named, like the share endpoints."""
+        for folder in folders:
+            rights = imap_permissions_to_rights(folder.get(cs.FOLDER_RIGHTS, ""))
+            folder[cs.FOLDER_RIGHTS] = {right_to_camel(right): 1 for right, value in rights.items() if value}
+            ModuleMail._convert_folders_rights(folder.get(cs.FOLDER_CHILDREN, []))
 
     def get_one_folder(self, account_id:str, folder_path: str) -> dict[str, Any]:
         """Retrieve details of a specific mail folder.

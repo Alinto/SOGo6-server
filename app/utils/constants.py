@@ -110,6 +110,7 @@ FOLDER_SELECTABLE = "selectable"
 FOLDER_SUSBCRIBED = "subscribed"
 FOLDER_UNSEEN = "unseen_count"
 FOLDER_COUNT = "message_count"
+FOLDER_RIGHTS = "rights"
 
 # tmp_draft
 TMP_DRAFT_KEY_SIZE = 32  # Length of the unique hash key for a tmp_draft entry

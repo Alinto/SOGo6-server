@@ -6,7 +6,7 @@ from app.auth.User import User
 from app.factory.share.RepositoryAcl import AclEntry
 from app.module.auth.ModuleUserSource import ModuleUserSource
 from app.module.mail.ModuleMail import ModuleMail
-from app.factory.share.shareMailFolder import FOLDER_PERMISSION_CODE_TO_RIGHT
+from app.factory.share.shareMailFolder import FOLDER_PERMISSION_CODE_TO_RIGHT, right_to_camel
 from app.config.settings.DomainSettings import MailSettings, MailSettingsObj
 from app.utils import constants as cs
 from app.utils import errors as err
@@ -306,12 +306,6 @@ class InterfaceApiMailFolder:
         resolved.update(rights_in)
         return resolved
 
-    @staticmethod
-    def _snake_to_camel(name: str) -> str:
-        """Convert a snake_case right name (e.g. "user_can_view_folder") to camelCase."""
-        first, *rest = name.split("_")
-        return first + "".join(word.capitalize() for word in rest)
-
     def _serialize_share_entries(self, entries: list[AclEntry]) -> list[dict[str, Any]]:
         """Resolve ACL entries into the API's FolderShareResponseSchema shape.
 
@@ -322,7 +316,7 @@ class InterfaceApiMailFolder:
         module_us: ModuleUserSource | None = None
         users: list[dict[str, Any]] = []
         for entry in entries:
-            granted_rights = {self._snake_to_camel(right): 1 for right, value in entry.rights.items() if value}
+            granted_rights = {right_to_camel(right): 1 for right, value in entry.rights.items() if value}
             if entry.to_user == cs.ANYONE_TO_USER:
                 users.append({
                     "user_class": cs.USER_CLASS_ANY,

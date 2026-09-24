@@ -45,3 +45,10 @@ def imap_permissions_to_rights(imap_rights: str) -> dict[str, int]:
     granted = set(imap_rights)
     return {right: (1 if code in granted else 0) for code, right in FOLDER_PERMISSION_CODE_TO_RIGHT.items()}
 
+
+
+def right_to_camel(right: str) -> str:
+    """Convert a snake_case folder right name (e.g. "user_can_view_folder") to the API's
+    camelCase name (e.g. "userCanViewFolder")."""
+    first, *rest = right.split("_")
+    return first + "".join(word.capitalize() for word in rest)
