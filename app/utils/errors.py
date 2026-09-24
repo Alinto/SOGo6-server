@@ -253,12 +253,17 @@ ERROR_JOB_NOT_READY        = E("S000802", "Job Has Not Completed Yet", HTTPStatu
 ERROR_JOB_NO_RESULT        = E("S000803", "Job Has No Downloadable Result", HTTPStatus.GONE)
 ERROR_JOB_CONCURRENT_LIMIT = E("S000804", "Concurrent Job Limit Reached", HTTPStatus.CONFLICT)
 
+#User Source
+ERROR_US_NOT_UNIQUE_USER = E("S000904", "Ldap server returns more than 1 entry for a unique user", HTTPStatus.INTERNAL_SERVER_ERROR)
+
 #Ldap user source
 ERROR_LDAP_CANNOT_CONNECT = E("S000900", "Cannot connect to the ldap server", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_LDAP_BIND_WRONG_CRED = E("S000901", "Wrong bind dn credentials for the ldap server", HTTPStatus.UNAUTHORIZED)
 ERROR_LDAP_CANNOT_BIND = E("S000902", "Cannot bind to the ldap server", HTTPStatus.INTERNAL_SERVER_ERROR)
-ERROR_LDAP_CANNOT_SEARCH = E("S000903", "Cannot bind to the ldap server", HTTPStatus.INTERNAL_SERVER_ERROR)
-ERROR_LDAP_NOT_UNIQUE_USER = E("S000904", "Ldap server returns more than 1 entry for a unique user", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_LDAP_CANNOT_SEARCH = E("S000903", "Cannot search into the ldap server", HTTPStatus.INTERNAL_SERVER_ERROR)
+
+#DB user source
+ERROR_US_DB_MISSING_TABLE = E("S000905", "DB User Source Tabke is Missing", HTTPStatus.INTERNAL_SERVER_ERROR)
 
 # ADMIN AUTH
 ERROR_ADMIN_LOGIN_FAILED   = E("S001000", "Admin Login Failed: Invalid Credentials", HTTPStatus.UNAUTHORIZED)

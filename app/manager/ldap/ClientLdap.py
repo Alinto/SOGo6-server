@@ -301,7 +301,7 @@ class ClientLdap(ClientUserSource):
             raise exc.BugException("During check_login, the bind of the user workds but not the search after. Something is wrong")
 
         if len(list_records) > 1:
-            raise exc.AggravatedException("More than one user returns for the login", err.ERROR_LDAP_NOT_UNIQUE_USER)
+            raise exc.AggravatedException("More than one user returns for the login", err.ERROR_US_NOT_UNIQUE_USER)
 
         contact = parse_python_ldap_record(list_records[0])
 

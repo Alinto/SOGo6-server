@@ -1,6 +1,7 @@
 from __future__ import annotations
 from typing import Any, Generator
 
+from collections import OrderedDict
 import re
 from urllib.parse import quote_plus
 
@@ -252,7 +253,7 @@ class ClientPostgreSQL(ClientSQL):
             raise RequestException("Postgresql database connection error") from e
 
 
-    def get_table_info(self, table_name: str) -> dict | None:
+    def get_table_info(self, table_name: str) -> OrderedDict | None:
         """
         Return None if the table was not found
         If found, return a dict as {"column_name": "data_type", ...}
@@ -265,7 +266,7 @@ class ClientPostgreSQL(ClientSQL):
         if self.db_conn is None or self.db_conn.closed:
             self.connect()
 
-        ret = {}
+        ret = OrderedDict()
         sql_query = SQL("SELECT column_name, data_type FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = {}").format(Literal(table_name))
 
         all_record : list = []

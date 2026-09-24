@@ -35,6 +35,8 @@ dependencies = [
     "sievelib",
     "types-smorest",
     "yarl",
+    "passlib (>=1.7.4,<2.0.0)",
+    "argon2-cffi (>=25.1.0,<26.0.0)",
 ]
 
 

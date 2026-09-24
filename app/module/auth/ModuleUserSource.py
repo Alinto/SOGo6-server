@@ -12,13 +12,13 @@ if TYPE_CHECKING:
 
 MAP_KEY_CLASS = {
     "ldap": "ClientLdap",
-    "mysql": "ClientSQLUserSOurce",
-    "postgresql": "ClientSQLUserSOurce"
+    "db": "ClientSQLUserSource"
 }
 
 MAP_KEY_PATH = {
     "ldap": "app.manager.ldap",
     "db": "app.manager.db"
+
 }
 
 class ModuleUserSource:
@@ -62,12 +62,17 @@ class ModuleUserSource:
         :rtype: tuple[bool, dict, dict]
         """
         us_config = source_settings.get_user_source_settings(source_settings.US_TYPE)
+
+        if source_settings.US_TYPE == "db" and not source_settings.US_PWD_ALGO:
+            raise exc.AggravatedException("US_PWD_ALGO not given for db user source")
+
         client_us: ClientUserSource = import_and_instantiate_manager(
             module_path=MAP_KEY_PATH[source_settings.US_TYPE],
             module_and_class_name=MAP_KEY_CLASS[source_settings.US_TYPE],
-            module_args=us_config,
+            module_args=us_config
         )
         client_us.connect()
+
         return client_us.check_login(user.uid, user.password, user.domain)
 
     def check_login(self, user:User) -> bool:
@@ -82,6 +87,8 @@ class ModuleUserSource:
         auth = False
         raw_policy: dict = {}
         raw_content: dict[str, list[str]] = {}
+
+        #If we check for a user alraedy authnetiated (jwt token) directly get the proper user source
         if user.source_id and user.source_id in self.all_user_sources:
             source_settings = self.all_user_sources[user.source_id]
             if source_settings.US_CAN_AUTH:
@@ -93,15 +100,17 @@ class ModuleUserSource:
                     return False
                 user.authenticated = True
 
-        for source_uid, source_settings in self.all_user_sources.items():
-            if source_settings.US_CAN_AUTH:
-                auth, raw_policy, raw_contact = self._make_us_check_login(source_settings, user)
-                if not auth:
-                    #User not found in this user source, check the next one
-                    continue
-                user.source_id = source_uid
-                user.authenticated = True
-                break
+        #If first login chekc in all user sources until first match
+        if not user.authenticated:
+            for source_uid, source_settings in self.all_user_sources.items():
+                if source_settings.US_CAN_AUTH:
+                    auth, raw_policy, raw_contact = self._make_us_check_login(source_settings, user)
+                    if not auth:
+                        #User not found in this user source, check the next one
+                        continue
+                    user.source_id = source_uid
+                    user.authenticated = True
+                    break
 
         if not user.authenticated:
             # Creds false or user missing from user source

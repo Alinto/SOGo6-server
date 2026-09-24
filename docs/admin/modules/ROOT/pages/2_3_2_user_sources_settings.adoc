@@ -370,6 +370,7 @@ enable the password update feature.
 
 * *US_DB_TYPE*: Can either be "postgresql" or "mysql".
 * *US_DB_NAME*: String, name of your database.
+* *US_DB_TABLE*: String, name of the table.
 * *US_DB_USER*: String, username
 * *US_DB_PASS*: String, password
 * *US_DB_HOST*: String, hostname of the server
@@ -437,8 +438,11 @@ Those info will be visible by the user itself on its profile page and by the oth
 A User Source can be used for Authentication and/or be an Address Book.
 
 Authentication is used when **SOGO_D_AUTH_TYPE** is set to `plain` (See Auth Setting). If several user sources are provided for authentication, SOGo 6
-will try user's login for each source until a match. If there is nos user source set for authentication, SOGo will throw an error.
+will try user's login for each source until a match. If there is no user source set for authentication, SOGo will throw an error.
 
-Address Book means the user will see a Global Address Book in this contact view. It also enable the autcompletion feature when writring a mail,
-adding an attendee to an event... 
+Address Book means the user will:
+
+* See a Global Address Book in this contact view
+* Be able to share its mail folder, calendars and address books to others.
+* Have the autcompletion feature when writring a mail, adding an attendee to an event... 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 from typing import Any, Generator, Tuple, List, cast
 
+from collections import OrderedDict
 import re
 import json
 from urllib.parse import quote_plus
@@ -243,7 +244,7 @@ class ClientMySQL(ClientSQL):
             logger.error("Cannot connect to %s reason: %s", self.safe_conn_string, repr(e))
             raise RequestException("MySQL database connection error") from e
 
-    def get_table_info(self, table_name: str) -> dict | None:
+    def get_table_info(self, table_name: str) -> OrderedDict | None:
         """
         Return None if the table was not found.
         If found, return a dict as {"column_name": "data_type", ...}
@@ -255,7 +256,7 @@ class ClientMySQL(ClientSQL):
         if self.db_conn is None or not self.db_conn.is_connected():
             self.connect()
 
-        ret: dict = {}
+        ret = OrderedDict()
         sql_query = "SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s"
 
         params = cast(Tuple[str, str], (str(self.conn_config["database"]), str(table_name)))

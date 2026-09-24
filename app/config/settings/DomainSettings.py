@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Type
 
-from marshmallow import fields, validate
+from marshmallow import fields, validate, validates_schema, ValidationError
 
 from app.config.settings.SogoSchema import SogoSchema
 from app.utils import errors as err
@@ -163,6 +163,7 @@ class UserSourceSettings(SogoSchema):
 
         "US_DB_TYPE": ("US_TYPE", "sql"),
         "US_DB_NAME": ("US_TYPE", "sql"),
+        "US_DB_TABLE": ("US_TYPE", "sql"),
         "US_DB_USER": ("US_TYPE", "sql"),
         "US_DB_PASS": ("US_TYPE", "sql"),
         "US_DB_HOST": ("US_TYPE", "sql"),
@@ -171,7 +172,6 @@ class UserSourceSettings(SogoSchema):
         "US_DB_ENCODAGE": ("US_TYPE", "sql"),
         "US_DB_FIELD_PWD": ("US_TYPE", "sql"),
         "US_DB_PREPEND_PWD_SCHEME": ("US_TYPE", "sql"),
-        "US_DB_FIELD_DOMAIN": ("US_TYPE", "sql"),
         "US_DB_PWD_POLICY": ("US_CAN_AUTH", True),
         "US_DB_PWD_LEN_MIN": ("US_DB_PWD_POLICY", True),
         "US_DB_PWD_LEN_MAX": ("US_DB_PWD_POLICY", True),
@@ -203,7 +203,7 @@ class UserSourceSettings(SogoSchema):
     }
     is_required = {"US_LDAP_HOSTNAME", "US_LDAP_BIND_DN", "US_LDAP_BIND_DN_PWD",
                    "US_LDAP_BASE_DN", "US_LDAP_ID",
-                   "US_SQL_USER_URL", "US_DB_PREPEND_PWD_SCHEME"}
+                   "US_DB_TYPE", "US_DB_NAME", "US_DB_TABLE", "US_DB_USER", "US_DB_PASS", "US_DB_HOST"}
 
     is_secret = {"US_LDAP_BIND_DN_PWD",}
     is_needed_by_ui = {"US_DB_PWD_POLICY", "US_DB_PWD_LEN_MIN",
@@ -267,7 +267,8 @@ class UserSourceSettings(SogoSchema):
                                                      dump_default=['group', 'groupOfNames', 'groupOfUniqueNames', 'posixGroup'])
     #DB PARAM
     US_DB_TYPE = fields.String(validate=validate.OneOf(("mysql", "postgresql")))
-    US_DB_NAME = fields.String()
+    US_DB_NAME = fields.String() #Name of the database
+    US_DB_TABLE = fields.String() #Name of the table
     US_DB_USER = fields.String()
     US_DB_PASS = fields.String()
     US_DB_HOST = fields.String()
@@ -276,7 +277,6 @@ class UserSourceSettings(SogoSchema):
     US_DB_ENCODAGE = fields.String(dump_default='utf8', load_default='utf8')
     US_DB_FIELD_PWD            = fields.String(dump_default='c_password', load_default='c_password') # Name of the column with the user password
     US_DB_PREPEND_PWD_SCHEME = fields.Boolean(load_default=False, dump_default=False) #IS the password stored in the db with the shceme like this '{scheme)encryptedValue'
-    US_DB_FIELD_DOMAIN       = fields.String() #Fields where the user's domain is.
     US_DB_PWD_POLICY       = fields.Boolean(load_default=False, dump_default=False) #Policies on password
     US_DB_PWD_LEN_MIN = fields.Integer(load_default=4, dump_default=4,validate=validate.Range(min=1)) #Minimum lenght of password
     US_DB_PWD_LEN_MAX = fields.Integer(load_default=0, dump_default=0,validate=validate.Range(min=0)) #Maximum lenght of password, 0 means no limit
@@ -290,9 +290,9 @@ class UserSourceSettings(SogoSchema):
     US_MAPPING = fields.Dict() #TODO map sqldap field to Vcard field
 
     
-
+    #Auth
     US_CAN_AUTH   = fields.Boolean(required=True) #The users in this US can authenticate
-    US_PWD_ALGO   = fields.String() #Algo used to encrypt the user password for login (sql) and when changing password (sql and ldap without password policy or AD)
+    US_PWD_ALGO   = fields.String(validate=validate.OneOf(PWD_ALGO)) #Algo used to encrypt the user password for login (sql) and when changing password (sql and ldap without password policy or AD)
     US_SIM_KEY_TYPE  = fields.String(validate=validate.OneOf(('path', 'env', 'plain')))
     US_SIM_KEY_VALUE = fields.String()
 
@@ -309,15 +309,30 @@ class UserSourceSettings(SogoSchema):
     US_AUTO_SEARCH    = fields.Boolean(load_default=False, dump_default=False) #Auto return all users of the US whitout typing any char in the search bar.
     US_EXTRA_CONTACT_INFO = fields.String() #TODO add moreflexibility and let the admin tell how it should be shown? sqladp field to show when doing autocompletion (will be "cn <extra> mail")
     US_HIDDEN_USER = fields.List(fields.String()) #List of user's uid to never show to others when searching or autocompletion ex: noreply@sogo.nu
-    US_DOMAIN_PARTITION = fields.Boolean(load_default=False, dump_default=False) #If true, User can only see users from the same domain.
-    US_DOMAIN_VISIBLE = fields.List(fields.String()) #If US_DOMAIN_PARTITION == True, add domains that will still be see by all
-                                            #"ALL" -> all domains, "sogo.nu" -> sogo.nu is visible by all, "!sogo.nu", sogo is visible for no one (to be used wih ALL))
+    US_DOMAIN_PARTITION = fields.Integer(load_default=0, dump_default=0) #0 -> everyone can see everyone
+                                                                         #1 -> user can only see user with the same mail's domain
+                                                                         #-1 -> nobody can see anyone except the domains on US_DOMAIN_VISIBLE
+    US_DOMAIN_VISIBLE = fields.List(fields.String()) #If US_DOMAIN_PARTITION == 1, add mail domains that will still be see by all users
+                                                     #If US_DOMAIN_PARTITION == -1, add mail domains that will still be see by all users
+                                                     #If US_DOMAIN_PARTITION == 0, no effect
+    US_DOMAIN_NOT_VISIBLE = fields.List(fields.String()) #If US_DOMAIN_PARTITION == 1, no effects
+                                                         #If US_DOMAIN_PARTITION == -1, no effect
+                                                         #If US_DOMAIN_PARTITION == 0, domains that will be hidden for everyone
+    US_UNIT_FIELD = fields.String() # Name of sqldap field. User with the same value will see themselves
 
     #Resource
     US_HAS_RESOURCE = fields.Boolean(required=True) #Does this user source has resources
     US_RESOURCE_SEARCH = fields.List(fields.String()) #Array of sqldap field used for autocompletion/search of resource
     US_RESOURCE_MULTIBOOKING = fields.String() #sqldap field where to check how much time a resource can be booked simultaneously
     US_RESOURCE_EXTRA_INFO = fields.String() #TODO add moreflexibility and let the admin tell how it should be shwon? sqladp field to show when doing autocompletion (will be "cn <extra> mail")
+
+    @validates_schema
+    def validate_pwd_algo_if_db(self, data: dict, **kwargs: object) -> None:
+        """
+        Ensure exactly one of ``uid`` or ``redis_key`` is provided.
+        """
+        if data.get("US_TYPE") == "db" and not data.get("US_PWD_ALGO"):
+            raise ValidationError("In case of sql user source, US_PWD_ALGO must be provided")
 
 class UserSourceSettingsObj(SettingsObj):
     """
@@ -348,7 +363,6 @@ class UserSourceSettingsObj(SettingsObj):
 
     US_FIELD_UID: str = 'uid'
     US_FIELD_CN: str = 'cn'
-    US_FIELD_EMAIL: str = 'mail'
     US_MAPPING: dict = {}
     US_CAN_AUTH: bool = False
     US_PWD_ALGO: str = ""
@@ -357,6 +371,7 @@ class UserSourceSettingsObj(SettingsObj):
 
     US_DB_TYPE: str = "postgresql"
     US_DB_NAME: str = ""
+    US_DB_TABLE: str = ""
     US_DB_USER: str = ""
     US_DB_PASS: str = ""
     US_DB_HOST: str = ""
@@ -365,7 +380,6 @@ class UserSourceSettingsObj(SettingsObj):
     US_DB_ENCODAGE: str = 'utf8'
     US_DB_FIELD_PWD: str = 'c_password'
     US_DB_PREPEND_PWD_SCHEME: bool = False
-    US_DB_FIELD_DOMAIN: str  = ""
     US_DB_PWD_POLICY: bool = False
     US_DB_PWD_LEN_MIN: int = 4
     US_DB_PWD_LEN_MAX: int = 0
@@ -375,7 +389,6 @@ class UserSourceSettingsObj(SettingsObj):
     US_DB_PWD_SPECIAL_MIN: int = -1
     US_DB_PWD_SPECIAL_ALLOWED: str = r"%$&*(){}[]!?\/@#.,:;+=<>-_"
 
-
     US_MAIL: list[str] = ['mail']
     US_MAIL_SERVER_LOGIN: str = ""
     US_MAIL_FILTERING_LOGIN: str = ""
@@ -384,12 +397,18 @@ class UserSourceSettingsObj(SettingsObj):
     US_MODULE_ACCESS: dict[str, dict] = {}
     US_FILTER: str = ""
     US_FIELD_KIND: str = ""
+
     US_IS_ADDRESSBOOK: bool = False
     US_SEARCH: list[str] = []
     US_DISPLAY_NAME: str = ""
     US_AUTO_SEARCH: bool = False
     US_EXTRA_CONTACT_INFO: str = ""
     US_HIDDEN_USER: list[str] = []
+    US_DOMAIN_PARTITION: int = 0
+    US_DOMAIN_VISIBLE: list[str] = []
+    US_DOMAIN_NOT_VISIBLE: list[str] = []
+    US_UNIT_FIELD: str = ""
+
     US_HAS_RESOURCE: bool = False
     US_RESOURCE_SEARCH: list[str] = []
     US_RESOURCE_MULTIBOOKING: str = ""
@@ -431,32 +450,26 @@ class UserSourceSettingsObj(SettingsObj):
                     # self.US_LDAP_QUERY_TIMEOUT,
                     # self.US_LDAP_ATTR_FIELD,
                     # self.US_LDAP_GROUP_CLASS
-            }
-        elif type_us == "db":
-            #Transform url to parameters
-            parsed_url = parse_url_str(self.US_SQL_USER_URL)
-            encodage = "utf8"
-            
-            if type_us == "mysql":
-                encodage = parsed_url["params"].get("charset", "utf8")
-            elif type_us == "postgresql":
-                encodage = parsed_url["params"].get("client_encoding", "utf8")
-
-            MAP_KEY_CLASS = {
-                "mysql": "ClientMySQL",
-                "postgresql": "ClientPostgreSQL"
-            }
-
-            return {
-                "db_type": MAP_KEY_CLASS[type_us],
-                "db_param": {
-                    "db_user": parsed_url["usernname"],
-                    "db_pwd":  parsed_url["password"],
-                    "db_host": parsed_url["hostname"],
-                    "db_port": parsed_url["port"],
-                    "db_ssl":  "", #TODO get ssl from url string
-                    "db_enc":  encodage
                 }
+        elif type_us == "db":
+            return {
+                "db_type": self.US_DB_TYPE,
+                "db_param": {
+                    "db_name": self.US_DB_NAME,
+                    "db_user": self.US_DB_USER,
+                    "db_pwd":  self.US_DB_PASS,
+                    "db_host": self.US_DB_HOST,
+                    "db_port": self.US_DB_PORT,
+                    "db_ssl":  self.US_DB_ENCRYPTION,
+                    "db_enc":  self.US_DB_ENCODAGE
+                },
+                "db_table": self.US_DB_TABLE,
+                "db_uid": self.US_FIELD_UID,
+                "db_mails": self.US_MAIL,
+                "db_cn": self.US_FIELD_CN,
+                "db_pwd": self.US_DB_FIELD_PWD,
+                "db_ou": self.US_UNIT_FIELD,
+                "db_pwd_algo":  self.US_PWD_ALGO
             }
         else:
             raise AggravatedException(err.ERROR_CONFIG_WRONG_US_SERVER.m, err.ERROR_CONFIG_WRONG_US_SERVER)
