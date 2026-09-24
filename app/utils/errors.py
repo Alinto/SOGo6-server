@@ -263,7 +263,8 @@ ERROR_LDAP_CANNOT_BIND = E("S000902", "Cannot bind to the ldap server", HTTPStat
 ERROR_LDAP_CANNOT_SEARCH = E("S000903", "Cannot search into the ldap server", HTTPStatus.INTERNAL_SERVER_ERROR)
 
 #DB user source
-ERROR_US_DB_MISSING_TABLE = E("S000905", "DB User Source Tabke is Missing", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_US_DB_MISSING_TABLE = E("S000905", "DB User Source Table is Missing", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_US_DB_MISSING_PWD = E("S000906", "DB User Source is Missing Password Colomn", HTTPStatus.INTERNAL_SERVER_ERROR)
 
 # ADMIN AUTH
 ERROR_ADMIN_LOGIN_FAILED   = E("S001000", "Admin Login Failed: Invalid Credentials", HTTPStatus.UNAUTHORIZED)

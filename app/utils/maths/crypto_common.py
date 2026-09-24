@@ -1,142 +1,191 @@
+"""
+check_password.py
+
+Verify a plaintext password against an encrypted/hashed password, given the
+name of the algorithm used to produce the hash.
+
+Requires: passlib
+    pip install passlib
+
+Supported algo values (case-insensitive):
+    'crypt'         - traditional Unix crypt(3) (DES)
+    'md5'           - unsalted MD5, base64 encoded (LDAP {MD5})
+    'md5-crypt'     - Unix $1$ crypt-style MD5
+    'smd5'          - salted MD5, base64(digest || salt) (LDAP {SMD5})
+    'cram-md5'      - CRAM-MD5 storage scheme, hex HMAC-MD5
+    'ldap-md5'      - same as 'md5' (LDAP {MD5} alias)
+    'sha'           - unsalted SHA1, base64 encoded (LDAP {SHA})
+    'sha256'        - unsalted SHA256, base64 encoded
+    'sha256-crypt'  - Unix $5$ crypt-style SHA256
+    'ssha256'       - salted SHA256, base64(digest || salt) (LDAP {SSHA256})
+    'sha512'        - unsalted SHA512, base64 encoded
+    'sha512-crypt'  - Unix $6$ crypt-style SHA512
+    'ssha512'       - salted SHA512, base64(digest || salt) (LDAP {SSHA512})
+    'blf-crypt'     - bcrypt (Blowfish) crypt-style
+
+Note: some databases store the hash with a leading "{SCHEME}" prefix
+(e.g. "{SSHA}xxxxx"). If present, that prefix is stripped before verifying,
+since the caller already tells us the algo via the `algo` argument.
+"""
+
 import base64
-import os
 import hashlib
+import hmac
+import binascii
+from typing import Callable
+
+from passlib.hash import des_crypt, md5_crypt, sha256_crypt, sha512_crypt, bcrypt, argon2
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
+PBKDF2_SALT_LEN = 16
+PBKDF2_DEFAULT_ROUNDS = 5000  # only relevant if you ever need to *generate* a hash, not to verify one
+PBKDF2_KEY_SIZE_SHA1 = 20
+
+def _decode_b64(data: bytes) -> bytes:
+    """Base64-decode, tolerating missing padding."""
+    padding = (-len(data)) % 4
+    return base64.b64decode(data + b"=" * padding)
 
 
-from passlib.hash import (
-    md5_crypt,
-    sha1 as passlib_sha1,
-    sha256_crypt,
-    sha512_crypt,
-    pbkdf2_sha256,
-    argon2,
-    ldap_salted_md5 as ldap_md5,
-    cram_md5 as passlib_cram_md5,
-    bcrypt as blf_crypt,
-    unix_disabled as unix_crypt,  # For Unix crypt (may require system support)
-)
-from cryptography.fernet import Fernet
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-from cryptography.hazmat.backends import default_backend
+def _check_plain_hash(password: str, encrypted_pwd: str, hash_func: Callable, is_hex: bool = False) -> bool:
+    """Verify an unsalted {ALGO}-style digest: base64(digest)."""
+    print(f"password = {encrypted_pwd}")
+    if is_hex:
+        computed = hash_func(password.encode()).hexdigest()
+        return hmac.compare_digest(encrypted_pwd, computed)
+    else:
+        digest = _decode_b64(encrypted_pwd.encode())
+        computed = hash_func(password.encode()).digest()
+        return hmac.compare_digest(digest, computed)
 
 
-# --- Helper for symmetric encryption ---
-def generate_key(salt: bytes) -> bytes:
-    """Generate a key for AES-128-CBC using a salt."""
-    kdf = PBKDF2HMAC(
-        algorithm=hashes.SHA256(),
-        length=16,
-        salt=salt,
-        iterations=100000,
-        backend=default_backend()
-    )
-    return kdf.derive(b"fixed_password_for_key_derivation")  # Replace with a secure method in production
+def _check_salted_hash(password: str, encrypted_pwd: str, hash_func: Callable, digest_size: int) -> bool:
+    """Verify a salted {SALGO}-style digest: base64(digest || salt)."""
+    print(encrypted_pwd)
+    raw = _decode_b64(encrypted_pwd.encode())
+    digest, salt = raw[:digest_size], raw[digest_size:]
+    computed = hash_func(password.encode() + salt).digest()
+    return hmac.compare_digest(digest, computed)
 
-def encrypt_aes_128_cbc(plain_password: str, key: bytes) -> str:
-    """Encrypt using AES-128-CBC (symmetric)."""
-    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-    iv = os.urandom(16)
-    cipher = Cipher(algorithms.AES(key), modes.CBC(iv), backend=default_backend())
-    encryptor = cipher.encryptor()
-    padded_password = plain_password.encode().ljust(16, b"\0")  # Simple padding
-    encrypted = encryptor.update(padded_password) + encryptor.finalize()
-    return base64.b64encode(iv + encrypted).decode()
 
-def decrypt_aes_128_cbc(encrypted_password: str, key: bytes) -> str:
-    """Decrypt using AES-128-CBC (symmetric)."""
-    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-    data = base64.b64decode(encrypted_password)
-    iv = data[:16]
-    ciphertext = data[16:]
-    cipher = Cipher(algorithms.AES(key), modes.CBC(iv), backend=default_backend())
-    decryptor = cipher.decryptor()
-    decrypted = decryptor.update(ciphertext) + decryptor.finalize()
-    return decrypted.decode().rstrip("\0")
+def _check_cram_md5(password: str, encrypted_pwd: str) -> bool:
+    """Verify CRAM-MD5 storage scheme: hex(HMAC-MD5(key=password, msg=b''))."""
+    computed = hmac.new(password.encode(), b"", hashlib.md5).hexdigest()
+    return hmac.compare_digest(computed, encrypted_pwd.strip().lower())
 
-# --- Encryption Functions ---
-def encrypt_crypt(plain_password: str) -> str:
-    return passlib_crypt.hash(plain_password)
+# def _check_sym_aes_128_cbc(password: str, encrypted_pwd: str, key_path: str) -> bool:
+#     """Decrypt encrypted_pwd with the AES-128 key at key_path and compare."""
+#     with open(key_path, "rb") as f:
+#         key = f.read()  # expects a raw 16-byte key
+#     raw = _decode_b64(encrypted_pwd.encode())
+#     iv, ciphertext = raw[:16], raw[16:]  # assumes IV is prepended
+#     decryptor = Cipher(algorithms.AES(key), modes.CBC(iv)).decryptor()
+#     padded = decryptor.update(ciphertext) + decryptor.finalize()
+#     unpadder = sym_padding.PKCS7(128).unpadder()
+#     plaintext = unpadder.update(padded) + unpadder.finalize()
+#     return hmac.compare_digest(plaintext.decode(), password)
 
-def encrypt_md5(plain_password: str) -> str:
-    return hashlib.md5(plain_password.encode()).hexdigest()
+def _check_sym_aes_128_cbc(password: str, encrypted_pwd: str, key_path: str) -> bool:
+    """
+    Verify the legacy `$AES-128-CBC$<iv_b64>$<ciphertext_b64>` scheme.
 
-def encrypt_md5_crypt(plain_password: str) -> str:
-    return md5_crypt.hash(plain_password)
+    Only the first 16-byte block of the (NUL-padded) password is ever
+    compared, matching the original implementation, which truncated the
+    ciphertext to 16 bytes before storing it.
+    """
+    parts = encrypted_pwd.split("$")
+    if len(parts) != 4 or parts[1] != "AES-128-CBC":
+        return False
+    iv = _decode_b64(parts[2].encode())[:16]
+    expected_ct = _decode_b64(parts[3].encode())
 
-def encrypt_smd5(plain_password: str) -> str:
-    return smd5.hash(plain_password)
+    with open(key_path, "rb") as f:
+        key = f.read()[:16]
 
-def encrypt_cram_md5(plain_password: str) -> str:
-    return cram_md5.hash(plain_password)
+    pwd_bytes = password.encode()
+    block_len = max(((len(pwd_bytes) + 15) // 16) * 16, 16)
+    first_block = pwd_bytes.ljust(block_len, b"\x00")[:16]
 
-def encrypt_ldap_md5(plain_password: str) -> str:
-    return ldap_md5.hash(plain_password)
+    encryptor = Cipher(algorithms.AES(key), modes.CBC(iv)).encryptor()
+    ciphertext = encryptor.update(first_block) + encryptor.finalize()
 
-def encrypt_sha(plain_password: str) -> str:
-    return passlib_sha.hash(plain_password)
+    return hmac.compare_digest(ciphertext, expected_ct)
 
-def encrypt_sha256(plain_password: str) -> str:
-    return hashlib.sha256(plain_password.encode()).hexdigest()
+def _check_pbkdf2_sha1(password: str, encrypted_pwd: str) -> bool:
+    """
+    Verify the legacy `$1$<salt>$<rounds>$<hex_hash>` PBKDF2-HMAC-SHA1 scheme.
+    Only the first PBKDF2_SALT_LEN bytes of the salt string are actually
+    used as the PBKDF2 salt, matching the original implementation.
+    """
+    parts = encrypted_pwd.split("$")
+    if len(parts) != 4 or parts[0] != "" or parts[1] != "1":
+        return False
+    _, _, salt_str, rounds_str, hex_hash = parts
+    try:
+        rounds = int(rounds_str)
+    except ValueError:
+        return False
 
-def encrypt_sha256_crypt(plain_password: str) -> str:
-    return sha256_crypt.hash(plain_password)
+    salt = salt_str.encode("utf-8")[:PBKDF2_SALT_LEN]
+    derived = hashlib.pbkdf2_hmac("sha1", password.encode(), salt, rounds, dklen=PBKDF2_KEY_SIZE_SHA1)
+    return hmac.compare_digest(derived.hex(), hex_hash.lower())
 
-def encrypt_ssha256(plain_password: str) -> str:
-    salt = os.urandom(16)
-    return f"{{SSHA256}}{base64.b64encode(hashlib.sha256(plain_password.encode() + salt).digest() + salt).decode()}"
-
-def encrypt_sha512(plain_password: str) -> str:
-    return hashlib.sha512(plain_password.encode()).hexdigest()
-
-def encrypt_sha512_crypt(plain_password: str) -> str:
-    return sha512_crypt.hash(plain_password)
-
-def encrypt_ssha512(plain_password: str) -> str:
-    salt = os.urandom(16)
-    return f"{{SSHA512}}{base64.b64encode(hashlib.sha512(plain_password.encode() + salt).digest() + salt).decode()}"
-
-def encrypt_blf_crypt(plain_password: str) -> str:
-    return blf_crypt.hash(plain_password)
-
-def encrypt_pbkdf2(plain_password: str) -> str:
-    return pbkdf2_sha256.hash(plain_password)
-
-def encrypt_sym_aes_128_cbc(plain_password: str) -> str:
-    salt = os.urandom(16)
-    key = generate_key(salt)
-    return encrypt_aes_128_cbc(plain_password, key)
-
-def encrypt_argon2i(plain_password: str) -> str:
-    return argon2.hash(plain_password, algorithm="argon2i")
-
-def encrypt_argon2id(plain_password: str) -> str:
-    return argon2.hash(plain_password, algorithm="argon2id")
-
-# --- Mapping of algorithm names to functions ---
-PWD_ALGO_FUNCTIONS = {
-    'crypt': encrypt_crypt,
-    'md5': encrypt_md5,
-    'md5-crypt': encrypt_md5_crypt,
-    'smd5': encrypt_smd5,
-    'cram-md5': encrypt_cram_md5,
-    'ldap-md5': encrypt_ldap_md5,
-    'sha': encrypt_sha,
-    'sha256': encrypt_sha256,
-    'sha256-crypt': encrypt_sha256_crypt,
-    'ssha256': encrypt_ssha256,
-    'sha512': encrypt_sha512,
-    'sha512-crypt': encrypt_sha512_crypt,
-    'ssha512': encrypt_ssha512,
-    'blf-crypt': encrypt_blf_crypt,
-    'PBKDF2': encrypt_pbkdf2,
-    'sym-aes-128-cbc': encrypt_sym_aes_128_cbc,
-    'argon2i': encrypt_argon2i,
-    'argon2id': encrypt_argon2id,
+# Dispatch table: algo name -> callable(password, encrypted_pwd) -> bool
+# Built with functools.partial so every entry shares the same (password,
+# encrypted_pwd) call signature, regardless of which helper backs it.
+_ALGOS: dict[str, Callable[..., bool]] = {
+    "crypt":           lambda p, e, **_: des_crypt.verify(p, e),
+    "md5":             lambda p, e, is_hex=False, **_: _check_plain_hash(p, e, hashlib.md5, is_hex),
+    "ldap-md5":        lambda p, e, is_hex=False, **_: _check_plain_hash(p, e, hashlib.md5, is_hex),
+    "md5-crypt":       lambda p, e, **_: md5_crypt.verify(p, e),
+    "smd5":            lambda p, e, **_: _check_salted_hash(p, e, hashlib.md5, 16),
+    "cram-md5":        lambda p, e, **_: _check_cram_md5(p, e),
+    "sha":             lambda p, e, is_hex=False, **_: _check_plain_hash(p, e, hashlib.sha1, is_hex),
+    "sha256":          lambda p, e, is_hex=False, **_: _check_plain_hash(p, e, hashlib.sha256, is_hex),
+    "sha256-crypt":    lambda p, e, **_: sha256_crypt.verify(p, e),
+    "ssha256":         lambda p, e, **_: _check_salted_hash(p, e, hashlib.sha256, 32),
+    "sha512":          lambda p, e, is_hex=False, **_: _check_plain_hash(p, e, hashlib.sha512, is_hex),
+    "sha512-crypt":    lambda p, e, **_: sha512_crypt.verify(p, e),
+    "ssha512":         lambda p, e, **_: _check_salted_hash(p, e, hashlib.sha512, 64),
+    "blf-crypt":       lambda p, e, **_: bcrypt.verify(p, e),
+    "plain":           lambda p, e, **_: hmac.compare_digest(p, e),
+    "none":            lambda p, e, **_: hmac.compare_digest(p, e),
+    "pbkdf2":          lambda p, e, **_: _check_pbkdf2_sha1(p, e),
+    "argon2i":         lambda p, e, **_: argon2.verify(p, e),
+    "argon2id":        lambda p, e, **_: argon2.verify(p, e),
+    "sym-aes-128-cbc": lambda p, e, d, key_path=None, **_: _check_sym_aes_128_cbc(p, e, key_path),
 }
 
-def encrypt_password(plain_password: str, algo: str) -> str:
-    """Encrypt a password using the specified algorithm."""
-    if algo not in PWD_ALGO_FUNCTIONS:
-        raise ValueError(f"Unsupported algorithm: {algo}")
-    return PWD_ALGO_FUNCTIONS[algo](plain_password)
+
+def check_password(password: str, encrypted_pwd: str, default_algo: str, key_path: str | None = None) -> bool:
+    """
+    Return True if `password` matches `encrypted_pwd`. If the encrypted password
+    prepend the algo, we use it, else we use the default_algo
+
+    Raises ValueError if `algo` is not one of the supported schemes.
+    Returns False (rather than raising) if the stored hash is malformed
+    or otherwise can't be parsed/verified.
+    """
+    #Get algo
+    is_hex = False
+    if encrypted_pwd.startswith("{") and "}" in encrypted_pwd:
+        split = encrypted_pwd.split("}", 2)
+        print(split)
+        algo = split[0][1:].lower()
+        encrypted_pwd = split[1]
+        if algo.endswith(".hex"):
+            is_hex=True
+            algo = algo[:-4]
+    else:
+        algo = default_algo.lower().strip()
+
+    print(algo)
+    verify_func = _ALGOS.get(algo)
+    if verify_func is None:
+        raise ValueError(f"Unsupported algorithm: {algo!r}")
+
+    try:
+        return verify_func(password, encrypted_pwd, is_hex=is_hex, key_path=key_path)
+    except Exception:
+        # Malformed/unparseable stored hash -> treat as no match, don't crash.
+        return False

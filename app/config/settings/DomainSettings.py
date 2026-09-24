@@ -216,9 +216,9 @@ class UserSourceSettings(SogoSchema):
                'crypt',
                'md5','md5-crypt',
                'smd5', 'cram-md5', 'ldap-md5',
-               'sha',
-               'sha256', 'sha256-crypt', 'ssha256',
-               'sha512', 'sha512-crypt', 'ssha512',
+               'sha', 'sha.hex'
+               'sha256', 'sha256-crypt', 'ssha256', 'sha256.hex',
+               'sha512', 'sha512-crypt', 'ssha512', 'sha512.hex',
                'blf-crypt',
                'PBKDF2',
                'sym-aes-128-cbc',

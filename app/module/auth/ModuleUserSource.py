@@ -131,14 +131,14 @@ class ModuleUserSource:
         :return: Dictionary containing user contact information (uid, cn, email)
         :rtype: dict
         """
-        user.cn =   user_info["cn"][0]
-        user.mail = user_info["mail"][0]
-
+        
         #At this stage, the user must have a source_id as it already has been logged in.
         if not user.source_id or user.source_id not in self.all_user_sources:
             raise exc.AggravatedException("User with no source_id")
 
         user_source_settings = self.all_user_sources[user.source_id]
+        user.cn =   user_info[user_source_settings.US_FIELD_CN][0]
+        user.mail = user_info[user_source_settings.US_MAIL[0]][0]
 
         #Check for others mails address
         for key_mail in user_source_settings.US_MAIL:
