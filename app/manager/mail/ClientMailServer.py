@@ -210,6 +210,19 @@ class ClientMailServer(metaclass=ABCMeta):
         """
 
     @abstractmethod
+    def set_acl_raw(self, folder_path: str, identifier: str, imap_rights: str) -> None:
+        """Set ACL rights for a specific user/identifier on a folder, with no SOGo rights conversion.
+
+        :param folder_path: The name of the folder.
+        :type folder_path: str
+        :param identifier: The user identifier (email, username, or special like 'anyone').
+        :type identifier: str
+        :param imap_rights: Raw IMAP ACL rights characters to grant (empty string revokes all).
+        :type imap_rights: str
+        :raises RequestException: If not connected to the server or if setting ACL fails.
+        """
+
+    @abstractmethod
     def delete_acl(self, folder_path: str, identifier: str) -> None:
         """Delete ACL rights for a specific user/identifier on a folder.
 
