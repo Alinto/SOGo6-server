@@ -52,7 +52,8 @@ class FakeClientMailServer:
 
     # ---- folder methods ----
 
-    def list_folders(self):
+    def list_folders(self, with_rights=False):
+        self.list_folders_with_rights = with_rights
         return self.list_folders_result
 
     def get_one_folder(self, folder_path):
@@ -336,10 +337,29 @@ def test_get_folder_list_success(monkeypatch):
 def test_get_folder_list_with_client_error(monkeypatch):
     """Test folder list retrieval with client error."""
     module, fake_client = _make_module(monkeypatch)
-    fake_client.list_folders = lambda: (_ for _ in ()).throw(RequestException("Connection failed"))
+    fake_client.list_folders = lambda with_rights=False: (_ for _ in ()).throw(RequestException("Connection failed"))
 
     with pytest.raises(RequestException, match="Connection failed"):
         module.get_folder_list(ACCOUNT_ID)
+
+
+def test_get_folder_list_converts_rights_recursively(monkeypatch):
+    """Test the raw IMAP rights of each folder (children included) are converted to the API shape."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.list_folders_result = [
+        {'name': 'INBOX', 'path': 'INBOX', 'rights': 'lrswipkxtea', 'children': [
+            {'name': 'sub', 'path': 'INBOX/sub', 'rights': 'lr', 'children': []},
+        ]},
+        {'name': 'shared', 'path': 'shared', 'rights': '', 'children': []},
+    ]
+
+    result = module.get_folder_list(ACCOUNT_ID)
+
+    assert fake_client.list_folders_with_rights is True
+    assert len(result[0]['rights']) == 11
+    assert result[0]['rights']['userIsAdministrator'] == 1
+    assert result[0]['children'][0]['rights'] == {'userCanViewFolder': 1, 'userCanReadMails': 1}
+    assert result[1]['rights'] == {}
 
 
 # ========== Tests for create_folder ==========

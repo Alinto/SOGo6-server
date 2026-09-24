@@ -88,7 +88,7 @@ class ClientMailServer(metaclass=ABCMeta):
         """Login to the mail server."""
 
     @abstractmethod
-    def list_folders(self) -> list[dict[str, Any]]:
+    def list_folders(self, with_rights: bool = False) -> list[dict[str, Any]]:
         """List all folders for the user, each item is:
 
         {
@@ -101,7 +101,24 @@ class ClientMailServer(metaclass=ABCMeta):
             "subscribed": int 1/0, subscribed means the user want to see this folder and its mails
             "unseen_count": int, number of mails not already seen
             "message_count": int, total number of mails in this folders
+            "rights": str, only if with_rights, raw rights of the logged user on this folder
+                      (e.g. "lrswipkxtea"), empty string if the folder can't be selected
         }
+
+        :param with_rights: Also fetch the logged user's own rights on each folder (one more
+            request per folder).
+        :type with_rights: bool
+        """
+
+    @abstractmethod
+    def get_my_rights_raw(self, folder_path: str) -> str:
+        """Get the raw rights the logged user has on a folder (IMAP MYRIGHTS, RFC 4314).
+
+        :param folder_path: The name of the folder.
+        :type folder_path: str
+        :return: raw IMAP ACL rights characters (e.g. "lrswipkxtea").
+        :rtype: str
+        :raises RequestException: If getting the rights fails.
         """
 
     @abstractmethod
