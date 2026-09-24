@@ -272,8 +272,9 @@ class InterfaceApiMailFolder:
     def _resolve_to_user(self, entry: dict[str, Any]) -> str:
         """Resolve the ACL to_user for a share entry.
 
-        A "anyone" user_class always collapses to the SOGo pseudo-user "<default>" in
-        sogo6_acl.to_user, regardless of whatever uid the caller may have supplied.
+        A "anyone" user_class always collapses to the SOGo pseudo-user "<default>" (mapped to
+        the IMAP "anyone" identifier by ModuleMail), regardless of whatever uid the caller may
+        have supplied.
         """
         if entry.get("user_class") == cs.USER_CLASS_ANY:
             return cs.ANYONE_TO_USER

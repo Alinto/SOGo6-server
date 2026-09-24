@@ -8,7 +8,6 @@ from email.header import decode_header, make_header
 from email.message import EmailMessage
 from email.message import Message
 from email.utils import parseaddr, getaddresses, make_msgid, formatdate
-from hashlib import sha256
 from io import BytesIO
 from re import search as reg_search
 import zipfile
@@ -17,7 +16,7 @@ import zipfile
 from app.config.settings.UserSettings import UserMailViewSettings, UserMailViewSettingsObj, UserMailGeneralSettings
 from app.factory.share.RepositoryAcl import AclEntry
 from app.factory.share.shareMailFolder import (
-    FOLDER_RESOURCE_TYPE, ShareMailFolder, imap_permissions_to_rights, rights_to_imap_permissions,
+    FOLDER_RESOURCE_TYPE, imap_permissions_to_rights, rights_to_imap_permissions,
 )
 from app.module.mail.model.TmpDraftManager import TmpDraftManager
 from app.manager.mail.ClientMailServer import ClientMailServer
@@ -54,7 +53,6 @@ class ModuleMail:
         self.domain_mail_folder_name: dict = {}
         self._process_setting: ProcessSetting | None = process_setting
         self._db: ClientSQL | None = None
-        self._share: ShareMailFolder | None = None
 
     def _get_db(self) -> ClientSQL:
         """Return the DB client, lazily initialising it on first call.
@@ -73,23 +71,6 @@ class ModuleMail:
             )
             self._db.connect()
         return self._db
-
-    def _get_share(self) -> ShareMailFolder:
-        """Return the mail folder ACL sharing helper, lazily initialising it on first call."""
-        if self._share is None:
-            self._share = ShareMailFolder(self._get_db())
-        return self._share
-
-    @staticmethod
-    def _folder_acl_key(account_id: str, folder_path: str) -> str:
-        """Build a stable sogo6_acl key for a folder from (account_id, folder_path).
-
-        Mail folders have no opaque key like calendars/addressbooks - they are addressed by
-        their literal IMAP path, which can exceed sogo6_acl.key's 64-char cap for deep folder
-        hierarchies. Hashed so the key stays deterministic and within bounds regardless of
-        path length.
-        """
-        return sha256(f"{account_id}\x00{folder_path}".encode("utf-8")).hexdigest()
 
     def _get_user_conf(self, account_id: str) -> dict:
         user_mail_conf: dict = {}
@@ -369,17 +350,26 @@ class ModuleMail:
 
     @staticmethod
     def _imap_identifier(to_user: str) -> str:
-        """Map a sogo6_acl to_user to the IMAP ACL identifier.
+        """Map a share to_user to the IMAP ACL identifier.
 
-        The "<default>" pseudo to_user (cs.ANYONE_TO_USER, a SOGo/DB-only convention) maps to
-        the real IMAP special identifier "anyone" (RFC 4314); any other to_user is used as-is.
+        The "<default>" pseudo to_user (cs.ANYONE_TO_USER, the SOGo convention used by the API
+        layer) maps to the real IMAP special identifier "anyone" (RFC 4314); any other to_user
+        is used as-is.
         """
         return cs.USER_CLASS_ANY if to_user == cs.ANYONE_TO_USER else to_user
+
+    def _check_not_self_share(self, users: list[dict]) -> None:
+        """Reject any share entry targeting the folder owner itself.
+
+        :raises RequestException: ERROR_SHARE_CANNOT_SHARE_WITH_SELF if a target uid is the owner itself
+        """
+        if any(entry["uid"] == self.user.uid for entry in users):
+            raise RequestException(error=err.ERROR_SHARE_CANNOT_SHARE_WITH_SELF)
 
     def get_folder_share(self, account_id: str, folder_path: str) -> list[AclEntry]:
         """Return all ACL entries (one per user) currently granted on a folder, read live from IMAP.
 
-        IMAP is the source of truth for actual mail access.
+        IMAP is the only storage for mail folder shares. The owner's own ACL entry is skipped.
 
         :param account_id: The account identifier
         :type account_id: str
@@ -388,15 +378,17 @@ class ModuleMail:
         :return: List of ACL entries for the folder
         :rtype: list[AclEntry]
         """
-        client = self._open_client_for(account_id)
-        key = self._folder_acl_key(account_id, folder_path)
+        return self._read_folder_share(self._open_client_for(account_id), folder_path)
+
+    def _read_folder_share(self, client: ClientMailServer, folder_path: str) -> list[AclEntry]:
+        """Read a folder's IMAP ACL through an already opened client, skipping the owner's own entry."""
         entries: list[AclEntry] = []
         for identifier, imap_rights in client.get_acl_raw(folder_path):
             to_user = cs.ANYONE_TO_USER if identifier == cs.USER_CLASS_ANY else identifier
             if to_user == self.user.uid:
                 continue
             entries.append(AclEntry(
-                resource_type=FOLDER_RESOURCE_TYPE, key=key, owner=self.user.uid, to_user=to_user,
+                resource_type=FOLDER_RESOURCE_TYPE, key=folder_path, owner=self.user.uid, to_user=to_user,
                 rights=imap_permissions_to_rights(imap_rights),
             ))
         return entries
@@ -404,8 +396,7 @@ class ModuleMail:
     def patch_folder_share(self, account_id: str, folder_path: str, users: list[dict]) -> list[AclEntry]:
         """Grant or update rights for one or several users on a folder, leaving other shares untouched.
 
-        Writes the live IMAP ACL (source of truth for mail access) and mirrors it into
-        sogo6_acl (type='folder').
+        Writes the IMAP ACL only (no DB storage), then returns the folder's ACL read back from IMAP.
 
         :param account_id: The account identifier
         :type account_id: str
@@ -417,19 +408,17 @@ class ModuleMail:
         :rtype: list[AclEntry]
         :raises RequestException: ERROR_SHARE_CANNOT_SHARE_WITH_SELF if a target uid is the owner itself
         """
+        self._check_not_self_share(users)
         client = self._open_client_for(account_id)
-        key = self._folder_acl_key(account_id, folder_path)
-        share = self._get_share()
         for entry in users:
             client.set_acl_raw(folder_path, self._imap_identifier(entry["uid"]), rights_to_imap_permissions(entry["rights"]))
-            share.add_permissions(entry["uid"], key, self.user.uid, entry["rights"])
-        return share.get_permissions(key)
+        return self._read_folder_share(client, folder_path)
 
     def put_folder_share(self, account_id: str, folder_path: str, users: list[dict]) -> list[AclEntry]:
         """Replace all existing shares on a folder with exactly the given users' rights.
 
-        Any user currently shared with but absent from ``users`` is revoked. Writes the live
-        IMAP ACL (source of truth for mail access) and mirrors it into sogo6_acl (type='folder').
+        Any user currently present in the folder's IMAP ACL but absent from ``users`` is revoked
+        (the owner's own entry is never touched). Writes the IMAP ACL only (no DB storage).
 
         :param account_id: The account identifier
         :type account_id: str
@@ -441,18 +430,15 @@ class ModuleMail:
         :rtype: list[AclEntry]
         :raises RequestException: ERROR_SHARE_CANNOT_SHARE_WITH_SELF if a target uid is the owner itself
         """
+        self._check_not_self_share(users)
         client = self._open_client_for(account_id)
-        key = self._folder_acl_key(account_id, folder_path)
-        share = self._get_share()
         new_uids = {entry["uid"] for entry in users}
-        for existing in share.get_permissions(key):
+        for existing in self._read_folder_share(client, folder_path):
             if existing.to_user not in new_uids:
                 client.delete_acl(folder_path, self._imap_identifier(existing.to_user))
-                share.remove_permissions(existing.to_user, key)
         for entry in users:
             client.set_acl_raw(folder_path, self._imap_identifier(entry["uid"]), rights_to_imap_permissions(entry["rights"]))
-            share.add_permissions(entry["uid"], key, self.user.uid, entry["rights"])
-        return share.get_permissions(key)
+        return self._read_folder_share(client, folder_path)
 
     def post_folder_share(self, account_id: str, folder_path: str, users: list[dict]) -> list[AclEntry]:
         """Grant sharing rights on a folder to one or several users, in addition to any existing share.

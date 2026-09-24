@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-
-from app.factory.share.share import Share
-
-# Discriminant stored in sogo6_acl.type for mail folder shares.
+# Mail folder shares are stored only in the IMAP server's ACL (RFC 4314), never in sogo6_acl.
+# This discriminant only tags the AclEntry objects ModuleMail builds from the live IMAP ACL.
 FOLDER_RESOURCE_TYPE: str = "folder"
 
 # IMAP ACL codes exposed through the simplified `permissions` list (see FolderShareEntrySchema).
@@ -47,19 +45,3 @@ def imap_permissions_to_rights(imap_rights: str) -> dict[str, int]:
     granted = set(imap_rights)
     return {right: (1 if code in granted else 0) for code, right in FOLDER_PERMISSION_CODE_TO_RIGHT.items()}
 
-
-class ShareMailFolder(Share):
-    """Sharing for mail folders, backed by sogo6_acl (type='folder').
-
-    The rights blob stored per (folder key, to_user) matches the API's
-    FolderShareRightsInputSchema: one 0/1 flag per IMAP ACL right (see
-    ``FOLDER_PERMISSION_CODE_TO_RIGHT`` above).
-
-    ``rights_needed`` passed to ``check_permissions`` is the name of the right to check
-    (e.g. "user_can_read_mails").
-    """
-
-    resource_type: str = FOLDER_RESOURCE_TYPE
-
-    def _rights_satisfy(self, rights: dict, rights_needed: str) -> bool:
-        return bool(rights.get(rights_needed, False))
