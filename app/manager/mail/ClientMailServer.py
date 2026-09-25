@@ -122,6 +122,17 @@ class ClientMailServer(metaclass=ABCMeta):
         """
 
     @abstractmethod
+    def get_my_rights_raw_for_folders(self, folder_paths: list[str]) -> dict[str, str]:
+        """Get the raw rights the logged user has on several folders, fetched once per folder.
+
+        :param folder_paths: Real folder paths (as returned by list_folders or
+            get_folder_with_subfolders).
+        :type folder_paths: list[str]
+        :return: folder path -> raw IMAP ACL rights characters (empty string if they can't be read).
+        :rtype: dict[str, str]
+        """
+
+    @abstractmethod
     def get_one_folder(self, folder_path: str) -> dict[str, Any]:
         """Get one folder, dict is:
 

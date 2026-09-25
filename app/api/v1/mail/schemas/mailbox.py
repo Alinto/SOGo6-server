@@ -763,6 +763,9 @@ class MailboxSearchSchema(Schema):
 class MailboxSearchResponseSchema(ApiBaseResponse):
     """
     Schema for the response of the advanced mail search endpoint.
+
+    Each mail holds ``rights``: the rights the user has on the mail's folder, only the
+    granted ones (see FOLDER_PERMISSION_CODE_TO_RIGHT).
     """
     data = fields.Dict(required=False, allow_none=True, metadata={"description": "Search results with mails list and total count"})
 
@@ -782,7 +785,17 @@ class MailboxSearchResponseSchema(ApiBaseResponse):
                         "seen": False,
                         "flagged": True,
                         "has_attachment": True,
-                        "folder": "INBOX"
+                        "folder": "INBOX",
+                        "rights": {
+                            "user_can_insert_mails": 1,
+                            "user_can_mark_mails_read": 1,
+                            "user_can_post_mails": 1,
+                            "user_can_read_mails": 1,
+                            "user_can_remove_folder": 1,
+                            "user_can_view_folder": 1,
+                            "user_can_write_mails": 1,
+                            "user_is_administrator": 1
+                        }
                     }
                 ]
             }

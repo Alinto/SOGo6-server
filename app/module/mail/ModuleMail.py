@@ -718,6 +718,9 @@ class ModuleMail:
     def get_folder_mails(self, account_id: str, folder_name: str, collection_param: CollectionPaginateArgs, deleted: bool = False) -> tuple[list[dict[str, Any]], int]:
         """Retrieve a list of mails in a specific folder with full details.
 
+        Each mail holds ``rights``: the user's rights on the folder (only the granted ones,
+        snake_case named), fetched once for the whole folder.
+
         :param folder_name: The name of the folder to fetch mails from.
         :type folder_name: str
         :param first: The starting index for pagination (inclusive).
@@ -748,8 +751,12 @@ class ModuleMail:
         total_count = next(mail_iter)["nb_mails"]
         mails = []
 
+        # The user's rights on the folder, fetched once for all its mails
+        folder_rights = self._granted_rights(client.get_my_rights_raw_for_folders([folder_name])[folder_name])
+
         for raw_entry in mail_iter:
             parsed_mail = self._parse_mail(raw_entry)
+            parsed_mail[cs.FOLDER_RIGHTS] = dict(folder_rights)
             if without_content:
                 parsed_mail.pop("contents", None)
                 parsed_mail.pop("attachments", None)
@@ -782,6 +789,12 @@ class ModuleMail:
         return DELETE_MAIL_BEHAVIOR_MAP.get(delete_behavior, (True, True))
 
     @staticmethod
+    def _granted_rights(raw_rights: str) -> dict[str, int]:
+        """Convert raw IMAP rights (e.g. "lrs") into the rights added to each listed mail:
+        only the granted ones, snake_case named (e.g. {"user_can_view_folder": 1, ...})."""
+        return {right: 1 for right, value in imap_permissions_to_rights(raw_rights).items() if value}
+
+    @staticmethod
     def _flatten_selectable_folder_paths(folders: list[dict[str, Any]]) -> list[str]:
         """Recursively flatten a folder tree (as returned by ClientImap.list_folders) into a flat
         list of selectable folder paths, including every nested subfolder at any depth.
@@ -806,6 +819,9 @@ class ModuleMail:
         Delegates the building of the protocol-specific search criteria (IMAP SEARCH
         syntax, JMAP filter, ...) to the mail client, queries each requested folder
         and returns a paginated list of matching mails together with the total count.
+
+        Each mail holds ``rights``: the user's rights on the mail's folder (only the granted
+        ones, snake_case named). They are fetched once per searched folder, before the search.
 
         :param account_id: The account identifier.
         :type account_id: str
@@ -846,6 +862,12 @@ class ModuleMail:
                         seen_folders.add(folder_path)
                         folders_to_search.append(folder_path)
 
+        # --- Fetch the user's rights once per searched folder (not once per mail) ---
+        rights_by_folder = {
+            folder_path: self._granted_rights(raw_rights)
+            for folder_path, raw_rights in client.get_my_rights_raw_for_folders(folders_to_search).items()
+        }
+
         # --- Determine if content should be fetched ---
         mail_iter = (
             client.search_mails_without_content(folders_to_search, criteria)
@@ -858,6 +880,7 @@ class ModuleMail:
         for _folder_path, mail_dict in mail_iter:
             parsed = self._parse_mail(mail_dict)
             parsed["folder"] = mail_dict.get("folder", _folder_path)
+            parsed[cs.FOLDER_RIGHTS] = dict(rights_by_folder.get(parsed["folder"], {}))
             if without_content:
                 parsed.pop("contents", None)
                 parsed.pop("attachments", None)
@@ -937,13 +960,16 @@ class ModuleMail:
         client = self._open_client_for(account_id)
         client.delete_mail_permanently_from_folder_type(cs.MAIL_FOLDER_DRAFT, draft_uid)
 
-    def get_mail_detail(self, account_id: str, folder_name: str, mail_uid: str) -> dict[str, Any]:
+    def get_mail_detail(self, account_id: str, folder_name: str, mail_uid: str, with_rights: bool = False) -> dict[str, Any]:
         """Fetch the details of a specific mail.
 
         :param folder_name: The name of the folder containing the mail.
         :type folder_name: str
         :param mail_uid: The UID of the mail to fetch (int).total_count
         :type mail_uid: str
+        :param with_rights: Also add ``rights``: the user's rights on the mail's folder (only the
+            granted ones, snake_case named).
+        :type with_rights: bool
         :raises RequestException: If fetching mail detail fails
         :return: A dictionary containing the mail details (following MailDetailSchema)
         :rtype: dict[str, Any]
@@ -953,7 +979,11 @@ class ModuleMail:
         # Fetch mail data using IMAP
         mail_data = client.fetch_mail(folder_name, mail_uid)
 
-        return self._parse_mail(mail_data)
+        mail_detail = self._parse_mail(mail_data)
+        if with_rights:
+            raw_rights = client.get_my_rights_raw_for_folders([folder_name])[folder_name]
+            mail_detail[cs.FOLDER_RIGHTS] = self._granted_rights(raw_rights)
+        return mail_detail
 
     def open_mail_for_edit(self, account_id: str, folder_name: str, mail_uid: str) -> dict[str, Any]:
         """Open an existing mail for editing by copying it into a new tmp_draft entry.

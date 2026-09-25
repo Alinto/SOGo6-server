@@ -849,6 +849,34 @@ class TestAcl:
         client = authenticated_client(fake_conn)
         assert client.get_my_rights_raw("shared/user1/My folder") == "lr"
 
+    def test_get_my_rights_raw_for_folders_one_request_per_distinct_folder(self):
+        fake_conn = FakeIMAPConnection()
+        calls = []
+        fake_conn.myrights = lambda mb: calls.append(mb) or ("OK", [f"{mb} lr".encode()])
+        client = authenticated_client(fake_conn)
+        client.capabilities = {"IMAP4rev1", "ACL"}
+        rights = client.get_my_rights_raw_for_folders(["INBOX", "shared/user2@example.org", "INBOX"])
+        assert rights == {"INBOX": "lr", "shared/user2@example.org": "lr"}
+        assert calls == ['"INBOX"', '"shared/user2@example.org"']
+
+    def test_get_my_rights_raw_for_folders_failure_gives_no_rights(self):
+        fake_conn = FakeIMAPConnection()
+        fake_conn.myrights_response = ("NO", [b"Permission denied"])
+        client = authenticated_client(fake_conn)
+        client.capabilities = {"IMAP4rev1", "ACL"}
+        assert client.get_my_rights_raw_for_folders(["INBOX"]) == {"INBOX": ""}
+
+    def test_get_my_rights_raw_for_folders_no_acl_capability_gives_all_rights(self):
+        client = authenticated_client(FakeIMAPConnection())
+        client.capabilities = {"IMAP4rev1"}
+        assert client.get_my_rights_raw_for_folders(["INBOX"]) == {"INBOX": "lrswipkxtea"}
+
+    def test_get_my_rights_raw_for_folders_not_authenticated_raises(self):
+        client = make_client()
+        client.connection = None
+        with pytest.raises(BugException):
+            client.get_my_rights_raw_for_folders(["INBOX"])
+
     def test_get_my_rights_raw_not_authenticated_raises(self):
         client = make_client()
         client.connection = None

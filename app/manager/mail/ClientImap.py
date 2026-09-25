@@ -673,16 +673,41 @@ class ClientImap(ClientMailServer):
         """
         if not folder.can_be_select:
             return ""
+        return self._get_my_rights_raw_or_empty(folder.path)
+
+    def _get_my_rights_raw_or_empty(self, folder_path: str) -> str:
+        """Return the logged user's raw rights on a real IMAP folder path, never failing.
+
+        If the server has no ACL capability, the user is considered owner of everything.
+        If MYRIGHTS fails, the user has no rights on the folder.
+        """
         if "ACL" not in self.capabilities:
             return ALL_IMAP_RIGHTS
         try:
-            # folder.path is the real IMAP path: it must not go through _fix_folder_path, which
+            # folder_path is the real IMAP path: it must not go through _fix_folder_path, which
             # would turn the '.' of a shared folder's owner email (shared/user@example.org) into
             # the delimiter
-            return self._imap_my_rights_raw(folder.path)
+            return self._imap_my_rights_raw(folder_path)
         except RequestException as ex:
-            logger_imap.warning("Failed to get own rights for folder '%s': %s", folder.path, str(ex))
+            logger_imap.warning("Failed to get own rights for folder '%s': %s", folder_path, str(ex))
             return ""
+
+    def get_my_rights_raw_for_folders(self, folder_paths: list[str]) -> dict[str, str]:
+        """Get the logged user's raw rights on several folders, one MYRIGHTS per distinct folder.
+
+        :param folder_paths: Real IMAP folder paths (as returned by list_folders or
+            get_folder_with_subfolders), used as is.
+        :type folder_paths: list[str]
+        :return: folder path -> raw IMAP ACL rights characters (empty string if they can't be read).
+        :rtype: dict[str, str]
+        """
+        if self.connection is not None and self.authenticated:
+            rights_by_folder: dict[str, str] = {}
+            for folder_path in folder_paths:
+                if folder_path not in rights_by_folder:
+                    rights_by_folder[folder_path] = self._get_my_rights_raw_or_empty(folder_path)
+            return rights_by_folder
+        raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
 
     def _imap_create_folder(self, folder_path: str, auto_sub:bool = True, no_error_if_exist:bool = False) -> None:
         """
@@ -734,25 +759,15 @@ class ClientImap(ClientMailServer):
 
     def _fix_folder_path(self, folder_path: str) -> str:
         """
-        Some check for folder_path:
-        - Check if it's ascii
-        - UI will always use '.' as delimiter. Because other char could break the url endpoint
-        Replace with the correct delimiter.
+        Ensure the folder path is ASCII and return it unchanged.
 
-        :param folder_path: _description_
+        :param folder_path: The folder path as received from the API.
         :type folder_path: str
-        :return: _description_
+        :return: The folder path, unchanged.
         :rtype: str
         """
         if not folder_path.isascii():
             raise RequestException(f"Mailbox name is not ascii: {folder_path}", err.ERROR_IMAP_NOT_ASCII)
-
-        #Careful, UI will always use '.' as de limiter. Because other char could break the url endpoint
-        #Replace with the correct delimiter
-        if "." in folder_path:
-            delimiter = self._get_delimiter_for(folder_path.split(".")[0])
-            if delimiter != ".":
-                folder_path = folder_path.replace(".", delimiter)
 
         return folder_path
 
