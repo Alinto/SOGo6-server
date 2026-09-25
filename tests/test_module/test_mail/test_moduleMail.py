@@ -9,6 +9,7 @@ from app.module.mail.ModuleMail import ModuleMail
 from app.utils import errors as err
 from app.utils.exceptions import RequestException
 from app.utils.api.paginate_sort_filter import CollectionPaginateArgs
+from app.factory.share.shareMailFolder import FOLDER_PERMISSION_CODE_TO_RIGHT
 
 
 ACCOUNT_ID = "default"
@@ -190,6 +191,13 @@ class FakeClientMailServer:
     def delete_mail_permanently_from_folder_type(self, folder_type, uid):
         """Delete a mail permanently from a folder type."""
         pass
+
+    def get_my_rights_raw_for_folders(self, folder_paths):
+        """Return the raw rights per folder, from my_rights_by_folder (default: owner of all)."""
+        self.get_my_rights_raw_for_folders_calls = getattr(self, 'get_my_rights_raw_for_folders_calls', [])
+        self.get_my_rights_raw_for_folders_calls.append(list(folder_paths))
+        rights = getattr(self, 'my_rights_by_folder', {})
+        return {path: rights.get(path, "lrswipkxtea") for path in dict.fromkeys(folder_paths)}
 
     def search_mails_with_content(self, folders, criteria):
         """Search mails with full content across folders. Yields (folder_path, mail_dict)."""
@@ -445,6 +453,25 @@ def test_get_folder_mails_empty_folder(monkeypatch):
     result, total = module.get_folder_mails(ACCOUNT_ID, "INBOX", CollectionPaginateArgs(page=1, page_size=10))
     assert total == 0
     assert len(result) == 0
+
+
+def test_get_folder_mails_adds_folder_rights_fetched_once(monkeypatch):
+    """Each mail gets the user's granted rights on the folder, fetched once for all mails."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.my_rights_by_folder = {'shared/user2@example.org': 'lrs'}
+
+    def fetch_all(folder_name, number_of_mails, offset=0, deleted=False):
+        yield {'nb_mails': 3}
+        for uid in ('1', '2', '3'):
+            yield {'uid': uid, 'mail': _make_email_message(), 'flags': {'seen': False, 'flagged': False, 'answered': False, 'forwarded': False, 'deleted': False, 'all': []}, 'size': 120}
+
+    fake_client.fetch_all_mails_with_content = fetch_all
+
+    result, _ = module.get_folder_mails(ACCOUNT_ID, "shared/user2@example.org", CollectionPaginateArgs(page=1, page_size=10))
+
+    expected = {'user_can_view_folder': 1, 'user_can_read_mails': 1, 'user_can_mark_mails_read': 1}
+    assert [mail['rights'] for mail in result] == [expected, expected, expected]
+    assert fake_client.get_my_rights_raw_for_folders_calls == [['shared/user2@example.org']]
 
 
 # ========== Tests for delete_mails ==========
@@ -1055,6 +1082,27 @@ def test_delete_mails_with_client_error_on_delete_by_uid(monkeypatch):
         module.delete_mails(ACCOUNT_ID, "INBOX", [1, 2, 3])
 
 
+def test_get_mail_detail_with_rights_adds_folder_rights(monkeypatch):
+    """With with_rights, the mail gets the user's granted rights on its folder (one request)."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.my_rights_by_folder = {'shared/user2@example.org': 'lr'}
+
+    result = module.get_mail_detail(ACCOUNT_ID, "shared/user2@example.org", "42", with_rights=True)
+
+    assert result['rights'] == {'user_can_view_folder': 1, 'user_can_read_mails': 1}
+    assert fake_client.get_my_rights_raw_for_folders_calls == [['shared/user2@example.org']]
+
+
+def test_get_mail_detail_without_rights_by_default(monkeypatch):
+    """By default (e.g. reply_mail), no rights are fetched."""
+    module, fake_client = _make_module(monkeypatch)
+
+    result = module.get_mail_detail(ACCOUNT_ID, "INBOX", "42")
+
+    assert 'rights' not in result
+    assert not hasattr(fake_client, 'get_my_rights_raw_for_folders_calls')
+
+
 # ========== Tests for get_mail_detail error handling ==========
 
 def test_get_mail_detail_with_error(monkeypatch):
@@ -1507,6 +1555,41 @@ def test_search_mails_folders_all_calls_list_folders(monkeypatch):
     module.search_mails(ACCOUNT_ID, params, collection)
 
     assert len(list_folders_called) == 1
+
+
+def test_search_mails_adds_folder_rights_to_each_mail(monkeypatch):
+    """Each mail gets the user's granted rights on its own folder."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.my_rights_by_folder = {'INBOX': 'lrswipkxtea', 'Shared': 'lr'}
+    fake_client.search_mails_result = [
+        _make_search_mail_dict(uid='1', subject='A', folder='INBOX'),
+        _make_search_mail_dict(uid='2', subject='B', folder='Shared'),
+        _make_search_mail_dict(uid='3', subject='C', folder='Shared'),
+    ]
+
+    params = {"folders": ["INBOX", "Shared"]}
+    collection = CollectionPaginateArgs(page=1, page_size=10, sort_by='subject', sort_order='asc')
+    result, _ = module.search_mails(ACCOUNT_ID, params, collection)
+
+    assert result[0]['rights'] == {right: 1 for right in FOLDER_PERMISSION_CODE_TO_RIGHT.values()}
+    assert result[1]['rights'] == {'user_can_view_folder': 1, 'user_can_read_mails': 1}
+    assert result[2]['rights'] == {'user_can_view_folder': 1, 'user_can_read_mails': 1}
+
+
+def test_search_mails_fetches_rights_once_per_folder(monkeypatch):
+    """Rights are fetched in one call, for the searched folders only, whatever the number of mails."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.list_folders_result = [
+        {'name': 'INBOX', 'path': 'INBOX', 'selectable': True},
+        {'name': 'Sent',  'path': 'Sent',  'selectable': True},
+    ]
+    fake_client.search_mails_result = [
+        _make_search_mail_dict(uid=str(i), folder='INBOX') for i in range(5)
+    ]
+
+    module.search_mails(ACCOUNT_ID, {"folders": ["all"]}, CollectionPaginateArgs(page=1, page_size=10))
+
+    assert fake_client.get_my_rights_raw_for_folders_calls == [['INBOX', 'Sent']]
 
 
 def test_search_mails_without_content_when_contents_excluded(monkeypatch):

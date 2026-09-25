@@ -142,6 +142,9 @@ class MailDownloadSchema(Schema):
 class MailDetailResponseSchema(ApiBaseResponse):
     """
     Schema for GET /mailboxes/<account_id>/folders/<path:folder_name>/mails/<mail_uid> response
+
+    The mail holds ``rights``: the rights the user has on the mail's folder, only the granted
+    ones (see FOLDER_PERMISSION_CODE_TO_RIGHT).
     """
     data = fields.Dict(required=False, allow_none=True)
 
@@ -193,7 +196,17 @@ class MailDetailResponseSchema(ApiBaseResponse):
                         "mail_type": "normal",
                         "mail_type_data": {}
                     }
-                ]
+                ],
+                "rights": {
+                    "user_can_insert_mails": 1,
+                    "user_can_mark_mails_read": 1,
+                    "user_can_post_mails": 1,
+                    "user_can_read_mails": 1,
+                    "user_can_remove_folder": 1,
+                    "user_can_view_folder": 1,
+                    "user_can_write_mails": 1,
+                    "user_is_administrator": 1
+                }
             }
         }
 
@@ -202,6 +215,9 @@ class MailDetailResponseSchema(ApiBaseResponse):
 class MailListResponseSchema(ApiBaseResponse):
     """
     Schema for GET /mailboxes/<account_id>/folders/<path:folder_name>/mails response
+
+    Each mail holds ``rights``: the rights the user has on the folder, only the granted
+    ones (see FOLDER_PERMISSION_CODE_TO_RIGHT).
     """
     data = fields.List(fields.Dict(), required=False, allow_none=True)
 
@@ -263,7 +279,17 @@ class MailListResponseSchema(ApiBaseResponse):
                     "priority": 3,
                     "should_ask_receipt": False,
                     "mail_type": [],
-                    "mail_type_data": []
+                    "mail_type_data": [],
+                    "rights": {
+                        "user_can_insert_mails": 1,
+                        "user_can_mark_mails_read": 1,
+                        "user_can_post_mails": 1,
+                        "user_can_read_mails": 1,
+                        "user_can_remove_folder": 1,
+                        "user_can_view_folder": 1,
+                        "user_can_write_mails": 1,
+                        "user_is_administrator": 1
+                    }
                 }
             ]
         }

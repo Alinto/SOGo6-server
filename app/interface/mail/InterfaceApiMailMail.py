@@ -75,7 +75,7 @@ class InterfaceApiMailMail:
         :rtype: tuple[dict[str, Any], int]
         """
         try:
-            mail_detail = self.mail_module.get_mail_detail(account_id, folder_name, mail_uid)
+            mail_detail = self.mail_module.get_mail_detail(account_id, folder_name, mail_uid, with_rights=True)
             self._process_inbound_imip(mail_detail)
             return create_api_base_response(mail_detail)
         except RequestException as ex:
