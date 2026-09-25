@@ -6,8 +6,10 @@ import pytest
 from io import BytesIO
 from unittest.mock import MagicMock
 from app.module.mail.ModuleMail import ModuleMail
+from app.utils import errors as err
 from app.utils.exceptions import RequestException
 from app.utils.api.paginate_sort_filter import CollectionPaginateArgs
+from app.factory.share.shareMailFolder import FOLDER_PERMISSION_CODE_TO_RIGHT
 
 
 ACCOUNT_ID = "default"
@@ -36,6 +38,7 @@ class FakeClientMailServer:
         self.fetch_mail_result = None   # set per test
         self.fetch_mail_raw_result = 'Subject: Test\r\n\r\nBody'
         self.get_acl_result = [('user1@example.com', {'userCanViewFolder': 1})]
+        self.get_acl_raw_result = [('user1@example.com', 'lr')]
 
         # Call tracking
         self.create_folder_calls = []
@@ -46,10 +49,12 @@ class FakeClientMailServer:
         self.delete_mails_by_uid_calls = []
         self.set_acl_calls = []
         self.delete_acl_calls = []
+        self.set_acl_raw_calls = []
 
     # ---- folder methods ----
 
-    def list_folders(self):
+    def list_folders(self, with_rights=False):
+        self.list_folders_with_rights = with_rights
         return self.list_folders_result
 
     def get_one_folder(self, folder_path):
@@ -139,6 +144,17 @@ class FakeClientMailServer:
     def delete_acl(self, folder_name, identifier):
         """Delete ACL for a folder."""
         self.delete_acl_calls.append((folder_name, identifier))
+        self.get_acl_raw_result = [(ident, rights) for ident, rights in self.get_acl_raw_result if ident != identifier]
+
+    def get_acl_raw(self, folder_path):
+        """Get the raw IMAP ACL for a folder (no SOGo rights conversion)."""
+        return self.get_acl_raw_result
+
+    def set_acl_raw(self, folder_path, identifier, imap_rights):
+        """Set the raw IMAP ACL rights string for identifier on folder (no SOGo rights conversion)."""
+        self.set_acl_raw_calls.append((folder_path, identifier, imap_rights))
+        self.get_acl_raw_result = [(ident, rights) for ident, rights in self.get_acl_raw_result if ident != identifier]
+        self.get_acl_raw_result.append((identifier, imap_rights))
 
     def get_mail_uids_before_date(self, mailbox, before_date=None, exclude_deleted=True):
         """Get mail UIDs in a mailbox before a certain date."""
@@ -175,6 +191,13 @@ class FakeClientMailServer:
     def delete_mail_permanently_from_folder_type(self, folder_type, uid):
         """Delete a mail permanently from a folder type."""
         pass
+
+    def get_my_rights_raw_for_folders(self, folder_paths):
+        """Return the raw rights per folder, from my_rights_by_folder (default: owner of all)."""
+        self.get_my_rights_raw_for_folders_calls = getattr(self, 'get_my_rights_raw_for_folders_calls', [])
+        self.get_my_rights_raw_for_folders_calls.append(list(folder_paths))
+        rights = getattr(self, 'my_rights_by_folder', {})
+        return {path: rights.get(path, "lrswipkxtea") for path in dict.fromkeys(folder_paths)}
 
     def search_mails_with_content(self, folders, criteria):
         """Search mails with full content across folders. Yields (folder_path, mail_dict)."""
@@ -322,10 +345,29 @@ def test_get_folder_list_success(monkeypatch):
 def test_get_folder_list_with_client_error(monkeypatch):
     """Test folder list retrieval with client error."""
     module, fake_client = _make_module(monkeypatch)
-    fake_client.list_folders = lambda: (_ for _ in ()).throw(RequestException("Connection failed"))
+    fake_client.list_folders = lambda with_rights=False: (_ for _ in ()).throw(RequestException("Connection failed"))
 
     with pytest.raises(RequestException, match="Connection failed"):
         module.get_folder_list(ACCOUNT_ID)
+
+
+def test_get_folder_list_converts_rights_recursively(monkeypatch):
+    """Test the raw IMAP rights of each folder (children included) are converted to the API shape."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.list_folders_result = [
+        {'name': 'INBOX', 'path': 'INBOX', 'rights': 'lrswipkxtea', 'children': [
+            {'name': 'sub', 'path': 'INBOX/sub', 'rights': 'lr', 'children': []},
+        ]},
+        {'name': 'shared', 'path': 'shared', 'rights': '', 'children': []},
+    ]
+
+    result = module.get_folder_list(ACCOUNT_ID)
+
+    assert fake_client.list_folders_with_rights is True
+    assert len(result[0]['rights']) == 11
+    assert result[0]['rights']['userIsAdministrator'] == 1
+    assert result[0]['children'][0]['rights'] == {'userCanViewFolder': 1, 'userCanReadMails': 1}
+    assert result[1]['rights'] == {}
 
 
 # ========== Tests for create_folder ==========
@@ -411,6 +453,25 @@ def test_get_folder_mails_empty_folder(monkeypatch):
     result, total = module.get_folder_mails(ACCOUNT_ID, "INBOX", CollectionPaginateArgs(page=1, page_size=10))
     assert total == 0
     assert len(result) == 0
+
+
+def test_get_folder_mails_adds_folder_rights_fetched_once(monkeypatch):
+    """Each mail gets the user's granted rights on the folder, fetched once for all mails."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.my_rights_by_folder = {'shared/user2@example.org': 'lrs'}
+
+    def fetch_all(folder_name, number_of_mails, offset=0, deleted=False):
+        yield {'nb_mails': 3}
+        for uid in ('1', '2', '3'):
+            yield {'uid': uid, 'mail': _make_email_message(), 'flags': {'seen': False, 'flagged': False, 'answered': False, 'forwarded': False, 'deleted': False, 'all': []}, 'size': 120}
+
+    fake_client.fetch_all_mails_with_content = fetch_all
+
+    result, _ = module.get_folder_mails(ACCOUNT_ID, "shared/user2@example.org", CollectionPaginateArgs(page=1, page_size=10))
+
+    expected = {'user_can_view_folder': 1, 'user_can_read_mails': 1, 'user_can_mark_mails_read': 1}
+    assert [mail['rights'] for mail in result] == [expected, expected, expected]
+    assert fake_client.get_my_rights_raw_for_folders_calls == [['shared/user2@example.org']]
 
 
 # ========== Tests for delete_mails ==========
@@ -564,45 +625,116 @@ def test_get_mail_raw_success(monkeypatch):
 # ========== Tests for get_folder_share ==========
 
 def test_get_folder_share_success(monkeypatch):
-    """Test getting folder share information (yields tuples)."""
+    """Test getting folder share information reads the live IMAP ACL (source of truth)."""
     module, fake_client = _make_module(monkeypatch)
-    fake_client.get_acl_result = [
-        ('user1@example.com', {'userCanViewFolder': 1, 'userCanReadMails': 1}),
-        ('anyone', {'userCanViewFolder': 1})
+    fake_client.get_acl_raw_result = [
+        ('user1@example.com', 'lr'),
+        ('anyone', 'l'),
     ]
 
-    result = list(module.get_folder_share(ACCOUNT_ID, "INBOX"))
-    identifiers = [item[0] for item in result]
-    assert 'user1@example.com' in identifiers
-    assert 'anyone' in identifiers
+    result = module.get_folder_share(ACCOUNT_ID, "INBOX")
+
+    to_users = {entry.to_user for entry in result}
+    assert 'user1@example.com' in to_users
+    assert '<default>' in to_users  # IMAP 'anyone' identifier maps to the '<default>' pseudo to_user
+    user1 = next(entry for entry in result if entry.to_user == 'user1@example.com')
+    assert user1.rights['user_can_view_folder'] == 1
+    assert user1.rights['user_can_read_mails'] == 1
 
 
-# ========== Tests for share_folder ==========
+# ========== Tests for patch_folder_share / put_folder_share / post_folder_share ==========
 
-def test_share_folder_success(monkeypatch):
-    """Test sharing a folder with users."""
+def test_get_folder_share_skips_owner(monkeypatch):
+    """Test that the owner's own IMAP ACL entry is not returned as a share."""
     module, fake_client = _make_module(monkeypatch)
-    module.user.login_mail_server = 'owner@example.com'
-    fake_client.get_acl_result = []
+    fake_client.get_acl_raw_result = [(module.user.uid, 'lrswipkxtea'), ('user1@example.com', 'lr')]
 
-    def get_acl_after_share(folder_path):
-        if fake_client.set_acl_calls:
-            return [('user1@example.com', {'userCanViewFolder': 1, 'userCanReadMails': 1})]
-        return []
+    result = module.get_folder_share(ACCOUNT_ID, "INBOX")
 
-    fake_client.get_acl = get_acl_after_share
+    assert [entry.to_user for entry in result] == ['user1@example.com']
 
-    share_data = [
-        {
-            "c_email": "user1@example.com",
-            "rights": {"userCanViewFolder": 1, "userCanReadMails": 1}
-        }
+
+def test_patch_folder_share_success(monkeypatch):
+    """Test patching folder share sets the IMAP ACL and returns the ACL read back from IMAP."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.get_acl_raw_result = [('user2@example.com', 'l')]
+
+    users = [{"uid": "user1@example.com", "rights": {"user_can_view_folder": 1, "user_can_read_mails": 1}}]
+    result = module.patch_folder_share(ACCOUNT_ID, "INBOX", users)
+
+    assert len(fake_client.set_acl_raw_calls) == 1
+    folder_path, identifier, imap_rights = fake_client.set_acl_raw_calls[0]
+    assert folder_path == "INBOX"
+    assert identifier == "user1@example.com"
+    assert set(imap_rights) == {"l", "r"}
+    assert fake_client.delete_acl_calls == []
+    assert {entry.to_user for entry in result} == {"user1@example.com", "user2@example.com"}
+    user1 = next(entry for entry in result if entry.to_user == "user1@example.com")
+    assert user1.rights["user_can_read_mails"] == 1
+
+
+def test_patch_folder_share_does_not_touch_db(monkeypatch):
+    """Test that folder shares are stored only on the IMAP side, never in the DB."""
+    module, _ = _make_module(monkeypatch)
+    monkeypatch.setattr(module, '_get_db', lambda: pytest.fail("folder share must not use the DB"))
+
+    users = [{"uid": "user1@example.com", "rights": {"user_can_view_folder": 1}}]
+    module.patch_folder_share(ACCOUNT_ID, "INBOX", users)
+    module.put_folder_share(ACCOUNT_ID, "INBOX", users)
+    module.get_folder_share(ACCOUNT_ID, "INBOX")
+
+
+def test_patch_folder_share_anyone_maps_to_imap_identifier(monkeypatch):
+    """Test that the '<default>' pseudo to_user maps to the IMAP special identifier 'anyone'."""
+    module, fake_client = _make_module(monkeypatch)
+
+    users = [{"uid": "<default>", "rights": {"user_can_view_folder": 1}}]
+    result = module.patch_folder_share(ACCOUNT_ID, "INBOX", users)
+
+    assert fake_client.set_acl_raw_calls[0][1] == "anyone"
+    assert "<default>" in {entry.to_user for entry in result}
+
+
+def test_patch_folder_share_with_self_raises(monkeypatch):
+    """Test that sharing a folder with its own owner is rejected before touching IMAP."""
+    module, fake_client = _make_module(monkeypatch)
+
+    users = [{"uid": module.user.uid, "rights": {"user_can_view_folder": 1}}]
+    with pytest.raises(RequestException) as exc_info:
+        module.patch_folder_share(ACCOUNT_ID, "INBOX", users)
+
+    assert exc_info.value.error == err.ERROR_SHARE_CANNOT_SHARE_WITH_SELF
+    assert fake_client.set_acl_raw_calls == []
+
+
+def test_put_folder_share_revokes_missing_users(monkeypatch):
+    """Test that PUT revokes users present in the IMAP ACL but no longer in the list."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.get_acl_raw_result = [
+        (module.user.uid, 'lrswipkxtea'),
+        ('user2@example.com', 'l'),
+        ('anyone', 'l'),
     ]
 
-    result = list(module.share_folder(ACCOUNT_ID, "INBOX", share_data))
-    assert len(fake_client.set_acl_calls) >= 1
-    # share_folder yields (identifier, rights) tuples
-    assert any(item[0] == 'user1@example.com' for item in result)
+    users = [{"uid": "user1@example.com", "rights": {"user_can_view_folder": 1}}]
+    result = module.put_folder_share(ACCOUNT_ID, "INBOX", users)
+
+    # The owner's own ACL entry is never revoked
+    assert fake_client.delete_acl_calls == [("INBOX", "user2@example.com"), ("INBOX", "anyone")]
+    assert fake_client.set_acl_raw_calls[0][1] == "user1@example.com"
+    assert {entry.to_user for entry in result} == {"user1@example.com"}
+
+
+def test_post_folder_share_behaves_like_patch(monkeypatch):
+    """Test that POST upserts the given users without touching others (same as PATCH)."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.get_acl_raw_result = []
+
+    users = [{"uid": "user1@example.com", "rights": {"user_can_view_folder": 1}}]
+    result = module.post_folder_share(ACCOUNT_ID, "INBOX", users)
+
+    assert len(fake_client.set_acl_raw_calls) == 1
+    assert result[0].to_user == "user1@example.com"
 
 
 # ========== Tests for perform_mail_action ==========
@@ -950,6 +1082,27 @@ def test_delete_mails_with_client_error_on_delete_by_uid(monkeypatch):
         module.delete_mails(ACCOUNT_ID, "INBOX", [1, 2, 3])
 
 
+def test_get_mail_detail_with_rights_adds_folder_rights(monkeypatch):
+    """With with_rights, the mail gets the user's granted rights on its folder (one request)."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.my_rights_by_folder = {'shared/user2@example.org': 'lr'}
+
+    result = module.get_mail_detail(ACCOUNT_ID, "shared/user2@example.org", "42", with_rights=True)
+
+    assert result['rights'] == {'user_can_view_folder': 1, 'user_can_read_mails': 1}
+    assert fake_client.get_my_rights_raw_for_folders_calls == [['shared/user2@example.org']]
+
+
+def test_get_mail_detail_without_rights_by_default(monkeypatch):
+    """By default (e.g. reply_mail), no rights are fetched."""
+    module, fake_client = _make_module(monkeypatch)
+
+    result = module.get_mail_detail(ACCOUNT_ID, "INBOX", "42")
+
+    assert 'rights' not in result
+    assert not hasattr(fake_client, 'get_my_rights_raw_for_folders_calls')
+
+
 # ========== Tests for get_mail_detail error handling ==========
 
 def test_get_mail_detail_with_error(monkeypatch):
@@ -1213,75 +1366,21 @@ def test_get_folder_mails_without_content_exclude_filter(monkeypatch):
     assert 'contents' not in result[0]
 
 
-# ========== Additional Tests for share_folder with removal ==========
+# ========== Additional tests for put_folder_share with multiple users ==========
 
-def test_share_folder_with_user_removal(monkeypatch):
-    """Test sharing a folder and removing a previously shared user."""
+def test_put_folder_share_with_multiple_users(monkeypatch):
+    """Test replacing a folder's share with multiple users sets IMAP ACL for each."""
     module, fake_client = _make_module(monkeypatch)
-    module.user.login_mail_server = 'owner@example.com'
-    
-    # Initial ACL with two users
-    def get_acl_mock(folder_path):
-        if fake_client.set_acl_calls:
-            return [
-                ('user1@example.com', {'userCanViewFolder': 1, 'userCanReadMails': 1}),
-                ('user2@example.com', {'userCanViewFolder': 1})
-            ]
-        return [
-            ('user1@example.com', {'userCanViewFolder': 1, 'userCanReadMails': 1}),
-            ('user2@example.com', {'userCanViewFolder': 1})
-        ]
 
-    fake_client.get_acl = get_acl_mock
-
-    # Only share with user1, removing user2
-    share_data = [
-        {
-            "c_email": "user1@example.com",
-            "rights": {"userCanViewFolder": 1, "userCanReadMails": 1}
-        }
+    users = [
+        {"uid": "user1@example.com", "rights": {"user_can_view_folder": 1, "user_can_read_mails": 1}},
+        {"uid": "user2@example.com", "rights": {"user_can_view_folder": 1}},
     ]
 
-    result = list(module.share_folder(ACCOUNT_ID, "INBOX", share_data))
-    
-    # Should have called delete_acl for user2
-    assert len(fake_client.delete_acl_calls) >= 1
-    # Should have updated user1
-    assert len(fake_client.set_acl_calls) >= 1
+    result = module.put_folder_share(ACCOUNT_ID, "INBOX", users)
 
-
-def test_share_folder_with_multiple_users(monkeypatch):
-    """Test sharing a folder with multiple users."""
-    module, fake_client = _make_module(monkeypatch)
-    module.user.login_mail_server = 'owner@example.com'
-    fake_client.get_acl_result = []
-
-    def get_acl_after_share(folder_path):
-        if fake_client.set_acl_calls:
-            return [
-                ('user1@example.com', {'userCanViewFolder': 1, 'userCanReadMails': 1}),
-                ('user2@example.com', {'userCanViewFolder': 1})
-            ]
-        return []
-
-    fake_client.get_acl = get_acl_after_share
-
-    share_data = [
-        {
-            "c_email": "user1@example.com",
-            "rights": {"userCanViewFolder": 1, "userCanReadMails": 1}
-        },
-        {
-            "c_email": "user2@example.com",
-            "rights": {"userCanViewFolder": 1}
-        }
-    ]
-
-    result = list(module.share_folder(ACCOUNT_ID, "INBOX", share_data))
-    
-    # Should have called set_acl for both users
-    assert len(fake_client.set_acl_calls) == 2
-    identifiers = [call[1] for call in fake_client.set_acl_calls]
+    assert len(fake_client.set_acl_raw_calls) == 2
+    identifiers = [call[1] for call in fake_client.set_acl_raw_calls]
     assert 'user1@example.com' in identifiers
     assert 'user2@example.com' in identifiers
 # ===========================================================================
@@ -1456,6 +1555,41 @@ def test_search_mails_folders_all_calls_list_folders(monkeypatch):
     module.search_mails(ACCOUNT_ID, params, collection)
 
     assert len(list_folders_called) == 1
+
+
+def test_search_mails_adds_folder_rights_to_each_mail(monkeypatch):
+    """Each mail gets the user's granted rights on its own folder."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.my_rights_by_folder = {'INBOX': 'lrswipkxtea', 'Shared': 'lr'}
+    fake_client.search_mails_result = [
+        _make_search_mail_dict(uid='1', subject='A', folder='INBOX'),
+        _make_search_mail_dict(uid='2', subject='B', folder='Shared'),
+        _make_search_mail_dict(uid='3', subject='C', folder='Shared'),
+    ]
+
+    params = {"folders": ["INBOX", "Shared"]}
+    collection = CollectionPaginateArgs(page=1, page_size=10, sort_by='subject', sort_order='asc')
+    result, _ = module.search_mails(ACCOUNT_ID, params, collection)
+
+    assert result[0]['rights'] == {right: 1 for right in FOLDER_PERMISSION_CODE_TO_RIGHT.values()}
+    assert result[1]['rights'] == {'user_can_view_folder': 1, 'user_can_read_mails': 1}
+    assert result[2]['rights'] == {'user_can_view_folder': 1, 'user_can_read_mails': 1}
+
+
+def test_search_mails_fetches_rights_once_per_folder(monkeypatch):
+    """Rights are fetched in one call, for the searched folders only, whatever the number of mails."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.list_folders_result = [
+        {'name': 'INBOX', 'path': 'INBOX', 'selectable': True},
+        {'name': 'Sent',  'path': 'Sent',  'selectable': True},
+    ]
+    fake_client.search_mails_result = [
+        _make_search_mail_dict(uid=str(i), folder='INBOX') for i in range(5)
+    ]
+
+    module.search_mails(ACCOUNT_ID, {"folders": ["all"]}, CollectionPaginateArgs(page=1, page_size=10))
+
+    assert fake_client.get_my_rights_raw_for_folders_calls == [['INBOX', 'Sent']]
 
 
 def test_search_mails_without_content_when_contents_excluded(monkeypatch):

@@ -10,6 +10,7 @@ from app.api.v1.contact.schemas.components import (
     ContactPhoneSchema,
     ContactUrlSchema,
 )
+from app.api.v1.contact.schemas.addressbook import ContactShareRightsSchema
 from app.module.contact.model.enums.CardKind import CardKind
 from app.utils.api.ApiBaseResponse import ApiBaseResponse
 
@@ -134,6 +135,8 @@ class ContactListDataSchema(Schema):
     """Data payload for the contact list response. The total count is in the X-Pagination header."""
 
     contacts = fields.List(fields.Nested(ContactSchema))
+    rights = fields.Nested(ContactShareRightsSchema, metadata={
+        "description": "Current user's permissions on the address book. Only present when listing a single address book."})
 
 
 class ContactListResponseSchema(ApiBaseResponse):

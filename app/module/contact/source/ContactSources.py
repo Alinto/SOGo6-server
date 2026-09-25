@@ -8,13 +8,16 @@ from app.module.contact.repository.RepositoryAddressBook import RepositoryAddres
 from app.module.contact.repository.RepositoryContact import RepositoryContact
 from app.module.contact.repository.RepositoryContactList import RepositoryContactList
 from app.module.contact.source.ContactSourceDb import SORTABLE_COLUMNS, ContactSourceDb
+from app.utils import constants as cs
 from app.utils import errors as err
 from app.utils.db.Condition import Order
 from app.utils.exceptions import RequestException
 from app.utils.logger.logger import logger_contact
+from app.utils.strings import get_domain_from_mail
 
 if TYPE_CHECKING:
     from app.config.settings.DomainSettings import UserSourceSettingsObj
+    from app.factory.share.shareContact import ShareContact
     from app.manager.db.ClientSQL import ClientSQL
     from app.manager.storage.ClientStorage import ClientStorage
     from app.module.contact.model.CardAddressBook import CardAddressBook
@@ -35,9 +38,10 @@ class ContactSources:
     for the annuaire (SQL or LDAP), one ContactSourceDirectory per source.
     """
 
-    def __init__(self, db: ClientSQL) -> None:
+    def __init__(self, db: ClientSQL, share: ShareContact | None = None) -> None:
         self._db = db
         self._repo_addressbook = RepositoryAddressBook(db)
+        self._share: ShareContact | None = share
 
     def purge_orphans(self, file_store: ClientStorage) -> int:
         """Physically remove soft-deleted rows, dangling list memberships and orphan media; return total reclaimed.
@@ -68,9 +72,39 @@ class ContactSources:
         logger_contact.error("Unknown source_type=%s for address book key=%s", addressbook.source_type, addressbook.key)
         raise RequestException(error=err.ERROR_CONTACT_ADDRESSBOOK_NOT_SUPPORTED)
 
+    def _get_shared_addressbooks(self, user_uid: str) -> list[CardAddressBook]:
+        """Return every address book shared with user_uid, directly or via an "anyone" share.
+
+        Directly: sogo6_acl entries where to_user=user_uid. Via "anyone": sogo6_acl entries where
+        to_user="<default>", restricted to books whose owner shares user_uid's mail domain (see
+        ShareContact.get_user_or_anyone). Skips entries whose key no longer resolves to a book
+        (deleted resource, stale ACL row) and books owned by user_uid.
+        """
+        if self._share is None:
+            return []
+        shared: list[CardAddressBook] = []
+        seen_keys: set[str] = set()
+        for entry in self._share.get_keys_shared_with(user_uid):
+            book: CardAddressBook | None = self._repo_addressbook.find_by_key_only(entry.key)
+            if book is not None and book.key not in seen_keys and book.user_uid != user_uid:
+                shared.append(book)
+                seen_keys.add(book.key)
+        user_domain: str | None = get_domain_from_mail(user_uid)
+        if user_domain:
+            for entry in self._share.get_keys_shared_with(cs.ANYONE_TO_USER):
+                if entry.key in seen_keys:
+                    continue
+                book = self._repo_addressbook.find_by_key_only(entry.key)
+                if (book is not None and book.user_uid != user_uid
+                        and get_domain_from_mail(book.user_uid) == user_domain):
+                    shared.append(book)
+                    seen_keys.add(entry.key)
+        return shared
+
     def get_all(self, user_uid: str, user_sources: dict[str, UserSourceSettingsObj] | None = None) -> list[ContactSource]:
-        """Return a source for every address book owned by user_uid (local books; directory later)."""
-        return [self.get(book, user_sources) for book in self._repo_addressbook.find_all(user_uid)]
+        """Return a source for every address book owned by, or shared with, user_uid (directory later)."""
+        owned: list[CardAddressBook] = self._repo_addressbook.find_all(user_uid)
+        return [self.get(book, user_sources) for book in owned + self._get_shared_addressbooks(user_uid)]
 
     def get_default(self, user_uid: str) -> ContactSource | None:
         """Return the default address book source for user_uid, or None if the user has none."""
@@ -80,12 +114,21 @@ class ContactSources:
     def get_by_key(
         self, user_uid: str, key: str, user_sources: dict[str, UserSourceSettingsObj] | None = None,
     ) -> ContactSource | None:
-        """Return the source for a specific address book, or None if not found."""
+        """Return the source for a specific address book, or None if not found.
+
+        Resolves address books owned by user_uid, shared with user_uid directly (sogo6_acl),
+        and shared with "anyone" when user_uid shares the owner's mail domain (see
+        ShareContact.get_user_or_anyone).
+        """
         # TODO directory: route on the key. Directory books carry a reserved "dir:<source_uid>"
         # prefix (a raw UUID never starts with it), so the branch is unambiguous: strip the prefix,
         # look the source_uid up in user_sources, build a synthetic directory book. A plain UUID
         # falls through to the DB lookup below. Blocked on the user source query primitive.
         book = self._repo_addressbook.find_by_key(user_uid, key)
+        if book is None and self._share is not None:
+            candidate: CardAddressBook | None = self._repo_addressbook.find_by_key_only(key)
+            if candidate is not None and self._share.get_user_or_anyone(user_uid, candidate.user_uid, key) is not None:
+                book = candidate
         return self.get(book, user_sources) if book is not None else None
 
     def get_contacts(  # pylint: disable=too-many-locals
