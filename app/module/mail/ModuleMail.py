@@ -14,6 +14,10 @@ import zipfile
 
 
 from app.config.settings.UserSettings import UserMailViewSettings, UserMailViewSettingsObj, UserMailGeneralSettings
+from app.factory.share.RepositoryAcl import AclEntry
+from app.factory.share.shareMailFolder import (
+    FOLDER_RESOURCE_TYPE, imap_permissions_to_rights, rights_to_imap_permissions, right_to_camel,
+)
 from app.module.mail.model.TmpDraftManager import TmpDraftManager
 from app.manager.mail.ClientMailServer import ClientMailServer
 from app.utils import constants as cs
@@ -131,13 +135,27 @@ class ModuleMail:
     def get_folder_list(self, account_id:str) -> list[dict[str, Any]]:
         """Retrieve a list of folders in the user's mailbox with detailed information.
 
-        :return: A list of folders with complete details including name, path, type, counts, and children.
+        Each folder also holds the user's own rights on it (``rights``: only the granted ones,
+        camelCase named, like the share endpoints), for the user's folders as well as the ones
+        shared with them.
+
+        :return: A list of folders with complete details including name, path, type, counts, rights and children.
         :rtype: list[dict[str, Any]]
         :raises RequestException: If connection or manager operations fail
         """
         client = self._open_client_for(account_id)
+        folders = client.list_folders(with_rights=True)
+        self._convert_folders_rights(folders)
+        return folders
 
-        return client.list_folders()
+    @staticmethod
+    def _convert_folders_rights(folders: list[dict[str, Any]]) -> None:
+        """Convert in place the raw IMAP rights of a folder tree (children included) into
+        the API shape: only granted rights, camelCase named, like the share endpoints."""
+        for folder in folders:
+            rights = imap_permissions_to_rights(folder.get(cs.FOLDER_RIGHTS, ""))
+            folder[cs.FOLDER_RIGHTS] = {right_to_camel(right): 1 for right, value in rights.items() if value}
+            ModuleMail._convert_folders_rights(folder.get(cs.FOLDER_CHILDREN, []))
 
     def get_one_folder(self, account_id:str, folder_path: str) -> dict[str, Any]:
         """Retrieve details of a specific mail folder.
@@ -344,91 +362,115 @@ class ModuleMail:
         )
         return {"mails_deleted": total_deleted}
 
-    def get_folder_share(self, account_id: str, folder_path: str) -> Iterator[tuple[str, dict[str, int]]]:
-        """
-        Yield the acl for a folder.
-        (identifier, {right1: 1, right2: 0, ...})
+    @staticmethod
+    def _imap_identifier(to_user: str) -> str:
+        """Map a share to_user to the IMAP ACL identifier.
 
-        :param account_id: _description_
+        The "<default>" pseudo to_user (cs.ANYONE_TO_USER, the SOGo convention used by the API
+        layer) maps to the real IMAP special identifier "anyone" (RFC 4314); any other to_user
+        is used as-is.
+        """
+        return cs.USER_CLASS_ANY if to_user == cs.ANYONE_TO_USER else to_user
+
+    def _check_not_self_share(self, users: list[dict]) -> None:
+        """Reject any share entry targeting the folder owner itself.
+
+        :raises RequestException: ERROR_SHARE_CANNOT_SHARE_WITH_SELF if a target uid is the owner itself
+        """
+        if any(entry["uid"] == self.user.uid for entry in users):
+            raise RequestException(error=err.ERROR_SHARE_CANNOT_SHARE_WITH_SELF)
+
+    def get_folder_share(self, account_id: str, folder_path: str) -> list[AclEntry]:
+        """Return all ACL entries (one per user) currently granted on a folder, read live from IMAP.
+
+        IMAP is the only storage for mail folder shares. The owner's own ACL entry is skipped.
+
+        :param account_id: The account identifier
         :type account_id: str
-        :param folder_path: _description_
+        :param folder_path: The name of the folder
         :type folder_path: str
-        :yield: _description_
-        :rtype: Iterator[tuple[str, dict[str, int]]]
+        :return: List of ACL entries for the folder
+        :rtype: list[AclEntry]
         """
-        client = self._open_client_for(account_id)
-        # Get ACL from client (already converted to SOGo rights format)
-        yield from client.get_acl(folder_path)
+        return self._read_folder_share(self._open_client_for(account_id), folder_path)
 
-
-
-    def share_folder(self, account_id:str, folder_path: str, share_data: list[dict[str, Any]]) -> Iterator[tuple[str, dict[str, int]]]:
-        """Share the specified folder with another user.
-        
-        :param folder_name: The name of the folder
-        :type folder_name: str
-        :param share_data: list of users with their rights configuration
-        :type share_data: list[dict[str, Any]]
-        :return: Share result data
-        :rtype: dict[str, Any]
-        :raises RequestException: If validation or manager operations fail
-        """
-        client = self._open_client_for(account_id)
-
-        # Step 1: Get current ACL to know which users currently have permissions
-        current_acl = client.get_acl(folder_path)
-        current_users = {identifier for identifier, _ in current_acl}
-
-        # Step 2: Build list of users from the incoming share_data
-        new_users_dict: dict[str, dict[str, Any]] = {}  # identifier -> rights_dict
-
-        for user_entry in share_data:
-            # Extract user identifier (uid or c_email)
-            #TODO in fact, we need the user.login_mail_server
-            identifier = user_entry["c_email"]
-            rights_dict = user_entry.get("rights", {})
-
-            # Store rights dict directly (client will handle conversion)
-            new_users_dict[identifier] = rights_dict
-
-        logger_mail_server.info("New users dict from share_data: %s", new_users_dict)
-
-        # Step 3: Determine which users need to be removed (present in current but not in new)
-        users_to_remove = current_users - set(new_users_dict.keys())
-        logger_mail_server.info("Users to be removed: %s", users_to_remove)
-
-        # Step 4: Remove ACL for users not in the new list (except owner)
-        for user_to_remove in users_to_remove:
-            # Skip owner to avoid locking them out
-            if user_to_remove == self.user.login_mail_server:
+    def _read_folder_share(self, client: ClientMailServer, folder_path: str) -> list[AclEntry]:
+        """Read a folder's IMAP ACL through an already opened client, skipping the owner's own entry."""
+        entries: list[AclEntry] = []
+        for identifier, imap_rights in client.get_acl_raw(folder_path):
+            to_user = cs.ANYONE_TO_USER if identifier == cs.USER_CLASS_ANY else identifier
+            if to_user == self.user.uid:
                 continue
-            try:
-                client.delete_acl(folder_path, user_to_remove)
-                logger_mail_server.info("Removed ACL for folder '%s', user '%s'", folder_path, user_to_remove)
-            except RequestException as e:
-                logger_mail_server.warning("Failed to remove ACL for user '%s': %s", user_to_remove, e)
+            entries.append(AclEntry(
+                resource_type=FOLDER_RESOURCE_TYPE, key=folder_path, owner=self.user.uid, to_user=to_user,
+                rights=imap_permissions_to_rights(imap_rights),
+            ))
+        return entries
 
-        # Step 5: Set/update ACL for users in the new list
-        for identifier, rights_dict in new_users_dict.items():
-            # Check if any rights are set (at least one truthy value)
-            has_rights = any(rights_dict.values()) if rights_dict else False
+    def patch_folder_share(self, account_id: str, folder_path: str, users: list[dict]) -> list[AclEntry]:
+        """Grant or update rights for one or several users on a folder, leaving other shares untouched.
 
-            if has_rights:
-                # Set ACL for this user (client handles conversion)
-                try:
-                    client.set_acl(folder_path, identifier, rights_dict)
-                    logger_mail_server.info("Set ACL for folder '%s', user '%s', rights %s", folder_path, identifier, rights_dict)
-                except RequestException as e:
-                    logger_mail_server.error("Failed to set ACL for user '%s': %s", identifier, e)
-            else:
-                # If no rights specified, delete the ACL entry
-                try:
-                    client.delete_acl(folder_path, identifier)
-                    logger_mail_server.info("Deleted ACL for folder '%s', user '%s' (no rights specified)", folder_path, identifier)
-                except RequestException as e:
-                    logger_mail_server.warning("Failed to delete ACL for user '%s': %s", identifier, e)
+        Writes the IMAP ACL only (no DB storage), then returns the folder's ACL read back from IMAP.
 
-        yield from client.get_acl(folder_path)
+        :param account_id: The account identifier
+        :type account_id: str
+        :param folder_path: The name of the folder
+        :type folder_path: str
+        :param users: list of ``{"uid": ..., "rights": {...}}`` entries to upsert
+        :type users: list[dict]
+        :return: List of ACL entries for the folder after the update
+        :rtype: list[AclEntry]
+        :raises RequestException: ERROR_SHARE_CANNOT_SHARE_WITH_SELF if a target uid is the owner itself
+        """
+        self._check_not_self_share(users)
+        client = self._open_client_for(account_id)
+        for entry in users:
+            client.set_acl_raw(folder_path, self._imap_identifier(entry["uid"]), rights_to_imap_permissions(entry["rights"]))
+        return self._read_folder_share(client, folder_path)
+
+    def put_folder_share(self, account_id: str, folder_path: str, users: list[dict]) -> list[AclEntry]:
+        """Replace all existing shares on a folder with exactly the given users' rights.
+
+        Any user currently present in the folder's IMAP ACL but absent from ``users`` is revoked
+        (the owner's own entry is never touched). Writes the IMAP ACL only (no DB storage).
+
+        :param account_id: The account identifier
+        :type account_id: str
+        :param folder_path: The name of the folder
+        :type folder_path: str
+        :param users: list of ``{"uid": ..., "rights": {...}}`` entries; becomes the full set of shares
+        :type users: list[dict]
+        :return: List of ACL entries for the folder after the replacement
+        :rtype: list[AclEntry]
+        :raises RequestException: ERROR_SHARE_CANNOT_SHARE_WITH_SELF if a target uid is the owner itself
+        """
+        self._check_not_self_share(users)
+        client = self._open_client_for(account_id)
+        new_uids = {entry["uid"] for entry in users}
+        for existing in self._read_folder_share(client, folder_path):
+            if existing.to_user not in new_uids:
+                client.delete_acl(folder_path, self._imap_identifier(existing.to_user))
+        for entry in users:
+            client.set_acl_raw(folder_path, self._imap_identifier(entry["uid"]), rights_to_imap_permissions(entry["rights"]))
+        return self._read_folder_share(client, folder_path)
+
+    def post_folder_share(self, account_id: str, folder_path: str, users: list[dict]) -> list[AclEntry]:
+        """Grant sharing rights on a folder to one or several users, in addition to any existing share.
+
+        Structurally identical to patch_folder_share (upsert the given users, leave others
+        untouched); kept as its own method so the API's PATCH/POST endpoints map 1:1 to ModuleMail.
+
+        :param account_id: The account identifier
+        :type account_id: str
+        :param folder_path: The name of the folder
+        :type folder_path: str
+        :param users: list of ``{"uid": ..., "rights": {...}}`` entries to upsert
+        :type users: list[dict]
+        :return: List of ACL entries for the folder after the update
+        :rtype: list[AclEntry]
+        :raises RequestException: ERROR_SHARE_CANNOT_SHARE_WITH_SELF if a target uid is the owner itself
+        """
+        return self.patch_folder_share(account_id, folder_path, users)
 
 ##############
 #MAILS SERVER#
@@ -676,6 +718,9 @@ class ModuleMail:
     def get_folder_mails(self, account_id: str, folder_name: str, collection_param: CollectionPaginateArgs, deleted: bool = False) -> tuple[list[dict[str, Any]], int]:
         """Retrieve a list of mails in a specific folder with full details.
 
+        Each mail holds ``rights``: the user's rights on the folder (only the granted ones,
+        snake_case named), fetched once for the whole folder.
+
         :param folder_name: The name of the folder to fetch mails from.
         :type folder_name: str
         :param first: The starting index for pagination (inclusive).
@@ -706,8 +751,12 @@ class ModuleMail:
         total_count = next(mail_iter)["nb_mails"]
         mails = []
 
+        # The user's rights on the folder, fetched once for all its mails
+        folder_rights = self._granted_rights(client.get_my_rights_raw_for_folders([folder_name])[folder_name])
+
         for raw_entry in mail_iter:
             parsed_mail = self._parse_mail(raw_entry)
+            parsed_mail[cs.FOLDER_RIGHTS] = dict(folder_rights)
             if without_content:
                 parsed_mail.pop("contents", None)
                 parsed_mail.pop("attachments", None)
@@ -740,6 +789,12 @@ class ModuleMail:
         return DELETE_MAIL_BEHAVIOR_MAP.get(delete_behavior, (True, True))
 
     @staticmethod
+    def _granted_rights(raw_rights: str) -> dict[str, int]:
+        """Convert raw IMAP rights (e.g. "lrs") into the rights added to each listed mail:
+        only the granted ones, snake_case named (e.g. {"user_can_view_folder": 1, ...})."""
+        return {right: 1 for right, value in imap_permissions_to_rights(raw_rights).items() if value}
+
+    @staticmethod
     def _flatten_selectable_folder_paths(folders: list[dict[str, Any]]) -> list[str]:
         """Recursively flatten a folder tree (as returned by ClientImap.list_folders) into a flat
         list of selectable folder paths, including every nested subfolder at any depth.
@@ -764,6 +819,9 @@ class ModuleMail:
         Delegates the building of the protocol-specific search criteria (IMAP SEARCH
         syntax, JMAP filter, ...) to the mail client, queries each requested folder
         and returns a paginated list of matching mails together with the total count.
+
+        Each mail holds ``rights``: the user's rights on the mail's folder (only the granted
+        ones, snake_case named). They are fetched once per searched folder, before the search.
 
         :param account_id: The account identifier.
         :type account_id: str
@@ -804,6 +862,12 @@ class ModuleMail:
                         seen_folders.add(folder_path)
                         folders_to_search.append(folder_path)
 
+        # --- Fetch the user's rights once per searched folder (not once per mail) ---
+        rights_by_folder = {
+            folder_path: self._granted_rights(raw_rights)
+            for folder_path, raw_rights in client.get_my_rights_raw_for_folders(folders_to_search).items()
+        }
+
         # --- Determine if content should be fetched ---
         mail_iter = (
             client.search_mails_without_content(folders_to_search, criteria)
@@ -816,6 +880,7 @@ class ModuleMail:
         for _folder_path, mail_dict in mail_iter:
             parsed = self._parse_mail(mail_dict)
             parsed["folder"] = mail_dict.get("folder", _folder_path)
+            parsed[cs.FOLDER_RIGHTS] = dict(rights_by_folder.get(parsed["folder"], {}))
             if without_content:
                 parsed.pop("contents", None)
                 parsed.pop("attachments", None)
@@ -895,13 +960,16 @@ class ModuleMail:
         client = self._open_client_for(account_id)
         client.delete_mail_permanently_from_folder_type(cs.MAIL_FOLDER_DRAFT, draft_uid)
 
-    def get_mail_detail(self, account_id: str, folder_name: str, mail_uid: str) -> dict[str, Any]:
+    def get_mail_detail(self, account_id: str, folder_name: str, mail_uid: str, with_rights: bool = False) -> dict[str, Any]:
         """Fetch the details of a specific mail.
 
         :param folder_name: The name of the folder containing the mail.
         :type folder_name: str
         :param mail_uid: The UID of the mail to fetch (int).total_count
         :type mail_uid: str
+        :param with_rights: Also add ``rights``: the user's rights on the mail's folder (only the
+            granted ones, snake_case named).
+        :type with_rights: bool
         :raises RequestException: If fetching mail detail fails
         :return: A dictionary containing the mail details (following MailDetailSchema)
         :rtype: dict[str, Any]
@@ -911,7 +979,11 @@ class ModuleMail:
         # Fetch mail data using IMAP
         mail_data = client.fetch_mail(folder_name, mail_uid)
 
-        return self._parse_mail(mail_data)
+        mail_detail = self._parse_mail(mail_data)
+        if with_rights:
+            raw_rights = client.get_my_rights_raw_for_folders([folder_name])[folder_name]
+            mail_detail[cs.FOLDER_RIGHTS] = self._granted_rights(raw_rights)
+        return mail_detail
 
     def open_mail_for_edit(self, account_id: str, folder_name: str, mail_uid: str) -> dict[str, Any]:
         """Open an existing mail for editing by copying it into a new tmp_draft entry.

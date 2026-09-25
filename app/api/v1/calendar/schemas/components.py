@@ -127,14 +127,14 @@ class DatesWithTzSchema(Schema):
     date_end_tz_calendar = fields.String(allow_none=True)
 
 
-class CalendarPermissionsSchema(Schema):
-    """Resolved ACL permissions for the requesting user (read-only)."""
+class CalendarRightsSchema(Schema):
+    """Resolved ACL rights of the requesting user on a calendar (read-only)."""
 
-    public_level = fields.String(metadata={"description": "none | view_datetime | view_all | respond | modify"})
-    confidential_level = fields.String(metadata={"description": "none | view_datetime | view_all | respond | modify"})
-    private_level = fields.String(metadata={"description": "none | view_datetime | view_all | respond | modify"})
-    can_create = fields.Boolean()
-    can_delete = fields.Boolean()
+    public = fields.String(metadata={"description": "none | view-date-time | view-all | respond-to | modify", "example": "view-all"})
+    confidential = fields.String(metadata={"description": "none | view-date-time | view-all | respond-to | modify", "example": "none"})
+    private = fields.String(metadata={"description": "none | view-date-time | view-all | respond-to | modify", "example": "none"})
+    can_create_objects = fields.Boolean(metadata={"example": True})
+    can_erase_objects = fields.Boolean(metadata={"example": False})
 
 
 class SyncConfigUpdateSchema(Schema):

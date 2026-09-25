@@ -14,6 +14,7 @@ from app.module.calendar.model.CalOrganizer import CalOrganizer
 from app.module.calendar.serializer.CalEventDeserializerDict import CalEventDeserializerDict
 from app.module.calendar.serializer.CalEventSerializerDict import CalEventSerializerDict
 from app.module.calendar.serializer.CalEventsSerializerDict import CalEventsSerializerDict
+from app.module.calendar.serializer.CalendarPermissionsSerializerDict import CalendarPermissionsSerializerDict
 from app.utils import errors as err
 from app.utils.exceptions import RequestException
 
@@ -50,6 +51,7 @@ def _build_interface(module=None):
     inter._event_serializer = CalEventSerializerDict()
     inter._event_deserializer = CalEventDeserializerDict()
     inter._events_serializer = CalEventsSerializerDict()
+    inter._permissions_serializer = CalendarPermissionsSerializerDict()
     return inter
 
 

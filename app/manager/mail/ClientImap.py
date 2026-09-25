@@ -61,6 +61,9 @@ IMAP_TO_SOGO: dict[str, list[str]] = {
     "r": [cs.USER_CAN_VIEW_FOLDER],
 }
 
+# Every standard IMAP ACL right (RFC 4314), used when the server doesn't handle ACL at all
+ALL_IMAP_RIGHTS: str = "lrswipkxtea"
+
 def _convert_rights_to_imap(rights_dict: dict[str, Any]) -> str:
     """Convert SOGo rights dictionary to IMAP ACL rights string using RIGHTS_MAP.
 
@@ -176,6 +179,24 @@ def _combine_imap_search_or(criteria: list[str]) -> str:
     if len(criteria) > 2:
         rest = f"({rest})"
     return f"OR {criteria[0]} {rest}"
+
+
+def _group_imap_search_parts_or(parts: list[str]) -> str:
+    """Group several IMAP search-key strings for the same multi-valued field with OR.
+
+    Used for fields accepting a list of values (e.g. several ``from`` addresses),
+    where a mail should match if it satisfies *any* of the values. The combined
+    OR-key is parenthesized when it has more than one part so it stays atomic once
+    embedded among sibling field groups, whatever the top-level operator (AND/OR) is.
+
+    :param parts: IMAP search-key strings for a single field (e.g. one per address).
+    :type parts: list[str]
+    :return: A single search-key string.
+    :rtype: str
+    """
+    if len(parts) == 1:
+        return parts[0]
+    return "(" + _combine_imap_search_or(parts) + ")"
 
 
 class ImapFolder:
@@ -564,11 +585,17 @@ class ClientImap(ClientMailServer):
         else:
             raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
 
-    def list_folders(self) -> list[dict[str, Any]]:
+    def list_folders(self, with_rights: bool = False) -> list[dict[str, Any]]:
         """list all mailboxes with detailed information including children.
 
         This method retrieves all top-level folders and their complete hierarchy
         with detailed information for each folder including message counts, subscriptions, etc.
+
+        With with_rights, the logged user's own raw rights are added to each folder (MYRIGHTS).
+        If the server has no ACL capability, the user is considered owner of everything.
+
+        :param with_rights: Also fetch the logged user's rights on each folder.
+        :type with_rights: bool
 
         :raises RequestException: If not connected to the server.
         :raises RequestException: If listing mailboxes fails.
@@ -578,7 +605,9 @@ class ClientImap(ClientMailServer):
         if self.connection is not None and self.authenticated:
             # list all folders at once
             children_to_adopt: dict[str, list[dict]] = {}
-            all_folders: dict[str, dict] = {}
+            # Every folder already processed, whatever its depth, to find the parent of the next ones
+            folders_by_path: dict[str, dict] = {}
+            root_folders: list[dict] = []
             for folder in self._imap_list_folders():
                 # Check subscription status
                 if folder.is_subscribed is None:
@@ -606,19 +635,22 @@ class ClientImap(ClientMailServer):
                     cs.FOLDER_UNSEEN: folder.nb_unseen,
                     cs.FOLDER_COUNT: folder.nb_mails
                 }
+                if with_rights:
+                    folder_details[cs.FOLDER_RIGHTS] = self._get_folder_rights_for_list(folder)
+
+                folders_by_path[folder.path] = folder_details
 
                 #Check if children were already proccessed and are waiting
-                if folder.has_subfolder:
-                    children = children_to_adopt.pop(folder.path, [])
-                    if children:
-                        folder_details["children"] = children
+                children = children_to_adopt.pop(folder.path, [])
+                if children:
+                    folder_details["children"] = children
 
                 #If has a parent, check if it was already proccesssed
                 if folder.parent:
                     #Check if parent has already been processed
-                    if folder.parent in all_folders:
+                    if folder.parent in folders_by_path:
                         #If yes, simply add it to the list
-                        parent_folder_children:list = all_folders[folder.parent]["children"]
+                        parent_folder_children:list = folders_by_path[folder.parent]["children"]
                         parent_folder_children.append(folder_details)
                     else:
                         #If not, update the children to adopt dict that will be used when it the folder parent turn
@@ -627,11 +659,54 @@ class ClientImap(ClientMailServer):
                         else:
                             children_to_adopt[folder.parent] = [folder_details]
                 else:
-                    all_folders[folder.path] = folder_details
+                    root_folders.append(folder_details)
 
-            return list(all_folders.values())
+            return root_folders
         else:
             raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
+
+    def _get_folder_rights_for_list(self, folder: ImapFolder) -> str:
+        """Return the logged user's raw rights on a listed folder, never failing the whole list.
+
+        A non selectable folder (e.g. a shared namespace root) has no rights.
+        """
+        if not folder.can_be_select:
+            return ""
+        return self._get_my_rights_raw_or_empty(folder.path)
+
+    def _get_my_rights_raw_or_empty(self, folder_path: str) -> str:
+        """Return the logged user's raw rights on a real IMAP folder path, never failing.
+
+        If the server has no ACL capability, the user is considered owner of everything.
+        If MYRIGHTS fails, the user has no rights on the folder.
+        """
+        if "ACL" not in self.capabilities:
+            return ALL_IMAP_RIGHTS
+        try:
+            # folder_path is the real IMAP path: it must not go through _fix_folder_path, which
+            # would turn the '.' of a shared folder's owner email (shared/user@example.org) into
+            # the delimiter
+            return self._imap_my_rights_raw(folder_path)
+        except RequestException as ex:
+            logger_imap.warning("Failed to get own rights for folder '%s': %s", folder_path, str(ex))
+            return ""
+
+    def get_my_rights_raw_for_folders(self, folder_paths: list[str]) -> dict[str, str]:
+        """Get the logged user's raw rights on several folders, one MYRIGHTS per distinct folder.
+
+        :param folder_paths: Real IMAP folder paths (as returned by list_folders or
+            get_folder_with_subfolders), used as is.
+        :type folder_paths: list[str]
+        :return: folder path -> raw IMAP ACL rights characters (empty string if they can't be read).
+        :rtype: dict[str, str]
+        """
+        if self.connection is not None and self.authenticated:
+            rights_by_folder: dict[str, str] = {}
+            for folder_path in folder_paths:
+                if folder_path not in rights_by_folder:
+                    rights_by_folder[folder_path] = self._get_my_rights_raw_or_empty(folder_path)
+            return rights_by_folder
+        raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
 
     def _imap_create_folder(self, folder_path: str, auto_sub:bool = True, no_error_if_exist:bool = False) -> None:
         """
@@ -1116,6 +1191,105 @@ class ClientImap(ClientMailServer):
                     raise RequestException(f"Folder '{folder_path}' does not exist", err.ERROR_FOLDER_NAME_NOT_FOUND)
                 raise RequestException(f"Failed to unsubscribe to {folder_path}", err.ERROR_IMAP_FAILED)
             logger_imap.info("Successfully deleted ACL for folder '%s', identifier '%s'", folder_path, identifier)
+        else:
+            raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
+
+    def get_my_rights_raw(self, folder_path: str) -> str:
+        """Get the raw rights the logged user has on a folder, with no SOGo rights conversion.
+
+        Uses the IMAP MYRIGHTS command (RFC 4314): works on the user's own folders as well as
+        on folders shared with them.
+
+        :param folder_path: The name of the folder.
+        :type folder_path: str
+        :return: raw IMAP ACL rights characters (e.g. "lrswipkxtea").
+        :rtype: str
+        :raises RequestException: If not connected to the server or if getting rights fails.
+        """
+        return self._imap_my_rights_raw(self._fix_folder_path(folder_path))
+
+    def _imap_my_rights_raw(self, folder_path: str) -> str:
+        """Same as get_my_rights_raw but folder_path is used as is (real IMAP path)."""
+        logger_imap.debug("Getting own rights for folder '%s'", folder_path)
+        if self.connection is not None and self.authenticated:
+            folder_path = quote(folder_path)
+            success, datas = self._exec_imap4_method(self.connection.myrights, folder_path)
+            first = datas[0] if datas else None
+            if not success or first is None:
+                first_error = first if isinstance(first, str) else (first.decode() if first else "")
+                if first_error.startswith("Mailbox doesn't exist"):
+                    raise RequestException(f"Folder '{folder_path}' does not exist", err.ERROR_FOLDER_NAME_NOT_FOUND)
+                raise RequestException(f"Failed to get own rights for {folder_path}: {first_error}", err.ERROR_IMAP_FAILED)
+
+            # Response is like b'INBOX lrswipkxtea' or b'"My folder" lr': rights are the last token
+            parts = first.decode().split()
+            return parts[-1] if len(parts) > 1 else ""
+        raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
+
+    def get_acl_raw(self, folder_path: str) -> Iterator[tuple[str, str]]:
+        """Get the raw Access Control List (ACL) for a folder, with no SOGo rights conversion.
+
+        Uses the IMAP GETACL command and yields the IMAP rights characters exactly as returned
+        by the server (e.g. "lrswipkxtea"), for callers that already work with their own
+        rights-code correspondence table instead of the legacy SOGo rights dictionary.
+
+        :param folder_path: The name of the folder to get ACL for.
+        :type folder_path: str
+        :yield: tuples of (identifier, imap_rights) where imap_rights is the raw ACL string.
+        :rtype: Iterator[tuple[str, str]]
+        :raises RequestException: If not connected to the server or if getting ACL fails.
+        """
+        logger_imap.debug("Getting raw ACL for folder '%s'", folder_path)
+        if self.connection is not None and self.authenticated:
+            folder_path = self._fix_folder_path(folder_path)
+            folder_path = quote(folder_path)
+            success, datas = self._exec_imap4_method(self.connection.getacl, folder_path)
+            if not success:
+                first_error = datas[0] if isinstance(datas[0], str) else datas[0].decode()
+                if first_error.startswith("Mailbox doesn't exist"):
+                    raise RequestException(f"Folder '{folder_path}' does not exist", err.ERROR_FOLDER_NAME_NOT_FOUND)
+                raise RequestException(f"Failed to get ACL for {folder_path}: {first_error}", err.ERROR_IMAP_FAILED)
+
+            # Parse the response: data[0] is typically bytes like b'INBOX identifier1 rights1 identifier2 rights2 ...'
+            parts = datas[0].decode().split()
+
+            # Skip first part (folder name) and yield identifier/rights pairs
+            i = 1
+            while i < len(parts) - 1:
+                yield (parts[i], parts[i + 1])
+                i += 2
+        else:
+            raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
+
+    def set_acl_raw(self, folder_path: str, identifier: str, imap_rights: str) -> None:
+        """Set ACL rights for a specific user/identifier on a folder, with no SOGo rights conversion.
+
+        Uses the IMAP SETACL command directly with the given IMAP rights characters (e.g.
+        "lrswipkxtea"), for callers that already work with their own rights-code correspondence
+        table instead of the legacy SOGo rights dictionary.
+
+        :param folder_path: The name of the folder.
+        :type folder_path: str
+        :param identifier: The user identifier (email, username, or special like 'anyone').
+        :type identifier: str
+        :param imap_rights: Raw IMAP ACL rights characters to grant (empty string revokes all).
+        :type imap_rights: str
+        :raises RequestException: If not connected to the server or if setting ACL fails.
+        """
+        logger_imap.debug("Setting raw ACL for folder '%s', identifier '%s', IMAP rights '%s'", folder_path, identifier, imap_rights)
+        if self.connection is not None and self.authenticated:
+            folder_path = self._fix_folder_path(folder_path)
+            folder_path = quote(folder_path)
+
+            success, datas = self._exec_imap4_method(self.connection.setacl, folder_path, identifier, imap_rights)
+            if not success:
+                first_error = datas[0] if isinstance(datas[0], str) else datas[0].decode()
+                if first_error.startswith("Mailbox doesn't exist"):
+                    raise RequestException(f"Folder '{folder_path}' does not exist", err.ERROR_FOLDER_NAME_NOT_FOUND)
+                raise RequestException(f"Failed to set ACL for {folder_path}: {first_error}", err.ERROR_IMAP_FAILED)
+
+            logger_imap.info("Successfully set raw ACL for folder '%s', identifier '%s', IMAP rights '%s'",
+                           folder_path, identifier, imap_rights)
         else:
             raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
 
@@ -2114,9 +2288,11 @@ class ClientImap(ClientMailServer):
         Each populated field produces one independent search-key "group". Groups are
         then combined using ``search_params["operator"]``:
 
-        ``to`` matches a mail whose ``To`` *or* ``Cc`` header contains the address
-        (OR-ed across the two headers). ``bcc`` only matches against the ``Bcc``
-        header.
+        ``from``, ``to`` and ``bcc`` each accept a list of addresses: a mail matches
+        the field if it matches *any* of the given addresses (OR-ed across the list),
+        regardless of the top-level ``operator``. ``to`` additionally matches a mail
+        whose ``To`` *or* ``Cc`` header contains the address (OR-ed across the two
+        headers). ``bcc`` only matches against the ``Bcc`` header.
 
         * "AND" (default): groups are simply space-joined (IMAP's implicit AND).
         * "OR": groups are combined with a right-nested IMAP ``OR`` operator, so that
@@ -2154,16 +2330,19 @@ class ClientImap(ClientMailServer):
             field_groups.append(f'TEXT "{search_params["text"]}"')
 
         if search_params.get("from_"):
-            escaped = escape_imap_string(search_params["from_"])
-            field_groups.append(f'FROM "{escaped}"')
+            from_parts = [f'FROM "{escape_imap_string(addr)}"' for addr in search_params["from_"]]
+            field_groups.append(_group_imap_search_parts_or(from_parts))
 
         if search_params.get("to"):
-            escaped = escape_imap_string(search_params["to"])
-            field_groups.append(f'(OR TO "{escaped}" CC "{escaped}")')
+            to_parts = [
+                f'(OR TO "{escape_imap_string(addr)}" CC "{escape_imap_string(addr)}")'
+                for addr in search_params["to"]
+            ]
+            field_groups.append(_group_imap_search_parts_or(to_parts))
 
         if search_params.get("bcc"):
-            escaped = escape_imap_string(search_params["bcc"])
-            field_groups.append(f'BCC "{escaped}"')
+            bcc_parts = [f'BCC "{escape_imap_string(addr)}"' for addr in search_params["bcc"]]
+            field_groups.append(_group_imap_search_parts_or(bcc_parts))
 
         if search_params.get("subject"):
             field_groups.append(f'SUBJECT "{search_params["subject"]}"')

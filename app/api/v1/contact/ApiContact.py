@@ -7,12 +7,13 @@ from flask.views import MethodView
 from flask.typing import ResponseReturnValue
 from flask_smorest import Blueprint
 
+from app.config.settings.DomainSettings import UserModuleSettings
 from app.interface.contact.InterfaceApiContactContact import InterfaceApiContactContact
 from app.module.contact.ContactConst import IMPORT_MAX_BYTES
 from app.module.contact.source.ContactSourceDb import LIST_SORTABLE_COLUMNS, SORTABLE_COLUMNS
 from app.utils.api.ApiBaseResponse import create_api_base_response
 from app.utils.api.paginate_sort_filter import collection_paginate, CustomPaginateResponse
-from app.utils.errors import ERROR_CONTACT_IMPORT_NO_FILE, ERROR_CONTACT_IMPORT_TOO_LARGE
+from app.utils.errors import ERROR_CONTACT_IMPORT_NO_FILE, ERROR_CONTACT_IMPORT_TOO_LARGE, ERROR_CONTACT_SHARING_DISABLED
 from app.utils.logger.logger import logger_api
 from .schemas.addressbook import (
     AddressBookCreateSchema,
@@ -22,6 +23,10 @@ from .schemas.addressbook import (
     ContactImportQueryArgsSchema,
     ContactImportUploadSchema,
     ContactJobResponseSchema,
+    ContactSharePatchSchema,
+    ContactSharePutSchema,
+    ContactSharePostSchema,
+    ContactShareResponseSchema,
 )
 from .schemas.contact import (
     ContactCreateSchema,
@@ -67,7 +72,14 @@ blp = Blueprint("Contact", __name__, url_prefix="")
 
 
 @blp.before_request
-def init_contact_config() -> None:  # pylint: disable=missing-function-docstring
+def init_contact_config() -> ResponseReturnValue | None:  # pylint: disable=missing-function-docstring
+    if request.path.endswith("/share"):
+        user_domain_settings: dict = g.user_domain_settings
+        user_module_settings: dict = user_domain_settings.get(UserModuleSettings.subparent, {})
+        if "contact" in user_module_settings.get("SOGO_D_FOLDER_DISABLE_SHARING", []):
+            logger_api.debug("Access denied for %s: contact sharing is disabled", request.path)
+            return create_api_base_response(None, ERROR_CONTACT_SHARING_DISABLED)
+
     g.inter = InterfaceApiContactContact(
         process_setting=g.process_settings,
         user_domain_settings=g.user_domain_settings,
@@ -122,6 +134,49 @@ class ApiAddressBookDetail(MethodView):
         return interface.delete_addressbook(key)
 
 
+@blp.route("/addressbooks/<string:key>/share")
+class ApiAddressBookShare(MethodView):
+    """API to manage address book sharing and user permissions."""
+
+    @blp.response(200, ContactShareResponseSchema, example=ContactShareResponseSchema.example())
+    def get(self, key: str) -> ResponseReturnValue:
+        """Get all user permissions for an address book."""
+        logger_api.debug("GET /addressbooks/%s/share user=%s", key, g.user.uid)
+        interface: InterfaceApiContactContact = g.inter
+        return interface.get_addressbook_share(key)
+
+    @blp.arguments(ContactSharePatchSchema(many=True), example=ContactSharePatchSchema.example())  # type: ignore [arg-type]
+    @blp.response(200, ContactShareResponseSchema, example=ContactShareResponseSchema.example())
+    def patch(self, body: list[dict], key: str) -> ResponseReturnValue:
+        """Partially update user permissions for an address book.
+
+        Only the users specified in the request body are modified.
+        Other existing permissions remain unchanged.
+        """
+        logger_api.debug("PATCH /addressbooks/%s/share user=%s body=%s", key, g.user.uid, body)
+        interface: InterfaceApiContactContact = g.inter
+        return interface.patch_addressbook_share(key, body)
+
+    @blp.arguments(ContactSharePutSchema(many=True), example=ContactSharePutSchema.example())  # type: ignore [arg-type]
+    @blp.response(200, ContactShareResponseSchema, example=ContactShareResponseSchema.example())
+    def put(self, body: list[dict], key: str) -> ResponseReturnValue:
+        """Replace all user permissions for an address book.
+
+        All existing permissions are replaced by the users specified in the request body.
+        """
+        logger_api.debug("PUT /addressbooks/%s/share user=%s body=%s", key, g.user.uid, body)
+        interface: InterfaceApiContactContact = g.inter
+        return interface.put_addressbook_share(key, body)
+
+    @blp.arguments(ContactSharePostSchema(many=True), example=ContactSharePostSchema.example())  # type: ignore [arg-type]
+    @blp.response(200, ContactShareResponseSchema, example=ContactShareResponseSchema.example())
+    def post(self, body: list[dict], key: str) -> ResponseReturnValue:
+        """Grant full permissions to one or several users."""
+        logger_api.debug("POST /addressbooks/%s/share user=%s body=%s", key, g.user.uid, body)
+        interface: InterfaceApiContactContact = g.inter
+        return interface.post_addressbook_share(key, body)
+
+
 @blp.route("/addressbooks/<string:key>/contacts")
 class ApiAddressBookContactList(MethodView):
     """API to list (paginated) and create contacts within one address book."""
@@ -152,7 +207,22 @@ class ApiContactList(MethodView):
     @blp.arguments(ContactSearchQueryArgsSchema, location="query", arg_name="query_args")
     @collection_paginate(blp, sort_value_set=_SORT_VALUES, can_filter=False)
     def get(self, query_args: dict, collection_param: CollectionPaginateArgs) -> CustomPaginateResponse:
-        """List contacts across every address book, with search, sort and pagination."""
+        """List contacts across every address book, with search, sort and pagination.
+
+        Returns the contacts of all the address books the current user can access (owned and shared),
+        each one carrying its ``addressbook_key``. To restrict the list to a single address book, use
+        ``GET /addressbooks/{key}/contacts``.
+
+        Query parameters:
+        - ``search``: optional full-text query (minimum 2 non-whitespace characters, otherwise 422).
+        - ``sort_by``: ``display_name`` (default), ``last_name``, ``first_name``, ``organization``,
+          ``created_at`` or ``updated_at``. An unknown value falls back to ``display_name``.
+        - ``sort_order``: ``asc`` (default) or ``desc``.
+        - ``page`` (default 1) / ``page_size`` (default 20, max 100): pagination.
+
+        The total number of matching contacts is returned in the ``X-Pagination`` response header,
+        not in the body. The response body holds the current page under ``data.contacts``.
+        """
         logger_api.debug("GET /contacts user=%s params=%s", g.user.uid, collection_param)
         interface: InterfaceApiContactContact = g.inter
         return interface.get_contacts(None, collection_param, search=query_args.get("search"))
@@ -165,7 +235,19 @@ class ApiContactAutocomplete(MethodView):
     @blp.response(200, ContactAutocompleteResponseSchema)
     @blp.arguments(ContactAutocompleteQueryArgsSchema, location="query", arg_name="query_args")
     def get(self, query_args: dict) -> ResponseReturnValue:
-        """Return recipient suggestions for the ``q`` query string."""
+        """Suggest recipients (contacts and distribution lists) for a partially typed name or email.
+
+        Meant for the recipient field of a mail composer. The search spans all the address books of the
+        current user and returns lightweight suggestions, not full contact cards:
+        - ``type = "contact"``: one suggestion per email address of a matching contact (``name``,
+          ``email``, ``contact_key`` and the ``address_book`` it belongs to).
+        - ``type = "list"``: a matching distribution list, with ``list_key``, ``member_count`` and its
+          resolved ``members`` (``name`` + ``email``) instead of a single ``email``.
+
+        Contacts and lists are each capped to a fixed number of results. When ``q`` is shorter than the
+        domain's minimum autocompletion length (``SOGO_D_AUTOCOMPLETION_MIN_LEN``), the endpoint returns
+        an empty ``suggestions`` list rather than an error. The ``q`` parameter is required (422 if missing).
+        """
         logger_api.debug("GET /contacts/autocomplete user=%s q=%s", g.user.uid, query_args.get("q"))
         interface: InterfaceApiContactContact = g.inter
         return interface.autocomplete(query_args["q"])

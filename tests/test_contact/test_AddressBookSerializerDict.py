@@ -21,6 +21,7 @@ def test_serialize_addressbook():
         "is_default": True,
         "source_type": "local",
         "ctag": 7,
+        "owner": "alice",
     }
 
 

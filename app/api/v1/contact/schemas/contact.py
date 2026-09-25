@@ -10,6 +10,7 @@ from app.api.v1.contact.schemas.components import (
     ContactPhoneSchema,
     ContactUrlSchema,
 )
+from app.api.v1.contact.schemas.addressbook import ContactShareRightsSchema
 from app.module.contact.model.enums.CardKind import CardKind
 from app.utils.api.ApiBaseResponse import ApiBaseResponse
 
@@ -127,13 +128,18 @@ class ContactSearchQueryArgsSchema(Schema):
     """Query string for the contact list endpoints (search only; pagination is handled separately)."""
 
     search = fields.String(load_default=None, allow_none=True, validate=validate_search,
-                           metadata={"description": "Full-text query (min 2 non-whitespace characters)."})
+                           metadata={
+                               "description": "Full-text query matched against the contact fields "
+                                              "(min 2 non-whitespace characters). Omit to list everything.",
+                               "example": "doe"})
 
 
 class ContactListDataSchema(Schema):
     """Data payload for the contact list response. The total count is in the X-Pagination header."""
 
     contacts = fields.List(fields.Nested(ContactSchema))
+    rights = fields.Nested(ContactShareRightsSchema, metadata={
+        "description": "Current user's permissions on the address book. Only present when listing a single address book."})
 
 
 class ContactListResponseSchema(ApiBaseResponse):
@@ -151,7 +157,10 @@ class ContactResponseSchema(ApiBaseResponse):
 class ContactAutocompleteQueryArgsSchema(Schema):
     """Query string for the recipient autocompletion endpoint."""
 
-    q = fields.String(required=True, metadata={"description": "Partial name or email to autocomplete."})
+    q = fields.String(required=True, metadata={
+        "description": "Partial name or email typed by the user. Shorter than the domain minimum "
+                       "autocompletion length returns an empty suggestion list.",
+        "example": "john"})
 
 
 class SuggestionMemberSchema(Schema):

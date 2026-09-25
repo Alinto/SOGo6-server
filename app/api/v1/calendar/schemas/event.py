@@ -8,8 +8,8 @@ from typing import Any
 from marshmallow import Schema, ValidationError, fields, validate
 
 from app.api.v1.calendar.schemas.components import (
-    AttachmentCalendarSchema, AttendeeSchema, ConferenceDataSchema, DatesWithTzSchema, EventRelationSchema,
-    OrganizerSchema, RecurrenceRuleSchema, ReminderSchema,
+    AttachmentCalendarSchema, AttendeeSchema, CalendarRightsSchema, ConferenceDataSchema, DatesWithTzSchema,
+    EventRelationSchema, OrganizerSchema, RecurrenceRuleSchema, ReminderSchema,
 )
 from app.module.calendar.CalendarConst import MAX_EVENT_DESCRIPTION_LENGTH, MAX_EVENT_LOCATION_LENGTH, MAX_EVENT_TITLE_LENGTH
 from app.module.calendar.model.enums.EventStatus import EventStatus
@@ -76,6 +76,10 @@ class CalendarEventQueryArgsSchema(Schema):
         validate=[validate.Length(max=_SEARCH_MAX_LENGTH), _validate_search],
         metadata={"description": "Full-text search in title, description and location. Must contain at least 2 non-whitespace characters."},
     )
+    only_subscribe = fields.Boolean(
+        load_default=True,
+        metadata={"description": "When true, only return events from calendars the user marked as subscribed (folders.CALENDAR.* = true)."},
+    )
 
 
 class CalendarEventSchema(Schema):
@@ -117,6 +121,8 @@ class CalendarEventSchema(Schema):
     recurrence_id = fields.String(allow_none=True)
     recurrence_range = fields.String(allow_none=True)
     dates_with_tz = fields.Nested(DatesWithTzSchema, allow_none=True)
+    rights = fields.Nested(CalendarRightsSchema, allow_none=True, dump_only=True,
+                           metadata={"description": "Requesting user's rights on the event's calendar (only returned by GET /events/<event_key>)."})
 
 
 class CalendarEventCreateSchema(Schema):

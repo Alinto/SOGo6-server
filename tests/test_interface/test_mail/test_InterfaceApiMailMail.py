@@ -51,9 +51,10 @@ class FakeModuleMail:
         self.get_folder_mails_args = (account_id, folder_name, collection_param.first_item, collection_param.last_item, deleted)
         return self.get_folder_mails_result
 
-    def get_mail_detail(self, account_id, folder_name, mail_uid):
+    def get_mail_detail(self, account_id, folder_name, mail_uid, with_rights=False):
         """Fetch the details of a specific mail."""
         self.get_mail_detail_args = (account_id, folder_name, mail_uid)
+        self.get_mail_detail_with_rights = with_rights
         return self.get_mail_detail_result
 
     def delete_mails(self, account_id, folder_name, mail_uid):
@@ -131,11 +132,12 @@ def test_get_mail_detail_success():
     assert result["data"]["uid"] == 42
     assert result["data"]["subject"] == "Test Subject"
     assert fake_module.get_mail_detail_args == (0, "INBOX", 42)
+    assert fake_module.get_mail_detail_with_rights is True
 
 def test_get_mail_detail_module_error():
     """Test error handling when mail detail fetch fails."""
     fake_module = FakeModuleMail()
-    fake_module.get_mail_detail = lambda *args: (_ for _ in ()).throw(RequestException("Mail not found", err.ERROR_MAIL_UID_NOT_FOUND))
+    fake_module.get_mail_detail = lambda *args, **kwargs: (_ for _ in ()).throw(RequestException("Mail not found", err.ERROR_MAIL_UID_NOT_FOUND))
     interface = make_interface(fake_module)
 
     result, status_code = interface.get_mail_detail(account_id=0, folder_name="INBOX", mail_uid=999)

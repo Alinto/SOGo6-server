@@ -19,4 +19,5 @@ class CardAddressBookSerializerDict(CardAddressBookSerializer[dict]):
             "is_default": data.is_default,
             "source_type": data.source_type.value,
             "ctag": data.ctag,
+            "owner": data.user_uid,
         }
