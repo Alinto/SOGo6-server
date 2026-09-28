@@ -397,7 +397,6 @@ class ClientImap(ClientMailServer):
         """
         try:
             typ, data = imap4_method(*args, **kwargs)
-            #logger_imap.debug("imap4_exec: (%s,%s)", typ, data)
             if typ not in {'NO', 'BAD'}:
                 if len(data) == 1 and not data[0]:
                     # return an empty list instead
@@ -1297,8 +1296,9 @@ class ClientImap(ClientMailServer):
         
         :param mailbox: The mailbox to select.
         :type mailbox: str
-        :param readonly: The mailbox to select.
-        :type mailbox: str
+        :param readonly: Open the mailbox with EXAMINE (read-only). If False and the server
+            only grants read-only access, the mailbox is re-opened with EXAMINE.
+        :type readonly: bool
         :raises RequestException: If selecting the mailbox fails.
         :return: The number of messages in the selected mailbox.
         """
@@ -1307,7 +1307,16 @@ class ClientImap(ClientMailServer):
             if not mailbox.isascii():
                 raise RequestException(f"Mailbox name is not ascii: {mailbox}", err.ERROR_IMAP_NOT_ASCII)
             mailbox = quote(self._fix_folder_path(mailbox))
-            success, datas = self._exec_imap4_method(self.connection.select, mailbox)
+            try:
+                success, datas = self._exec_imap4_method(self.connection.select, mailbox, readonly)
+            except BugException as e:
+                # The server answered [READ-ONLY] to SELECT (e.g. shared folder without s/w/t/e rights).
+                # imaplib raises in that case and would keep raising on every following command,
+                # so re-select the mailbox with EXAMINE to open it read-only.
+                if readonly or e.error is not err.ERROR_IMAP_READONLY:
+                    raise
+                logger_imap.info("Mailbox '%s' is read-only, selecting it with EXAMINE", mailbox)
+                success, datas = self._exec_imap4_method(self.connection.select, mailbox, True)
             if not success:
                 if datas[0].decode().startswith("Mailbox doesn't exist"):
                     raise RequestException(f"Folder '{mailbox}' does not exist", err.ERROR_FOLDER_NAME_NOT_FOUND)

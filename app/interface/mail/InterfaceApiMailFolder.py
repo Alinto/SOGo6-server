@@ -198,7 +198,6 @@ class InterfaceApiMailFolder:
         :rtype: tuple[dict[str, Any], int]
         """
         try:
-<<<<<<< HEAD
             share_info: dict[str, dict[str, Any]] = {}
 
             # Only Instantiate Module User Source if we need it
@@ -243,9 +242,6 @@ class InterfaceApiMailFolder:
                         "rights": rights
                     }
             return create_api_base_response(share_info)
-=======
-            entries: list[AclEntry] = self.mail_module.get_folder_share(account_id, folder_path)
->>>>>>> dda5f60 (OP#2822 : add folders share API)
         except RequestException as ex:
             logger_api.error("Request exception in get_folder_share: %s", str(ex))
             return create_api_base_response(None, ex.error)
