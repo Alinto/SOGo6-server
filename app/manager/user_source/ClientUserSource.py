@@ -1,4 +1,7 @@
 from abc import ABCMeta, abstractmethod
+from typing import Generator
+
+from app.utils.db.Condition import Condition
 from app.utils.logger.logger import logger
 
 class ClientUserSource(metaclass=ABCMeta):
@@ -52,6 +55,19 @@ class ClientUserSource(metaclass=ABCMeta):
     # get_user_info: Get contact info a of user/resource/groups by uid
 
     # search_user: search user/resource/groups with search criteria
+    def search_user(self, search:str, extra_condition:Condition, limit:int, username:str, domain:str, password:str) -> Generator[dict[str, list[str]]]:
+        """
+        Search a user for autcompletion
+
+        :param search: String to search
+        :type search: str
+        :param extra_condition: extra conditions for autocompletion
+        :type extra_condition: Condition
+        :return: infos of the user
+        :rtype: dict[str, list[str]]
+        """
+        logger.error("Method 'search_user' of ClientUserSource must be implemented by the children %s", type(self).__name__)
+        raise NotImplementedError
 
     # get_all_users: get all users from this user source
 

@@ -31,7 +31,6 @@ since the caller already tells us the algo via the `algo` argument.
 import base64
 import hashlib
 import hmac
-import binascii
 from typing import Callable
 
 from passlib.hash import des_crypt, md5_crypt, sha256_crypt, sha512_crypt, bcrypt, argon2
@@ -49,7 +48,6 @@ def _decode_b64(data: bytes) -> bytes:
 
 def _check_plain_hash(password: str, encrypted_pwd: str, hash_func: Callable, is_hex: bool = False) -> bool:
     """Verify an unsalted {ALGO}-style digest: base64(digest)."""
-    print(f"password = {encrypted_pwd}")
     if is_hex:
         computed = hash_func(password.encode()).hexdigest()
         return hmac.compare_digest(encrypted_pwd, computed)
@@ -61,7 +59,6 @@ def _check_plain_hash(password: str, encrypted_pwd: str, hash_func: Callable, is
 
 def _check_salted_hash(password: str, encrypted_pwd: str, hash_func: Callable, digest_size: int) -> bool:
     """Verify a salted {SALGO}-style digest: base64(digest || salt)."""
-    print(encrypted_pwd)
     raw = _decode_b64(encrypted_pwd.encode())
     digest, salt = raw[:digest_size], raw[digest_size:]
     computed = hash_func(password.encode() + salt).digest()
@@ -170,7 +167,6 @@ def check_password(password: str, encrypted_pwd: str, default_algo: str, key_pat
     is_hex = False
     if encrypted_pwd.startswith("{") and "}" in encrypted_pwd:
         split = encrypted_pwd.split("}", 2)
-        print(split)
         algo = split[0][1:].lower()
         encrypted_pwd = split[1]
         if algo.endswith(".hex"):
@@ -179,7 +175,6 @@ def check_password(password: str, encrypted_pwd: str, default_algo: str, key_pat
     else:
         algo = default_algo.lower().strip()
 
-    print(algo)
     verify_func = _ALGOS.get(algo)
     if verify_func is None:
         raise ValueError(f"Unsupported algorithm: {algo!r}")
@@ -188,4 +183,5 @@ def check_password(password: str, encrypted_pwd: str, default_algo: str, key_pat
         return verify_func(password, encrypted_pwd, is_hex=is_hex, key_path=key_path)
     except Exception:
         # Malformed/unparseable stored hash -> treat as no match, don't crash.
+
         return False

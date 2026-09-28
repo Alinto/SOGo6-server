@@ -9,7 +9,6 @@ from app.utils import constants as cs
 from app.utils.config.generateObjFromSchema import SettingsObj
 from app.utils.db.Condition import string_filter_to_conditions
 from app.utils.exceptions import AggravatedException
-from app.utils.strings import parse_url_str
 
 if TYPE_CHECKING:
     from app.utils.db.Condition import Condition
@@ -191,7 +190,7 @@ class UserSourceSettings(SogoSchema):
         "US_MAIL_FILTERING_LOGIN": ("US_CAN_AUTH", True),
         "US_MAIL_OUTGOING_LOGIN": ("US_CAN_AUTH", True),
 
-        "US_SEARCH": ("US_IS_ADDRESSBOOK", True),
+        "US_SEARCH_FIELD": ("US_IS_ADDRESSBOOK", True),
         "US_DISPLAY_NAME": ("US_IS_ADDRESSBOOK", True),
         "US_AUTO_SEARCH": ("US_IS_ADDRESSBOOK", True),
         "US_EXTRA_CONTACT_INFO": ("US_IS_ADDRESSBOOK", True),
@@ -304,8 +303,8 @@ class UserSourceSettings(SogoSchema):
 
     #Seach/autocompletion
     US_IS_ADDRESSBOOK = fields.Boolean(required=True) #This US is shown for autocompletion and shared address book
-    US_DISPLAY_NAME   = fields.String() #Human readable name of this US, will ude US_UID if not set. Fallback to US_NAME if not set
-    US_SEARCH = fields.List(fields.String()) #Array of sqldap field used for autocompletion/search of user
+    US_DISPLAY_NAME   = fields.String() #Human readable name of this US. If not set. Fallback to US_NAME if not set
+    US_SEARCH_FIELD = fields.List(fields.String()) #Array of sqldap field used for autocompletion/search of user
     US_AUTO_SEARCH    = fields.Boolean(load_default=False, dump_default=False) #Auto return all users of the US whitout typing any char in the search bar.
     US_EXTRA_CONTACT_INFO = fields.String() #TODO add moreflexibility and let the admin tell how it should be shown? sqladp field to show when doing autocompletion (will be "cn <extra> mail")
     US_HIDDEN_USER = fields.List(fields.String()) #List of user's uid to never show to others when searching or autocompletion ex: noreply@sogo.nu
@@ -399,7 +398,7 @@ class UserSourceSettingsObj(SettingsObj):
     US_FIELD_KIND: str = ""
 
     US_IS_ADDRESSBOOK: bool = False
-    US_SEARCH: list[str] = []
+    US_SEARCH_FIELD: list[str] = []
     US_DISPLAY_NAME: str = ""
     US_AUTO_SEARCH: bool = False
     US_EXTRA_CONTACT_INFO: str = ""
@@ -424,12 +423,12 @@ class UserSourceSettingsObj(SettingsObj):
         :rtype: dict
         """
 
+        us_filter: Condition|None = None
+        if self.US_FILTER:
+            us_filter = string_filter_to_conditions(self.US_FILTER)
+
         if type_us == "ldap":
             #Must match ClientLdap __init__ param
-            ldap_filer: Condition|None = None
-            if self.US_FILTER:
-                ldap_filer = string_filter_to_conditions(self.US_FILTER)
-
             return {
                     "ldap_host": self.US_LDAP_HOSTNAME,
                     "ldap_port": self.US_LDAP_PORT,
@@ -445,7 +444,8 @@ class UserSourceSettingsObj(SettingsObj):
                     "ldap_bind_fields": self.US_LDAP_BIND_FIELD,
                     "ldap_bind_as_user": self.US_LDAP_BIND_AS_USER,
                     "ldap_pwd_policy": self.US_LDAP_PWD_POLICY,
-                    "ldap_filter": ldap_filer,
+                    "ldap_filter": us_filter,
+                    "ldap_search": self.US_SEARCH_FIELD
                     # self.US_LDAP_PWD_UPDATE_SAMBA,
                     # self.US_LDAP_QUERY_TIMEOUT,
                     # self.US_LDAP_ATTR_FIELD,
@@ -469,7 +469,9 @@ class UserSourceSettingsObj(SettingsObj):
                 "db_cn": self.US_FIELD_CN,
                 "db_pwd": self.US_DB_FIELD_PWD,
                 "db_ou": self.US_UNIT_FIELD,
-                "db_pwd_algo":  self.US_PWD_ALGO
+                "db_pwd_algo":  self.US_PWD_ALGO,
+                "db_filter": us_filter,
+                "db_search": self.US_SEARCH_FIELD
             }
         else:
             raise AggravatedException(err.ERROR_CONFIG_WRONG_US_SERVER.m, err.ERROR_CONFIG_WRONG_US_SERVER)

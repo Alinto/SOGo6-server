@@ -171,7 +171,8 @@ class ApiContactAutocomplete(MethodView):
         return interface.autocomplete(query_args["q"])
 
 
-@blp.route("/addressbooks/<string:key>/contacts/<string:contact_key>")
+@blp.route("/addressbooks/<string:key>/"
+"/<string:contact_key>")
 class ApiContactDetail(MethodView):
     """API to retrieve, update and delete a single contact within an address book."""
 

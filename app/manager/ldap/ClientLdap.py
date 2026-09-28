@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Generator
 
 from datetime import datetime
 from logging import WARNING
@@ -55,8 +55,12 @@ def condition_to_filter(condition: Condition.Condition) -> str:
 
     if isinstance(condition, Condition.EqualCondition):
         ldap_filter = f"({ldap_escape(condition.param_name, with_wildcard=True)}={ldap_escape(condition.param_value, with_wildcard=True)})"
+    elif isinstance(condition, Condition.LikeCondition):
+        ldap_filter = f"({ldap_escape(condition.param_name, with_wildcard=True)}={ldap_escape(condition.pattern, with_wildcard=True)})"
     elif isinstance(condition, Condition.NotEqualCondition):
         ldap_filter = f"({ldap_escape(condition.param_name, with_wildcard=True)}!={ldap_escape(condition.param_value, with_wildcard=True)})"
+    elif isinstance(condition, Condition.NotLikeCondition):
+        ldap_filter = f"({ldap_escape(condition.param_name, with_wildcard=True)}!={ldap_escape(condition.pattern, with_wildcard=True)})"
     elif isinstance(condition, Condition.AndCondition):
         ldap_filter = "(&"
         for cond in condition.conditions:
@@ -76,7 +80,7 @@ def condition_to_filter(condition: Condition.Condition) -> str:
 
     return ldap_filter
 
-def parse_python_ldap_record(record: tuple[str, dict[str, list[bytes]]]) -> dict[str, list[str]]:
+def parse_python_ldap_record(record: tuple[str, dict[str, list[bytes]]], pop_password:bool = True) -> dict[str, list[str]]:
     """
     python-ldap return values as bytes, just transform them into strings and add the dn too
 
@@ -87,6 +91,8 @@ def parse_python_ldap_record(record: tuple[str, dict[str, list[bytes]]]) -> dict
     """
     user_dict: dict[str, list[str]] = {}
     for attribute, values in record[1].items():
+        if pop_password and attribute == "password":
+            continue
         user_dict[attribute] = [x.decode() for x in values]
     user_dict["dn"] = [record[0]]
     return user_dict
@@ -110,6 +116,7 @@ class ClientLdap(ClientUserSource):
                  ldap_id:str,
                  ldap_cn:str,
                  ldap_mails:list[str],
+                 ldap_search:list[str],
                  ldap_bind_fields:list[str]|None = None,
                  ldap_bind_as_user:bool = False,
                  ldap_filter: Condition.Condition|None = None,
@@ -294,7 +301,7 @@ class ClientLdap(ClientUserSource):
         #Search contact info for this the user
         if not self.bind_as_user:
             self._bind(self.bind_dn, self.bind_pwd, use_admin=True)
-        list_records = self._search(base_dn, self.filter)
+        list_records = self._search_small(base_dn, self.filter)
 
         if not list_records:
             #Strange the bind works but no the search
@@ -329,10 +336,11 @@ class ClientLdap(ClientUserSource):
             return ""
         raise exc.BugException("self.connection is still None, meaning self.connect() method didn't catch or raise correctly an error")
 
-    def _search(self, base_dn:str, l_filter:str|None = None, attributes: list|None = None) -> list[tuple[str, dict[str, list[bytes]]]]:
+    def _search_small(self, base_dn:str, l_filter:str|None = None, attributes: list|None = None) -> list[tuple[str, dict[str, list[bytes]]]]:
         """
-        Search inside the ldap server for a base_dn with filters and attributes to return
-        the return is a list of records that macth the search criteria
+        To use when the results is unique or is small
+        Search inside the ldap server for a base_dn with filters and attributes to return.
+        The return is a list of records that macth the search criteria
 
         each record is a tuple
         (
@@ -365,6 +373,76 @@ class ClientLdap(ClientUserSource):
                 raise exc.RequestException(f"Error when searching with for (base_dn, filters, attributes): ({base_dn}, {l_filter}, {attributes})" , error=err.ERROR_LDAP_CANNOT_SEARCH) from e
 
         raise exc.BugException("self.connection is still None, meaning self.connect() method didn't catch or raise correctly an error")
+
+    def _search_big(self, base_dn:str, l_filter:str|None = None, attributes: list|None = None, timeout:int = 10, limit:int = 100) -> list[tuple[str, dict[str, list[bytes]]]]:
+        """
+        To use when the results is big.
+        Search inside the ldap server for a base_dn with filters and attributes to return.
+        The return is a list of records that macth the search criteria
+
+        each record is a tuple
+        (
+            "dn",
+            {
+                "field1", [b'value1', b'value2,...]
+                "field2", [b'value1']
+            }
+        )
+
+        :param base_dn: base_dn to search for
+        :type base_dn: str
+        :param l_filter: If any string of the filters (in ldap format), defaults to None
+        :type l_filter: str | None, optional
+        :param attributes: if any, list of attributes to look for, defaults to None
+        :type attributes: list | None, optional
+        :return: list of records that match the search
+        :rtype: list[tuple[str, dict[str, list[bytes]]]]
+        """
+        if self.ldap_conn is not None and self.connected:
+            try:
+                #TODO search withouth attributes will fetch all (including password, that will be logged if not encrypted)
+                ret: list[tuple[str, dict[str, list[bytes]]]] = self.ldap_conn.search_ext_s(base_dn, self.scope, filterstr=l_filter, attrlist=attributes, timeout=timeout, sizelimit=limit)
+                return ret
+            except ldap.NO_SUCH_OBJECT:
+                logger_ldap.info("Cannot find any entriees for (base_dn, filters): (%s, %s)", base_dn, l_filter)
+                return []
+            except ldap.LDAPError as e:
+                logger_ldap.error("Error when searching with for (base_dn, filters, attributes): (%s, %s, %s) because %s", base_dn, l_filter, attributes, e)
+                raise exc.RequestException(f"Error when searching with for (base_dn, filters, attributes): ({base_dn}, {l_filter}, {attributes})" , error=err.ERROR_LDAP_CANNOT_SEARCH) from e
+
+        raise exc.BugException("self.connection is still None, meaning self.connect() method didn't catch or raise correctly an error")
+
+    def search_user(self, search: str, extra_condition: Condition.Condition, limit:int, username:str, domain:str, password:str) -> Generator[dict[str, list[str]]]:
+        """
+        Search users for autocompletion, max 100 entries
+
+        :param search: String to search
+        :type search: str
+        :param extra_condition: extra conditions for autocompletion
+        :type extra_condition: Condition
+        :return: infos of the user
+        :rtype: dict[str, list[str]]
+        """
+
+        search_filter = condition_to_filter(extra_condition)
+
+        #Add the others filters
+        if self.filter:
+            search_filter = f"(&{search_filter}{self.filter})"
+
+        #Bind
+        if not self.bind_as_user:
+            success, _ = self._bind(self.bind_dn, self.bind_pwd, use_admin=True)
+        else:
+            base_dn = self._get_base_dn(username, domain)
+            if not base_dn:
+                raise exc.RequestException("Cannot bind user to search", err.ERROR_LDAP_BIND_WRONG_CRED)
+            success, _ = self._bind(base_dn, password)
+
+        if success:
+            list_records = self._search_big(base_dn, search_filter, limit=limit)
+            for record in list_records:
+                yield parse_python_ldap_record(record)
 
 
     def close(self) -> None:

@@ -291,7 +291,7 @@ user_source_256 = {
 
     #Common
     "MailFieldNames": "US_MAIL", #Array of sqldap field that tell the user's mail. Default to ('mail'). Could be ('mail", 'alias')
-    "SearchFieldNames": "US_SEARCH", #Array of sqldap field that will be query when doing an autocompletion/search of user.
+    "SearchFieldNames": "US_SEARCH_FIELD", #Array of sqldap field that will be query when doing an autocompletion/search of user.
     "IMAPHostFieldName ": "US_IMAP_HOST_FIELDNAME", #sqldap field with the IMAP server's hostname for the user
                                 #Too much config available. A User Source is in a domain where an IMAP server ca be config +
                                 #SOGo6 is agnostic about the mail server (Imap, Jmap?) + do an imap proxy for that.

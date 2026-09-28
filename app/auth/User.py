@@ -103,6 +103,7 @@ class User:
         self.authenticated = False
         self.anonymous = False
         self.user_class = cs.USER_CLASS_USER
+        self.unit = "" # Depends on US_UNIT_FIELD, user will see others users with the same unit
 
         uid_domain = get_domain_from_mail(uid)
 

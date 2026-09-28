@@ -12,7 +12,7 @@ from mysql.connector import Error, ProgrammingError  # pylint: disable=no-name-i
 from app.utils.db.Table import Table, REX_VALID_NAMES
 from app.utils.db.Condition import (Condition, EqualCondition, NotEqualCondition, AndCondition, OrCondition,
                                     TrueCondition, LessOrEqualCondition, GreaterOrEqualCondition,
-                                    IsNullCondition, IsNotNullCondition, LikeCondition, FullTextCondition,
+                                    IsNullCondition, IsNotNullCondition, LikeCondition, NotLikeCondition, FullTextCondition,
                                     JoinClause, Order)
 from app.utils.db.FullTextValue import FullTextValue
 from app.utils import errors as err
@@ -192,6 +192,9 @@ def condition_to_query(condition: Condition, add_where: bool = False) -> Tuple[s
         sql_condition = f"{_col_ref(condition.param_name)} IS NOT NULL"
     elif isinstance(condition, LikeCondition):
         sql_condition = f"{_col_ref(condition.param_name)} LIKE %s"
+        params.append(condition.pattern)
+    elif isinstance(condition, NotLikeCondition):
+        sql_condition = f"{_col_ref(condition.param_name)} NOT LIKE %s"
         params.append(condition.pattern)
     elif isinstance(condition, FullTextCondition):
         terms = condition.terms()

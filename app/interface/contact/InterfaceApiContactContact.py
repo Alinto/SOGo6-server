@@ -8,6 +8,7 @@ from app.config.settings.DomainSettings import (
     UserModuleSettings,
     UserModuleSettingsObj,
 )
+from app.module.auth.ModuleUserSource import ModuleUserSource
 from app.module.contact.ContactConst import AUTOCOMPLETE_DEFAULT_LIMIT
 from app.module.contact.ModuleContact import ModuleContact
 from app.module.contact.jobs.ContactJobKind import ContactJobKind
@@ -53,6 +54,7 @@ class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attribute
     def __init__(self, process_setting: ProcessSetting, user_domain_settings: dict, user: User) -> None:
         self.user: User = user
         self._process_setting: ProcessSetting = process_setting
+        self._user_domain_settings = user_domain_settings
         self.settings: CalendarContactSettingsObj = CalendarContactSettingsObj(
             user_domain_settings[CalendarContactSettings.subparent]
         )
@@ -181,9 +183,15 @@ class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attribute
         try:
             if len(query.strip()) < self._user_module_settings.SOGO_D_AUTOCOMPLETION_MIN_LEN:
                 return create_api_base_response({"suggestions": []})
-            contacts, _ = self.module.get_contacts(
-                self.user, search=query, limit=AUTOCOMPLETE_DEFAULT_LIMIT, resolve_images=False)
+            
+            #Personnal AddressBooks
+            contacts, _ = self.module.get_contacts(self.user, search=query, limit=AUTOCOMPLETE_DEFAULT_LIMIT, resolve_images=False)
             lists = self.module.search_all_lists(self.user, search=query, limit=AUTOCOMPLETE_DEFAULT_LIMIT)
+
+            #Global AddressBooks
+            module_us = ModuleUserSource.init_from_domain_settings(self._user_domain_settings)
+            gab = module_us.search_for_contact_for_user(search=query, user=self.user, limit=AUTOCOMPLETE_DEFAULT_LIMIT)
+            
             suggestions: list[dict[str, Any]] = (
                 self._autocomplete_serializer.serialize(contacts)
                 + self._list_autocomplete_serializer.serialize(lists)

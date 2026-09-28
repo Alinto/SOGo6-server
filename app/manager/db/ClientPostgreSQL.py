@@ -13,7 +13,7 @@ from psycopg.types.json import Jsonb
 from app.utils.db.Table import Table, REX_VALID_NAMES
 from app.utils.db.Condition import (Condition, EqualCondition, NotEqualCondition, AndCondition, OrCondition,
                                     TrueCondition, LessOrEqualCondition, GreaterOrEqualCondition,
-                                    IsNullCondition, IsNotNullCondition, LikeCondition, FullTextCondition,
+                                    IsNullCondition, IsNotNullCondition, LikeCondition, NotLikeCondition, FullTextCondition,
                                     JoinClause, Order)
 from app.utils.db.FullTextValue import FullTextValue
 from app.utils import errors as err
@@ -204,6 +204,8 @@ def condition_to_query(condition: Condition, add_where : bool = False) -> Compos
         sql_condition = SQL("{param} IS NOT NULL").format(param=_col_ref(condition.param_name))
     elif isinstance(condition, LikeCondition):
         sql_condition = SQL("{param} ILIKE {value}").format(param=_col_ref(condition.param_name), value=Literal(condition.pattern))
+    elif isinstance(condition, NotLikeCondition):
+        sql_condition = SQL("{param} NOT ILIKE {value}").format(param=_col_ref(condition.param_name), value=Literal(condition.pattern))
     elif isinstance(condition, FullTextCondition):
         # The column is a tsvector; each query word is matched as a prefix ("joe" matches "joel").
         terms = condition.terms()

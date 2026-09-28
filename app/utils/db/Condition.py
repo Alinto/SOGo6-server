@@ -140,6 +140,17 @@ class LikeCondition(Condition):
         self.param_name = param_name
         self.pattern = pattern
 
+class NotLikeCondition(Condition):
+    """Case-insensitive substring match on a named parameter.
+
+    The pattern must include wildcard characters explicitly (e.g. '%keyword%').
+    PostgreSQL maps this to NOT ILIKE; MySQL NOT LIKE is already case-insensitive with utf8mb4.
+    """
+    def __init__(self, param_name: str, pattern: str):
+        super().__init__()
+        self.param_name = param_name
+        self.pattern = pattern
+
 class FullTextCondition(Condition):
     """Full-text match on a full-text column, backed by a database full-text index.
 
