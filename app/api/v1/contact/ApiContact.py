@@ -170,8 +170,19 @@ class ApiContactAutocomplete(MethodView):
         interface: InterfaceApiContactContact = g.inter
         return interface.autocomplete(query_args["q"])
 
+@blp.route("/contacts/gab/autocomplete")
+class ApiContactGABAutocomplete(MethodView):
+    """Recipient autocompletion: lightweight {name, email} suggestions across the user's contacts."""
 
-@blp.route("/addressbooks/<string:key>/contacts/<string:contact_key>")
+    @blp.response(200, ContactAutocompleteResponseSchema)
+    @blp.arguments(ContactAutocompleteQueryArgsSchema, location="query", arg_name="query_args")
+    def get(self, query_args: dict) -> ResponseReturnValue:
+        """Return recipient suggestions for the ``q`` query string."""
+        logger_api.debug("GET /contacts/autocomplete user=%s q=%s", g.user.uid, query_args.get("q"))
+        interface: InterfaceApiContactContact = g.inter
+        return interface.gab_autocomplete(query_args["q"])
+
+@blp.route("/addressbooks/<string:key>/<string:contact_key>")
 class ApiContactDetail(MethodView):
     """API to retrieve, update and delete a single contact within an address book."""
 

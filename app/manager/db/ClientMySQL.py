@@ -1,6 +1,7 @@
 from __future__ import annotations
 from typing import Any, Generator, Tuple, List, cast
 
+from collections import OrderedDict
 import re
 import json
 from urllib.parse import quote_plus
@@ -11,7 +12,7 @@ from mysql.connector import Error, ProgrammingError  # pylint: disable=no-name-i
 from app.utils.db.Table import Table, REX_VALID_NAMES
 from app.utils.db.Condition import (Condition, EqualCondition, NotEqualCondition, AndCondition, OrCondition,
                                     TrueCondition, LessOrEqualCondition, GreaterOrEqualCondition,
-                                    IsNullCondition, IsNotNullCondition, LikeCondition, FullTextCondition,
+                                    IsNullCondition, IsNotNullCondition, LikeCondition, NotLikeCondition, FullTextCondition,
                                     JoinClause, Order)
 from app.utils.db.FullTextValue import FullTextValue
 from app.utils import errors as err
@@ -192,6 +193,9 @@ def condition_to_query(condition: Condition, add_where: bool = False) -> Tuple[s
     elif isinstance(condition, LikeCondition):
         sql_condition = f"{_col_ref(condition.param_name)} LIKE %s"
         params.append(condition.pattern)
+    elif isinstance(condition, NotLikeCondition):
+        sql_condition = f"{_col_ref(condition.param_name)} NOT LIKE %s"
+        params.append(condition.pattern)
     elif isinstance(condition, FullTextCondition):
         terms = condition.terms()
         if not terms:
@@ -216,17 +220,17 @@ class ClientMySQL(ClientSQL):
     MySQL implementation of ClientSQL
     """
 
-    def __init__(self, db_user: str, db_pwd: str, db_host: str, db_port: int, db_ssl: bool, db_enc: str):
+    def __init__(self, db_user: str, db_pwd: str, db_host: str, db_port: int, db_ssl: bool, db_enc: str, db_name: str = "sogo"):
         """
         Init the MySQL client.
         """
-        self.safe_conn_string: str = f"mysql://SOGO_M_DB_USER:SOGO_M_DB_PWD@{db_host}:{db_port}/sogo?charset={db_enc}"
+        self.safe_conn_string: str = f"mysql://SOGO_M_DB_USER:SOGO_M_DB_PWD@{db_host}:{db_port}/{db_name}?charset={db_enc}"
         self.conn_config = {
             "user": db_user,
             "password": db_pwd,
             "host": db_host,
             "port": db_port,
-            "database": "sogo",
+            "database": db_name,
             "connection_timeout": 5,
             "use_pure": True,
             "charset": db_enc,
@@ -243,7 +247,7 @@ class ClientMySQL(ClientSQL):
             logger.error("Cannot connect to %s reason: %s", self.safe_conn_string, repr(e))
             raise RequestException("MySQL database connection error") from e
 
-    def get_table_info(self, table_name: str) -> dict | None:
+    def get_table_info(self, table_name: str) -> OrderedDict | None:
         """
         Return None if the table was not found.
         If found, return a dict as {"column_name": "data_type", ...}
@@ -255,7 +259,7 @@ class ClientMySQL(ClientSQL):
         if self.db_conn is None or not self.db_conn.is_connected():
             self.connect()
 
-        ret: dict = {}
+        ret = OrderedDict()
         sql_query = "SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s"
 
         params = cast(Tuple[str, str], (str(self.conn_config["database"]), str(table_name)))

@@ -1,6 +1,7 @@
 from __future__ import annotations
 from typing import Any, Generator
 
+from collections import OrderedDict
 import re
 from urllib.parse import quote_plus
 
@@ -12,7 +13,7 @@ from psycopg.types.json import Jsonb
 from app.utils.db.Table import Table, REX_VALID_NAMES
 from app.utils.db.Condition import (Condition, EqualCondition, NotEqualCondition, AndCondition, OrCondition,
                                     TrueCondition, LessOrEqualCondition, GreaterOrEqualCondition,
-                                    IsNullCondition, IsNotNullCondition, LikeCondition, FullTextCondition,
+                                    IsNullCondition, IsNotNullCondition, LikeCondition, NotLikeCondition, FullTextCondition,
                                     JoinClause, Order)
 from app.utils.db.FullTextValue import FullTextValue
 from app.utils import errors as err
@@ -203,6 +204,8 @@ def condition_to_query(condition: Condition, add_where : bool = False) -> Compos
         sql_condition = SQL("{param} IS NOT NULL").format(param=_col_ref(condition.param_name))
     elif isinstance(condition, LikeCondition):
         sql_condition = SQL("{param} ILIKE {value}").format(param=_col_ref(condition.param_name), value=Literal(condition.pattern))
+    elif isinstance(condition, NotLikeCondition):
+        sql_condition = SQL("{param} NOT ILIKE {value}").format(param=_col_ref(condition.param_name), value=Literal(condition.pattern))
     elif isinstance(condition, FullTextCondition):
         # The column is a tsvector; each query word is matched as a prefix ("joe" matches "joel").
         terms = condition.terms()
@@ -229,13 +232,13 @@ class ClientPostgreSQL(ClientSQL):
     Class to connect, read and write into a sql database
     """
 
-    def __init__(self, db_user: str, db_pwd: str, db_host: str, db_port: int,  db_ssl: bool, db_enc: str):
+    def __init__(self, db_user: str, db_pwd: str, db_host: str, db_port: int,  db_ssl: bool, db_enc: str, db_name:str = "sogo"):
         """
         Init the PostgreSQL client.
         It shouldn't raise any Exception as SOGo will instantiate the object but not necessarily use it right on spot
         """
-        self.conn_string: str      = f"postgresql://{quote_plus(db_user)}:{quote_plus(db_pwd)}@{db_host}:{db_port}/sogo?client_encoding={db_enc}"
-        self.safe_conn_string: str = f"postgresql://SOGO_P_DB_USER:SOGO_P_DB_PWD@{db_host}:{db_port}/sogo?client_encoding={db_enc}"
+        self.conn_string: str      = f"postgresql://{quote_plus(db_user)}:{quote_plus(db_pwd)}@{db_host}:{db_port}/{db_name}?client_encoding={db_enc}"
+        self.safe_conn_string: str = f"postgresql://SOGO_P_DB_USER:SOGO_P_DB_PWD@{db_host}:{db_port}/{db_name}?client_encoding={db_enc}"
         self.db_conn: psycopg.Connection | None = None
 
         #TODO for db_ssl, see sslmode https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-PARAMKEYWORDS
@@ -252,7 +255,7 @@ class ClientPostgreSQL(ClientSQL):
             raise RequestException("Postgresql database connection error") from e
 
 
-    def get_table_info(self, table_name: str) -> dict | None:
+    def get_table_info(self, table_name: str) -> OrderedDict | None:
         """
         Return None if the table was not found
         If found, return a dict as {"column_name": "data_type", ...}
@@ -265,7 +268,7 @@ class ClientPostgreSQL(ClientSQL):
         if self.db_conn is None or self.db_conn.closed:
             self.connect()
 
-        ret = {}
+        ret = OrderedDict()
         sql_query = SQL("SELECT column_name, data_type FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = {}").format(Literal(table_name))
 
         all_record : list = []

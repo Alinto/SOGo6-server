@@ -27,8 +27,6 @@ class ContactSourceDirectory(ContactSource):  # pylint: disable=unused-argument
       - build the synthetic CardAddressBook representing the directory
       - adapt the user source query primitive (owned by ModuleUserSource, which dispatches SQL vs
         LDAP) and map each directory entry to a CardContact
-      - apply US_AUTO_QUERY_LIMIT and require a search term for large directories instead of the
-        in-memory merge used for local books
       - derive is_writable from the backend (LDAP is read-only; a SQL system source may be writable
         by configured modifiers, like SOGo's [source modifiers])
     """
@@ -56,7 +54,7 @@ class ContactSourceDirectory(ContactSource):  # pylint: disable=unused-argument
         self, search: str | None = None, offset: int = 0, limit: int = 0,
         sort_by: str | None = None, order: Order = Order.ASC,
     ) -> list[CardContact]:
-        # TODO: query the directory (apply US_AUTO_QUERY_LIMIT; require a search term for large
+        # TODO: query the directory (require a search term for large
         # directories) and map each entry to a CardContact.
         raise NotImplementedError("TODO: directory contact search not implemented")
 

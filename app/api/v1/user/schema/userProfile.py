@@ -122,14 +122,14 @@ class UserProfileGetRetSchema(ApiBaseResponse):
             "SOGO_D_VACATION_ALLOW_RESPONSE_ALWAYS": False,
             "SOGO_D_VACATION_ENABLED": True,
             "US_AUTO_SEARCH": None,
-            "US_PWD_DIGITS_MIN": None,
-            "US_PWD_LEN_MAX": None,
-            "US_PWD_LEN_MIN": None,
-            "US_PWD_LOWERCASE_MIN": None,
-            "US_PWD_POLICY": None,
-            "US_PWD_SPECIAL_ALLOWED": None,
-            "US_PWD_SPECIAL_MIN": None,
-            "US_PWD_UPPERCASE_MIN": None
+            "US_DB_PWD_DIGITS_MIN": None,
+            "US_DB_PWD_LEN_MAX": None,
+            "US_DB_PWD_LEN_MIN": None,
+            "US_DB_PWD_LOWERCASE_MIN": None,
+            "US_DB_PWD_POLICY": None,
+            "US_DB_PWD_SPECIAL_ALLOWED": None,
+            "US_DB_PWD_SPECIAL_MIN": None,
+            "US_DB_PWD_UPPERCASE_MIN": None
             }
         },
         "error_code": "S000000",

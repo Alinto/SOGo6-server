@@ -3,8 +3,11 @@ from typing import TYPE_CHECKING
 
 from app.config.settings.DomainSettings import UserSourceSettingsObj, UserSourceSettings
 from app.utils import exceptions as exc
+from app.utils.db import Condition
+from app.utils import errors as err
 from app.utils.module.importManager import import_and_instantiate_manager
 from app.utils.logger.logger import logger
+from app.utils.strings import get_domain_from_mail
 
 if TYPE_CHECKING:
     from app.auth.User import User
@@ -12,14 +15,13 @@ if TYPE_CHECKING:
 
 MAP_KEY_CLASS = {
     "ldap": "ClientLdap",
-    "mysql": "ClientMySQL",
-    "postgresql": "ClientPostgreSQL"
+    "db": "ClientSQLUserSource"
 }
 
 MAP_KEY_PATH = {
     "ldap": "app.manager.ldap",
-    "mysql": "app.manager.db",
-    "postgresql": "app.manager.db"
+    "db": "app.manager.db"
+
 }
 
 class ModuleUserSource:
@@ -51,6 +53,28 @@ class ModuleUserSource:
         """
         self.all_user_sources = all_user_sources
 
+    def _get_manager_for_user_source(self, source_settings: UserSourceSettingsObj) -> ClientUserSource:
+        """
+        _summary_
+
+        :param source_settings: _description_
+        :type source_settings: UserSourceSettingsObj
+        :return: _description_
+        :rtype: ClientUserSource
+        """
+        us_config = source_settings.get_user_source_settings(source_settings.US_TYPE)
+        
+        if source_settings.US_TYPE == "db" and not source_settings.US_PWD_ALGO:
+            raise exc.AggravatedException("US_PWD_ALGO not given for db user source")
+
+        client_us: ClientUserSource = import_and_instantiate_manager(
+            module_path=MAP_KEY_PATH[source_settings.US_TYPE],
+            module_and_class_name=MAP_KEY_CLASS[source_settings.US_TYPE],
+            module_args=us_config
+        )
+        client_us.connect()
+        return client_us
+
     def _make_us_check_login(self, source_settings: UserSourceSettingsObj, user: User) -> tuple[bool, dict, dict[str, list[str]]]:
         """
         _summary_
@@ -62,13 +86,8 @@ class ModuleUserSource:
         :return: _description_
         :rtype: tuple[bool, dict, dict]
         """
-        us_config = source_settings.get_user_source_settings(source_settings.US_TYPE)
-        client_us: ClientUserSource = import_and_instantiate_manager(
-            module_path=MAP_KEY_PATH[source_settings.US_TYPE],
-            module_and_class_name=MAP_KEY_CLASS[source_settings.US_TYPE],
-            module_args=us_config,
-        )
-        client_us.connect()
+        client_us = self._get_manager_for_user_source(source_settings)
+
         return client_us.check_login(user.uid, user.password, user.domain)
 
     def check_login(self, user:User) -> bool:
@@ -83,6 +102,8 @@ class ModuleUserSource:
         auth = False
         raw_policy: dict = {}
         raw_content: dict[str, list[str]] = {}
+
+        #If we check for a user already authenticated (jwt token) directly get the proper user source
         if user.source_id and user.source_id in self.all_user_sources:
             source_settings = self.all_user_sources[user.source_id]
             if source_settings.US_CAN_AUTH:
@@ -94,15 +115,17 @@ class ModuleUserSource:
                     return False
                 user.authenticated = True
 
-        for source_uid, source_settings in self.all_user_sources.items():
-            if source_settings.US_CAN_AUTH:
-                auth, raw_policy, raw_contact = self._make_us_check_login(source_settings, user)
-                if not auth:
-                    #User not found in this user source, check the next one
-                    continue
-                user.source_id = source_uid
-                user.authenticated = True
-                break
+        #If first login chekc in all user sources until first match
+        if not user.authenticated:
+            for source_uid, source_settings in self.all_user_sources.items():
+                if source_settings.US_CAN_AUTH:
+                    auth, raw_policy, raw_contact = self._make_us_check_login(source_settings, user)
+                    if not auth:
+                        #User not found in this user source, check the next one
+                        continue
+                    user.source_id = source_uid
+                    user.authenticated = True
+                    break
 
         if not user.authenticated:
             # Creds false or user missing from user source
@@ -123,14 +146,21 @@ class ModuleUserSource:
         :return: Dictionary containing user contact information (uid, cn, email)
         :rtype: dict
         """
-        user.cn =   user_info["cn"][0]
-        user.mail = user_info["mail"][0]
 
         #At this stage, the user must have a source_id as it already has been logged in.
         if not user.source_id or user.source_id not in self.all_user_sources:
             raise exc.AggravatedException("User with no source_id")
 
         user_source_settings = self.all_user_sources[user.source_id]
+        user.cn =   user_info[user_source_settings.US_FIELD_CN][0]
+        user.mail = user_info[user_source_settings.US_MAIL[0]][0]
+        user.domain = get_domain_from_mail(user.mail) or ""
+        if user_source_settings.US_UNIT_FIELD:
+            try:
+                user.unit = user_info[user_source_settings.US_UNIT_FIELD][0]
+            except KeyError as e:
+                logger.error("US_UNIT_FIELD is set (%s) but there is no value for user %s", user_source_settings.US_UNIT_FIELD, user.uid)
+                raise exc.RequestException(error=err.ERROR_US_USER_UNIT_MISSING) from e
 
         #Check for others mails address
         for key_mail in user_source_settings.US_MAIL:
@@ -142,7 +172,7 @@ class ModuleUserSource:
         if user_source_settings.US_MAPPING:
             for key_sogo, key_user_source in user_source_settings.US_MAPPING.items():
                 if info := user_info.get(key_user_source):
-                    #TODO parse into contactCard, beware that each user_info is a list and my need to be a signle value
+                    #TODO parse into contactCard, beware that each user_info is a list and may need to be a single value
                     user.extra_info[key_sogo] = info
 
 
@@ -172,7 +202,7 @@ class ModuleUserSource:
         if user_source_settings.US_MAIL_FILTERING_LOGIN:
             user.login_mail_filtering = user_info.get(user_source_settings.US_MAIL_FILTERING_LOGIN, user.mail)
 
-        # Get, if needed, the proper imap DEPERACTED
+        # Get, if needed, the proper imap DEPRECATED
         if user_source_settings.US_IMAP_HOST_FIELDNAME:
             user.imap_host = user_info.get(user_source_settings.US_IMAP_HOST_FIELDNAME, "")
 
@@ -208,3 +238,138 @@ class ModuleUserSource:
         else:
             self.fill_user_with_contact_info(user, infos)
             self.fill_user_with_source_info(user, infos)
+
+    def _build_condition_for(self, search:str, user:User, us:UserSourceSettingsObj) -> Condition.Condition|None:
+        """
+        _summary_
+
+        :param user: _description_
+        :type user: User
+        :param us: _description_
+        :type us: UserSourceSettingsObj
+        :return: _description_
+        :rtype: Condition
+        """
+        wildcard = '*'
+        if us.US_TYPE == "db":
+            wildcard = "%"
+
+        #Build condition, US_FILTER is already given to the user source
+        list_cond: list[Condition.Condition] = []
+
+        #Add default condition
+        criteria = f"{wildcard}{search}{wildcard}"
+        list_cond.append(Condition.LikeCondition(us.US_FIELD_UID, criteria))
+        list_cond.append(Condition.LikeCondition(us.US_FIELD_CN, criteria))
+        list_cond.append(Condition.LikeCondition(us.US_MAIL[0], criteria))
+
+        #Add admin condition
+        for field in us.US_SEARCH_FIELD:
+            list_cond.append(Condition.LikeCondition(field, criteria))
+
+        search_cond: Condition.Condition = Condition.OrCondition(*list_cond)
+
+        #Add hidden users
+        list_hidden = []
+        for hidden in us.US_HIDDEN_USER:
+            list_hidden.append(Condition.NotEqualCondition(us.US_FIELD_UID, hidden))
+        if size := len(list_hidden):
+            if size == 1:
+                search_cond = Condition.AndCondition(search_cond, list_hidden[0])
+            else:
+                search_cond = Condition.AndCondition(search_cond, Condition.OrCondition(*list_hidden))
+
+        #Add UNIT condition
+        if us.US_UNIT_FIELD:
+            if not user.unit:
+                logger.error("US_UNIT_FIELD is set (%s) but there is no value for user %s", us.US_UNIT_FIELD, user.uid)
+                raise exc.RequestException(error=err.ERROR_US_USER_UNIT_MISSING)
+            search_cond = Condition.AndCondition(search_cond, Condition.EqualCondition(us.US_UNIT_FIELD, user.unit))
+        #OR Add Domain Partition
+        elif us.US_DOMAIN_PARTITION:
+            if us.US_DOMAIN_PARTITION == 1:
+                #User can only see user with the same mail domain
+                mail_criteria = f"{wildcard}{user.domain}"
+                list_cond = [Condition.LikeCondition(us.US_MAIL[0], mail_criteria)]
+                for domain in us.US_DOMAIN_VISIBLE:
+                    mail_criteria = f"{wildcard}{domain}"
+                    list_cond.append(Condition.LikeCondition(us.US_MAIL[0], mail_criteria))
+                if len(list_cond) == 1:
+                    search_cond = Condition.AndCondition(search_cond, list_cond[0])
+                else:
+                    search_cond = Condition.AndCondition(search_cond, Condition.OrCondition(*list_cond))
+            if us.US_DOMAIN_PARTITION == -1:
+                #User can't see anybody except the one set in US_DOMAIN_VISIBLE
+                list_cond = []
+                for domain in us.US_DOMAIN_VISIBLE:
+                    mail_criteria = f"{wildcard}{domain}"
+                    list_cond.append(Condition.LikeCondition(us.US_MAIL[0], mail_criteria))
+                if len(list_cond) == 0:
+                    #Cannot see anybody with no whitelist, return empty list
+                    return None
+                elif len(list_cond) == 1:
+                    search_cond = Condition.AndCondition(search_cond, list_cond[0])
+                else:
+                    search_cond = Condition.AndCondition(search_cond, Condition.OrCondition(*list_cond))
+        else:
+            #means US_DOMAIN_PARTITION == 0, means everyone see everyone except for US_DOMAIN_NOT_VISIBLE
+            list_cond = []
+            for domain in us.US_DOMAIN_NOT_VISIBLE:
+                mail_criteria = f"{wildcard}{domain}"
+                list_cond.append(Condition.NotLikeCondition(us.US_MAIL[0], mail_criteria))
+            if len(list_cond) == 1:
+                search_cond = Condition.AndCondition(search_cond, list_cond[0])
+            elif len(list_cond) > 1:
+                search_cond = Condition.AndCondition(search_cond, Condition.OrCondition(*list_cond))
+
+        logger.debug("Conditions for autocomplete: %s", search_cond)
+        return search_cond
+
+
+    def search_for_contact_for_user(self, search: str, user: User, limit:int = 100) -> list[dict]:
+        """
+        _summary_
+
+        :param search: _description_
+        :type search: str
+        :param user: _description_
+        :type user: User
+        :return: _description_
+        :rtype: dict
+        """
+        #At this stage, the user mus have a source_id as it already has been logged in.
+        if not user.source_id or user.source_id not in self.all_user_sources:
+            raise exc.AggravatedException("User with no source_id")
+        tmp_limit = limit
+        results: list[dict] = []
+        for _, us_settings in self.all_user_sources.items():
+            if tmp_limit <= 0:
+                break
+
+            if not us_settings.US_IS_ADDRESSBOOK:
+                continue
+
+            search_cond = self._build_condition_for(search, user, us_settings)
+            if search_cond is None:
+                #It happends if the conf for domains visibility says the user can't see anything.
+                continue
+
+            #Get client
+            client_us = self._get_manager_for_user_source(us_settings)
+            for record in client_us.search_user(search, search_cond, tmp_limit, user.uid, user.domain, user.password):
+                tmp_user: dict = {}
+                tmp_user["us_uid"] = us_settings.US_UID
+                tmp_user["us_name"] = us_settings.US_DISPLAY_NAME or us_settings.US_NAME
+                tmp_user["uid"] = record[us_settings.US_FIELD_UID][0]
+                tmp_user["emails"] = []
+                for email_field in us_settings.US_MAIL:
+                    tmp_user["emails"].extend(record[email_field])
+                #TODO: add config for admin to syntax the name returned, here it was SOGo 5 behavior getting display name, if not fall back on cn
+                if "displayname" in record:
+                    tmp_user["name"] =  record["displayname"][0]
+                else:
+                    tmp_user["name"] =  record[us_settings.US_FIELD_CN][0]
+                results.append(tmp_user)
+                tmp_limit -= 1
+
+        return results

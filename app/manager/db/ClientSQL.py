@@ -1,10 +1,9 @@
-from typing import Any, Generator
 from abc import abstractmethod, ABCMeta
+from typing import Any, Generator
 
 from app.utils.logger.logger import logger
 from app.utils.db.Table import Table
 from app.utils.db.Condition import Condition, FullTextCondition, JoinClause, Order
-
 
 class ClientSQL(metaclass=ABCMeta):
     """
@@ -19,7 +18,6 @@ class ClientSQL(metaclass=ABCMeta):
     def connect(self) -> None:
         """
         Connect to the database and check this is ok.
-        /!\\ Beware must match ClientUserSource method as pylint nor mypy catch the error
         """
         logger.error("Method 'connect' of clientSQL must be implemented by the children %s", type(self).__name__)
         raise NotImplementedError

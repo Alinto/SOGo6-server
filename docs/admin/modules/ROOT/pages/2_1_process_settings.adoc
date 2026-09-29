@@ -113,6 +113,7 @@ The user session has those data
 * USER_DOMAIN: the mail's domain of the user
 * USER_EMAIL:  the mail of the user
 * USER_SRC_ID: the source_id (from which user source the user is from) of the user.
+* USER_UNIT: only useful if you use the user source domain settings US_UNIT_FIELD
 
 
 '''
