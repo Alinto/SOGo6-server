@@ -250,7 +250,6 @@ class ModuleUserSource:
         :return: _description_
         :rtype: Condition
         """
-        print(f"BUILDING for USer: {user}")
         wildcard = '*'
         if us.US_TYPE == "db":
             wildcard = "%"
@@ -358,7 +357,6 @@ class ModuleUserSource:
             #Get client
             client_us = self._get_manager_for_user_source(us_settings)
             for record in client_us.search_user(search, search_cond, tmp_limit, user.uid, user.domain, user.password):
-                print(record)
                 tmp_user: dict = {}
                 tmp_user["us_uid"] = us_settings.US_UID
                 tmp_user["us_name"] = us_settings.US_DISPLAY_NAME or us_settings.US_NAME

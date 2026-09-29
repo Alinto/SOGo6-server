@@ -170,8 +170,8 @@ class ApiContactAutocomplete(MethodView):
         interface: InterfaceApiContactContact = g.inter
         return interface.autocomplete(query_args["q"])
 
-@blp.route("/contacts/autocomplete")
-class ApiContactAutocomplete(MethodView):
+@blp.route("/contacts/gab/autocomplete")
+class ApiContactGABAutocomplete(MethodView):
     """Recipient autocompletion: lightweight {name, email} suggestions across the user's contacts."""
 
     @blp.response(200, ContactAutocompleteResponseSchema)
@@ -180,7 +180,7 @@ class ApiContactAutocomplete(MethodView):
         """Return recipient suggestions for the ``q`` query string."""
         logger_api.debug("GET /contacts/autocomplete user=%s q=%s", g.user.uid, query_args.get("q"))
         interface: InterfaceApiContactContact = g.inter
-        return interface.autocomplete(query_args["q"])
+        return interface.gab_autocomplete(query_args["q"])
 
 @blp.route("/addressbooks/<string:key>/<string:contact_key>")
 class ApiContactDetail(MethodView):

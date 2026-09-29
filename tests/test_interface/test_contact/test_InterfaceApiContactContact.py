@@ -1,5 +1,5 @@
 """Unit tests for InterfaceApiContactContact - address book and contact CRUD."""
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from app.interface.contact.InterfaceApiContactContact import InterfaceApiContactContact
 from app.module.contact.model.CardAddressBook import CardAddressBook
@@ -13,6 +13,7 @@ from app.module.contact.serializer.CardAddressBooksSerializerList import CardAdd
 from app.module.contact.model.enums.ContactExportFormat import ContactExportFormat
 from app.module.contact.model.CardList import CardList
 from app.module.contact.serializer.CardContactAutocompleteSerializerList import CardContactAutocompleteSerializerList
+from app.module.contact.serializer.CardGABAutocompleteSerializerList import CardGABAutocompleteSerializerList
 from app.module.contact.serializer.CardListAutocompleteSerializerList import CardListAutocompleteSerializerList
 from app.module.contact.serializer.CardListDeserializerDict import CardListDeserializerDict
 from app.module.contact.serializer.CardListSerializerDict import CardListSerializerDict
@@ -20,6 +21,7 @@ from app.module.contact.serializer.CardListsSerializerList import CardListsSeria
 from app.module.contact.serializer.CardContactDeserializerDict import CardContactDeserializerDict
 from app.module.contact.serializer.CardContactSerializerDict import CardContactSerializerDict
 from app.module.contact.serializer.CardContactsSerializerList import CardContactsSerializerList
+from app.module.auth.ModuleUserSource import ModuleUserSource
 from app.utils import errors as err
 from app.utils.api.paginate_sort_filter import CollectionPaginateArgs
 from app.utils.db.Condition import Order
@@ -37,11 +39,13 @@ def _build_interface():
     inter._contacts_serializer = CardContactsSerializerList()
     inter._contact_deserializer = CardContactDeserializerDict()
     inter._autocomplete_serializer = CardContactAutocompleteSerializerList()
+    inter._gab_autocomplete_serializer = CardGABAutocompleteSerializerList()
     inter._list_autocomplete_serializer = CardListAutocompleteSerializerList()
     inter._list_serializer = CardListSerializerDict()
     inter._lists_serializer = CardListsSerializerList()
     inter._list_deserializer = CardListDeserializerDict()
     inter._user_module_settings = MagicMock(SOGO_D_AUTOCOMPLETION_MIN_LEN=2)
+    inter._user_domain_settings = MagicMock()
     return inter
 
 
@@ -206,16 +210,20 @@ def test_autocomplete_returns_one_suggestion_per_email_plus_lists():
     inter.module.search_all_lists.return_value = [
         CardList(name="Team", key="l1", addressbook_key="ab1", addressbook_name="Personal", members=["c1"],
                  member_contacts=[CardContact(display_name="Carol", key="c1", emails=[CardEmail(value="carol@x.com")])])]
-    data, _ = inter.autocomplete("ali")
-    suggestions = data["data"]["suggestions"]
-    # Two contact suggestions (one per email) then one list suggestion.
-    assert [s["type"] for s in suggestions] == ["contact", "contact", "list"]
-    assert suggestions[2] == {"type": "list", "name": "Team", "email": None, "contact_key": None,
-                              "list_key": "l1", "member_count": 1,
-                              "members": [{"contact_key": "c1", "name": "Carol", "email": "carol@x.com"}],
-                              "address_book": {"key": "ab1", "name": "Personal"}}
-    assert inter.module.get_contacts.call_args.kwargs["limit"] == AUTOCOMPLETE_DEFAULT_LIMIT
-    assert inter.module.search_all_lists.call_args.kwargs["limit"] == AUTOCOMPLETE_DEFAULT_LIMIT
+    inter.module.search_all_lists.return_value = [
+            CardList(name="Team", key="l1", addressbook_key="ab1", addressbook_name="Personal", members=["c1"],
+                     member_contacts=[CardContact(display_name="Carol", key="c1", emails=[CardEmail(value="carol@x.com")])])]
+    with patch.object(ModuleUserSource, 'search_for_contact_for_user', return_value=[]) as mock_search:
+        data, _ = inter.autocomplete("ali")
+        suggestions = data["data"]["suggestions"]
+        # Two contact suggestions (one per email) then one list suggestion.
+        assert [s["type"] for s in suggestions] == ["contact", "contact", "list"]
+        assert suggestions[2] == {"type": "list", "name": "Team", "email": None, "contact_key": None,
+                                "list_key": "l1", "member_count": 1,
+                                "members": [{"contact_key": "c1", "name": "Carol", "email": "carol@x.com"}],
+                                "address_book": {"key": "ab1", "name": "Personal"}}
+        assert inter.module.get_contacts.call_args.kwargs["limit"] == AUTOCOMPLETE_DEFAULT_LIMIT
+        assert inter.module.search_all_lists.call_args.kwargs["limit"] == AUTOCOMPLETE_DEFAULT_LIMIT
 
 
 def test_autocomplete_below_min_length_returns_empty_without_querying():
