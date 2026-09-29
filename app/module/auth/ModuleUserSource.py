@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 from app.config.settings.DomainSettings import UserSourceSettingsObj, UserSourceSettings
 from app.utils import exceptions as exc
 from app.utils.db import Condition
+from app.utils import errors as err
 from app.utils.module.importManager import import_and_instantiate_manager
 from app.utils.logger.logger import logger
 from app.utils.strings import get_domain_from_mail
@@ -145,7 +146,7 @@ class ModuleUserSource:
         :return: Dictionary containing user contact information (uid, cn, email)
         :rtype: dict
         """
-        
+
         #At this stage, the user must have a source_id as it already has been logged in.
         if not user.source_id or user.source_id not in self.all_user_sources:
             raise exc.AggravatedException("User with no source_id")
@@ -155,7 +156,11 @@ class ModuleUserSource:
         user.mail = user_info[user_source_settings.US_MAIL[0]][0]
         user.domain = get_domain_from_mail(user.mail) or ""
         if user_source_settings.US_UNIT_FIELD:
-            user.unit = user_info.get(user_source_settings.US_UNIT_FIELD[0], "")
+            try:
+                user.unit = user_info[user_source_settings.US_UNIT_FIELD][0]
+            except KeyError as e:
+                logger.error("US_UNIT_FIELD is set (%s) but there is no value for user %s", user_source_settings.US_UNIT_FIELD, user.uid)
+                raise exc.RequestException(error=err.ERROR_US_USER_UNIT_MISSING) from e
 
         #Check for others mails address
         for key_mail in user_source_settings.US_MAIL:
@@ -245,6 +250,7 @@ class ModuleUserSource:
         :return: _description_
         :rtype: Condition
         """
+        print(f"BUILDING for USer: {user}")
         wildcard = '*'
         if us.US_TYPE == "db":
             wildcard = "%"
@@ -275,7 +281,10 @@ class ModuleUserSource:
                 search_cond = Condition.AndCondition(search_cond, Condition.OrCondition(*list_hidden))
 
         #Add UNIT condition
-        if us.US_UNIT_FIELD and user.unit:
+        if us.US_UNIT_FIELD:
+            if not user.unit:
+                logger.error("US_UNIT_FIELD is set (%s) but there is no value for user %s", us.US_UNIT_FIELD, user.uid)
+                raise exc.RequestException(error=err.ERROR_US_USER_UNIT_MISSING)
             search_cond = Condition.AndCondition(search_cond, Condition.EqualCondition(us.US_UNIT_FIELD, user.unit))
         #OR Add Domain Partition
         elif us.US_DOMAIN_PARTITION:
@@ -311,9 +320,10 @@ class ModuleUserSource:
                 list_cond.append(Condition.NotLikeCondition(us.US_MAIL[0], mail_criteria))
             if len(list_cond) == 1:
                 search_cond = Condition.AndCondition(search_cond, list_cond[0])
-            else:
+            elif len(list_cond) > 1:
                 search_cond = Condition.AndCondition(search_cond, Condition.OrCondition(*list_cond))
 
+        logger.debug("Conditions for autocomplete: %s", search_cond)
         return search_cond
 
 
@@ -332,7 +342,7 @@ class ModuleUserSource:
         if not user.source_id or user.source_id not in self.all_user_sources:
             raise exc.AggravatedException("User with no source_id")
         tmp_limit = limit
-        results = []
+        results: list[dict] = []
         for _, us_settings in self.all_user_sources.items():
             if tmp_limit <= 0:
                 break
@@ -348,11 +358,20 @@ class ModuleUserSource:
             #Get client
             client_us = self._get_manager_for_user_source(us_settings)
             for record in client_us.search_user(search, search_cond, tmp_limit, user.uid, user.domain, user.password):
-                record["us_uid"] = [us_settings.US_UID]
-                record["us_name"] = [us_settings.US_DISPLAY_NAME or us_settings.US_NAME]
-                results.append(record)
-                tmp_limit =- tmp_limit
+                print(record)
+                tmp_user: dict = {}
+                tmp_user["us_uid"] = us_settings.US_UID
+                tmp_user["us_name"] = us_settings.US_DISPLAY_NAME or us_settings.US_NAME
+                tmp_user["uid"] = record[us_settings.US_FIELD_UID][0]
+                tmp_user["emails"] = []
+                for email_field in us_settings.US_MAIL:
+                    tmp_user["emails"].extend(record[email_field])
+                #TODO: add config for admin to syntax the name returned, here it was SOGo 5 behavior getting display name, if not fall back on cn
+                if "displayname" in record:
+                    tmp_user["name"] =  record["displayname"][0]
+                else:
+                    tmp_user["name"] =  record[us_settings.US_FIELD_CN][0]
+                results.append(tmp_user)
+                tmp_limit -= 1
 
         return results
-
-

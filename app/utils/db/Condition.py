@@ -135,10 +135,17 @@ class LikeCondition(Condition):
     The pattern must include wildcard characters explicitly (e.g. '%keyword%').
     PostgreSQL maps this to ILIKE; MySQL LIKE is already case-insensitive with utf8mb4.
     """
+    _op = "LIKE"
     def __init__(self, param_name: str, pattern: str):
         super().__init__()
         self.param_name = param_name
         self.pattern = pattern
+
+    def __repr__(self) -> str:
+        value = self.pattern
+        if isinstance(value, str):
+            value = f"'{value}'"
+        return f"{self.__class__.__name__}({self.param_name} {self._op} {value})"
 
 class NotLikeCondition(Condition):
     """Case-insensitive substring match on a named parameter.
@@ -146,10 +153,18 @@ class NotLikeCondition(Condition):
     The pattern must include wildcard characters explicitly (e.g. '%keyword%').
     PostgreSQL maps this to NOT ILIKE; MySQL NOT LIKE is already case-insensitive with utf8mb4.
     """
+    _op = "NOT LIKE"
+
     def __init__(self, param_name: str, pattern: str):
         super().__init__()
         self.param_name = param_name
         self.pattern = pattern
+
+    def __repr__(self) -> str:
+        value = self.pattern
+        if isinstance(value, str):
+            value = f"'{value}'"
+        return f"{self.__class__.__name__}({self.param_name} {self._op} {value})"
 
 class FullTextCondition(Condition):
     """Full-text match on a full-text column, backed by a database full-text index.

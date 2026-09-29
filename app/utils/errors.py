@@ -254,7 +254,8 @@ ERROR_JOB_NO_RESULT        = E("S000803", "Job Has No Downloadable Result", HTTP
 ERROR_JOB_CONCURRENT_LIMIT = E("S000804", "Concurrent Job Limit Reached", HTTPStatus.CONFLICT)
 
 #User Source
-ERROR_US_NOT_UNIQUE_USER = E("S000904", "Ldap server returns more than 1 entry for a unique user", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_US_NOT_UNIQUE_USER = E("S000904", "User Source returns more than 1 entry for a unique user", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_US_USER_UNIT_MISSING = E("S000920", "US_UNIT_FIELD is set but user doesn't have unit value", HTTPStatus.FORBIDDEN)
 
 #Ldap user source
 ERROR_LDAP_CANNOT_CONNECT = E("S000900", "Cannot connect to the ldap server", HTTPStatus.INTERNAL_SERVER_ERROR)

@@ -25,6 +25,7 @@ from app.module.contact.serializer.CardListSerializerDict import CardListSeriali
 from app.module.contact.serializer.CardListsSerializerList import CardListsSerializerList
 from app.module.contact.serializer.CardContactSerializerDict import CardContactSerializerDict
 from app.module.contact.serializer.CardContactsSerializerList import CardContactsSerializerList
+from app.module.contact.serializer.CardGABAutocompleteSerializerList import CardGABAutocompleteSerializerList
 from app.module.user.ModuleUserProfile import ModuleUserProfile
 from app.service import sogo_agent, sogo_cache
 from app.utils.api.ApiBaseResponse import create_api_base_response
@@ -70,6 +71,7 @@ class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attribute
         self._contact_deserializer: CardContactDeserializerDict = CardContactDeserializerDict()
         self._autocomplete_serializer: CardContactAutocompleteSerializerList = CardContactAutocompleteSerializerList()
         self._list_autocomplete_serializer: CardListAutocompleteSerializerList = CardListAutocompleteSerializerList()
+        self._gab_autocomplete_serialize: CardGABAutocompleteSerializerList = CardGABAutocompleteSerializerList()
         self._list_serializer: CardListSerializerDict = CardListSerializerDict()
         self._lists_serializer: CardListsSerializerList = CardListsSerializerList()
         self._list_deserializer: CardListDeserializerDict = CardListDeserializerDict()
@@ -193,7 +195,8 @@ class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attribute
             gab = module_us.search_for_contact_for_user(search=query, user=self.user, limit=AUTOCOMPLETE_DEFAULT_LIMIT)
             
             suggestions: list[dict[str, Any]] = (
-                self._autocomplete_serializer.serialize(contacts)
+                self._gab_autocomplete_serialize.serialize(gab)
+                + self._autocomplete_serializer.serialize(contacts)
                 + self._list_autocomplete_serializer.serialize(lists)
             )
             return create_api_base_response({"suggestions": suggestions})

@@ -79,6 +79,7 @@ class User:
         user = User(uid, password, domain=domain, is_domainless=is_domainless)
         user.mail = user_session[cs.USER_EMAIL]
         user.source_id = user_session[cs.USER_SRC_ID]
+        user.unit = user_session[cs.USER_UNIT]
         return user
 
     def __init__(self, uid:str, password:str= "", cn:str= "", domain:str= "", is_domainless:bool = False):
@@ -142,7 +143,8 @@ class User:
             cs.USER_PWD:    self.password,
             cs.USER_DOMAIN: self.domain,
             cs.USER_EMAIL:  self.mail,
-            cs.USER_SRC_ID: self.source_id
+            cs.USER_SRC_ID: self.source_id,
+            cs.USER_UNIT: self.unit
         }
 
         return ret
@@ -164,7 +166,7 @@ class User:
         return ret
 
     def __repr__(self) -> str:
-        return f"{self.__class__.__name__}(uid='{self.uid},cn='{self.cn}',email='{self.mail}',auth='{self.authenticated}')"
+        return f"{self.__class__.__name__}(uid='{self.uid},cn='{self.cn}',email='{self.mail}',unit='{self.unit}',auth='{self.authenticated}')"
 
 class UserAnonymous(User):
     """

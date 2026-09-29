@@ -155,7 +155,7 @@ class ClientLdap(ClientUserSource):
         self.ldap_conn: LDAPObject|None = None
 
 
-    def _get_base_dn(self, username:str, domain:str) -> str:
+    def _get_dn_for_user(self, username:str, domain:str) -> str:
         """
         _summary_
 
@@ -286,7 +286,7 @@ class ClientLdap(ClientUserSource):
         """Check the user credentials"""
 
         #Create the base dn
-        base_dn = self._get_base_dn(username, domain)
+        base_dn = self._get_dn_for_user(username, domain)
         if not base_dn:
             #Can happen if SOGo first fetch the dn from the source instead of building it
             return False, {}, {}
@@ -434,13 +434,18 @@ class ClientLdap(ClientUserSource):
         if not self.bind_as_user:
             success, _ = self._bind(self.bind_dn, self.bind_pwd, use_admin=True)
         else:
-            base_dn = self._get_base_dn(username, domain)
+            base_dn = self._get_dn_for_user(username, domain)
             if not base_dn:
                 raise exc.RequestException("Cannot bind user to search", err.ERROR_LDAP_BIND_WRONG_CRED)
             success, _ = self._bind(base_dn, password)
 
+        new_base_dn = self.base_dn
+        ##If there is "%d" in base dn replace it with the domain of the user
+        if r"%d" in new_base_dn:
+            new_base_dn = new_base_dn.replace(r"%d", domain)
+
         if success:
-            list_records = self._search_big(base_dn, search_filter, limit=limit)
+            list_records = self._search_big(new_base_dn, search_filter, limit=limit)
             for record in list_records:
                 yield parse_python_ldap_record(record)
 
