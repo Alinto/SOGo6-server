@@ -11,7 +11,6 @@ DEFAULT_DISPLAY_NAME: str = "Unnamed Contact"
 DEFAULT_ADDRESSBOOK_NAME: str = "Personal contacts"
 
 # Maximum number of contacts scanned for a recipient autocompletion query on the local books.
-# The external directory applies its own US_AUTO_QUERY_LIMIT once ContactSourceDirectory is wired.
 AUTOCOMPLETE_DEFAULT_LIMIT: int = 25
 
 # Maximum size of an inline file embedded in a contact (e.g. a photo), in kilobytes. The file layer

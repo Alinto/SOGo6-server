@@ -8,6 +8,7 @@ from app.config.settings.DomainSettings import (
     UserModuleSettings,
     UserModuleSettingsObj,
 )
+from app.module.auth.ModuleUserSource import ModuleUserSource
 from app.module.contact.ContactConst import AUTOCOMPLETE_DEFAULT_LIMIT
 from app.module.contact.ModuleContact import ModuleContact
 from app.module.contact.jobs.ContactJobKind import ContactJobKind
@@ -24,6 +25,7 @@ from app.module.contact.serializer.CardListSerializerDict import CardListSeriali
 from app.module.contact.serializer.CardListsSerializerList import CardListsSerializerList
 from app.module.contact.serializer.CardContactSerializerDict import CardContactSerializerDict
 from app.module.contact.serializer.CardContactsSerializerList import CardContactsSerializerList
+from app.module.contact.serializer.CardGABAutocompleteSerializerList import CardGABAutocompleteSerializerList
 from app.module.user.ModuleUserProfile import ModuleUserProfile
 from app.service import sogo_agent, sogo_cache
 from app.utils.api.ApiBaseResponse import create_api_base_response
@@ -53,6 +55,7 @@ class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attribute
     def __init__(self, process_setting: ProcessSetting, user_domain_settings: dict, user: User) -> None:
         self.user: User = user
         self._process_setting: ProcessSetting = process_setting
+        self._user_domain_settings = user_domain_settings
         self.settings: CalendarContactSettingsObj = CalendarContactSettingsObj(
             user_domain_settings[CalendarContactSettings.subparent]
         )
@@ -68,6 +71,7 @@ class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attribute
         self._contact_deserializer: CardContactDeserializerDict = CardContactDeserializerDict()
         self._autocomplete_serializer: CardContactAutocompleteSerializerList = CardContactAutocompleteSerializerList()
         self._list_autocomplete_serializer: CardListAutocompleteSerializerList = CardListAutocompleteSerializerList()
+        self._gab_autocomplete_serializer: CardGABAutocompleteSerializerList = CardGABAutocompleteSerializerList()
         self._list_serializer: CardListSerializerDict = CardListSerializerDict()
         self._lists_serializer: CardListsSerializerList = CardListsSerializerList()
         self._list_deserializer: CardListDeserializerDict = CardListDeserializerDict()
@@ -78,8 +82,12 @@ class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attribute
     def get_all_addressbooks(self) -> tuple[dict[str, Any], int]:
         """List the address books owned by the current user."""
         try:
+            #Get user's address book
             books: list[CardAddressBook] = self.module.get_all_addressbooks(self.user)
             serialized: list[dict[str, Any]] = self._addressbooks_serializer.serialize(books)
+
+            #Get user source address book
+            
             return create_api_base_response({"addressbooks": serialized, "total_count": len(books)})
         except RequestException as ex:
             logger_api.error("get_all_addressbooks failed for user %s: %s", self.user.uid, ex)
@@ -181,12 +189,47 @@ class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attribute
         try:
             if len(query.strip()) < self._user_module_settings.SOGO_D_AUTOCOMPLETION_MIN_LEN:
                 return create_api_base_response({"suggestions": []})
-            contacts, _ = self.module.get_contacts(
-                self.user, search=query, limit=AUTOCOMPLETE_DEFAULT_LIMIT, resolve_images=False)
+            
+            #Personnal AddressBooks
+            contacts, _ = self.module.get_contacts(self.user, search=query, limit=AUTOCOMPLETE_DEFAULT_LIMIT, resolve_images=False)
             lists = self.module.search_all_lists(self.user, search=query, limit=AUTOCOMPLETE_DEFAULT_LIMIT)
+
+            #Global AddressBooks
+            module_us = ModuleUserSource.init_from_domain_settings(self._user_domain_settings)
+            gab = module_us.search_for_contact_for_user(search=query, user=self.user, limit=AUTOCOMPLETE_DEFAULT_LIMIT)
+            
             suggestions: list[dict[str, Any]] = (
-                self._autocomplete_serializer.serialize(contacts)
+                self._gab_autocomplete_serializer.serialize(gab)
+                + self._autocomplete_serializer.serialize(contacts)
                 + self._list_autocomplete_serializer.serialize(lists)
+            )
+            return create_api_base_response({"suggestions": suggestions})
+        except RequestException as ex:
+            logger_api.error("autocomplete failed for user %s: %s", self.user.uid, ex)
+            return create_api_base_response(None, ex.error)
+
+    def gab_autocomplete(self, query: str) -> tuple[dict[str, Any], int]:
+        """Return lightweight recipient suggestions with only user source for sharing.
+
+        Below the domain's autocompletion minimum length the result is an empty list rather than an
+        error (standard autocomplete behaviour). The search spans all the user's address books (and
+        the directory once ContactSourceDirectory is wired); contacts and lists are each capped at
+        AUTOCOMPLETE_DEFAULT_LIMIT. A list surfaces as a suggestion carrying its member_count instead
+        of an email address.
+
+        :param query: Partial name or email typed by the user.
+        :return: API envelope with a ``suggestions`` list, plus HTTP status code.
+        """
+        try:
+            if len(query.strip()) < self._user_module_settings.SOGO_D_AUTOCOMPLETION_MIN_LEN:
+                return create_api_base_response({"suggestions": []})
+
+            #Global AddressBooks
+            module_us = ModuleUserSource.init_from_domain_settings(self._user_domain_settings)
+            gab = module_us.search_for_contact_for_user(search=query, user=self.user, limit=AUTOCOMPLETE_DEFAULT_LIMIT)
+
+            suggestions: list[dict[str, Any]] = (
+                self._gab_autocomplete_serializer.serialize(gab)
             )
             return create_api_base_response({"suggestions": suggestions})
         except RequestException as ex:

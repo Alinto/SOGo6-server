@@ -105,7 +105,7 @@ PostgreSQL's text-search parser keeps a compound string such as an email or a UR
 
 It reuses the same engines as the listings - `ContactSources.get_contacts(search=q)` for contacts and `ContactSources.search_all_lists(search=q)` for lists (both transverse) - so the directory will contribute automatically once `ContactSourceDirectory` is wired. The originating book name is stamped via a local `{key -> name}` cache built from the already-loaded sources (no extra query, no Redis); the `resolve_ab` flag gates it.
 
-Below `SOGO_D_AUTOCOMPLETION_MIN_LEN` characters (domain setting, `USER_MODULE_SETTINGS`) the result is an empty list rather than an error, the standard autocomplete behaviour. Contacts and lists are each capped at `AUTOCOMPLETE_DEFAULT_LIMIT` (`ContactConst`); the directory will apply its own `US_AUTO_QUERY_LIMIT`. Collected addresses, member expansion (a list resolved to its recipients) and `US_HIDDEN_USER` filtering are deferred (mail-side).
+Below `SOGO_D_AUTOCOMPLETION_MIN_LEN` characters (domain setting, `USER_MODULE_SETTINGS`) the result is an empty list rather than an error, the standard autocomplete behaviour. Contacts and lists are each capped at `AUTOCOMPLETE_DEFAULT_LIMIT` (`ContactConst`). Collected addresses, member expansion (a list resolved to its recipients) and `US_HIDDEN_USER` filtering are deferred (mail-side).
 
 == Soft delete
 

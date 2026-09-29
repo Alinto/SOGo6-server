@@ -122,8 +122,8 @@ class AdminConfigDefaultDomainGetSchema(ApiBaseResponse):
                         "US_LDAP_BIND_DN": "cn=admin,dc=example,dc=org",
                         "US_LDAP_BIND_DN_PWD": "password",
                         "US_LDAP_BASE_DN": "ou=users,dc=example,dc=org",
-                        "US_LDAP_UID": "uid",
-                        "US_LDAP_CN": "cn",
+                        "US_FIELD_UID": "uid",
+                        "US_FIELD_CN": "cn",
                         "US_LDAP_ID": "uid",
                         "US_LDAP_SCOPE": "SUB",
                         "US_LDAP_QUERY_TIMEOUT": 0,
@@ -138,16 +138,15 @@ class AdminConfigDefaultDomainGetSchema(ApiBaseResponse):
                             "posixGroup"
                         ],
                         "US_CAN_AUTH": True,
-                        "US_PWD_POLICY": False,
-                        "US_PWD_LEN_MIN": 3,
-                        "US_PWD_LEN_MAX": 0,
+                        "US_DB_PWD_POLICY": False,
+                        "US_DB_PWD_LEN_MIN": 3,
+                        "US_DB_PWD_LEN_MAX": 0,
                         "US_MAIL": [
                             "mail"
                         ],
-                        "US_KIND": "description",
+                        "US_FIELD_KIND": "description",
                         "US_IS_ADDRESSBOOK": True,
                         "US_AUTO_SEARCH": False,
-                        "US_AUTO_QUERY_LIMIT": 0,
                         "US_HAS_RESOURCE": True,
                         "US_RESOURCE_MULTIBOOKING": "departmentNumber"
                     }
@@ -270,8 +269,8 @@ class AdminConfigDefaultDomainPatchSchema(Schema):
                             "US_LDAP_BIND_DN": "cn=admin,dc=example,dc=org",
                             "US_LDAP_BIND_DN_PWD": "password",
                             "US_LDAP_BASE_DN": "ou=users,dc=example,dc=org",
-                            "US_LDAP_UID": "uid",
-                            "US_LDAP_CN": "cn",
+                            "US_FIELD_UID": "uid",
+                            "US_FIELD_CN": "cn",
                             "US_LDAP_ID": "uid",
                             "US_LDAP_SCOPE": "SUB",
                             "US_LDAP_QUERY_TIMEOUT": 0,
@@ -286,16 +285,15 @@ class AdminConfigDefaultDomainPatchSchema(Schema):
                                 "posixGroup"
                             ],
                             "US_CAN_AUTH": True,
-                            "US_PWD_POLICY": False,
-                            "US_PWD_LEN_MIN": 3,
-                            "US_PWD_LEN_MAX": 0,
+                            "US_DB_PWD_POLICY": False,
+                            "US_DB_PWD_LEN_MIN": 3,
+                            "US_DB_PWD_LEN_MAX": 0,
                             "US_MAIL": [
                                 "mail"
                             ],
-                            "US_KIND": "description",
+                            "US_FIELD_KIND": "description",
                             "US_IS_ADDRESSBOOK": True,
                             "US_AUTO_SEARCH": False,
-                            "US_AUTO_QUERY_LIMIT": 0,
                             "US_HAS_RESOURCE": True,
                             "US_RESOURCE_MULTIBOOKING": "departmentNumber"
                         }
@@ -457,8 +455,8 @@ class AdminConfigDomainGetSchema(ApiBaseResponse):
                             "US_LDAP_BIND_DN": "cn=admin,dc=example,dc=org",
                             "US_LDAP_BIND_DN_PWD": "password",
                             "US_LDAP_BASE_DN": "ou=users,dc=example,dc=org",
-                            "US_LDAP_UID": "uid",
-                            "US_LDAP_CN": "cn",
+                            "US_FIELD_UID": "uid",
+                            "US_FIELD_CN": "cn",
                             "US_LDAP_ID": "uid",
                             "US_LDAP_SCOPE": "SUB",
                             "US_LDAP_QUERY_TIMEOUT": 0,
@@ -473,16 +471,15 @@ class AdminConfigDomainGetSchema(ApiBaseResponse):
                                 "posixGroup"
                             ],
                             "US_CAN_AUTH": True,
-                            "US_PWD_POLICY": False,
-                            "US_PWD_LEN_MIN": 3,
-                            "US_PWD_LEN_MAX": 0,
+                            "US_DB_PWD_POLICY": False,
+                            "US_DB_PWD_LEN_MIN": 3,
+                            "US_DB_PWD_LEN_MAX": 0,
                             "US_MAIL": [
                                 "mail"
                             ],
-                            "US_KIND": "description",
+                            "US_FIELD_KIND": "description",
                             "US_IS_ADDRESSBOOK": True,
                             "US_AUTO_SEARCH": False,
-                            "US_AUTO_QUERY_LIMIT": 0,
                             "US_HAS_RESOURCE": True,
                             "US_RESOURCE_MULTIBOOKING": "departmentNumber"
                         }
@@ -612,8 +609,8 @@ class AdminConfigDomainPostSchema(Schema):
                         "US_LDAP_BIND_DN": "cn=admin,dc=example,dc=org",
                         "US_LDAP_BIND_DN_PWD": "password",
                         "US_LDAP_BASE_DN": "ou=users,dc=example,dc=org",
-                        "US_LDAP_UID": "uid",
-                        "US_LDAP_CN": "cn",
+                        "US_FIELD_UID": "uid",
+                        "US_FIELD_CN": "cn",
                         "US_LDAP_ID": "uid",
                         "US_LDAP_SCOPE": "SUB",
                         "US_LDAP_QUERY_TIMEOUT": 0,
@@ -628,16 +625,15 @@ class AdminConfigDomainPostSchema(Schema):
                             "posixGroup"
                         ],
                         "US_CAN_AUTH": True,
-                        "US_PWD_POLICY": False,
-                        "US_PWD_LEN_MIN": 3,
-                        "US_PWD_LEN_MAX": 0,
+                        "US_DB_PWD_POLICY": False,
+                        "US_DB_PWD_LEN_MIN": 3,
+                        "US_DB_PWD_LEN_MAX": 0,
                         "US_MAIL": [
                             "mail"
                         ],
-                        "US_KIND": "description",
+                        "US_FIELD_KIND": "description",
                         "US_IS_ADDRESSBOOK": True,
                         "US_AUTO_SEARCH": False,
-                        "US_AUTO_QUERY_LIMIT": 0,
                         "US_HAS_RESOURCE": True,
                         "US_RESOURCE_MULTIBOOKING": "departmentNumber"
                     }
@@ -762,8 +758,8 @@ class AdminConfigDomainPatchSchema(Schema):
                         "US_LDAP_BIND_DN": "cn=admin,dc=example,dc=org",
                         "US_LDAP_BIND_DN_PWD": "password",
                         "US_LDAP_BASE_DN": "ou=users,dc=example,dc=org",
-                        "US_LDAP_UID": "uid",
-                        "US_LDAP_CN": "cn",
+                        "US_FIELD_UID": "uid",
+                        "US_FIELD_CN": "cn",
                         "US_LDAP_ID": "uid",
                         "US_LDAP_SCOPE": "SUB",
                         "US_LDAP_QUERY_TIMEOUT": 0,
@@ -778,16 +774,15 @@ class AdminConfigDomainPatchSchema(Schema):
                             "posixGroup"
                         ],
                         "US_CAN_AUTH": True,
-                        "US_PWD_POLICY": False,
-                        "US_PWD_LEN_MIN": 3,
-                        "US_PWD_LEN_MAX": 0,
+                        "US_DB_PWD_POLICY": False,
+                        "US_DB_PWD_LEN_MIN": 3,
+                        "US_DB_PWD_LEN_MAX": 0,
                         "US_MAIL": [
                             "mail"
                         ],
-                        "US_KIND": "description",
+                        "US_FIELD_KIND": "description",
                         "US_IS_ADDRESSBOOK": True,
                         "US_AUTO_SEARCH": False,
-                        "US_AUTO_QUERY_LIMIT": 0,
                         "US_HAS_RESOURCE": True,
                         "US_RESOURCE_MULTIBOOKING": "departmentNumber"
                     }

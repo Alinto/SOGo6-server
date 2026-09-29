@@ -37,7 +37,7 @@ class ApiAuthUserMode(MethodView):
     """
     Action
 
-    Return the authneticaiton mode for this user
+    Return the authnetication mode for this user
     """
     @blp.arguments(sch.AuthUserGetMechSchema, location='query', as_kwargs=True, error_status_code=400)
     @blp.response(200)

@@ -135,10 +135,36 @@ class LikeCondition(Condition):
     The pattern must include wildcard characters explicitly (e.g. '%keyword%').
     PostgreSQL maps this to ILIKE; MySQL LIKE is already case-insensitive with utf8mb4.
     """
+    _op = "LIKE"
     def __init__(self, param_name: str, pattern: str):
         super().__init__()
         self.param_name = param_name
         self.pattern = pattern
+
+    def __repr__(self) -> str:
+        value = self.pattern
+        if isinstance(value, str):
+            value = f"'{value}'"
+        return f"{self.__class__.__name__}({self.param_name} {self._op} {value})"
+
+class NotLikeCondition(Condition):
+    """Case-insensitive substring match on a named parameter.
+
+    The pattern must include wildcard characters explicitly (e.g. '%keyword%').
+    PostgreSQL maps this to NOT ILIKE; MySQL NOT LIKE is already case-insensitive with utf8mb4.
+    """
+    _op = "NOT LIKE"
+
+    def __init__(self, param_name: str, pattern: str):
+        super().__init__()
+        self.param_name = param_name
+        self.pattern = pattern
+
+    def __repr__(self) -> str:
+        value = self.pattern
+        if isinstance(value, str):
+            value = f"'{value}'"
+        return f"{self.__class__.__name__}({self.param_name} {self._op} {value})"
 
 class FullTextCondition(Condition):
     """Full-text match on a full-text column, backed by a database full-text index.
@@ -260,12 +286,12 @@ def string_filter_to_conditions(filter_str:str) -> Condition:
         previous_cond: list[Condition]|None = None
         previous_is_subgroup = False
         while i < n:
-            print(f"i={i}/n={n}")
-            print(f"current={current_word}")
-            print(f"current_op={current_op}")
-            print(f"current char={group_str[i]}")
-            print(f"all_cond={all_conds}")
-            print(f"previous_cond={previous_cond}")
+            # print(f"i={i}/n={n}")
+            # print(f"current={current_word}")
+            # print(f"current_op={current_op}")
+            # print(f"current char={group_str[i]}")
+            # print(f"all_cond={all_conds}")
+            # print(f"previous_cond={previous_cond}")
             if group_str[i] == '(':
                 #Find another subgroup
                 subgroup = ""
@@ -281,15 +307,15 @@ def string_filter_to_conditions(filter_str:str) -> Condition:
                         if count_opener == 0:
                             break
                 if subgroup.endswith(")"):
-                    print(f"FIND a subgroup: {subgroup[:-1]}")
+                    # print(f"FIND a subgroup: {subgroup[:-1]}")
                     all_conds.append(_parse_group(subgroup[:-1]))
-                    print(f"RESULT a subgroup: {all_conds} and i={i}")
-                    print(f"RESULT i={i}/n={n}")
-                    print(f"RESULT current={current_word}")
-                    print(f"RESULT current_op={current_op}")
-                    print(f"RESULT current char={group_str[i]}")
-                    print(f"RESULT all_cond={all_conds}")
-                    print(f"RESULT previous_cond={previous_cond}")
+                    # print(f"RESULT a subgroup: {all_conds} and i={i}")
+                    # print(f"RESULT i={i}/n={n}")
+                    # print(f"RESULT current={current_word}")
+                    # print(f"RESULT current_op={current_op}")
+                    # print(f"RESULT current char={group_str[i]}")
+                    # print(f"RESULT all_cond={all_conds}")
+                    # print(f"RESULT previous_cond={previous_cond}")
                     previous_is_subgroup = True
                     i += 1 #add the last ')'
                 else:
@@ -355,7 +381,7 @@ def string_filter_to_conditions(filter_str:str) -> Condition:
             else:
                 current_word += group_str[i]
                 i += 1
-        print(f"last cond = currentword= '{current_word}'")
+        # print(f"last cond = currentword= '{current_word}'")
         cond: Condition
         if previous_is_subgroup and not current_word:
             #The last condition as a subgroup nothing to add
