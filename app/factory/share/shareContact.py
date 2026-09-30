@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from app.factory.share.share import Share
-from app.module.contact.model.enums.ContactShareLevel import ContactShareLevel
 from app.utils import constants as cs
 from app.utils.strings import get_domain_from_mail
 
@@ -13,12 +12,18 @@ if TYPE_CHECKING:
 # Discriminant stored in sogo6_acl.type for address book shares.
 CONTACT_RESOURCE_TYPE: str = "addressbook"
 
+# Names of the rights stored in an address book rights blob (keys of ContactShareRightsSchema).
+RIGHT_VIEW: str = "can_view"
+RIGHT_CREATE: str = "can_create_objects"
+RIGHT_EDIT: str = "can_edit_objects"
+RIGHT_ERASE: str = "can_erase_objects"
+
 # Rights blob granted by POST /addressbooks/{key}/share (full access, per the endpoint's contract).
 FULL_MODIFY_RIGHTS: dict = {
-    "can_view": True,
-    "can_create_objects": True,
-    "can_edit_objects": True,
-    "can_erase_objects": True,
+    RIGHT_VIEW: True,
+    RIGHT_CREATE: True,
+    RIGHT_EDIT: True,
+    RIGHT_ERASE: True,
 }
 
 
@@ -52,18 +57,14 @@ class ShareContact(Share):
             return None
         return self.get_entry(cs.ANYONE_TO_USER, on_key)
 
-    @staticmethod
-    def to_share_level(rights: dict) -> ContactShareLevel | None:
-        """Convert a stored rights blob into a ContactShareLevel, for ContactAclEngine.
+    def has_right(self, for_user_uid: str, owner_uid: str, on_key: str, rights_needed: str) -> bool:
+        """Return True if for_user_uid holds the named right on on_key, for ContactAclEngine.
 
-        Any write flag (create/edit/erase) grants MODIFY (which also satisfies a VIEW check);
-        otherwise can_view alone grants VIEW; a rights blob granting nothing at all denies.
+        Same check as ``check_permissions``, but resolved through ``get_user_or_anyone`` so an
+        "anyone" share also counts. A missing entry denies.
         """
-        if rights.get("can_create_objects") or rights.get("can_edit_objects") or rights.get("can_erase_objects"):
-            return ContactShareLevel.MODIFY
-        if rights.get("can_view"):
-            return ContactShareLevel.VIEW
-        return None
+        entry: AclEntry | None = self.get_user_or_anyone(for_user_uid, owner_uid, on_key)
+        return entry is not None and self._rights_satisfy(entry.rights, rights_needed)
 
     def _rights_satisfy(self, rights: dict, rights_needed: str) -> bool:
         return bool(rights.get(rights_needed, False))
