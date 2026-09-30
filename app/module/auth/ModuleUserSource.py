@@ -55,7 +55,7 @@ class ModuleUserSource:
 
     def _get_manager_for_user_source(self, source_settings: UserSourceSettingsObj) -> ClientUserSource:
         """
-        _summary_
+        Instantiate and connect the user source manager
 
         :param source_settings: _description_
         :type source_settings: UserSourceSettingsObj
@@ -137,6 +137,163 @@ class ModuleUserSource:
         return auth
 
 
+    def _build_condition_for_search(self, search:str, user:User, us:UserSourceSettingsObj) -> Condition.Condition|None:
+        """
+        _summary_
+
+        :param user: _description_
+        :type user: User
+        :param us: _description_
+        :type us: UserSourceSettingsObj
+        :return: _description_
+        :rtype: Condition
+        """
+        wildcard = '*'
+        if us.US_TYPE == "db":
+            wildcard = "%"
+
+        #Build condition, US_FILTER is already given to the user source
+        list_cond: list[Condition.Condition] = []
+
+        #Add default condition
+        criteria = f"{wildcard}{search}{wildcard}"
+        list_cond.append(Condition.LikeCondition(us.US_FIELD_UID, criteria))
+        list_cond.append(Condition.LikeCondition(us.US_FIELD_CN, criteria))
+        list_cond.append(Condition.LikeCondition(us.US_MAIL[0], criteria))
+
+        #Add admin condition
+        for field in us.US_SEARCH_FIELD:
+            list_cond.append(Condition.LikeCondition(field, criteria))
+
+        search_cond: Condition.Condition = Condition.OrCondition(*list_cond)
+
+        #Add hidden users
+        list_hidden = []
+        for hidden in us.US_HIDDEN_USER:
+            list_hidden.append(Condition.NotEqualCondition(us.US_FIELD_UID, hidden))
+        if size := len(list_hidden):
+            if size == 1:
+                search_cond = Condition.AndCondition(search_cond, list_hidden[0])
+            else:
+                search_cond = Condition.AndCondition(search_cond, Condition.OrCondition(*list_hidden))
+
+        #Add UNIT condition
+        if us.US_UNIT_FIELD:
+            if not user.unit:
+                return None
+            search_cond = Condition.AndCondition(search_cond, Condition.EqualCondition(us.US_UNIT_FIELD, user.unit))
+        #OR Add Domain Partition
+        elif us.US_DOMAIN_PARTITION:
+            if us.US_DOMAIN_PARTITION == 1:
+                #User can only see user with the same mail domain
+                mail_criteria = f"{wildcard}{user.domain}"
+                list_cond = [Condition.LikeCondition(us.US_MAIL[0], mail_criteria)]
+                for domain in us.US_DOMAIN_VISIBLE:
+                    mail_criteria = f"{wildcard}{domain}"
+                    list_cond.append(Condition.LikeCondition(us.US_MAIL[0], mail_criteria))
+                if len(list_cond) == 1:
+                    search_cond = Condition.AndCondition(search_cond, list_cond[0])
+                else:
+                    search_cond = Condition.AndCondition(search_cond, Condition.OrCondition(*list_cond))
+            if us.US_DOMAIN_PARTITION == -1:
+                #User can't see anybody except the one set in US_DOMAIN_VISIBLE
+                list_cond = []
+                for domain in us.US_DOMAIN_VISIBLE:
+                    mail_criteria = f"{wildcard}{domain}"
+                    list_cond.append(Condition.LikeCondition(us.US_MAIL[0], mail_criteria))
+                if len(list_cond) == 0:
+                    #Cannot see anybody with no whitelist, return empty list
+                    return None
+                elif len(list_cond) == 1:
+                    search_cond = Condition.AndCondition(search_cond, list_cond[0])
+                else:
+                    search_cond = Condition.AndCondition(search_cond, Condition.OrCondition(*list_cond))
+        else:
+            #means US_DOMAIN_PARTITION == 0, means everyone see everyone except for US_DOMAIN_NOT_VISIBLE
+            list_cond = []
+            for domain in us.US_DOMAIN_NOT_VISIBLE:
+                mail_criteria = f"{wildcard}{domain}"
+                list_cond.append(Condition.NotLikeCondition(us.US_MAIL[0], mail_criteria))
+            if len(list_cond) == 1:
+                search_cond = Condition.AndCondition(search_cond, list_cond[0])
+            elif len(list_cond) > 1:
+                search_cond = Condition.AndCondition(search_cond, Condition.OrCondition(*list_cond))
+
+        logger.debug("Conditions for autocomplete: %s", search_cond)
+        return search_cond
+
+    def _build_condition_for_match(self, uid_to_find:str, user:User, us:UserSourceSettingsObj) -> Condition.Condition|None:
+        """
+        _summary_
+
+        :param user: _description_
+        :type user: User
+        :param us: _description_
+        :type us: UserSourceSettingsObj
+        :return: _description_
+        :rtype: Condition
+        """
+
+        #Check if uid_to_find is hidden
+        if uid_to_find in us.US_HIDDEN_USER:
+            return None
+
+        #Build condition, US_FILTER is already given to the user source
+        list_cond: list[Condition.Condition] = []
+
+        #Add default condition
+        search_cond: Condition.Condition = Condition.EqualCondition(us.US_FIELD_UID, uid_to_find)
+
+        wildcard = '*'
+        if us.US_TYPE == "db":
+            wildcard = "%"
+
+        #Add UNIT condition
+        if us.US_UNIT_FIELD:
+            if not user.unit:
+                return None
+            search_cond = Condition.AndCondition(search_cond, Condition.EqualCondition(us.US_UNIT_FIELD, user.unit))
+        #OR Add Domain Partition
+        elif us.US_DOMAIN_PARTITION:
+            if us.US_DOMAIN_PARTITION == 1:
+                #User can only see user with the same mail domain
+                mail_criteria = f"{wildcard}{user.domain}"
+                list_cond = [Condition.LikeCondition(us.US_MAIL[0], mail_criteria)]
+                for domain in us.US_DOMAIN_VISIBLE:
+                    mail_criteria = f"{wildcard}{domain}"
+                    list_cond.append(Condition.LikeCondition(us.US_MAIL[0], mail_criteria))
+                if len(list_cond) == 1:
+                    search_cond = Condition.AndCondition(search_cond, list_cond[0])
+                else:
+                    search_cond = Condition.AndCondition(search_cond, Condition.OrCondition(*list_cond))
+            if us.US_DOMAIN_PARTITION == -1:
+                #User can't see anybody except the one set in US_DOMAIN_VISIBLE
+                list_cond = []
+                for domain in us.US_DOMAIN_VISIBLE:
+                    mail_criteria = f"{wildcard}{domain}"
+                    list_cond.append(Condition.LikeCondition(us.US_MAIL[0], mail_criteria))
+                if len(list_cond) == 0:
+                    #Cannot see anybody with no whitelist, return empty list
+                    return None
+                elif len(list_cond) == 1:
+                    search_cond = Condition.AndCondition(search_cond, list_cond[0])
+                else:
+                    search_cond = Condition.AndCondition(search_cond, Condition.OrCondition(*list_cond))
+        else:
+            #means US_DOMAIN_PARTITION == 0, means everyone see everyone except for US_DOMAIN_NOT_VISIBLE
+            list_cond = []
+            for domain in us.US_DOMAIN_NOT_VISIBLE:
+                mail_criteria = f"{wildcard}{domain}"
+                list_cond.append(Condition.NotLikeCondition(us.US_MAIL[0], mail_criteria))
+            if len(list_cond) == 1:
+                search_cond = Condition.AndCondition(search_cond, list_cond[0])
+            elif len(list_cond) > 1:
+                search_cond = Condition.AndCondition(search_cond, Condition.OrCondition(*list_cond))
+
+        logger.debug("Conditions for autocomplete: %s", search_cond)
+        return search_cond
+
+
     def fill_user_with_contact_info(self, user:User, user_info:dict) -> None:
         """
         Fill user with the contact info
@@ -213,117 +370,35 @@ class ModuleUserSource:
                         setattr(user.access, module_name.lower(), False)
 
 
-    def _get_contact_info_for_user_from_user_source(self, user:User) -> dict:
+    def get_contact_info_for_user(self, user_auth:User, user_to_find:User) -> None:
         """
-        _summary_
+        Try to find the user_to_dinf amonf user_auth user source configuration
+        Doesn't return anything but change user_to_find instance
 
         :param user: _description_
         :type user: _type_
         :return: _description_
         :rtype: dict
         """
-        #TODO fetch the user source
-        return {}
+        for us_uid, us_settings in self.all_user_sources.items():
 
-    def get_contact_info_for_user(self, user:User) -> None:
-        """
-        Get a user and fill it with infos from user source
+            if not us_settings.US_IS_ADDRESSBOOK:
+                continue
 
-        :param user: user to fill
-        :type user: User
-        """
-        infos = self._get_contact_info_for_user_from_user_source(user)
-        if not infos:
-            user.anonymous = True
-        else:
-            self.fill_user_with_contact_info(user, infos)
-            self.fill_user_with_source_info(user, infos)
+            search_cond = self._build_condition_for_match(user_to_find.uid, user_auth, us_settings)
+            if search_cond is None:
+                #It happends if the conf for domains visibility says the user can't see anything.
+                continue
 
-    def _build_condition_for(self, search:str, user:User, us:UserSourceSettingsObj) -> Condition.Condition|None:
-        """
-        _summary_
-
-        :param user: _description_
-        :type user: User
-        :param us: _description_
-        :type us: UserSourceSettingsObj
-        :return: _description_
-        :rtype: Condition
-        """
-        wildcard = '*'
-        if us.US_TYPE == "db":
-            wildcard = "%"
-
-        #Build condition, US_FILTER is already given to the user source
-        list_cond: list[Condition.Condition] = []
-
-        #Add default condition
-        criteria = f"{wildcard}{search}{wildcard}"
-        list_cond.append(Condition.LikeCondition(us.US_FIELD_UID, criteria))
-        list_cond.append(Condition.LikeCondition(us.US_FIELD_CN, criteria))
-        list_cond.append(Condition.LikeCondition(us.US_MAIL[0], criteria))
-
-        #Add admin condition
-        for field in us.US_SEARCH_FIELD:
-            list_cond.append(Condition.LikeCondition(field, criteria))
-
-        search_cond: Condition.Condition = Condition.OrCondition(*list_cond)
-
-        #Add hidden users
-        list_hidden = []
-        for hidden in us.US_HIDDEN_USER:
-            list_hidden.append(Condition.NotEqualCondition(us.US_FIELD_UID, hidden))
-        if size := len(list_hidden):
-            if size == 1:
-                search_cond = Condition.AndCondition(search_cond, list_hidden[0])
+            #Get client
+            client_us = self._get_manager_for_user_source(us_settings)
+            record =  client_us.get_user_info(user_to_find.uid, search_cond, user_auth.uid, user_auth.domain, user_auth.password)
+            if not record:
+                continue
             else:
-                search_cond = Condition.AndCondition(search_cond, Condition.OrCondition(*list_hidden))
-
-        #Add UNIT condition
-        if us.US_UNIT_FIELD:
-            if not user.unit:
-                logger.error("US_UNIT_FIELD is set (%s) but there is no value for user %s", us.US_UNIT_FIELD, user.uid)
-                raise exc.RequestException(error=err.ERROR_US_USER_UNIT_MISSING)
-            search_cond = Condition.AndCondition(search_cond, Condition.EqualCondition(us.US_UNIT_FIELD, user.unit))
-        #OR Add Domain Partition
-        elif us.US_DOMAIN_PARTITION:
-            if us.US_DOMAIN_PARTITION == 1:
-                #User can only see user with the same mail domain
-                mail_criteria = f"{wildcard}{user.domain}"
-                list_cond = [Condition.LikeCondition(us.US_MAIL[0], mail_criteria)]
-                for domain in us.US_DOMAIN_VISIBLE:
-                    mail_criteria = f"{wildcard}{domain}"
-                    list_cond.append(Condition.LikeCondition(us.US_MAIL[0], mail_criteria))
-                if len(list_cond) == 1:
-                    search_cond = Condition.AndCondition(search_cond, list_cond[0])
-                else:
-                    search_cond = Condition.AndCondition(search_cond, Condition.OrCondition(*list_cond))
-            if us.US_DOMAIN_PARTITION == -1:
-                #User can't see anybody except the one set in US_DOMAIN_VISIBLE
-                list_cond = []
-                for domain in us.US_DOMAIN_VISIBLE:
-                    mail_criteria = f"{wildcard}{domain}"
-                    list_cond.append(Condition.LikeCondition(us.US_MAIL[0], mail_criteria))
-                if len(list_cond) == 0:
-                    #Cannot see anybody with no whitelist, return empty list
-                    return None
-                elif len(list_cond) == 1:
-                    search_cond = Condition.AndCondition(search_cond, list_cond[0])
-                else:
-                    search_cond = Condition.AndCondition(search_cond, Condition.OrCondition(*list_cond))
-        else:
-            #means US_DOMAIN_PARTITION == 0, means everyone see everyone except for US_DOMAIN_NOT_VISIBLE
-            list_cond = []
-            for domain in us.US_DOMAIN_NOT_VISIBLE:
-                mail_criteria = f"{wildcard}{domain}"
-                list_cond.append(Condition.NotLikeCondition(us.US_MAIL[0], mail_criteria))
-            if len(list_cond) == 1:
-                search_cond = Condition.AndCondition(search_cond, list_cond[0])
-            elif len(list_cond) > 1:
-                search_cond = Condition.AndCondition(search_cond, Condition.OrCondition(*list_cond))
-
-        logger.debug("Conditions for autocomplete: %s", search_cond)
-        return search_cond
+                user_to_find.source_id = us_uid
+                self.fill_user_with_contact_info(user_to_find, record)
+                self.fill_user_with_source_info(user_to_find, record)
 
 
     def search_for_contact_for_user(self, search: str, user: User, limit:int = 100) -> list[dict]:
@@ -337,9 +412,6 @@ class ModuleUserSource:
         :return: _description_
         :rtype: dict
         """
-        #At this stage, the user mus have a source_id as it already has been logged in.
-        if not user.source_id or user.source_id not in self.all_user_sources:
-            raise exc.AggravatedException("User with no source_id")
         tmp_limit = limit
         results: list[dict] = []
         for _, us_settings in self.all_user_sources.items():
@@ -349,7 +421,7 @@ class ModuleUserSource:
             if not us_settings.US_IS_ADDRESSBOOK:
                 continue
 
-            search_cond = self._build_condition_for(search, user, us_settings)
+            search_cond = self._build_condition_for_search(search, user, us_settings)
             if search_cond is None:
                 #It happends if the conf for domains visibility says the user can't see anything.
                 continue
