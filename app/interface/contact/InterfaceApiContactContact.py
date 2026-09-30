@@ -35,6 +35,7 @@ from app.utils.db.Condition import Order
 from app.utils.errors import (
     ERROR_CONTACT_EXPORT_FORMAT_UNSUPPORTED,
     ERROR_CONTACT_JSON_PARSE_FAILED,
+    ERROR_SHARE_TARGET_USER_NOT_FOUND,
 )
 from app.utils.exceptions import RequestException
 from app.auth.User import User
@@ -67,6 +68,9 @@ class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attribute
         )
         self.module: ModuleContact = ModuleContact(process_setting, cache=sogo_cache(), agent=sogo_agent())
         self._user_module: ModuleUserProfile = ModuleUserProfile(process_setting, user_domain_settings)
+        self._user_source_module: ModuleUserSource = ModuleUserSource.init_from_domain_settings(user_domain_settings)
+        # Share targets already looked up in the user sources during this request, keyed by to_user.
+        self._share_targets: dict[str, User] = {}
         self._addressbook_serializer: CardAddressBookSerializerDict = CardAddressBookSerializerDict()
         self._addressbooks_serializer: CardAddressBooksSerializerList = CardAddressBooksSerializerList()
         self._contact_serializer: CardContactSerializerDict = CardContactSerializerDict()
@@ -220,12 +224,34 @@ class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attribute
             logger_api.error("post_addressbook_share failed for user %s key %s: %s", self.user.uid, key, ex)
             return create_api_base_response(None, ex.error)
 
-    @staticmethod
-    def _resolve_to_user(entry: dict[str, Any]) -> str:
-        """A "anyone" user_class always collapses to the SOGo pseudo-user "<default>"."""
+    def _resolve_to_user(self, entry: dict[str, Any]) -> str:
+        """Resolve the ACL to_user for a share entry.
+
+        A "anyone" user_class always collapses to the SOGo pseudo-user "<default>". Any other uid
+        is looked up in the user sources right away (raising ERROR_SHARE_TARGET_USER_NOT_FOUND when
+        no source knows it), so the serialization of the response reuses the result.
+        """
         if entry.get("user_class") == cs.USER_CLASS_ANY:
             return cs.ANYONE_TO_USER
-        return entry["uid"]
+        target: User = self._resolve_share_target(entry["uid"])
+        if target.user_class != cs.USER_CLASS_USER:
+            # Reject before any sogo6_acl write: an unknown uid must never be granted rights.
+            raise RequestException(error=ERROR_SHARE_TARGET_USER_NOT_FOUND)
+        return target.uid
+
+    def _resolve_share_target(self, to_user: str) -> User:
+        """Look up an ACL to_user in the user sources, memoized for the whole request.
+
+        The returned User carries its user_class: USER when a user source knows it, ANON otherwise.
+        """
+        target: User | None = self._share_targets.get(to_user)
+        if target is None:
+            target = User(uid=to_user)
+            self._user_source_module.get_contact_info_for_user(self.user, target)
+            # source_id is only set by the user source when the uid was found.
+            target.user_class = cs.USER_CLASS_USER if target.source_id else cs.USER_CLASS_ANON
+            self._share_targets[to_user] = target
+        return target
 
     def _grant_folder_subs_keys(self, target_uids: Iterable[str], key: str) -> None:
         """Add ``key`` to folders.ADDRESSBOOKS.SUBS for each target uid so it surfaces in their webmail.
@@ -244,20 +270,16 @@ class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attribute
         A to_user not known by any user source is still returned (user_class ANON) so the caller
         can see the raw grant instead of silently losing it.
         """
-        module_us: ModuleUserSource | None = None
         result: list[dict[str, Any]] = []
         for entry in entries:
             if entry.to_user == cs.ANYONE_TO_USER:
                 result.append({"c_email": "", "uid": "", "user_class": cs.USER_CLASS_ANY, "rights": entry.rights})
                 continue
-            if module_us is None:
-                module_us = ModuleUserSource.init_from_domain_settings(self._user_domain_settings)
-            target: User = User(uid=entry.to_user)
-            module_us.get_contact_info_for_user(target)
+            target: User = self._resolve_share_target(entry.to_user)
             result.append({
                 "c_email": target.uid, #TODO provisoire pour l'UI, target.mail if not target.anonymous else "", #TODO : return empty string for unknown users?
                 "uid": entry.to_user,
-                "user_class": cs.USER_CLASS_ANON if target.anonymous else "", #TODO : quand on aura user sources? on mettra le user_class de la source, sinon on mettra ANON pour les inconnus?
+                "user_class": target.user_class,
                 "rights": entry.rights,
             })
         return result
