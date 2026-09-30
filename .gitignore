@@ -1,6 +1,7 @@
 # SOGo 6 project specific
 .history/
 README.private.md
+.devcontainer/conf/dovecot/sharing.db
 
 # antora
 node_modules/

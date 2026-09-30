@@ -449,6 +449,53 @@ class ClientLdap(ClientUserSource):
             for record in list_records:
                 yield parse_python_ldap_record(record)
 
+    def get_user_info(self, uid:str, extra_condition:Condition.Condition, username:str, domain:str, password:str) -> dict[str, list[str]]:
+        """
+        Get info for a user or an empty dict if the user is not found/does not exist
+
+        :param uid: _description_
+        :type uid: str
+        :param extra_condition: _description_
+        :type extra_condition: Condition
+        :param username: _description_
+        :type username: str
+        :param domain: _description_
+        :type domain: str
+        :param password: _description_
+        :type password: str
+        :return: _description_
+        :rtype: dict[str, list[str]]
+        """
+        search_filter = condition_to_filter(extra_condition)
+
+        #Add the others filters
+        if self.filter:
+            search_filter = f"(&{search_filter}{self.filter})"
+
+        #Bind
+        if not self.bind_as_user:
+            success, _ = self._bind(self.bind_dn, self.bind_pwd, use_admin=True)
+        else:
+            base_dn = self._get_dn_for_user(username, domain)
+            if not base_dn:
+                raise exc.RequestException("Cannot bind user to search", err.ERROR_LDAP_BIND_WRONG_CRED)
+            success, _ = self._bind(base_dn, password)
+
+        new_base_dn = self.base_dn
+        ##If there is "%d" in base dn replace it with the domain of the user
+        if r"%d" in new_base_dn:
+            new_base_dn = new_base_dn.replace(r"%d", domain)
+
+        if success:
+            list_records = self._search_big(new_base_dn, search_filter)
+            if n := len(list_records) == 1:
+                return parse_python_ldap_record(list_records[0])
+            elif n > 1:
+                raise exc.AggravatedException(f"More than one user returns for the uid '{uid}'", err.ERROR_US_NOT_UNIQUE_USER)
+        return {}
+
+
+
 
     def close(self) -> None:
         """

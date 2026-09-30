@@ -146,3 +146,39 @@ class ClientSQLUserSource(ClientUserSource):
             user = dict(zip(columns_name, record))
             yield parse_db_user_record(user)
 
+    def get_user_info(self, uid:str, extra_condition:Condition.Condition, username:str, domain:str, password:str) -> dict[str, list[str]]:
+        """
+        Get info for a user or an empty dict if the user is not found/does not exist
+
+        :param uid: _description_
+        :type uid: str
+        :param extra_condition: _description_
+        :type extra_condition: Condition
+        :param username: _description_
+        :type username: str
+        :param domain: _description_
+        :type domain: str
+        :param password: _description_
+        :type password: str
+        :return: _description_
+        :rtype: dict[str, list[str]]
+        """
+        # Get the table columns
+        table_info = self.client_sql.get_table_info(self.db_table)
+        if not table_info:
+            raise exc.AggravatedException(error=err.ERROR_US_DB_MISSING_TABLE)
+        columns_name = list(table_info.keys())
+
+        #Merge db_filter with extra condition
+        if self.db_filter:
+            extra_condition = Condition.AndCondition(self.db_filter, extra_condition)
+
+        raws = list(self.client_sql.select_from_table(self.db_table, column_tuple=("*",), condition=extra_condition))
+
+        if n := len(raws) == 1:
+            user = dict(zip(columns_name, raws[0]))
+            return parse_db_user_record(user)
+        elif n > 1:
+            raise exc.AggravatedException(f"More than one user returns for the uid {uid}", err.ERROR_US_NOT_UNIQUE_USER)
+
+        return {}

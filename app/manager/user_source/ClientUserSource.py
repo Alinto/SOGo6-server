@@ -52,9 +52,26 @@ class ClientUserSource(metaclass=ABCMeta):
 
     # update_user_creds: Update credentials of a user
 
-    # get_user_info: Get contact info a of user/resource/groups by uid
+    def get_user_info(self, uid:str, extra_condition:Condition, username:str, domain:str, password:str) -> dict[str, list[str]]:
+        """
+        Get info for a user or an empty dict if the user is not found/does not exist
 
-    # search_user: search user/resource/groups with search criteria
+        :param uid: _description_
+        :type uid: str
+        :param extra_condition: _description_
+        :type extra_condition: Condition
+        :param username: _description_
+        :type username: str
+        :param domain: _description_
+        :type domain: str
+        :param password: _description_
+        :type password: str
+        :return: _description_
+        :rtype: dict[str, list[str]]
+        """
+        logger.error("Method 'get_user_info' of ClientUserSource must be implemented by the children %s", type(self).__name__)
+        raise NotImplementedError
+
     def search_user(self, search:str, extra_condition:Condition, limit:int, username:str, domain:str, password:str) -> Generator[dict[str, list[str]]]:
         """
         Search a user for autcompletion
