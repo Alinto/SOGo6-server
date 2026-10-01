@@ -69,7 +69,6 @@ class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attribute
         self.module: ModuleContact = ModuleContact(process_setting, cache=sogo_cache(), agent=sogo_agent())
         self._user_module: ModuleUserProfile = ModuleUserProfile(process_setting, user_domain_settings)
         self._user_source_module: ModuleUserSource = ModuleUserSource.init_from_domain_settings(user_domain_settings)
-        # Share targets already looked up in the user sources during this request, keyed by to_user.
         self._share_targets: dict[str, User] = {}
         self._addressbook_serializer: CardAddressBookSerializerDict = CardAddressBookSerializerDict()
         self._addressbooks_serializer: CardAddressBooksSerializerList = CardAddressBooksSerializerList()

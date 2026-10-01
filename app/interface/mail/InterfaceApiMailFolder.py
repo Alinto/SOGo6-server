@@ -32,6 +32,8 @@ class InterfaceApiMailFolder:
         self.user = user
 
         self.mail_module = ModuleMail(self.user, self.mail_settings, process_setting=process_setting)
+        self._user_source_module: ModuleUserSource = ModuleUserSource.init_from_domain_settings(user_domain_settings)
+        self._share_targets: dict[str, User] = {}
 
     def get_folder_list(self, account_id: str) -> tuple[dict[str, Any], int]:
         """Retrieve the list of mail folders for a given account and return an ApiBaseResponse.
@@ -274,11 +276,28 @@ class InterfaceApiMailFolder:
 
         A "anyone" user_class always collapses to the SOGo pseudo-user "<default>" (mapped to
         the IMAP "anyone" identifier by ModuleMail), regardless of whatever uid the caller may
-        have supplied.
+        have supplied. Any other uid is looked up in the user sources right away so the
+        serialization of the response reuses the result. Unlike calendar/contact sharing, a uid
+        unknown to every user source is still accepted (IMAP ACLs may target accounts the user
+        sources do not expose): it is granted as is and reported with user_class ANON.
         """
         if entry.get("user_class") == cs.USER_CLASS_ANY:
             return cs.ANYONE_TO_USER
-        return entry["uid"]
+        return self._resolve_share_target(entry["uid"]).uid
+
+    def _resolve_share_target(self, to_user: str) -> User:
+        """Look up an ACL to_user in the user sources, memoized for the whole request.
+
+        The returned User carries its user_class: USER when a user source knows it, ANON otherwise.
+        """
+        target: User | None = self._share_targets.get(to_user)
+        if target is None:
+            target = User(uid=to_user)
+            self._user_source_module.get_contact_info_for_user(self.user, target)
+            # source_id is only set by the user source when the uid was found.
+            target.user_class = cs.USER_CLASS_USER if target.source_id else cs.USER_CLASS_ANON
+            self._share_targets[to_user] = target
+        return target
 
     @staticmethod
     def _resolve_rights(entry: dict[str, Any]) -> dict[str, int]:
@@ -313,7 +332,6 @@ class InterfaceApiMailFolder:
         caller can see the raw grant instead of silently losing it. The "<default>" pseudo
         to_user is the "anyone" share and is never resolved through the user source.
         """
-        module_us: ModuleUserSource | None = None
         users: list[dict[str, Any]] = []
         for entry in entries:
             granted_rights = {right_to_camel(right): 1 for right, value in entry.rights.items() if value}
@@ -325,13 +343,9 @@ class InterfaceApiMailFolder:
                     "rights": granted_rights,
                 })
                 continue
-            if module_us is None:
-                module_us = ModuleUserSource.init_from_domain_settings(self.user_domain_settings)
-            target: User = User(uid=entry.to_user)
-            target.source_id = self.user.source_id
-            module_us.get_contact_info_for_user(self.user, target)
+            target: User = self._resolve_share_target(entry.to_user)
             users.append({
-                "user_class": cs.USER_CLASS_ANON if target.anonymous else cs.USER_CLASS_USER,
+                "user_class": target.user_class,
                 "c_email": target.uid,
                 "cn": target.cn,
                 "uid": entry.to_user,

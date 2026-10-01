@@ -63,6 +63,20 @@ class InterfaceApiMailFolderWithInjectedConf(InterfaceApiMailFolder):
         self.mail_module = mail_module
         self.user = FakeUser()
         self.user_domain_settings = {}
+        self._user_source_module = FakeUserSourceModule()
+        self._share_targets = {}
+
+
+class FakeUserSourceModule:
+    """Fake ModuleUserSource: only the uids listed in known_uids are found in the user sources."""
+    def __init__(self, known_uids=("bob@example.com",)):
+        self.known_uids = set(known_uids)
+
+    def get_contact_info_for_user(self, user_auth, user_to_find):
+        """Simulate a user source hit by setting source_id, as the real module does."""
+        if user_to_find.uid in self.known_uids:
+            user_to_find.source_id = "fake_source"
+            user_to_find.cn = user_to_find.uid
 
 
 class FakeModuleMail:
@@ -540,3 +554,40 @@ def test_post_folder_share_success(monkeypatch):
     assert folder_path == "INBOX"
     assert users[0]["rights"]["user_can_view_folder"] == 1
     assert users[0]["rights"]["user_can_write_mails"] == 0
+
+
+def test_get_folder_share_unknown_user_is_anonymous(monkeypatch):
+    """Test that a to_user unknown to every user source is reported with user_class 'anonymous'."""
+    fake_module = FakeModuleMail()
+    fake_module.get_folder_share_result = [
+        AclEntry(resource_type="folder", key="k", owner="owner@example.com", to_user="bob@example.com",
+                 rights={"user_can_view_folder": 1}),
+        AclEntry(resource_type="folder", key="k", owner="owner@example.com", to_user="ghost@example.com",
+                 rights={"user_can_view_folder": 1}),
+    ]
+    interface = make_interface(monkeypatch, fake_module)
+
+    result, status_code = interface.get_folder_share(account_id=0, folder_path="INBOX")
+
+    assert status_code == 200
+    by_uid = {u["uid"]: u for u in result["data"]}
+    assert by_uid["bob@example.com"]["user_class"] == "user"
+    assert by_uid["ghost@example.com"]["user_class"] == "anonymous"
+
+
+def test_post_folder_share_unknown_user_accepted_as_anonymous(monkeypatch):
+    """Test that sharing with a uid unknown to the user sources is accepted and answered as 'anonymous'."""
+    fake_module = FakeModuleMail()
+    fake_module.post_folder_share_result = [
+        AclEntry(resource_type="folder", key="k", owner="owner@example.com", to_user="ghost@example.com",
+                 rights={"user_can_view_folder": 1}),
+    ]
+    interface = make_interface(monkeypatch, fake_module)
+
+    share_data = [{"uid": "ghost@example.com", "c_email": "ghost@example.com", "user_class": "user", "permissions": ["l"]}]
+    result, status_code = interface.post_folder_share(account_id=0, folder_path="INBOX", share_data=share_data)
+
+    assert status_code == 200
+    _, users = fake_module.post_folder_share_args
+    assert users[0]["uid"] == "ghost@example.com"
+    assert result["data"][0]["user_class"] == "anonymous"

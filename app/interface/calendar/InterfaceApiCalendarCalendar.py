@@ -78,7 +78,6 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         )
         self._user_module: ModuleUserProfile = ModuleUserProfile(process_setting, user_domain_settings)
         self._user_source_module: ModuleUserSource = ModuleUserSource.init_from_domain_settings(user_domain_settings)
-        # Share targets already looked up in the user sources during this request, keyed by to_user.
         self._share_targets: dict[str, User] = {}
         self._events_serializer: CalEventsSerializerDict = CalEventsSerializerDict()
         self._event_serializer: CalEventSerializerDict = CalEventSerializerDict()
