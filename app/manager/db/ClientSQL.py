@@ -1,8 +1,10 @@
 from abc import abstractmethod, ABCMeta
 from typing import Any, Generator
 
+from collections import OrderedDict
+
 from app.utils.logger.logger import logger
-from app.utils.db.Table import Table
+from app.utils.db.Table import Table, Column
 from app.utils.db.Condition import Condition, FullTextCondition, JoinClause, Order
 
 class ClientSQL(metaclass=ABCMeta):
@@ -53,17 +55,17 @@ class ClientSQL(metaclass=ABCMeta):
         raise NotImplementedError
 
     @abstractmethod
-    def select_from_table(self, table_name: str, column_tuple: tuple[str, ...], condition: Condition,
+    def select_from_table(self, table: Table, columns: list[Column], condition: Condition,
                           offset: int = 0, limit: int = 0,
                           sort_by: str | None = None, order: Order = Order.ASC,
                           rank_by: FullTextCondition | None = None) -> Generator[tuple[Any, ...]]:
         """
         select values from a table
 
-        :param table_name: Name of the table
-        :type table_name: str
-        :param column_tuple: Tuple of the column names to select
-        :type column_tuple: tuple[str, ...]
+        :param table: table to look for
+        :type table: Table
+        :param columns: List of the columns to fetch, empty list means all
+        :type columns: list[Column]
         :param condition: Condition on the query
         :type condition: Condition
         :param offset: Number of rows to skip, defaults to 0
@@ -84,9 +86,9 @@ class ClientSQL(metaclass=ABCMeta):
     @abstractmethod
     def select_from_several_table(
         self,
-        table_name: str,
+        table: Table,
         joins: list[JoinClause],
-        column_tuple: tuple[str, ...],
+        columns_dict: OrderedDict[str, list[Column]],
         condition: Condition,
         sort_by: str | None = None,
         order: Order = Order.ASC,

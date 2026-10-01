@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from app.manager.db.ClientSQL import ClientSQL
 
 
-_ALL_COLS: tuple[str, ...] = tuple(col.name for col in tbl.ALL_CT_COL)
+_ALL_COLS_NAME: tuple[str, ...] = tuple(col.name for col in tbl.ALL_CT_COL)
 _INSERT_COLS: tuple[str, ...] = tuple(col.name for col in tbl.ALL_CT_COL if col.name != tbl.COL_ID.name)
 
 _serializer = CardContactSerializerDict()
@@ -57,7 +57,7 @@ class RepositoryContact:
         The full fiche is rebuilt from the JSON blob, then the relational columns (authoritative)
         override their blob counterparts.
         """
-        d = dict(zip(_ALL_COLS, row))
+        d = dict(zip(_ALL_COLS_NAME, row))
         contact = _deserializer.deserialize(d[tbl.COL_CT_CONTACT_DATA.name])
 
         contact.db_id = d[tbl.COL_ID.name]
@@ -166,8 +166,8 @@ class RepositoryContact:
         )
         # pylint: disable=duplicate-code
         rows = list(self._db.select_from_table(
-            table_name=tbl.TABLE_CONTACT.name,
-            column_tuple=_ALL_COLS,
+            table=tbl.TABLE_CONTACT,
+            columns=tbl.TABLE_CONTACT.columns,
             condition=condition,
             limit=1,
         ))
@@ -187,8 +187,8 @@ class RepositoryContact:
         )
         # pylint: disable=duplicate-code
         rows = list(self._db.select_from_table(
-            table_name=tbl.TABLE_CONTACT.name,
-            column_tuple=_ALL_COLS,
+            table=tbl.TABLE_CONTACT,
+            columns=tbl.TABLE_CONTACT.columns,
             condition=condition,
             limit=1,
         ))
@@ -223,8 +223,8 @@ class RepositoryContact:
         if search_condition is not None:
             condition = AndCondition(condition, search_condition)
         rows = self._db.select_from_table(
-            table_name=tbl.TABLE_CONTACT.name,
-            column_tuple=_ALL_COLS,
+            table=tbl.TABLE_CONTACT,
+            columns=tbl.TABLE_CONTACT.columns,
             condition=condition,
             offset=offset,
             limit=limit,
@@ -243,8 +243,8 @@ class RepositoryContact:
         if search:
             condition = AndCondition(condition, FullTextCondition(tbl.COL_CT_SEARCH_VECTOR.name, strip_accents(search)))
         rows = self._db.select_from_table(
-            table_name=tbl.TABLE_CONTACT.name,
-            column_tuple=(tbl.COL_CT_KEY.name,),
+            table=tbl.TABLE_CONTACT,
+            columns=[tbl.COL_CT_KEY],
             condition=condition,
         )
         return sum(1 for _ in rows)
@@ -270,7 +270,7 @@ class RepositoryContact:
         if search_condition is not None:
             condition = AndCondition(condition, search_condition)
         rows = self._db.select_from_table(
-            table_name=tbl.TABLE_CONTACT.name, column_tuple=_ALL_COLS, condition=condition,
+            table=tbl.TABLE_CONTACT, columns=tbl.TABLE_CONTACT.columns, condition=condition,
             offset=offset, limit=limit, sort_by=sort_by, order=order, rank_by=search_condition,
         )
         return [self._row_to_contact(row) for row in rows]
@@ -284,7 +284,7 @@ class RepositoryContact:
         if search:
             condition = AndCondition(condition, FullTextCondition(tbl.COL_CT_SEARCH_VECTOR.name, strip_accents(search)))
         rows = self._db.select_from_table(
-            table_name=tbl.TABLE_CONTACT.name, column_tuple=(tbl.COL_CT_KEY.name,), condition=condition,
+            table=tbl.TABLE_CONTACT, columns=[tbl.COL_CT_KEY], condition=condition,
         )
         return sum(1 for _ in rows)
 
@@ -339,8 +339,8 @@ class RepositoryContact:
     def all_keys(self) -> set[str]:
         """Return the opaque keys of every contact row still present (used for orphan detection)."""
         rows = self._db.select_from_table(
-            table_name=tbl.TABLE_CONTACT.name,
-            column_tuple=(tbl.COL_CT_KEY.name,),
+            table=tbl.TABLE_CONTACT,
+            columns=[tbl.COL_CT_KEY],
             condition=TrueCondition(),
         )
         return {row[0] for row in rows}
@@ -353,8 +353,8 @@ class RepositoryContact:
         references out of the returned set.
         """
         rows = self._db.select_from_table(
-            table_name=tbl.TABLE_CONTACT.name,
-            column_tuple=(tbl.COL_CT_CONTACT_DATA.name,),
+            table=tbl.TABLE_CONTACT,
+            columns=[tbl.COL_CT_CONTACT_DATA],
             condition=TrueCondition(),
         )
         values: set[str] = set()

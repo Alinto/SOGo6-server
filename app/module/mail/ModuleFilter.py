@@ -103,8 +103,8 @@ class ModuleFilter:
         """
         condition = EqualCondition(tbl.COL_USER_UID.name, self.user.uid)
         rows = list(self.sogo_db_manager.select_from_table(
-            table_name=tbl.TABLE_USER.name,
-            column_tuple=(tbl.COL_USER_FILTERS.name,),
+            table=tbl.TABLE_USER,
+            columns=[tbl.COL_USER_FILTERS],
             condition=condition,
         ))
         if not rows:
