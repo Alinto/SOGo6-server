@@ -40,8 +40,8 @@ class TmpDraftManager:
     def fetch_row(self, key: str) -> tuple[str, str, str, bool]:
         """Return ``(key, owner, mail_server_uid, locked)`` or raise 404."""
         rows = list(self._db.select_from_table(
-            TABLE_DRAFT_STATE.name,
-            (COL_DRAFT_KEY.name, COL_DRAFT_OWNER.name, COL_DRAFT_MAIL_SERVER_UID.name, COL_DRAFT_LOCK_STATE.name),
+            TABLE_DRAFT_STATE,
+            [COL_DRAFT_KEY, COL_DRAFT_OWNER, COL_DRAFT_MAIL_SERVER_UID, COL_DRAFT_LOCK_STATE],
             EqualCondition(COL_DRAFT_KEY.name, key),
         ))
         if not rows:
@@ -59,8 +59,8 @@ class TmpDraftManager:
         :raises RequestException: 404 if the key does not exist.
         """
         rows = list(self._db.select_from_table(
-            TABLE_DRAFT_STATE.name,
-            (COL_DRAFT_HEADERS.name,),
+            TABLE_DRAFT_STATE,
+            [COL_DRAFT_HEADERS],
             EqualCondition(COL_DRAFT_KEY.name, key),
         ))
         if not rows:
@@ -80,8 +80,8 @@ class TmpDraftManager:
         while locked and time.monotonic() < deadline:
             time.sleep(self.LOCK_POLL_INTERVAL)
             poll_rows = list(self._db.select_from_table(
-                TABLE_DRAFT_STATE.name,
-                (COL_DRAFT_LOCK_STATE.name,),
+                TABLE_DRAFT_STATE,
+                [COL_DRAFT_LOCK_STATE],
                 EqualCondition(COL_DRAFT_KEY.name, key),
             ))
             locked = poll_rows[0][0] if poll_rows else True
@@ -184,8 +184,8 @@ class TmpDraftManager:
         :rtype: list[dict]
         """
         rows = list(self._db.select_from_table(
-            TABLE_DRAFT_STATE.name,
-            (COL_DRAFT_KEY.name, COL_DRAFT_MAIL_SERVER_UID.name, COL_DRAFT_LOCK_STATE.name, COL_DRAFT_LAST_UPDATED.name),
+            TABLE_DRAFT_STATE,
+            [COL_DRAFT_KEY, COL_DRAFT_MAIL_SERVER_UID, COL_DRAFT_LOCK_STATE, COL_DRAFT_LAST_UPDATED],
             EqualCondition(COL_DRAFT_OWNER.name, self._user_uid),
         ))
         return [

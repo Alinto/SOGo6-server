@@ -58,7 +58,7 @@ class FakeClientSQL:
     def connect(self):
         self.connected = True
 
-    def select_from_table(self, table_name, column_tuple, condition):
+    def select_from_table(self, table, columns, condition):
         if self.select_raises is not None:
             raise self.select_raises
         if self.select_result_override is not None:

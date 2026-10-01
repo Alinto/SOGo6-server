@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from app.manager.db.ClientSQL import ClientSQL
 
 
-_ALL_COLS: tuple[str, ...] = tuple(col.name for col in tbl.ALL_EVT_COL)
+_ALL_COLS_NAME: tuple[str, ...] = tuple(col.name for col in tbl.ALL_EVT_COL)
 _INSERT_COLS: tuple[str, ...] = tuple(col.name for col in tbl.ALL_EVT_COL if col.name != tbl.COL_ID.name)
 
 _serializer = CalEventSerializerDict()
@@ -54,7 +54,7 @@ class RepositoryEvent:
     @staticmethod
     def _row_to_event(row: tuple) -> CalEvent:
         """Map a DB row (ordered per ALL_EVT_COL) to a CalEvent."""
-        d = dict(zip(_ALL_COLS, row))
+        d = dict(zip(_ALL_COLS_NAME, row))
         blob = d[tbl.COL_EVT_CAL_EVENT.name]
         event = _deserializer.deserialize(blob)
 
@@ -124,8 +124,8 @@ class RepositoryEvent:
         if search_condition is not None:
             condition = AndCondition(condition, search_condition)
         rows = self._db.select_from_table(
-            table_name=tbl.TABLE_EVENT.name,
-            column_tuple=_ALL_COLS,
+            table=tbl.TABLE_EVENT,
+            columns=tbl.TABLE_EVENT.columns,
             condition=condition,
             sort_by=tbl.COL_EVT_DATE_START.name,
             rank_by=search_condition,
@@ -143,8 +143,8 @@ class RepositoryEvent:
         )
         # pylint: disable=duplicate-code
         rows = list(self._db.select_from_table(
-            table_name=tbl.TABLE_EVENT.name,
-            column_tuple=_ALL_COLS,
+            table=tbl.TABLE_EVENT,
+            columns=tbl.TABLE_EVENT.columns,
             condition=condition,
             limit=1,
         ))
@@ -267,8 +267,8 @@ class RepositoryEvent:
         )
         # pylint: disable=duplicate-code
         rows = list(self._db.select_from_table(
-            table_name=tbl.TABLE_EVENT.name,
-            column_tuple=_ALL_COLS,
+            table=tbl.TABLE_EVENT,
+            columns=tbl.TABLE_EVENT.columns,
             condition=condition,
             limit=1,
         ))
@@ -291,8 +291,8 @@ class RepositoryEvent:
         )
         # pylint: disable=duplicate-code
         rows = list(self._db.select_from_table(
-            table_name=tbl.TABLE_EVENT.name,
-            column_tuple=_ALL_COLS,
+            table=tbl.TABLE_EVENT,
+            columns=tbl.TABLE_EVENT.columns,
             condition=condition,
             limit=1,
         ))
@@ -334,8 +334,8 @@ class RepositoryEvent:
             ),
         )
         rows = self._db.select_from_table(
-            table_name=tbl.TABLE_EVENT.name,
-            column_tuple=_ALL_COLS,
+            table=tbl.TABLE_EVENT,
+            columns=tbl.TABLE_EVENT.columns,
             condition=condition,
             sort_by=tbl.COL_EVT_RECURRENCE_ID.name,
         )
@@ -368,8 +368,8 @@ class RepositoryEvent:
             EqualCondition(tbl.COL_EVT_IS_DELETED.name, False),
         )
         rows = self._db.select_from_table(
-            table_name=tbl.TABLE_EVENT.name,
-            column_tuple=(tbl.COL_EVT_KEY.name,),
+            table=tbl.TABLE_EVENT,
+            columns=[tbl.COL_EVT_KEY],
             condition=condition,
         )
         return [row[0] for row in rows]
@@ -379,15 +379,15 @@ class RepositoryEvent:
 
         Avoids loading full event blobs for large calendars.
         """
-        cols = (tbl.COL_ID.name, tbl.COL_EVT_KEY.name, tbl.COL_EVT_UID.name,
-                tbl.COL_EVT_RECURRENCE_ID.name, tbl.COL_EVT_SEQUENCE.name, tbl.COL_EVT_UPDATED_AT.name)
+        cols = [tbl.COL_ID, tbl.COL_EVT_KEY, tbl.COL_EVT_UID,
+                tbl.COL_EVT_RECURRENCE_ID, tbl.COL_EVT_SEQUENCE, tbl.COL_EVT_UPDATED_AT]
         condition = AndCondition(
             EqualCondition(tbl.COL_EVT_CALENDAR_KEY.name, calendar_key),
             EqualCondition(tbl.COL_EVT_IS_DELETED.name, False),
         )
         rows = list(self._db.select_from_table(
-            table_name=tbl.TABLE_EVENT.name,
-            column_tuple=cols,
+            table=tbl.TABLE_EVENT,
+            columns=cols,
             condition=condition,
         ))
         return [CalEventSyncMeta(
@@ -438,8 +438,8 @@ class RepositoryEvent:
                 NotEqualCondition(tbl.COL_EVT_CALENDAR_KEY.name, exclude_organizer_calendar_key),
             )
         rows = self._db.select_from_table(
-            table_name=tbl.TABLE_EVENT.name,
-            column_tuple=_ALL_COLS,
+            table=tbl.TABLE_EVENT,
+            columns=tbl.TABLE_EVENT.columns,
             condition=condition,
         )
         return [self._row_to_event(row) for row in rows]

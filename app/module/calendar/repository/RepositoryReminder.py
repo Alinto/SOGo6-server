@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from collections import OrderedDict
 from typing import TYPE_CHECKING
 
 from app.config.db import tables as tbl
@@ -13,6 +14,7 @@ from app.utils.db.Condition import (AndCondition, Condition, EqualCondition, Gre
 if TYPE_CHECKING:
     from app.manager.db.ClientSQL import ClientSQL
     from app.module.calendar.model.CalEvent import CalEvent
+    from app.utils.db.Table import Column
 
 _INSERT_COLS: tuple[str, ...] = tuple(col.name for col in tbl.ALL_REM_COL if col.name != tbl.COL_ID.name)
 
@@ -101,24 +103,19 @@ class RepositoryReminder:
         if method is not None:
             condition = AndCondition(condition, EqualCondition(f"{rem}.{tbl.COL_REM_METHOD.name}", method.value))
 
-        find_cols: tuple[str, ...] = (
-            f"{rem}.{tbl.COL_REM_EVENT_KEY.name}",
-            f"{rem}.{tbl.COL_REM_METHOD.name}",
-            f"{rem}.{tbl.COL_REM_MINUTES.name}",
-            f"{rem}.{tbl.COL_REM_TRIGGER_AT.name}",
-            f"{evt}.{tbl.COL_EVT_DATE_START.name}",
-            f"{evt}.{tbl.COL_EVT_DATE_END.name}",
-            f"{evt}.{tbl.COL_EVT_IS_RECURRING.name}",
-            f"{cal}.user_uid",
-        )
+        find_cols: OrderedDict[str, list[Column]] = OrderedDict({
+            rem: [tbl.COL_REM_EVENT_KEY, tbl.COL_REM_METHOD, tbl.COL_REM_MINUTES, tbl.COL_REM_TRIGGER_AT],
+            evt: [tbl.COL_EVT_DATE_START, tbl.COL_EVT_DATE_END, tbl.COL_EVT_IS_RECURRING],
+            cal: [tbl.COL_CAL_USER_UID]
+        })
         joins: list[JoinClause] = [
             JoinClause(table=evt, left_col=f"{rem}.{tbl.COL_REM_EVENT_KEY.name}", right_col=f"{evt}.{tbl.COL_EVT_KEY.name}"),
             JoinClause(table=cal, left_col=f"{evt}.{tbl.COL_EVT_CALENDAR_KEY.name}", right_col=f"{cal}.key"),
         ]
         rows = self._db.select_from_several_table(
-            table_name=rem,
+            table=tbl.TABLE_REMINDER,
             joins=joins,
-            column_tuple=find_cols,
+            columns_dict=find_cols,
             condition=condition,
             sort_by=q_trigger,
         )

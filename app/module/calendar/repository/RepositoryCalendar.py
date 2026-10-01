@@ -14,10 +14,11 @@ from app.utils.logger.logger import logger_calendar
 
 if TYPE_CHECKING:
     from app.manager.db.ClientSQL import ClientSQL
+    from app.utils.db.Table import Table, Column
 
 
 # All column names in ALL_CAL_COL order - used for SELECT and row mapping
-_ALL_COLS: tuple[str, ...] = tuple(col.name for col in tbl.ALL_CAL_COL)
+_ALL_COLS_NAME: tuple[str, ...] = tuple(col.name for col in tbl.ALL_CAL_COL)
 
 # Columns for INSERT - id is serial, omitted
 _INSERT_COLS: tuple[str, ...] = tuple(col.name for col in tbl.ALL_CAL_COL if col.name != tbl.COL_ID.name)
@@ -32,7 +33,7 @@ class RepositoryCalendar:
     @staticmethod
     def _row_to_calendar(row: tuple) -> CalCalendar:
         """Map a DB row (ordered per ALL_CAL_COL) to a CalCalendar."""
-        d = dict(zip(_ALL_COLS, row))
+        d = dict(zip(_ALL_COLS_NAME, row))
         prefs: dict = d["preferences"] or {}
         default_type_raw = prefs.get("default_type")
         return CalCalendar(
@@ -118,8 +119,8 @@ class RepositoryCalendar:
         )
         # pylint: disable=duplicate-code
         rows = list(self._db.select_from_table(
-            table_name=tbl.TABLE_CALENDAR.name,
-            column_tuple=_ALL_COLS,
+            table=tbl.TABLE_CALENDAR,
+            columns=tbl.TABLE_CALENDAR.columns,
             condition=condition,
             limit=1,
         ))
@@ -137,8 +138,8 @@ class RepositoryCalendar:
         """
         condition = EqualCondition(tbl.COL_CAL_SHARE_TOKEN.name, share_token)
         rows = list(self._db.select_from_table(
-            table_name=tbl.TABLE_CALENDAR.name,
-            column_tuple=_ALL_COLS,
+            table=tbl.TABLE_CALENDAR,
+            columns=tbl.TABLE_CALENDAR.columns,
             condition=condition,
             limit=1,
         ))
@@ -153,8 +154,8 @@ class RepositoryCalendar:
             EqualCondition(tbl.COL_CAL_IS_DEFAULT.name, True),
         )
         rows = list(self._db.select_from_table(
-            table_name=tbl.TABLE_CALENDAR.name,
-            column_tuple=_ALL_COLS,
+            table=tbl.TABLE_CALENDAR,
+            columns=tbl.TABLE_CALENDAR.columns,
             condition=condition,
             limit=1,
         ))
@@ -166,8 +167,8 @@ class RepositoryCalendar:
         """Return all calendars for the given user, ordered by id."""
         condition = EqualCondition(tbl.COL_CAL_USER_UID.name, user_uid)
         rows = self._db.select_from_table(
-            table_name=tbl.TABLE_CALENDAR.name,
-            column_tuple=_ALL_COLS,
+            table=tbl.TABLE_CALENDAR,
+            columns=tbl.TABLE_CALENDAR.columns,
             condition=condition,
             sort_by=tbl.COL_ID.name,
         )
@@ -179,8 +180,8 @@ class RepositoryCalendar:
         System-wide (no user filter): used by the periodic auto-sync sweep, which has no user context.
         """
         rows = self._db.select_from_table(
-            table_name=tbl.TABLE_CALENDAR.name,
-            column_tuple=_ALL_COLS,
+            table=tbl.TABLE_CALENDAR,
+            columns=tbl.TABLE_CALENDAR.columns,
             condition=EqualCondition(tbl.COL_CAL_SOURCE_TYPE.name, CalendarSourceType.ICS.value),
             sort_by=tbl.COL_ID.name,
         )

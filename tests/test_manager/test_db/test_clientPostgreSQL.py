@@ -1,6 +1,6 @@
 import re
 from unittest import mock
-
+from collections import OrderedDict
 import pytest
 from pytest_mock.plugin import MockerFixture
 
@@ -398,28 +398,34 @@ def test_client_select_from_table(mock_db: MockerFixture):
     client = ClientPostgreSQL(db_user= "", db_pwd= "", db_host= "", db_port= 25,  db_ssl= False, db_enc= "")
     client.connect()
 
+    col_id = Column("id", data_type="serial")
+    col_name = Column("name", data_type="str")
+    col_data = Column("data", data_type="dict")
+    col_age = Column("age", data_type="int")
+    test_table = Table("test_select", columns=[col_id, col_name, col_data, col_age])
+
     # Test select all columns
     condition = EqualCondition("id", 1)
-    results = list(client.select_from_table("test_select", ("id", "name", "data", "age"), condition))
+    results = list(client.select_from_table(test_table, test_table.columns, condition))
     assert len(results) == 2
     assert results[0][1] == "Alice"
     assert results[1][1] == "Bob"
 
     # Test select with empty column tuple (should select all columns)
-    results_all = list(client.select_from_table("test_select", (), condition))
+    results_all = list(client.select_from_table(test_table, [], condition))
     assert len(results_all) == 2
 
     # Test select with limit
-    results_limit = list(client.select_from_table("test_select", ("id", "name"), condition, limit=1))
+    results_limit = list(client.select_from_table(test_table, [col_id, col_name], condition, limit=1))
     assert len(results_limit) == 2  # Mock returns 2 rows regardless
 
     # Test select with offset
-    results_offset = list(client.select_from_table("test_select", ("id", "name"), condition, offset=1))
+    results_offset = list(client.select_from_table(test_table, [col_id, col_name], condition, offset=1))
     assert len(results_offset) == 2
 
     # Test select ordered by full-text relevance (rank_by builds a ts_rank ORDER BY)
     results_rank = list(client.select_from_table(
-        "test_select", ("id", "name"), condition,
+        test_table, [col_id, col_name], condition,
         sort_by="date_start", rank_by=FullTextCondition("search_vector", "budget"),
     ))
     assert len(results_rank) == 2
@@ -440,10 +446,25 @@ def test_client_select_from_several_table(mock_db: MockerFixture):
         EqualCondition("test_join.is_deleted", False),
         EqualCondition("test_calendars.user_uid", "user@test"),
     )
+    col_event_key = Column("event_key", data_type="int")
+    col_method = Column("method", data_type="str")
+    col_minutes_before = Column("minutes_before", data_type="str")
+    test_join = Table("test_join", columns=[col_event_key, col_method, col_minutes_before])
+    col_title = Column("title", data_type="str")
+    test_events = Table("test_events", columns=[col_title])
+    col_uid = Column("user_uid", data_type="str")
+    test_calendars = Table("test_calendars", columns=[col_uid])
+
+    columns_dict = OrderedDict({
+        test_join.name: test_join.columns,
+        test_events.name: test_events.columns,
+        test_calendars.name: test_calendars.columns
+    })
+
     results = list(client.select_from_several_table(
-        table_name="test_join",
+        table=test_join,
         joins=joins,
-        column_tuple=("test_join.event_key", "test_join.method", "test_join.minutes_before", "test_events.title", "test_calendars.user_uid"),
+        columns_dict=columns_dict,
         condition=condition,
         sort_by="test_join.event_key",
     ))

@@ -9,6 +9,7 @@ from app.module.user.ModuleUserProfile import ModuleUserProfile
 from app.utils.exceptions import BugException, RequestException, AggravatedException
 from app.config.db import tables as tbl
 from app.utils import errors as err
+from app.utils.db.Table import Table, Column
 
 
 class FakeClientSQL:
@@ -36,11 +37,11 @@ class FakeClientSQL:
         self.connected = True
         self.connect_called = True
 
-    def select_from_table(self, table_name, column_tuple, condition=None):
+    def select_from_table(self, table, columns, condition=None):
         """Simulate SELECT query."""
         self.select_calls.append({
-            'table': table_name,
-            'columns': column_tuple,
+            'table': table,
+            'columns': columns,
             'condition': condition
         })
         return self.select_result
@@ -244,6 +245,7 @@ def test_create_user_profile_wrong_row_count(monkeypatch):
 
 # ========== Tests for _get_user_column ==========
 
+
 def test_get_user_column_success(monkeypatch):
     """Test getting a user column."""
     fake_client = FakeClientSQL()
@@ -254,7 +256,8 @@ def test_get_user_column_success(monkeypatch):
     domain_settings = get_default_domain_settings()
     module = ModuleUserProfile(process_settings, domain_settings)
 
-    result = module._get_user_column('testuser', tbl.COL_USER_DEFAULTS.name)
+
+    result = module._get_user_column('testuser', tbl.COL_USER_DEFAULTS)
 
     assert result == {'key': 'value'}
     assert len(fake_client.select_calls) == 1
@@ -271,7 +274,7 @@ def test_get_user_column_not_found(monkeypatch):
     module = ModuleUserProfile(process_settings, domain_settings)
 
     with pytest.raises(RequestException):
-        module._get_user_column('testuser', tbl.COL_USER_DEFAULTS.name)
+        module._get_user_column('testuser', tbl.COL_USER_DEFAULTS)
 
 
 def test_get_user_column_duplicate(monkeypatch):
@@ -285,7 +288,7 @@ def test_get_user_column_duplicate(monkeypatch):
     module = ModuleUserProfile(process_settings, domain_settings)
 
     with pytest.raises(AggravatedException):
-        module._get_user_column('testuser', tbl.COL_USER_DEFAULTS.name)
+        module._get_user_column('testuser', tbl.COL_USER_DEFAULTS)
 
 
 def test_get_user_column_none_value(monkeypatch):
@@ -298,7 +301,7 @@ def test_get_user_column_none_value(monkeypatch):
     domain_settings = get_default_domain_settings()
     module = ModuleUserProfile(process_settings, domain_settings)
 
-    result = module._get_user_column('testuser', tbl.COL_USER_DEFAULTS.name)
+    result = module._get_user_column('testuser', tbl.COL_USER_DEFAULTS)
 
     assert result == {}
 

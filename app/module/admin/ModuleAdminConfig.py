@@ -62,7 +62,7 @@ class ModuleAdminConfig:
 
         return full_form
 
-    def _get_setting_from_table_settings(self, column_tuple: tuple) -> tuple:
+    def _get_setting_from_table_settings(self, columns: list[Column]) -> tuple:
         """
         Generic function that fetch, test and return the configuration/dict
         found in the `column_table` of table `TABLE_SETTINGS`
@@ -79,8 +79,8 @@ class ModuleAdminConfig:
 
         #Get the current system settings, purposely put a "true" condition to check if there is only 1 row.
         cond_select = NotEqualCondition(param_name=tbl.COL_SETTINGS_UNIQUE.name, param_value=0)
-        result  = list(self.sogo_db_manager.select_from_table(table_name=tbl.TABLE_SETTINGS.name,
-                                               column_tuple=column_tuple,
+        result  = list(self.sogo_db_manager.select_from_table(table=tbl.TABLE_SETTINGS,
+                                               columns=columns,
                                                condition=cond_select))
         size = len(result)
         if size > 1:
@@ -92,7 +92,7 @@ class ModuleAdminConfig:
             #Empty, this is the first time SOGo is configured.
             logger.warning("Table %s is empty, which is normal if this is the first time you use SOGo", tbl.TABLE_SETTINGS.name)
             ret: tuple = ({},)
-            for _ in range(len(column_tuple)-1):
+            for _ in range(len(columns)-1):
                 ret += ret
             return ret
 
@@ -109,7 +109,7 @@ class ModuleAdminConfig:
         :rtype: dict
         """
 
-        return self._get_setting_from_table_settings((tbl.COL_SETTINGS_SYSTEM.name,))[0]
+        return self._get_setting_from_table_settings([tbl.COL_SETTINGS_SYSTEM])[0]
 
     def get_default_domain_settings(self) -> dict:
         """
@@ -119,7 +119,7 @@ class ModuleAdminConfig:
         :rtype: dict
         """
 
-        return self._get_setting_from_table_settings((tbl.COL_SETTINGS_DOMAIN_DEFAULT.name,))[0]
+        return self._get_setting_from_table_settings([tbl.COL_SETTINGS_DOMAIN_DEFAULT])[0]
 
     def get_both_system_and_default_domain_settings(self) -> tuple[dict, dict]:
         """
@@ -129,7 +129,7 @@ class ModuleAdminConfig:
         :rtype: tuple[dict, dict]
         """
 
-        return self._get_setting_from_table_settings((tbl.COL_SETTINGS_SYSTEM.name,tbl.COL_SETTINGS_DOMAIN_DEFAULT.name))
+        return self._get_setting_from_table_settings([tbl.COL_SETTINGS_SYSTEM,tbl.COL_SETTINGS_DOMAIN_DEFAULT])
 
     def get_all_domains_settings(self, collection_param: CollectionPaginateArgs) -> tuple[int, list]:
         """Return a list of all domains settings with pagination, sorting and filtering options
@@ -139,15 +139,13 @@ class ModuleAdminConfig:
         limit = collection_param.last_item - offset + 1
 
         # Validation of the requested columns.
-        column_names = [col.name for col in tbl.TABLE_DOMAIN.columns]
+        columns = tbl.TABLE_DOMAIN.columns
         if collection_param.fields:
             requested = collection_param.fields.split(",")
             if collection_param.fields_action == "include":
-                columns = [tbl.TABLE_DOMAIN.get_column_from_name(f) for f in requested]
-                column_names = [col.name for col in columns]
+                columns = [c for c in tbl.TABLE_DOMAIN.columns if c.name in requested]
             if collection_param.fields_action == "exclude":
-                for field in requested:
-                    column_names.remove(field)
+                columns = [c for c in tbl.TABLE_DOMAIN.columns if c.name not in requested]
 
         # Validation of sorting parameters
         order = Order.ASC if collection_param.sort_order == "asc" else Order.DESC
@@ -158,8 +156,8 @@ class ModuleAdminConfig:
         cond_select = TrueCondition()
         count = self.sogo_db_manager.count_row_in_table(table_name=tbl.TABLE_DOMAIN.name, condition=cond_select)
         result = list(self.sogo_db_manager.select_from_table(
-            table_name=tbl.TABLE_DOMAIN.name,
-            column_tuple=tuple(column_names),
+            table=tbl.TABLE_DOMAIN,
+            columns=columns,
             condition=cond_select,
             offset=offset,
             limit=limit,
@@ -169,15 +167,16 @@ class ModuleAdminConfig:
 
         # Process results into a list of dictionaries
         ret = []
+        column_names = [c.name for c in columns]
         for record in result:
             record_dict = dict(zip(column_names, record))
-            if "settings" in record_dict:
-                record_dict["settings"] = json.loads(record_dict["settings"])  # si nécessaire
+            # if "settings" in record_dict:
+            #     record_dict["settings"] = json.loads(record_dict["settings"])  # si nécessaire
             ret.append(record_dict)
 
         return count, ret
 
-    def get_one_domain_setting(self, domain_id:str, columns: tuple[Column, ...]|None = None) -> dict:
+    def get_one_domain_setting(self, domain_id:str) -> dict:
         """
         Get one domain setting for the specified domain ID
 
@@ -190,18 +189,10 @@ class ModuleAdminConfig:
         """
         self.sogo_db_manager.connect()
 
-        if columns is not None:
-            for column in columns:
-                if column.name not in tbl.TABLE_DOMAIN.columns_name:
-                    raise BugException(f"Trying to query a column {column.name} that does not exist in {tbl.TABLE_DOMAIN.name}")
-            column_tuple = tuple(col.name for col in columns)
-        else:
-            column_tuple = tuple(col.name for col in tbl.TABLE_DOMAIN.columns)
-
         #Get the domain setting
         cond_select = EqualCondition(param_name=tbl.COL_DOMAIN_NAME.name, param_value=domain_id)
-        result = list(self.sogo_db_manager.select_from_table(table_name=tbl.TABLE_DOMAIN.name,
-                                               column_tuple=column_tuple,
+        result = list(self.sogo_db_manager.select_from_table(table=tbl.TABLE_DOMAIN,
+                                               columns=[],
                                                condition=cond_select))
         size = len(result)
         if size > 1:
@@ -221,15 +212,15 @@ class ModuleAdminConfig:
             }
 
         ret: dict = {}
-        for idx, col in enumerate(column_tuple):
-            if col == tbl.COL_DOMAIN_SETTINGS.name:
+        for idx, col in enumerate(tbl.TABLE_DOMAIN.columns):
+            if col.name == tbl.COL_DOMAIN_SETTINGS.name:
                 ret["settings"] = result[0][idx]
             else:
-                ret[col] = result[0][idx]
+                ret[col.name] = result[0][idx]
 
         return ret
 
-    def _update_setting_in_table_settings(self, new_param: dict, column_name: str, get_schema: Callable) -> tuple[str, dict]:
+    def _update_setting_in_table_settings(self, new_param: dict, column: Column, get_schema: Callable) -> tuple[str, dict]:
         """
         new_param is expected to be of JSON merge patch.
         If the subparent allows multiple entrees, it should be a dict key=uid, value=dict of param
@@ -268,8 +259,8 @@ class ModuleAdminConfig:
 
         #Get the current system settings, purposely put a "true" condition to check if there is only 1 row.
         cond_select = NotEqualCondition(param_name=tbl.COL_SETTINGS_UNIQUE.name, param_value=0)
-        result  = list(self.sogo_db_manager.select_from_table(table_name=tbl.TABLE_SETTINGS.name,
-                                               column_tuple=(column_name,),
+        result  = list(self.sogo_db_manager.select_from_table(table=tbl.TABLE_SETTINGS,
+                                               columns=[column],
                                                condition=cond_select))
         size = len(result)
         if size > 1:
@@ -285,12 +276,12 @@ class ModuleAdminConfig:
             clean_param: dict = {}
             merge_patch(new_param, clean_param)
             values = check_data_for_sogo_schemas(clean_param, get_schema)
-            if column_name == tbl.COL_SETTINGS_SYSTEM.name:
+            if column.name == tbl.COL_SETTINGS_SYSTEM.name:
                 values_tuple = [1, values, {}]
-            elif column_name == tbl.COL_SETTINGS_DOMAIN_DEFAULT.name:
+            elif column.name == tbl.COL_SETTINGS_DOMAIN_DEFAULT.name:
                 values_tuple = [1, {}, values]
             else:
-                raise BugException(f"Trying to insert an unknown column in {tbl.TABLE_SETTINGS.name}: {column_name}", err.ERROR_BUG_UNKNWON_COLUMN)
+                raise BugException(f"Trying to insert an unknown column in {tbl.TABLE_SETTINGS.name}: {column.name}", err.ERROR_BUG_UNKNWON_COLUMN)
             ret = self.sogo_db_manager.insert_in_table(table_name=tbl.TABLE_SETTINGS.name,
                                                column_tuple=(tbl.COL_SETTINGS_UNIQUE.name, tbl.COL_SETTINGS_SYSTEM.name,tbl.COL_SETTINGS_DOMAIN_DEFAULT.name),
                                                values_tuple=[values_tuple])
@@ -304,7 +295,7 @@ class ModuleAdminConfig:
             #Update the column
             cond_update = EqualCondition(param_name=tbl.COL_SETTINGS_UNIQUE.name, param_value=1)
             ret = self.sogo_db_manager.update_in_table(table_name=tbl.TABLE_SETTINGS.name,
-                                               column_tuple=(column_name,),
+                                               column_tuple=(column.name,),
                                                values_list=[values],
                                                condition=cond_update)
         if ret != 1:
@@ -325,7 +316,7 @@ class ModuleAdminConfig:
         :rtype: tuple[int, dict]
         """
 
-        return self._update_setting_in_table_settings(new_param, tbl.COL_SETTINGS_SYSTEM.name, get_all_system_schemas)
+        return self._update_setting_in_table_settings(new_param, tbl.COL_SETTINGS_SYSTEM, get_all_system_schemas)
 
     def update_domain_default_settings(self, new_param: dict) -> tuple[str, dict]:
         """
@@ -337,7 +328,7 @@ class ModuleAdminConfig:
         :rtype: tuple[int, dict]
         """
 
-        return self._update_setting_in_table_settings(new_param, tbl.COL_SETTINGS_DOMAIN_DEFAULT.name, get_all_domain_schemas)
+        return self._update_setting_in_table_settings(new_param, tbl.COL_SETTINGS_DOMAIN_DEFAULT, get_all_domain_schemas)
 
     def create_domain_settings(self, new_param: dict) -> tuple[str, dict]:
         """
@@ -348,8 +339,8 @@ class ModuleAdminConfig:
         domain_name = new_param["domain_name"]
 
         domain_cond = EqualCondition(tbl.COL_DOMAIN_NAME.name, domain_name)
-        domain_result = list(self.sogo_db_manager.select_from_table(table_name=tbl.TABLE_DOMAIN.name,
-                                               column_tuple=(tbl.COL_DOMAIN_NAME.name,),
+        domain_result = list(self.sogo_db_manager.select_from_table(table=tbl.TABLE_DOMAIN,
+                                               columns=[tbl.COL_DOMAIN_NAME],
                                                condition=domain_cond))
         if len(domain_result) > 0:
             raise RequestException(f"Domain's name '{domain_name}' already taken", err.ERROR_DOMAIN_NAME_TAKEN)

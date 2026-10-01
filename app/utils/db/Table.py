@@ -11,11 +11,11 @@ SOGO_DB_DATA_TYPE = {"dict", "str", "list", "serial", "json", "int8", "bool", "d
 SOGO_DB_DATA_TYPE_VALIDATION = {
     "dict":     {"dict", "json"},
     "str":      {"str"},
-    "list":     {"list"},
+    "list":     {"list", "json"},
     "serial":   {"serial", "int"},
     "json":     {"dict", "json"},
     "int8":     {"number", "smallint", "int8"},
-    "bool":     {"bool", "boolean", "int8"},
+    "bool":     {"bool", "boolean", "int8", "int"},
     "datetime": {"datetime", "timestamp"},
     "int":      {"int", "number", "integer", "bigint"},
     "text":     {"str", "text"},
