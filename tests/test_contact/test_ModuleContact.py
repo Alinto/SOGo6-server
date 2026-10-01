@@ -3,6 +3,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from app.factory.share.shareContact import FULL_MODIFY_RIGHTS
 from app.module.contact.ModuleContact import ModuleContact
 from app.module.contact.acl.ContactAclEngine import ContactAclEngine
 from app.module.contact.jobs.ContactJobKind import ContactJobKind
@@ -276,6 +277,55 @@ def test_delete_list_denied_for_non_owner():
     with pytest.raises(RequestException) as exc:
         module.delete_list(_user(), "ab-k", "lst-k")
     assert exc.value.error == err.ERROR_CONTACT_ACCESS_DENIED
+
+
+def test_delete_addressbook_denied_for_sharee_even_with_erase_right():
+    module = _build_module()
+    share = MagicMock()
+    share.get_user_or_anyone.return_value = MagicMock(rights=dict(FULL_MODIFY_RIGHTS))
+    module._share = share
+    module._acl = ContactAclEngine(share=share)
+    source = _fake_source(_book(user_uid="someone-else@example.com"))
+    module._sources.get_by_key.return_value = source
+    with pytest.raises(RequestException) as exc:
+        module.delete_addressbook(_user(), "ab-k")
+    assert exc.value.error == err.ERROR_CONTACT_ACCESS_DENIED
+    source.delete_addressbook.assert_not_called()
+    share.remove_all_permissions_for_key.assert_not_called()
+
+
+def test_update_addressbook_denied_for_sharee_even_with_edit_right():
+    module = _build_module()
+    share = MagicMock()
+    share.get_user_or_anyone.return_value = MagicMock(rights=dict(FULL_MODIFY_RIGHTS))
+    module._share = share
+    module._acl = ContactAclEngine(share=share)
+    source = _fake_source(_book(user_uid="someone-else@example.com"))
+    module._sources.get_by_key.return_value = source
+    with pytest.raises(RequestException) as exc:
+        module.update_addressbook(_user(), "ab-k", {"name": "Renamed"})
+    assert exc.value.error == err.ERROR_CONTACT_ACCESS_DENIED
+    source.update_addressbook.assert_not_called()
+
+
+def test_update_addressbook_by_owner_renames_book():
+    module = _build_module()
+    module._share = MagicMock()
+    source = _fake_source()
+    module._sources.get_by_key.return_value = source
+    assert module.update_addressbook(_user(), "ab-k", {"name": "Renamed"}).name == "Renamed"
+    source.update_addressbook.assert_called_once()
+
+
+def test_delete_addressbook_by_owner_removes_book_and_shares():
+    module = _build_module()
+    module._share = MagicMock()
+    module._share.get_permissions.return_value = [MagicMock(to_user="bob@example.com")]
+    source = _fake_source()
+    module._sources.get_by_key.return_value = source
+    assert module.delete_addressbook(_user(), "ab-k") == ["bob@example.com"]
+    source.delete_addressbook.assert_called_once_with(hard_delete=False)
+    module._share.remove_all_permissions_for_key.assert_called_once_with("ab-k")
 
 
 def test_delete_list_raises_not_found_when_absent():

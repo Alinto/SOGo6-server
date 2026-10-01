@@ -443,7 +443,6 @@ def test_create_mailbox_delegate_external_forbidden(monkeypatch):
 
     data = {"email": "newdelegate@example.com"}
     result, status_code = interface.create_mailbox_delegate(account_id="abc123", data=data)
-    print("__________________________")
     print(status_code, result)
     assert status_code == 403
     assert result["error_code"] == err.ERROR_EXTERNAL_ACCOUNT_FORBIDDEN.c

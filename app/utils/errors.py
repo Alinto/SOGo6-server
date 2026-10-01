@@ -84,6 +84,7 @@ ERROR_FOLDER_ALREADY_EXIST  = E("S000305", "Folder already exist", HTTPStatus.CO
 ERROR_FOLDER_CANNOT_RENAME  = E("S000306", "Folder cannot be renamed", HTTPStatus.BAD_REQUEST)
 ERROR_FOLDER_NOT_UNIQUE     = E("S000307", "Folder is not unique", HTTPStatus.CONFLICT)
 ERROR_FOLDER_DELIMITER      = E("S000308", "Cannot create a folder with delimiter in the name", HTTPStatus.BAD_REQUEST)
+ERROR_FOLDER_SHARING_DISABLED = E("S000380", "Mail Folder Sharing Is Disabled For This Domain", HTTPStatus.FORBIDDEN)
 ERROR_INVALID_ACTION         = E("S000309", "Invalid Action Specified", HTTPStatus.BAD_REQUEST)
 ERROR_MISSING_ACTION_DATA    = E("S001306", "Missing Required Data For Action", HTTPStatus.BAD_REQUEST)
 
@@ -172,6 +173,8 @@ ERROR_SIEVE_SCRIPT_INVALID        = E("S001506", "Sieve script content is invali
 ERROR_SIEVE_LOGOUT                = E("S001507", "Sieve command issued while not connected", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_SIEVE_PUSH_FAILED           = E("S001508", "Failed To Push Filters To Sieve", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_SIEVE_CAPABILITY_NOT_FOUND  = E("S001509", "Sieve capability not found in server response", HTTPStatus.INTERNAL_SERVER_ERROR)
+ERROR_MAIL_FILTERING_DISABLED     = E("S001510", "Mail Filtering Is Disabled For This Domain", HTTPStatus.FORBIDDEN)
+ERROR_MAIL_FILTER_FEATURE_DISABLED = E("S001511", "This Mail Filter Feature Is Disabled For This Domain", HTTPStatus.FORBIDDEN)
 
 #Search
 ERROR_MAIL_SEARCH_FAILED = E("S000338", "IMAP search command failed", HTTPStatus.INTERNAL_SERVER_ERROR)
@@ -227,6 +230,7 @@ ERROR_CALENDAR_IMPORT_TOO_LARGE              = E("S000622", "Import Payload Exce
 ERROR_CALENDAR_PUBLIC_LINK_DISABLED          = E("S000623", "Public Calendar Link Is Disabled For This Domain", HTTPStatus.FORBIDDEN)
 ERROR_CALENDAR_EXPORT_FORMAT_UNSUPPORTED     = E("S000624", "Requested Export Format Is Not Supported", HTTPStatus.NOT_ACCEPTABLE)
 ERROR_CALENDAR_IMIP_SENDER_MISMATCH          = E("S000625", "iMIP Sender Is Not The Event Organizer", HTTPStatus.FORBIDDEN)
+ERROR_CALENDAR_SHARING_DISABLED              = E("S000626", "Calendar Sharing Is Disabled For This Domain", HTTPStatus.FORBIDDEN)
 
 #the contacts
 ERROR_CONTACT_JSON_PARSE_FAILED              = E("S000700", "Failed To Parse Contact JSON Content", HTTPStatus.UNPROCESSABLE_ENTITY)
@@ -249,6 +253,7 @@ ERROR_CONTACT_IMPORT_NO_FILE                 = E("S000716", "No File Provided In
 ERROR_CONTACT_IMPORT_TOO_LARGE               = E("S000717", "Import Payload Exceeds Maximum Allowed Size", HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
 ERROR_CONTACT_IMPORT_PARSE_FAILED            = E("S000718", "Failed To Parse The Import Document", HTTPStatus.UNPROCESSABLE_ENTITY)
 ERROR_CONTACT_DISPLAY_NAME_REQUIRED          = E("S000719", "Contact Display Name Is Required", HTTPStatus.UNPROCESSABLE_ENTITY)
+ERROR_CONTACT_SHARING_DISABLED               = E("S000720", "Address Book Sharing Is Disabled For This Domain", HTTPStatus.FORBIDDEN)
 
 #AGENT / TASK
 ERROR_JOB_NOT_FOUND        = E("S000800", "Job Not Found", HTTPStatus.NOT_FOUND)
@@ -274,6 +279,13 @@ ERROR_US_DB_MISSING_PWD = E("S000906", "DB User Source is Missing Password Colom
 # ADMIN AUTH
 ERROR_ADMIN_LOGIN_FAILED   = E("S001000", "Admin Login Failed: Invalid Credentials", HTTPStatus.UNAUTHORIZED)
 ERROR_ADMIN_AUTH_NOT_CONFIG = E("S001001", "Admin Authentication Not Configured", HTTPStatus.PRECONDITION_FAILED)
+
+#SHARE (generic resource sharing: calendars, addressbooks, mail folders - sogo6_acl)
+ERROR_SHARE_NOT_FOUND             = E("S001100", "Share Not Found", HTTPStatus.NOT_FOUND)
+ERROR_SHARE_TARGET_USER_NOT_FOUND = E("S001101", "Target User Not Found", HTTPStatus.NOT_FOUND)
+ERROR_SHARE_CANNOT_SHARE_WITH_SELF = E("S001102", "Cannot Share A Resource With Its Own Owner", HTTPStatus.BAD_REQUEST)
+ERROR_SHARE_PERMISSIONS_RIGHTS_MISMATCH = E("S001103", "Simplified 'permissions' And Advanced 'rights' Fields Are Inconsistent", HTTPStatus.BAD_REQUEST)
+ERROR_SHARE_ANY_AUTH_DISABLED = E("S001104", "Sharing With Any Authenticated User Is Disabled For This Domain", HTTPStatus.FORBIDDEN)
 
 #the bugs
 ERROR_UNKOWN = E("S999999", "Undefined Error", HTTPStatus.INTERNAL_SERVER_ERROR)
