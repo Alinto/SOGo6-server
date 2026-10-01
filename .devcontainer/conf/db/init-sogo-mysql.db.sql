@@ -17,11 +17,11 @@ GRANT ALL PRIVILEGES ON `sogo`.* TO 'sogo'@'%';
 USE `sogo`;
 
 CREATE TABLE IF NOT EXISTS `sogo_users` (
-  `uid` TEXT NOT NULL PRIMARY KEY,
-  `mail` TEXT NOT NULL,
-  `password` TEXT NOT NULL,
-  `cn` TEXT NOT NULL,
-  `ou` TEXT NOT NULL
+  `uid` VARCHAR(255) NOT NULL PRIMARY KEY,
+  `mail` VARCHAR(255) NOT NULL,
+  `password` VARCHAR(255) NOT NULL,
+  `cn` VARCHAR(255) NOT NULL,
+  `ou` VARCHAR(255) NOT NULL
 );
 
 -- Insert the three users

@@ -38,7 +38,7 @@ class FakeDB:
         self.deleted_conditions.append({"table": table_name, "cond": condition})
         return 1
 
-    def select_from_several_table(self, table_name, joins, column_tuple, condition, sort_by=None, order=None, limit=0):
+    def select_from_several_table(self, table, joins, columns_dict, condition, sort_by=None, order=None, limit=0):
         return iter(self.join_result)
 
 

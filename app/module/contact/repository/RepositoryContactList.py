@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from app.manager.db.ClientSQL import ClientSQL
 
 
-_ALL_COLS: tuple[str, ...] = tuple(col.name for col in tbl.ALL_LST_COL)
+_ALL_COLS_NAME: tuple[str, ...] = tuple(col.name for col in tbl.ALL_LST_COL)
 _INSERT_COLS: tuple[str, ...] = tuple(col.name for col in tbl.ALL_LST_COL if col.name != tbl.COL_ID.name)
 _MEMBER_COLS: tuple[str, ...] = (tbl.COL_LM_LIST_KEY.name, tbl.COL_LM_CONTACT_KEY.name)
 
@@ -35,7 +35,7 @@ class RepositoryContactList:
     @staticmethod
     def _row_to_list(row: tuple) -> CardList:
         """Map a DB row (ordered per ALL_LST_COL) to a CardList. Members are not populated here."""
-        d = dict(zip(_ALL_COLS, row))
+        d = dict(zip(_ALL_COLS_NAME, row))
         return CardList(
             id=d[tbl.COL_ID.name],
             key=d[tbl.COL_LST_KEY.name],
@@ -122,8 +122,8 @@ class RepositoryContactList:
             EqualCondition(tbl.COL_LST_IS_DELETED.name, False),
         )
         rows = list(self._db.select_from_table(
-            table_name=tbl.TABLE_CONTACT_LIST.name,
-            column_tuple=_ALL_COLS,
+            table=tbl.TABLE_CONTACT_LIST,
+            columns=tbl.TABLE_CONTACT_LIST.columns,
             condition=condition,
             limit=1,
         ))
@@ -141,8 +141,8 @@ class RepositoryContactList:
             EqualCondition(tbl.COL_LST_IS_DELETED.name, False),
         )
         rows = list(self._db.select_from_table(
-            table_name=tbl.TABLE_CONTACT_LIST.name,
-            column_tuple=_ALL_COLS,
+            table=tbl.TABLE_CONTACT_LIST,
+            columns=tbl.TABLE_CONTACT_LIST.columns,
             condition=condition,
             limit=1,
         ))
@@ -166,8 +166,8 @@ class RepositoryContactList:
         """
         # pylint: disable=duplicate-code
         rows = self._db.select_from_table(
-            table_name=tbl.TABLE_CONTACT_LIST.name,
-            column_tuple=_ALL_COLS,
+            table=tbl.TABLE_CONTACT_LIST,
+            columns=tbl.TABLE_CONTACT_LIST.columns,
             condition=self._book_filter(addressbook_key, search),
             offset=offset,
             limit=limit,
@@ -180,8 +180,8 @@ class RepositoryContactList:
     def count_by_addressbook(self, addressbook_key: str, search: str | None = None) -> int:
         """Return the number of non-deleted lists in an address book (for pagination total)."""
         rows = self._db.select_from_table(
-            table_name=tbl.TABLE_CONTACT_LIST.name,
-            column_tuple=(tbl.COL_LST_KEY.name,),
+            table=tbl.TABLE_CONTACT_LIST,
+            columns=[tbl.COL_LST_KEY],
             condition=self._book_filter(addressbook_key, search),
         )
         return sum(1 for _ in rows)
@@ -242,8 +242,8 @@ class RepositoryContactList:
     def all_keys(self) -> set[str]:
         """Return the opaque keys of every list row still present (used for orphan detection)."""
         rows = self._db.select_from_table(
-            table_name=tbl.TABLE_CONTACT_LIST.name,
-            column_tuple=(tbl.COL_LST_KEY.name,),
+            table=tbl.TABLE_CONTACT_LIST,
+            columns=[tbl.COL_LST_KEY],
             condition=TrueCondition(),
         )
         return {row[0] for row in rows}
@@ -254,8 +254,8 @@ class RepositoryContactList:
     def find_member_keys(self, list_key: str) -> list[str]:
         """Return the contact keys of a list's members, in insertion order."""
         rows = self._db.select_from_table(
-            table_name=tbl.TABLE_CONTACT_LIST_MEMBER.name,
-            column_tuple=(tbl.COL_LM_CONTACT_KEY.name,),
+            table=tbl.TABLE_CONTACT_LIST_MEMBER,
+            columns=[tbl.COL_LM_CONTACT_KEY],
             condition=EqualCondition(tbl.COL_LM_LIST_KEY.name, list_key),
         )
         return [row[0] for row in rows]
@@ -296,8 +296,8 @@ class RepositoryContactList:
         repository, so this method never reaches outside its own join table).
         """
         member_pairs: list[tuple] = list(self._db.select_from_table(
-            table_name=tbl.TABLE_CONTACT_LIST_MEMBER.name,
-            column_tuple=_MEMBER_COLS,
+            table=tbl.TABLE_CONTACT_LIST_MEMBER,
+            columns=[tbl.COL_LM_LIST_KEY, tbl.COL_LM_CONTACT_KEY],
             condition=TrueCondition(),
         ))
         orphan_list_keys: set[str] = {lk for lk, _ in member_pairs if lk not in live_list_keys}

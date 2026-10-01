@@ -116,7 +116,9 @@ ALL_USER_COL              = [COL_ID,
                              COL_USER_DELEGATION_GIVEN,
                              COL_USER_DELEGATION_GOT,
                              ]
-TABLE_USER = Table(name=process_config.SOGO_P_TABLE_USERS, columns=ALL_USER_COL, primary_keys=(COL_ID.name, COL_HASH.name, COL_USER_UID.name,))
+IDX_USER_UID = Index(name="idx_user_uid", columns=(COL_USER_UID.name,), unique=True)
+IDX_USER_HASH = Index(name="idx_user_hash", columns=(COL_HASH.name,), unique=True)
+TABLE_USER = Table(name=process_config.SOGO_P_TABLE_USERS, columns=ALL_USER_COL, primary_keys=(COL_ID.name,), indexes=[IDX_USER_UID, IDX_USER_HASH])
 
 
 

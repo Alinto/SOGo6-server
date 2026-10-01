@@ -10,7 +10,7 @@ from app.module.calendar.model.enums.EventStatus import EventStatus
 from app.module.calendar.model.enums.EventVisibility import EventVisibility
 from app.module.calendar.model.enums.RecurrenceFrequency import RecurrenceFrequency
 from app.module.calendar.model.enums.ShowAs import ShowAs
-from app.module.calendar.repository.RepositoryEvent import RepositoryEvent, _ALL_COLS, _INSERT_COLS
+from app.module.calendar.repository.RepositoryEvent import RepositoryEvent, _ALL_COLS_NAME, _INSERT_COLS
 from app.module.calendar.serializer.CalEventSerializerDict import CalEventSerializerDict
 from app.utils.db.Condition import AndCondition, Condition, EqualCondition, FullTextCondition, OrCondition
 from app.utils.db.FullTextValue import FullTextValue
@@ -36,7 +36,7 @@ class FakeDB:
         self.updated_rows.append({"table": table_name, "cols": column_tuple, "vals": values_list, "cond": condition})
         return 1
 
-    def select_from_table(self, table_name, column_tuple, condition, limit=0, sort_by=None, offset=0, order=None, rank_by=None):
+    def select_from_table(self, table, columns, condition, limit=0, sort_by=None, offset=0, order=None, rank_by=None):
         self.last_select_condition = condition
         self.last_rank_by = rank_by
         return iter(self.select_result)
@@ -86,7 +86,7 @@ def _build_row(event: CalEvent, event_id: int = 1) -> tuple:
         "created_at": event.created_at or datetime(2026, 1, 1, tzinfo=_UTC),
         "updated_at": event.updated_at or datetime(2026, 1, 1, tzinfo=_UTC),
     }
-    return tuple(values[col] for col in _ALL_COLS)
+    return tuple(values[col] for col in _ALL_COLS_NAME)
 
 
 @pytest.fixture
@@ -122,7 +122,7 @@ def test_row_to_event_naive_timestamps_made_utc():
     event.key = "k"
     row = list(_build_row(event))
     # Simulate psycopg returning naive datetime
-    col_idx = list(_ALL_COLS).index("date_start")
+    col_idx = list(_ALL_COLS_NAME).index("date_start")
     row[col_idx] = datetime(2026, 3, 1, 9, 0)  # naive
     result = RepositoryEvent._row_to_event(tuple(row))  # pylint: disable=protected-access
     assert result.date_start.tzinfo == _UTC

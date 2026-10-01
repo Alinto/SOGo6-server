@@ -2,6 +2,7 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Generator
 
+from app.utils.db.Table import Table, Column
 from app.manager.user_source.ClientUserSource import ClientUserSource
 from app.utils import constants as cs
 from app.utils import errors as err
@@ -100,7 +101,9 @@ class ClientSQLUserSource(ClientUserSource):
         columns_name = list(table_info.keys())
 
         # Get the password in the database
-        ret = list(self.client_sql.select_from_table(self.db_table, column_tuple=("*",), condition=cond))
+        us_col_uid = Column(self.uid_field, data_type="str")
+        us_table = Table(self.db_table, columns=[us_col_uid])
+        ret = list(self.client_sql.select_from_table(us_table, columns=[], condition=cond))
 
         size = len(ret)
         if size == 0:
@@ -140,8 +143,9 @@ class ClientSQLUserSource(ClientUserSource):
         #Merge db_filter with extra condition
         if self.db_filter:
             extra_condition = Condition.AndCondition(self.db_filter, extra_condition)
-
-        raws = self.client_sql.select_from_table(self.db_table, column_tuple=("*",), condition=extra_condition, limit=limit)
+        us_col_uid = Column(self.uid_field, data_type="str")
+        us_table = Table(self.db_table, columns=[us_col_uid])
+        raws = self.client_sql.select_from_table(us_table, columns=[], condition=extra_condition, limit=limit)
         for record in raws:
             user = dict(zip(columns_name, record))
             yield parse_db_user_record(user)
@@ -172,8 +176,9 @@ class ClientSQLUserSource(ClientUserSource):
         #Merge db_filter with extra condition
         if self.db_filter:
             extra_condition = Condition.AndCondition(self.db_filter, extra_condition)
-
-        raws = list(self.client_sql.select_from_table(self.db_table, column_tuple=("*",), condition=extra_condition))
+        us_col_uid = Column(self.uid_field, data_type="str")
+        us_table = Table(self.db_table, columns=[us_col_uid])
+        raws = list(self.client_sql.select_from_table(us_table, columns=[], condition=extra_condition))
 
         if n := len(raws) == 1:
             user = dict(zip(columns_name, raws[0]))
