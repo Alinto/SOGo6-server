@@ -13,7 +13,13 @@ from app.module.contact.ContactConst import IMPORT_MAX_BYTES
 from app.module.contact.source.ContactSourceDb import LIST_SORTABLE_COLUMNS, SORTABLE_COLUMNS
 from app.utils.api.ApiBaseResponse import create_api_base_response
 from app.utils.api.paginate_sort_filter import collection_paginate, CustomPaginateResponse
-from app.utils.errors import ERROR_CONTACT_IMPORT_NO_FILE, ERROR_CONTACT_IMPORT_TOO_LARGE, ERROR_CONTACT_SHARING_DISABLED
+from app.utils.api.share import is_share_any_auth_forbidden
+from app.utils.errors import (
+    ERROR_CONTACT_IMPORT_NO_FILE,
+    ERROR_CONTACT_IMPORT_TOO_LARGE,
+    ERROR_CONTACT_SHARING_DISABLED,
+    ERROR_SHARE_ANY_AUTH_DISABLED,
+)
 from app.utils.logger.logger import logger_api
 from .schemas.addressbook import (
     AddressBookCreateSchema,
@@ -154,6 +160,8 @@ class ApiAddressBookShare(MethodView):
         Other existing permissions remain unchanged.
         """
         logger_api.debug("PATCH /addressbooks/%s/share user=%s body=%s", key, g.user.uid, body)
+        if is_share_any_auth_forbidden("contact", body):
+            return create_api_base_response(None, ERROR_SHARE_ANY_AUTH_DISABLED)
         interface: InterfaceApiContactContact = g.inter
         return interface.patch_addressbook_share(key, body)
 
@@ -165,6 +173,8 @@ class ApiAddressBookShare(MethodView):
         All existing permissions are replaced by the users specified in the request body.
         """
         logger_api.debug("PUT /addressbooks/%s/share user=%s body=%s", key, g.user.uid, body)
+        if is_share_any_auth_forbidden("contact", body):
+            return create_api_base_response(None, ERROR_SHARE_ANY_AUTH_DISABLED)
         interface: InterfaceApiContactContact = g.inter
         return interface.put_addressbook_share(key, body)
 
@@ -173,6 +183,8 @@ class ApiAddressBookShare(MethodView):
     def post(self, body: list[dict], key: str) -> ResponseReturnValue:
         """Grant full permissions to one or several users."""
         logger_api.debug("POST /addressbooks/%s/share user=%s body=%s", key, g.user.uid, body)
+        if is_share_any_auth_forbidden("contact", body):
+            return create_api_base_response(None, ERROR_SHARE_ANY_AUTH_DISABLED)
         interface: InterfaceApiContactContact = g.inter
         return interface.post_addressbook_share(key, body)
 

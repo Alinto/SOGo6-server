@@ -84,6 +84,7 @@ ERROR_FOLDER_ALREADY_EXIST  = E("S000305", "Folder already exist", HTTPStatus.CO
 ERROR_FOLDER_CANNOT_RENAME  = E("S000306", "Folder cannot be renamed", HTTPStatus.BAD_REQUEST)
 ERROR_FOLDER_NOT_UNIQUE     = E("S000307", "Folder is not unique", HTTPStatus.CONFLICT)
 ERROR_FOLDER_DELIMITER      = E("S000308", "Cannot create a folder with delimiter in the name", HTTPStatus.BAD_REQUEST)
+ERROR_FOLDER_SHARING_DISABLED = E("S000380", "Mail Folder Sharing Is Disabled For This Domain", HTTPStatus.FORBIDDEN)
 ERROR_INVALID_ACTION         = E("S000309", "Invalid Action Specified", HTTPStatus.BAD_REQUEST)
 ERROR_MISSING_ACTION_DATA    = E("S001306", "Missing Required Data For Action", HTTPStatus.BAD_REQUEST)
 
@@ -284,6 +285,7 @@ ERROR_SHARE_NOT_FOUND             = E("S001100", "Share Not Found", HTTPStatus.N
 ERROR_SHARE_TARGET_USER_NOT_FOUND = E("S001101", "Target User Not Found", HTTPStatus.NOT_FOUND)
 ERROR_SHARE_CANNOT_SHARE_WITH_SELF = E("S001102", "Cannot Share A Resource With Its Own Owner", HTTPStatus.BAD_REQUEST)
 ERROR_SHARE_PERMISSIONS_RIGHTS_MISMATCH = E("S001103", "Simplified 'permissions' And Advanced 'rights' Fields Are Inconsistent", HTTPStatus.BAD_REQUEST)
+ERROR_SHARE_ANY_AUTH_DISABLED = E("S001104", "Sharing With Any Authenticated User Is Disabled For This Domain", HTTPStatus.FORBIDDEN)
 
 #the bugs
 ERROR_UNKOWN = E("S999999", "Undefined Error", HTTPStatus.INTERNAL_SERVER_ERROR)

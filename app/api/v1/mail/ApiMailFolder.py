@@ -1,13 +1,17 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
-from flask import g
+from flask import g, request
 from flask.views import MethodView
 from flask.typing import ResponseReturnValue
 from flask_smorest import Blueprint
 from marshmallow import Schema
 
+from app.config.settings.DomainSettings import UserModuleSettings
 from app.interface.mail.InterfaceApiMailFolder import InterfaceApiMailFolder
+from app.utils.api.ApiBaseResponse import create_api_base_response
+from app.utils.api.share import is_share_any_auth_forbidden
+from app.utils.errors import ERROR_FOLDER_SHARING_DISABLED, ERROR_SHARE_ANY_AUTH_DISABLED
 from app.utils.logger.logger import logger_api
 from .schemas.folder import (
     FolderCreateSchema,
@@ -37,7 +41,7 @@ class EmptySchema(Schema):
 
 
 @blp.before_request
-def init_mail_config() -> None:
+def init_mail_config() -> ResponseReturnValue | None:
     """
     Initialize the mail interface and any other required configuration for the request.
 
@@ -48,6 +52,14 @@ def init_mail_config() -> None:
     process: ProcessSetting = g.process_settings
     user_domain_settings: dict = g.user_domain_settings
     user: User = g.user
+
+    # Match on the route rule, not request.path: folder_name is a <path:>, so a folder named "share" would
+    # also end with "/share".
+    if request.url_rule is not None and request.url_rule.rule.endswith("/share"):
+        user_module_settings: dict = user_domain_settings.get(UserModuleSettings.subparent, {})
+        if "mail" in user_module_settings.get("SOGO_D_FOLDER_DISABLE_SHARING", []):
+            logger_api.debug("Access denied for %s: mail folder sharing is disabled", request.path)
+            return create_api_base_response(None, ERROR_FOLDER_SHARING_DISABLED)
 
     interface_api = InterfaceApiMailFolder(
         process_setting=process,
@@ -283,6 +295,8 @@ class ApiMailFolderIdShare(MethodView):
         """
         logger_api.debug("Calling ApiMailFolderIdShare.patch for account_id: %s, folder_name: %s with data: %s",
                         account_id, folder_name, share_data)
+        if is_share_any_auth_forbidden("mail", share_data):
+            return create_api_base_response(None, ERROR_SHARE_ANY_AUTH_DISABLED)
         interface: InterfaceApiMailFolder = g.inter
         return interface.patch_folder_share(account_id, folder_name, share_data)
 
@@ -305,6 +319,8 @@ class ApiMailFolderIdShare(MethodView):
         """
         logger_api.debug("Calling ApiMailFolderIdShare.put for account_id: %s, folder_name: %s with data: %s",
                         account_id, folder_name, share_data)
+        if is_share_any_auth_forbidden("mail", share_data):
+            return create_api_base_response(None, ERROR_SHARE_ANY_AUTH_DISABLED)
         interface: InterfaceApiMailFolder = g.inter
         return interface.put_folder_share(account_id, folder_name, share_data)
 
@@ -327,5 +343,7 @@ class ApiMailFolderIdShare(MethodView):
         """
         logger_api.debug("Calling ApiMailFolderIdShare.post for account_id: %s, folder_name: %s with data: %s",
                         account_id, folder_name, share_data)
+        if is_share_any_auth_forbidden("mail", share_data):
+            return create_api_base_response(None, ERROR_SHARE_ANY_AUTH_DISABLED)
         interface: InterfaceApiMailFolder = g.inter
         return interface.post_folder_share(account_id, folder_name, share_data)

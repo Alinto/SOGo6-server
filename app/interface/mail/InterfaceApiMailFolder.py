@@ -198,50 +198,7 @@ class InterfaceApiMailFolder:
         :rtype: tuple[dict[str, Any], int]
         """
         try:
-            share_info: dict[str, dict[str, Any]] = {}
-
-            # Only Instantiate Module User Source if we need it
-            module_us: ModuleUserSource|None = None
-
-            for identifier, rights in  self.mail_module.get_folder_share(account_id, folder_path):
-                if identifier == self.user.login_mail_server:
-                    continue
-                if identifier == "anyone":
-                    #Special indentifier means it is acl for everyone than can auth on the mail server
-                    share_info[identifier] = {
-                        "user_class": cs.USER_CLASS_ANY,
-                        "c_email": "",
-                        "cn": "",
-                        "uid": "",
-                        "rights": rights
-                    }
-                    continue
-
-                if module_us is None:
-                    module_us = ModuleUserSource.init_from_domain_settings(self.user_domain_settings)
-                #See if the identifier is known by us
-                user = User(identifier)
-                user.source_id = self.user.source_id
-                module_us.get_contact_info_for_user(self.user, user)
-                if user.anonymous:
-                    #The user was not found
-                    share_info[identifier] = {
-                        "user_class": cs.USER_CLASS_ANON,
-                        "c_email": "",
-                        "cn": "",
-                        "uid": identifier,
-                        "rights": rights
-                    }
-                else:
-                    #TODO handlre groups. They start with '@'
-                    share_info[identifier] = {
-                        "user_class": cs.USER_CLASS_USER,
-                        "c_email": user.mail,
-                        "cn": user.cn,
-                        "uid": user.uid,
-                        "rights": rights
-                    }
-            return create_api_base_response(share_info)
+            entries: list[AclEntry] = self.mail_module.get_folder_share(account_id, folder_path)
         except RequestException as ex:
             logger_api.error("Request exception in get_folder_share: %s", str(ex))
             return create_api_base_response(None, ex.error)
@@ -263,51 +220,8 @@ class InterfaceApiMailFolder:
         :rtype: tuple[dict[str, Any], int]
         """
         try:
-            share_info: dict[str, dict[str, Any]] = {}
-
-            # Only Instantiate Module User Source if we need it
-            module_us: ModuleUserSource|None = None
-
-            for identifier, rights in self.mail_module.share_folder(account_id, folder_path, share_data):
-                #TODO find a clerver way to factor this loop with get_folder_share()
-                if identifier == self.user.login_mail_server:
-                    continue
-                if identifier == "anyone":
-                    #Special indentifier means it is acl for everyone than can auth on the mail server
-                    share_info[identifier] = {
-                        "user_class": cs.USER_CLASS_ANY,
-                        "c_email": "",
-                        "cn": "",
-                        "uid": "",
-                        "rights": rights
-                    }
-                    continue
-
-                if module_us is None:
-                    module_us = ModuleUserSource.init_from_domain_settings(self.user_domain_settings)
-                #See if the identifier is known by us
-                user = User(identifier)
-                module_us.get_contact_info_for_user(self.user, user)
-                if user.anonymous:
-                    #The user was not found
-                    share_info[identifier] = {
-                        "user_class": cs.USER_CLASS_ANON,
-                        "c_email": "",
-                        "cn": "",
-                        "uid": identifier,
-                        "rights": rights
-                    }
-                else:
-                    #TODO handlre groups. They start with '@'
-                    share_info[identifier] = {
-                        "user_class": cs.USER_CLASS_USER,
-                        "c_email": user.mail,
-                        "cn": user.cn,
-                        "uid": user.uid,
-                        "rights": rights
-                    }
-
-            return create_api_base_response(share_info)
+            users = [{"uid": self._resolve_to_user(entry), "rights": self._resolve_rights(entry)} for entry in share_data]
+            entries: list[AclEntry] = self.mail_module.patch_folder_share(account_id, folder_path, users)
         except RequestException as ex:
             logger_api.error("Request exception in patch_folder_share: %s", str(ex))
             return create_api_base_response(None, ex.error)
@@ -414,7 +328,8 @@ class InterfaceApiMailFolder:
             if module_us is None:
                 module_us = ModuleUserSource.init_from_domain_settings(self.user_domain_settings)
             target: User = User(uid=entry.to_user)
-            module_us.get_contact_info_for_user(target)
+            target.source_id = self.user.source_id
+            module_us.get_contact_info_for_user(self.user, target)
             users.append({
                 "user_class": cs.USER_CLASS_ANON if target.anonymous else cs.USER_CLASS_USER,
                 "c_email": target.uid,

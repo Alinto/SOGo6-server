@@ -12,7 +12,8 @@ from app.config.settings.DomainSettings import UserModuleSettings
 from app.interface.calendar.InterfaceApiCalendarCalendar import InterfaceApiCalendarCalendar
 from app.utils.api.ApiBaseResponse import create_api_base_response
 from app.utils.api.is_async import async_endpoint
-from app.utils.errors import ERROR_CALENDAR_IMPORT_NO_FILE, ERROR_CALENDAR_SHARING_DISABLED
+from app.utils.api.share import is_share_any_auth_forbidden
+from app.utils.errors import ERROR_CALENDAR_IMPORT_NO_FILE, ERROR_CALENDAR_SHARING_DISABLED, ERROR_SHARE_ANY_AUTH_DISABLED
 from app.utils.logger.logger import logger_api
 from .schemas.calendar import (
     CalendarCreateSchema,
@@ -414,6 +415,8 @@ class ApiCalendarShare(MethodView):
         Other existing permissions remain unchanged.
         """
         logger_api.debug("PATCH /calendars/%s/share user=%s body=%s", key, g.user.uid, body)
+        if is_share_any_auth_forbidden("calendar", body):
+            return create_api_base_response(None, ERROR_SHARE_ANY_AUTH_DISABLED)
         interface: InterfaceApiCalendarCalendar = g.inter
         return interface.patch_calendar_share(key, body)
 
@@ -425,6 +428,8 @@ class ApiCalendarShare(MethodView):
         All existing permissions are replaced by the users specified in the request body.
         """
         logger_api.debug("PUT /calendars/%s/share user=%s body=%s", key, g.user.uid, body)
+        if is_share_any_auth_forbidden("calendar", body):
+            return create_api_base_response(None, ERROR_SHARE_ANY_AUTH_DISABLED)
         interface: InterfaceApiCalendarCalendar = g.inter
         return interface.put_calendar_share(key, body)
 
@@ -433,6 +438,8 @@ class ApiCalendarShare(MethodView):
     def post(self, body: list[dict], key: str) -> ResponseReturnValue:
         """Grant full modify permissions to one or several users."""
         logger_api.debug("POST /calendars/%s/share user=%s body=%s", key, g.user.uid, body)
+        if is_share_any_auth_forbidden("calendar", body):
+            return create_api_base_response(None, ERROR_SHARE_ANY_AUTH_DISABLED)
         interface: InterfaceApiCalendarCalendar = g.inter
         return interface.post_calendar_share(key, body)
 
