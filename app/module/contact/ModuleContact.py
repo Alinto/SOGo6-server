@@ -8,6 +8,9 @@ from app.module.contact.ContactConst import (
     ALLOWED_FILE_MIME_TYPES, DEFAULT_ADDRESSBOOK_NAME, FILE_MAX_SIZE_KB, IMPORT_MAX_BYTES,
 )
 from app.module.contact.acl.ContactAclEngine import ContactAclEngine
+from app.factory.share.shareContact import (
+    FULL_MODIFY_RIGHTS, RIGHT_CREATE, RIGHT_EDIT, RIGHT_ERASE, RIGHT_VIEW, ShareContact,
+)
 from app.module.contact.jobs.ContactJobKind import ContactJobKind
 from app.module.contact.jobs.JobRequestExportContact import JobRequestExportContact
 from app.module.contact.jobs.JobRequestImportContact import JobRequestImportContact
@@ -15,7 +18,6 @@ from app.module.contact.model.AddressBookContent import AddressBookContent
 from app.module.contact.model.CardAddressBook import CardAddressBook
 from app.module.contact.model.ContactImportResult import ContactImportResult
 from app.module.contact.model.enums.CardSourceType import CardSourceType
-from app.module.contact.model.enums.ContactShareLevel import ContactShareLevel
 from app.module.contact.source.ContactSources import ContactSources
 from app.utils import errors as err
 from app.utils.db.Condition import Order
@@ -28,6 +30,7 @@ if TYPE_CHECKING:
     from app.auth.User import User
     from app.config.settings.DomainSettings import UserSourceSettingsObj
     from app.config.settings.ProcessSetting import ProcessSetting
+    from app.factory.share.RepositoryAcl import AclEntry
     from app.manager.agent.ClientAgent import ClientAgent
     from app.manager.cache.ClientRedis import ClientRedis
     from app.manager.db.ClientSQL import ClientSQL
@@ -52,8 +55,9 @@ class ModuleContact:  # pylint: disable=too-many-public-methods
         self._db.connect()
         self._cache: ClientRedis | None = cache
         self._agent: ClientAgent | None = agent
-        self._sources: ContactSources = ContactSources(self._db)
-        self._acl: ContactAclEngine = ContactAclEngine()
+        self._share: ShareContact = ShareContact(self._db)
+        self._sources: ContactSources = ContactSources(self._db, share=self._share)
+        self._acl: ContactAclEngine = ContactAclEngine(share=self._share)
         self._file: ClientStorage = import_and_instantiate_manager(
             module_path="app.manager.storage",
             module_and_class_name=f"ClientStorage{process_settings.SOGO_P_STORAGE_TYPE.capitalize()}",
@@ -71,7 +75,7 @@ class ModuleContact:  # pylint: disable=too-many-public-methods
         a new one. Called at first login alongside the personal calendar provisioning.
         """
         for source in self._sources.get_all(user_uid):
-            if source.addressbook.is_default:
+            if source.addressbook.is_default and source.addressbook.user_uid == user_uid:
                 return source.addressbook
         book: CardAddressBook = CardAddressBook(
             user_uid=user_uid, name=name, is_default=True, source_type=CardSourceType.LOCAL,
@@ -86,7 +90,7 @@ class ModuleContact:  # pylint: disable=too-many-public-methods
     def get_all_addressbooks(
         self, user: User, user_sources: dict[str, UserSourceSettingsObj] | None = None,
     ) -> list[CardAddressBook]:
-        """Return all address books owned by the user (local DB books; directory when user_sources set)."""
+        """Return all address books owned by or shared with the user (local DB books; directory when user_sources set)."""
         return [source.addressbook for source in self._sources.get_all(user.uid, user_sources)]
 
     def get_addressbook(
@@ -98,25 +102,36 @@ class ModuleContact:  # pylint: disable=too-many-public-methods
             raise RequestException(error=err.ERROR_CONTACT_ADDRESSBOOK_NOT_FOUND)
         return source
 
-    def _require_modify(self, source: ContactSource, user: User) -> None:
-        """Enforce that the acting user may modify the source's address book (ACL MODIFY level)."""
-        self._acl.check_permission(self._acl.get_share_level(source.addressbook, user), ContactShareLevel.MODIFY)
-
     def _get_readable_addressbook(
         self, user: User, key: str, user_sources: dict[str, UserSourceSettingsObj] | None = None,
     ) -> ContactSource:
-        """Resolve the source for an address book the acting user may read (ACL VIEW level)."""
+        """Resolve the source for an address book the acting user may read (can_view)."""
         source: ContactSource = self.get_addressbook(user, key, user_sources)
-        self._acl.check_permission(self._acl.get_share_level(source.addressbook, user), ContactShareLevel.VIEW)
+        self._acl.check_permission(source.addressbook, user, RIGHT_VIEW)
         return source
 
     def _get_writable_addressbook(
-        self, user: User, key: str, user_sources: dict[str, UserSourceSettingsObj] | None = None,
+        self, user: User, key: str, *rights: str, user_sources: dict[str, UserSourceSettingsObj] | None = None,
     ) -> ContactSource:
-        """Resolve the source for an address book the acting user may modify (ACL MODIFY level)."""
+        """Resolve the source for an address book on which the acting user holds every one of ``rights``."""
         source: ContactSource = self.get_addressbook(user, key, user_sources)
-        self._require_modify(source, user)
+        self._acl.check_permission(source.addressbook, user, *rights)
         return source
+
+    def get_addressbook_rights(
+        self, user: User, key: str, user_sources: dict[str, UserSourceSettingsObj] | None = None,
+    ) -> dict[str, bool]:
+        """Return the acting user's own rights on an address book, in the ContactShareRightsSchema shape.
+
+        The owner has every right. Any other user gets the rights of their sogo6_acl entry (their own,
+        or the "anyone" one), each flag defaulting to False; no entry means no right at all.
+        """
+        book: CardAddressBook = self.get_addressbook(user, key, user_sources).addressbook
+        if book.user_uid == user.uid:
+            return dict(FULL_MODIFY_RIGHTS)
+        entry: AclEntry | None = self._share.get_user_or_anyone(user.uid, book.user_uid, key)
+        stored: dict = entry.rights if entry is not None else {}
+        return {name: bool(stored.get(name, False)) for name in FULL_MODIFY_RIGHTS}
 
     def create_addressbook(
         self, user: User, book: CardAddressBook, user_sources: dict[str, UserSourceSettingsObj] | None = None,
@@ -131,8 +146,8 @@ class ModuleContact:  # pylint: disable=too-many-public-methods
     def update_addressbook(
         self, user: User, key: str, updates: dict, user_sources: dict[str, UserSourceSettingsObj] | None = None,
     ) -> CardAddressBook:
-        """Apply updates to an existing address book and persist it."""
-        source: ContactSource = self._get_writable_addressbook(user, key, user_sources)
+        """Apply updates to an existing address book and persist it (owner-only, like deleting it)."""
+        source: ContactSource = self._require_owned_addressbook(user, key, user_sources)
         book: CardAddressBook = source.addressbook
         book.apply_update(updates)
         source.update_addressbook(book)
@@ -141,10 +156,96 @@ class ModuleContact:  # pylint: disable=too-many-public-methods
     def delete_addressbook(
         self, user: User, key: str, hard_delete: bool = False,
         user_sources: dict[str, UserSourceSettingsObj] | None = None,
-    ) -> None:
-        """Delete an address book; its contacts are tombstoned and detached (soft) or removed (hard)."""
-        source: ContactSource = self._get_writable_addressbook(user, key, user_sources)
+    ) -> list[str]:
+        """Delete an address book; its contacts are tombstoned and detached (soft) or removed (hard).
+
+        Owner-only: a sharee, even holding can_erase_objects, may delete the book's contacts and
+        lists but never the book itself. Also cleans up any sogo6_acl rows granting other users access to this address book.
+
+        :return: the list of uids that had a share on this address book (so the interface layer can
+            clean up their folders.ADDRESSBOOKS.SUBS entry too).
+        """
+        source: ContactSource = self._require_owned_addressbook(user, key, user_sources)
+        shared_uids: list[str] = [entry.to_user for entry in self._share.get_permissions(key)]
         source.delete_addressbook(hard_delete=hard_delete)
+        self._share.remove_all_permissions_for_key(key)
+        return shared_uids
+
+    #
+    # Address book sharing
+    #
+    def _require_owned_addressbook(
+        self, user: User, key: str, user_sources: dict[str, UserSourceSettingsObj] | None = None,
+    ) -> ContactSource:
+        """Return the address book source, raising ACCESS_DENIED if user is not its owner.
+
+        Sharing management (list / grant / patch / put), renaming and deleting the book are owner-only: get_addressbook
+        now also resolves address books merely shared with user, so an explicit ownership check is
+        required here to prevent a sharee from managing the resource's ACL.
+        """
+        source: ContactSource = self.get_addressbook(user, key, user_sources)
+        if source.addressbook.user_uid != user.uid:
+            raise RequestException(error=err.ERROR_CONTACT_ACCESS_DENIED)
+        return source
+
+    def get_addressbook_share(self, user: User, key: str) -> list[AclEntry]:
+        """Return all ACL entries (one per user) granted on the address book identified by key.
+
+        The caller must be the owner of the address book.
+        """
+        self._require_owned_addressbook(user, key)
+        return self._share.get_permissions(key)
+
+    def grant_addressbook_share(self, user: User, key: str, target_uids: list[str]) -> list[AclEntry]:
+        """Grant full permissions on the address book to one or several users.
+
+        :param user: the acting user, must own the address book.
+        :param key: opaque key of the address book to share.
+        :param target_uids: uids to grant full permissions to.
+        :raises RequestException: ERROR_CONTACT_ADDRESSBOOK_NOT_FOUND if the address book does not
+            exist; ERROR_CONTACT_ACCESS_DENIED if user does not own it;
+            ERROR_SHARE_CANNOT_SHARE_WITH_SELF if a target uid is the owner itself.
+        """
+        book: CardAddressBook = self._require_owned_addressbook(user, key).addressbook
+        for target_uid in target_uids:
+            self._share.add_permissions(target_uid, key, book.user_uid, dict(FULL_MODIFY_RIGHTS))
+        return self._share.get_permissions(key)
+
+    def patch_addressbook_share(self, user: User, key: str, users: list[dict]) -> list[AclEntry]:
+        """Grant or update rights for one or several users, leaving other existing shares untouched.
+
+        :param user: the acting user, must own the address book.
+        :param key: opaque key of the address book to share.
+        :param users: list of ``{"uid": ..., "rights": {...}}`` entries to upsert.
+        :raises RequestException: ERROR_CONTACT_ADDRESSBOOK_NOT_FOUND if the address book does not
+            exist; ERROR_CONTACT_ACCESS_DENIED if user does not own it;
+            ERROR_SHARE_CANNOT_SHARE_WITH_SELF if a target uid is the owner itself.
+        """
+        book: CardAddressBook = self._require_owned_addressbook(user, key).addressbook
+        for entry in users:
+            self._share.add_permissions(entry["uid"], key, book.user_uid, entry["rights"])
+        return self._share.get_permissions(key)
+
+    def put_addressbook_share(self, user: User, key: str, users: list[dict]) -> list[AclEntry]:
+        """Replace all existing shares on the address book with exactly the given users' rights.
+
+        Any user currently shared with but absent from ``users`` is revoked.
+
+        :param user: the acting user, must own the address book.
+        :param key: opaque key of the address book to share.
+        :param users: list of ``{"uid": ..., "rights": {...}}`` entries; becomes the full set of shares.
+        :raises RequestException: ERROR_CONTACT_ADDRESSBOOK_NOT_FOUND if the address book does not
+            exist; ERROR_CONTACT_ACCESS_DENIED if user does not own it;
+            ERROR_SHARE_CANNOT_SHARE_WITH_SELF if a target uid is the owner itself.
+        """
+        book: CardAddressBook = self._require_owned_addressbook(user, key).addressbook
+        new_uids: set[str] = {entry["uid"] for entry in users}
+        for existing in self._share.get_permissions(key):
+            if existing.to_user not in new_uids:
+                self._share.remove_permissions(existing.to_user, key)
+        for entry in users:
+            self._share.add_permissions(entry["uid"], key, book.user_uid, entry["rights"])
+        return self._share.get_permissions(key)
 
     #
     # Contacts
@@ -182,7 +283,7 @@ class ModuleContact:  # pylint: disable=too-many-public-methods
         """
         try:
             if addressbook_key is not None:
-                self._get_readable_addressbook(user, addressbook_key, user_sources)  # existence + ACL VIEW
+                self._get_readable_addressbook(user, addressbook_key, user_sources)  # existence + can_view
             contacts, total = self._sources.get_contacts(
                 user.uid, search=search, offset=offset, limit=limit, sort_by=sort_by,
                 order=order, addressbook_key=addressbook_key, user_sources=user_sources, resolve_ab=resolve_ab,
@@ -254,7 +355,9 @@ class ModuleContact:  # pylint: disable=too-many-public-methods
         user_sources: dict[str, UserSourceSettingsObj] | None = None,
     ) -> CardContact:
         """Persist a new contact in the address book and return it (uid/display name filled by apply_defaults)."""
-        source: ContactSource = self._get_writable_addressbook(user, addressbook_key, user_sources)
+        source: ContactSource = self._get_writable_addressbook(
+            user, addressbook_key, RIGHT_CREATE, user_sources=user_sources,
+        )
         created: CardContact = self._insert_contact(source, contact)
         created.photos = self._file.load_all(created.photos)
         return created
@@ -264,7 +367,9 @@ class ModuleContact:  # pylint: disable=too-many-public-methods
         user_sources: dict[str, UserSourceSettingsObj] | None = None,
     ) -> CardContact:
         """Update an existing contact, preserving its identity, and return the persisted result."""
-        source: ContactSource = self._get_writable_addressbook(user, addressbook_key, user_sources)
+        source: ContactSource = self._get_writable_addressbook(
+            user, addressbook_key, RIGHT_EDIT, user_sources=user_sources,
+        )
         existing: CardContact | None = source.get_contact_by_key(key)
         if existing is None:
             raise RequestException(error=err.ERROR_CONTACT_NOT_FOUND)
@@ -280,7 +385,9 @@ class ModuleContact:  # pylint: disable=too-many-public-methods
         user_sources: dict[str, UserSourceSettingsObj] | None = None,
     ) -> None:
         """Soft-delete a contact by key within an address book."""
-        source: ContactSource = self._get_writable_addressbook(user, addressbook_key, user_sources)
+        source: ContactSource = self._get_writable_addressbook(
+            user, addressbook_key, RIGHT_ERASE, user_sources=user_sources,
+        )
         if source.get_contact_by_key(key) is None:
             raise RequestException(error=err.ERROR_CONTACT_NOT_FOUND)
         try:
@@ -356,7 +463,9 @@ class ModuleContact:  # pylint: disable=too-many-public-methods
         user_sources: dict[str, UserSourceSettingsObj] | None = None,
     ) -> CardList:
         """Persist a new distribution list in the address book and return it (uid generated here)."""
-        source: ContactSource = self._get_writable_addressbook(user, addressbook_key, user_sources)
+        source: ContactSource = self._get_writable_addressbook(
+            user, addressbook_key, RIGHT_CREATE, user_sources=user_sources,
+        )
         self._validate_members(source, card_list.members)
         card_list.addressbook_key = source.addressbook.require_key
         card_list.uid = generate_uuid()
@@ -373,7 +482,9 @@ class ModuleContact:  # pylint: disable=too-many-public-methods
         user_sources: dict[str, UserSourceSettingsObj] | None = None,
     ) -> CardList:
         """Update an existing list, preserving its identity, and return the persisted result."""
-        source: ContactSource = self._get_writable_addressbook(user, addressbook_key, user_sources)
+        source: ContactSource = self._get_writable_addressbook(
+            user, addressbook_key, RIGHT_EDIT, user_sources=user_sources,
+        )
         existing: CardList | None = source.get_list_by_key(key)
         if existing is None:
             raise RequestException(error=err.ERROR_CONTACT_LIST_NOT_FOUND)
@@ -401,7 +512,9 @@ class ModuleContact:  # pylint: disable=too-many-public-methods
         user_sources: dict[str, UserSourceSettingsObj] | None = None,
     ) -> None:
         """Soft-delete a distribution list by key within an address book and clear its membership."""
-        source: ContactSource = self._get_writable_addressbook(user, addressbook_key, user_sources)
+        source: ContactSource = self._get_writable_addressbook(
+            user, addressbook_key, RIGHT_ERASE, user_sources=user_sources,
+        )
         if source.get_list_by_key(key) is None:
             raise RequestException(error=err.ERROR_CONTACT_LIST_NOT_FOUND)
         try:
@@ -439,7 +552,8 @@ class ModuleContact:  # pylint: disable=too-many-public-methods
             raise RequestException(error=err.ERROR_CONTACT_IMPORT_TOO_LARGE)
         if kind is not ContactJobKind.ADDRESSBOOK:
             # CONTACT / LIST target an existing book: fail fast on missing book or no write access.
-            self._get_writable_addressbook(user, self._require_key(addressbook_key))
+            # The import upserts (inserts new entries, updates existing ones), so it needs both rights.
+            self._get_writable_addressbook(user, self._require_key(addressbook_key), RIGHT_CREATE, RIGHT_EDIT)
         ref: str = self._agent.get_large_store().save_text(document, "text/plain")
         try:
             request: JobRequestImportContact = JobRequestImportContact(
@@ -469,7 +583,7 @@ class ModuleContact:  # pylint: disable=too-many-public-methods
         """
         if self._agent is None:
             raise RuntimeError("ModuleContact.enqueue_export requires a ClientAgent")
-        self._get_readable_addressbook(user, addressbook_key)  # existence + ACL VIEW
+        self._get_readable_addressbook(user, addressbook_key)  # existence + can_view
         request: JobRequestExportContact = JobRequestExportContact(
             kind=kind.value, addressbook_key=addressbook_key, item_key=item_key, fmt=fmt,
         )
@@ -491,7 +605,7 @@ class ModuleContact:  # pylint: disable=too-many-public-methods
     ) -> CardList:
         """Return a single list with its member_contacts resolved, ready to serialize as a group card.
 
-        Read access at ACL VIEW level. The list serializers emit members by their contact UID, so the
+        Read access requires can_view. The list serializers emit members by their contact UID, so the
         members (kept as keys) are resolved to the contacts of the same book here; a member pointing to a
         purged contact is skipped.
         """
@@ -506,7 +620,7 @@ class ModuleContact:  # pylint: disable=too-many-public-methods
     def get_addressbook_content(
         self, user: User, key: str, user_sources: dict[str, UserSourceSettingsObj] | None = None,
     ) -> AddressBookContent:
-        """Return a book's full content (every contact and list) for export, read access at ACL VIEW level.
+        """Return a book's full content (every contact and list) for export, read access requires can_view.
 
         Photos are inlined as data URIs so the exported document is self-contained. Each list's
         member_contacts are populated from the already-loaded contacts (the list serializers emit members
@@ -539,7 +653,9 @@ class ModuleContact:  # pylint: disable=too-many-public-methods
         """
         book: CardAddressBook = self.create_addressbook(
             user, CardAddressBook(user_uid=user.uid, name=name, source_type=CardSourceType.LOCAL), user_sources)
-        source: ContactSource = self._get_writable_addressbook(user, book.require_key, user_sources)
+        source: ContactSource = self._get_writable_addressbook(
+            user, book.require_key, RIGHT_CREATE, RIGHT_EDIT, user_sources=user_sources,
+        )
         result: ContactImportResult = ContactImportResult()
         self._upsert_contacts(source, content.contacts, result)
         self._upsert_lists(source, content.lists, result)
@@ -549,8 +665,10 @@ class ModuleContact:  # pylint: disable=too-many-public-methods
         self, user: User, key: str, contacts: list[CardContact],
         user_sources: dict[str, UserSourceSettingsObj] | None = None,
     ) -> ContactImportResult:
-        """Import contacts into an existing address book, upserting by uid (ACL MODIFY)."""
-        source: ContactSource = self._get_writable_addressbook(user, key, user_sources)
+        """Import contacts into an existing address book, upserting by uid (create + edit rights)."""
+        source: ContactSource = self._get_writable_addressbook(
+            user, key, RIGHT_CREATE, RIGHT_EDIT, user_sources=user_sources,
+        )
         result: ContactImportResult = ContactImportResult()
         self._upsert_contacts(source, contacts, result)
         return result
@@ -559,12 +677,14 @@ class ModuleContact:  # pylint: disable=too-many-public-methods
         self, user: User, key: str, lists: list[CardList],
         user_sources: dict[str, UserSourceSettingsObj] | None = None,
     ) -> ContactImportResult:
-        """Import distribution lists into an existing address book, upserting by uid (ACL MODIFY).
+        """Import distribution lists into an existing address book, upserting by uid (create + edit rights).
 
         A list's members must already exist in the book (its member_contacts were linked by the document
         deserializer); a member with no resolvable key is dropped.
         """
-        source: ContactSource = self._get_writable_addressbook(user, key, user_sources)
+        source: ContactSource = self._get_writable_addressbook(
+            user, key, RIGHT_CREATE, RIGHT_EDIT, user_sources=user_sources,
+        )
         result: ContactImportResult = ContactImportResult()
         self._upsert_lists(source, lists, result)
         return result

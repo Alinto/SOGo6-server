@@ -84,6 +84,7 @@ class FakeIMAPConnection:
         self.uid_search_response  = ("OK", [b""])
         self.append_response      = ("OK", [b""])
         self.getacl_response      = ("OK", [b"INBOX user1 lrswipkxtea user2 lr"])
+        self.myrights_response    = ("OK", [b"INBOX lrswipkxtea"])
         self.setacl_response      = ("OK", [b""])
         self.deleteacl_response   = ("OK", [b""])
         self.status_response      = ("OK", [b"INBOX (MESSAGES 10 UNSEEN 2)"])
@@ -178,6 +179,9 @@ class FakeIMAPConnection:
     # --- ACL ---
     def getacl(self, folder_name):
         return self.getacl_response
+
+    def myrights(self, folder_name):
+        return self.myrights_response
 
     def setacl(self, folder_name, identifier, rights):
         return self.setacl_response
@@ -817,6 +821,92 @@ class TestAcl:
         client.connection = None
         with pytest.raises(BugException):
             client.delete_acl("INBOX", "user")
+
+    def test_get_acl_raw_yields_raw_pairs(self):
+        fake_conn = FakeIMAPConnection()
+        fake_conn.getacl_response = ("OK", [b"INBOX user1 lrswipkxtea user2 lr"])
+        client = authenticated_client(fake_conn)
+
+        acl_list = list(client.get_acl_raw("INBOX"))
+        assert acl_list == [("user1", "lrswipkxtea"), ("user2", "lr")]
+
+    def test_get_acl_raw_not_authenticated_raises(self):
+        client = make_client()
+        client.connection = None
+        with pytest.raises(BugException):
+            list(client.get_acl_raw("INBOX"))
+
+    def test_get_acl_raw_failure_raises_request_exception(self):
+        fake_conn = FakeIMAPConnection()
+        fake_conn.getacl_response = ("NO", [b"Mailbox doesn't exist"])
+        client = authenticated_client(fake_conn)
+        with pytest.raises(RequestException):
+            list(client.get_acl_raw("Ghost"))
+
+    def test_get_my_rights_raw_returns_rights(self):
+        fake_conn = FakeIMAPConnection()
+        fake_conn.myrights_response = ("OK", [b'"shared/user1/My folder" lr'])
+        client = authenticated_client(fake_conn)
+        assert client.get_my_rights_raw("shared/user1/My folder") == "lr"
+
+    def test_get_my_rights_raw_for_folders_one_request_per_distinct_folder(self):
+        fake_conn = FakeIMAPConnection()
+        calls = []
+        fake_conn.myrights = lambda mb: calls.append(mb) or ("OK", [f"{mb} lr".encode()])
+        client = authenticated_client(fake_conn)
+        client.capabilities = {"IMAP4rev1", "ACL"}
+        rights = client.get_my_rights_raw_for_folders(["INBOX", "shared/user2@example.org", "INBOX"])
+        assert rights == {"INBOX": "lr", "shared/user2@example.org": "lr"}
+        assert calls == ['"INBOX"', '"shared/user2@example.org"']
+
+    def test_get_my_rights_raw_for_folders_failure_gives_no_rights(self):
+        fake_conn = FakeIMAPConnection()
+        fake_conn.myrights_response = ("NO", [b"Permission denied"])
+        client = authenticated_client(fake_conn)
+        client.capabilities = {"IMAP4rev1", "ACL"}
+        assert client.get_my_rights_raw_for_folders(["INBOX"]) == {"INBOX": ""}
+
+    def test_get_my_rights_raw_for_folders_no_acl_capability_gives_all_rights(self):
+        client = authenticated_client(FakeIMAPConnection())
+        client.capabilities = {"IMAP4rev1"}
+        assert client.get_my_rights_raw_for_folders(["INBOX"]) == {"INBOX": "lrswipkxtea"}
+
+    def test_get_my_rights_raw_for_folders_not_authenticated_raises(self):
+        client = make_client()
+        client.connection = None
+        with pytest.raises(BugException):
+            client.get_my_rights_raw_for_folders(["INBOX"])
+
+    def test_get_my_rights_raw_not_authenticated_raises(self):
+        client = make_client()
+        client.connection = None
+        with pytest.raises(BugException):
+            client.get_my_rights_raw("INBOX")
+
+    def test_get_my_rights_raw_failure_raises_request_exception(self):
+        fake_conn = FakeIMAPConnection()
+        fake_conn.myrights_response = ("NO", [b"Mailbox doesn't exist"])
+        client = authenticated_client(fake_conn)
+        with pytest.raises(RequestException):
+            client.get_my_rights_raw("Ghost")
+
+    def test_set_acl_raw_success(self):
+        fake_conn = FakeIMAPConnection()
+        client = authenticated_client(fake_conn)
+        client.set_acl_raw("INBOX", "anyone", "lr")
+
+    def test_set_acl_raw_not_authenticated_raises(self):
+        client = make_client()
+        client.connection = None
+        with pytest.raises(BugException):
+            client.set_acl_raw("INBOX", "user", "lr")
+
+    def test_set_acl_raw_failure_raises_request_exception(self):
+        fake_conn = FakeIMAPConnection()
+        fake_conn.setacl_response = ("NO", [b"Mailbox doesn't exist"])
+        client = authenticated_client(fake_conn)
+        with pytest.raises(RequestException):
+            client.set_acl_raw("Ghost", "user", "lr")
 
 
 # ===========================================================================
@@ -1545,6 +1635,75 @@ class TestListFolders:
         assert isinstance(folders, list)
         assert len(folders) >= 0
 
+    def test_list_folders_with_rights(self):
+        fake_conn = FakeIMAPConnection()
+        fake_conn.list_response = ("OK", [b'(\\HasNoChildren) "." "INBOX"', b'(\\Noselect \\HasChildren) "." "shared"'])
+        fake_conn.myrights_response = ("OK", [b"INBOX lrs"])
+        client = authenticated_client(fake_conn)
+        client.capabilities = {"IMAP4rev1", "ACL"}
+        folders = {f["path"]: f for f in client.list_folders(with_rights=True)}
+        assert folders["INBOX"]["rights"] == "lrs"
+        assert folders["shared"]["rights"] == ""
+
+    def test_list_folders_keeps_deep_children(self):
+        fake_conn = FakeIMAPConnection()
+        fake_conn.list_response = ("OK", [
+            b'(\\Noselect \\HasChildren) "/" shared',
+            b'(\\HasChildren) "/" shared/user2@example.org',
+            b'(\\HasNoChildren) "/" shared/user2@example.org/Folder',
+        ])
+        client = authenticated_client(fake_conn)
+        folders = client.list_folders()
+        assert len(folders) == 1
+        owner = folders[0]["children"][0]
+        assert owner["path"] == "shared/user2@example.org"
+        assert [c["path"] for c in owner["children"]] == ["shared/user2@example.org/Folder"]
+
+    def test_list_folders_keeps_deep_children_listed_before_parents(self):
+        fake_conn = FakeIMAPConnection()
+        fake_conn.list_response = ("OK", [
+            b'(\\HasNoChildren) "/" a/b/c',
+            b'(\\HasChildren) "/" a/b',
+            b'(\\HasChildren) "/" a',
+        ])
+        client = authenticated_client(fake_conn)
+        folders = client.list_folders()
+        assert folders[0]["children"][0]["children"][0]["path"] == "a/b/c"
+
+    def test_list_folders_with_rights_uses_real_path_with_dots(self):
+        fake_conn = FakeIMAPConnection()
+        fake_conn.list_response = ("OK", [b'(\\Noselect \\HasChildren) "/" shared',
+                                          b'(\\HasNoChildren) "/" shared/user2@example.org'])
+        calls = []
+        fake_conn.myrights = lambda mb: calls.append(mb) or ("OK", [b"shared/user2@example.org lrwsipxc"])
+        client = authenticated_client(fake_conn)
+        client.default_delimiter = "/"
+        client.capabilities = {"IMAP4rev1", "ACL"}
+        assert client.list_folders(with_rights=True)[0]["children"][0]["rights"] == "lrwsipxc"
+        assert calls == ['"shared/user2@example.org"']
+
+    def test_list_folders_with_rights_myrights_failure_gives_no_rights(self):
+        fake_conn = FakeIMAPConnection()
+        fake_conn.list_response = ("OK", [b'(\\HasNoChildren) "." "INBOX"'])
+        fake_conn.myrights_response = ("NO", [b"Permission denied"])
+        client = authenticated_client(fake_conn)
+        client.capabilities = {"IMAP4rev1", "ACL"}
+        assert client.list_folders(with_rights=True)[0]["rights"] == ""
+
+    def test_list_folders_with_rights_no_acl_capability_gives_all_rights(self):
+        fake_conn = FakeIMAPConnection()
+        fake_conn.list_response = ("OK", [b'(\\HasNoChildren) "." "INBOX"'])
+        client = authenticated_client(fake_conn)
+        client.capabilities = {"IMAP4rev1"}
+        assert client.list_folders(with_rights=True)[0]["rights"] == "lrswipkxtea"
+
+    def test_list_folders_without_rights_has_no_rights_key(self):
+        fake_conn = FakeIMAPConnection()
+        fake_conn.list_response = ("OK", [b'(\\HasNoChildren) "." "INBOX"'])
+        client = authenticated_client(fake_conn)
+        client.capabilities = {"IMAP4rev1", "ACL"}
+        assert "rights" not in client.list_folders()[0]
+
     def test_list_folders_not_authenticated_raises(self):
         client = make_client()
         client.connection = None
@@ -1816,28 +1975,28 @@ class TestBuildSearchCriteria:
     def test_default_operator_is_and(self):
         client = make_client()
         criteria = client.build_search_criteria(
-            {"subject": "Projet X", "from_": "a@b.com"}, deleted=False
+            {"subject": "Projet X", "from_": ["a@b.com"]}, deleted=False
         )
         assert criteria == '(NOT DELETED FROM "a@b.com" SUBJECT "Projet X")'
 
     def test_explicit_and_operator_same_as_default(self):
         client = make_client()
         criteria = client.build_search_criteria(
-            {"operator": "AND", "subject": "Projet X", "from_": "a@b.com"}, deleted=False
+            {"operator": "AND", "subject": "Projet X", "from_": ["a@b.com"]}, deleted=False
         )
         assert criteria == '(NOT DELETED FROM "a@b.com" SUBJECT "Projet X")'
 
     def test_or_operator_combines_two_fields(self):
         client = make_client()
         criteria = client.build_search_criteria(
-            {"operator": "OR", "subject": "Projet X", "from_": "a@b.com"}, deleted=False
+            {"operator": "OR", "subject": "Projet X", "from_": ["a@b.com"]}, deleted=False
         )
         assert criteria == '(NOT DELETED OR FROM "a@b.com" SUBJECT "Projet X")'
 
     def test_or_operator_combines_more_than_two_fields(self):
         client = make_client()
         criteria = client.build_search_criteria(
-            {"operator": "OR", "subject": "Projet X", "from_": "a@b.com", "is_read": False},
+            {"operator": "OR", "subject": "Projet X", "from_": ["a@b.com"], "is_read": False},
             deleted=False,
         )
         assert criteria == '(NOT DELETED OR FROM "a@b.com" (OR SUBJECT "Projet X" UNSEEN))'
@@ -1852,14 +2011,14 @@ class TestBuildSearchCriteria:
     def test_deleted_true_applies_no_deleted_filter_regardless_of_operator(self):
         client = make_client()
         criteria = client.build_search_criteria(
-            {"operator": "OR", "subject": "Projet X", "from_": "a@b.com"}, deleted=True
+            {"operator": "OR", "subject": "Projet X", "from_": ["a@b.com"]}, deleted=True
         )
         assert criteria == '(OR FROM "a@b.com" SUBJECT "Projet X")'
 
     def test_or_operator_combines_to_with_another_field(self):
         client = make_client()
         criteria = client.build_search_criteria(
-            {"operator": "OR", "to": "x@y.com", "subject": "Projet X"},
+            {"operator": "OR", "to": ["x@y.com"], "subject": "Projet X"},
             deleted=False,
         )
         assert criteria == (
@@ -1869,16 +2028,48 @@ class TestBuildSearchCriteria:
     def test_to_field_matches_to_or_cc_header(self):
         client = make_client()
         criteria = client.build_search_criteria(
-            {"to": "x@y.com"}, deleted=False
+            {"to": ["x@y.com"]}, deleted=False
         )
         assert criteria == '(NOT DELETED (OR TO "x@y.com" CC "x@y.com"))'
 
     def test_bcc_field(self):
         client = make_client()
         criteria = client.build_search_criteria(
-            {"bcc": "x@y.com"}, deleted=False
+            {"bcc": ["x@y.com"]}, deleted=False
         )
         assert criteria == '(NOT DELETED BCC "x@y.com")'
+
+    def test_from_field_multiple_addresses_are_ored(self):
+        client = make_client()
+        criteria = client.build_search_criteria(
+            {"from_": ["a@b.com", "c@d.com"]}, deleted=False
+        )
+        assert criteria == '(NOT DELETED (OR FROM "a@b.com" FROM "c@d.com"))'
+
+    def test_from_field_more_than_two_addresses_are_ored(self):
+        client = make_client()
+        criteria = client.build_search_criteria(
+            {"from_": ["a@b.com", "c@d.com", "e@f.com"]}, deleted=False
+        )
+        assert criteria == (
+            '(NOT DELETED (OR FROM "a@b.com" (OR FROM "c@d.com" FROM "e@f.com")))'
+        )
+
+    def test_to_field_multiple_addresses_are_ored(self):
+        client = make_client()
+        criteria = client.build_search_criteria(
+            {"to": ["a@b.com", "c@d.com"]}, deleted=False
+        )
+        assert criteria == (
+            '(NOT DELETED (OR (OR TO "a@b.com" CC "a@b.com") (OR TO "c@d.com" CC "c@d.com")))'
+        )
+
+    def test_bcc_field_multiple_addresses_are_ored(self):
+        client = make_client()
+        criteria = client.build_search_criteria(
+            {"bcc": ["a@b.com", "c@d.com"]}, deleted=False
+        )
+        assert criteria == '(NOT DELETED (OR BCC "a@b.com" BCC "c@d.com"))'
 
     def test_no_user_criteria_and_deleted_true_returns_all(self):
         client = make_client()

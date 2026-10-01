@@ -88,7 +88,7 @@ class ClientMailServer(metaclass=ABCMeta):
         """Login to the mail server."""
 
     @abstractmethod
-    def list_folders(self) -> list[dict[str, Any]]:
+    def list_folders(self, with_rights: bool = False) -> list[dict[str, Any]]:
         """List all folders for the user, each item is:
 
         {
@@ -101,7 +101,35 @@ class ClientMailServer(metaclass=ABCMeta):
             "subscribed": int 1/0, subscribed means the user want to see this folder and its mails
             "unseen_count": int, number of mails not already seen
             "message_count": int, total number of mails in this folders
+            "rights": str, only if with_rights, raw rights of the logged user on this folder
+                      (e.g. "lrswipkxtea"), empty string if the folder can't be selected
         }
+
+        :param with_rights: Also fetch the logged user's own rights on each folder (one more
+            request per folder).
+        :type with_rights: bool
+        """
+
+    @abstractmethod
+    def get_my_rights_raw(self, folder_path: str) -> str:
+        """Get the raw rights the logged user has on a folder (IMAP MYRIGHTS, RFC 4314).
+
+        :param folder_path: The name of the folder.
+        :type folder_path: str
+        :return: raw IMAP ACL rights characters (e.g. "lrswipkxtea").
+        :rtype: str
+        :raises RequestException: If getting the rights fails.
+        """
+
+    @abstractmethod
+    def get_my_rights_raw_for_folders(self, folder_paths: list[str]) -> dict[str, str]:
+        """Get the raw rights the logged user has on several folders, fetched once per folder.
+
+        :param folder_paths: Real folder paths (as returned by list_folders or
+            get_folder_with_subfolders).
+        :type folder_paths: list[str]
+        :return: folder path -> raw IMAP ACL rights characters (empty string if they can't be read).
+        :rtype: dict[str, str]
         """
 
     @abstractmethod
@@ -179,6 +207,21 @@ class ClientMailServer(metaclass=ABCMeta):
         """
 
     @abstractmethod
+    def get_acl_raw(self, folder_path: str) -> Iterator[tuple[str, str]]:
+        """Get the raw Access Control List (ACL) for a folder, with no SOGo rights conversion.
+
+        Uses the IMAP GETACL command and yields the IMAP rights characters exactly as returned
+        by the server (e.g. "lrswipkxtea"), for callers that already work with their own
+        rights-code correspondence table instead of the legacy SOGo rights dictionary.
+
+        :param folder_path: The name of the folder to get ACL for.
+        :type folder_path: str
+        :yield: tuples of (identifier, imap_rights) where imap_rights is the raw ACL string.
+        :rtype: Iterator[tuple[str, str]]
+        :raises RequestException: If not connected to the server or if getting ACL fails.
+        """
+
+    @abstractmethod
     def set_acl(self, folder_path: str, identifier: str, rights: dict[str, Any]) -> None:
         """Set ACL rights for a specific user/identifier on a folder.
 
@@ -191,6 +234,19 @@ class ClientMailServer(metaclass=ABCMeta):
         :type identifier: str
         :param rights: dictionary of SOGo rights (e.g., {"userCanViewFolder": 1, "userCanReadMails": 1})
         :type rights: dict[str, Any]
+        :raises RequestException: If not connected to the server or if setting ACL fails.
+        """
+
+    @abstractmethod
+    def set_acl_raw(self, folder_path: str, identifier: str, imap_rights: str) -> None:
+        """Set ACL rights for a specific user/identifier on a folder, with no SOGo rights conversion.
+
+        :param folder_path: The name of the folder.
+        :type folder_path: str
+        :param identifier: The user identifier (email, username, or special like 'anyone').
+        :type identifier: str
+        :param imap_rights: Raw IMAP ACL rights characters to grant (empty string revokes all).
+        :type imap_rights: str
         :raises RequestException: If not connected to the server or if setting ACL fails.
         """
 

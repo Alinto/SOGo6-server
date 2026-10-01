@@ -3,9 +3,11 @@ from unittest.mock import MagicMock, patch
 
 from app.interface.calendar.InterfaceApiCalendarCalendar import InterfaceApiCalendarCalendar
 from app.module.calendar.model.CalCalendar import CalCalendar
+from app.module.calendar.model.enums.CalendarSourceType import CalendarSourceType
 from app.module.calendar.model.enums.EventVisibility import EventVisibility
 from app.module.calendar.serializer.CalCalendarDeserializerDict import CalCalendarDeserializerDict
 from app.module.calendar.serializer.CalCalendarSerializerDict import CalCalendarSerializerDict
+from app.module.calendar.serializer.CalCalendarsSerializerList import CalCalendarsSerializerList
 from app.utils import errors as err
 from app.utils.exceptions import RequestException
 
@@ -20,6 +22,7 @@ def _build_interface(user_tz="Europe/Paris"):
     inter.module.create_calendar.side_effect = lambda user, cal: cal
     inter._calendar_deserializer = CalCalendarDeserializerDict()
     inter._calendar_serializer = CalCalendarSerializerDict()
+    inter._calendars_serializer = CalCalendarsSerializerList()
     inter._process_setting = MagicMock(SOGO_P_PUBLIC_BASE_URL="")
     inter._user_module = MagicMock()
     inter._user_module.get_partial_user_preferences.return_value = {"USER_GENERAL": {"SOGO_U_TIMEZONE": user_tz}}
