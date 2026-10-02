@@ -313,6 +313,35 @@ def _make_module(monkeypatch, fake_client=None):
     return module, fake_client
 
 
+class FakeShare:
+    """Fake ShareMailFolder for testing ModuleMail's sogo6_acl (type='folder') mirror."""
+
+    def __init__(self):
+        self.entries = {}  # (key, to_user) -> AclEntry
+        self.add_permissions_calls = []
+        self.remove_permissions_calls = []
+
+    def get_permissions(self, key):
+        return [entry for (stored_key, _), entry in self.entries.items() if stored_key == key]
+
+    def add_permissions(self, for_user, on_key, owner, rights):
+        self.add_permissions_calls.append((for_user, on_key, owner, rights))
+        self.entries[(on_key, for_user)] = AclEntry(
+            resource_type="folder", key=on_key, owner=owner, to_user=for_user, rights=rights,
+        )
+
+    def remove_permissions(self, for_user, on_key):
+        self.remove_permissions_calls.append((for_user, on_key))
+        self.entries.pop((on_key, for_user), None)
+
+
+def _make_share(monkeypatch, module):
+    """Patch module._get_share to return a fresh FakeShare, and return it for assertions."""
+    fake_share = FakeShare()
+    monkeypatch.setattr(module, '_get_share', lambda: fake_share)
+    return fake_share
+
+
 # ========== Tests for initialization ==========
 
 def test_module_init_success():

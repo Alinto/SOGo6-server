@@ -119,13 +119,19 @@ def _build_module(sources: dict):
 
     sources_mock.require_event.side_effect = _require_event
 
-    def _get_events(uid, start, end, search, calendar_key=None):
+    def _get_events(uid, start, end, search, calendar_key=None, subscribed_keys=None):
         if calendar_key is not None:
             source = sources.get(calendar_key)
             if source is None:
                 raise RequestException(error=err.ERROR_CALENDAR_NOT_FOUND)
+            if subscribed_keys is not None and calendar_key not in subscribed_keys:
+                return []
             return source.get_all_events(start, end, search)
-        return [e for s in sources.values() for e in s.get_all_events(start, end, search)]
+        return [
+            e for key, s in sources.items()
+            if subscribed_keys is None or key in subscribed_keys
+            for e in s.get_all_events(start, end, search)
+        ]
 
     sources_mock.get_all_events.side_effect = _get_events
     module._sources = sources_mock
