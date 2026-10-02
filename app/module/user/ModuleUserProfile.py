@@ -750,22 +750,7 @@ class ModuleUserProfile:
         """
         logger_user_profile.debug("Getting folders for uid: %s", uid)
 
-        return self._get_user_column(uid, tbl.COL_USER_FOLDERS.name)
-
-    def get_user_folders(self, uid: str) -> dict:
-        """
-        Get the folders column content for a user (contains calendar and addressbook keys)
-
-        :param uid: User unique identifier
-        :type uid: str
-        :return: Folders dictionary containing CALENDAR and ADDRESSBOOKS structure
-        :rtype: dict
-        :raises RequestException: If user profile not found
-        :raises AggravatedException: If multiple user profiles found
-        """
-        logger_user_profile.debug("Getting folders for uid: %s", uid)
-
-        return self._get_user_column(uid, tbl.COL_USER_FOLDERS.name)
+        return self._get_user_column(uid, tbl.COL_USER_FOLDERS)
 
     def get_partial_user_preferences(self, uid:str, subparent:str) -> dict:
         """

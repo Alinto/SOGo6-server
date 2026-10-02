@@ -164,7 +164,7 @@ def test_save_draft_recipient_limit_exceeded():
     mail_data = {"to": ["a@example.com", "b@example.com"], "cc": ["c@example.com"], "bcc": []}
     result, status_code = interface.save_draft(account_id="0", mail_data=mail_data)
 
-    assert result["error_code"] == "S000338"
+    assert result["error_code"] == "S000342"
     assert status_code == 403
     assert fake_mail.save_draft_args is None  # save_draft must NOT have been called
 
@@ -271,7 +271,7 @@ def test_send_mail_recipient_limit_exceeded():
     mail_data = {"to": ["a@example.com"], "cc": ["b@example.com"], "bcc": ["c@example.com"]}
     result, status_code = interface.send_mail(account_id="0", mail_data=mail_data)
 
-    assert result["error_code"] == "S000338"
+    assert result["error_code"] == "S000342"
     assert status_code == 403
     assert fake_outgoing.send_mail_args is None  # send_mail must NOT have been called
 
@@ -286,7 +286,7 @@ def test_send_mail_recipient_limit_exceeded_with_key_skips_draft_processing():
     mail_data = {"to": ["a@example.com", "b@example.com"]}
     result, status_code = interface.send_mail(account_id="0", mail_data=mail_data, key="abc123")
 
-    assert result["error_code"] == "S000338"
+    assert result["error_code"] == "S000342"
     assert status_code == 403
     assert fake_mail.validate_tmp_draft_key_args is None
     assert fake_outgoing.send_mail_args is None
