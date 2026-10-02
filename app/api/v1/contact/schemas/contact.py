@@ -128,7 +128,10 @@ class ContactSearchQueryArgsSchema(Schema):
     """Query string for the contact list endpoints (search only; pagination is handled separately)."""
 
     search = fields.String(load_default=None, allow_none=True, validate=validate_search,
-                           metadata={"description": "Full-text query (min 2 non-whitespace characters)."})
+                           metadata={
+                               "description": "Full-text query matched against the contact fields "
+                                              "(min 2 non-whitespace characters). Omit to list everything.",
+                               "example": "doe"})
 
 
 class ContactListDataSchema(Schema):
@@ -154,7 +157,10 @@ class ContactResponseSchema(ApiBaseResponse):
 class ContactAutocompleteQueryArgsSchema(Schema):
     """Query string for the recipient autocompletion endpoint."""
 
-    q = fields.String(required=True, metadata={"description": "Partial name or email to autocomplete."})
+    q = fields.String(required=True, metadata={
+        "description": "Partial name or email typed by the user. Shorter than the domain minimum "
+                       "autocompletion length returns an empty suggestion list.",
+        "example": "john"})
 
 
 class SuggestionMemberSchema(Schema):
