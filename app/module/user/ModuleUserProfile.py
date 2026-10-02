@@ -7,7 +7,6 @@ from app.config.db import tables as tbl
 from app.config.settings.UserSettings import get_all_user_settings_schema, user_settings_dict
 from app.config.settings.SogoSchema import check_data_for_sogo_schemas
 from app.config.settings.DomainSettings import UserModuleSettingsObj, UserModuleSettings
-from app.utils import constants as cs
 from app.utils import errors as err
 from app.utils.db.Condition import EqualCondition
 from app.utils.dict import merge_patch
@@ -21,6 +20,7 @@ if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
     from app.manager.db.ClientSQL import ClientSQL
     from app.auth.User import User
+    from app.utils.db.Table import Column
 
 
 class ModuleUserProfile:
@@ -63,8 +63,8 @@ class ModuleUserProfile:
 
         condition = EqualCondition(tbl.COL_USER_UID.name, uid)
         result = list(self.sogo_db_manager.select_from_table(
-            table_name=tbl.TABLE_USER.name,
-            column_tuple=(tbl.COL_USER_UID.name,),
+            table=tbl.TABLE_USER,
+            columns=[tbl.COL_USER_UID],
             condition=condition
         ))
         if len(result) == 1:
@@ -224,7 +224,7 @@ class ModuleUserProfile:
                                   uid, folder_type, owner_key, key)
         
         # Get current folders data
-        current_folders = self._get_user_column(uid, tbl.COL_USER_FOLDERS.name)
+        current_folders = self._get_user_column(uid, tbl.COL_USER_FOLDERS)
         
         # Initialize structure if needed
         if not current_folders:
@@ -268,7 +268,7 @@ class ModuleUserProfile:
         logger_user_profile.debug("Removing folder key for uid: %s, folder_type: %s, owner_key: %s, key: %s",
                                   uid, folder_type, owner_key, key)
 
-        current_folders = self._get_user_column(uid, tbl.COL_USER_FOLDERS.name)
+        current_folders = self._get_user_column(uid, tbl.COL_USER_FOLDERS)
 
         if not current_folders:
             return
@@ -306,7 +306,7 @@ class ModuleUserProfile:
         logger_user_profile.debug("Updating folder value for uid: %s, resource: %s, id: %s, value: %s",
                                   uid, resource, folder_id, value)
 
-        current_folders = self._get_user_column(uid, tbl.COL_USER_FOLDERS.name)
+        current_folders = self._get_user_column(uid, tbl.COL_USER_FOLDERS)
 
         for section in current_folders.get(resource, {}).values():
             if folder_id in section:
@@ -317,7 +317,7 @@ class ModuleUserProfile:
         logger_user_profile.error("Folder key not found for uid: %s, resource: %s, id: %s", uid, resource, folder_id)
         raise RequestException(err.ERROR_FOLDER_KEY_NOT_FOUND.m, err.ERROR_FOLDER_KEY_NOT_FOUND)
 
-    def _get_user_column(self, uid: str, field_name: str) -> Any:
+    def _get_user_column(self, uid: str, column: Column) -> Any:
         """
         Generic method to get a specific field from user profile
         
@@ -334,17 +334,17 @@ class ModuleUserProfile:
 
         condition = EqualCondition(tbl.COL_USER_UID.name, uid)
         result = list(self.sogo_db_manager.select_from_table(
-            table_name=tbl.TABLE_USER.name,
-            column_tuple=(field_name,),
+            table=tbl.TABLE_USER,
+            columns=[column],
             condition=condition
         ))
 
         if len(result) == 0:
-            logger_user_profile.error("No user found for uid: %s when retrieving field: %s", uid, field_name)
+            logger_user_profile.error("No user found for uid: %s when retrieving field: %s", uid, column.name)
             raise RequestException(err.ERROR_USER_PROFILE_NOT_FOUND.m, err.ERROR_USER_PROFILE_NOT_FOUND)
 
         if len(result) > 1:
-            logger_user_profile.error("Multiple users found for uid: %s when retrieving field: %s", uid, field_name)
+            logger_user_profile.error("Multiple users found for uid: %s when retrieving field: %s", uid, column.name)
             raise AggravatedException(err.ERROR_USER_PROFILE_DUPLICATE.m, err.ERROR_USER_PROFILE_DUPLICATE)
 
         field_value = result[0][0]
@@ -422,7 +422,7 @@ class ModuleUserProfile:
         logger_user_profile.debug("Listing external accounts for uid: %s", user.uid)
 
         #Get Main Account
-        main_account = self._get_user_column(user.uid, tbl.COL_USER_MAIN_ACCOUNT.name)
+        main_account = self._get_user_column(user.uid, tbl.COL_USER_MAIN_ACCOUNT)
 
         #Cleanup main account according to domain_settings restriction
         self._clean_main_account(user, main_account)
@@ -431,7 +431,7 @@ class ModuleUserProfile:
 
         #Add external accounts
         if self.user_module_settings.SOGO_D_ALLOW_EXT_MAIL_ACCOUNT:
-            external_accounts: dict = self._get_user_column(user.uid, tbl.COL_USER_EXTERNAL_ACCOUNTS.name)
+            external_accounts: dict = self._get_user_column(user.uid, tbl.COL_USER_EXTERNAL_ACCOUNTS)
             for account_hash, account_data in external_accounts.items():
                 if "password" in account_data["mail_server"]:
                     account_data["mail_server"].pop("password")
@@ -458,12 +458,12 @@ class ModuleUserProfile:
 
         # If account_id is "0", return the main account
         if account_id == "0":
-            main_account: dict = self._get_user_column(user.uid, tbl.COL_USER_MAIN_ACCOUNT.name)
+            main_account: dict = self._get_user_column(user.uid, tbl.COL_USER_MAIN_ACCOUNT)
             self._clean_main_account(user, main_account)
             return main_account
 
         # Otherwise, retrieve external account
-        external_accounts = self._get_user_column(user.uid, tbl.COL_USER_EXTERNAL_ACCOUNTS.name)
+        external_accounts = self._get_user_column(user.uid, tbl.COL_USER_EXTERNAL_ACCOUNTS)
 
         if account_id not in external_accounts:
             logger_user_profile.error("External account not found: %s for uid: %s", account_id, user.uid)
@@ -526,7 +526,7 @@ class ModuleUserProfile:
         identities_list = account_data["identities"]
         self._validate_signatures_size(identities_list)
 
-        external_accounts = self._get_user_column(uid, tbl.COL_USER_EXTERNAL_ACCOUNTS.name)
+        external_accounts = self._get_user_column(uid, tbl.COL_USER_EXTERNAL_ACCOUNTS)
 
         # Generate a unique account hash
         account_id = get_unique_token(HASH_SIZE_ACCOUNT)
@@ -598,7 +598,7 @@ class ModuleUserProfile:
         """
         logger_user_profile.debug("Updating external account %s for uid: %s", account_id, user.uid)
 
-        all_external_accounts = self._get_user_column(user.uid, tbl.COL_USER_EXTERNAL_ACCOUNTS.name)
+        all_external_accounts = self._get_user_column(user.uid, tbl.COL_USER_EXTERNAL_ACCOUNTS)
 
         if account_id not in all_external_accounts:
             logger_user_profile.error("External account not found: %s for uid: %s", account_id, user.uid)
@@ -652,7 +652,7 @@ class ModuleUserProfile:
         """
         logger_user_profile.debug("Deleting external account %s for uid: %s", account_id, user.uid)
 
-        external_accounts: dict = self._get_user_column(user.uid, tbl.COL_USER_EXTERNAL_ACCOUNTS.name)
+        external_accounts: dict = self._get_user_column(user.uid, tbl.COL_USER_EXTERNAL_ACCOUNTS)
 
         if account_id not in external_accounts:
             logger_user_profile.error("External account not found: %s for uid: %s", account_id, user.uid)
@@ -709,7 +709,7 @@ class ModuleUserProfile:
         #TODO
 
         #Get the main account data
-        main_account = self._get_user_column(user.uid, tbl.COL_USER_MAIN_ACCOUNT.name)
+        main_account = self._get_user_column(user.uid, tbl.COL_USER_MAIN_ACCOUNT)
 
         if not main_account:
             logger_user_profile.error("Main account not found for uid: %s", user.uid)
@@ -735,7 +735,22 @@ class ModuleUserProfile:
         :rtype: dict
         """
 
-        return self._get_user_column(uid, tbl.COL_USER_DEFAULTS.name)
+        return self._get_user_column(uid, tbl.COL_USER_DEFAULTS)
+
+    def get_user_folders(self, uid: str) -> dict:
+        """
+        Get the folders column content for a user (contains calendar and addressbook keys)
+
+        :param uid: User unique identifier
+        :type uid: str
+        :return: Folders dictionary containing CALENDAR and ADDRESSBOOKS structure
+        :rtype: dict
+        :raises RequestException: If user profile not found
+        :raises AggravatedException: If multiple user profiles found
+        """
+        logger_user_profile.debug("Getting folders for uid: %s", uid)
+
+        return self._get_user_column(uid, tbl.COL_USER_FOLDERS.name)
 
     def get_user_folders(self, uid: str) -> dict:
         """
@@ -768,7 +783,7 @@ class ModuleUserProfile:
         if subparent.lower() not in user_settings_dict:
             raise RequestException(f"Preferences asked {subparent} does not exist", err.ERROR_PREF_UNKNOWN_SUB)
 
-        prefs = self._get_user_column(uid, tbl.COL_USER_DEFAULTS.name)
+        prefs = self._get_user_column(uid, tbl.COL_USER_DEFAULTS)
         real_subparent = user_settings_dict[subparent.lower()].subparent
         ret = {
             real_subparent: prefs.get(real_subparent, {})
@@ -788,7 +803,7 @@ class ModuleUserProfile:
         :return: the new value of user preferences
         :rtype: dict
         """
-        current_data = self._get_user_column(uid, tbl.COL_USER_DEFAULTS.name)
+        current_data = self._get_user_column(uid, tbl.COL_USER_DEFAULTS)
 
         if subparent:
             real_subparent = user_settings_dict[subparent.lower()].subparent
@@ -820,7 +835,7 @@ class ModuleUserProfile:
         """
         logger_user_profile.debug("Getting delegations given for uid: %s", user.uid)
 
-        delegations = self._get_user_column(user.uid, tbl.COL_USER_DELEGATION_GIVEN.name)
+        delegations = self._get_user_column(user.uid, tbl.COL_USER_DELEGATION_GIVEN)
 
         # Ensure we return a list (handle None or empty dict)
         if not delegations or not isinstance(delegations, list):
@@ -879,11 +894,10 @@ class ModuleUserProfile:
         """
         self.sogo_db_manager.connect()
 
-        columns = tuple(tbl.TABLE_USER.columns_name.keys())
         condition = EqualCondition(tbl.COL_USER_UID.name, user.uid)
         result = list(self.sogo_db_manager.select_from_table(
-            table_name=tbl.TABLE_USER.name,
-            column_tuple=columns,
+            table=tbl.TABLE_USER,
+            columns=tbl.TABLE_USER.columns,
             condition=condition
         ))
 
@@ -896,7 +910,7 @@ class ModuleUserProfile:
             raise AggravatedException(err.ERROR_USER_PROFILE_DUPLICATE.m, err.ERROR_USER_PROFILE_DUPLICATE)
 
         row = result[0]
-        for idx, column_name in enumerate(columns):
+        for idx, column_name in enumerate(tbl.TABLE_USER.columns_name.keys()):
             try:
                 getattr(user.profile, column_name)
             except AttributeError as e:

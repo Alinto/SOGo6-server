@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 
 # All column names in ALL_AB_COL order - used for SELECT and row mapping
-_ALL_COLS: tuple[str, ...] = tuple(col.name for col in tbl.ALL_AB_COL)
+_ALL_COLS_NAME: tuple[str, ...] = tuple(col.name for col in tbl.ALL_AB_COL)
 
 # Columns for INSERT - id is serial, omitted
 _INSERT_COLS: tuple[str, ...] = tuple(col.name for col in tbl.ALL_AB_COL if col.name != tbl.COL_ID.name)
@@ -32,7 +32,7 @@ class RepositoryAddressBook:
     @staticmethod
     def _row_to_addressbook(row: tuple) -> CardAddressBook:
         """Map a DB row (ordered per ALL_AB_COL) to a CardAddressBook."""
-        d = dict(zip(_ALL_COLS, row))
+        d = dict(zip(_ALL_COLS_NAME, row))
         return CardAddressBook(
             id=d["id"],
             key=d["key"],
@@ -92,8 +92,8 @@ class RepositoryAddressBook:
         )
         # pylint: disable=duplicate-code
         rows = list(self._db.select_from_table(
-            table_name=tbl.TABLE_ADDRESSBOOK.name,
-            column_tuple=_ALL_COLS,
+            table=tbl.TABLE_ADDRESSBOOK,
+            columns=tbl.TABLE_ADDRESSBOOK.columns,
             condition=condition,
             limit=1,
         ))
@@ -127,8 +127,8 @@ class RepositoryAddressBook:
         )
         # pylint: disable=duplicate-code
         rows = list(self._db.select_from_table(
-            table_name=tbl.TABLE_ADDRESSBOOK.name,
-            column_tuple=_ALL_COLS,
+            table=tbl.TABLE_ADDRESSBOOK,
+            columns=tbl.TABLE_ADDRESSBOOK.columns,
             condition=condition,
             limit=1,
         ))
@@ -141,8 +141,8 @@ class RepositoryAddressBook:
         """Return all address books for the given user, ordered by id."""
         condition = EqualCondition(tbl.COL_AB_USER_UID.name, user_uid)
         rows = self._db.select_from_table(
-            table_name=tbl.TABLE_ADDRESSBOOK.name,
-            column_tuple=_ALL_COLS,
+            table=tbl.TABLE_ADDRESSBOOK,
+            columns=tbl.TABLE_ADDRESSBOOK.columns,
             condition=condition,
             sort_by=tbl.COL_ID.name,
         )

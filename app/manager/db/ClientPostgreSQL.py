@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Any, Generator
+from typing import Any, Generator, Callable
 
 from collections import OrderedDict
 import re
@@ -10,7 +10,7 @@ from psycopg.errors import Error, OperationalError, DuplicateTable, UniqueViolat
 from psycopg.sql import SQL, Literal, Placeholder, Identifier, Composed, Composable
 from psycopg.types.json import Jsonb
 
-from app.utils.db.Table import Table, REX_VALID_NAMES
+from app.utils.db.Table import Table, REX_VALID_NAMES, Column
 from app.utils.db.Condition import (Condition, EqualCondition, NotEqualCondition, AndCondition, OrCondition,
                                     TrueCondition, LessOrEqualCondition, GreaterOrEqualCondition,
                                     IsNullCondition, IsNotNullCondition, LikeCondition, NotLikeCondition, FullTextCondition,
@@ -463,7 +463,7 @@ class ClientPostgreSQL(ClientSQL):
 
         return ret
 
-    def select_from_table(self, table_name: str, column_tuple: tuple[str, ...], condition: Condition,  # pylint: disable=too-many-branches,too-many-locals
+    def select_from_table(self, table: Table, columns: list[Column], condition: Condition,  # pylint: disable=too-many-branches,too-many-locals
                           offset: int = 0, limit: int = 0,
                           sort_by: str | None = None, order: Order = Order.ASC,
                           rank_by: FullTextCondition | None = None) -> Generator[tuple[Any, ...]]:
@@ -492,8 +492,10 @@ class ClientPostgreSQL(ClientSQL):
         """
         if self.db_conn and self.db_conn.closed:
             self.connect()
-        if len(column_tuple) == 0:
-            column_tuple = ("*",)
+        if len(columns) == 0:
+            column_tuple: tuple[str, ...] = ("*",)
+        else:
+            column_tuple = tuple(c.name for c in columns)
         if limit == 0:
             limit_query = Composed([SQL("ALL")])
         else:
@@ -521,7 +523,7 @@ class ClientPostgreSQL(ClientSQL):
 
         sql_query = SQL("SELECT {columns} FROM {table_name} {conditions} {order} LIMIT {limit} OFFSET {offset}").format(
             columns=SQL(", ").join(map(SQL, column_tuple)),
-            table_name=Identifier(table_name),
+            table_name=Identifier(table.name),
             conditions=condition_to_query(condition, add_where=True),
             order=order_clause,
             limit=limit_query,
@@ -546,9 +548,9 @@ class ClientPostgreSQL(ClientSQL):
 
     def select_from_several_table(
         self,
-        table_name: str,
+        table: Table,
         joins: list[JoinClause],
-        column_tuple: tuple[str, ...],
+        columns_dict: OrderedDict[str, list[Column]],
         condition: Condition,
         sort_by: str | None = None,
         order: Order = Order.ASC,
@@ -582,9 +584,16 @@ class ClientPostgreSQL(ClientSQL):
             )
         limit_clause = SQL(" LIMIT {n}").format(n=Literal(limit)) if limit > 0 else Composed([SQL("")])
 
+        #Build list of columns wiht proper name for join request:
+        columns_list: list[Column] = []
+        for table_name, columns in columns_dict.items():
+            for col in columns:
+                new_column = Column(name=f"{table_name}.{col.name}", data_type=col.data_type)
+                columns_list.append(new_column)
+
         sql_query = SQL("SELECT {columns} FROM {table}{joins} {where}{order}{limit}").format(
-            columns=SQL(", ").join(_col_ref(c) for c in column_tuple),
-            table=Identifier(table_name),
+            columns=SQL(", ").join(_col_ref(c.name) for c in columns_list),
+            table=Identifier(table.name),
             joins=join_sql,
             where=condition_to_query(condition, add_where=True),
             order=order_clause,

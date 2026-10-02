@@ -21,11 +21,11 @@ class FakeClientSQL:
         """Simulate database connection."""
         self.connect_called = True
 
-    def select_from_table(self, table_name, column_tuple, condition=None):
+    def select_from_table(self, table, columns, condition=None):
         """Simulate selecting from table."""
         self.select_calls.append({
-            'table': table_name,
-            'columns': column_tuple,
+            'table': table,
+            'columns': columns,
             'condition': condition
         })
         # Return iterator over results (each row is a tuple of column values)

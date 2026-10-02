@@ -89,8 +89,8 @@ class ModuleAuth:
                                                             module_args=self.process_settings.get_db_settings())
             condition = EqualCondition(tbl.COL_DOMAIN_NAME.name, domain)
             sogo_db_manager.connect()
-            result = list(sogo_db_manager.select_from_table(tbl.TABLE_DOMAIN.name,
-                                                (tbl.COL_DOMAIN_SETTINGS.name,),
+            result = list(sogo_db_manager.select_from_table(tbl.TABLE_DOMAIN,
+                                                [tbl.COL_DOMAIN_SETTINGS],
                                                 condition=condition))
             if len(result) == 1:
                 domain_auth_settings = AuthSettingsObj(result[0][0][AuthSettings.subparent]) #result[0][0]: first column of the first row of the result

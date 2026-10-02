@@ -1,15 +1,14 @@
 from __future__ import annotations
-from typing import Any, Generator, Tuple, List, cast
+from typing import Any, Generator, cast, Callable
 
 from collections import OrderedDict
 import re
 import json
-from urllib.parse import quote_plus
 
 import mysql.connector
 from mysql.connector import Error, ProgrammingError  # pylint: disable=no-name-in-module
 
-from app.utils.db.Table import Table, REX_VALID_NAMES
+from app.utils.db.Table import Table, Column, REX_VALID_NAMES
 from app.utils.db.Condition import (Condition, EqualCondition, NotEqualCondition, AndCondition, OrCondition,
                                     TrueCondition, LessOrEqualCondition, GreaterOrEqualCondition,
                                     IsNullCondition, IsNotNullCondition, LikeCondition, NotLikeCondition, FullTextCondition,
@@ -61,6 +60,7 @@ data_type_mysql_to_sogo: dict[str, str] = {
     "varchar":    "str",
     "char":       "str",
     "text":       "text",
+    "longtext":   "json",
     "mediumtext": "text",
     "int": "int",
     "integer": "int",
@@ -83,7 +83,7 @@ def table_to_query(table: Table) -> str:
         logger_sql.error("Try generate a table without the class Table")
         raise BugException(f": {__name__} Try generate a table without the class Table")
 
-    sql_all_column: List[str] = []
+    sql_all_column: list[str] = []
     for column in table.columns:
         # Get mysql data type
         data_type = data_type_sogo_to_mysql[column.data_type]
@@ -137,14 +137,14 @@ def _boolean_prefix(terms: list[str]) -> str:
     return " ".join(f"+{term}*" for term in terms)
 
 
-def condition_to_query(condition: Condition, add_where: bool = False) -> Tuple[str, List[Any]]:  # pylint: disable=too-many-statements
+def condition_to_query(condition: Condition, add_where: bool = False) -> tuple[str, list[Any]]:  # pylint: disable=too-many-statements
     """
     Convert Condition objects into a SQL WHERE fragment and a list of parameter values.
 
     Returns: (sql_fragment, params)
     Example: ("WHERE (`col1` = %s AND `col2` != %s)", [val1, val2])
     """
-    params: List[Any] = []
+    params: list[Any] = []
 
     if isinstance(condition, EqualCondition):
         sql_condition = f"{_col_ref(condition.param_name)} = %s"
@@ -262,7 +262,7 @@ class ClientMySQL(ClientSQL):
         ret = OrderedDict()
         sql_query = "SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s"
 
-        params = cast(Tuple[str, str], (str(self.conn_config["database"]), str(table_name)))
+        params = cast(tuple[str, str], (str(self.conn_config["database"]), str(table_name)))
 
         logger_sql.info("QUERY COMMAND: %s -- params=%s", sql_query, params)
 
@@ -280,7 +280,7 @@ class ClientMySQL(ClientSQL):
 
             for col_name, data_type in all_record:
                 data_type_lower = str(data_type).lower()
-                ret[col_name] = data_type_mysql_to_sogo.get(data_type_lower, "str")
+                ret[col_name] = data_type_mysql_to_sogo[data_type_lower]
 
         return ret
 
@@ -362,7 +362,7 @@ class ClientMySQL(ClientSQL):
             self.connect()
 
         insert_len = len(column_tuple)
-        sql_all_values: List[Any] = []
+        sql_all_values: list[Any] = []
         placeholders_per_row = "(" + ", ".join(["%s"] * insert_len) + ")"
         sql_all_placeholder = []
 
@@ -417,7 +417,7 @@ class ClientMySQL(ClientSQL):
 
         # Prepare set expressions and convert dict/list to json strings
         set_parts = []
-        params: List[Any] = []
+        params: list[Any] = []
         for idx, col in enumerate(column_tuple):
             val = values_list[idx]
             if isinstance(val, FullTextValue):
@@ -452,7 +452,7 @@ class ClientMySQL(ClientSQL):
 
         return ret
 
-    def select_from_table(self, table_name: str, column_tuple: tuple[str, ...], condition: Condition,
+    def select_from_table(self, table: Table, columns: list[Column], condition: Condition,
                           offset: int = 0, limit: int = 0,
                           sort_by: str | None = None, order: Order = Order.ASC,
                           rank_by: FullTextCondition | None = None) -> Generator[tuple[Any, ...], None, None]:
@@ -464,7 +464,7 @@ class ClientMySQL(ClientSQL):
 
         :param table_name: Name of the table
         :type table_name: str
-        :param column_tuple: Tuple of the column name to select
+        :param column_tuple: tuple of the column name to select
         :type column_tuple: tuple[str, ...]
         :param condition: Condition on the query
         :type condition: Condition
@@ -481,13 +481,10 @@ class ClientMySQL(ClientSQL):
         """
         if self.db_conn and not self.db_conn.is_connected():
             self.connect()
-        if len(column_tuple) == 0:
+        if len(columns) == 0:
             columns_sql = "*"
         else:
-            if len(column_tuple) == 1 and column_tuple[0] == "*":
-                columns_sql = "*"
-            else:
-                columns_sql = ", ".join(f"`{c}`" for c in column_tuple)
+            columns_sql = ", ".join(f"`{c.name}`" for c in columns)
 
         cond_sql, params = condition_to_query(condition, add_where=True)
 
@@ -513,7 +510,7 @@ class ClientMySQL(ClientSQL):
         if offset > 0:
             offset_clause = f" OFFSET {offset}"
 
-        sql_query = f"SELECT {columns_sql} FROM `{table_name}` {cond_sql}{order_clause}{limit_clause}{offset_clause}"
+        sql_query = f"SELECT {columns_sql} FROM `{table.name}` {cond_sql}{order_clause}{limit_clause}{offset_clause}"
 
         logger_sql.info("QUERY COMMAND: %s -- params=%s", sql_query, params)
 
@@ -526,21 +523,33 @@ class ClientMySQL(ClientSQL):
                     logger_sql.info("QUERY RESULT: empty")
                 else:
                     logger_sql.info("QUERY RESULT: fetch %s rows", rows_fetched)
+                convert_type: dict[int, Callable] = {}
                 while True:
                     record = cursor.fetchone()
                     if record is None:
                         break
+                    #Check if we need to convert json string to python type
+                    if not convert_type:
+                        for idx, col in enumerate(columns):
+                            if col.data_type in {"json", "dict", "list"}:
+                                convert_type[idx] = json.loads
+                            elif col.data_type in {"bool"}:
+                                convert_type[idx] = bool
+                    for idx, conv in convert_type.items():
+                        lst = list(record)
+                        lst[idx] = conv(lst[idx])
+                        record = tuple(lst)
                     yield record
             except Error as e:
-                logger_sql.error("Error when selecting table %s: %s", table_name, e)
+                logger_sql.error("Error when selecting table %s: %s", table.name, e)
             finally:
                 cursor.close()
 
     def select_from_several_table(  # pylint: disable=too-many-locals
         self,
-        table_name: str,
+        table: Table,
         joins: list[JoinClause],
-        column_tuple: tuple[str, ...],
+        columns_dict: OrderedDict[str, list[Column]],
         condition: Condition,
         sort_by: str | None = None,
         order: Order = Order.ASC,
@@ -563,8 +572,15 @@ class ClientMySQL(ClientSQL):
         order_clause = f" ORDER BY {_col_ref(sort_by)} {'ASC' if order == Order.ASC else 'DESC'}" if sort_by else ""
         limit_clause = f" LIMIT {limit}" if limit > 0 else ""
 
-        sql_query = (f"SELECT {', '.join(_col_ref(c) for c in column_tuple)} "
-                     f"FROM `{table_name}`{''.join(join_parts)} {cond_sql}{order_clause}{limit_clause}")
+        #Build list of columns wiht proper name for join request:
+        columns_list: list[Column] = []
+        for table_name, columns in columns_dict.items():
+            for col in columns:
+                new_column = Column(name=f"{table_name}.{col.name}", data_type=col.data_type)
+                columns_list.append(new_column)
+
+        sql_query = (f"SELECT {', '.join(_col_ref(c.name) for c in columns_list)} "
+                     f"FROM `{table.name}`{''.join(join_parts)} {cond_sql}{order_clause}{limit_clause}")
 
         logger_sql.info("QUERY JOIN: %s -- params=%s", sql_query, params)
 
@@ -576,10 +592,22 @@ class ClientMySQL(ClientSQL):
                     logger_sql.info("QUERY JOIN RESULT: empty")
                 else:
                     logger_sql.info("QUERY JOIN RESULT: fetch %s rows", cursor.rowcount)
+                convert_type: dict[int, Callable] = {}
                 while True:
                     record = cursor.fetchone()
                     if record is None:
                         break
+                    #Check if we need to convert json string to python type
+                    if not convert_type:
+                        for idx, col in enumerate(columns_list):
+                            if col.data_type in {"json", "dict", "list"}:
+                                convert_type[idx] = json.loads
+                            elif col.data_type in {"bool"}:
+                                convert_type[idx] = bool
+                    for idx, conv in convert_type.items():
+                        lst = list(record)
+                        lst[idx] = conv(lst[idx])
+                        record = tuple(lst)
                     yield record
             except Error as e:
                 logger_sql.error("Error in select_from_several_table: %s", e)

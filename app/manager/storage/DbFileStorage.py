@@ -52,8 +52,8 @@ class DbFileStorage:
         can never probe another owner's blob.
         """
         rows = list(self._db.select_from_table(
-            table_name=TABLE_FILE_STORAGE.name,
-            column_tuple=(COL_FS_CONTENT_HASH.name,),
+            table=TABLE_FILE_STORAGE,
+            columns=[COL_FS_CONTENT_HASH],
             condition=self._key_in_source(key, source),
             limit=1,
         ))
@@ -62,8 +62,8 @@ class DbFileStorage:
     def read(self, key: str, source: str) -> tuple[bytes, str] | None:
         """Return the (bytes, content_type) stored under (key, source), or None when absent."""
         rows = list(self._db.select_from_table(
-            table_name=TABLE_FILE_STORAGE.name,
-            column_tuple=(COL_FS_DATA.name, COL_FS_CONTENT_TYPE.name),
+            table=TABLE_FILE_STORAGE,
+            columns=[COL_FS_DATA, COL_FS_CONTENT_TYPE],
             condition=self._key_in_source(key, source),
             limit=1,
         ))
@@ -90,8 +90,8 @@ class DbFileStorage:
     def all_keys(self, source: str) -> set[str]:
         """Return every key stored under `source` (used to detect blobs no owner references any more)."""
         rows = self._db.select_from_table(
-            table_name=TABLE_FILE_STORAGE.name,
-            column_tuple=(COL_FS_KEY.name,),
+            table=TABLE_FILE_STORAGE,
+            columns=[COL_FS_KEY],
             condition=EqualCondition(COL_FS_SOURCE.name, source),
         )
         return {row[0] for row in rows}

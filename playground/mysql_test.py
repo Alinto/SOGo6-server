@@ -30,6 +30,7 @@ from typing import Any, List, Tuple
 
 from app.manager.db.ClientMySQL import ClientMySQL 
 from app.utils.db.Condition import EqualCondition, NotEqualCondition, OrCondition
+from app.utils.db.Table import Table, Column
 
 TEST_TABLE = "test_client_mysql"
 
@@ -103,7 +104,12 @@ def run_tests() -> None:
         # 2) Test select_from_table - select rows where name = 'Alice'
         cond = EqualCondition("name", "Alice")
         print("Selecting rows with name='Alice':")
-        for rec in client.select_from_table(TEST_TABLE, ("id", "name", "data", "age"), cond):
+        col_id = Column("id", data_type="serial")
+        col_name = Column("name", data_type="str")
+        col_data = Column("data", data_type="dict")
+        col_age = Column("age", data_type="int")
+        test_table = Table(TEST_TABLE, columns=[col_id, col_name, col_data, col_age])
+        for rec in client.select_from_table(test_table, test_table.columns, cond):
             print("  ->", rec)
 
         # 3) Test update_in_table - update Bob's age
@@ -115,7 +121,7 @@ def run_tests() -> None:
 
         # Verify update
         print("Selecting rows with name='Bob':")
-        for rec in client.select_from_table(TEST_TABLE, ("id", "name", "data", "age"), cond_bob):
+        for rec in client.select_from_table(test_table, test_table.columns, cond_bob):
             print("  ->", rec)
 
     except Exception as e:
