@@ -55,8 +55,8 @@ class RepositoryAcl:
             EqualCondition(tbl.COL_ACL_KEY.name, key),
         )
         rows = self._db.select_from_table(
-            table_name=tbl.TABLE_ACL.name,
-            column_tuple=_ALL_COLS,
+            table=tbl.TABLE_ACL,
+            columns=tbl.TABLE_ACL.columns,
             condition=condition,
         )
         return [self._row_to_entry(row) for row in rows]
@@ -71,8 +71,8 @@ class RepositoryAcl:
             EqualCondition(tbl.COL_ACL_TO_USER.name, to_user),
         )
         rows = list(self._db.select_from_table(
-            table_name=tbl.TABLE_ACL.name,
-            column_tuple=_ALL_COLS,
+            table=tbl.TABLE_ACL,
+            columns=tbl.TABLE_ACL.columns,
             condition=condition,
             limit=1,
         ))
@@ -87,8 +87,8 @@ class RepositoryAcl:
             EqualCondition(tbl.COL_ACL_TO_USER.name, to_user),
         )
         rows = self._db.select_from_table(
-            table_name=tbl.TABLE_ACL.name,
-            column_tuple=_ALL_COLS,
+            table=tbl.TABLE_ACL,
+            columns=tbl.TABLE_ACL.columns,
             condition=condition,
         )
         return [self._row_to_entry(row) for row in rows]
