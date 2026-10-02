@@ -1,6 +1,7 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Generator
 
+import base64
 from datetime import datetime
 from logging import WARNING
 import ldap #Warning! pylint and mypy are disabled on this lib as it's build on a C library; Therefore they are lost on liting.
@@ -90,10 +91,14 @@ def parse_python_ldap_record(record: tuple[str, dict[str, list[bytes]]], pop_pas
     :rtype: _type_
     """
     user_dict: dict[str, list[str]] = {}
+    #TODO: properly fetch the schema of the ldap server, and check witch attributes is text and which are not
     for attribute, values in record[1].items():
         if pop_password and attribute == "password":
             continue
-        user_dict[attribute] = [x.decode() for x in values]
+        try:
+            user_dict[attribute] = [x.decode() for x in values]
+        except UnicodeDecodeError:
+            user_dict[attribute] = [base64.b64encode(x).decode() for x in values]
     user_dict["dn"] = [record[0]]
     return user_dict
 
