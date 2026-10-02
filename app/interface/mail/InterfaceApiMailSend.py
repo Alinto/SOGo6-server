@@ -9,6 +9,7 @@ from app.module.user.ModuleUserProfile import ModuleUserProfile
 from app.utils.exceptions import RequestException
 from app.utils.api.ApiBaseResponse import create_api_base_response
 from app.utils import constants as cs
+from app.utils import errors as err
 from app.utils.logger.logger import logger_api
 
 if TYPE_CHECKING:
@@ -38,6 +39,22 @@ class InterfaceApiMailSend:
         self.mail_outgoing_module = ModuleMailOutgoing(user, self.mail_settings)
 
 
+    def _validate_recipient_count(self, mail_data: dict) -> None:
+        """Check that to + cc + bcc does not exceed the domain's max recipient setting.
+
+        SOGO_D_MAIL_MAX_RECIPIENT == 0 means no limit.
+
+        :param mail_data: Mail data with 'to', 'cc', 'bcc' lists
+        :type mail_data: dict
+        :raises RequestException: If the total number of recipients exceeds the domain limit
+        """
+        max_recipient = self.mail_settings.SOGO_D_MAIL_MAX_RECIPIENT
+        if max_recipient <= 0:
+            return
+        recipient_count = len(mail_data.get("to") or []) + len(mail_data.get("cc") or []) + len(mail_data.get("bcc") or [])
+        if recipient_count > max_recipient:
+            raise RequestException(err.ERROR_MAIL_MAX_RECIPIENT_EXCEEDED.m, err.ERROR_MAIL_MAX_RECIPIENT_EXCEEDED)
+
     def save_draft(self, account_id: str, mail_data: dict, key: str | None = None, close: bool = False) -> tuple[dict, int]:
         """Save a mail as a draft in the account's Drafts folder.
 
@@ -57,6 +74,7 @@ class InterfaceApiMailSend:
         :rtype: tuple[dict, int]
         """
         try:
+            self._validate_recipient_count(mail_data)
             result = self.mail_module.save_draft(account_id, mail_data, key, close=close)
             return create_api_base_response(result)
         except RequestException as ex:
@@ -78,6 +96,12 @@ class InterfaceApiMailSend:
         :return: A tuple of (API response dict, status code)
         :rtype: tuple[dict, int]
         """
+        try:
+            self._validate_recipient_count(mail_data)
+        except RequestException as ex:
+            logger_api.error("Request exception in send_mail for user %s, account %s: %s", self.user.uid, account_id, str(ex))
+            return create_api_base_response(None, ex.error)
+
         if key is not None:
             try:
                 self.mail_module.validate_tmp_draft_key(key)
