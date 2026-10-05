@@ -123,7 +123,15 @@ class ClientSQLUserSource(ClientUserSource):
         
         return False, {}, {}
 
-    def search_user(self, search: str, extra_condition: Condition.Condition, limit:int, username:str, domain:str, password:str) -> Generator[dict[str, list[str]]]:
+    def search_user(self, search: str,
+                    extra_condition: Condition.Condition,
+                    limit:int,
+                    offset:int,
+                    sort:str,
+                    order:str,
+                    username:str,
+                    domain:str,
+                    password:str) -> Generator[dict[str, list[str]]]:
         """
         Search users for autocompletion, max 100 entries
 
@@ -145,7 +153,9 @@ class ClientSQLUserSource(ClientUserSource):
             extra_condition = Condition.AndCondition(self.db_filter, extra_condition)
         us_col_uid = Column(self.uid_field, data_type="str")
         us_table = Table(self.db_table, columns=[us_col_uid])
-        raws = self.client_sql.select_from_table(us_table, columns=[], condition=extra_condition, limit=limit)
+        total = self.client_sql.count_row_in_table(us_table.name, condition=extra_condition)
+        yield {"total": total}
+        raws = self.client_sql.select_from_table(us_table, columns=[], condition=extra_condition, limit=limit, offset=offset)
         for record in raws:
             user = dict(zip(columns_name, record))
             yield parse_db_user_record(user)

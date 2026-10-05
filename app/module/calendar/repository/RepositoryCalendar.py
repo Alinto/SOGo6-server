@@ -138,8 +138,8 @@ class RepositoryCalendar:
         the calendar. The key itself (an opaque generated uuid) is the lookup capability.
         """
         rows = list(self._db.select_from_table(
-            table_name=tbl.TABLE_CALENDAR.name,
-            column_tuple=_ALL_COLS,
+            table=tbl.TABLE_CALENDAR,
+            columns=tbl.TABLE_CALENDAR.columns,
             condition=EqualCondition(tbl.COL_CAL_KEY.name, key),
             limit=1,
         ))
