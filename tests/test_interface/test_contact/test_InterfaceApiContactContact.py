@@ -33,6 +33,9 @@ def _build_interface():
     inter.user = MagicMock()
     inter.user.uid = "alice@example.com"
     inter.module = MagicMock()
+    inter._user_source_module = MagicMock()
+    inter._user_source_module.get_user_source_by_uid.return_value = {}
+    inter._user_source_module.search_for_one_us.return_value = (0, [])
     inter._addressbook_serializer = CardAddressBookSerializerDict()
     inter._addressbooks_serializer = CardAddressBooksSerializerList()
     inter._contact_serializer = CardContactSerializerDict()
@@ -96,6 +99,7 @@ def test_get_contacts_returns_total_count_as_first_element():
 
 def test_get_contacts_translates_pagination_and_sort():
     inter = _build_interface()
+    inter.module.get_contacts.return_value = ([], 0)
     inter.module.get_contacts.return_value = ([], 0)
     param = CollectionPaginateArgs(page=2, page_size=10, sort_by="last_name", sort_order="desc")
     inter.get_contacts(None, param, search="bob")
