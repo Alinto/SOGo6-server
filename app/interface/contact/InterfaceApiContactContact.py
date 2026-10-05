@@ -401,6 +401,11 @@ class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attribute
     def get_contact(self, addressbook_key: str, key: str) -> tuple[dict[str, Any], int]:
         """Get a single contact by key within an address book."""
         try:
+            #Check if the key is a user source
+            gab = self._user_source_module.get_user_source_by_uid(addressbook_key)
+            if gab:
+                ret = self._user_source_module.search_for_one_user_in_one_us(self.user, addressbook_key, key)
+                return create_api_base_response(ret)
             contact: CardContact = self.module.get_contact(self.user, addressbook_key, key)
             return create_api_base_response(self._contact_serializer.serialize(contact))
         except RequestException as ex:

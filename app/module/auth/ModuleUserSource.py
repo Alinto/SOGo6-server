@@ -530,3 +530,34 @@ class ModuleUserSource:
             results.append(CardGABContact.serializer(record, us_settings))
 
         return total["total"], results
+
+    def search_for_one_user_in_one_us(self, user:User, us_uid:str, user_uid:str) -> dict:
+        """
+        _summary_
+
+        :param us_uid: _description_
+        :type us_uid: str
+        :param user_uid: _description_
+        :type user_uid: str
+        """
+        result: dict = {}
+        
+        us_settings = self.all_user_sources.get(us_uid)
+        if not us_settings:
+            return result
+
+        if not us_settings.US_IS_ADDRESSBOOK:
+            return result
+
+        search_cond = self._build_condition_for_match(user_uid, user, us_settings)
+        if search_cond is None:
+            #It happends if the conf for domains visibility says the user can't see anything.
+            return result
+
+        #Get client
+        client_us = self._get_manager_for_user_source(us_settings)
+        user_found = client_us.get_user_info(user_uid, search_cond, user.uid, user.domain, user.password)
+        if user_found:
+            result =  CardGABContact.serializer(user_found, us_settings)
+
+        return result

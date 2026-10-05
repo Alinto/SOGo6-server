@@ -11,7 +11,7 @@ def mail_serializer(mail:str) -> dict:
     :param mail: _description_
     :type mail: str
     """
-    return {"value": mail, "types": "work", "pref": 1}
+    return {"value": mail, "types": ["work"], "pref": 1}
 
 class CardGABContact:
     """
