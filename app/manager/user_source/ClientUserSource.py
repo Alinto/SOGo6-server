@@ -72,8 +72,10 @@ class ClientUserSource(metaclass=ABCMeta):
         logger.error("Method 'get_user_info' of ClientUserSource must be implemented by the children %s", type(self).__name__)
         raise NotImplementedError
 
-    def search_user(self, search:str, extra_condition:Condition, limit:int, username:str, domain:str, password:str) -> Generator[dict[str, list[str]]]:
+    def search_user(self, search:str, extra_condition:Condition, limit:int, offset:int, sort:str, order:str, username:str, domain:str, password:str) -> Generator[dict[str, list[str]]]:
         """
+        First yield the total number of records
+        Then yield user dict by user dict
         Search a user for autcompletion
 
         :param search: String to search

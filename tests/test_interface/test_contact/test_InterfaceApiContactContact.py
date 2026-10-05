@@ -33,6 +33,9 @@ def _build_interface():
     inter.user = MagicMock()
     inter.user.uid = "alice@example.com"
     inter.module = MagicMock()
+    inter._user_source_module = MagicMock()
+    inter._user_source_module.get_user_source_by_uid.return_value = {}
+    inter._user_source_module.search_for_one_us.return_value = (0, [])
     inter._addressbook_serializer = CardAddressBookSerializerDict()
     inter._addressbooks_serializer = CardAddressBooksSerializerList()
     inter._contact_serializer = CardContactSerializerDict()
@@ -96,6 +99,7 @@ def test_get_contacts_returns_total_count_as_first_element():
 
 def test_get_contacts_translates_pagination_and_sort():
     inter = _build_interface()
+    inter.module.get_contacts.return_value = ([], 0)
     inter.module.get_contacts.return_value = ([], 0)
     param = CollectionPaginateArgs(page=2, page_size=10, sort_by="last_name", sort_order="desc")
     inter.get_contacts(None, param, search="bob")
@@ -213,7 +217,7 @@ def test_autocomplete_returns_one_suggestion_per_email_plus_lists():
     inter.module.search_all_lists.return_value = [
             CardList(name="Team", key="l1", addressbook_key="ab1", addressbook_name="Personal", members=["c1"],
                      member_contacts=[CardContact(display_name="Carol", key="c1", emails=[CardEmail(value="carol@x.com")])])]
-    with patch.object(ModuleUserSource, 'search_for_contact_for_user', return_value=[]) as mock_search:
+    with patch.object(ModuleUserSource, 'search_for_all_us', return_value=[]) as mock_search:
         data, _ = inter.autocomplete("ali")
         suggestions = data["data"]["suggestions"]
         # Two contact suggestions (one per email) then one list suggestion.

@@ -91,6 +91,7 @@ def init_contact_config() -> ResponseReturnValue | None:  # pylint: disable=miss
         user_domain_settings=g.user_domain_settings,
         user=g.user,
     )
+    return None
 
 
 @blp.route("/addressbooks")

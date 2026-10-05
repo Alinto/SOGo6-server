@@ -110,8 +110,8 @@ class RepositoryAddressBook:
         the address book. The key itself (an opaque generated uuid) is the lookup capability.
         """
         rows = list(self._db.select_from_table(
-            table_name=tbl.TABLE_ADDRESSBOOK.name,
-            column_tuple=_ALL_COLS,
+            table=tbl.TABLE_ADDRESSBOOK,
+            columns=tbl.TABLE_ADDRESSBOOK.columns,
             condition=EqualCondition(tbl.COL_AB_KEY.name, key),
             limit=1,
         ))

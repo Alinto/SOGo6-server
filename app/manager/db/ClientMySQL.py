@@ -537,7 +537,8 @@ class ClientMySQL(ClientSQL):
                                 convert_type[idx] = bool
                     for idx, conv in convert_type.items():
                         lst = list(record)
-                        lst[idx] = conv(lst[idx])
+                        if lst[idx] is not None:
+                            lst[idx] = conv(lst[idx])
                         record = tuple(lst)
                     yield record
             except Error as e:

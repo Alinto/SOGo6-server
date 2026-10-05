@@ -62,6 +62,8 @@ def condition_to_filter(condition: Condition.Condition) -> str:
         ldap_filter = f"({ldap_escape(condition.param_name, with_wildcard=True)}!={ldap_escape(condition.param_value, with_wildcard=True)})"
     elif isinstance(condition, Condition.NotLikeCondition):
         ldap_filter = f"({ldap_escape(condition.param_name, with_wildcard=True)}!={ldap_escape(condition.pattern, with_wildcard=True)})"
+    elif isinstance(condition, Condition.TrueCondition):
+        ldap_filter = "(objectClass=*)"
     elif isinstance(condition, Condition.AndCondition):
         ldap_filter = "(&"
         for cond in condition.conditions:
@@ -417,7 +419,15 @@ class ClientLdap(ClientUserSource):
 
         raise exc.BugException("self.connection is still None, meaning self.connect() method didn't catch or raise correctly an error")
 
-    def search_user(self, search: str, extra_condition: Condition.Condition, limit:int, username:str, domain:str, password:str) -> Generator[dict[str, list[str]]]:
+    def search_user(self, search: str,
+                    extra_condition: Condition.Condition,
+                    limit:int,
+                    offset:int,
+                    sort:str,
+                    order:str,
+                    username:str,
+                    domain:str,
+                    password:str) -> Generator[dict[str, list[str]]]:
         """
         Search users for autocompletion, max 100 entries
 
@@ -449,10 +459,21 @@ class ClientLdap(ClientUserSource):
         if r"%d" in new_base_dn:
             new_base_dn = new_base_dn.replace(r"%d", domain)
 
+        #Ldap do not support pagniation, had to limit+offset and only retrun [offset; limit+offset]
+        ldap_limit = limit + offset
+        nb_record = 0
         if success:
-            list_records = self._search_big(new_base_dn, search_filter, limit=limit)
+            list_records = self._search_big(new_base_dn, search_filter, limit=0)
+            yield {"total": len(list_records)}
             for record in list_records:
+                nb_record += 1
+                if nb_record <= offset:
+                    continue
+                if nb_record > ldap_limit:
+                    break
                 yield parse_python_ldap_record(record)
+        else:
+            yield {"total": 0}
 
     def get_user_info(self, uid:str, extra_condition:Condition.Condition, username:str, domain:str, password:str) -> dict[str, list[str]]:
         """
