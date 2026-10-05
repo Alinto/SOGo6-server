@@ -93,8 +93,10 @@ class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attribute
             serialized: list[dict[str, Any]] = self._addressbooks_serializer.serialize(books)
 
             #Get user source address book
-            
-            return create_api_base_response({"addressbooks": serialized, "total_count": len(books)})
+            gab = self._user_source_module.list_user_sources()
+            serialized.extend(gab)
+
+            return create_api_base_response({"addressbooks": serialized, "total_count": len(serialized)})
         except RequestException as ex:
             logger_api.error("get_all_addressbooks failed for user %s: %s", self.user.uid, ex)
             return create_api_base_response(None, ex.error)
@@ -102,6 +104,11 @@ class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attribute
     def get_addressbook(self, key: str) -> tuple[dict[str, Any], int]:
         """Get a single address book by its key."""
         try:
+            #Check if this is a user source:
+            gab = self._user_source_module.get_user_source_by_uid(key)
+            if gab:
+                return create_api_base_response(gab)
+            #Check of personnal books
             source: ContactSource = self.module.get_addressbook(self.user, key)
             return create_api_base_response(self._addressbook_serializer.serialize(source.addressbook))
         except RequestException as ex:
@@ -304,6 +311,12 @@ class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attribute
         :return: A tuple (total_count, API response dict, status code).
         """
         try:
+            #Check if the key is a user source
+            gab = self._user_source_module.get_user_source_by_uid(key)
+            if gab:
+                total, results = self._user_source_module.search_for_one_us(key, "", self.user, collection_param.page_size, collection_param.first_item)
+                return total, *create_api_base_response({"contacts": results})
+
             order: Order = Order.DESC if collection_param.sort_order == "desc" else Order.ASC
             contacts, total = self.module.get_contacts(
                 self.user,
@@ -345,7 +358,7 @@ class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attribute
 
             #Global AddressBooks
             module_us = ModuleUserSource.init_from_domain_settings(self._user_domain_settings)
-            gab = module_us.search_for_contact_for_user(search=query, user=self.user, limit=AUTOCOMPLETE_DEFAULT_LIMIT)
+            gab = module_us.search_for_all_us(search=query, user=self.user, limit=AUTOCOMPLETE_DEFAULT_LIMIT)
             
             suggestions: list[dict[str, Any]] = (
                 self._gab_autocomplete_serializer.serialize(gab)
@@ -375,7 +388,7 @@ class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attribute
 
             #Global AddressBooks
             module_us = ModuleUserSource.init_from_domain_settings(self._user_domain_settings)
-            gab = module_us.search_for_contact_for_user(search=query, user=self.user, limit=AUTOCOMPLETE_DEFAULT_LIMIT)
+            gab = module_us.search_for_all_us(search=query, user=self.user, limit=AUTOCOMPLETE_DEFAULT_LIMIT)
 
             suggestions: list[dict[str, Any]] = (
                 self._gab_autocomplete_serializer.serialize(gab)
@@ -447,6 +460,9 @@ class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attribute
         :return: A tuple (total_count, API response dict, status code).
         """
         try:
+            gab = self._user_source_module.get_user_source_by_uid(addressbook_key)
+            if gab:
+                return 0, *create_api_base_response({"contacts": []})
             order: Order = Order.DESC if collection_param.sort_order == "desc" else Order.ASC
             lists, total = self.module.get_all_lists(
                 self.user,

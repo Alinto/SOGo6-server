@@ -213,7 +213,7 @@ def test_autocomplete_returns_one_suggestion_per_email_plus_lists():
     inter.module.search_all_lists.return_value = [
             CardList(name="Team", key="l1", addressbook_key="ab1", addressbook_name="Personal", members=["c1"],
                      member_contacts=[CardContact(display_name="Carol", key="c1", emails=[CardEmail(value="carol@x.com")])])]
-    with patch.object(ModuleUserSource, 'search_for_contact_for_user', return_value=[]) as mock_search:
+    with patch.object(ModuleUserSource, 'search_for_all_us', return_value=[]) as mock_search:
         data, _ = inter.autocomplete("ali")
         suggestions = data["data"]["suggestions"]
         # Two contact suggestions (one per email) then one list suggestion.

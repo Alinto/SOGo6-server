@@ -2,6 +2,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from app.config.settings.DomainSettings import UserSourceSettingsObj, UserSourceSettings
+from app.module.auth.model.CardGABContact import CardGABContact
 from app.utils import exceptions as exc
 from app.utils.db import Condition
 from app.utils import errors as err
@@ -74,6 +75,44 @@ class ModuleUserSource:
         )
         client_us.connect()
         return client_us
+
+    def list_user_sources(self) -> list[dict]:
+        """
+        Return a dict with all the user sources bisible for the user
+        """
+        books: list[dict] = []
+        for us_uid, us_settings in self.all_user_sources.items():
+            if us_settings.US_IS_ADDRESSBOOK:
+                books.append({
+                        "key": us_uid,
+                        "name": us_settings.US_DISPLAY_NAME or us_settings.US_NAME,
+                        "description": us_settings.US_DESCRIPTION,
+                        "is_default": False,
+                        "source_type": "ldap",
+                        "ctag": 0,
+                        "owner": "",
+                    })
+        return books
+
+    def get_user_source_by_uid(self, uid:str|None) -> dict:
+        """
+        Return a dict with all the user sources bisible for the user
+        """
+        if uid is None:
+            return {}
+        us_settings = self.all_user_sources.get(uid, None)
+        if us_settings is not None and us_settings.US_IS_ADDRESSBOOK:
+            return {
+                        "key": us_settings.US_UID,
+                        "name": us_settings.US_DISPLAY_NAME or us_settings.US_NAME,
+                        "description": us_settings.US_DESCRIPTION,
+                        "is_default": False,
+                        "source_type": "ldap",
+                        "ctag": 0,
+                        "owner": "",
+                    }
+        return {}
+
 
     def _make_us_check_login(self, source_settings: UserSourceSettingsObj, user: User) -> tuple[bool, dict, dict[str, list[str]]]:
         """
@@ -152,20 +191,25 @@ class ModuleUserSource:
         if us.US_TYPE == "db":
             wildcard = "%"
 
-        #Build condition, US_FILTER is already given to the user source
-        list_cond: list[Condition.Condition] = []
+        search_cond: Condition.Condition
+        if search == "":
+            #Means we're looking for everyone
+            search_cond = Condition.LikeCondition(us.US_FIELD_CN,wildcard)
+        else:
+            #Build condition, US_FILTER is already given to the user source
+            list_cond: list[Condition.Condition] = []
 
-        #Add default condition
-        criteria = f"{wildcard}{search}{wildcard}"
-        list_cond.append(Condition.LikeCondition(us.US_FIELD_UID, criteria))
-        list_cond.append(Condition.LikeCondition(us.US_FIELD_CN, criteria))
-        list_cond.append(Condition.LikeCondition(us.US_MAIL[0], criteria))
+            #Add default condition
+            criteria = f"{wildcard}{search}{wildcard}"
+            list_cond.append(Condition.LikeCondition(us.US_FIELD_UID, criteria))
+            list_cond.append(Condition.LikeCondition(us.US_FIELD_CN, criteria))
+            list_cond.append(Condition.LikeCondition(us.US_MAIL[0], criteria))
 
-        #Add admin condition
-        for field in us.US_SEARCH_FIELD:
-            list_cond.append(Condition.LikeCondition(field, criteria))
+            #Add admin condition
+            for field in us.US_SEARCH_FIELD:
+                list_cond.append(Condition.LikeCondition(field, criteria))
 
-        search_cond: Condition.Condition = Condition.OrCondition(*list_cond)
+            search_cond = Condition.OrCondition(*list_cond)
 
         #Add hidden users
         list_hidden = []
@@ -401,7 +445,7 @@ class ModuleUserSource:
                 self.fill_user_with_source_info(user_to_find, record)
 
 
-    def search_for_contact_for_user(self, search: str, user: User, limit:int = 100) -> list[dict]:
+    def search_for_all_us(self, search: str, user: User, limit:int = 100) -> list[dict]:
         """
         _summary_
 
@@ -428,7 +472,12 @@ class ModuleUserSource:
 
             #Get client
             client_us = self._get_manager_for_user_source(us_settings)
-            for record in client_us.search_user(search, search_cond, tmp_limit, user.uid, user.domain, user.password):
+            search_iter = client_us.search_user(search, search_cond,
+                                                        limit, offset=0, sort="", order="",
+                                                        username=user.uid, domain=user.domain, password=user.password)
+            total = next(search_iter)
+            for record in search_iter:
+                #TODO it's the interface that should do this not the module
                 tmp_user: dict = {}
                 tmp_user["us_uid"] = us_settings.US_UID
                 tmp_user["us_name"] = us_settings.US_DISPLAY_NAME or us_settings.US_NAME
@@ -445,3 +494,39 @@ class ModuleUserSource:
                 tmp_limit -= 1
 
         return results
+
+    def search_for_one_us(self, us_uid: str, search: str, user: User, limit:int = 100, offset:int=0) -> tuple[int, list[dict]]:
+        """
+        _summary_
+
+        :param search: _description_
+        :type search: str
+        :param user: _description_
+        :type user: User
+        :return: _description_
+        :rtype: dict
+        """
+        results: list[dict] = []
+
+        us_settings = self.all_user_sources.get(us_uid)
+        if not us_settings:
+            return 0, []
+
+        if not us_settings.US_IS_ADDRESSBOOK:
+            return 0, []
+
+        search_cond = self._build_condition_for_search(search, user, us_settings)
+        if search_cond is None:
+            #It happends if the conf for domains visibility says the user can't see anything.
+            return 0, []
+
+        #Get client
+        client_us = self._get_manager_for_user_source(us_settings)
+        search_iter = client_us.search_user(search, search_cond,
+                                            limit, offset=offset, sort="", order="",
+                                            username=user.uid, domain=user.domain, password=user.password)
+        total = next(search_iter)
+        for record in search_iter:
+            results.append(CardGABContact.serializer(record, us_settings))
+
+        return total["total"], results
