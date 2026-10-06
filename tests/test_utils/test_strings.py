@@ -1,6 +1,6 @@
 import pytest
 
-from app.utils.strings import get_domain_from_mail, strip_accents, parse_url_str
+from app.utils.strings import get_domain_from_mail, strip_accents, parse_url_str, quote, unquote
 
 def test_get_domain_from_mail():
     with pytest.raises(TypeError):
@@ -44,3 +44,10 @@ def test_parse_url_str():
         'params': {'key1': ['value1', 'value2'], 'key2': 'value3'}
     }
     assert ret1 == ret1_expected
+
+def test_unquote():
+    assert unquote('"Junk"') == "Junk"
+    assert unquote("Junk") == "Junk"
+    assert unquote('"') == '"'
+    for value in ("My Folder", 'With "quotes"', "Back\\slash"):
+        assert unquote(quote(value)) == value

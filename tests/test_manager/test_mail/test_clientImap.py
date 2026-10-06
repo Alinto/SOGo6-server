@@ -13,6 +13,7 @@ from app.manager.mail.ClientImap import (
 )
 from app.utils.exceptions import RequestException, BugException
 from app.utils import constants as cs
+from app.utils import errors as err
 from app.utils.constants import (
     USER_CAN_VIEW_FOLDER, USER_CAN_READ_MAILS, USER_CAN_MARK_MAILS_READ,
     USER_CAN_INSERT_MAILS, USER_CAN_POST_MAILS, USER_CAN_CREATE_SUBFOLDERS,
@@ -499,6 +500,39 @@ class TestSelectMailbox:
         with pytest.raises(RequestException):
             client.select_mailbox("INBØX")
 
+    def test_select_special_folder_creates_and_retries_for_write(self):
+        """Selecting a missing special folder (Drafts) to write into it creates it then selects it again."""
+        fake_conn = FakeIMAPConnection()
+        client = authenticated_client(fake_conn)
+        select_responses = iter([
+            ("NO", [b"[NONEXISTENT] Mailbox doesn't exist: Drafts"]),
+            ("OK", [b"0"]),
+        ])
+        with mock.patch.object(fake_conn, "select", side_effect=lambda *a, **k: next(select_responses)):
+            count = client.select_mailbox("Drafts", create_if_special=True)
+        assert count == 0
+        assert '"Drafts"' in fake_conn.folders
+
+    def test_select_special_folder_not_created_for_read(self):
+        """Selecting a missing special folder (Junk) without write intent raises and does not create it."""
+        fake_conn = FakeIMAPConnection()
+        fake_conn.select_response = ("NO", [b"[NONEXISTENT] Mailbox doesn't exist: Junk"])
+        client = authenticated_client(fake_conn)
+        with pytest.raises(RequestException) as exc_info:
+            client.select_mailbox("Junk")
+        assert exc_info.value.error is err.ERROR_FOLDER_NAME_NOT_FOUND
+        assert fake_conn.folders == {}
+
+    def test_select_normal_folder_does_not_create(self):
+        """Selecting a missing NORMAL folder raises and does not create it."""
+        fake_conn = FakeIMAPConnection()
+        fake_conn.select_response = ("NO", [b"Mailbox doesn't exist: NoSuchFolder"])
+        client = authenticated_client(fake_conn)
+        with pytest.raises(RequestException) as exc_info:
+            client.select_mailbox("NoSuchFolder", create_if_special=True)
+        assert exc_info.value.error is err.ERROR_FOLDER_NAME_NOT_FOUND
+        assert fake_conn.folders == {}
+
 
 def test_logout_success():
     """Test successful logout."""
@@ -964,6 +998,18 @@ class TestUidCopy:
                 # "Sent" is a MAIL_FOLDER_SENT which is special, not NORMAL
                 client.uid_copy("100", "Sent")
                 mock_create.assert_called_once()
+
+    def test_uid_copy_quoted_special_folder_creates_and_retries(self):
+        """A quoted special destination (as given by copy_mail_to_mailbox) is created too."""
+        fake_conn = FakeIMAPConnection()
+        client = authenticated_client(fake_conn)
+        uid_responses = iter([
+            ("NO", [b"[TRYCREATE] Mailbox doesn't exist: Junk"]),
+            ("OK", [b""]),
+        ])
+        with mock.patch.object(fake_conn, "uid", side_effect=lambda *a, **k: next(uid_responses)):
+            client.uid_copy("100", '"Junk"')
+        assert '"Junk"' in fake_conn.folders
 
     def test_uid_copy_normal_folder_does_not_create(self):
         """Test that uid_copy does NOT create a NORMAL folder if it doesn't exist."""
@@ -1749,6 +1795,24 @@ class TestGetOneFolder:
         assert isinstance(folder_dict, dict)
         assert "name" in folder_dict
 
+    def test_get_one_folder_special_folder_not_created(self):
+        """Getting a missing special folder (Trash) is a read action: it raises and does not create it."""
+        fake_conn = FakeIMAPConnection()
+        fake_conn.list_response = ("OK", [None])
+        client = authenticated_client(fake_conn)
+        with pytest.raises(RequestException):
+            client.get_one_folder("Trash")
+        assert fake_conn.folders == {}
+
+    def test_get_one_folder_normal_folder_not_created(self):
+        """Getting a missing NORMAL folder raises and does not create it."""
+        fake_conn = FakeIMAPConnection()
+        fake_conn.list_response = ("OK", [None])
+        client = authenticated_client(fake_conn)
+        with pytest.raises(RequestException):
+            client.get_one_folder("NoSuchFolder")
+        assert fake_conn.folders == {}
+
     def test_get_one_folder_not_authenticated_raises(self):
         client = make_client()
         client.connection = None
@@ -1927,6 +1991,23 @@ class TestSaveDraftFull:
         message = EmailMessage()
         with pytest.raises(BugException):
             client.save_draft(message)
+
+    def test_save_draft_creates_missing_draft_folder(self):
+        """Saving a draft when the Drafts folder does not exist creates it."""
+        fake_conn = FakeIMAPConnection()
+        fake_conn.append_response = ("OK", [b"[APPENDUID 1 42] Append completed."])
+        client = authenticated_client(fake_conn)
+        select_responses = iter([
+            ("NO", [b"[NONEXISTENT] Mailbox doesn't exist: Drafts"]),
+            ("OK", [b"0"]),
+        ])
+        message = EmailMessage()
+        message["Subject"] = "Draft"
+        with mock.patch.object(fake_conn, "select", side_effect=lambda *a, **k: next(select_responses)), \
+             mock.patch.object(client, "fetch_mail", return_value={}) as mock_fetch:
+            client.save_draft(message)
+        assert '"Drafts"' in fake_conn.folders
+        mock_fetch.assert_called_once_with("Drafts", "42")
 
 
 
