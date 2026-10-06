@@ -174,6 +174,11 @@ class FakeModuleMail:
         self.post_folder_share_args = (folder_path, users)
         return self.post_folder_share_result
 
+    def perform_folder_batch_action(self, account_id, folder_name, batch_action_data):
+        """Simulate performing an action on every mail of a folder."""
+        self.perform_folder_batch_action_args = (folder_name, batch_action_data)
+        return {"action": batch_action_data["action"], "mail_uid": "1:42"}
+
     def export_folder_mails(self, folder_name):
         """Simulate exporting mails from a folder."""
         self.export_folder_mails_args = folder_name
@@ -591,3 +596,28 @@ def test_post_folder_share_unknown_user_accepted_as_anonymous(monkeypatch):
     _, users = fake_module.post_folder_share_args
     assert users[0]["uid"] == "ghost@example.com"
     assert result["data"][0]["user_class"] == "anonymous"
+
+
+def test_folder_batch_action_success(monkeypatch):
+    """Test that the module result is wrapped in an ApiBaseResponse."""
+    fake_module = FakeModuleMail()
+    interface = make_interface(monkeypatch, fake_module)
+
+    batch_action_data = {"action": "tag", "data": ["important"]}
+    result, status_code = interface.folder_batch_action(account_id=0, folder_name="INBOX", batch_action_data=batch_action_data)
+
+    assert status_code == 200
+    assert result["data"] == {"action": "tag", "mail_uid": "1:42"}
+    assert fake_module.perform_folder_batch_action_args == ("INBOX", batch_action_data)
+
+
+def test_folder_batch_action_module_error(monkeypatch):
+    """Test that a module RequestException is converted to an error response."""
+    fake_module = FakeModuleMail()
+    fake_module.perform_folder_batch_action = lambda *args, **kwargs: (_ for _ in ()).throw(RequestException(error=err.ERROR_FOLDER_NAME_NOT_FOUND))
+    interface = make_interface(monkeypatch, fake_module)
+
+    result, status_code = interface.folder_batch_action(account_id=0, folder_name="Ghost", batch_action_data={"action": "delete"})
+
+    assert status_code == err.ERROR_FOLDER_NAME_NOT_FOUND.h
+    assert result["error_code"] == err.ERROR_FOLDER_NAME_NOT_FOUND.c

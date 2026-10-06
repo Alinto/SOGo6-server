@@ -419,6 +419,20 @@ class ClientMailServer(metaclass=ABCMeta):
         :raises RequestException: If the operation fails.
         """
 
+    @abstractmethod
+    def get_folder_uid_range(self, folder_path: str) -> str | None:
+        """Return a UID set covering every mail currently in a folder, without listing the UIDs.
+
+        The returned set can be passed as ``mail_uid`` to the UID based methods
+        (add_flags_to_mail, copy_mail_to_mailbox, delete_mails_by_uid...).
+
+        :param folder_path: The folder path.
+        :type folder_path: str
+        :return: The UID set (e.g. ``"1:4391"``), or None if the folder is empty.
+        :rtype: str | None
+        :raises RequestException: If the folder does not exist or the operation fails.
+        """
+
 
 
     @abstractmethod

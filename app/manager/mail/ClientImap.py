@@ -2009,6 +2009,45 @@ class ClientImap(ClientMailServer):
         else:
             raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
 
+    def get_folder_uid_range(self, folder_path: str) -> str | None:
+        """Return a UID set covering every mail currently in a folder, without listing the UIDs.
+
+        Uses ``STATUS (MESSAGES UIDNEXT)``: every UID of the folder is below UIDNEXT, so
+        ``1:<UIDNEXT-1>`` targets all of them. Unlike ``1:*``, the upper bound is frozen: a mail
+        arriving (or copied into the same folder) between two commands of a multi-command action
+        (e.g. COPY then STORE \\Deleted then EXPUNGE for a move) is not caught by the later commands.
+
+        :param folder_path: The folder path.
+        :type folder_path: str
+        :return: The UID set (e.g. ``"1:4391"``), or None if the folder is empty.
+        :rtype: str | None
+        :raises RequestException: If the folder does not exist or the operation fails.
+        """
+        logger_imap.debug("Getting UID range of folder '%s'", folder_path)
+        if self.connection is not None and self.authenticated:
+            if not folder_path.isascii():
+                raise RequestException(f"Mailbox name is not ascii: {folder_path}", err.ERROR_IMAP_NOT_ASCII)
+            folder_path = quote(self._fix_folder_path(folder_path))
+
+            success, datas = self._exec_imap4_method(self.connection.status, folder_path, '(MESSAGES UIDNEXT)')
+            if not success:
+                if datas[0].decode().startswith("Mailbox doesn't exist"):
+                    raise RequestException(f"Folder '{folder_path}' does not exist", err.ERROR_FOLDER_NAME_NOT_FOUND)
+                raise RequestException(f"Failed to get status for {folder_path}", err.ERROR_IMAP_FAILED)
+
+            # Parse STATUS response: e.g., b'INBOX (MESSAGES 42 UIDNEXT 4392)'
+            status = datas[0].decode() if datas and datas[0] else ""
+            messages_match = re.search(r"MESSAGES\s+(\d+)", status)
+            uidnext_match = re.search(r"UIDNEXT\s+(\d+)", status)
+            if messages_match is None or uidnext_match is None:
+                raise RequestException(f"Unexpected STATUS response for {folder_path}: {datas}", err.ERROR_IMAP_FAILED)
+
+            if int(messages_match.group(1)) == 0:
+                return None
+            return f"1:{int(uidnext_match.group(1)) - 1}"
+        else:
+            raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
+
     def delete_mails_by_uid(self, folder_path: str, mail_uid: str|list[str], move_to_trash: bool = True, permanently: bool = True) -> None:
         """Delete a specific mail by UID according to the requested behaviour.
 
