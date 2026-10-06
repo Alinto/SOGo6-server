@@ -17,11 +17,10 @@ These files are detected by GitHub, with an easy link to them.
 
 '''
 
-* [ ] 80% (backend) README.md: first file a user sees when going to our repo
-* [ ] 80% (frontend) README.md: first file a user sees when going to our repo
+* [*] 100% (backend) README.md: first file a user sees when going to our repo
+* [*] 100% (frontend) README.md: first file a user sees when going to our repo
 
-For now, they only explain how to start the project. We need to add an introduction to the
-repo, a link to our website, docs...
+
 
 '''
 
@@ -121,7 +120,7 @@ reported will be more thorough
 === Installation
 
 * [*] 100%: Clone our repo and do it yourself
-* [ ] 30%: Devcontainer to test (two images are custom and stored at the Alinto registry...)
+* [*] 100%: Devcontainer to test
 
 '''
 
@@ -175,7 +174,7 @@ The SOGo 6 backend uses a technology called Web Server Gateway Interface (WSGI).
 Flask is only the web framework; it cannot be used alone (only for dev purposes). There are several
 gateways, but the focus is on Gunicorn, the most used. Admins will be free to replace Gunicorn if they want.
 
-* [ ] 0%: Add a basic gunicorn config to run SOGo
+* [ ] 90%: Add a basic gunicorn config to run SOGo
 * [ ] 0%: Expose the gunicorn config file to be modified.
 
 '''
@@ -282,6 +281,7 @@ to properly explain which features this code applies to.
 ==== Backend
 
 * [ ] 50%: Set CORS policy (hardcoded IP for dev)
+* [ ]  0%: Add param to store trusted base url.
 
 //-
 
@@ -314,7 +314,7 @@ The only example for now is whether the UI will do the login in two steps (first
 * [*] 100%: Endpoint to get auth method for this domain (plain, OpenID...)
 * [*] 100%: Return error if no domain while not domainless, or if domain not known while rejecting unknown domain
 * [ ]   0%: Automatically list all domains that SOGo should know instead of listing them in a system setting
-* [ ]  50%: plain auth method (username + password) (only works with LDAP user source)
+* [*] 100%: plain auth method (username + password)
 * [ ]   0%: check if password is strong enough on login (plain)
 * [ ]   0%: Password expired and grace policy on login (plain)
 * [ ]   0%: Password recovery via secondary mail (plain)
@@ -341,8 +341,8 @@ The only example for now is whether the UI will do the login in two steps (first
 
 ==== UI
 
-* [*]  80%: Change language (missing the auto-detection of language)
-* [ ]   0%: If the user is already logged in, requests to index or auth must redirect to the main view.
+* [*] 100%: Change language
+* [*] 100%: If the user is already logged in, requests to index or auth must redirect to the main view.
 * [*] 100%: If the user's token is no longer valid, return to the login page
 
 **2-step login**
@@ -353,7 +353,7 @@ The only example for now is whether the UI will do the login in two steps (first
 * [*] 100%: Get login method (plain, SSO...)
 * [*] 100%: If plain, show view to enter password
 ** [ ]   0%: Show password recovery button if SOGO_D_PWD_RECOVERY
-** [ ]   20%: Show error if credentials fail (not correct view, cannot modify email)
+** [*] 100%: Show error if credentials fail
 * [ ]   0%: If SSO, redirect to "location"
 
 '''
@@ -414,17 +414,17 @@ The only example for now is whether the UI will do the login in two steps (first
 * [*] 100%: Endpoint to list accounts (main and external) or get one specific
 * [*] 100%: Return quota if mail server handles it.
 * [*] 100%: Endpoint to list delegations
-* [ ]  60%: Endpoint to delegate one or several accounts; meaning giving another user the right to use our identity to send mail (not implemented)
-* [ ]  80%: Endpoint to purge all folders of an account (delete mail older than X), if allowed by admin, with a minimal date allowed. (admin settings not used yet)
+* [*] 100%: Endpoint to delegate one or several accounts; meaning giving another user the right to use our identity to send mail
+* [*] 100%: Endpoint to purge all folders of an account (delete mail older than X), if allowed by admin, with a minimal date allowed. (admin settings not used yet)
 ** [ ]   0%: Add an option to not delete messages flagged as important
-* [ ]  20%: Endpoint to search among all mails in all folders (in review)
+* [*] 100%: Endpoint to search among all mails in all folders (in review)
 
 '''
 
 **Main Account**
 
 * [*] 100%: Change profile picture if allowed by admin (global endpoint /preferences)
-* [ ]  70%: Get user info (not finished)
+* [*] 100%: Get user info
 * [*] 100%: Get identities of the main account
 ** [*] 100%: Can change name, if allowed by admin
 ** [*] 100%: Can set reply-to, if allowed by admin
@@ -462,14 +462,14 @@ The only example for now is whether the UI will do the login in two steps (first
 * [*] 100%: Get all accounts
 * [*] 100%: Button to switch between them
 * [*] 100%: Shortcut to create them if allowed by SOGO_D_ALLOW_EXT_MAIL_ACCOUNT
-* [ ]   0%: Show quota if available, with soft quota. Add warning icon if close to max.
+* [*]   0%: Show quota if available, with soft quota. Add warning icon if close to max.
 ** [ ]   0%: If any action, except remove, fails because of a full quota (save draft, copy mail to...), show a proper error message explaining why
 ** [ ]   0%: If the remove action fails because of a full quota, ask to delete permanently
-* [ ]  90%: Button to show delegations and modify them (backend missing)
-* [ ]    0%: Button to purge, if allowed
-** [ ]    0%: ask for date (with minimal date set by admin)
-** [ ]    0%: ask for permanent deletion (instead of moving to trash)
-** [ ]    0%: Warning after clicking on 'OK'
+* [ ]  10%: Button to show delegations and modify them (backend missing)
+* [*]  100%: Button to purge, if allowed
+** [*]  100%: ask for date (with minimal date set by admin)
+** [*]  100%: ask for permanent deletion (instead of moving to trash)
+** [*]  100%: Warning after clicking on 'OK'
 
 
 '''
@@ -477,10 +477,10 @@ The only example for now is whether the UI will do the login in two steps (first
 **Preferences - Profile**
 
 
-* [ ] 50%: User can choose profile picture if allowed by admin (does not follow admin rules)
+* [*] 100%: User can choose profile picture if allowed by admin (does not follow admin rules)
 ** [*] 100%: User can choose default profile picture
-** [ ]   0%: User can choose Gravatar profile picture
-** [ ]   0%: User can choose Libravatar profile picture
+** [*]   0%: User can choose Gravatar profile picture
+** [*]   0%: User can choose Libravatar profile picture
 * [ ] 80%: See user info (not linked to user source)
 * [*] 100%: Get identities of the main account
 ** [*] 100%: Can change name, if allowed by admin
@@ -500,7 +500,7 @@ The only example for now is whether the UI will do the login in two steps (first
 
 **Preferences - Mail**
 
-* [ ]  80%: Show the external account button, if allowed by admin
+* [*] 100%: Show the external account button, if allowed by admin
 ** [*] 100%: IMAP settings (hostname, port, encryption, auth - login/plain -, username and password)
 ** [*] 100%: SMTP settings (hostname, port, encryption, auth - login/plain -, username and password)
 ** [*] 100%: One, or several, identities without limit from admin
@@ -512,29 +512,29 @@ The only example for now is whether the UI will do the login in two steps (first
 ==== Backend
 
 * [*] 100%: Endpoint, list folders or get one specific
-* [ ]   0%: Endpoint, list shared folders or get one specific
+* [*] 100%: Endpoint, list shared folders or get one specific
 * [ ]  80%: Endpoint, rename folder
 * [ ]   0%: Endpoint to move folders
 * [ ]   0%: Endpoint to subscribe/unsubscribe to folders
 * [*] 100%: Kind of folder: Inbox, draft, sent, junk, trash, template, planned, normal
 * [*] 100%: Create or remove folder or subfolders (except special folder)
 * [ ]  50%: Modify folder (not implemented)
-** [ ]  80%: Share a folder with rights (rework the names of the rights)
+** [*] 100%: Share a folder with rights (rework the names of the rights)
 * [*] 100%: Expunge (=remove all mails flagged as deleted from the folder) a folder
 * [*] 100%: Purge (=delete all mail older than X) a folder
 * [ ]  20%: Mark all mails in a folder as read
 
-* [ ]  40%: Search in a folder
-* [ ]  40%: sort mails in a folder
+* [*] 100%: Search in a folder
+* [ ]  30%: sort mails in a folder
 ** [ ]   0%: sort by subject
 ** [ ]   0%: sort by from
 ** [ ]   0%: sort by date
 ** [ ]   0%: sort by size
 ** [ ]   0%: sort by order received
-* [ ]   0%: filter mails in a folder
-** [ ]   0%: show only unread messages
-** [ ]   0%: show only important messages
-** [ ]   0%: show only messages with tag X
+* [*] 100%: filter mails in a folder
+** [*] 100%: show only unread messages
+** [*] 100%: show only important messages
+** [ ] 100%: show only messages with tag X
 * [ ]   0%: export a folder
 * [ ]   0%: empty Trash/Junk folder
 * [ ]   0%: import .eml if allowed by Admin (or DEBUG mode?)
@@ -543,12 +543,12 @@ The only example for now is whether the UI will do the login in two steps (first
 
 **Action on several mails**
 
-* [ ]   0%: delete
-* [ ]   0%: mark as read/unread
-* [ ]   0%: mark as spam/ham
-* [ ]   0%: mark as important
-* [ ]   0%: move
-* [ ]   0%: copy
+* [*]   0%: delete
+* [*]   0%: mark as read/unread
+* [*]   0%: mark as spam/ham
+* [*]   0%: mark as important
+* [*]   0%: move
+* [*]   0%: copy
 * [ ]   0%: download
 * [ ]   0%: forward (forward all mails as .eml attachments)
 
@@ -557,13 +557,13 @@ The only example for now is whether the UI will do the login in two steps (first
 * [*] 100%: list folders
 * [*] 100%: show unread
 * [*] 100%: rename
-* [ ]  90%: mark as read
-* [ ]  90%: purge (wrong param name)
+* [*] 100%: mark as read
+* [*] 100%: purge
 * [*] 100%: expunge with warning
-* [ ]   0%: move to
-* [ ]  90%: delete (except if Inbox)
-* [ ]   0%: share folders
-* [ ]   0%: export a folder
+* [*] 100%: move to
+* [*] 100%: delete 
+* [*] 100%: share folders
+* [*] 100%: export a folder
 
 
 '''
@@ -572,12 +572,12 @@ The only example for now is whether the UI will do the login in two steps (first
 
 * [*] 100% can select several mails
 * [*] 100%: button to select/unselect all
-* [ ]   0%: delete
-* [ ]   0%: mark as read/unread
-* [ ]   0%: mark as spam/ham
-* [ ]   0%: mark as important
-* [ ]   0%: move
-* [ ]   0%: copy
+* [*] 100%: delete
+* [*] 100%: mark as read/unread
+* [*] 100%: mark as spam/ham
+* [*] 100%: mark as important
+* [*] 100%: move
+* [*] 100%: copy
 * [ ]   0%: download
 * [ ]   0%: forward (forward all mails as .eml attachments)
 
@@ -593,15 +593,15 @@ The only example for now is whether the UI will do the login in two steps (first
 * [*] 100%: move a mail to another folder
 * [*] 100%: copy a mail to another folder
 * [*] 100%: download a mail
-* [*]  50%: flag a mail as spam
-* [*]  80%: flag a mail as ham
+* [*] 100%: flag a mail as spam
+* [ ]  80%: flag a mail as ham
 * [*] 100%: See the raw message (.eml)
 * [*] 100%: delete a mail
 
 '''
 
-* [ ]   0%: Preview an attachment
-* [ ]   50%: Download an attachment
+[.line-through]#* [ ]   0%: Preview an attachment
+* [*] 100%: Download an attachment
 * [ ]   0%: Check public key validity
 * [ ]   0%: Store public key of sender
 * [ ]   0%: Check the signature (hash) of a mail
@@ -610,8 +610,8 @@ The only example for now is whether the UI will do the login in two steps (first
 
 '''
 
-* [ ]   0%: Endpoint to accept an invitation
-* [ ]   0%: Endpoint to decline an invitation
+* [*]   0%: Endpoint to accept an invitation
+* [*]   0%: Endpoint to decline an invitation
 * [ ]   0%: Endpoint to delegate an invitation
 * [ ]   0%: Endpoint to add contact from mail
 
@@ -621,23 +621,23 @@ The only example for now is whether the UI will do the login in two steps (first
 * [*] 100%: delete a mail
 * [*] 100%: Mark a mail as read/unread
 * [*] 100%: Mark a mail as important
-* [ ]   0%: tag/untag a mail
+* [*] 100%: tag/untag a mail
 * [*] 100%: Print
 * [*] 100%: View source
-* [ ]   0%: important
-* [ ]   0%: move
-* [ ]   0%: copy
-* [ ]   0%: download
+* [*] 100%: important
+* [*] 100%: move
+* [*] 100%: copy
+* [*] 100%: download
 
 '''
 
-* [ ]   0%: read mail with invitation
-** [ ]   0%: accept
-** [ ]   0%: decline
+* [*] 100%: read mail with invitation
+** [*] 100%: accept
+** [*] 100%: maybe
+** [*] 100%: decline
 ** [ ]   0%: delegate
 * [ ]   0%: read mail with contact
-* [ ]   0%: read mail with invitation
-* [ ]   0%: read mail with invitation
+
 
 === Mails sending
 
@@ -692,7 +692,7 @@ state that makes the link between the "mail in progress" and the mail currently 
 
 '''
 
-* [ ]  80%: Endpoint edit (missing return_receipt and priority)
+* [*] 100%: Endpoint edit
 * [*] 100%: Endpoint reply/forward
 
 '''
@@ -702,8 +702,8 @@ state that makes the link between the "mail in progress" and the mail currently 
 
 '''
 
-* [ ]  10%: Add limit on max recipients (parameter exists but not used)
-* [ ]  10%: Add limit on mails sent: max emails that can be sent in X minutes; blocked for X time if exceeded (parameters exist but not used)
+* [*] 100%: Add limit on max recipients 
+* [ ]   0%: Add limit on mails sent: max emails that can be sent in X minutes; blocked for X time if exceeded (parameters exist but not used)
 * [*] 100%: Add lock system to avoid concurrent requests modifying the same email
 
 '''
@@ -759,7 +759,7 @@ state that makes the link between the "mail in progress" and the mail currently 
 * [*] 100%: Can switch between HTML and plain text
 * [ ]   0%: Can choose delegation (not done in backend)
 * [ ]   0%: Can choose alias (not done in backend)
-* [ ]   0%: Autocompletion on to, cc, bcc (not done in backend)
+* [*] 100%: Autocompletion on to, cc, bcc (not done in backend)
 
 '''
 
@@ -791,7 +791,7 @@ As of now, only the Sieve protocol is managed.
 
 **Filters**
 
-* [ ] 90%: Can have several filters (NOT TESTED)
+* [*] 100%: Can have several filters
 * [*] 100%: Can prioritize the filters (set the order of execution)
 * [*] 100%: Can prioritize the filters (set the order of execution)
 * [*] 100%: can create/delete a filter
@@ -878,7 +878,7 @@ But SOGo 6 does not manage `if (condition) action1 else action2`, so it will alw
 
 ==== UI
 
-* [ ]  90%: Do not show filters-related panel in user settings (filter, vacation, forward/notification) if admin doesn't allow it
+* [*] 100%: Do not show filters-related panel in user settings (filter, vacation, forward/notification) if admin doesn't allow it
 * [*] 100%: Do not show vacation panel in user settings if admin doesn't allow it
 * [*] 100%: Do not show forward panel in user settings if admin doesn't allow it
 * [*] 100%: Do not show notification panel in user settings if admin doesn't allow it
@@ -902,23 +902,22 @@ But SOGo 6 does not manage `if (condition) action1 else action2`, so it will alw
 * [*] 100%: Can choose 'subject' as field
 * [*] 100%: Can choose 'from' as field
 * [*] 100%: Can choose 'to' as field
-* [ ]   0%: Can choose 'cc' as field
-* [ ]   0%: Can choose 'to or cc' as field
-* [ ]   0%: Can choose 'size' as field
+* [*] 100%: Can choose 'cc' as field
+* [*] 100%: Can choose 'to or cc' as field
+* [*] 100%: Can choose 'size' as field
 * [*] 100%: Can choose 'header' as field and write the header (which can be true or not)
-* [ ]   0%: Can choose 'body' as field
+* [*] 100%: Can choose 'body' as field
 * [*] 100%: Can make one or several actions
 * [*] 100%: Action: discard (mail is lost)
 * [*] 100%: Action: stop (stop the filtering now)
-* [ ]   0%: Action: keep (mail is kept)
+* [*] 100%: Action: keep (mail is kept)
 
 
 * [ ]  90%: Action: move to a folder, with option to create it if it does not exist (only one folder for now)
 * [ ]  80%: Action: redirect to one or several addresses (only one for now)
 * [ ]  90%: Action: Copy to a folder (only one for now)
 * [ ]   0%: Action: Mark the mail as (add flag)
-* [ ]   0%: Action: Reject with a message
-* [ ]   0%: Action: Reject with a message (not implemented in sievelib)
+* [*]   0%: Action: Reject with a message
 
 '''
 
@@ -930,7 +929,7 @@ But SOGo 6 does not manage `if (condition) action1 else action2`, so it will alw
 * [*] 100%: User can set a custom subject
 * [*] 100%: User can use placeholder $\{subject\} in their custom subject
 * [*] 100%: User can set a message
-* [ ]   0%: User can set the delay in days between two responses [0 == always, only allowed by admin]
+* [*]   0%: User can set the delay in days between two responses [0 == always, only allowed by admin]
 * [ ]   0%: User can set the priority of vacation compared to their filters (do first or not)
 * [ ]   0%: User can choose to discard all mails while in vacation (will not do)
 * [ ]  80%: User can choose a start datetime (only date for now)
@@ -958,8 +957,8 @@ But SOGo 6 does not manage `if (condition) action1 else action2`, so it will alw
 * [*] 100%: Have a personal calendar
 * [*] 100%: Create a calendar
 * [*] 100%: Delete a calendar (except personal)
-* [ ] 95%: modify a calendar
-** [ ]  0%: show/unshow calendars (state not stored in database)
+* [*] 100%: modify a calendar
+** [*] 100%: show/unshow calendars (state not stored in database)
 ** [*] 100%: Name
 ** [*] 100%: color
 ** [*] 100%: description
@@ -967,7 +966,7 @@ But SOGo 6 does not manage `if (condition) action1 else action2`, so it will alw
 ** [*] 100%: Default event duration
 ** [*] 100%: Default reminder duration
 ** [*] 100%: Set as default
-* [ ]   0%: share a calendar with rights
+* [*] 100%: share a calendar with rights
 * [*] 100%: Create a SOGo-token for public share (read only)
 * [*] 100%: Delete the SOGo-token for public share (read only)
 * [*] 100%: Add an external .ics calendar
@@ -1065,7 +1064,7 @@ Journals are dated notes. New feature of SOGo 6.
 **Calendars**
 
 * [*] 100%: list calendars
-** [*] 90%: show/unshow calendars (state not stored in database)
+** [*] 90%: show/unshow calendars
 * [*] 100%: Create a calendar (name, color, description)
 * [ ]  80%: modify a calendar
 ** [*] 100%: Name
@@ -1177,9 +1176,9 @@ Journals are dated notes. New feature of SOGo 6.
 * [*] 100%: Create an AddressBook
 * [*] 100%: Delete an AddressBook (except personal)
 * [*] 100%: modify an AddressBook (name)
-* [ ]   0%: share an AddressBook with rights
-* [ ] 50%: import AddressBook (agent msiworks)
-* [ ] 50%: export its AddressBook (agent msiworks)
+* [*] 100%: share an AddressBook with rights
+* [ ] 50%: import AddressBook (agent missworks)
+* [ ] 50%: export its AddressBook (agent missworks)
 * [ ]   0%: subscribe to another SOGo user's AddressBook
 * [ ]   0%: subscribe to an external AddressBook (CardDAV)
 * [*] 100%: search
@@ -1201,8 +1200,8 @@ Journals are dated notes. New feature of SOGo 6.
 
 * [*] 100%: list all lists
 * [*] 100%: list all lists for an AddressBook
-* [ ] 50%: create a list
-* [ ] 50%: modify a list
+* [*] 100%: create a list
+* [*] 100%: modify a list
 * [*] 100%: delete a list
 
 ==== UI
@@ -1213,8 +1212,8 @@ Journals are dated notes. New feature of SOGo 6.
 * [*] 100%: list AddressBooks
 * [*] 100%: Create an AddressBook
 * [*] 100%: Delete an AddressBook (except personal)
-* [ ]   0%: modify an AddressBook
-* [ ]   0%: share an AddressBook with rights
+* [*]   0%: modify an AddressBook
+* [*]   0%: share an AddressBook with rights
 * [*] 100%: import contacts into an AddressBook
 ** [*] 100%: format JSON (meaning SOGo 6 format)
 ** [*] 100%: format vCard 3
@@ -1229,7 +1228,7 @@ Journals are dated notes. New feature of SOGo 6.
 * [ ]   0%: subscribe to an external AddressBook (CardDAV)
 * [*] 100%: search
 * [*] 100%: filter
-* [ ]  90%: sort
+* [ ]   0%: sort
 
 '''
 
@@ -1238,11 +1237,11 @@ Journals are dated notes. New feature of SOGo 6.
 * [*] 100%: list all contacts (across AddressBooks) or a specific one
 * [*] 100%: list all contacts of an AddressBook or a specific one
 * [ ]  50%: create (UI must be redone, simplified view with button for "advanced")
-* [ ]  50%: modify
+* [*] 100%: modify
 * [*] 100%: remove a contact
 * [*] 100%: button to write an email to the contact
 * [ ]   0%: button to search any data (emails, events) related to this contact
-* [ ]   0%: export a contact
+* [*] 100%: export a contact
 * [ ]   0%: view raw source of a contact
 
 **List**
@@ -1250,7 +1249,7 @@ Journals are dated notes. New feature of SOGo 6.
 * [ ] 20%: Create a list of contacts (no button for it, contact must exist first, no GAB)
 * [*] 100%: button to write an email to members of the list
 * [ ]   0%: button to search any data (emails, events) related to this list
-* [ ]   0%: export a list
+* [*] 100%: export a list
 * [ ]   0%: view raw source of a list
 
 === User Preferences

@@ -168,7 +168,7 @@ class UserSourceSettings(SogoSchema):
         "US_DB_HOST": ("US_TYPE", "sql"),
         "US_DB_PORT": ("US_TYPE", "sql"),
         "US_DB_ENCRYPTION": ("US_TYPE", "sql"),
-        "US_DB_ENCODAGE": ("US_TYPE", "sql"),
+        "US_DB_ENCODING": ("US_TYPE", "sql"),
         "US_DB_FIELD_PWD": ("US_TYPE", "sql"),
         "US_DB_PREPEND_PWD_SCHEME": ("US_TYPE", "sql"),
         "US_DB_PWD_POLICY": ("US_CAN_AUTH", True),
@@ -220,7 +220,7 @@ class UserSourceSettings(SogoSchema):
                'sha512', 'sha512-crypt', 'ssha512', 'sha512.hex',
                'blf-crypt',
                'PBKDF2',
-               'sym-aes-128-cbc',
+               #'sym-aes-128-cbc',
                'argon2i', 'argon2id'
     ) #not used because missing the encodage HEX, B64 or base64
 
@@ -273,7 +273,7 @@ class UserSourceSettings(SogoSchema):
     US_DB_HOST = fields.String()
     US_DB_PORT = fields.Integer()
     US_DB_ENCRYPTION = fields.Boolean(load_default=False, dump_default=False)
-    US_DB_ENCODAGE = fields.String(dump_default='utf8', load_default='utf8')
+    US_DB_ENCODING = fields.String(dump_default='utf8', load_default='utf8')
     US_DB_FIELD_PWD            = fields.String(dump_default='c_password', load_default='c_password') # Name of the column with the user password
     US_DB_PREPEND_PWD_SCHEME = fields.Boolean(load_default=False, dump_default=False) #IS the password stored in the db with the shceme like this '{scheme)encryptedValue'
     US_DB_PWD_POLICY       = fields.Boolean(load_default=False, dump_default=False) #Policies on password
@@ -376,7 +376,7 @@ class UserSourceSettingsObj(SettingsObj):
     US_DB_HOST: str = ""
     US_DB_PORT: int = 5432
     US_DB_ENCRYPTION: bool = False
-    US_DB_ENCODAGE: str = 'utf8'
+    US_DB_ENCODING: str = 'utf8'
     US_DB_FIELD_PWD: str = 'c_password'
     US_DB_PREPEND_PWD_SCHEME: bool = False
     US_DB_PWD_POLICY: bool = False
@@ -461,7 +461,7 @@ class UserSourceSettingsObj(SettingsObj):
                     "db_host": self.US_DB_HOST,
                     "db_port": self.US_DB_PORT,
                     "db_ssl":  self.US_DB_ENCRYPTION,
-                    "db_enc":  self.US_DB_ENCODAGE
+                    "db_enc":  self.US_DB_ENCODING
                 },
                 "db_table": self.US_DB_TABLE,
                 "db_uid": self.US_FIELD_UID,
