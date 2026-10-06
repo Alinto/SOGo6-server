@@ -232,7 +232,7 @@ class ApiMailFolderIdBatchAction(MethodView):
         * **untag**: Remove one or more tags from the mails. Tags to remove are provided in the ``data`` field as a list of strings.
         * **move**: Move the mails to another folder. The destination folder name must be provided in the ``data`` field as a string.
         * **spam**: Mark the mails as spam.
-        * **ham**: Mark the mails as not spam.
+        * **ham**: Mark the mails as not spam: move them to INBOX and permanently remove them from the Junk folder. Only allowed when the folder is the Junk folder (error ``S000309`` otherwise).
         * **copy**: Copy the mails to another folder. The destination folder name must be provided in the ``data`` field as a string.
         * **delete**: Delete the mails, following the user's mail delete behavior preference.
         * **illegal**: Report the mails as illegal content and move them to the Junk folder.

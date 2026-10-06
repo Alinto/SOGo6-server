@@ -1958,19 +1958,22 @@ class ModuleMail:
         return {"action": "spam", "mail_uid": mail_uid, "moved_to": junk_folder}
 
     def _action_ham(self, client: ClientMailServer, folder_name: str, mail_uid: str|list[str]) -> dict[str, Any]:
-        """Mark a mail or a list of mails as ham (not spam) and move them to INBOX.
+        """Mark a mail or a list of mails of the Junk folder as ham (not spam), move them to INBOX
+        and permanently remove them from the Junk folder.
 
-        :param folder_name: The name of the folder
+        :param folder_name: The name of the folder, must be of type MAIL_FOLDER_JUNK
         :type folder_name: str
         :param mail_uid: The unique identifier of the mail, or a list of them
         :type mail_uid: str|list[str]
         :return: Result with ham action info
         :rtype: dict[str, Any]
-        :raises RequestException: If operation fails
+        :raises RequestException: If folder_name is not of type MAIL_FOLDER_JUNK, or if operation fails
         """
+        junk_folder = self.domain_mail_folder_name.get(cs.MAIL_FOLDER_JUNK, "Junk")
+        if folder_name != junk_folder:
+            raise RequestException(f"Action 'ham' is only allowed on the Junk folder ('{junk_folder}'), not on '{folder_name}'", err.ERROR_INVALID_ACTION)
+
         inbox_folder = self.domain_mail_folder_name.get(cs.MAIL_FOLDER_INBOX, "INBOX")
-        # Copy from the folder the mails are then removed from: copying from Junk while removing
-        # from folder_name would lose the mails whenever folder_name is not Junk.
         client.copy_mail_to_mailbox(folder_name, mail_uid, inbox_folder)
         self._flag_deleted_and_expunge(client, folder_name, mail_uid)
 
