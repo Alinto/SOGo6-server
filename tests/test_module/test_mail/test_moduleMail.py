@@ -135,6 +135,9 @@ class FakeClientMailServer:
     def remove_flags_to_mail(self, folder_name, mail_uid, flags):
         self.remove_flags_calls.append((folder_name, mail_uid, flags))
 
+    def get_folder_uid_range(self, folder_path):
+        return getattr(self, 'get_folder_uid_range_result', "1:4391")
+
     # ---- ACL methods ----
 
     def get_acl(self, folder_path):
@@ -887,6 +890,34 @@ def test_perform_mail_action_ham_success(monkeypatch):
     assert ("Junk", False) in fake_client.expunge_folder_calls
 
 
+@pytest.mark.parametrize("folder_name", ["INBOX", "Sent", "Trash", "Junk/Sub", "Archive"])
+def test_perform_mail_action_ham_refused_on_non_junk_folder(monkeypatch, folder_name):
+    """Test ham is refused on any folder which is not of type MAIL_FOLDER_JUNK, with no IMAP command sent."""
+    module, fake_client = _make_module(monkeypatch)
+    module.domain_mail_folder_name = {"JUNK": "Junk", "INBOX": "INBOX", "SENT": "Sent", "TRASH": "Trash"}
+
+    with pytest.raises(RequestException) as exc_info:
+        module.perform_mail_action(ACCOUNT_ID, folder_name, "42", {"action": "ham"})
+
+    assert exc_info.value.error == err.ERROR_INVALID_ACTION
+    assert fake_client.copy_mail_to_mailbox_calls == []
+    assert fake_client.add_flags_calls == []
+    assert fake_client.expunge_folder_calls == []
+
+
+def test_perform_mail_action_ham_uses_configured_junk_name(monkeypatch):
+    """Test ham follows the folder mapped to MAIL_FOLDER_JUNK, not the literal name 'Junk'."""
+    module, fake_client = _make_module(monkeypatch)
+    module.domain_mail_folder_name = {"JUNK": "Spam", "INBOX": "INBOX"}
+
+    with pytest.raises(RequestException):
+        module.perform_mail_action(ACCOUNT_ID, "Junk", "42", {"action": "ham"})
+
+    result = module.perform_mail_action(ACCOUNT_ID, "Spam", "42", {"action": "ham"})
+    assert result["moved_to"] == "INBOX"
+    assert ("Spam", "42", "INBOX") in fake_client.copy_mail_to_mailbox_calls
+
+
 def test_perform_mail_action_copy_success(monkeypatch):
     """Test copying a mail to another folder."""
     module, fake_client = _make_module(monkeypatch)
@@ -1083,6 +1114,90 @@ def test_perform_mail_batch_action_invalid_action(monkeypatch):
     batch_action_data = {"uids": [42, 43], "action": "invalid_action"}
     with pytest.raises(RequestException, match="Invalid action: invalid_action"):
         module.perform_mail_batch_action(ACCOUNT_ID, "INBOX", batch_action_data)
+
+
+# ========== Tests for perform_folder_batch_action ==========
+
+def test_perform_folder_batch_action_tag_uses_uid_range(monkeypatch):
+    """Test tagging a whole folder: the UID range is used, no UID is listed."""
+    module, fake_client = _make_module(monkeypatch)
+
+    result = module.perform_folder_batch_action(ACCOUNT_ID, "INBOX", {"action": "tag", "data": ["Important"]})
+
+    assert result["action"] == "tag"
+    assert result["mail_uid"] == "1:4391"
+    assert result["tags_added"] == ["Important"]
+    assert ("INBOX", "1:4391", ["Important"]) in fake_client.add_flags_calls
+
+
+def test_perform_folder_batch_action_move_uses_same_range_for_every_command(monkeypatch):
+    """Test moving a whole folder: COPY and STORE \\Deleted share the same frozen UID range."""
+    module, fake_client = _make_module(monkeypatch)
+
+    result = module.perform_folder_batch_action(ACCOUNT_ID, "INBOX", {"action": "move", "data": "Archive"})
+
+    assert result["to_folder"] == "Archive"
+    assert ("INBOX", "1:4391", "Archive") in fake_client.copy_mail_to_mailbox_calls
+    assert ("INBOX", "1:4391", ['\\Deleted']) in fake_client.add_flags_calls
+    assert ("INBOX", False) in fake_client.expunge_folder_calls
+
+
+def test_perform_folder_batch_action_ham_on_junk_folder(monkeypatch):
+    """Test ham on the whole Junk folder: mails moved to INBOX and expunged from Junk."""
+    module, fake_client = _make_module(monkeypatch)
+    module.domain_mail_folder_name = {"JUNK": "Spam", "INBOX": "INBOX"}
+
+    result = module.perform_folder_batch_action(ACCOUNT_ID, "Spam", {"action": "ham"})
+
+    assert result["moved_to"] == "INBOX"
+    assert fake_client.copy_mail_to_mailbox_calls == [("Spam", "1:4391", "INBOX")]
+    assert ("Spam", "1:4391", ['\\Deleted']) in fake_client.add_flags_calls
+    assert ("Spam", False) in fake_client.expunge_folder_calls
+
+
+def test_perform_folder_batch_action_ham_refused_on_non_junk_folder(monkeypatch):
+    """Test ham on a whole non-Junk folder is refused and nothing is touched."""
+    module, fake_client = _make_module(monkeypatch)
+    module.domain_mail_folder_name = {}
+
+    with pytest.raises(RequestException) as exc_info:
+        module.perform_folder_batch_action(ACCOUNT_ID, "Spamish", {"action": "ham"})
+
+    assert exc_info.value.error == err.ERROR_INVALID_ACTION
+    assert fake_client.copy_mail_to_mailbox_calls == []
+    assert fake_client.add_flags_calls == []
+    assert fake_client.expunge_folder_calls == []
+
+
+def test_perform_mailbox_batch_action_ham_only_processes_junk_folder(monkeypatch):
+    """Test mailbox-wide ham: the Junk folder is processed, any other folder is reported in errors."""
+    module, fake_client = _make_module(monkeypatch)
+    module.domain_mail_folder_name = {"JUNK": "Junk", "INBOX": "INBOX"}
+
+    result = module.perform_mailbox_batch_action(ACCOUNT_ID, {"uids": {"Junk": [42], "Sent": [43]}, "action": "ham"})
+
+    assert list(result["results"]) == ["Junk"]
+    assert result["errors"] == {"Sent": err.ERROR_INVALID_ACTION.c}
+    assert fake_client.copy_mail_to_mailbox_calls == [("Junk", ["42"], "INBOX")]
+
+
+def test_perform_folder_batch_action_empty_folder(monkeypatch):
+    """Test that an empty folder sends no command and returns a null mail_uid."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.get_folder_uid_range_result = None
+
+    result = module.perform_folder_batch_action(ACCOUNT_ID, "INBOX", {"action": "delete"})
+
+    assert result == {"action": "delete", "mail_uid": None}
+    assert fake_client.delete_mails_by_uid_calls == []
+
+
+def test_perform_folder_batch_action_missing_data(monkeypatch):
+    """Test that action data is still validated."""
+    module, _ = _make_module(monkeypatch)
+
+    with pytest.raises(RequestException, match="Missing or invalid destination folder for copy action"):
+        module.perform_folder_batch_action(ACCOUNT_ID, "INBOX", {"action": "copy"})
 
 
 # ========== Tests for delete_mails error handling ==========
