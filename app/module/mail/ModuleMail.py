@@ -764,9 +764,11 @@ class ModuleMail:
         without_content = not fields_params["with_content"]
 
         if without_content:
-            mail_iter = client.fetch_all_mails_without_content(folder_name, number_of_mails=nb_mails, offset=offset, deleted=deleted)
+            mail_iter = client.fetch_all_mails_without_content(folder_name, number_of_mails=nb_mails, offset=offset, deleted=deleted,
+                                                               sort_by=collection_param.sort_by, sort_order=collection_param.sort_order)
         else:
-            mail_iter = client.fetch_all_mails_with_content(folder_name, number_of_mails=nb_mails, offset=offset, deleted=deleted)
+            mail_iter = client.fetch_all_mails_with_content(folder_name, number_of_mails=nb_mails, offset=offset, deleted=deleted,
+                                                            sort_by=collection_param.sort_by, sort_order=collection_param.sort_order)
         total_count = next(mail_iter)["nb_mails"]
         mails = []
 
