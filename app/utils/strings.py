@@ -178,6 +178,20 @@ def quote(input_str:str) -> str:
     escaped = input_str.replace('\\', '\\\\').replace('"', '\\"')
     return '"' + escaped + '"'
 
+def unquote(input_str:str) -> str:
+    """
+    Reverse of quote(): remove the surrounding " and unescape the string.
+    A string not wrapped in " is returned unchanged.
+
+    :param input_str: string to unquote
+    :type input_str: str
+    :return: the string unquoted
+    :rtype: str
+    """
+    if len(input_str) >= 2 and input_str.startswith('"') and input_str.endswith('"'):
+        return input_str[1:-1].replace('\\"', '"').replace('\\\\', '\\')
+    return input_str
+
 def imap_join_folders(delimiter: str, first_path: str, second_path: str) -> str:
     """
     Join two imap folder_path together accordinf to the delimiter

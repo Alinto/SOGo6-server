@@ -16,7 +16,7 @@ from app.utils.logger.logger import logger_imap
 from app.manager.mail.ClientMailServer import ClientMailServer
 from app.utils import errors as err
 from app.utils import constants as cs
-from app.utils.strings import quote, imap_join_folders, escape_imap_string
+from app.utils.strings import quote, unquote, imap_join_folders, escape_imap_string
 
 # Maximum debug output from imaplib
 #TODO all imap are logged, including login/auth password used SecretString (on ldap branch not in develoope now)
@@ -198,6 +198,23 @@ def _group_imap_search_parts_or(parts: list[str]) -> str:
     if len(parts) == 1:
         return parts[0]
     return "(" + _combine_imap_search_or(parts) + ")"
+
+# Prefixes of the IMAP error messages meaning that the mailbox does not exist
+_IMAP_NONEXISTENT_ERRORS = ("[TRYCREATE]", "[NONEXISTENT]", "Mailbox doesn't exist", "Mailbox does not exist")
+
+
+def _is_mailbox_nonexistent_error(datas: list) -> bool:
+    """Tell if the error data returned by an IMAP command means that the mailbox does not exist.
+
+    :param datas: The data returned with a NO/BAD response.
+    :type datas: list
+    :return: True if the mailbox does not exist.
+    :rtype: bool
+    """
+    if not datas:
+        return False
+    first_error = datas[0].decode() if isinstance(datas[0], bytes) else str(datas[0])
+    return first_error.startswith(_IMAP_NONEXISTENT_ERRORS)
 
 
 class ImapFolder:
@@ -734,6 +751,39 @@ class ClientImap(ClientMailServer):
             return None
         else:
             raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
+
+    def _get_special_folder_type(self, folder_path: str) -> str | None:
+        """
+        Get the special type (sent, junk, trash...) of a folder.
+
+        :param folder_path: The folder path, quoted or not.
+        :type folder_path: str
+        :return: The folder type, or None if it is a NORMAL folder.
+        :rtype: str | None
+        """
+        folder_type = self.folders_map_name_to_type.get(unquote(folder_path), cs.MAIL_FOLDER_NORMAL)
+        if folder_type == cs.MAIL_FOLDER_NORMAL:
+            return None
+        return folder_type
+
+    def _create_special_folder_if_missing(self, folder_path: str) -> bool:
+        """
+        Create the folder if it is a special one (any type but MAIL_FOLDER_NORMAL).
+        Meant to be called when writing mails into a folder fails because it does not exist:
+        special folders are created on demand by write actions only (never by read actions).
+
+        :param folder_path: The folder path, quoted or not.
+        :type folder_path: str
+        :return: True if the folder is special (and does exist now), False if it is a NORMAL folder.
+        :rtype: bool
+        :raises RequestException: If folder creation fails.
+        """
+        folder_type = self._get_special_folder_type(folder_path)
+        if folder_type is None:
+            return False
+        logger_imap.info("Folder '%s' does not exist but is of special type '%s', creating it", folder_path, folder_type)
+        self._imap_create_folder(folder_path, auto_sub=True, no_error_if_exist=True)
+        return True
 
     def create_folder(self, folder_name: str, parent_path:str = "", auto_sub:bool = True) -> str:
         """
@@ -1287,7 +1337,32 @@ class ClientImap(ClientMailServer):
 #MAILS#
 #######
 
-    def select_mailbox(self, mailbox: str, readonly: bool = False) -> int:
+    def _imap_select(self, mailbox: str, readonly: bool) -> tuple[bool, list[bytes]]:
+        """
+        Send SELECT (or EXAMINE if readonly) for an already quoted mailbox.
+
+        :param mailbox: The quoted mailbox to select.
+        :type mailbox: str
+        :param readonly: Open the mailbox with EXAMINE (read-only). If False and the server
+            only grants read-only access, the mailbox is re-opened with EXAMINE.
+        :type readonly: bool
+        :return: The result of _exec_imap4_method
+        :rtype: tuple[bool, list[bytes]]
+        """
+        if self.connection is None:
+            raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
+        try:
+            return self._exec_imap4_method(self.connection.select, mailbox, readonly)
+        except BugException as e:
+            # The server answered [READ-ONLY] to SELECT (e.g. shared folder without s/w/t/e rights).
+            # imaplib raises in that case and would keep raising on every following command,
+            # so re-select the mailbox with EXAMINE to open it read-only.
+            if readonly or e.error is not err.ERROR_IMAP_READONLY:
+                raise
+            logger_imap.info("Mailbox '%s' is read-only, selecting it with EXAMINE", mailbox)
+            return self._exec_imap4_method(self.connection.select, mailbox, True)
+
+    def select_mailbox(self, mailbox: str, readonly: bool = False, create_if_special: bool = False) -> int:
         """Select a mailbox
 
         In imap logic a mailbox must be selected before doing any action to it.
@@ -1299,6 +1374,9 @@ class ClientImap(ClientMailServer):
         :param readonly: Open the mailbox with EXAMINE (read-only). If False and the server
             only grants read-only access, the mailbox is re-opened with EXAMINE.
         :type readonly: bool
+        :param create_if_special: Create the mailbox if it does not exist and is a special folder.
+            Only meant for selecting a mailbox in order to write mails into it.
+        :type create_if_special: bool
         :raises RequestException: If selecting the mailbox fails.
         :return: The number of messages in the selected mailbox.
         """
@@ -1307,18 +1385,12 @@ class ClientImap(ClientMailServer):
             if not mailbox.isascii():
                 raise RequestException(f"Mailbox name is not ascii: {mailbox}", err.ERROR_IMAP_NOT_ASCII)
             mailbox = quote(self._fix_folder_path(mailbox))
-            try:
-                success, datas = self._exec_imap4_method(self.connection.select, mailbox, readonly)
-            except BugException as e:
-                # The server answered [READ-ONLY] to SELECT (e.g. shared folder without s/w/t/e rights).
-                # imaplib raises in that case and would keep raising on every following command,
-                # so re-select the mailbox with EXAMINE to open it read-only.
-                if readonly or e.error is not err.ERROR_IMAP_READONLY:
-                    raise
-                logger_imap.info("Mailbox '%s' is read-only, selecting it with EXAMINE", mailbox)
-                success, datas = self._exec_imap4_method(self.connection.select, mailbox, True)
+            success, datas = self._imap_select(mailbox, readonly)
+            if (not success and create_if_special and _is_mailbox_nonexistent_error(datas)
+                    and self._create_special_folder_if_missing(mailbox)):
+                success, datas = self._imap_select(mailbox, readonly)
             if not success:
-                if datas[0].decode().startswith("Mailbox doesn't exist"):
+                if _is_mailbox_nonexistent_error(datas):
                     raise RequestException(f"Folder '{mailbox}' does not exist", err.ERROR_FOLDER_NAME_NOT_FOUND)
                 logger_imap.error("Cannot select folder %s: %s", mailbox, datas)
                 raise RequestException(f"Failed to select folder {mailbox}", err.ERROR_IMAP_FAILED)
@@ -1349,22 +1421,12 @@ class ClientImap(ClientMailServer):
             dest_mailbox_quoted = quote(dest_mailbox)
             success, datas = self._exec_imap4_method(self.connection.uid, 'COPY', mail_uid, dest_mailbox_quoted)
             # Beware, if the uid does not exist, IMAP4 still return OK with data to None. Not a big problem, though.
+            if not success and _is_mailbox_nonexistent_error(datas) and self._create_special_folder_if_missing(dest_mailbox_quoted):
+                # Retry the copy after folder creation
+                success, datas = self._exec_imap4_method(self.connection.uid, 'COPY', mail_uid, dest_mailbox_quoted)
             if not success:
-                if datas[0].decode().startswith("[TRYCREATE]"):
-                    # Get folder type from the unquoted path
-                    folder_type = self.folders_map_name_to_type.get(dest_mailbox, cs.MAIL_FOLDER_NORMAL)
-
-                    # Create folder if it's not of type NORMAL
-                    if folder_type != cs.MAIL_FOLDER_NORMAL:
-                        logger_imap.info("Folder '%s' does not exist but is of special type '%s', creating it", dest_mailbox, folder_type)
-                        self._imap_create_folder(dest_mailbox_quoted, auto_sub=True, no_error_if_exist=True)
-                        # Retry the copy after folder creation
-                        success, datas = self._exec_imap4_method(self.connection.uid, 'COPY', mail_uid, dest_mailbox_quoted)
-                        if not success:
-                            logger_imap.error("UID COPY failed for UID %s to %s after folder creation", mail_uid, dest_mailbox)
-                            raise RequestException(f"UID COPY failed for UID {mail_uid} to {dest_mailbox}", err.ERROR_IMAP_FAILED)
-                    else:
-                        raise RequestException(f"Folder '{dest_mailbox}' does not exist", err.ERROR_FOLDER_NAME_NOT_FOUND)
+                if _is_mailbox_nonexistent_error(datas):
+                    raise RequestException(f"Folder '{dest_mailbox}' does not exist", err.ERROR_FOLDER_NAME_NOT_FOUND)
                 else:
                     logger_imap.error("UID COPY failed for UID %s to %s", mail_uid, dest_mailbox)
                     raise RequestException(f"UID COPY failed for UID {mail_uid} to {dest_mailbox}", err.ERROR_IMAP_FAILED)
@@ -2167,7 +2229,7 @@ class ClientImap(ClientMailServer):
                 logger_imap.info("Draft UID '%s' not found for overwrite, creating new draft", uid)
 
         # APPEND the raw bytes with \Draft flag
-        self.select_mailbox(quoted_folder)
+        self.select_mailbox(quoted_folder, create_if_special=True)
         success, datas = self._exec_imap4_method(
             self.connection.append,  # type: ignore[arg-type]
             quoted_folder,
@@ -2243,29 +2305,20 @@ class ClientImap(ClientMailServer):
             None,  # type: ignore[arg-type]
             raw_bytes,
         )
-        if not success:
-            # Create folder if it's not of type NORMAL and retry
-            if folder_type != cs.MAIL_FOLDER_NORMAL:
-                logger_imap.info("Folder '%s' (type '%s') does not exist, creating it", folder_path, folder_type)
-                self._imap_create_folder(quoted_folder, auto_sub=True, no_error_if_exist=True)
-                # Retry the append after folder creation
-                success, datas = self._exec_imap4_method(
+        if not success and _is_mailbox_nonexistent_error(datas) and self._create_special_folder_if_missing(quoted_folder):
+            # Retry the append after folder creation
+            success, datas = self._exec_imap4_method(
                 self.connection.append,  # type: ignore[arg-type]
                 quoted_folder,
-                    flags,
-                    None,  # type: ignore[arg-type]
-                    raw_bytes,
-                )
-                if not success:
-                    raise RequestException(
-                        f"Failed to append mail to folder '{folder_path}' after creation: {datas}",
-                        err.ERROR_MAIL_SAVE_SENT_FAILED,
-                    )
-            else:
-                raise RequestException(
-                    f"Failed to append mail to folder '{folder_path}': {datas}",
-                    err.ERROR_MAIL_SAVE_SENT_FAILED,
-                )
+                flags,
+                None,  # type: ignore[arg-type]
+                raw_bytes,
+            )
+        if not success:
+            raise RequestException(
+                f"Failed to append mail to folder '{folder_path}': {datas}",
+                err.ERROR_MAIL_SAVE_SENT_FAILED,
+            )
         logger_imap.info("Mail saved in folder '%s'", folder_path)
 
     def delete_mail_permanently_from_folder_type(self, folder_type: str, mail_uid: str) -> None:
