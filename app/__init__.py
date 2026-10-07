@@ -254,7 +254,7 @@ def register_before_request(base_blueprint: Blueprint, kind: str, sogo_state: in
                         g.user_domain_settings = default_domain_settings
                     else:
                         g.user_domain_settings = init_get_user_domain_settings(user)
-                        inter = InterfaceAuthUser(process_config, system_settings, g.user_domain_settings)
+                        inter = InterfaceAuthUser(process_config, system_settings, g.user_domain_settings, user=user)
                         creds_ok, new_user = inter.check_user_and_fill_info(user)
                         if not creds_ok:
                             return create_api_base_response(error=err.ERROR_USER_CREDS_NOT_VALID)
