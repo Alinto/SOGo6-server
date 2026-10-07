@@ -23,6 +23,7 @@ from app.api.v1.mail.schemas.mailbox import (
     MailboxBatchActionResponseSchema,
     MailboxSearchSchema,
     MailboxSearchResponseSchema,
+    MailboxTagsResponseSchema,
 )
 
 if TYPE_CHECKING:
@@ -251,3 +252,18 @@ class ApiMailBoxesAccountSearch(MethodView):
         logger_api.debug("Calling ApiMailBoxesAccountSearch.post for account_id: %s with params: %s", account_id, search_params)
         interface: InterfaceApiMailMailbox = g.inter
         return interface.search_mailbox(account_id, search_params, collection_param, deleted_query["deleted"])
+
+
+@blp.route("/<string:account_id>/tags")
+class ApiMailBoxesAccountTags(MethodView):
+    """
+    Resource: All mail tags of a mailbox
+    """
+    @blp.response(200, MailboxTagsResponseSchema)
+    def get(self, account_id: str) -> ResponseReturnValue:
+        """
+        List all distinct tags used across every mail in every folder of the specified mailbox
+        """
+        logger_api.debug("Calling ApiMailBoxesAccountTags.get for account_id: %s", account_id)
+        interface: InterfaceApiMailMailbox = g.inter
+        return interface.get_mailbox_tags(account_id)
