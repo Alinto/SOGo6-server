@@ -234,6 +234,24 @@ class InterfaceApiMailMail:
             logger_api.error("Request exception in download_mail: %s", str(ex))
             return create_api_base_response(None, ex.error)
 
+    def download_mails(self, account_id: str, folder_name: str, mail_uids: list) -> BytesIO | tuple[dict[str, Any], int]:
+        """Download several mails of a folder as a single .zip archive of .eml files.
+
+        :param account_id: The ID of the account
+        :type account_id: str
+        :param folder_name: The ID of the folder
+        :type folder_name: str
+        :param mail_uids: The unique identifiers of the mails
+        :type mail_uids: list
+        :return: A BytesIO buffer containing the zip archive, or an error response tuple
+        :rtype: BytesIO | tuple[dict[str, Any], int]
+        """
+        try:
+            return self.mail_module.download_mails(account_id, {folder_name: mail_uids}, folder_subdirs=False)
+        except RequestException as ex:
+            logger_api.error("Request exception in download_mails: %s", str(ex))
+            return create_api_base_response(None, ex.error)
+
     def download_attachment(self, account_id: str, folder_name: str, mail_uid: str, filename: str) -> tuple[bytes, str] | tuple[dict[str, Any], int]:
         """Download a specific attachment from a mail.
 

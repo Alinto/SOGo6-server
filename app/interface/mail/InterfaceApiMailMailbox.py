@@ -1,6 +1,7 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 from http import HTTPStatus
+from io import BytesIO
 
 from marshmallow import ValidationError
 
@@ -265,6 +266,24 @@ class InterfaceApiMailMailbox:
             return create_api_base_response(None, err.ERROR_VALIDATION_ERROR)
         except RequestException as ex:
             logger_api.error("Request exception in mailbox_batch_action for user %s, account %s: %s", self.user.uid, account_id, str(ex))
+            return create_api_base_response(None, ex.error)
+
+    def download_mails(self, account_id: str, uids_by_folder: dict[str, list]) -> BytesIO | tuple[dict[str, Any], int]:
+        """Download mails spanning multiple folders as a single .zip archive of .eml files.
+
+        Inside the archive, the .eml files are grouped by folder (``<folder>/mail_<uid>.eml``).
+
+        :param account_id: The account identifier
+        :type account_id: str
+        :param uids_by_folder: Mapping of folder name -> list of mail UIDs
+        :type uids_by_folder: dict[str, list]
+        :return: A BytesIO buffer containing the zip archive, or an error response tuple
+        :rtype: BytesIO | tuple[dict[str, Any], int]
+        """
+        try:
+            return self.mail_module.download_mails(account_id, uids_by_folder, folder_subdirs=True)
+        except RequestException as ex:
+            logger_api.error("Request exception in download_mails for user %s, account %s: %s", self.user.uid, account_id, str(ex))
             return create_api_base_response(None, ex.error)
 
     def save_draft(self, account_id: str, mail_data: dict, key: str | None = None) -> tuple[dict, int]:

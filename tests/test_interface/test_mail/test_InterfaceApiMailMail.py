@@ -500,6 +500,36 @@ def test_download_mail_module_error():
     assert result[1] == 400
     assert result[0]["error_code"] == "S000300"
 
+
+def test_download_mails_success():
+    """Test downloading several mails of a folder as a zip."""
+    from io import BytesIO
+    fake_module = FakeModuleMail()
+    calls = []
+    zip_content = BytesIO(b"PK\x03\x04")
+    fake_module.download_mails = lambda *args, **kwargs: calls.append((args, kwargs)) or zip_content
+    interface = make_interface(fake_module)
+
+    result = interface.download_mails(account_id=0, folder_name="INBOX", mail_uids=[42, 43])
+
+    assert result is zip_content
+    assert calls == [((0, {"INBOX": [42, 43]}), {"folder_subdirs": False})]
+
+
+def test_download_mails_module_error():
+    """Test error handling when the batch mail download fails."""
+    fake_module = FakeModuleMail()
+    fake_module.download_mails = lambda *args, **kwargs: (_ for _ in ()).throw(
+        RequestException("Cannot download", err.ERROR_VALIDATION_ERROR)
+    )
+    interface = make_interface(fake_module)
+
+    result = interface.download_mails(account_id=0, folder_name="INBOX", mail_uids=[42, 43])
+
+    assert isinstance(result, tuple)
+    assert result[1] == 400
+    assert result[0]["error_code"] == "S000300"
+
 # ========== Tests for download_attachment ==========
 
 def test_download_attachment_success():
