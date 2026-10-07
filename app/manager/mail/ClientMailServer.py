@@ -264,14 +264,15 @@ class ClientMailServer(metaclass=ABCMeta):
         """
 
     @abstractmethod
-    def fetch_all_mails_with_content(self, folder_path: str, number_of_mails: int, offset: int, deleted: bool = False) -> Iterator[dict]:
+    def fetch_all_mails_with_content(self, folder_path: str, number_of_mails: int, offset: int, deleted: bool = False,
+                                     sort_by: str | None = None, sort_order: str | None = None) -> Iterator[dict]:
         """
         https://datatracker.ietf.org/doc/html/rfc9051#name-fetch-response
         Fetch a specific number of mails from a mailbox with full details.
 
         First yield the total number of mails matching the ``deleted`` filter:
         {"nb_mails": 500}
-        If not 0, yield a dict for each mail, from most recent to oldest
+        If not 0, yield a dict for each mail, in the requested sort order (default: from most recent to oldest)
         {
             "uid": uid, str
             "mail": mail object, Message
@@ -290,13 +291,18 @@ class ClientMailServer(metaclass=ABCMeta):
             deleted flag). This is applied as a search criterion before pagination,
             so the page always contains up to ``number_of_mails`` matching mails.
         :type deleted: bool
+        :param sort_by: Field to sort on (date, size, subject, to, from, cc). None means by UID, most recent first.
+        :type sort_by: str | None
+        :param sort_order: "asc" or "desc" (default "desc"), only used with ``sort_by``.
+        :type sort_order: str | None
         :raises RequestException: If fetching mails fails
         :return: A tuple of (list of mail dicts with full details, total count)
         :rtype: tuple[list[dict[str, Any]], int]
         """
 
     @abstractmethod
-    def fetch_all_mails_without_content(self, folder_path: str, number_of_mails: int, offset: int, deleted: bool = False) -> Iterator[dict]:
+    def fetch_all_mails_without_content(self, folder_path: str, number_of_mails: int, offset: int, deleted: bool = False,
+                                        sort_by: str | None = None, sort_order: str | None = None) -> Iterator[dict]:
         """
         https://datatracker.ietf.org/doc/html/rfc9051#name-fetch-response
         Fetch a specific number of mails from a mailbox with full details.
@@ -310,7 +316,7 @@ class ClientMailServer(metaclass=ABCMeta):
         }
 
         Always yield the total number of mails matching the ``deleted`` filter
-        Then yield mail by mail, from the most recent to the oldest
+        Then yield mail by mail, in the requested sort order (default: from the most recent to the oldest)
 
         :param mailbox: The mailbox to fetch mails from.
         :type mailbox: str
@@ -323,6 +329,10 @@ class ClientMailServer(metaclass=ABCMeta):
             deleted flag). This is applied as a search criterion before pagination,
             so the page always contains up to ``number_of_mails`` matching mails.
         :type deleted: bool
+        :param sort_by: Field to sort on (date, size, subject, to, from, cc). None means by UID, most recent first.
+        :type sort_by: str | None
+        :param sort_order: "asc" or "desc" (default "desc"), only used with ``sort_by``.
+        :type sort_order: str | None
         :raises RequestException: If fetching mails fails
         :return: A tuple of (list of mail dicts with full details, total count)
         :rtype: tuple[list[dict[str, Any]], int]
