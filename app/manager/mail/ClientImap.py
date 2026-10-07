@@ -28,6 +28,16 @@ else:
 P = ParamSpec("P")
 R = TypeVar("R")
 
+# API sort_by values -> IMAP SORT keys (RFC 5256)
+IMAP_SORT_KEYS = {
+    "date": "DATE",
+    "size": "SIZE",
+    "subject": "SUBJECT",
+    "to": "TO",
+    "from": "FROM",
+    "cc": "CC",
+}
+
 # IMAP ACL rights conversion utilities
 # Mapping constants to centralize conversions between SOGo rights and IMAP ACL chars.
 # https://www.rfc-editor.org/info/rfc4314/#section-2.1
@@ -1456,8 +1466,9 @@ class ClientImap(ClientMailServer):
             "size": size
         }
 
-    def _search_deleted_filtered_uids(self, folder_path: str, deleted: bool) -> list[str]:
-        """Select ``folder_path`` and run an IMAP UID SEARCH filtering on the deleted flag.
+    def _search_deleted_filtered_uids(self, folder_path: str, deleted: bool,
+                                      sort_by: str | None = None, sort_order: str | None = None) -> list[str]:
+        """Select ``folder_path`` and run an IMAP UID SEARCH (or UID SORT) filtering on the deleted flag.
 
         Filtering on the deleted flag is done as an IMAP search criterion (not a
         post-fetch filter) so that pagination on the result is always accurate:
@@ -1469,8 +1480,13 @@ class ClientImap(ClientMailServer):
         :param deleted: If False, mails flagged \\Deleted are excluded. If True, they
             are included alongside non-deleted mails (no filtering on the deleted flag).
         :type deleted: bool
-        :raises RequestException: If selecting the folder or the SEARCH command fails.
-        :return: Matching UIDs, most recent (highest UID) first.
+        :param sort_by: One of the IMAP_SORT_KEYS keys. If None, unknown, or if the server
+            lacks the SORT capability, mails are ordered by UID (most recent first).
+        :type sort_by: str | None
+        :param sort_order: "asc" or "desc" (default "desc"), only used with ``sort_by``.
+        :type sort_order: str | None
+        :raises RequestException: If selecting the folder or the SEARCH/SORT command fails.
+        :return: Matching UIDs, sorted as requested, else most recent (highest UID) first.
         :rtype: list[str]
         """
         if self.connection is None or not self.authenticated:
@@ -1478,6 +1494,21 @@ class ClientImap(ClientMailServer):
         self.select_mailbox(folder_path)
 
         criteria = "ALL" if deleted else "NOT DELETED"
+
+        sort_key = IMAP_SORT_KEYS.get(sort_by) if sort_by else None
+        if sort_key is not None and "SORT" not in self.capabilities:
+            logger_imap.warning("IMAP server has no SORT capability, ignoring sort_by=%s", sort_by)
+            sort_key = None
+        if sort_key is not None:
+            sort_program = f"(REVERSE {sort_key})" if sort_order == "desc" else f"({sort_key})"
+            success, datas = self._exec_imap4_method(self.connection.uid, 'SORT', sort_program, 'UTF-8', criteria)
+            if not success:
+                raise RequestException(
+                    f"IMAP SORT failed in folder '{folder_path}' with program {sort_program} and criteria: {criteria}",
+                    err.ERROR_MAIL_SEARCH_FAILED
+                )
+            return datas[0].decode().split() if datas and datas[0] else []
+
         success, datas = self._exec_imap4_method(self.connection.uid, 'SEARCH', criteria)
         if not success:
             raise RequestException(
@@ -1489,7 +1520,8 @@ class ClientImap(ClientMailServer):
         uid_list.reverse()  # Recent mails have the highest UID, so most recent first
         return uid_list
 
-    def fetch_all_mails_with_content(self, folder_path: str, number_of_mails: int, offset: int, deleted: bool = False) -> Iterator[dict]:
+    def fetch_all_mails_with_content(self, folder_path: str, number_of_mails: int, offset: int, deleted: bool = False,
+                                     sort_by: str | None = None, sort_order: str | None = None) -> Iterator[dict]:
         """
         https://datatracker.ietf.org/doc/html/rfc9051#name-fetch-response
         Fetch a specific number of mails from a mailbox with full details.
@@ -1502,7 +1534,7 @@ class ClientImap(ClientMailServer):
         }
 
         Always yield the total number of mails matching the ``deleted`` filter
-        Then yield mail by mail, from the most recent to the oldest
+        Then yield mail by mail, in the requested sort order (default: from the most recent to the oldest)
 
         :param mailbox: The mailbox to fetch mails from.
         :type mailbox: str
@@ -1514,6 +1546,10 @@ class ClientImap(ClientMailServer):
             True, they are included alongside non-deleted mails (no filtering on the
             deleted flag).
         :type deleted: bool
+        :param sort_by: Field to sort on (date, size, subject, to, from, cc). None means by UID, most recent first.
+        :type sort_by: str | None
+        :param sort_order: "asc" or "desc" (default "desc"), only used with ``sort_by``.
+        :type sort_order: str | None
         :raises RequestException: If fetching mails fails
         :return: A tuple of (list of mail dicts with full details, total count)
         :rtype: tuple[list[dict[str, Any]], int]
@@ -1523,7 +1559,7 @@ class ClientImap(ClientMailServer):
             if not folder_path.isascii():
                 raise RequestException(f"Mailbox name is not ascii: {folder_path}", err.ERROR_IMAP_NOT_ASCII)
             folder_path = quote(folder_path)
-            uid_list = self._search_deleted_filtered_uids(folder_path, deleted)
+            uid_list = self._search_deleted_filtered_uids(folder_path, deleted, sort_by, sort_order)
 
             #yield length
             yield {"nb_mails": len(uid_list)}
@@ -1652,7 +1688,8 @@ class ClientImap(ClientMailServer):
 
         return ret
 
-    def fetch_all_mails_without_content(self, folder_path: str, number_of_mails: int, offset: int, deleted: bool = False) -> Iterator[dict]:
+    def fetch_all_mails_without_content(self, folder_path: str, number_of_mails: int, offset: int, deleted: bool = False,
+                                        sort_by: str | None = None, sort_order: str | None = None) -> Iterator[dict]:
         """
         https://datatracker.ietf.org/doc/html/rfc9051#name-fetch-response
         Fetch a specific number of mails from a mailbox with full details.
@@ -1666,7 +1703,7 @@ class ClientImap(ClientMailServer):
         }
 
         Always yield the total number of mails matching the ``deleted`` filter
-        Then yield mail by mail, from the most recent to the oldest
+        Then yield mail by mail, in the requested sort order (default: from the most recent to the oldest)
 
         :param mailbox: The mailbox to fetch mails from.
         :type mailbox: str
@@ -1678,6 +1715,10 @@ class ClientImap(ClientMailServer):
             True, they are included alongside non-deleted mails (no filtering on the
             deleted flag).
         :type deleted: bool
+        :param sort_by: Field to sort on (date, size, subject, to, from, cc). None means by UID, most recent first.
+        :type sort_by: str | None
+        :param sort_order: "asc" or "desc" (default "desc"), only used with ``sort_by``.
+        :type sort_order: str | None
         :raises RequestException: If fetching mails fails
         :return: A tuple of (list of mail dicts with full details, total count)
         :rtype: tuple[list[dict[str, Any]], int]
@@ -1687,7 +1728,7 @@ class ClientImap(ClientMailServer):
             if not folder_path.isascii():
                 raise RequestException(f"Mailbox name is not ascii: {folder_path}", err.ERROR_IMAP_NOT_ASCII)
             folder_path = quote(folder_path)
-            uid_list = self._search_deleted_filtered_uids(folder_path, deleted)
+            uid_list = self._search_deleted_filtered_uids(folder_path, deleted, sort_by, sort_order)
 
             #yield length
             yield {"nb_mails": len(uid_list)}
