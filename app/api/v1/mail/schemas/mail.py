@@ -76,7 +76,7 @@ class MailBatchActionSchema(Schema):
     uids = fields.List(fields.Integer(), required=True, validate=validate.Length(min=1))
     action = fields.String(
         required=True,
-        validate=validate.OneOf(['tag', 'untag', 'move', 'spam', 'ham', 'copy', 'delete', 'illegal', 'phishing'])
+        validate=validate.OneOf(['tag', 'untag', 'move', 'spam', 'ham', 'copy', 'delete', 'illegal', 'phishing', 'download'])
     )
     data = fields.Raw(required=False, allow_none=True)
 

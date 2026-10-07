@@ -134,7 +134,7 @@ class ApiMailFolderIdAction(MethodView):
     @blp.arguments(MailBatchActionSchema, example=MailBatchActionSchema.example(), error_status_code=400)
     @blp.response(200, MailBatchActionResponseSchema, example=MailBatchActionResponseSchema.example())
     def post(self, data: dict, account_id: str, folder_name: str) -> ResponseReturnValue:
-        """Perform an action (tag, untag, move, spam, ham, copy) on several mails at once in the specified folder.
+        """Perform an action (tag, untag, move, spam, ham, copy, download) on several mails at once in the specified folder.
 
         Behaves exactly like the single-mail action endpoint, except that the action is
         applied to all the mails listed in ``uids`` in a single batch of IMAP commands.
@@ -150,6 +150,9 @@ class ApiMailFolderIdAction(MethodView):
         * **delete**: Delete the selected mails, following the user's mail delete behavior preference.
         * **illegal**: Report the selected mails as illegal content and move them to the Junk folder.
         * **phishing**: Report the selected mails as phishing and move them to the Junk folder.
+        * **download**: Download the selected mails as a ``.zip`` archive containing one ``mail_<uid>.eml``
+          file per mail. The ``data`` field is ignored. On success, the response is the zip file
+          (``application/zip``) instead of the JSON body described below.
 
         :param data: The batch action data containing 'uids', 'action' and optional 'data' field
         :type data: dict
@@ -168,6 +171,17 @@ class ApiMailFolderIdAction(MethodView):
             data["action"]
         )
         interface: InterfaceApiMailMail = g.inter
+
+        if data["action"] == "download":
+            result = interface.download_mails(account_id, folder_name, data["uids"])
+            if isinstance(result, tuple):
+                return result
+            return send_file(
+                result,
+                mimetype="application/zip",
+                as_attachment=True,
+                download_name="mails.zip"
+            )
 
         return interface.mail_batch_action(account_id, folder_name, data)
 

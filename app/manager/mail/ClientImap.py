@@ -1844,6 +1844,46 @@ class ClientImap(ClientMailServer):
         else:
             raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
 
+    def fetch_mails_raw(self, folder_path: str, mail_uids: list[str]) -> dict[str, bytes]:
+        """Fetch several raw mails (eml) from a specific mailbox in a single FETCH command.
+
+        BODY.PEEK[] is used so the mails are not marked as seen.
+
+        :param folder_path: The mailbox containing the mails
+        :type folder_path: str
+        :param mail_uids: The UIDs of the mails to fetch
+        :type mail_uids: list[str]
+        :raises RequestException: If the operation fails or one of the mails is not found
+        :return: Mapping of mail UID -> raw bytes of the mail
+        :rtype: dict[str, bytes]
+        """
+        logger_imap.debug("Fetching raw mails UIDs %s from '%s'", mail_uids, folder_path)
+        if self.connection is not None and self.authenticated:
+            if not folder_path.isascii():
+                raise RequestException(f"Mailbox name is not ascii: {folder_path}", err.ERROR_IMAP_NOT_ASCII)
+            folder_path = quote(folder_path)
+            self.select_mailbox(folder_path)
+
+            success, datas = self._exec_imap4_method(self.connection.uid, 'FETCH', ",".join(mail_uids), '(UID BODY.PEEK[])')
+            if not success:
+                raise RequestException(f"Failed to fetch mails {mail_uids} from {folder_path}: {datas}", err.ERROR_IMAP_FAILED)
+
+            #datas = [(b'1 (UID X BODY[] {3723}', b'full_eml'), b')', ...]
+            raw_mails: dict[str, bytes] = {}
+            for part in datas:
+                if not isinstance(part, tuple):
+                    continue
+                uid_match = re.search(r'UID (\d+)', part[0].decode())
+                if uid_match:
+                    raw_mails[uid_match.group(1)] = part[1]
+
+            missing_uids = [uid for uid in mail_uids if uid not in raw_mails]
+            if missing_uids:
+                raise RequestException(f"Mail UIDs {missing_uids} not found in {folder_path}.", err.ERROR_MAIL_UID_NOT_FOUND)
+            return raw_mails
+        else:
+            raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
+
     def fetch_mail(self, folder_path: str, mail_uid: str) -> dict[str, Any]:
         """Fetch a mail with additional metadata (flags, size) from a specific mailbox using UID.
 

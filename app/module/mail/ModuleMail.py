@@ -1819,6 +1819,26 @@ class ModuleMail:
         else:
             return self._action_download(client, folder_name, mail_uid)
 
+    def download_mails(self, account_id: str, uids_by_folder: dict[str, list], folder_subdirs: bool = True) -> BytesIO:
+        """Download several mails, possibly spanning several folders, as a single .zip of .eml files.
+
+        Unlike the other batch actions, a failure on any mail (e.g. unknown UID) fails the whole
+        download: a partial archive would silently miss mails.
+
+        :param account_id: The account identifier
+        :type account_id: str
+        :param uids_by_folder: Mapping of folder name -> list of mail UIDs to download
+        :type uids_by_folder: dict[str, list]
+        :param folder_subdirs: Whether to group the .eml files by folder inside the archive
+        :type folder_subdirs: bool
+        :return: A BytesIO buffer containing the zip archive
+        :rtype: BytesIO
+        :raises RequestException: If fetching a mail or creating the archive fails
+        """
+        client = self._open_client_for(account_id)
+        uids = {folder_name: [str(uid) for uid in mail_uids] for folder_name, mail_uids in uids_by_folder.items()}
+        return self._build_eml_zip(client, uids, folder_subdirs=folder_subdirs)
+
     def _action_tag(self, client: ClientMailServer, folder_name: str, mail_uid: str|list[str], tags: Any) -> dict[str, Any]:
         """Add custom flags/tags to a mail or a list of mails.
 
@@ -2038,26 +2058,50 @@ class ModuleMail:
         mail_str = client.fetch_mail_raw(folder_name, mail_uid)
         return BytesIO(mail_str.encode())
 
-    def _action_zip(self, client: ClientMailServer, folder_name: str, mail_uid: str) -> BytesIO:
-        """Download a mail as a .zip archive containing the .eml file.
+    def _action_zip(self, client: ClientMailServer, folder_name: str, mail_uid: str|list[str]) -> BytesIO:
+        """Download a mail or a list of mails as a .zip archive containing one .eml file per mail.
 
-        :param folder_name: The name of the folder containing the mail.
+        :param folder_name: The name of the folder containing the mail(s).
         :type folder_name: str
-        :param mail_uid: The unique identifier of the mail.
-        :type mail_uid: str
-        :return: A Flask send_file response with the zip archive.
-        :rtype: Any
-        :raises RequestException: If fetching or zipping the mail fails.
+        :param mail_uid: The unique identifier of the mail, or a list of them.
+        :type mail_uid: str|list[str]
+        :return: A BytesIO buffer containing the zip archive.
+        :rtype: BytesIO
+        :raises RequestException: If fetching or zipping the mail(s) fails.
         """
-        mail_str = client.fetch_mail_raw(folder_name, mail_uid)
+        mail_uids = [mail_uid] if isinstance(mail_uid, str) else mail_uid
+        return self._build_eml_zip(client, {folder_name: mail_uids}, folder_subdirs=False)
 
-        eml_filename = f"mail_{mail_uid}.eml"
+    def _build_eml_zip(self, client: ClientMailServer, uids_by_folder: dict[str, list[str]], folder_subdirs: bool) -> BytesIO:
+        """Build a .zip archive containing one .eml file per mail.
+
+        Each mail is stored as ``mail_<uid>.eml``. When ``folder_subdirs`` is True, the file is placed
+        under a directory named after its folder (``<folder>/mail_<uid>.eml``) so that mails sharing
+        the same UID in different folders do not collide.
+
+        :param uids_by_folder: Mapping of folder name -> list of mail UIDs to put in the archive.
+        :type uids_by_folder: dict[str, list[str]]
+        :param folder_subdirs: Whether to group the .eml files by folder inside the archive.
+        :type folder_subdirs: bool
+        :return: A BytesIO buffer containing the zip archive.
+        :rtype: BytesIO
+        :raises RequestException: If fetching a mail or creating the archive fails.
+        """
+        zip_buffer = BytesIO()
         try:
-            zip_buffer = BytesIO()
             with zipfile.ZipFile(zip_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
-                zf.writestr(eml_filename, mail_str)
+                for folder_name, mail_uids in uids_by_folder.items():
+                    # dict.fromkeys: drop duplicated uids while keeping order (avoids duplicate zip entries)
+                    unique_uids = list(dict.fromkeys(mail_uids))
+                    # single FETCH per folder for all its mails
+                    raw_mails = client.fetch_mails_raw(folder_name, unique_uids)
+                    for mail_uid in unique_uids:
+                        eml_filename = f"mail_{mail_uid}.eml"
+                        if folder_subdirs:
+                            eml_filename = f"{folder_name}/{eml_filename}"
+                        zf.writestr(eml_filename, raw_mails[mail_uid])
             zip_buffer.seek(0)
         except (OSError, zipfile.BadZipFile) as e:
-            raise RequestException(f"Failed to create zip archive for mail UID {mail_uid}: {e}", err.ERROR_MAIL_ZIP_FAILED) from e
+            raise RequestException(f"Failed to create zip archive for mails {uids_by_folder}: {e}", err.ERROR_MAIL_ZIP_FAILED) from e
 
         return zip_buffer

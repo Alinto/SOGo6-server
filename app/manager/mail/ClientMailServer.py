@@ -346,6 +346,19 @@ class ClientMailServer(metaclass=ABCMeta):
         """Fetch a the raw mail (eml) by UID from a mailbox."""
 
     @abstractmethod
+    def fetch_mails_raw(self, folder_path: str, mail_uids: list[str]) -> dict[str, bytes]:
+        """Fetch several raw mails (eml) by UID from a mailbox in a single round-trip.
+
+        :param folder_path: The folder containing the mails.
+        :type folder_path: str
+        :param mail_uids: The UIDs of the mails to fetch.
+        :type mail_uids: list[str]
+        :return: Mapping of mail UID -> raw bytes of the mail.
+        :rtype: dict[str, bytes]
+        :raises RequestException: If the operation fails or one of the mails is not found.
+        """
+
+    @abstractmethod
     def fetch_attachment(self, folder_path: str, mail_uid: str, filename: str) -> tuple[bytes, str]:
         """Fetch a specific attachment from a mail by filename.
 

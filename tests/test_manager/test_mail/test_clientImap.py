@@ -1243,6 +1243,42 @@ class TestFetchMailRaw:
         with pytest.raises(RequestException):
             client.fetch_mail_raw("INBOX", "999")
 
+    def test_fetch_mails_raw_single_fetch(self):
+        fake_conn = FakeIMAPConnection()
+        fake_conn.select_response = ("OK", [b"2"])
+        fake_conn.uid_response = (
+            "OK",
+            [
+                (b"1 (UID 100 BODY[] {10}", b"Subject: A\r\n\r\nBody"),
+                b")",
+                (b"2 (UID 101 BODY[] {10}", b"Subject: B\r\n\r\nBody"),
+                b")",
+            ],
+        )
+        uid_calls = []
+        original_uid = fake_conn.uid
+        fake_conn.uid = lambda command, *args: uid_calls.append((command, args)) or original_uid(command, *args)
+        client = authenticated_client(fake_conn)
+
+        result = client.fetch_mails_raw("INBOX", ["100", "101"])
+
+        assert result == {"100": b"Subject: A\r\n\r\nBody", "101": b"Subject: B\r\n\r\nBody"}
+        assert uid_calls == [("FETCH", ("100,101", "(UID BODY.PEEK[])"))]
+
+    def test_fetch_mails_raw_missing_uid_raises(self):
+        fake_conn = FakeIMAPConnection()
+        fake_conn.select_response = ("OK", [b"1"])
+        fake_conn.uid_response = ("OK", [(b"1 (UID 100 BODY[] {10}", b"Subject: A\r\n\r\nBody"), b")"])
+        client = authenticated_client(fake_conn)
+        with pytest.raises(RequestException, match="101"):
+            client.fetch_mails_raw("INBOX", ["100", "101"])
+
+    def test_fetch_mails_raw_not_authenticated_raises(self):
+        client = make_client()
+        client.connection = None
+        with pytest.raises(BugException):
+            client.fetch_mails_raw("INBOX", ["100"])
+
 
 # ===========================================================================
 # Tests: delete_mails_by_uid
