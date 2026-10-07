@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING
 
-from flask import g
+from flask import g, send_file
 from flask.views import MethodView
 from flask.typing import ResponseReturnValue
 from flask_smorest import Blueprint
@@ -154,7 +154,7 @@ class ApiMailBoxesAccountBatchAction(MethodView):
     @blp.arguments(MailboxBatchActionSchema, example=MailboxBatchActionSchema.example(), error_status_code=400)
     @blp.response(200, MailboxBatchActionResponseSchema, example=MailboxBatchActionResponseSchema.example())
     def post(self, data: dict, account_id: str) -> ResponseReturnValue:
-        """Perform an action (tag, untag, move, spam, ham, copy) on mails from several folders of the account at once.
+        """Perform an action (tag, untag, move, spam, ham, copy, download) on mails from several folders of the account at once.
 
         Behaves like the per-folder batch action endpoint, except that ``uids`` maps folder names
         to their list of mail UIDs, so mails from multiple folders can be processed in a single call.
@@ -173,6 +173,10 @@ class ApiMailBoxesAccountBatchAction(MethodView):
         * **delete**: Delete the selected mails, following the user's mail delete behavior preference.
         * **illegal**: Report the selected mails as illegal content and move them to the Junk folder.
         * **phishing**: Report the selected mails as phishing and move them to the Junk folder.
+        * **download**: Download the selected mails as a single ``.zip`` archive, with one ``<folder>/mail_<uid>.eml``
+          file per mail. The ``data`` field is ignored. Unlike the other actions, any failure (e.g. unknown uid)
+          fails the whole download. On success, the response is the zip file (``application/zip``) instead of
+          the JSON body described below.
 
         :param data: The batch action data containing 'uids' (folder name -> list of uids), 'action' and optional 'data' field
         :type data: dict
@@ -188,6 +192,18 @@ class ApiMailBoxesAccountBatchAction(MethodView):
             data["action"]
         )
         interface: InterfaceApiMailMailbox = g.inter
+
+        if data["action"] == "download":
+            result = interface.download_mails(account_id, data["uids"])
+            if isinstance(result, tuple):
+                return result
+            return send_file(
+                result,
+                mimetype="application/zip",
+                as_attachment=True,
+                download_name="mails.zip"
+            )
+
         return interface.mailbox_batch_action(account_id, data)
 
 

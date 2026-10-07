@@ -51,6 +51,7 @@ class FakeClientMailServer:
         self.set_acl_calls = []
         self.delete_acl_calls = []
         self.set_acl_raw_calls = []
+        self.fetch_mails_raw_calls = []
 
     # ---- folder methods ----
 
@@ -122,6 +123,10 @@ class FakeClientMailServer:
 
     def fetch_mail_raw(self, folder_name, mail_uid):
         return self.fetch_mail_raw_result
+
+    def fetch_mails_raw(self, folder_name, mail_uids):
+        self.fetch_mails_raw_calls.append((folder_name, mail_uids))
+        return {uid: self.fetch_mail_raw_result.encode() for uid in mail_uids}
 
     def delete_mails_by_uid(self, folder_path, mail_uids, move_to_trash=True, permanently=True):
         self.delete_mails_by_uid_calls.append((folder_path, mail_uids))
@@ -1254,6 +1259,61 @@ def test_download_mail_invalid_format(monkeypatch):
     assert isinstance(result, BytesIO)
     result.seek(0)
     assert result.read() == mail_content.encode()
+
+
+# ========== Tests for download_mails ==========
+
+def test_download_mails_single_folder(monkeypatch):
+    """Test downloading several mails of one folder as a flat zip of .eml files."""
+    import zipfile
+
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.fetch_mails_raw = lambda folder_name, mail_uids: (
+        fake_client.fetch_mails_raw_calls.append((folder_name, mail_uids))
+        or {uid: f'Subject: {folder_name} {uid}\r\n\r\nBody'.encode() for uid in mail_uids}
+    )
+
+    result = module.download_mails(ACCOUNT_ID, {"INBOX": [42, 43, 42]}, folder_subdirs=False)
+
+    assert isinstance(result, BytesIO)
+    with zipfile.ZipFile(result, 'r') as zf:
+        # duplicated uid 42 is only stored once
+        assert zf.namelist() == ['mail_42.eml', 'mail_43.eml']
+        assert zf.read('mail_43.eml') == b'Subject: INBOX 43\r\n\r\nBody'
+    # a single fetch for all the mails of the folder
+    assert fake_client.fetch_mails_raw_calls == [("INBOX", ["42", "43"])]
+
+
+def test_download_mails_multiple_folders(monkeypatch):
+    """Test downloading mails from several folders groups the .eml files by folder."""
+    import zipfile
+
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.fetch_mails_raw = lambda folder_name, mail_uids: (
+        fake_client.fetch_mails_raw_calls.append((folder_name, mail_uids))
+        or {uid: f'Subject: {folder_name} {uid}\r\n\r\nBody'.encode() for uid in mail_uids}
+    )
+
+    result = module.download_mails(ACCOUNT_ID, {"INBOX": [42, 43], "Trash": [42]})
+
+    with zipfile.ZipFile(result, 'r') as zf:
+        assert zf.namelist() == ['INBOX/mail_42.eml', 'INBOX/mail_43.eml', 'Trash/mail_42.eml']
+        assert zf.read('Trash/mail_42.eml') == b'Subject: Trash 42\r\n\r\nBody'
+    # one fetch per folder
+    assert fake_client.fetch_mails_raw_calls == [("INBOX", ["42", "43"]), ("Trash", ["42"])]
+
+
+def test_download_mails_fetch_error_propagates(monkeypatch):
+    """Test that a failure on one mail fails the whole download."""
+    module, fake_client = _make_module(monkeypatch)
+
+    def failing_fetch(folder_name, mail_uids):
+        raise RequestException("Mail not found", err.ERROR_MAIL_UID_NOT_FOUND)
+
+    fake_client.fetch_mails_raw = failing_fetch
+
+    with pytest.raises(RequestException, match="Mail not found"):
+        module.download_mails(ACCOUNT_ID, {"INBOX": [42]})
 
 
 # ========== Tests for delete_draft_mail ==========
