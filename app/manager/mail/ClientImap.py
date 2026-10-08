@@ -353,6 +353,7 @@ class ClientImap(ClientMailServer):
         self.default_delimiter: str = ""
         self.default_prefix: str = ""
         self.others_prefixes: dict = {} # dict of {"prefix": "delimiter"}
+        self.foreign_prefixes: set[str] = set() # prefixes of "other users" and "shared" namespaces (folders not owned)
 
     def connect(self) -> None:
         """
@@ -494,6 +495,9 @@ class ClientImap(ClientMailServer):
                 """
                 A imap namespace response is either 'NIL' or
                 '(("prefix1" "delimiter1" "extra_param_optionnal")("prefix2" "delimiter2"))
+
+                The first namespace group is the personal one, the others ("other users" and
+                "shared") hold folders the user does not own.
                 """
                 if namespace_str == "NIL":
                     return None
@@ -505,6 +509,8 @@ class ClientImap(ClientMailServer):
                         self.default_prefix = prefix
                         self.default_delimiter = delimiter
                     else:
+                        if not is_default and prefix:
+                            self.foreign_prefixes.add(prefix)
                         if not prefix:
                             prefix = cs.IMAP_DEFAULT_DELIMITER
                         self.others_prefixes[prefix] = delimiter
@@ -523,6 +529,18 @@ class ClientImap(ClientMailServer):
             if folder_path.startswith(prefix):
                 return delimiter
         return self.default_delimiter
+
+    def is_folder_owned(self, folder_path: str) -> bool:
+        """
+        Tell if the folder belongs to the logged user, meaning it is not in an "other users"
+        or "shared" namespace (i.e. it was not shared with the user).
+
+        :param folder_path: Real IMAP path of the folder
+        :type folder_path: str
+        :return: True if the logged user owns the folder
+        :rtype: bool
+        """
+        return not any(folder_path.startswith(prefix) for prefix in self.foreign_prefixes)
 
 
 #########

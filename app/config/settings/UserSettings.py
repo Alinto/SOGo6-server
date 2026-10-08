@@ -168,21 +168,24 @@ class UserMailViewSettingsObj(SettingsObj):
     SOGO_U_JUNK_FOLDER_NAME: str  = ""
     SOGO_U_TEMPLATE_FOLDER_NAME: str = "Templates"
 
+    #Folder types the user can override, and the preference holding the folder name for each
+    #(INBOX is fixed by domain settings, NORMAL/PLANNED have no folder name)
+    FOLDER_TYPE_TO_PREF: dict[str, str] = {
+        cs.MAIL_FOLDER_DRAFT: "SOGO_U_DRAFT_FOLDER_NAME",
+        cs.MAIL_FOLDER_JUNK: "SOGO_U_JUNK_FOLDER_NAME",
+        cs.MAIL_FOLDER_TRASH: "SOGO_U_TRASH_FOLDER_NAME",
+        cs.MAIL_FOLDER_SENT: "SOGO_U_SENT_FOLDER_NAME",
+        cs.MAIL_FOLDER_TEMPLATE: "SOGO_U_TEMPLATE_FOLDER_NAME",
+    }
+
     def get_user_mail_folder_map(self) -> dict:
         """
         Return the map that link folder type to its name
         """
         ret: dict = {}
-        if self.SOGO_U_DRAFT_FOLDER_NAME:
-            ret[cs.MAIL_FOLDER_DRAFT] = self.SOGO_U_DRAFT_FOLDER_NAME
-        if self.SOGO_U_JUNK_FOLDER_NAME:
-            ret[cs.MAIL_FOLDER_JUNK] = self.SOGO_U_JUNK_FOLDER_NAME
-        if self.SOGO_U_TRASH_FOLDER_NAME:
-            ret[cs.MAIL_FOLDER_TRASH] = self.SOGO_U_TRASH_FOLDER_NAME
-        if self.SOGO_U_SENT_FOLDER_NAME:
-            ret[cs.MAIL_FOLDER_SENT] = self.SOGO_U_SENT_FOLDER_NAME
-        if self.SOGO_U_TEMPLATE_FOLDER_NAME:
-            ret[cs.MAIL_FOLDER_TEMPLATE] = self.SOGO_U_TEMPLATE_FOLDER_NAME
+        for folder_type, pref_name in self.FOLDER_TYPE_TO_PREF.items():
+            if folder_name := getattr(self, pref_name):
+                ret[folder_type] = folder_name
         return ret
 
 
@@ -281,6 +284,7 @@ def get_all_user_settings_schema() -> list[Type[SogoSchema]]:
                    UserContactCategorySettings,
                    UserMailGeneralSettings,
                    UserMailCategorySettings,
+                   UserMailViewSettings,
                    UserExtraSettings]
     return all_schemas
 

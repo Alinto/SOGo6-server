@@ -1,6 +1,7 @@
 from typing import Any
 
 from marshmallow import Schema, fields, validate, validates_schema, ValidationError
+from app.utils import constants as cs
 from app.utils.api.ApiBaseResponse import ApiBaseResponse
 # The correspondence table lives in app.factory.share.shareMailFolder - shared with ModuleMail's
 # IMAP ACL calls (see ClientImap.set_acl_raw/get_acl_raw) - and re-imported here for schema use.
@@ -28,26 +29,44 @@ class FolderCreateSchema(Schema):
         }
 
 
-class FolderUpdateSchema(Schema):
+class FolderActionSchema(Schema):
     """
-    Schema for updating a mail folder.
+    Schema for an action on a mail folder (POST /mailboxes/<account_id>/folders/<path:folder_name>/action).
+
+    - ``rename``: ``data`` is the new name of the folder (not a path, it stays under the same parent).
+    - ``type``: ``data`` is the new type of the folder, one of MAIL_SERVER_FOLDER_TYPE.
     """
-    name = fields.String()
-    subscribed = fields.Integer()
-    type = fields.String()
+    action = fields.String(
+        required=True,
+        validate=validate.OneOf(cs.MAIL_FOLDER_ACTION_LIST),
+        metadata={"description": "Action to apply on the folder: 'rename' or 'type'"}
+    )
+    data = fields.String(
+        required=True,
+        validate=validate.Length(min=1),
+        metadata={"description": "New name for 'rename', new folder type for 'type'"}
+    )
+
+    @validates_schema
+    def validate_data_for_action(self, data: dict[str, Any], **kwargs: Any) -> None:  # pylint: disable=unused-argument
+        """Check the data is consistent with the action."""
+        action_data: str = data.get("data", "")
+        if data.get("action") == cs.MAIL_FOLDER_ACTION_TYPE and action_data not in cs.MAIL_FOLDER_TYPE_LIST:
+            raise ValidationError(f"Must be one of: {', '.join(cs.MAIL_FOLDER_TYPE_LIST)}.", field_name="data")
+        if data.get("action") == cs.MAIL_FOLDER_ACTION_RENAME and not action_data.strip():
+            raise ValidationError("Folder name cannot be blank.", field_name="data")
 
     @classmethod
     def example(cls) -> dict:
         """
-        Example data for folder update.
+        Example data for a folder action.
 
-        :return: Example folder update payload.
+        :return: Example folder action payload.
         :rtype: dict
         """
         return {
-            "name": "NewFolder_renamed",
-            "subscribed": 1,
-            "type": "folder"
+            "action": "type",
+            "data": cs.MAIL_FOLDER_JUNK
         }
 
 
@@ -402,34 +421,40 @@ class FolderDetailsResponseSchema(ApiBaseResponse):
                 "children": []
             }
         }
+    
 
-
-class FolderUpdateResponseSchema(ApiBaseResponse):
+class FolderActionResponseSchema(ApiBaseResponse):
     """
-    Schema for PATCH /mailboxes/<account_id>/folders/<path:folder_name> response
+    Schema for POST /mailboxes/<account_id>/folders/<path:folder_name>/action response
     """
     data = fields.Dict(required=False, allow_none=True)
 
     @classmethod
     def example(cls) -> dict:
-        """Example response for folder update.
-        
-        :return: Example folder update response
+        """Example response for a folder action.
+
+        :return: Example folder action response
         :rtype: dict
         """
         return {
             "error_code": 0,
             "error_msg": "",
             "data": {
-                "name": "RenamedFolder",
-                "path": "RenamedFolder",
+                "name": "Archive",
+                "path": "Archive",
+                "url_path": "Archive",
+                "filter_path": "Archive",
+                "delimiter": "/",
+                "type": cs.MAIL_FOLDER_JUNK,
+                "flags": ["\\HasNoChildren"],
+                "children": [],
+                "selectable": True,
                 "subscribed": 1,
-                "type": "folder",
                 "unseen_count": 0,
-                "message_count": 10,
-                "children": []
+                "message_count": 10
             }
         }
+
 
 class FolderExpungeSchema(Schema):
     """

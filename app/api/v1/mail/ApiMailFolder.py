@@ -15,7 +15,8 @@ from app.utils.errors import ERROR_FOLDER_SHARING_DISABLED, ERROR_SHARE_ANY_AUTH
 from app.utils.logger.logger import logger_api
 from .schemas.folder import (
     FolderCreateSchema,
-    FolderUpdateSchema,
+    FolderActionSchema,
+    FolderActionResponseSchema,
     FolderPurgeSchema,
     FolderSharePatchSchema,
     FolderSharePutSchema,
@@ -23,7 +24,6 @@ from .schemas.folder import (
     FolderListResponseSchema,
     FolderCreateResponseSchema,
     FolderDetailsResponseSchema,
-    FolderUpdateResponseSchema,
     FolderExpungeSchema,
     FolderExpungeResponseSchema,
     FolderPurgeResponseSchema,
@@ -129,26 +129,6 @@ class ApiMailFolderId(MethodView):
         interface: InterfaceApiMailFolder = g.inter
         return interface.delete_folder(account_id, folder_name)
 
-    @blp.arguments(FolderUpdateSchema, example=FolderUpdateSchema.example())
-    @blp.response(200, FolderUpdateResponseSchema, example=FolderUpdateResponseSchema.example())
-    def patch(self, folder_data: dict, account_id: str, folder_name: str) -> ResponseReturnValue:
-        """Update name, type (junk, template...) and subscription status of a specific mail folder.
-        Notimplemented to rework how to set a type, rename, susbribed...
-
-        :param folder_data: The folder update data (name, subscribed, type).
-        :type folder_data: dict
-        :param account_id: The account identifier
-        :type account_id: str
-        :param folder_name: The current name of the folder
-        :type folder_name: str
-        :return: ApiBaseResponse with updated folder info
-        :rtype: ResponseReturnValue
-        """
-        raise NotImplementedError()
-        logger_api.debug("Calling ApiMailFolderId.patch for account_id: %s, folder_name: %s with data: %s", account_id, folder_name, folder_data)
-        interface: InterfaceApiMailFolder = g.inter
-        return interface.update_folder(account_id, folder_name, folder_data)
-
     @blp.response(200, FolderDetailsResponseSchema, example=FolderDetailsResponseSchema.example())
     def get(self, account_id: str, folder_name: str) -> ResponseReturnValue:
         """Retrieve details of a specific mail folder.
@@ -181,6 +161,38 @@ class ApiMailFolderIdExpunge(MethodView):
         logger_api.debug("Calling ApiMailFolderIdExpunge: Expunging folder for account_id: %s, folder_name: %s", account_id, folder_name)
         interface: InterfaceApiMailFolder = g.inter
         return interface.expunge_folder(account_id, folder_name, expunge_data)
+
+
+@blp.route("/<path:folder_name>/action")
+class ApiMailFolderIdAction(MethodView):
+    """API to apply an action on a specific mail folder.
+    """
+    @blp.arguments(FolderActionSchema, example=FolderActionSchema.example())
+    @blp.response(200, FolderActionResponseSchema, example=FolderActionResponseSchema.example())
+    def post(self, action_data: dict, account_id: str, folder_name: str) -> ResponseReturnValue:
+        """Action: Rename a folder or change its type.
+
+        Only the owner of the folder can apply these actions (not on a folder shared with them).
+        Special folders (inbox, sent, drafts, trash, junk, templates...) can neither be renamed
+        nor change type, but a normal folder can become a special one.
+
+        - ``rename``: ``data`` is the new name of the folder, it stays under the same parent.
+        - ``type``: ``data`` is the new type (SENT, DRAFT, JUNK, TRASH, TEMPLATE). It is only a
+          user preference (main account only), the mail server is not modified.
+
+        :param action_data: The action and its data
+        :type action_data: dict
+        :param account_id: The ID of the account
+        :type account_id: str
+        :param folder_name: The ID of the folder
+        :type folder_name: str
+        :return: ApiBaseResponse with the updated folder
+        :rtype: ResponseReturnValue
+        """
+        logger_api.debug("Calling ApiMailFolderIdAction.post for account_id: %s, folder_name: %s with data: %s",
+                        account_id, folder_name, action_data)
+        interface: InterfaceApiMailFolder = g.inter
+        return interface.folder_action(account_id, folder_name, action_data)
 
 
 @blp.route("/<path:folder_name>/purge")

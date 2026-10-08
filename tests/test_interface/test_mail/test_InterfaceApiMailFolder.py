@@ -4,7 +4,9 @@ Ces tests utilisent un fake ModuleMail pour tester la logique de l'interface.
 """
 from app.interface.mail.InterfaceApiMailFolder import InterfaceApiMailFolder
 from app.factory.share.RepositoryAcl import AclEntry
+from app.module.mail.ModuleMail import ModuleMail
 from app.utils.exceptions import RequestException
+from app.utils import constants as cs
 from app.utils import errors as err
 
 
@@ -63,8 +65,20 @@ class InterfaceApiMailFolderWithInjectedConf(InterfaceApiMailFolder):
         self.mail_module = mail_module
         self.user = FakeUser()
         self.user_domain_settings = {}
+        self.module_user_profile = FakeModuleUserProfile()
         self._user_source_module = FakeUserSourceModule()
         self._share_targets = {}
+
+
+class FakeModuleUserProfile:
+    """Fake ModuleUserProfile: records the user preferences updates."""
+    def __init__(self):
+        self.update_user_preferences_args = None
+
+    def update_user_preferences(self, uid, new_data, subparent=None):
+        """Simulate a partial update of the user preferences."""
+        self.update_user_preferences_args = (uid, new_data, subparent)
+        return new_data
 
 
 class FakeUserSourceModule:
@@ -100,6 +114,8 @@ class FakeModuleMail:
         self.put_folder_share_args = None
         self.post_folder_share_args = None
         self.export_folder_mails_args = None
+        self.rename_folder_args = None
+        self.prepare_folder_type_change_args = None
 
         # Configurable results
         self.get_folder_list_result = [{"name": "INBOX"}, {"name": "Sent"}]
@@ -114,6 +130,11 @@ class FakeModuleMail:
         self.patch_folder_share_result = []
         self.put_folder_share_result = []
         self.post_folder_share_result = []
+        self.rename_folder_result = {"name": "NewName", "path": "Parent/NewName", "type": cs.MAIL_FOLDER_NORMAL}
+        self.prepare_folder_type_change_result = (
+            {"name": "Archive", "path": "Archive", "type": cs.MAIL_FOLDER_JUNK},
+            {"SOGO_U_JUNK_FOLDER_NAME": "Archive"},
+        )
 
     def get_folder_list(self, account_id):
         """Simulate getting folder list."""
@@ -178,6 +199,16 @@ class FakeModuleMail:
         """Simulate exporting mails from a folder."""
         self.export_folder_mails_args = folder_name
         return {"exported": True, "count": 42}
+
+    def rename_folder(self, account_id, folder_path, new_name):
+        """Simulate renaming a folder."""
+        self.rename_folder_args = (account_id, folder_path, new_name)
+        return self.rename_folder_result
+
+    def prepare_folder_type_change(self, account_id, folder_path, folder_type):
+        """Simulate checking a folder type change and building the user preferences patch."""
+        self.prepare_folder_type_change_args = (account_id, folder_path, folder_type)
+        return self.prepare_folder_type_change_result
 
 
 def make_interface(monkeypatch, fake_module, user_conf=None):
@@ -302,34 +333,6 @@ def test_expunge_folder_module_error(monkeypatch):
 
     assert status_code == 400
     assert result["error_code"] == "S000300"
-
-
-# ========== Tests for update_folder ==========
-
-def test_update_folder_success(monkeypatch):
-    """Test updating a folder for a valid account."""
-    fake_module = FakeModuleMail()
-    fake_module.update_folder_result = {"name": "RenamedFolder", "subscribed": True}
-    interface = make_interface(monkeypatch, fake_module)
-
-    folder_data = {"name": "RenamedFolder", "subscribed": True}
-    result, status_code = interface.update_folder(account_id=0, folder_name="OldFolder", folder_data=folder_data)
-
-    assert status_code == 200
-    assert result["data"]["name"] == "RenamedFolder"
-    assert fake_module.update_folder_args == ("OldFolder", folder_data)
-
-
-def test_update_folder_module_error(monkeypatch):
-    """Test error handling when folder update fails."""
-    fake_module = FakeModuleMail()
-    fake_module.update_folder = lambda *args: (_ for _ in ()).throw(RequestException("Cannot update", err.ERROR_VALIDATION_ERROR))
-    interface = make_interface(monkeypatch, fake_module)
-
-    result, status_code = interface.update_folder(account_id=0, folder_name="INBOX", folder_data={"name": "NewName"})
-
-    assert result["error_code"] == "S000300"
-    assert status_code == 400
 
 
 # ========== Tests for get_one_folder ==========
@@ -591,3 +594,271 @@ def test_post_folder_share_unknown_user_accepted_as_anonymous(monkeypatch):
     _, users = fake_module.post_folder_share_args
     assert users[0]["uid"] == "ghost@example.com"
     assert result["data"][0]["user_class"] == "anonymous"
+
+
+# ========== Tests for folder_action (rename / type) ==========
+# The interface only dispatches on the action and forwards to ModuleMail; a type change is
+# then stored as a user preference through ModuleUserProfile.
+
+def raise_request_exception(error):
+    """Return a callable raising a RequestException with the given error, whatever its arguments."""
+    def _raise(*args, **kwargs):
+        raise RequestException(error=error)
+    return _raise
+
+
+def test_folder_action_rename_dispatches_to_rename_folder(monkeypatch):
+    """Test that the 'rename' action calls ModuleMail.rename_folder and not the type change."""
+    fake_module = FakeModuleMail()
+    interface = make_interface(monkeypatch, fake_module)
+
+    result, status_code = interface.folder_action("0", "Parent/Old", {"action": "rename", "data": "NewName"})
+
+    assert status_code == 200
+    assert result["data"] == fake_module.rename_folder_result
+    assert fake_module.rename_folder_args == ("0", "Parent/Old", "NewName")
+    assert fake_module.prepare_folder_type_change_args is None
+    assert interface.module_user_profile.update_user_preferences_args is None
+
+
+def test_folder_action_type_dispatches_to_change_folder_type(monkeypatch):
+    """Test that the 'type' action calls the type change and not the rename."""
+    fake_module = FakeModuleMail()
+    interface = make_interface(monkeypatch, fake_module)
+
+    result, status_code = interface.folder_action("0", "Archive", {"action": "type", "data": cs.MAIL_FOLDER_JUNK})
+
+    assert status_code == 200
+    assert result["data"]["type"] == cs.MAIL_FOLDER_JUNK
+    assert fake_module.prepare_folder_type_change_args == ("0", "Archive", cs.MAIL_FOLDER_JUNK)
+    assert fake_module.rename_folder_args is None
+
+
+def test_rename_folder_module_error(monkeypatch):
+    """Test that a module error on rename is returned as an API error."""
+    fake_module = FakeModuleMail()
+    fake_module.rename_folder = raise_request_exception(err.ERROR_FOLDER_ALREADY_EXIST)
+    interface = make_interface(monkeypatch, fake_module)
+
+    result, status_code = interface.rename_folder("0", "Old", "Existing")
+
+    assert status_code == 409
+    assert result["error_code"] == err.ERROR_FOLDER_ALREADY_EXIST.c
+    assert result["data"] is None
+
+
+def test_change_folder_type_updates_user_preferences(monkeypatch):
+    """Test that a type change stores the module's patch in USER_MAIL_VIEW_SETTINGS for the user."""
+    fake_module = FakeModuleMail()
+    interface = make_interface(monkeypatch, fake_module)
+    interface.user.uid = "user@example.com"
+
+    result, status_code = interface.change_folder_type("0", "Archive", cs.MAIL_FOLDER_JUNK)
+
+    assert status_code == 200
+    assert result["data"] == {"name": "Archive", "path": "Archive", "type": cs.MAIL_FOLDER_JUNK}
+    assert interface.module_user_profile.update_user_preferences_args == (
+        "user@example.com", {"SOGO_U_JUNK_FOLDER_NAME": "Archive"}, "USER_MAIL_VIEW_SETTINGS"
+    )
+
+
+def test_change_folder_type_module_error_does_not_update_preferences(monkeypatch):
+    """Test that a refused type change returns the error and leaves the user preferences untouched."""
+    fake_module = FakeModuleMail()
+    fake_module.prepare_folder_type_change = raise_request_exception(err.ERROR_FOLDER_SPECIAL_CANNOT_CHANGE_TYPE)
+    interface = make_interface(monkeypatch, fake_module)
+
+    result, status_code = interface.change_folder_type("0", "Trash", cs.MAIL_FOLDER_JUNK)
+
+    assert status_code == 400
+    assert result["error_code"] == err.ERROR_FOLDER_SPECIAL_CANNOT_CHANGE_TYPE.c
+    assert interface.module_user_profile.update_user_preferences_args is None
+
+
+def test_change_folder_type_preferences_error(monkeypatch):
+    """Test that an error while storing the user preferences is returned as an API error."""
+    fake_module = FakeModuleMail()
+    interface = make_interface(monkeypatch, fake_module)
+    interface.module_user_profile.update_user_preferences = raise_request_exception(err.ERROR_USER_PROFILE_NOT_FOUND)
+
+    result, status_code = interface.change_folder_type("0", "Archive", cs.MAIL_FOLDER_JUNK)
+
+    assert result["error_code"] == err.ERROR_USER_PROFILE_NOT_FOUND.c
+    assert status_code == err.ERROR_USER_PROFILE_NOT_FOUND.h
+
+
+# ========== Tests for folder_action through the real ModuleMail ==========
+# The real ModuleMail runs the business rules (ownership, special folders, main account only)
+# against a fake mail client, so no IMAP server is needed.
+
+class FakeMailClient:
+    """Fake ClientMailServer holding a few folders, some of them shared with the user."""
+    def __init__(self):
+        self.folders = {
+            "Parent/Old": {"name": "Old", "path": "Parent/Old", "delimiter": "/", "type": cs.MAIL_FOLDER_NORMAL},
+            "Archive": {"name": "Archive", "path": "Archive", "delimiter": "/", "type": cs.MAIL_FOLDER_NORMAL},
+            "Sent": {"name": "Sent", "path": "Sent", "delimiter": "/", "type": cs.MAIL_FOLDER_SENT},
+            "Shared/bob/Projects": {"name": "Projects", "path": "Shared/bob/Projects", "delimiter": "/", "type": cs.MAIL_FOLDER_NORMAL},
+        }
+        self.rename_folder_args = None
+
+    def get_one_folder(self, folder_path):
+        """Return a copy of the folder, as the real client builds a new dict on each call."""
+        if folder_path not in self.folders:
+            raise RequestException(error=err.ERROR_FOLDER_NAME_NOT_FOUND)
+        return dict(self.folders[folder_path])
+
+    def is_folder_owned(self, folder_path):
+        """Folders under the 'Shared/' namespace were shared with the user."""
+        return not folder_path.startswith("Shared/")
+
+    def rename_folder(self, old_name, new_name):
+        """Rename the folder in place."""
+        self.rename_folder_args = (old_name, new_name)
+        folder = self.folders.pop(old_name)
+        folder.update({"name": new_name.rsplit("/", 1)[-1], "path": new_name})
+        self.folders[new_name] = folder
+
+
+def make_interface_with_real_module(monkeypatch):
+    """Create an interface using the real ModuleMail wired to a FakeMailClient."""
+    client = FakeMailClient()
+    module = ModuleMail(FakeUser(), mail_settings=None)
+    monkeypatch.setattr(module, "_open_client_for", lambda account_id, do_login=True: client)
+    interface = make_interface(monkeypatch, module)
+    return interface, client
+
+
+def test_action_rename_keeps_parent(monkeypatch):
+    """Test that a rename only changes the last part of the path and returns the renamed folder."""
+    interface, client = make_interface_with_real_module(monkeypatch)
+
+    result, status_code = interface.folder_action("0", "Parent/Old", {"action": "rename", "data": "New"})
+
+    assert status_code == 200
+    assert client.rename_folder_args == ("Parent/Old", "Parent/New")
+    assert result["data"]["path"] == "Parent/New"
+    assert result["data"]["name"] == "New"
+
+
+def test_action_rename_with_delimiter_refused(monkeypatch):
+    """Test that a new name containing the folder delimiter is refused."""
+    interface, client = make_interface_with_real_module(monkeypatch)
+
+    result, status_code = interface.folder_action("0", "Parent/Old", {"action": "rename", "data": "a/b"})
+
+    assert status_code == 400
+    assert result["error_code"] == err.ERROR_FOLDER_DELIMITER.c
+    assert client.rename_folder_args is None
+
+
+def test_action_rename_special_folder_refused(monkeypatch):
+    """Test that a special folder cannot be renamed."""
+    interface, client = make_interface_with_real_module(monkeypatch)
+
+    result, status_code = interface.folder_action("0", "Sent", {"action": "rename", "data": "MySent"})
+
+    assert status_code == 400
+    assert result["error_code"] == err.ERROR_FOLDER_SPECIAL_CANNOT_RENAME.c
+    assert client.rename_folder_args is None
+
+
+def test_action_rename_shared_folder_refused(monkeypatch):
+    """Test that a folder shared with the user cannot be renamed, with the dedicated error."""
+    interface, client = make_interface_with_real_module(monkeypatch)
+
+    result, status_code = interface.folder_action("0", "Shared/bob/Projects", {"action": "rename", "data": "Mine"})
+
+    assert status_code == 403
+    assert result["error_code"] == err.ERROR_FOLDER_NOT_OWNER.c
+    assert result["error_msg"] == err.ERROR_FOLDER_NOT_OWNER.m
+    assert client.rename_folder_args is None
+
+
+def test_action_rename_unknown_folder(monkeypatch):
+    """Test that renaming a folder that does not exist returns not found."""
+    interface, _ = make_interface_with_real_module(monkeypatch)
+
+    result, status_code = interface.folder_action("0", "Nope", {"action": "rename", "data": "New"})
+
+    assert status_code == 404
+    assert result["error_code"] == err.ERROR_FOLDER_NAME_NOT_FOUND.c
+
+
+def test_action_type_normal_to_special(monkeypatch):
+    """Test that a normal folder can become special: only the user preference is updated."""
+    interface, client = make_interface_with_real_module(monkeypatch)
+
+    result, status_code = interface.folder_action("0", "Archive", {"action": "type", "data": cs.MAIL_FOLDER_JUNK})
+
+    assert status_code == 200
+    assert result["data"]["type"] == cs.MAIL_FOLDER_JUNK
+    _, patch, subparent = interface.module_user_profile.update_user_preferences_args
+    assert patch == {"SOGO_U_JUNK_FOLDER_NAME": "Archive"}
+    assert subparent == "USER_MAIL_VIEW_SETTINGS"
+    # The mail server itself is never modified by a type change
+    assert client.rename_folder_args is None
+    assert client.folders["Archive"]["type"] == cs.MAIL_FOLDER_NORMAL
+
+
+def test_action_type_each_assignable_type_uses_its_preference(monkeypatch):
+    """Test the preference written for every type the user can assign."""
+    expected = {
+        cs.MAIL_FOLDER_SENT: "SOGO_U_SENT_FOLDER_NAME",
+        cs.MAIL_FOLDER_DRAFT: "SOGO_U_DRAFT_FOLDER_NAME",
+        cs.MAIL_FOLDER_TRASH: "SOGO_U_TRASH_FOLDER_NAME",
+        cs.MAIL_FOLDER_JUNK: "SOGO_U_JUNK_FOLDER_NAME",
+        cs.MAIL_FOLDER_TEMPLATE: "SOGO_U_TEMPLATE_FOLDER_NAME",
+    }
+    for folder_type, pref_name in expected.items():
+        interface, _ = make_interface_with_real_module(monkeypatch)
+
+        _, status_code = interface.folder_action("0", "Archive", {"action": "type", "data": folder_type})
+
+        assert status_code == 200
+        assert interface.module_user_profile.update_user_preferences_args[1] == {pref_name: "Archive"}
+
+
+def test_action_type_not_assignable_refused(monkeypatch):
+    """Test that INBOX, PLANNED and NORMAL cannot be assigned by the user."""
+    for folder_type in (cs.MAIL_FOLDER_INBOX, cs.MAIL_FOLDER_PLANNED, cs.MAIL_FOLDER_NORMAL):
+        interface, _ = make_interface_with_real_module(monkeypatch)
+
+        result, status_code = interface.folder_action("0", "Archive", {"action": "type", "data": folder_type})
+
+        assert status_code == 400
+        assert result["error_code"] == err.ERROR_FOLDER_TYPE_NOT_ASSIGNABLE.c
+        assert interface.module_user_profile.update_user_preferences_args is None
+
+
+def test_action_type_special_folder_refused(monkeypatch):
+    """Test that the type of a special folder cannot be changed."""
+    interface, _ = make_interface_with_real_module(monkeypatch)
+
+    result, status_code = interface.folder_action("0", "Sent", {"action": "type", "data": cs.MAIL_FOLDER_JUNK})
+
+    assert status_code == 400
+    assert result["error_code"] == err.ERROR_FOLDER_SPECIAL_CANNOT_CHANGE_TYPE.c
+    assert interface.module_user_profile.update_user_preferences_args is None
+
+
+def test_action_type_shared_folder_refused(monkeypatch):
+    """Test that the type of a folder shared with the user cannot be changed, with the dedicated error."""
+    interface, _ = make_interface_with_real_module(monkeypatch)
+
+    result, status_code = interface.folder_action("0", "Shared/bob/Projects", {"action": "type", "data": cs.MAIL_FOLDER_JUNK})
+
+    assert status_code == 403
+    assert result["error_code"] == err.ERROR_FOLDER_NOT_OWNER.c
+    assert interface.module_user_profile.update_user_preferences_args is None
+
+
+def test_action_type_external_account_refused(monkeypatch):
+    """Test that folder types can only be changed on the main account (preferences are not per account)."""
+    interface, _ = make_interface_with_real_module(monkeypatch)
+
+    result, status_code = interface.folder_action("ext_hash", "Archive", {"action": "type", "data": cs.MAIL_FOLDER_JUNK})
+
+    assert status_code == 400
+    assert result["error_code"] == err.ERROR_FOLDER_TYPE_EXT_ACCOUNT.c
+    assert interface.module_user_profile.update_user_preferences_args is None

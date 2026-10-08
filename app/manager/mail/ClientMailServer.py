@@ -157,6 +157,18 @@ class ClientMailServer(metaclass=ABCMeta):
         """
 
     @abstractmethod
+    def rename_folder(self, old_name: str, new_name: str) -> None:
+        """
+        Rename the specified mail folder. old_name and new_name are full folder paths.
+        """
+
+    @abstractmethod
+    def is_folder_owned(self, folder_path: str) -> bool:
+        """
+        Return True if the logged user owns this folder, False if it was shared with them.
+        """
+
+    @abstractmethod
     def delete_folder(self, folder_path: str, do_children:bool = True) -> None:
         """
         Delete the specified mail folder. Meaning:

@@ -85,6 +85,11 @@ ERROR_FOLDER_CANNOT_RENAME  = E("S000306", "Folder cannot be renamed", HTTPStatu
 ERROR_FOLDER_NOT_UNIQUE     = E("S000307", "Folder is not unique", HTTPStatus.CONFLICT)
 ERROR_FOLDER_DELIMITER      = E("S000308", "Cannot create a folder with delimiter in the name", HTTPStatus.BAD_REQUEST)
 ERROR_FOLDER_SHARING_DISABLED = E("S000380", "Mail Folder Sharing Is Disabled For This Domain", HTTPStatus.FORBIDDEN)
+ERROR_FOLDER_NOT_OWNER        = E("S000381", "This Folder Has Been Shared With You: Only Its Owner Can Rename It Or Change Its Type", HTTPStatus.FORBIDDEN)
+ERROR_FOLDER_SPECIAL_CANNOT_RENAME = E("S000382", "A Special Folder (Inbox, Sent, Drafts, Trash, Junk, Templates...) Cannot Be Renamed", HTTPStatus.BAD_REQUEST)
+ERROR_FOLDER_SPECIAL_CANNOT_CHANGE_TYPE = E("S000383", "The Type Of A Special Folder (Inbox, Sent, Drafts, Trash, Junk, Templates...) Cannot Be Changed", HTTPStatus.BAD_REQUEST)
+ERROR_FOLDER_TYPE_NOT_ASSIGNABLE = E("S000384", "This Folder Type Cannot Be Assigned By The User", HTTPStatus.BAD_REQUEST)
+ERROR_FOLDER_TYPE_EXT_ACCOUNT = E("S000385", "Folder Types Can Only Be Changed On The Main Account", HTTPStatus.BAD_REQUEST)
 ERROR_INVALID_ACTION         = E("S000309", "Invalid Action Specified", HTTPStatus.BAD_REQUEST)
 ERROR_MISSING_ACTION_DATA    = E("S001306", "Missing Required Data For Action", HTTPStatus.BAD_REQUEST)
 

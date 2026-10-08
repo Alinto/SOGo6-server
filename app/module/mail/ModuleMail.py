@@ -270,49 +270,78 @@ class ModuleMail:
         mail_deleted = client.expunge_folder(folder_path, do_subfolders)
         return {"mail_deleted": mail_deleted}
 
+    @staticmethod
+    def _get_owned_folder(client: ClientMailServer, folder_path: str) -> dict[str, Any]:
+        """Return the folder details, ensuring the logged user owns it (i.e. it was not shared with them).
 
-    def update_folder(self, folder_name: str, folder_data: dict[str, Any]) -> dict[str, Any]:
-        """Update name, type (junk, template...) and subscription status of a specific mail folder.
-        
-        :param folder_name: The current name of the folder
-        :type folder_name: str
-        :param folder_data: dictionary containing update data (name, subscribed, type)
-        :type folder_data: dict[str, Any]
-        :return: Updated folder data
-        :rtype: dict[str, Any]
-        :raises RequestException: If validation or manager operations fail
+        :raises RequestException: ERROR_FOLDER_NAME_NOT_FOUND if the folder does not exist,
+            ERROR_FOLDER_NOT_OWNER if it was shared with the user
         """
-        raise NotImplementedError()
-        # self.client.select_mailbox(folder_name)
-        # new_name = folder_data.get("name")
-        # subscribed = folder_data.get("subscribed")
-        # folder_type = folder_data.get("type")
+        folder = client.get_one_folder(folder_path)
+        if not client.is_folder_owned(folder[cs.FOLDER_PATH]):
+            raise RequestException(error=err.ERROR_FOLDER_NOT_OWNER)
+        return folder
 
-        # # Rename folder if new name is provided and different
-        # final_folder_name = folder_name
-        # if new_name and new_name != folder_name:
-        #     self.client.rename_folder(folder_name, new_name)
-        #     final_folder_name = new_name
-        #     logger_mail_server.info("Renamed folder from '%s' to '%s'", folder_name, new_name)
+    def rename_folder(self, account_id: str, folder_path: str, new_name: str) -> dict[str, Any]:
+        """Rename a folder owned by the user, keeping it under the same parent.
 
-        # # Update subscription status if provided
-        # if subscribed is not None:
-        #     if subscribed in (1, "1", True):
-        #         self.client.subscribe_folder(final_folder_name)
-        #         logger_mail_server.info("Subscribed to folder '%s'", final_folder_name)
-        #     else:
-        #         self.client.unsubscribe_folder(final_folder_name)
-        #         logger_mail_server.info("Unsubscribed from folder '%s'", final_folder_name)
+        :param account_id: The account identifier
+        :type account_id: str
+        :param folder_path: The current path of the folder
+        :type folder_path: str
+        :param new_name: The new name of the folder (not a path)
+        :type new_name: str
+        :return: The renamed folder details
+        :rtype: dict[str, Any]
+        :raises RequestException: If the folder is not owned, is special, the new name contains
+            the delimiter or the rename fails
+        """
+        client = self._open_client_for(account_id)
+        folder = self._get_owned_folder(client, folder_path)
+        if folder[cs.FOLDER_TYPE] != cs.MAIL_FOLDER_NORMAL:
+            raise RequestException(error=err.ERROR_FOLDER_SPECIAL_CANNOT_RENAME)
 
-        # # Get updated folder details
-        # updated_details = self.client.get_one_folder(final_folder_name)
+        delimiter: str = folder[cs.FOLDER_DELIMITER]
+        if delimiter and delimiter in new_name:
+            raise RequestException(error=err.ERROR_FOLDER_DELIMITER)
 
-        # # Update folder type if provided
-        # if folder_type:
-        #     updated_details["type"] = folder_type
-        #     #TODO: Manager BDD update quand on l'aura
+        old_path: str = folder[cs.FOLDER_PATH]
+        new_path = old_path[:len(old_path) - len(folder[cs.FOLDER_NAME])] + new_name
+        client.rename_folder(old_path, new_path)
+        return client.get_one_folder(new_path)
 
-        # return updated_details
+    def prepare_folder_type_change(self, account_id: str, folder_path: str, folder_type: str) -> tuple[dict[str, Any], dict[str, str]]:
+        """Check a folder type change and build the user preferences patch that applies it.
+
+        Folder types are not stored on the mail server: they come from the folder names of the
+        domain settings, overridden by the user preferences (USER_MAIL_VIEW_SETTINGS). The mail
+        server is only read to check the folder exists, is owned and is not already special.
+
+        :param account_id: The account identifier, only the main account is allowed
+        :type account_id: str
+        :param folder_path: The path of the folder
+        :type folder_path: str
+        :param folder_type: The new type of the folder (see MAIL_SERVER_FOLDER_TYPE)
+        :type folder_type: str
+        :return: The folder details with its new type, and the patch for USER_MAIL_VIEW_SETTINGS
+        :rtype: tuple[dict[str, Any], dict[str, str]]
+        :raises RequestException: If the account is external, the type cannot be set by the user,
+            the folder is not owned or is already special
+        """
+        if account_id != cs.DEFAULT_IDENTITY_KEY_VALUE:
+            raise RequestException(error=err.ERROR_FOLDER_TYPE_EXT_ACCOUNT)
+
+        pref_name = UserMailViewSettingsObj.FOLDER_TYPE_TO_PREF.get(folder_type)
+        if pref_name is None:
+            raise RequestException(error=err.ERROR_FOLDER_TYPE_NOT_ASSIGNABLE)
+
+        client = self._open_client_for(account_id)
+        folder = self._get_owned_folder(client, folder_path)
+        if folder[cs.FOLDER_TYPE] != cs.MAIL_FOLDER_NORMAL:
+            raise RequestException(error=err.ERROR_FOLDER_SPECIAL_CANNOT_CHANGE_TYPE)
+
+        folder[cs.FOLDER_TYPE] = folder_type
+        return folder, {pref_name: folder[cs.FOLDER_PATH]}
 
 
     def purge_folder_mails(self, account_id:str, folder_path: str, purge_data: dict[str, Any]) -> dict[str, int]:
