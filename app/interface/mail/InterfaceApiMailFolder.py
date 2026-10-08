@@ -6,8 +6,10 @@ from app.auth.User import User
 from app.factory.share.RepositoryAcl import AclEntry
 from app.module.auth.ModuleUserSource import ModuleUserSource
 from app.module.mail.ModuleMail import ModuleMail
+from app.module.user.ModuleUserProfile import ModuleUserProfile
 from app.factory.share.shareMailFolder import FOLDER_PERMISSION_CODE_TO_RIGHT, right_to_camel
 from app.config.settings.DomainSettings import MailSettings, MailSettingsObj
+from app.config.settings.UserSettings import UserMailViewSettings
 from app.utils import constants as cs
 from app.utils import errors as err
 from app.utils.exceptions import RequestException
@@ -32,6 +34,7 @@ class InterfaceApiMailFolder:
         self.user = user
 
         self.mail_module = ModuleMail(self.user, self.mail_settings, process_setting=process_setting)
+        self.module_user_profile = ModuleUserProfile(process_setting, user_domain_settings)
         self._user_source_module: ModuleUserSource = ModuleUserSource.init_from_domain_settings(user_domain_settings)
         self._share_targets: dict[str, User] = {}
 
@@ -114,24 +117,63 @@ class InterfaceApiMailFolder:
             logger_api.error("Request exception in delete_folder: %s", str(ex))
             return create_api_base_response(None, ex.error)
 
-    def update_folder(self, account_id: str, folder_name: str, folder_data: dict[str, Any]) -> tuple[dict[str, Any], int]:
-        """Update name, type (junk, template...) and subscription status of a specific mail folder.
-        
+    def folder_action(self, account_id: str, folder_path: str, action_data: dict[str, str]) -> tuple[dict[str, Any], int]:
+        """Apply an action (rename or type) on a specific mail folder.
+
         :param account_id: The ID of the account
         :type account_id: str
-        :param folder_name: The current name of the folder
-        :type folder_name: str
-        :param folder_data: dictionary containing update data (name, subscribed, type)
-        :type folder_data: dict[str, Any]
-        :return: A tuple of (API response dict, status code)
+        :param folder_path: The path of the folder
+        :type folder_path: str
+        :param action_data: dictionary containing the action and its data (see FolderActionSchema)
+        :type action_data: dict[str, str]
+        :return: A tuple of (API response dict with the updated folder, status code)
+        :rtype: tuple[dict[str, Any], int]
+        """
+        if action_data["action"] == cs.MAIL_FOLDER_ACTION_RENAME:
+            return self.rename_folder(account_id, folder_path, action_data["data"])
+        return self.change_folder_type(account_id, folder_path, action_data["data"])
+
+    def rename_folder(self, account_id: str, folder_path: str, new_name: str) -> tuple[dict[str, Any], int]:
+        """Rename a mail folder owned by the user.
+
+        :param account_id: The ID of the account
+        :type account_id: str
+        :param folder_path: The current path of the folder
+        :type folder_path: str
+        :param new_name: The new name of the folder
+        :type new_name: str
+        :return: A tuple of (API response dict with the renamed folder, status code)
         :rtype: tuple[dict[str, Any], int]
         """
         try:
-            updated_folder = self.mail_module.update_folder(folder_name, folder_data)
-            return create_api_base_response(updated_folder)
+            folder = self.mail_module.rename_folder(account_id, folder_path, new_name)
         except RequestException as ex:
-            logger_api.error("Request exception in update_folder: %s", str(ex))
+            logger_api.error("Request exception in rename_folder: %s", str(ex))
             return create_api_base_response(None, ex.error)
+        return create_api_base_response(folder)
+
+    def change_folder_type(self, account_id: str, folder_path: str, folder_type: str) -> tuple[dict[str, Any], int]:
+        """Change the type of a mail folder owned by the user.
+
+        A folder type is only a user preference: the folder name is stored in the user
+        preferences (USER_MAIL_VIEW_SETTINGS), overriding the domain settings one.
+
+        :param account_id: The ID of the account
+        :type account_id: str
+        :param folder_path: The path of the folder
+        :type folder_path: str
+        :param folder_type: The new type of the folder (see MAIL_SERVER_FOLDER_TYPE)
+        :type folder_type: str
+        :return: A tuple of (API response dict with the folder and its new type, status code)
+        :rtype: tuple[dict[str, Any], int]
+        """
+        try:
+            folder, preferences_patch = self.mail_module.prepare_folder_type_change(account_id, folder_path, folder_type)
+            self.module_user_profile.update_user_preferences(self.user.uid, preferences_patch, UserMailViewSettings.subparent)
+        except RequestException as ex:
+            logger_api.error("Request exception in change_folder_type: %s", str(ex))
+            return create_api_base_response(None, ex.error)
+        return create_api_base_response(folder)
 
     def expunge_folder(self, account_id: str, folder_name: str, expunge_data:dict) -> tuple[dict[str, Any], int]:
         """Expunge all mails in the specified folder.

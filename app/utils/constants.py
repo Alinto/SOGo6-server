@@ -66,6 +66,13 @@ MAIL_FOLDER_TRASH    = "TRASH"    #Folder made to store deleted mail before perm
 MAIL_FOLDER_TEMPLATE = "TEMPLATE" #Folder made to store tamplate mail
 MAIL_FOLDER_PLANNED  = "PLANNED"  #Folder made to store mail planned to be sent later
 MAIL_FOLDER_NORMAL   = "NORMAL"   #Folder with no special used except to store mails
+MAIL_FOLDER_TYPE_LIST = (MAIL_FOLDER_INBOX, MAIL_FOLDER_SENT, MAIL_FOLDER_DRAFT, MAIL_FOLDER_JUNK,
+                         MAIL_FOLDER_TRASH, MAIL_FOLDER_TEMPLATE, MAIL_FOLDER_PLANNED, MAIL_FOLDER_NORMAL)
+
+#MAIL FOLDER ACTIONS (POST /folders/<folder>/action)
+MAIL_FOLDER_ACTION_RENAME = "rename"
+MAIL_FOLDER_ACTION_TYPE   = "type"
+MAIL_FOLDER_ACTION_LIST = (MAIL_FOLDER_ACTION_RENAME, MAIL_FOLDER_ACTION_TYPE)
 
 
 #IMAP
