@@ -1048,3 +1048,33 @@ def test_clean_main_account_custom_fields_disabled(monkeypatch):
     assert main_account['identities'][0]['mail'] == 'test@example.com'
     assert main_account['identities'][0]['name'] == 'Test User'
     assert main_account['identities'][0]['reply-to'] == 'test@example.com'
+
+
+# ========== add_folder_key - keep_existing ==========
+
+def _folder_module(folders):
+    """ModuleUserProfile whose folders column reads back ``folders`` and records the written value."""
+    module = object.__new__(ModuleUserProfile)
+    module._get_user_column = mock.MagicMock(return_value=folders)
+    module._update_user_column = mock.MagicMock()
+    return module
+
+
+def test_add_folder_key_overwrites_existing_value_by_default():
+    module = _folder_module({"CALENDAR": {"SUBS": {"k": False}}})
+    module.add_folder_key("u", "CALENDAR", "k", owner_key="SUBS")
+    written = module._update_user_column.call_args.args[2]
+    assert written["CALENDAR"]["SUBS"]["k"] is True
+
+
+def test_add_folder_key_keep_existing_leaves_display_toggle_untouched():
+    module = _folder_module({"CALENDAR": {"SUBS": {"k": False}}})
+    module.add_folder_key("u", "CALENDAR", "k", owner_key="SUBS", keep_existing=True)
+    module._update_user_column.assert_not_called()
+
+
+def test_add_folder_key_keep_existing_adds_missing_key():
+    module = _folder_module({"CALENDAR": {"OWNER": {}}})
+    module.add_folder_key("u", "CALENDAR", "k", owner_key="SUBS", keep_existing=True)
+    written = module._update_user_column.call_args.args[2]
+    assert written["CALENDAR"]["SUBS"] == {"k": True}

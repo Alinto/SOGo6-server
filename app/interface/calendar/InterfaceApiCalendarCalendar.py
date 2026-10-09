@@ -15,6 +15,7 @@ from app.module.admin.ModuleAdminConfig import ModuleAdminConfig
 from app.module.auth.ModuleUserSource import ModuleUserSource
 from app.module.calendar.ModuleCalendar import ModuleCalendar
 from app.factory.share.RepositoryAcl import AclEntry
+from app.factory.share.shareCalendar import FULL_MODIFY_RIGHTS, ShareCalendar
 from app.module.calendar.imip.ImipBuilder import ImipBuilder
 from app.module.calendar.imip.ImipEmailBuilder import ImipEmailBuilder
 from app.module.mail.ModuleMailOutgoing import ModuleMailOutgoing
@@ -145,7 +146,11 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
     # Calendars
     #
     def get_all_calendars(self, source_type: str | None = None) -> tuple[dict[str, Any], int]:
-        """List calendars for the current user, optionally filtered by source_type."""
+        """List calendars for the current user, optionally filtered by source_type.
+
+        Owned calendars plus the shared calendars the user subscribed to (folders.CALENDAR.SUBS).
+        Shared calendars not subscribed to are only listed by GET /shared-calendars.
+        """
         try:
             calendars: list[CalCalendar] = self.module.get_all_calendars(self.user)
             if source_type is not None:
@@ -378,6 +383,42 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
             for calendar_key, is_subscribed in group.items()
             if is_subscribed is True
         }
+
+    #
+    # Shared calendars - subscriptions
+    #
+    def get_shared_calendars(self) -> tuple[dict[str, Any], int]:
+        """List every calendar shared with the user (direct or "anyone" share), with its subscription state."""
+        try:
+            calendars: list[CalCalendar] = self.module.get_shared_calendars(self.user)
+            return create_api_base_response({
+                "calendars": self._calendars_serializer.serialize(calendars), "total_count": len(calendars),
+            })
+        except RequestException as ex:
+            logger_api.error("get_shared_calendars failed for user %s: %s", self.user.uid, ex)
+            return create_api_base_response(None, ex.error)
+
+    def set_calendar_subscription(self, key: str, body: dict[str, Any]) -> tuple[dict[str, Any], int]:
+        """Subscribe to, or unsubscribe from, a shared calendar according to ``body["subscribe"]``.
+
+        ModuleCalendar checks the right, ModuleUserProfile owns folders.CALENDAR.SUBS.
+        Subscribing requires VIEW; an existing subscription keeps its display toggle.
+        Unsubscribing has no access check, so a subscription whose share was revoked can still
+        be cleaned up. Neither touches the ACL: a subscription grants nothing.
+
+        :return: API envelope with the calendar and ``subscribed: true`` on subscribe, or
+            ``{"key", "subscribed": false}`` on unsubscribe (the calendar may no longer be visible).
+        """
+        try:
+            if not body["subscribe"]:
+                self._user_module.remove_folder_key(self.user.uid, "CALENDAR", key, owner_key="SUBS")
+                return create_api_base_response({"key": key, "subscribed": False})
+            calendar: CalCalendar = self.module.require_subscribable(self.user, key)
+            self._user_module.add_folder_key(self.user.uid, "CALENDAR", key, owner_key="SUBS", keep_existing=True)
+            return create_api_base_response(self._calendar_serializer.serialize(calendar))
+        except RequestException as ex:
+            logger_api.error("set_calendar_subscription failed for user %s key %s: %s", self.user.uid, key, ex)
+            return create_api_base_response(None, ex.error)
 
     #
     # Tasks
@@ -715,9 +756,9 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         :return: API envelope with updated user permissions.
         """
         try:
-            users: list[dict[str, Any]] = [{"uid": self._resolve_to_user(entry), "rights": entry["rights"]} for entry in body]
+            users: list[dict[str, Any]] = [self._share_user(entry) for entry in body]
             entries: list[AclEntry] = self.module.patch_calendar_share(self.user, key, users)
-            self._grant_folder_subs_keys([u["uid"] for u in users], key)
+            self._grant_folder_subs_keys(users, key)
             return create_api_base_response(self._serialize_share_entries(entries))
         except RequestException as ex:
             logger_api.error("patch_calendar_share failed for user %s key %s: %s", self.user.uid, key, ex)
@@ -734,10 +775,10 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         """
         try:
             previous_uids: set[str] = {entry.to_user for entry in self.module.get_calendar_share(self.user, key)}
-            users: list[dict[str, Any]] = [{"uid": self._resolve_to_user(entry), "rights": entry["rights"]} for entry in body]
+            users: list[dict[str, Any]] = [self._share_user(entry) for entry in body]
             entries: list[AclEntry] = self.module.put_calendar_share(self.user, key, users)
             new_uids: set[str] = {u["uid"] for u in users}
-            self._grant_folder_subs_keys(new_uids, key)
+            self._grant_folder_subs_keys(users, key)
             for revoked_uid in previous_uids - new_uids:
                 if revoked_uid == cs.ANYONE_TO_USER:
                     continue
@@ -755,13 +796,24 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         :return: API envelope with updated user permissions.
         """
         try:
-            target_uids: list[str] = [self._resolve_to_user(entry) for entry in body]
-            entries: list[AclEntry] = self.module.grant_calendar_share(self.user, key, target_uids)
-            self._grant_folder_subs_keys(target_uids, key)
+            users: list[dict[str, Any]] = [self._share_user(entry, FULL_MODIFY_RIGHTS) for entry in body]
+            entries: list[AclEntry] = self.module.grant_calendar_share(self.user, key, [u["uid"] for u in users])
+            self._grant_folder_subs_keys(users, key)
             return create_api_base_response(self._serialize_share_entries(entries))
         except RequestException as ex:
             logger_api.error("post_calendar_share failed for user %s key %s: %s", self.user.uid, key, ex)
             return create_api_base_response(None, ex.error)
+
+    def _share_user(self, entry: dict[str, Any], rights: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Build the ``{"uid", "rights", "subscribe"}`` share entry from a request body item.
+
+        ``rights`` overrides the body's rights (POST always grants full modify, whatever is sent).
+        """
+        return {
+            "uid": self._resolve_to_user(entry),
+            "rights": rights if rights is not None else entry["rights"],
+            "subscribe": bool(entry.get("subscribe", False)),
+        }
 
     def _resolve_to_user(self, entry: dict[str, Any]) -> str:
         """Resolve the ACL to_user for a share entry.
@@ -793,17 +845,20 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
             self._share_targets[to_user] = target
         return target
 
-    def _grant_folder_subs_keys(self, target_uids: Iterable[str], key: str) -> None:
-        """Add ``key`` to folders.CALENDAR.SUBS for each target uid so it surfaces in their webmail.
+    def _grant_folder_subs_keys(self, users: Iterable[dict[str, Any]], key: str) -> None:
+        """Subscribe the share targets the owner asked to subscribe (``"subscribe": true``).
 
-        Cross-module orchestration (ModuleCalendar + ModuleUserProfile) is intentionally kept in
-        this interface layer, since a module must never call another module directly. The
-        "anyone" pseudo-user has no real folders to update, so it is skipped.
+        A share only offers the calendar: the recipient subscribes on their own through
+        PUT /shared-calendars/{key}/subscribe ({"subscribe": 1}). The owner may still force it
+        per user, as SOGo's "subscribe user" does - but never for the "anyone" pseudo-user (it has no folders, and
+        subscribing a whole domain is not the owner's call), nor for rights showing nothing.
         """
-        for target_uid in target_uids:
-            if target_uid == cs.ANYONE_TO_USER:
-                continue # The "anyone" pseudo-user has no real folders to update, so skip it.
-            self._user_module.add_folder_key(target_uid, "CALENDAR", key, owner_key="SUBS")
+        for user in users:
+            if not user["subscribe"] or user["uid"] == cs.ANYONE_TO_USER:
+                continue
+            if not ShareCalendar.grants_view(user["rights"]):
+                continue
+            self._user_module.add_folder_key(user["uid"], "CALENDAR", key, owner_key="SUBS")
 
     def _serialize_share_entries(self, entries: list[AclEntry]) -> list[dict[str, Any]]:
         """Resolve each ACL entry's to_user into the API's CalendarShareUserSchema shape.

@@ -97,6 +97,47 @@ class CalendarResponseSchema(ApiBaseResponse):
     data = fields.Nested(CalendarSchema, allow_none=True)
 
 
+class SharedCalendarSchema(CalendarSchema):
+    """A calendar shared with the current user, as listed by the discovery endpoint."""
+
+    subscribed = fields.Boolean(dump_only=True,
+                                metadata={"description": "True when the calendar is in the user's subscriptions (shown in GET /calendars)."})
+
+
+class SharedCalendarSubscribeSchema(Schema):
+    """Request body for PUT /shared-calendars/{key}/subscribe."""
+
+    subscribe = fields.Boolean(
+        required=True,
+        metadata={"description": "1 (or true) to subscribe to the shared calendar, 0 (or false) to unsubscribe.",
+                  "example": 1},
+    )
+
+    @staticmethod
+    def example() -> dict[str, Any]:
+        """Example data for Swagger documentation."""
+        return {"subscribe": 1}
+
+
+class SharedCalendarListDataSchema(Schema):
+    """Data payload for the shared calendar list response."""
+
+    calendars   = fields.List(fields.Nested(SharedCalendarSchema))
+    total_count = fields.Integer()
+
+
+class SharedCalendarListResponseSchema(ApiBaseResponse):
+    """Response schema for the shared calendar discovery endpoint."""
+
+    data = fields.Nested(SharedCalendarListDataSchema, allow_none=True)
+
+
+class SharedCalendarResponseSchema(ApiBaseResponse):
+    """Response schema for a subscription change on a shared calendar."""
+
+    data = fields.Nested(SharedCalendarSchema, allow_none=True)
+
+
 class CalendarExportQueryArgsSchema(Schema):
     """Query string for the export endpoint."""
 
@@ -199,6 +240,13 @@ class CalendarShareUserSchema(Schema):
         validate=validate.OneOf(["user", "anyone"]),
     )
     rights = fields.Nested(CalendarShareRightsSchema, required=True, metadata={"description": "Permission rights for this user"})
+    subscribe = fields.Boolean(
+        load_default=False, load_only=True,
+        metadata={"description": "Also subscribe the user to the calendar, so it shows in their calendar list. "
+                                 "Ignored for user_class 'anyone' and for rights granting no visibility. "
+                                 "Without it, the user subscribes on their own (PUT /shared-calendars/{key}/subscribe with {'subscribe': 1}).",
+                  "example": False},
+    )
 
     @validates_schema
     def validate_user_identity(self, data: dict[str, Any], **kwargs: Any) -> None:  # pylint: disable=unused-argument
