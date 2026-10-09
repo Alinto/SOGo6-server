@@ -9,7 +9,9 @@ from datetime import timezone
 import pytest
 from marshmallow import ValidationError
 
-from app.api.v1.calendar.schemas.calendar import CalendarCreateSchema
+from app.api.v1.calendar.schemas.calendar import (
+    CalendarCreateSchema, CalendarSharePatchSchema, CalendarShareUserSchema, SharedCalendarSubscribeSchema,
+)
 from app.api.v1.calendar.schemas.event import CalendarEventQueryArgsSchema
 from app.api.v1.calendar.schemas.freebusy import FreeBusyRequestSchema
 
@@ -83,3 +85,30 @@ def test_query_absent_fields_are_none():
     result = CalendarEventQueryArgsSchema().load({})
     assert result["start_date_time"] is None
     assert result["end_date_time"] is None
+
+
+# ========== Calendar share - subscribe flag ==========
+
+_SHARE_ITEM = {"c_email": "jdoe@example.org", "uid": "jdoe", "user_class": "user",
+               "rights": {"public": "view-all", "confidential": "none", "private": "none",
+                          "can_create_objects": False, "can_erase_objects": False}}
+
+
+def test_share_subscribe_defaults_to_false():
+    assert CalendarSharePatchSchema().load(_SHARE_ITEM)["subscribe"] is False
+
+
+def test_share_subscribe_is_never_dumped():
+    assert "subscribe" not in CalendarShareUserSchema().dump({**_SHARE_ITEM, "subscribe": True})
+
+
+# ========== SharedCalendarSubscribeSchema ==========
+
+@pytest.mark.parametrize("value, expected", [(1, True), (0, False), (True, True), (False, False)])
+def test_subscribe_accepts_int_and_bool(value, expected):
+    assert SharedCalendarSubscribeSchema().load({"subscribe": value})["subscribe"] is expected
+
+
+def test_subscribe_is_required():
+    with pytest.raises(ValidationError):
+        SharedCalendarSubscribeSchema().load({})

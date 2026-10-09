@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
 from app.factory.share.RepositoryAcl import AclEntry, RepositoryAcl
+from app.utils import constants as cs
 from app.utils import errors as err
 from app.utils.exceptions import RequestException
 
@@ -67,6 +68,13 @@ class Share(ABC):
         resolves the users a given resource is shared *with*).
         """
         return self._repo.find_all_for_to_user(self.resource_type, for_user)
+
+    def get_keys_shared_with_anyone_in_domain(self, owner_domain: str) -> list[AclEntry]:
+        """Return every "anyone" ACL entry on a resource whose owner belongs to owner_domain.
+
+        The domain filter is a SQL prefilter: callers must still compare the owner's exact domain.
+        """
+        return self._repo.find_all_for_to_user_by_owner_domain(self.resource_type, cs.ANYONE_TO_USER, owner_domain)
 
     def add_permissions(self, for_user: str, on_key: str, owner: str, rights: dict) -> None:
         """Grant (or overwrite) for_user's rights on the resource identified by on_key.

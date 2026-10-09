@@ -233,6 +233,7 @@ ERROR_CALENDAR_PUBLIC_LINK_DISABLED          = E("S000623", "Public Calendar Lin
 ERROR_CALENDAR_EXPORT_FORMAT_UNSUPPORTED     = E("S000624", "Requested Export Format Is Not Supported", HTTPStatus.NOT_ACCEPTABLE)
 ERROR_CALENDAR_IMIP_SENDER_MISMATCH          = E("S000625", "iMIP Sender Is Not The Event Organizer", HTTPStatus.FORBIDDEN)
 ERROR_CALENDAR_SHARING_DISABLED              = E("S000626", "Calendar Sharing Is Disabled For This Domain", HTTPStatus.FORBIDDEN)
+ERROR_CALENDAR_CANNOT_SUBSCRIBE_OWN          = E("S000627", "Cannot Subscribe To Your Own Calendar", HTTPStatus.BAD_REQUEST)
 
 #the contacts
 ERROR_CONTACT_JSON_PARSE_FAILED              = E("S000700", "Failed To Parse Contact JSON Content", HTTPStatus.UNPROCESSABLE_ENTITY)

@@ -108,7 +108,7 @@ def _build_module(sources: dict):
 
     sources_mock.require_event.side_effect = _require_event
 
-    def _get_tasks(uid, start, end, search, calendar_key=None):
+    def _get_tasks(uid, start, end, search, calendar_key=None, listed_shared_keys=None):
         if calendar_key is not None:
             source = sources.get(calendar_key)
             if source is None:

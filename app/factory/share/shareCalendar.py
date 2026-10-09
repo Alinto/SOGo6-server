@@ -92,6 +92,18 @@ class ShareCalendar(Share):
             can_delete=bool(rights.get("can_erase_objects", False)),
         )
 
+    @staticmethod
+    def grants_view(rights: dict) -> bool:
+        """Return True if the rights blob lets its holder see at least one visibility class.
+
+        This is the condition to subscribe to a shared calendar: a subscription to a calendar
+        showing nothing would be an empty entry in the recipient's list.
+        """
+        return any(
+            ShareCalendar.level_for_visibility(rights, visibility) >= CalendarShareLevel.VIEW_DATETIME
+            for visibility in (EventVisibility.PUBLIC, EventVisibility.CONFIDENTIAL, EventVisibility.PRIVATE)
+        )
+
     def _rights_satisfy(self, rights: dict, rights_needed: CalendarPermissionAction | tuple[CalendarPermissionAction, EventVisibility]) -> bool:
         if isinstance(rights_needed, tuple):
             action, visibility = rights_needed

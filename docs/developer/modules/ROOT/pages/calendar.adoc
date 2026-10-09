@@ -256,6 +256,31 @@ Centralizes all permission logic. Three responsibilities:
 
 Each `CalCalendar` carries a transient `permissions` field populated at read time. The API exposes it as `rights` (`public`, `confidential`, `private`, `can_create_objects`, `can_erase_objects` - the same shape as the sogo6_acl rights blob) on `GET /calendars`, `GET /calendars/<key>` and `GET /events/<event_key>` (the latter resolves the rights on the event's calendar), so the UI knows which actions to enable.
 
+=== Shared calendars: rights vs subscription
+
+Two independent notions:
+
+* *Rights* (`sogo6_acl`) are decided by the owner through `/calendars/\{key}/share`. They are the only source of access.
+* *Subscription* (`folders.CALENDAR.SUBS` in the recipient's profile) is the recipient's preference: "show this calendar in my list". Presence of the key is the subscription; its boolean is only the display toggle (`only_subscribe`). A subscription never grants anything - every read keeps resolving the ACL.
+
+A share only _offers_ the calendar. The recipient discovers it and subscribes:
+
+* `GET /shared-calendars` - every calendar the user can see without owning it: direct shares (`to_user` = the user) and "anyone" shares (`<default>`) of the user's mail domain, each with `rights` and `subscribed`. Shares granting no visibility class at all are not listed.
+* `PUT /shared-calendars/\{key}/subscribe` with body `{"subscribe": 1}` or `{"subscribe": 0}` (booleans accepted too). Both directions are idempotent and never touch the ACL.
+** `1` - requires VIEW on at least one visibility class (`ModuleCalendar.require_subscribable`), then adds the key to SUBS and returns the calendar with `subscribed: true`. An existing subscription keeps its display toggle. A calendar the user cannot see answers `ERROR_CALENDAR_NOT_FOUND`, like an unknown key; their own calendar answers `ERROR_CALENDAR_CANNOT_SUBSCRIBE_OWN`.
+** `0` - removes the key from SUBS and returns `{key, subscribed: false}`. No access check, so a subscription whose share was revoked can still be cleaned up.
+
+The owner can still subscribe a recipient at share time with `"subscribe": true` on a `/share` body item (SOGo's "subscribe user"). It is ignored for the "anyone" pseudo-user and for rights granting no visibility class. Without it, nothing is written to the recipient's profile.
+
+`/shared-calendars` is distinct from `/calendars/\{key}/subscription`, which manages the public `.ics` link.
+
+`CalendarSources` therefore keeps two sets apart:
+
+* `get_all(uid)` - *access resolution*: every owned or shared calendar, subscribed or not. Used to look an event up by key, for iMIP and for ACL masking. Opening an event of an unsubscribed calendar the user may read still works.
+* `get_listed(uid, shared_keys)` - *listing*: owned calendars plus the subscribed ones, each resolved through `get_by_key` (ACL check). Used by `GET /calendars` and by `GET /events` / `GET /tasks` without a calendar key.
+
+Rights can disappear without SUBS being cleaned (an "anyone" share is removed, rights are downgraded to `none`): such stale entries are filtered at read time, without error, and never written back from a GET. The "anyone" shares are looked up with an SQL prefilter on the owner's domain (`owner LIKE '%@domain'`), then the exact domain is compared in Python.
+
 == Repositories
 
 Repositories are the only classes that issue SQL. All queries use structured `Condition` objects - no string interpolation. `find_by_calendar` applies different SQL conditions for recurring vs non-recurring events.
