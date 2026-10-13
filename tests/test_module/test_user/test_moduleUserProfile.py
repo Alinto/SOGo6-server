@@ -1064,17 +1064,137 @@ def test_add_folder_key_overwrites_existing_value_by_default():
     module = _folder_module({"CALENDAR": {"SUBS": {"k": False}}})
     module.add_folder_key("u", "CALENDAR", "k", owner_key="SUBS")
     written = module._update_user_column.call_args.args[2]
-    assert written["CALENDAR"]["SUBS"]["k"] is True
+    assert written["CALENDAR"]["SUBS"]["k"] == {"display": True}
 
 
-def test_add_folder_key_keep_existing_leaves_display_toggle_untouched():
+def test_add_folder_key_defaults_to_displayed_dict_entry():
+    module = _folder_module({"CALENDAR": {"OWNER": {}}})
+    module.add_folder_key("u", "CALENDAR", "k")
+    written = module._update_user_column.call_args.args[2]
+    assert written["CALENDAR"]["OWNER"] == {"k": {"display": True}}
+
+
+def test_add_folder_key_keep_existing_keeps_legacy_display_toggle():
     module = _folder_module({"CALENDAR": {"SUBS": {"k": False}}})
     module.add_folder_key("u", "CALENDAR", "k", owner_key="SUBS", keep_existing=True)
-    module._update_user_column.assert_not_called()
+    written = module._update_user_column.call_args.args[2]
+    assert written["CALENDAR"]["SUBS"]["k"] == {"display": False}
 
 
 def test_add_folder_key_keep_existing_adds_missing_key():
     module = _folder_module({"CALENDAR": {"OWNER": {}}})
     module.add_folder_key("u", "CALENDAR", "k", owner_key="SUBS", keep_existing=True)
     written = module._update_user_column.call_args.args[2]
-    assert written["CALENDAR"]["SUBS"] == {"k": True}
+    assert written["CALENDAR"]["SUBS"] == {"k": {"display": True}}
+
+
+def test_add_folder_key_stores_given_value():
+    module = _folder_module({"CALENDAR": {"OWNER": {}}})
+    module.add_folder_key("u", "CALENDAR", "k", owner_key="SUBS", value={"display": True, "name": "Cal"})
+    written = module._update_user_column.call_args.args[2]
+    assert written["CALENDAR"]["SUBS"] == {"k": {"display": True, "name": "Cal"}}
+
+
+# ========== update_user_folders ==========
+
+def test_update_user_folders_stores_displayed_dict_entries():
+    module = _folder_module({})
+    module.update_user_folders("u", "cal", "book")
+    written = module._update_user_column.call_args.args[2]
+    assert written == {"CALENDAR": {"OWNER": {"cal": {"display": True}}},
+                       "ADDRESSBOOKS": {"OWNER": {"book": {"display": True}}}}
+
+
+# ========== update_folder_display / update_folder_name ==========
+
+def test_update_folders_display_dict_entry_only_changes_display():
+    module = _folder_module({"CALENDAR": {"SUBS": {"k": {"display": True, "name": "Mine"}}}})
+    folders = module.update_folders_display("u", {"CALENDAR": {"SUBS": {"k": {"display": False}}}})
+    assert folders["CALENDAR"]["SUBS"]["k"] == {"display": False, "name": "Mine"}
+
+
+def test_update_folders_display_owned_entry():
+    module = _folder_module({"CALENDAR": {"OWNER": {"k": {"display": True}}}})
+    folders = module.update_folders_display("u", {"CALENDAR": {"OWNER": {"k": {"display": False}}}})
+    assert folders["CALENDAR"]["OWNER"]["k"] == {"display": False}
+
+
+def test_update_folders_display_upgrades_legacy_bool_entry():
+    module = _folder_module({"CALENDAR": {"OWNER": {"k": True}}})
+    folders = module.update_folders_display("u", {"CALENDAR": {"OWNER": {"k": {"display": False}}}})
+    assert folders["CALENDAR"]["OWNER"]["k"] == {"display": False}
+
+
+def test_update_folders_display_several_entries_leaves_others_untouched():
+    module = _folder_module({"CALENDAR": {"OWNER": {"c1": {"display": True}, "c2": {"display": True}},
+                                          "SUBS": {"c3": {"display": True, "name": "Shared"}}},
+                             "ADDRESSBOOKS": {"OWNER": {"b1": {"display": False}}}})
+    folders = module.update_folders_display("u", {"CALENDAR": {"OWNER": {"c1": {"display": False}},
+                                                               "SUBS": {"c3": {"display": False}}},
+                                                  "ADDRESSBOOKS": {"OWNER": {"b1": {"display": True}}}})
+    assert folders == {"CALENDAR": {"OWNER": {"c1": {"display": False}, "c2": {"display": True}},
+                                    "SUBS": {"c3": {"display": False, "name": "Shared"}}},
+                       "ADDRESSBOOKS": {"OWNER": {"b1": {"display": True}}}}
+    module._update_user_column.assert_called_once()
+
+
+@pytest.mark.parametrize("patch", [
+    {"CALENDAR": {"OWNER": {"unknown": {"display": False}}}},
+    {"CALENDAR": {"SUBS": {"k": {"display": False}}}},
+    {"ADDRESSBOOKS": {"OWNER": {"k": {"display": False}}}},
+])
+def test_update_folders_display_unknown_entry_raises_and_writes_nothing(patch):
+    folders = {"CALENDAR": {"OWNER": {"k": {"display": True}, "k2": {"display": True}}}}
+    module = _folder_module(folders)
+    patch = {"CALENDAR": {"OWNER": {"k2": {"display": False}}}, **patch} if "ADDRESSBOOKS" in patch else patch
+    with pytest.raises(RequestException) as exc:
+        module.update_folders_display("u", patch)
+    assert exc.value.error == err.ERROR_FOLDER_KEY_NOT_FOUND
+    assert folders["CALENDAR"]["OWNER"]["k2"] == {"display": True}
+    module._update_user_column.assert_not_called()
+
+
+def test_strip_folders_names_removes_only_names():
+    folders = {"CALENDAR": {"SUBS": {"k": {"display": False, "name": "Shared"}}, "OWNER": {"o": {"display": True}}},
+               "ADDRESSBOOKS": {"OWNER": {"b": True}}}
+    assert ModuleUserProfile.strip_folders_names(folders) == {
+        "CALENDAR": {"SUBS": {"k": {"display": False}}, "OWNER": {"o": {"display": True}}},
+        "ADDRESSBOOKS": {"OWNER": {"b": True}}}
+    # The source is left untouched
+    assert folders["CALENDAR"]["SUBS"]["k"]["name"] == "Shared"
+
+
+def test_update_folder_name_dict_entry_keeps_display():
+    module = _folder_module({"CALENDAR": {"SUBS": {"k": {"display": False, "name": "Old"}}}})
+    folders = module.update_folder_name("u", "CALENDAR", "k", "New")
+    assert folders["CALENDAR"]["SUBS"]["k"] == {"display": False, "name": "New"}
+    module._update_user_column.assert_called_once()
+
+
+def test_update_folder_name_converts_legacy_bool_entry():
+    module = _folder_module({"CALENDAR": {"SUBS": {"k": False}}})
+    folders = module.update_folder_name("u", "CALENDAR", "k", "New")
+    assert folders["CALENDAR"]["SUBS"]["k"] == {"display": False, "name": "New"}
+
+
+def test_update_folder_name_not_subscribed_raises():
+    module = _folder_module({"CALENDAR": {"OWNER": {"k": True}}})
+    with pytest.raises(RequestException) as exc:
+        module.update_folder_name("u", "CALENDAR", "k", "New")
+    assert exc.value.error == err.ERROR_FOLDER_KEY_NOT_FOUND
+    module._update_user_column.assert_not_called()
+
+
+def test_add_folder_key_keep_existing_upgrades_legacy_bool_entry():
+    module = _folder_module({"CALENDAR": {"SUBS": {"k": False}}})
+    module.add_folder_key("u", "CALENDAR", "k", owner_key="SUBS", keep_existing=True,
+                          value={"display": True, "name": "Cal"})
+    written = module._update_user_column.call_args.args[2]
+    assert written["CALENDAR"]["SUBS"]["k"] == {"display": False, "name": "Cal"}
+
+
+def test_add_folder_key_keep_existing_leaves_dict_entry_untouched():
+    module = _folder_module({"CALENDAR": {"SUBS": {"k": {"display": False, "name": "Mine"}}}})
+    module.add_folder_key("u", "CALENDAR", "k", owner_key="SUBS", keep_existing=True,
+                          value={"display": True, "name": "Cal"})
+    module._update_user_column.assert_not_called()

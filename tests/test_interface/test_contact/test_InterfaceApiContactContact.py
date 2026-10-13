@@ -1,7 +1,9 @@
 """Unit tests for InterfaceApiContactContact - address book and contact CRUD."""
 from unittest.mock import MagicMock, patch
 
+from app.auth.User import User
 from app.interface.contact.InterfaceApiContactContact import InterfaceApiContactContact
+from app.module.contact.ModuleContact import ModuleContact
 from app.module.contact.model.CardAddressBook import CardAddressBook
 from app.module.contact.ContactConst import AUTOCOMPLETE_DEFAULT_LIMIT
 from app.module.contact.model.CardContact import CardContact
@@ -28,11 +30,17 @@ from app.utils.db.Condition import Order
 from app.utils.exceptions import RequestException
 
 
-def _build_interface():
+def _build_interface(subs=None):
     inter = object.__new__(InterfaceApiContactContact)
-    inter.user = MagicMock()
-    inter.user.uid = "alice@example.com"
+    inter.user = User(uid="alice@example.com")
+    inter.user.profile.folders = {"ADDRESSBOOKS": {"OWNER": {}, "SUBS": dict(subs or {})}}
     inter.module = MagicMock()
+    # Pure helpers keep their real behaviour; get_displayed_addressbook goes through the mocked get_addressbook.
+    inter.module.with_personal_name.side_effect = ModuleContact.with_personal_name
+    inter.module.split_personal_update.side_effect = ModuleContact.split_personal_update
+    inter.module.get_displayed_addressbook.side_effect = lambda user, key: ModuleContact.with_personal_name(
+        user, inter.module.get_addressbook(user, key).addressbook)
+    inter._user_module = MagicMock()
     inter._user_source_module = MagicMock()
     inter._user_source_module.get_user_source_by_uid.return_value = {}
     inter._user_source_module.search_for_one_us.return_value = (0, [])
@@ -80,8 +88,11 @@ def test_create_addressbook_builds_local_book():
 
 def test_update_addressbook_forwards_body_to_module():
     inter = _build_interface()
+    inter.module.get_addressbook.return_value.addressbook = CardAddressBook(
+        user_uid="alice@example.com", name="Old", key="k1", source_type=CardSourceType.LOCAL,
+    )
     inter.module.update_addressbook.return_value = CardAddressBook(
-        user_uid="alice", name="Renamed", key="k1", source_type=CardSourceType.LOCAL,
+        user_uid="alice@example.com", name="Renamed", key="k1", source_type=CardSourceType.LOCAL,
     )
     inter.update_addressbook("k1", {"name": "Renamed"})
     assert inter.module.update_addressbook.call_args.args[1] == "k1"
@@ -142,6 +153,60 @@ def test_request_exception_returns_error_envelope():
     data, _ = inter.get_addressbook("missing")
     assert data["error_code"] == err.ERROR_CONTACT_ADDRESSBOOK_NOT_FOUND.c
     assert data["data"] is None
+
+
+# ========== personal name of a shared address book ==========
+
+def _shared_book(inter, name="Owner name"):
+    book = CardAddressBook(user_uid="bob@example.com", name=name, key="k", source_type=CardSourceType.LOCAL)
+    inter.module.get_addressbook.return_value.addressbook = book
+    inter._user_module.update_folder_name.return_value = {
+        "ADDRESSBOOKS": {"SUBS": {"k": {"display": True, "name": "Mine"}}},
+    }
+    return book
+
+
+def test_get_addressbook_shared_returns_personal_name():
+    inter = _build_interface(subs={"k": {"display": True, "name": "Mine"}})
+    _shared_book(inter)
+    response, _ = inter.get_addressbook("k")
+    assert response["data"]["name"] == "Mine"
+
+
+def test_get_addressbook_shared_legacy_entry_keeps_owner_name():
+    inter = _build_interface(subs={"k": True})
+    _shared_book(inter)
+    response, _ = inter.get_addressbook("k")
+    assert response["data"]["name"] == "Owner name"
+
+
+def test_update_addressbook_shared_name_only_writes_folders_not_book():
+    inter = _build_interface(subs={"k": {"display": True, "name": "Owner name"}})
+    _shared_book(inter)
+    response, _ = inter.update_addressbook("k", {"name": "Mine"})
+    assert response["error_code"] == "S000000"
+    assert response["data"]["name"] == "Mine"
+    inter._user_module.update_folder_name.assert_called_once_with(
+        "alice@example.com", "ADDRESSBOOKS", "k", "Mine", owner_key="SUBS")
+    inter.module.update_addressbook.assert_not_called()
+
+
+def test_update_addressbook_shared_other_fields_refused_before_renaming():
+    inter = _build_interface(subs={"k": {"display": True, "name": "Owner name"}})
+    _shared_book(inter)
+    inter.module.update_addressbook.side_effect = RequestException(error=err.ERROR_CONTACT_ACCESS_DENIED)
+    response, _ = inter.update_addressbook("k", {"name": "Mine", "description": "x"})
+    assert response["error_code"] == err.ERROR_CONTACT_ACCESS_DENIED.c
+    assert inter.module.update_addressbook.call_args.args[2] == {"description": "x"}
+    inter._user_module.update_folder_name.assert_not_called()
+
+
+def test_update_addressbook_shared_not_subscribed_returns_folder_error():
+    inter = _build_interface()
+    _shared_book(inter)
+    inter._user_module.update_folder_name.side_effect = RequestException(error=err.ERROR_FOLDER_KEY_NOT_FOUND)
+    response, _ = inter.update_addressbook("k", {"name": "Mine"})
+    assert response["error_code"] == err.ERROR_FOLDER_KEY_NOT_FOUND.c
 
 
 # ========== Distribution lists ==========

@@ -463,7 +463,7 @@ class ApiSharedCalendarList(MethodView):
         return interface.get_shared_calendars()
 
 
-@blp.route("/shared-calendars/<string:key>/subscribe")
+@blp.route("/shared-calendars/<string:key>")
 class ApiSharedCalendarSubscribe(MethodView):
     """API to subscribe to, or unsubscribe from, a calendar shared with the current user."""
 
@@ -473,9 +473,9 @@ class ApiSharedCalendarSubscribe(MethodView):
         """Subscribe to (``subscribe: 1``) or unsubscribe from (``subscribe: 0``) a shared calendar.
 
         Subscribing requires view rights on the calendar. Unsubscribing leaves the owner's share
-        untouched. Both are idempotent.
+        untouched.
         """
-        logger_api.debug("PUT /shared-calendars/%s/subscribe user=%s body=%s", key, g.user.uid, body)
+        logger_api.debug("PUT /shared-calendars/%s user=%s body=%s", key, g.user.uid, body)
         interface: InterfaceApiCalendarCalendar = g.inter
         return interface.set_calendar_subscription(key, body)
 

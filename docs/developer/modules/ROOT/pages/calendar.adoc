@@ -267,7 +267,7 @@ Two independent notions:
 A share only _offers_ the calendar. The recipient discovers it and subscribes:
 
 * `GET /shared-calendars` - every calendar the user can see without owning it: direct shares (`to_user` = the user) and "anyone" shares (`<default>`) of the user's mail domain, each with `rights` and `subscribed`. Shares granting no visibility class at all are not listed.
-* `PUT /shared-calendars/\{key}/subscribe` with body `{"subscribe": 1}` or `{"subscribe": 0}` (booleans accepted too). Both directions are idempotent and never touch the ACL.
+* `PUT /shared-calendars/\{key}` with body `{"subscribe": 1}` or `{"subscribe": 0}` (booleans accepted too). Both directions are idempotent and never touch the ACL.
 ** `1` - requires VIEW on at least one visibility class (`ModuleCalendar.require_subscribable`), then adds the key to SUBS and returns the calendar with `subscribed: true`. An existing subscription keeps its display toggle. A calendar the user cannot see answers `ERROR_CALENDAR_NOT_FOUND`, like an unknown key; their own calendar answers `ERROR_CALENDAR_CANNOT_SUBSCRIBE_OWN`.
 ** `0` - removes the key from SUBS and returns `{key, subscribed: false}`. No access check, so a subscription whose share was revoked can still be cleaned up.
 

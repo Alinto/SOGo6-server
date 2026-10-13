@@ -38,6 +38,7 @@ class CalendarCreateSchema(Schema):
 class CalendarUpdateSchema(Schema):
     """Request body for updating a calendar (all fields optional)."""
 
+    # On a calendar shared with the user, the name is the user's own name for it (the owner's is untouched)
     name        = fields.String(validate=validate.Length(min=1, max=255),
                                 metadata={"example": "Work"})
     color       = fields.String(validate=validate.Regexp(_COLOR_REGEX),
@@ -105,7 +106,7 @@ class SharedCalendarSchema(CalendarSchema):
 
 
 class SharedCalendarSubscribeSchema(Schema):
-    """Request body for PUT /shared-calendars/{key}/subscribe."""
+    """Request body for PUT /shared-calendars/{key}."""
 
     subscribe = fields.Boolean(
         required=True,
@@ -244,7 +245,7 @@ class CalendarShareUserSchema(Schema):
         load_default=False, load_only=True,
         metadata={"description": "Also subscribe the user to the calendar, so it shows in their calendar list. "
                                  "Ignored for user_class 'anyone' and for rights granting no visibility. "
-                                 "Without it, the user subscribes on their own (PUT /shared-calendars/{key}/subscribe with {'subscribe': 1}).",
+                                 "Without it, the user subscribes on their own (PUT /shared-calendars/{key} with {'subscribe': 1}).",
                   "example": False},
     )
 

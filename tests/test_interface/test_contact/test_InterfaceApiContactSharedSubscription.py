@@ -2,6 +2,7 @@
 from unittest.mock import MagicMock, patch
 
 from app.interface.contact.InterfaceApiContactContact import InterfaceApiContactContact
+from app.module.contact.ModuleContact import ModuleContact
 from app.module.contact.model.CardAddressBook import CardAddressBook
 from app.module.contact.model.enums.CardSourceType import CardSourceType
 from app.module.contact.serializer.CardAddressBookSerializerDict import CardAddressBookSerializerDict
@@ -24,6 +25,8 @@ def _build_interface(subs=None):
     inter.module = MagicMock()
     inter.module.get_all_addressbooks.return_value = []
     inter.module.get_addressbook_share.return_value = []
+    inter.module.get_addressbook.return_value.addressbook = _book("k")
+    inter.module.with_personal_name.side_effect = ModuleContact.with_personal_name
     inter.module.get_contacts.return_value = ([], 0)
     inter.module.search_all_lists.return_value = []
     inter.module.get_rights_on.return_value = dict(_VIEW_RIGHTS)
@@ -52,6 +55,10 @@ def _book(key, owner="alice@example.com"):
 
 def _subs_added(inter):
     return [c.args for c in inter._user_module.add_folder_key.call_args_list]
+
+
+def _subs_values(inter):
+    return [c.kwargs["value"] for c in inter._user_module.add_folder_key.call_args_list]
 
 
 # ========== listings: passthrough, the module resolves subscriptions ==========
@@ -103,7 +110,15 @@ def test_subscribe_writes_subs_without_overwriting_and_returns_module_book():
     assert response["error_code"] == "S000000"
     assert response["data"]["subscribed"] is True
     assert response["data"]["rights"] == _VIEW_RIGHTS
-    inter._user_module.add_folder_key.assert_called_once_with(_ME, "ADDRESSBOOKS", "a", owner_key="SUBS", keep_existing=True)
+    inter._user_module.add_folder_key.assert_called_once_with(_ME, "ADDRESSBOOKS", "a", owner_key="SUBS", keep_existing=True,
+                                                              value={"display": True, "name": "a"})
+
+
+def test_resubscribe_returns_personal_name():
+    inter = _build_interface(subs={"a": {"display": False, "name": "Mine"}})
+    inter.module.require_subscribable.return_value = _book("a")
+    response, _ = inter.set_addressbook_subscription("a", {"subscribe": True})
+    assert response["data"]["name"] == "Mine"
 
 
 def test_subscribe_refused_writes_nothing():
@@ -137,6 +152,8 @@ def test_patch_share_subscribes_when_asked():
     inter.patch_addressbook_share("k", [{"uid": "carol@example.com", "user_class": "user",
                                          "rights": _VIEW_RIGHTS, "subscribe": True}])
     assert _subs_added(inter) == [("carol@example.com", "ADDRESSBOOKS", "k")]
+    assert _subs_values(inter) == [{"display": True, "name": "k"}]
+    assert inter._user_module.add_folder_key.call_args.kwargs["keep_existing"] is True
 
 
 def test_patch_share_never_subscribes_anyone():
