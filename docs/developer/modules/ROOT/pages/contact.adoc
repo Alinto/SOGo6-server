@@ -139,7 +139,7 @@ Same model as shared calendars (see xref:calendar.adoc[]):
 A share only _offers_ the address book. The recipient discovers it and subscribes:
 
 * `GET /shared-addressbooks` - every address book the user can view (`can_view`) without owning it: direct shares and "anyone" shares (`<default>`) of the user's mail domain, each with the user's own `rights` and `subscribed`.
-* `PUT /shared-addressbooks/\{key}/subscribe` with body `{"subscribe": 1}` or `{"subscribe": 0}` (booleans accepted too). Both directions are idempotent and never touch the ACL.
+* `PUT /shared-addressbooks/\{key}` with body `{"subscribe": 1}` or `{"subscribe": 0}` (booleans accepted too). Both directions are idempotent and never touch the ACL.
 ** `1` - requires `can_view` (`ModuleContact.require_subscribable`), then adds the key to SUBS and returns the book with `rights` and `subscribed: true`. An existing subscription keeps its display toggle. A book the user cannot view answers `ERROR_CONTACT_ADDRESSBOOK_NOT_FOUND`, like an unknown key; their own book answers `ERROR_CONTACT_CANNOT_SUBSCRIBE_OWN`.
 ** `0` - removes the key from SUBS and returns `{key, subscribed: false}`. No access check, so a subscription whose share was revoked can still be cleaned up.
 

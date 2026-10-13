@@ -209,7 +209,7 @@ class ApiSharedAddressBookList(MethodView):
         return interface.get_shared_addressbooks()
 
 
-@blp.route("/shared-addressbooks/<string:key>/subscribe")
+@blp.route("/shared-addressbooks/<string:key>")
 class ApiSharedAddressBookSubscribe(MethodView):
     """API to subscribe to, or unsubscribe from, an address book shared with the current user."""
 
@@ -221,7 +221,7 @@ class ApiSharedAddressBookSubscribe(MethodView):
         Subscribing requires can_view on the address book. Unsubscribing leaves the owner's share
         untouched. Both are idempotent.
         """
-        logger_api.debug("PUT /shared-addressbooks/%s/subscribe user=%s body=%s", key, g.user.uid, body)
+        logger_api.debug("PUT /shared-addressbooks/%s user=%s body=%s", key, g.user.uid, body)
         interface: InterfaceApiContactContact = g.inter
         return interface.set_addressbook_subscription(key, body)
 
