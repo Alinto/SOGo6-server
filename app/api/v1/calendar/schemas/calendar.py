@@ -38,6 +38,7 @@ class CalendarCreateSchema(Schema):
 class CalendarUpdateSchema(Schema):
     """Request body for updating a calendar (all fields optional)."""
 
+    # On a calendar shared with the user, the name is the user's own name for it (the owner's is untouched)
     name        = fields.String(validate=validate.Length(min=1, max=255),
                                 metadata={"example": "Work"})
     color       = fields.String(validate=validate.Regexp(_COLOR_REGEX),

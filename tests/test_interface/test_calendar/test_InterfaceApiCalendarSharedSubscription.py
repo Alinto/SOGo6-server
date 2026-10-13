@@ -2,6 +2,7 @@
 from unittest.mock import MagicMock
 
 from app.interface.calendar.InterfaceApiCalendarCalendar import InterfaceApiCalendarCalendar
+from app.module.calendar.ModuleCalendar import ModuleCalendar
 from app.module.calendar.model.CalCalendar import CalCalendar
 from app.module.calendar.serializer.CalCalendarSerializerDict import CalCalendarSerializerDict
 from app.module.calendar.serializer.CalCalendarsSerializerList import CalCalendarsSerializerList
@@ -25,6 +26,8 @@ def _build_interface(subs=None):
     inter.module = MagicMock()
     inter.module.get_all_calendars.return_value = []
     inter.module.get_calendar_share.return_value = []
+    inter.module.get_calendar.return_value.calendar = _cal("k")
+    inter.module.with_personal_name.side_effect = ModuleCalendar.with_personal_name
     inter._calendar_serializer = CalCalendarSerializerDict()
     inter._calendars_serializer = CalCalendarsSerializerList()
     inter._events_serializer = MagicMock(serialize=MagicMock(return_value=[]))
@@ -44,6 +47,10 @@ def _cal(key, owner="alice@example.com"):
 
 def _subs_added(inter):
     return [c.args for c in inter._user_module.add_folder_key.call_args_list]
+
+
+def _subs_values(inter):
+    return [c.kwargs["value"] for c in inter._user_module.add_folder_key.call_args_list]
 
 
 # ========== listings: passthrough, the module resolves subscriptions ==========
@@ -90,7 +97,15 @@ def test_subscribe_writes_subs_without_overwriting_and_returns_module_calendar()
     response, _ = inter.set_calendar_subscription("a", {"subscribe": True})
     assert response["error_code"] == "S000000"
     assert response["data"]["subscribed"] is True
-    inter._user_module.add_folder_key.assert_called_once_with(_ME, "CALENDAR", "a", owner_key="SUBS", keep_existing=True)
+    inter._user_module.add_folder_key.assert_called_once_with(_ME, "CALENDAR", "a", owner_key="SUBS", keep_existing=True,
+                                                              value={"display": True, "name": "a"})
+
+
+def test_resubscribe_returns_personal_name():
+    inter = _build_interface(subs={"a": {"display": False, "name": "Mine"}})
+    inter.module.require_subscribable.return_value = _cal("a")
+    response, _ = inter.set_calendar_subscription("a", {"subscribe": True})
+    assert response["data"]["name"] == "Mine"
 
 
 def test_subscribe_refused_writes_nothing():
@@ -124,6 +139,8 @@ def test_patch_share_subscribes_when_asked():
     inter.patch_calendar_share("k", [{"uid": "carol@example.com", "user_class": "user",
                                       "rights": _VIEW_RIGHTS, "subscribe": True}])
     assert _subs_added(inter) == [("carol@example.com", "CALENDAR", "k")]
+    assert _subs_values(inter) == [{"display": True, "name": "k"}]
+    assert inter._user_module.add_folder_key.call_args.kwargs["keep_existing"] is True
 
 
 def test_patch_share_never_subscribes_anyone():

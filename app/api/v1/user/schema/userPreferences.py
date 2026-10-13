@@ -92,7 +92,8 @@ class UserPreferencesFoldersPatch(Schema):
     """
     Schema of the body expected for PATCH /preferences/folders
 
-    Updates a single folder key's boolean value within the folders column (CALENDAR or ADDRESSBOOKS)
+    Updates a single folder key's display toggle within the folders column (CALENDAR or ADDRESSBOOKS):
+    ``{key}.display`` for a ``{"display": bool, "name": str}`` entry, ``{key}`` itself for a bare boolean
     """
     resource = fields.String(required=True, validate=validate.OneOf(["CALENDAR", "ADDRESSBOOKS"]))
     id = fields.String(required=True)

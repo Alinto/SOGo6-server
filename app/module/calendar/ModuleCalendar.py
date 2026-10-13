@@ -1,5 +1,6 @@
 from __future__ import annotations  # pylint: disable=too-many-lines
 
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
@@ -117,15 +118,53 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         subs: object = user.folders.get("CALENDAR", {}).get("SUBS", {})
         return list(subs) if isinstance(subs, dict) else []
 
+    @staticmethod
+    def _subscription_name(user: User, key: str | None) -> str | None:
+        """Return the user's own name for a subscribed shared calendar (folders.CALENDAR.SUBS.{key}.name).
+
+        None when the calendar is not subscribed, or its entry is a bare display toggle (legacy format).
+        """
+        subs: object = user.folders.get("CALENDAR", {}).get("SUBS", {})
+        entry: object = subs.get(key) if isinstance(subs, dict) else None
+        return entry.get("name") if isinstance(entry, dict) else None
+
+    @staticmethod
+    def with_personal_name(user: User, calendar: CalCalendar) -> CalCalendar:
+        """Return the calendar named as user sees it: their own name for a shared calendar, if any.
+
+        The owner always sees the stored name. A renamed calendar is returned as a copy (the given one
+        is left untouched); it is meant for display only and must never be persisted (that would rename
+        the calendar for its owner and every subscriber).
+        """
+        personal_name: str | None = None
+        if calendar.user_uid != user.uid:
+            personal_name = ModuleCalendar._subscription_name(user, calendar.key)
+        return replace(calendar, name=personal_name) if personal_name else calendar
+
+    @staticmethod
+    def split_personal_update(user: User, calendar: CalCalendar, update: dict) -> tuple[dict, str | None]:
+        """Split a calendar update into what is written on the calendar and the user's own name for it.
+
+        On a calendar shared with user, ``name`` is personal (stored in folders.CALENDAR.SUBS by the
+        user profile module), so it is taken out of the update. The owner's update is returned as is.
+
+        :return: the update for the calendar row, and the personal name (None when there is none).
+        """
+        if calendar.user_uid == user.uid or "name" not in update:
+            return update, None
+        shared_update: dict = {field: value for field, value in update.items() if field != "name"}
+        return shared_update, update["name"]
+
     def get_all_calendars(self, user: User) -> list[CalCalendar]:
         """Return the owned calendars plus the shared ones the user subscribed to (folders.CALENDAR.SUBS).
 
         Each calendar is populated with the user's permissions; a subscribed one without VIEW is
         dropped, so stale subscriptions vanish without error. Shared calendars not subscribed to are
-        only returned by get_shared_calendars.
+        only returned by get_shared_calendars. A shared calendar carries the user's own name for it.
         """
         sources: list[CalendarSource] = self._sources.get_listed(user.uid, self._subscribed_shared_keys(user))
-        return self._with_visible_permissions(user, [source.calendar for source in sources])
+        calendars: list[CalCalendar] = self._with_visible_permissions(user, [source.calendar for source in sources])
+        return [self.with_personal_name(user, cal) for cal in calendars]
 
     def get_shared_calendars(self, user: User) -> list[CalCalendar]:
         """Return every calendar shared with the user (direct or "anyone" share) that they can see.
@@ -178,6 +217,13 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         calendar_user: CalendarUser = CalendarUser(user=user, owner=User(uid=source.calendar.user_uid))
         source.calendar.permissions = self._acl.get_permissions(source.calendar, calendar_user)
         return source
+
+    def get_displayed_calendar(self, user: User, key: str) -> CalCalendar:
+        """Return a calendar as the user sees it: permissions populated, and the user's own name when shared.
+
+        For display only: the returned calendar must never be persisted (see with_personal_name).
+        """
+        return self.with_personal_name(user, self.get_calendar(user, key).calendar)
 
     def get_event_calendar(self, user: User, event_key: str) -> CalCalendar:
         """Return the calendar that holds the given event or task, or raise NOT_FOUND.

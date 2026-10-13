@@ -168,9 +168,9 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
     def get_calendar(self, key: str) -> tuple[dict[str, Any], int]:
         """Get a single calendar by its key."""
         try:
-            source: CalendarSource = self.module.get_calendar(self.user, key)
-            cal_dict: dict[str, Any] = self._calendar_serializer.serialize(source.calendar)
-            cal_dict["public_url"] = self._public_url(source.calendar.share_token)
+            calendar: CalCalendar = self.module.get_displayed_calendar(self.user, key)
+            cal_dict: dict[str, Any] = self._calendar_serializer.serialize(calendar)
+            cal_dict["public_url"] = self._public_url(calendar.share_token)
             return create_api_base_response(cal_dict)
         except RequestException as ex:
             logger_api.error("get_calendar failed for user %s key %s: %s", self.user.uid, key, ex)
@@ -200,12 +200,24 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
             return create_api_base_response(None, ex.error)
 
     def update_calendar(self, key: str, body: dict[str, Any]) -> tuple[dict[str, Any], int]:
-        """Update an existing calendar."""
+        """Update an existing calendar.
+
+        On a calendar shared with the user, ``name`` is the user's own name for it: ModuleUserProfile
+        stores it in folders.CALENDAR.SUBS, the calendar row (seen by its owner and the other
+        subscribers) is not renamed. The other fields still go to the calendar row through ModuleCalendar.
+        """
         try:
             source: CalendarSource = self.module.get_calendar(self.user, key)
-            merged: CalCalendar = self._calendar_deserializer.deserialize_with_update(source.calendar, body)
-            updated: CalCalendar = self.module.update_calendar(self.user, key, merged)
-            return create_api_base_response(self._calendar_serializer.serialize(updated))
+            shared_update, personal_name = self.module.split_personal_update(self.user, source.calendar, body)
+            if personal_name is not None:
+                self.user.profile.folders = self._user_module.update_folder_name(
+                    self.user.uid, "CALENDAR", key, personal_name, owner_key="SUBS",
+                )
+            updated: CalCalendar = source.calendar
+            if shared_update:
+                merged: CalCalendar = self._calendar_deserializer.deserialize_with_update(source.calendar, shared_update)
+                updated = self.module.update_calendar(self.user, key, merged)
+            return create_api_base_response(self._calendar_serializer.serialize(self.module.with_personal_name(self.user, updated)))
         except RequestException as ex:
             logger_api.error("update_calendar failed for user %s key %s: %s", self.user.uid, key, ex)
             return create_api_base_response(None, ex.error)
@@ -362,9 +374,11 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
             return create_api_base_response(None, ex.error)
 
     def _subscribed_calendar_keys(self) -> set[str]:
-        """Return the calendar keys marked True under folders.CALENDAR (any of OWNER/SUBS/EXT/...).
+        """Return the calendar keys displayed under folders.CALENDAR (any of OWNER/SUBS/EXT/...).
 
-        ``folders`` is the raw JSON blob from sogo_user_profile: ``{"CALENDAR": {"OWNER": {key: bool, ...}, ...}}``.
+        ``folders`` is the raw JSON blob from sogo_user_profile: ``{"CALENDAR": {"OWNER": {key: bool, ...},
+        "SUBS": {key: {"display": bool, "name": str}, ...}, ...}}`` (a SUBS entry may still be a bare
+        bool in the legacy format).
         Only the "CALENDAR" branch is relevant here; every sub-group is scanned generically so a
         calendar counts as subscribed regardless of which group (owned, shared, external) it lives in.
         """
@@ -373,8 +387,8 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
             calendar_key
             for group in calendar_groups.values()
             if isinstance(group, dict)
-            for calendar_key, is_subscribed in group.items()
-            if is_subscribed is True
+            for calendar_key, entry in group.items()
+            if entry is True or (isinstance(entry, dict) and entry.get("display") is True)
         }
 
     #
@@ -395,7 +409,8 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         """Subscribe to, or unsubscribe from, a shared calendar according to ``body["subscribe"]``.
 
         ModuleCalendar checks the right, ModuleUserProfile owns folders.CALENDAR.SUBS.
-        Subscribing requires VIEW; an existing subscription keeps its display toggle.
+        Subscribing requires VIEW and stores ``{"display": true, "name": <calendar name>}``; an existing
+        subscription keeps its display toggle and the user's own name.
         Unsubscribing has no access check, so a subscription whose share was revoked can still
         be cleaned up. Neither touches the ACL: a subscription grants nothing.
 
@@ -407,8 +422,9 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
                 self._user_module.remove_folder_key(self.user.uid, "CALENDAR", key, owner_key="SUBS")
                 return create_api_base_response({"key": key, "subscribed": False})
             calendar: CalCalendar = self.module.require_subscribable(self.user, key)
-            self._user_module.add_folder_key(self.user.uid, "CALENDAR", key, owner_key="SUBS", keep_existing=True)
-            return create_api_base_response(self._calendar_serializer.serialize(calendar))
+            self._user_module.add_folder_key(self.user.uid, "CALENDAR", key, owner_key="SUBS", keep_existing=True,
+                                             value={"display": True, "name": calendar.name})
+            return create_api_base_response(self._calendar_serializer.serialize(self.module.with_personal_name(self.user, calendar)))
         except RequestException as ex:
             logger_api.error("set_calendar_subscription failed for user %s key %s: %s", self.user.uid, key, ex)
             return create_api_base_response(None, ex.error)
@@ -845,13 +861,19 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
         PUT /shared-calendars/{key}/subscribe ({"subscribe": 1}). The owner may still force it
         per user, as SOGo's "subscribe user" does - but never for the "anyone" pseudo-user (it has no folders, and
         subscribing a whole domain is not the owner's call), nor for rights showing nothing.
+        The subscription starts with the calendar's current name, which each subscriber may then rename;
+        an existing subscription is left untouched so its display toggle and personal name are kept.
         """
-        for user in users:
-            if not user["subscribe"] or user["uid"] == cs.ANYONE_TO_USER:
-                continue
-            if not ShareCalendar.grants_view(user["rights"]):
-                continue
-            self._user_module.add_folder_key(user["uid"], "CALENDAR", key, owner_key="SUBS")
+        targets: list[str] = [
+            user["uid"] for user in users
+            if user["subscribe"] and user["uid"] != cs.ANYONE_TO_USER and ShareCalendar.grants_view(user["rights"])
+        ]
+        if not targets:
+            return
+        name: str = self.module.get_calendar(self.user, key).calendar.name
+        for target_uid in targets:
+            self._user_module.add_folder_key(target_uid, "CALENDAR", key, owner_key="SUBS", keep_existing=True,
+                                             value={"display": True, "name": name})
 
     def _serialize_share_entries(self, entries: list[AclEntry]) -> list[dict[str, Any]]:
         """Resolve each ACL entry's to_user into the API's CalendarShareUserSchema shape.

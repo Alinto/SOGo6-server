@@ -193,6 +193,32 @@ def test_get_all_addressbooks_without_subs_section_lists_owned_only():
     assert [b.key for b in _build_module(sources).get_all_addressbooks(user)] == ["mine"]
 
 
+def test_get_all_addressbooks_uses_personal_name_of_shared_books_only():
+    sources = _build_sources(owned=[_book("mine", _ME)], by_key={"a": _book("a"), "b": _book("b")},
+                             direct=[_entry("a"), _entry("b")])
+    user = _user(subs={"a": {"display": False, "name": "My A"}, "b": True})
+    user.folders["ADDRESSBOOKS"]["OWNER"] = {"mine": {"display": True, "name": "ignored"}}
+    books = _build_module(sources).get_all_addressbooks(user)
+    assert [(b.key, b.name) for b in books] == [("mine", "mine"), ("a", "My A"), ("b", "b")]
+
+
+def test_get_displayed_addressbook_uses_personal_name():
+    sources = _build_sources(by_key={"a": _book("a")}, direct=[_entry("a")])
+    book = _build_module(sources).get_displayed_addressbook(_user(subs={"a": {"display": True, "name": "My A"}}), "a")
+    assert book.name == "My A"
+
+
+def test_split_personal_update_owner_keeps_name():
+    update = {"name": "New", "description": "d"}
+    assert ModuleContact.split_personal_update(_user(), _book("mine", _ME), update) == (update, None)
+
+
+def test_split_personal_update_shared_takes_name_out():
+    update = {"name": "New", "description": "d"}
+    assert ModuleContact.split_personal_update(_user(), _book("a"), update) == ({"description": "d"}, "New")
+    assert update == {"name": "New", "description": "d"}
+
+
 def test_get_shared_addressbooks_flags_subscription_and_rights():
     sources = _build_sources(by_key={"a": _book("a"), "b": _book("b")}, direct=[_entry("a"), _entry("b")])
     books = _build_module(sources).get_shared_addressbooks(_user(subs={"a": False}))

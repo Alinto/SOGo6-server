@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from app.manager.storage.ClientStorage import ClientStorage
@@ -97,6 +98,43 @@ class ModuleContact:  # pylint: disable=too-many-public-methods
         subs: object = user.folders.get("ADDRESSBOOKS", {}).get("SUBS", {})
         return list(subs) if isinstance(subs, dict) else []
 
+    @staticmethod
+    def _subscription_name(user: User, key: str | None) -> str | None:
+        """Return the user's own name for a subscribed shared address book (folders.ADDRESSBOOKS.SUBS.{key}.name).
+
+        None when the book is not subscribed, or its entry is a bare display toggle (legacy format).
+        """
+        subs: object = user.folders.get("ADDRESSBOOKS", {}).get("SUBS", {})
+        entry: object = subs.get(key) if isinstance(subs, dict) else None
+        return entry.get("name") if isinstance(entry, dict) else None
+
+    @staticmethod
+    def with_personal_name(user: User, book: CardAddressBook) -> CardAddressBook:
+        """Return the address book named as user sees it: their own name for a shared book, if any.
+
+        The owner always sees the stored name. A renamed book is returned as a copy (the given one is
+        left untouched); it is meant for display only and must never be persisted (that would rename
+        the book for its owner and every subscriber).
+        """
+        personal_name: str | None = None
+        if book.user_uid != user.uid:
+            personal_name = ModuleContact._subscription_name(user, book.key)
+        return replace(book, name=personal_name) if personal_name else book
+
+    @staticmethod
+    def split_personal_update(user: User, book: CardAddressBook, update: dict) -> tuple[dict, str | None]:
+        """Split an address book update into what is written on the book and the user's own name for it.
+
+        On a book shared with user, ``name`` is personal (stored in folders.ADDRESSBOOKS.SUBS by the
+        user profile module), so it is taken out of the update. The owner's update is returned as is.
+
+        :return: the update for the address book row, and the personal name (None when there is none).
+        """
+        if book.user_uid == user.uid or "name" not in update:
+            return update, None
+        shared_update: dict = {field: value for field, value in update.items() if field != "name"}
+        return shared_update, update["name"]
+
     def get_all_addressbooks(
         self, user: User, user_sources: dict[str, UserSourceSettingsObj] | None = None,
     ) -> list[CardAddressBook]:
@@ -104,9 +142,10 @@ class ModuleContact:  # pylint: disable=too-many-public-methods
 
         A subscribed book the user can no longer view is dropped, so stale subscriptions vanish
         without error. Shared books not subscribed to are only returned by get_shared_addressbooks.
+        A shared book carries the user's own name for it.
         """
         sources: list[ContactSource] = self._sources.get_listed(user.uid, self._subscribed_shared_keys(user), user_sources)
-        return [source.addressbook for source in sources]
+        return [self.with_personal_name(user, source.addressbook) for source in sources]
 
     def get_shared_addressbooks(self, user: User) -> list[CardAddressBook]:
         """Return every address book shared with the user (direct or "anyone" share) that they can view.
@@ -150,6 +189,15 @@ class ModuleContact:  # pylint: disable=too-many-public-methods
         if source is None:
             raise RequestException(error=err.ERROR_CONTACT_ADDRESSBOOK_NOT_FOUND)
         return source
+
+    def get_displayed_addressbook(
+        self, user: User, key: str, user_sources: dict[str, UserSourceSettingsObj] | None = None,
+    ) -> CardAddressBook:
+        """Return an address book as the user sees it: their own name for it when it is shared with them.
+
+        For display only: the returned book must never be persisted (see with_personal_name).
+        """
+        return self.with_personal_name(user, self.get_addressbook(user, key, user_sources).addressbook)
 
     def _get_readable_addressbook(
         self, user: User, key: str, user_sources: dict[str, UserSourceSettingsObj] | None = None,
