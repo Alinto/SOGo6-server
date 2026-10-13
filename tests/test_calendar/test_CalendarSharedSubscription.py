@@ -208,6 +208,36 @@ def test_get_all_calendars_drops_subscription_without_view_right():
     assert not _build_module(sources).get_all_calendars(_user(subs={"a": True}))
 
 
+def test_get_all_calendars_uses_personal_name_of_shared_calendars_only():
+    sources = _build_sources(owned=[_cal("mine", _ME)], by_key={"a": _cal("a"), "b": _cal("b")},
+                             direct=[_entry("a"), _entry("b")])
+    user = _user(subs={"a": {"display": False, "name": "My A"}, "b": True})
+    user.folders["CALENDAR"]["OWNER"] = {"mine": {"display": True, "name": "ignored"}}
+    calendars = _build_module(sources).get_all_calendars(user)
+    assert [(c.key, c.name) for c in calendars] == [("mine", "mine"), ("a", "My A"), ("b", "b")]
+
+
+def test_get_displayed_calendar_uses_personal_name():
+    sources = _build_sources(by_key={"a": _cal("a")}, direct=[_entry("a")])
+    calendar = _build_module(sources).get_displayed_calendar(_user(subs={"a": {"display": True, "name": "My A"}}), "a")
+    assert calendar.name == "My A"
+
+
+def test_split_personal_update_owner_keeps_name():
+    update = {"name": "New", "color": "#FFFFFF"}
+    assert ModuleCalendar.split_personal_update(_user(), _cal("mine", _ME), update) == (update, None)
+
+
+def test_split_personal_update_shared_takes_name_out():
+    update = {"name": "New", "color": "#FFFFFF"}
+    assert ModuleCalendar.split_personal_update(_user(), _cal("a"), update) == ({"color": "#FFFFFF"}, "New")
+    assert update == {"name": "New", "color": "#FFFFFF"}
+
+
+def test_split_personal_update_shared_without_name():
+    assert ModuleCalendar.split_personal_update(_user(), _cal("a"), {"color": "#FFFFFF"}) == ({"color": "#FFFFFF"}, None)
+
+
 def test_get_shared_calendars_lists_visible_shares_with_permissions():
     sources = _build_sources(by_key={"a": _cal("a"), "b": _cal("b")},
                              direct=[_entry("a"), _entry("b", rights=_NO_VIEW_RIGHTS)])

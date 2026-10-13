@@ -117,7 +117,7 @@ class ContactShareUserSchema(Schema):
         metadata={"description": "Also subscribe the user to the address book, so it shows in their address book list. "
                                  "Ignored for user_class 'anyone' and for rights without can_view. "
                                  "Without it, the user subscribes on their own "
-                                 "(PUT /shared-addressbooks/{key}/subscribe with {'subscribe': 1}).",
+                                 "(PUT /shared-addressbooks/{key} with {'subscribe': 1}).",
                   "example": False},
     )
 
@@ -164,7 +164,7 @@ class SharedAddressBookResponseSchema(ApiBaseResponse):
 
 
 class SharedAddressBookSubscribeSchema(Schema):
-    """Request body for PUT /shared-addressbooks/{key}/subscribe."""
+    """Request body for PUT /shared-addressbooks/{key}."""
 
     subscribe = fields.Boolean(
         required=True,
