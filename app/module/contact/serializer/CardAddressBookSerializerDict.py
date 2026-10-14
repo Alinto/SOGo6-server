@@ -12,7 +12,7 @@ class CardAddressBookSerializerDict(CardAddressBookSerializer[dict]):
     """Converts a CardAddressBook to its plain dict representation."""
 
     def serialize(self, data: CardAddressBook) -> dict[str, Any]:
-        return {
+        result: dict[str, Any] = {
             "key": data.key,
             "name": data.name,
             "description": data.description,
@@ -21,3 +21,8 @@ class CardAddressBookSerializerDict(CardAddressBookSerializer[dict]):
             "ctag": data.ctag,
             "owner": data.user_uid,
         }
+        if data.rights is not None:
+            result["rights"] = data.rights
+        if data.subscribed is not None:
+            result["subscribed"] = data.subscribed
+        return result

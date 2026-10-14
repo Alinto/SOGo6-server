@@ -1,5 +1,6 @@
-from __future__ import annotations
+from __future__ import annotations  # pylint: disable=too-many-lines
 
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
@@ -107,30 +108,101 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
     #
     # Calendars
     #
-    def get_all_calendars(self, user: User, shared_keys: list[str] | None = None) -> list[CalCalendar]:
-        """Return all calendars accessible by the user.
+    @staticmethod
+    def _subscribed_shared_keys(user: User) -> list[str]:
+        """Return the keys of the shared calendars the user subscribed to (folders.CALENDAR.SUBS).
 
-        Includes owned calendars and optionally shared calendars identified by key.
-        Each calendar is populated with the user's permissions.
-
-        :param user: The authenticated user.
-        :param shared_keys: Additional calendar keys to include (from the ACL module).
+        Presence in SUBS is the subscription; the boolean value is only the display toggle, so a
+        hidden subscription is still returned.
         """
-        # Owned calendars
-        sources: list[CalendarSource] = self._sources.get_all(user.uid)
-        # Delegated calendars (shared by other users, keys provided by the ACL module)
-        if shared_keys:
-            for key in shared_keys:
-                source: CalendarSource | None = self._sources.get_by_key(user.uid, key)
-                if source is not None:
-                    sources.append(source)
-        calendars: list[CalCalendar] = []
-        for source in sources:
-            cal: CalCalendar = source.calendar
-            calendar_user: CalendarUser = CalendarUser(user=user, owner=User(uid=cal.user_uid))
-            cal.permissions = self._acl.get_permissions(cal, calendar_user)
-            calendars.append(cal)
+        subs: object = user.folders.get("CALENDAR", {}).get("SUBS", {})
+        return list(subs) if isinstance(subs, dict) else []
+
+    @staticmethod
+    def _subscription_name(user: User, key: str | None) -> str | None:
+        """Return the user's own name for a subscribed shared calendar (folders.CALENDAR.SUBS.{key}.name).
+
+        None when the calendar is not subscribed, or its entry is a bare display toggle (legacy format).
+        """
+        subs: object = user.folders.get("CALENDAR", {}).get("SUBS", {})
+        entry: object = subs.get(key) if isinstance(subs, dict) else None
+        return entry.get("name") if isinstance(entry, dict) else None
+
+    @staticmethod
+    def with_personal_name(user: User, calendar: CalCalendar) -> CalCalendar:
+        """Return the calendar named as user sees it: their own name for a shared calendar, if any.
+
+        The owner always sees the stored name. A renamed calendar is returned as a copy (the given one
+        is left untouched); it is meant for display only and must never be persisted (that would rename
+        the calendar for its owner and every subscriber).
+        """
+        personal_name: str | None = None
+        if calendar.user_uid != user.uid:
+            personal_name = ModuleCalendar._subscription_name(user, calendar.key)
+        return replace(calendar, name=personal_name) if personal_name else calendar
+
+    @staticmethod
+    def split_personal_update(user: User, calendar: CalCalendar, update: dict) -> tuple[dict, str | None]:
+        """Split a calendar update into what is written on the calendar and the user's own name for it.
+
+        On a calendar shared with user, ``name`` is personal (stored in folders.CALENDAR.SUBS by the
+        user profile module), so it is taken out of the update. The owner's update is returned as is.
+
+        :return: the update for the calendar row, and the personal name (None when there is none).
+        """
+        if calendar.user_uid == user.uid or "name" not in update:
+            return update, None
+        shared_update: dict = {field: value for field, value in update.items() if field != "name"}
+        return shared_update, update["name"]
+
+    def get_all_calendars(self, user: User) -> list[CalCalendar]:
+        """Return the owned calendars plus the shared ones the user subscribed to (folders.CALENDAR.SUBS).
+
+        Each calendar is populated with the user's permissions; a subscribed one without VIEW is
+        dropped, so stale subscriptions vanish without error. Shared calendars not subscribed to are
+        only returned by get_shared_calendars. A shared calendar carries the user's own name for it.
+        """
+        sources: list[CalendarSource] = self._sources.get_listed(user.uid, self._subscribed_shared_keys(user))
+        calendars: list[CalCalendar] = self._with_visible_permissions(user, [source.calendar for source in sources])
+        return [self.with_personal_name(user, cal) for cal in calendars]
+
+    def get_shared_calendars(self, user: User) -> list[CalCalendar]:
+        """Return every calendar shared with the user (direct or "anyone" share) that they can see.
+
+        Each calendar carries the user's permissions and ``subscribed``: whether it is in the user's
+        subscriptions (folders.CALENDAR.SUBS).
+        """
+        subscribed: set[str] = set(self._subscribed_shared_keys(user))
+        calendars: list[CalCalendar] = self._with_visible_permissions(user, self._sources.get_shared_calendars(user.uid))
+        for cal in calendars:
+            cal.subscribed = cal.key in subscribed
         return calendars
+
+    def _with_visible_permissions(self, user: User, calendars: list[CalCalendar]) -> list[CalCalendar]:
+        """Populate each calendar's permissions for user, dropping the shared ones granting no VIEW."""
+        visible: list[CalCalendar] = []
+        for cal in calendars:
+            cal.permissions = self._acl.get_permissions(cal, CalendarUser(user=user, owner=User(uid=cal.user_uid)))
+            if cal.user_uid == user.uid or self._acl.can_view(cal.permissions):
+                visible.append(cal)
+        return visible
+
+    def require_subscribable(self, user: User, key: str) -> CalCalendar:
+        """Return the shared calendar the user may subscribe to (VIEW required), or raise.
+
+        The calendar is returned with ``subscribed=True``: the state once the caller has written the
+        subscription (folders.CALENDAR.SUBS belongs to the user profile module, not to this one).
+        A calendar the user cannot see is reported like an unknown key (ERROR_CALENDAR_NOT_FOUND),
+        so the endpoint does not reveal which keys exist. Raises ERROR_CALENDAR_CANNOT_SUBSCRIBE_OWN
+        when the user owns it.
+        """
+        calendar: CalCalendar = self.get_calendar(user, key).calendar
+        if calendar.user_uid == user.uid:
+            raise RequestException(error=err.ERROR_CALENDAR_CANNOT_SUBSCRIBE_OWN)
+        if calendar.permissions is None or not self._acl.can_view(calendar.permissions):
+            raise RequestException(error=err.ERROR_CALENDAR_NOT_FOUND)
+        calendar.subscribed = True
+        return calendar
 
     def get_calendar(self, user: User, key: str) -> CalendarSource:
         """Return the source for a calendar, or raise NOT_FOUND. Populates permissions.
@@ -145,6 +217,13 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         calendar_user: CalendarUser = CalendarUser(user=user, owner=User(uid=source.calendar.user_uid))
         source.calendar.permissions = self._acl.get_permissions(source.calendar, calendar_user)
         return source
+
+    def get_displayed_calendar(self, user: User, key: str) -> CalCalendar:
+        """Return a calendar as the user sees it: permissions populated, and the user's own name when shared.
+
+        For display only: the returned calendar must never be persisted (see with_personal_name).
+        """
+        return self.with_personal_name(user, self.get_calendar(user, key).calendar)
 
     def get_event_calendar(self, user: User, event_key: str) -> CalCalendar:
         """Return the calendar that holds the given event or task, or raise NOT_FOUND.
@@ -390,7 +469,8 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
     ) -> list[CalEvent]:
         """Return events within [start, end], optionally restricted to a single calendar.
 
-        When key is None, events from all user calendars are merged.
+        When key is None, events from the user's listed calendars are merged: the owned ones plus
+        the shared ones the acting user subscribed to (a single calendar only needs the ACL).
         The date-range limit is bypassed when a search query is present.
         When subscribed_keys is not None, only events whose calendar is in that set are returned.
         """
@@ -398,7 +478,9 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
             if (end - start) > timedelta(days=MAX_EVENT_FETCH_DAYS):
                 raise RequestException(error=err.ERROR_CALENDAR_DATE_RANGE_TOO_LARGE)
         try:
-            events: list[CalEvent] = self._sources.get_all_events(calendar_user.owner.uid, start, end, search, key, subscribed_keys)
+            listed_shared_keys: list[str] | None = None if key else self._subscribed_shared_keys(calendar_user.user)
+            events: list[CalEvent] = self._sources.get_all_events(calendar_user.owner.uid, start, end, search, key,
+                                                                  subscribed_keys, listed_shared_keys)
             logger_calendar.debug("returned %d events (calendar=%s)", len(events), key or "all")
             return self._sanitize_listing(calendar_user, events)
         except RequestException:
@@ -558,14 +640,15 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
     ) -> list[CalEvent]:
         """Return VTODO tasks within [start, end], optionally restricted to a single calendar.
 
-        When key is None, tasks from all user calendars are merged.
+        When key is None, tasks from the user's listed calendars are merged, as in get_all_events.
         The date-range limit is bypassed when a search query is present.
         """
         if search is None and start is not None and end is not None:
             if (end - start) > timedelta(days=MAX_TASK_FETCH_DAYS):
                 raise RequestException(error=err.ERROR_CALENDAR_DATE_RANGE_TOO_LARGE)
         try:
-            tasks: list[CalEvent] = self._sources.get_all_tasks(calendar_user.owner.uid, start, end, search, key)
+            listed_shared_keys: list[str] | None = None if key else self._subscribed_shared_keys(calendar_user.user)
+            tasks: list[CalEvent] = self._sources.get_all_tasks(calendar_user.owner.uid, start, end, search, key, listed_shared_keys)
             logger_calendar.debug("returned %d tasks (calendar=%s)", len(tasks), key or "all")
             return self._sanitize_listing(calendar_user, tasks)
         except RequestException:
