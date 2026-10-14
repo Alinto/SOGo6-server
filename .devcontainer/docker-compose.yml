@@ -146,7 +146,22 @@ services:
       - openldap
     entrypoint: /entrypoint.sh
 
+  keycloak:
+    image: quay.io/keycloak/keycloak
+    container_name: keycloak
+    ports:
+    - 8080:8080
+    environment:
+    - KEYCLOAK_ADMIN=admin
+    - KEYCLOAK_ADMIN_PASSWORD=admin
+    volumes:
+    - keycloak:/opt/keycloak/data/
+    restart: unless-stopped
+    command:
+    - "start-dev"
+
 volumes:
   # sogo6-postgres:
   sogo6-mail-data:
   sogo6-sieve-data: # sogo6-mysql-data:
+  keycloak:
