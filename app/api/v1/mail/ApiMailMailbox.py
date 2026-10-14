@@ -259,6 +259,10 @@ class ApiMailBoxesAccountSearch(MethodView):
         All search criteria are optional and combined using the "operator" field (AND by default, OR to match any criterion).
         Pagination, sorting and field filtering are controlled via query parameters (page, page_size, sort_by, sort_order, fields, fields_action).
 
+        When "folders" is empty or ["all"], every folder of the account is searched in parallel and the
+        results are always sorted by arrival date, most recent first: sort_by and sort_order are ignored.
+        "attachment_type" is then applied before the pagination, so a page is never short because of it.
+
         The `deleted` query parameter (boolean, default `false`) controls whether mails
         flagged `\\Deleted` are included: `false` (default) excludes them, `true` includes
         them alongside non-deleted mails. It is applied as part of the IMAP search
