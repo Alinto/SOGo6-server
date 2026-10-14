@@ -3,6 +3,7 @@ from typing import Any, Callable, TypeVar, ParamSpec, Iterator, cast
 
 from datetime import datetime, timedelta
 from email import message_from_bytes
+from email.errors import HeaderParseError
 from email.header import decode_header, make_header
 from email.message import EmailMessage
 import imaplib
@@ -10,6 +11,7 @@ from logging import WARNING
 import re
 from socket import timeout as sock_timeout, gaierror
 from ssl import SSLError
+from urllib.parse import unquote
 
 from app.utils.exceptions import RequestException, BugException
 from app.utils.logger.logger import logger_imap
@@ -2470,28 +2472,7 @@ class ClientImap(ClientMailServer):
             if uid_set is None:
                 continue
 
-            # Fetch headers + bodystructure for all matching UIDs in one round-trip
-            success, fetch_datas = self._exec_imap4_method(
-                self.connection.uid, 'FETCH', uid_set.replace(' ', ','),
-                '(BODY.PEEK[HEADER] BODYSTRUCTURE FLAGS UID RFC822.SIZE)'
-            )
-            if not success:
-                raise RequestException(
-                    f"IMAP FETCH failed in folder '{folder_path}' for UIDs {uid_set}",
-                    err.ERROR_MAIL_SEARCH_FAILED
-                )
-
-            for i in range(len(fetch_datas) - 1, -1, -2):
-                pair = fetch_datas[i - 1:i + 1]
-                if len(pair) < 2:
-                    continue
-                bodystruct = pair[1]
-                message_parts = cast(tuple[bytes, bytes], pair[0])
-                if not isinstance(message_parts, tuple):
-                    continue
-                has_attachment = self._parse_body_structure_for_attachment(bodystruct)
-                mail_dict = self._parse_mail_without_content_fetching(message_parts, has_attachment)
-                mail_dict["folder"] = folder_path
+            for mail_dict in self._fetch_uid_set_without_content(folder_path, uid_set.replace(' ', ',')):
                 yield folder_path, mail_dict
 
     def search_mails_with_content(self, folders: list[str], criteria: str) -> Iterator[tuple[str, dict]]:
@@ -2521,23 +2502,251 @@ class ClientImap(ClientMailServer):
             if uid_set is None:
                 continue
 
-            # Fetch full body for all matching UIDs in one round-trip
-            success, fetch_datas = self._exec_imap4_method(
-                self.connection.uid, 'FETCH', uid_set.replace(' ', ','),
-                '(BODY.PEEK[] FLAGS UID)'
-            )
-            if not success:
-                raise RequestException(
-                    f"IMAP FETCH failed in folder '{folder_path}' for UIDs {uid_set}",
-                    err.ERROR_MAIL_SEARCH_FAILED
-                )
-
-            for part in fetch_datas:
-                if not isinstance(part, tuple):
-                    continue
-                mail_dict = self._parse_mail_with_content_fetching(part)
-                mail_dict["folder"] = folder_path
+            for mail_dict in self._fetch_uid_set_with_content(folder_path, uid_set.replace(' ', ',')):
                 yield folder_path, mail_dict
+
+    def _fetch_uid_set_without_content(self, folder_path: str, uid_set: str) -> Iterator[dict]:
+        """Fetch the headers (no body content) of the given UIDs in the currently selected folder.
+
+        Each yielded ``mail_dict`` has the same shape as ``_parse_mail_without_content_fetching``
+        output, enriched with ``"folder"`` (the IMAP folder path).
+
+        :param folder_path: IMAP folder path, already selected by the caller.
+        :type folder_path: str
+        :param uid_set: Comma-separated UID set (e.g. "12,15,42").
+        :type uid_set: str
+        :raises RequestException: If the FETCH command fails.
+        :raises BugException: If not authenticated.
+        :return: Yields mail dicts.
+        :rtype: Iterator[dict]
+        """
+        if self.connection is None or not self.authenticated:
+            raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
+
+        # Fetch headers + bodystructure for all the UIDs in one round-trip
+        success, fetch_datas = self._exec_imap4_method(
+            self.connection.uid, 'FETCH', uid_set,
+            '(BODY.PEEK[HEADER] BODYSTRUCTURE FLAGS UID RFC822.SIZE)'
+        )
+        if not success:
+            raise RequestException(
+                f"IMAP FETCH failed in folder '{folder_path}' for UIDs {uid_set}",
+                err.ERROR_MAIL_SEARCH_FAILED
+            )
+
+        for i in range(len(fetch_datas) - 1, -1, -2):
+            pair = fetch_datas[i - 1:i + 1]
+            if len(pair) < 2:
+                continue
+            bodystruct = pair[1]
+            message_parts = cast(tuple[bytes, bytes], pair[0])
+            if not isinstance(message_parts, tuple):
+                continue
+            has_attachment = self._parse_body_structure_for_attachment(bodystruct)
+            mail_dict = self._parse_mail_without_content_fetching(message_parts, has_attachment)
+            mail_dict["folder"] = folder_path
+            yield mail_dict
+
+    def _fetch_uid_set_with_content(self, folder_path: str, uid_set: str) -> Iterator[dict]:
+        """Fetch the full content of the given UIDs in the currently selected folder.
+
+        Each yielded ``mail_dict`` has the same shape as ``_parse_mail_with_content_fetching``
+        output, enriched with ``"folder"`` (the IMAP folder path).
+
+        :param folder_path: IMAP folder path, already selected by the caller.
+        :type folder_path: str
+        :param uid_set: Comma-separated UID set (e.g. "12,15,42").
+        :type uid_set: str
+        :raises RequestException: If the FETCH command fails.
+        :raises BugException: If not authenticated.
+        :return: Yields mail dicts.
+        :rtype: Iterator[dict]
+        """
+        if self.connection is None or not self.authenticated:
+            raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
+
+        # Fetch full body for all the UIDs in one round-trip
+        success, fetch_datas = self._exec_imap4_method(
+            self.connection.uid, 'FETCH', uid_set,
+            '(BODY.PEEK[] FLAGS UID)'
+        )
+        if not success:
+            raise RequestException(
+                f"IMAP FETCH failed in folder '{folder_path}' for UIDs {uid_set}",
+                err.ERROR_MAIL_SEARCH_FAILED
+            )
+
+        for part in fetch_datas:
+            if not isinstance(part, tuple):
+                continue
+            mail_dict = self._parse_mail_with_content_fetching(part)
+            mail_dict["folder"] = folder_path
+            yield mail_dict
+
+    def fetch_mails_by_uid_list(self, folder_path: str, uids: list[str], with_content: bool) -> list[dict]:
+        """Fetch the given mails of one folder in a single FETCH command.
+
+        Each returned ``mail_dict`` has the same shape as the ones yielded by
+        ``search_mails_with_content`` / ``search_mails_without_content``.
+        UIDs that no longer exist in the folder are silently missing from the result.
+
+        :param folder_path: IMAP folder path.
+        :type folder_path: str
+        :param uids: UIDs of the mails to fetch.
+        :type uids: list[str]
+        :param with_content: If True fetch the full mails, otherwise only their headers.
+        :type with_content: bool
+        :raises RequestException: If selecting the folder or the FETCH command fails.
+        :raises BugException: If not authenticated.
+        :return: List of mail dicts.
+        :rtype: list[dict]
+        """
+        logger_imap.debug("Fetching mails %s from '%s' (with content: %s)", uids, folder_path, with_content)
+        if not uids:
+            return []
+        self.select_mailbox(folder_path, readonly=True)
+        uid_set = ",".join(uids)
+        if with_content:
+            return list(self._fetch_uid_set_with_content(folder_path, uid_set))
+        return list(self._fetch_uid_set_without_content(folder_path, uid_set))
+
+    def search_most_recent_uids(self, folder_path: str, criteria: str, nb_mails: int,
+                                attachment_types: list[str] | None = None) -> tuple[list[dict[str, Any]], int]:
+        """Search a folder and return the ``nb_mails`` most recent matching mails (UID and date only).
+
+        The mails are ordered on their INTERNALDATE (arrival date), the most recent first.
+        Only one SEARCH and one FETCH (UID, INTERNALDATE and, if needed, BODYSTRUCTURE)
+        are sent: no header nor body is downloaded.
+
+        ``attachment_types`` has no IMAP search-key equivalent: when given, the
+        BODYSTRUCTURE of every matching mail is fetched and only the mails holding at
+        least one attachment with one of these extensions are kept. This filter is applied
+        *before* keeping the ``nb_mails`` most recent so a page is never short because of it,
+        and the returned total accounts for it.
+
+        Each entry is ``{"uid": str, "date": datetime, "folder": str}``.
+
+        :param folder_path: IMAP folder path to search in.
+        :type folder_path: str
+        :param criteria: IMAP SEARCH criteria string (see build_search_criteria).
+        :type criteria: str
+        :param nb_mails: Maximum number of entries to return.
+        :type nb_mails: int
+        :param attachment_types: Attachment file extensions (e.g. ["pdf", "jpg"]), case-insensitive.
+        :type attachment_types: list[str] | None
+        :raises RequestException: If the SEARCH or FETCH command fails.
+        :raises BugException: If not authenticated.
+        :return: A tuple of (the most recent entries, total number of matching mails in the folder).
+        :rtype: tuple[list[dict[str, Any]], int]
+        """
+        logger_imap.debug("Searching the %d most recent mails in '%s' with criteria: %s", nb_mails, folder_path, criteria)
+        if self.connection is None or not self.authenticated:
+            raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
+
+        uid_set = self._search_uids_in_folder(folder_path, criteria)
+        if uid_set is None:
+            return [], 0
+
+        fetch_items = '(UID INTERNALDATE BODYSTRUCTURE)' if attachment_types else '(UID INTERNALDATE)'
+        success, fetch_datas = self._exec_imap4_method(self.connection.uid, 'FETCH', uid_set.replace(' ', ','), fetch_items)
+        if not success:
+            raise RequestException(
+                f"IMAP FETCH failed in folder '{folder_path}' for UIDs {uid_set}",
+                err.ERROR_MAIL_SEARCH_FAILED
+            )
+
+        wanted_extensions = {ext.lower().lstrip(".") for ext in attachment_types or []}
+        entries: list[dict[str, Any]] = []
+        for message in self._group_fetch_datas_by_message(fetch_datas):
+            uid_match = re.search(rb'UID (\d+)', message)
+            date_match = re.search(rb'INTERNALDATE "([^"]+)"', message)
+            if uid_match is None or date_match is None:
+                # Not a response to our FETCH (e.g. unsolicited flag update)
+                continue
+            if wanted_extensions and not wanted_extensions & self._attachment_extensions_from_bodystructure(message):
+                continue
+            entries.append({
+                "uid": uid_match.group(1).decode(),
+                "date": self._parse_internaldate(date_match.group(1)),
+                "folder": folder_path,
+            })
+
+        entries.sort(key=lambda entry: (entry["date"], int(entry["uid"])), reverse=True)
+        return entries[:nb_mails], len(entries)
+
+    @staticmethod
+    def _group_fetch_datas_by_message(fetch_datas: list) -> list[bytes]:
+        """Rebuild one bytes line per message from the data of a FETCH response.
+
+        imaplib splits a message response holding a literal (``{n}``, e.g. a non-ASCII
+        filename in a BODYSTRUCTURE) into a ``(prefix, literal)`` tuple followed by the
+        remaining bytes. The literals are inlined back as quoted strings so each message
+        can be parsed as a single line.
+
+        :param fetch_datas: Data returned by a FETCH command.
+        :type fetch_datas: list
+        :return: One bytes line per message.
+        :rtype: list[bytes]
+        """
+        messages: list[bytes] = []
+        for part in fetch_datas:
+            if isinstance(part, tuple):
+                prefix, literal = part
+                escaped_literal = literal.replace(b'\\', b'\\\\').replace(b'"', b'\\"')
+                chunk = re.sub(rb'\{\d+\}$', b'', prefix) + b'"' + escaped_literal + b'"'
+            else:
+                chunk = part
+            # A message response starts with its sequence number: "12 (UID ..."
+            if not messages or re.match(rb'\d+ \(', chunk):
+                messages.append(chunk)
+            else:
+                messages[-1] += chunk
+        return messages
+
+    @staticmethod
+    def _attachment_extensions_from_bodystructure(message: bytes) -> set[str]:
+        """Return the lowercased file extensions of the attachments described in a BODYSTRUCTURE.
+
+        Attachment filenames are read from the ``name`` (Content-Type) and ``filename``
+        (Content-Disposition) parameters, like ModuleMail._parse_mail does with
+        ``part.get_filename()``. RFC 2047 encoded-words and RFC 2231 extended values
+        (``filename*``) are decoded.
+
+        :param message: One message FETCH response line holding a BODYSTRUCTURE.
+        :type message: bytes
+        :return: Set of extensions (without the dot).
+        :rtype: set[str]
+        """
+        extensions: set[str] = set()
+        filename_params = re.findall(rb'"((?:FILE)?NAME(?:\*\d*\*?)?)"\s+"((?:[^"\\]|\\.)*)"', message, re.IGNORECASE)
+        for param_name, raw_value in filename_params:
+            filename = re.sub(rb'\\(.)', rb'\1', raw_value).decode("utf-8", errors="replace")
+            if param_name.endswith(b"*"):
+                # RFC 2231 extended value: charset'language'percent-encoded-value
+                filename = unquote(filename.split("'", 2)[-1], errors="replace")
+            else:
+                try:
+                    filename = str(make_header(decode_header(filename)))
+                except (UnicodeDecodeError, LookupError, HeaderParseError):
+                    pass
+            if "." in filename:
+                extensions.add(filename.rsplit(".", 1)[-1].lower())
+        return extensions
+
+    @staticmethod
+    def _parse_internaldate(raw_date: bytes) -> datetime:
+        """Parse an IMAP INTERNALDATE (e.g. b"17-Jul-1996 02:44:25 -0700") into an aware datetime.
+
+        :param raw_date: The INTERNALDATE value, without the surrounding quotes.
+        :type raw_date: bytes
+        :raises RequestException: If the server returned an unparsable date.
+        :return: The parsed date.
+        :rtype: datetime
+        """
+        try:
+            return datetime.strptime(raw_date.decode().strip(), "%d-%b-%Y %H:%M:%S %z")
+        except ValueError as e:
+            raise RequestException(f"Unparsable INTERNALDATE returned by the server: {raw_date!r}", err.ERROR_MAIL_SEARCH_FAILED) from e
 
     def logout(self) -> None:
         """
