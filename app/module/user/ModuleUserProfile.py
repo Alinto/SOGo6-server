@@ -198,7 +198,7 @@ class ModuleUserProfile:
         # Use the generic _update_user_column method
         self._update_user_column(uid, tbl.COL_USER_FOLDERS.name, folders_data)
 
-    def add_folder_key(self, uid: str, folder_type: str, key: str, owner_key: str = "OWNER") -> None:
+    def add_folder_key(self, uid: str, folder_type: str, key: str, owner_key: str = "OWNER", keep_existing: bool = False) -> None:
         """
         Add a new calendar or addressbook key to the folders column of a user profile.
         
@@ -207,7 +207,9 @@ class ModuleUserProfile:
         folder type (default is "OWNER" for personal resources, but can be "EXT" for external ones).
         
         If the folders column doesn't exist or is empty, it initializes the structure.
-        If the key already exists, it's overwritten (harmless for boolean flags).
+        If the key already exists, it's overwritten (harmless for boolean flags), unless
+        keep_existing is True: the existing value (e.g. a display toggle set to False) is then kept
+        and nothing is written.
         
         :param uid: User unique identifier
         :type uid: str
@@ -217,6 +219,8 @@ class ModuleUserProfile:
         :type key: str
         :param owner_key: Owner section key - "OWNER" for personal, "EXT" for external, etc.
         :type owner_key: str
+        :param keep_existing: When True, an already present key is left untouched (idempotent add).
+        :type keep_existing: bool
         :raises RequestException: If user profile not found
         :raises AggravatedException: If multiple user profiles found or update fails
         """
@@ -241,6 +245,9 @@ class ModuleUserProfile:
         if owner_key not in current_folders[folder_type]:
             current_folders[folder_type][owner_key] = {}
         
+        if keep_existing and key in current_folders[folder_type][owner_key]:
+            return
+
         # Add the new key
         current_folders[folder_type][owner_key][key] = True
         

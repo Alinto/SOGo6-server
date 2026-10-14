@@ -14,7 +14,7 @@ class CalCalendarSerializerDict(CalCalendarSerializer[dict]):
         self._permissions_serializer = CalendarPermissionsSerializerDict()
 
     def serialize(self, data: CalCalendar) -> dict[str, Any]:
-        return {
+        result: dict[str, Any] = {
             "key": data.key,
             "name": data.name,
             "color": data.color,
@@ -30,3 +30,6 @@ class CalCalendarSerializerDict(CalCalendarSerializer[dict]):
             "rights": self._permissions_serializer.serialize(data.permissions) if data.permissions else None,
             "owner": data.user_uid,
         }
+        if data.subscribed is not None:
+            result["subscribed"] = data.subscribed
+        return result
