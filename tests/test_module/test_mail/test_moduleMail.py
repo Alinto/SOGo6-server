@@ -209,6 +209,27 @@ class FakeClientMailServer:
         """Search mails without body content across folders. Yields (folder_path, mail_dict)."""
         return iter(self.search_mails_result if hasattr(self, 'search_mails_result') else [])
 
+    def search_most_recent_uids(self, folder_path, criteria, nb_mails, attachment_types=None):
+        """Return the nb_mails most recent entries of folder_path (from search_mails_result) and the folder total."""
+        self.search_most_recent_uids_calls = getattr(self, 'search_most_recent_uids_calls', [])
+        self.search_most_recent_uids_calls.append((folder_path, nb_mails, attachment_types))
+        entries = [
+            {"uid": str(mail['uid']), "date": mail['internaldate'], "folder": folder}
+            for folder, mail in getattr(self, 'search_mails_result', [])
+            if folder == folder_path
+        ]
+        entries.sort(key=lambda entry: (entry["date"], int(entry["uid"])), reverse=True)
+        return entries[:nb_mails], len(entries)
+
+    def fetch_mails_by_uid_list(self, folder_path, uids, with_content):
+        """Return the mails of folder_path (from search_mails_result) whose uid is in uids."""
+        self.fetch_mails_by_uid_list_calls = getattr(self, 'fetch_mails_by_uid_list_calls', [])
+        self.fetch_mails_by_uid_list_calls.append((folder_path, list(uids), with_content))
+        return [
+            mail for folder, mail in getattr(self, 'search_mails_result', [])
+            if folder == folder_path and str(mail['uid']) in uids
+        ]
+
     def build_search_criteria(self, search_params, deleted):
         """Build search criteria from params (simplified for fake client).
 
@@ -1427,8 +1448,15 @@ def test_put_folder_share_with_multiple_users(monkeypatch):
 # ===========================================================================
 
 def _make_search_mail_dict(uid='1', subject='Test', from_='sender@example.com',
-                            to='recipient@example.com', seen=False, folder='INBOX'):
-    """Build a mail dict as returned by search_mails_with_content."""
+                            to='recipient@example.com', seen=False, folder='INBOX', internaldate=None):
+    """Build a mail dict as returned by search_mails_with_content.
+
+    ``internaldate`` (arrival date, used by the fake search_most_recent_uids) defaults to
+    a date that grows with the uid.
+    """
+    from datetime import datetime, timedelta, timezone
+    if internaldate is None:
+        internaldate = datetime(2024, 1, 1, tzinfo=timezone.utc) + timedelta(minutes=int(uid))
     msg = _make_email_message(subject=subject, from_=from_, to=to)
     return (folder, {
         'uid': uid,
@@ -1443,6 +1471,7 @@ def _make_search_mail_dict(uid='1', subject='Test', from_='sender@example.com',
         },
         'size': 200,
         'folder': folder,
+        'internaldate': internaldate,
     })
 
 
@@ -1460,8 +1489,9 @@ def test_search_mails_returns_matching_results(monkeypatch):
 
     assert total == 2
     assert len(result) == 2
-    assert result[0]['subject'] == 'Hello'
-    assert result[1]['subject'] == 'World'
+    # All folders searched: the most recent (highest internaldate) first
+    assert result[0]['subject'] == 'World'
+    assert result[1]['subject'] == 'Hello'
 
 
 def test_search_mails_empty_results(monkeypatch):
@@ -1532,7 +1562,7 @@ def test_search_mails_sort_by_subject_asc(monkeypatch):
     ]
 
     collection = CollectionPaginateArgs(page=1, page_size=10, sort_by='subject', sort_order='asc')
-    result, total = module.search_mails(ACCOUNT_ID, {}, collection)
+    result, total = module.search_mails(ACCOUNT_ID, {"folders": ["INBOX"]}, collection)
 
     assert total == 3
     assert result[0]['subject'] == 'Apple'
@@ -1549,7 +1579,7 @@ def test_search_mails_sort_by_subject_desc(monkeypatch):
     ]
 
     collection = CollectionPaginateArgs(page=1, page_size=10, sort_by='subject', sort_order='desc')
-    result, _ = module.search_mails(ACCOUNT_ID, {}, collection)
+    result, _ = module.search_mails(ACCOUNT_ID, {"folders": ["INBOX"]}, collection)
 
     assert result[0]['subject'] == 'Zebra'
     assert result[1]['subject'] == 'Apple'
@@ -1618,15 +1648,12 @@ def test_search_mails_adds_folder_rights_to_each_mail(monkeypatch):
 def test_search_mails_fetches_rights_once_per_folder(monkeypatch):
     """Rights are fetched in one call, for the searched folders only, whatever the number of mails."""
     module, fake_client = _make_module(monkeypatch)
-    fake_client.list_folders_result = [
-        {'name': 'INBOX', 'path': 'INBOX', 'selectable': True},
-        {'name': 'Sent',  'path': 'Sent',  'selectable': True},
-    ]
     fake_client.search_mails_result = [
         _make_search_mail_dict(uid=str(i), folder='INBOX') for i in range(5)
     ]
+    fake_client.get_folder_with_subfolders = lambda folder, include_subfolders=True: [folder]
 
-    module.search_mails(ACCOUNT_ID, {"folders": ["all"]}, CollectionPaginateArgs(page=1, page_size=10))
+    module.search_mails(ACCOUNT_ID, {"folders": ["INBOX", "Sent"]}, CollectionPaginateArgs(page=1, page_size=10))
 
     assert fake_client.get_my_rights_raw_for_folders_calls == [['INBOX', 'Sent']]
 
@@ -1646,7 +1673,7 @@ def test_search_mails_without_content_when_contents_excluded(monkeypatch):
 
     # fields_action='include' + 'contents' not in fields => without_content=True
     collection = CollectionPaginateArgs(page=1, page_size=10, fields='subject,from', fields_action='include')
-    module.search_mails(ACCOUNT_ID, {}, collection)
+    module.search_mails(ACCOUNT_ID, {"folders": ["INBOX"]}, collection)
 
     assert len(without_content_called) == 1
 
@@ -1666,7 +1693,7 @@ def test_search_mails_with_content_when_contents_included(monkeypatch):
 
     # fields_action='include' + 'contents' in fields => with_content
     collection = CollectionPaginateArgs(page=1, page_size=10, fields='subject,contents', fields_action='include')
-    module.search_mails(ACCOUNT_ID, {}, collection)
+    module.search_mails(ACCOUNT_ID, {"folders": ["INBOX"]}, collection)
 
     assert len(with_content_called) == 1
 
@@ -1749,7 +1776,7 @@ def test_search_mails_attachment_type_filter(monkeypatch):
         ('INBOX', {'uid': '2', 'mail': msg_no_pdf,   'flags': flags, 'size': 100, 'folder': 'INBOX'}),
     ]
 
-    params = {"attachment_type": ["pdf"]}
+    params = {"attachment_type": ["pdf"], "folders": ["INBOX"]}
     collection = CollectionPaginateArgs(page=1, page_size=10)
     result, total = module.search_mails(ACCOUNT_ID, params, collection)
 
@@ -1769,4 +1796,215 @@ def test_search_mails_client_error_propagates(monkeypatch):
 
     collection = CollectionPaginateArgs(page=1, page_size=10)
     with pytest.raises(RequestException, match="IMAP search failed"):
-        module.search_mails(ACCOUNT_ID, {}, collection)
+        module.search_mails(ACCOUNT_ID, {"folders": ["INBOX"]}, collection)
+
+
+# ===========================================================================
+# Tests: search_mails across all the folders (parallel pipeline)
+# ===========================================================================
+
+def _make_all_folders_module(monkeypatch, folders=('INBOX', 'Sent', 'Archive')):
+    """Create a module whose fake client lists the given (selectable) folders."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.list_folders_result = [
+        {'name': folder, 'path': folder, 'selectable': True} for folder in folders
+    ]
+    return module, fake_client
+
+
+def _make_interleaved_mails():
+    """9 mails spread over 3 folders, uid i arriving at minute i (uid 9 is the most recent)."""
+    folders = ['INBOX', 'Sent', 'Archive']
+    return [
+        _make_search_mail_dict(uid=str(i), subject=f'Mail {i}', folder=folders[i % 3])
+        for i in range(1, 10)
+    ]
+
+
+def test_search_all_folders_sorted_by_date_across_folders(monkeypatch):
+    """Mails of all the folders are merged and sorted by date, the most recent first."""
+    module, fake_client = _make_all_folders_module(monkeypatch)
+    fake_client.search_mails_result = _make_interleaved_mails()
+
+    result, total = module.search_mails(ACCOUNT_ID, {"folders": ["all"]}, CollectionPaginateArgs(page=1, page_size=4))
+
+    assert total == 9
+    assert [mail['uid'] for mail in result] == ['9', '8', '7', '6']
+    assert [mail['folder'] for mail in result] == ['INBOX', 'Archive', 'Sent', 'INBOX']
+
+
+def test_search_all_folders_empty_folders_param_searches_all(monkeypatch):
+    """An empty "folders" behaves like ["all"]."""
+    module, fake_client = _make_all_folders_module(monkeypatch)
+    fake_client.search_mails_result = _make_interleaved_mails()
+
+    module.search_mails(ACCOUNT_ID, {}, CollectionPaginateArgs(page=1, page_size=4))
+
+    searched = sorted(call[0] for call in fake_client.search_most_recent_uids_calls)
+    assert searched == ['Archive', 'INBOX', 'Sent']
+
+
+def test_search_all_folders_requests_page_times_page_size_per_folder(monkeypatch):
+    """Page p of size n needs the p * n most recent mails of every folder."""
+    module, fake_client = _make_all_folders_module(monkeypatch)
+    fake_client.search_mails_result = _make_interleaved_mails()
+
+    module.search_mails(ACCOUNT_ID, {"folders": ["all"]}, CollectionPaginateArgs(page=3, page_size=2))
+
+    assert len(fake_client.search_most_recent_uids_calls) == 3
+    assert all(call[1] == 6 for call in fake_client.search_most_recent_uids_calls)
+
+
+def test_search_all_folders_second_page(monkeypatch):
+    """Page 2 keeps the mails n+1 to 2n of the merged, date sorted list."""
+    module, fake_client = _make_all_folders_module(monkeypatch)
+    fake_client.search_mails_result = _make_interleaved_mails()
+
+    result, total = module.search_mails(ACCOUNT_ID, {"folders": ["all"]}, CollectionPaginateArgs(page=2, page_size=4))
+
+    assert total == 9
+    assert [mail['uid'] for mail in result] == ['5', '4', '3', '2']
+
+
+def test_search_all_folders_last_partial_page_and_beyond(monkeypatch):
+    """The last page may be partial, a page beyond the results is empty but keeps the total."""
+    module, fake_client = _make_all_folders_module(monkeypatch)
+    fake_client.search_mails_result = _make_interleaved_mails()
+
+    result, total = module.search_mails(ACCOUNT_ID, {"folders": ["all"]}, CollectionPaginateArgs(page=3, page_size=4))
+    assert total == 9
+    assert [mail['uid'] for mail in result] == ['1']
+
+    result, total = module.search_mails(ACCOUNT_ID, {"folders": ["all"]}, CollectionPaginateArgs(page=4, page_size=4))
+    assert total == 9
+    assert result == []
+
+
+def test_search_all_folders_one_fetch_per_folder_of_the_page(monkeypatch):
+    """Only the mails of the page are fetched, with a single fetch per folder."""
+    module, fake_client = _make_all_folders_module(monkeypatch)
+    fake_client.search_mails_result = _make_interleaved_mails()
+
+    module.search_mails(ACCOUNT_ID, {"folders": ["all"]}, CollectionPaginateArgs(page=1, page_size=4))
+
+    calls = {call[0]: call[1] for call in fake_client.fetch_mails_by_uid_list_calls}
+    assert len(fake_client.fetch_mails_by_uid_list_calls) == 3
+    assert calls == {'INBOX': ['9', '6'], 'Archive': ['8'], 'Sent': ['7']}
+
+
+def test_search_all_folders_no_fetch_for_folders_outside_the_page(monkeypatch):
+    """A folder with no mail on the requested page is neither fetched nor asked for its rights."""
+    module, fake_client = _make_all_folders_module(monkeypatch)
+    fake_client.search_mails_result = _make_interleaved_mails()
+
+    module.search_mails(ACCOUNT_ID, {"folders": ["all"]}, CollectionPaginateArgs(page=1, page_size=1))
+
+    assert [call[0] for call in fake_client.fetch_mails_by_uid_list_calls] == ['INBOX']
+    assert fake_client.get_my_rights_raw_for_folders_calls == [['INBOX']]
+
+
+def test_search_all_folders_adds_folder_rights(monkeypatch):
+    """Each mail gets the user's granted rights on its own folder."""
+    module, fake_client = _make_all_folders_module(monkeypatch, folders=('INBOX', 'Shared'))
+    fake_client.my_rights_by_folder = {'INBOX': 'lrswipkxtea', 'Shared': 'lr'}
+    fake_client.search_mails_result = [
+        _make_search_mail_dict(uid='1', folder='Shared'),
+        _make_search_mail_dict(uid='2', folder='INBOX'),
+    ]
+
+    result, _ = module.search_mails(ACCOUNT_ID, {"folders": ["all"]}, CollectionPaginateArgs(page=1, page_size=10))
+
+    assert result[0]['rights'] == {right: 1 for right in FOLDER_PERMISSION_CODE_TO_RIGHT.values()}
+    assert result[1]['rights'] == {'user_can_view_folder': 1, 'user_can_read_mails': 1}
+
+
+def test_search_all_folders_skips_unselectable_folders(monkeypatch):
+    """Unselectable folders are not searched, selectable subfolders are."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.list_folders_result = [
+        {'name': 'INBOX', 'path': 'INBOX', 'selectable': True},
+        {'name': 'Parent', 'path': 'Parent', 'selectable': False, 'children': [
+            {'name': 'Child', 'path': 'Parent/Child', 'selectable': True},
+        ]},
+    ]
+    fake_client.search_mails_result = []
+
+    module.search_mails(ACCOUNT_ID, {"folders": ["all"]}, CollectionPaginateArgs(page=1, page_size=10))
+
+    searched = sorted(call[0] for call in fake_client.search_most_recent_uids_calls)
+    assert searched == ['INBOX', 'Parent/Child']
+
+
+def test_search_all_folders_no_folder(monkeypatch):
+    """An account without any selectable folder returns no result."""
+    module, fake_client = _make_all_folders_module(monkeypatch, folders=())
+
+    result, total = module.search_mails(ACCOUNT_ID, {"folders": ["all"]}, CollectionPaginateArgs(page=1, page_size=10))
+
+    assert (result, total) == ([], 0)
+
+
+def test_search_all_folders_forwards_attachment_type(monkeypatch):
+    """attachment_type is handed to the per-folder search, so it is applied before the pagination."""
+    module, fake_client = _make_all_folders_module(monkeypatch)
+    fake_client.search_mails_result = []
+
+    module.search_mails(ACCOUNT_ID, {"folders": ["all"], "attachment_type": ["pdf"]},
+                        CollectionPaginateArgs(page=1, page_size=10))
+
+    assert all(call[2] == ["pdf"] for call in fake_client.search_most_recent_uids_calls)
+
+
+@pytest.mark.parametrize("fields, with_content", [("subject,from", False), ("subject,contents", True)])
+def test_search_all_folders_content_handling(monkeypatch, fields, with_content):
+    """Mails are fetched with or without their content according to the fields param."""
+    module, fake_client = _make_all_folders_module(monkeypatch)
+    fake_client.search_mails_result = _make_interleaved_mails()
+
+    result, _ = module.search_mails(ACCOUNT_ID, {"folders": ["all"]},
+                                    CollectionPaginateArgs(page=1, page_size=2, fields=fields, fields_action='include'))
+
+    assert all(call[2] is with_content for call in fake_client.fetch_mails_by_uid_list_calls)
+    assert all(('contents' in mail) is with_content for mail in result)
+
+
+def test_search_all_folders_mail_deleted_meanwhile_is_skipped(monkeypatch):
+    """A mail found by the search but gone at fetch time is simply missing from the page."""
+    module, fake_client = _make_all_folders_module(monkeypatch)
+    fake_client.search_mails_result = _make_interleaved_mails()
+    original_fetch = fake_client.fetch_mails_by_uid_list
+    fake_client.fetch_mails_by_uid_list = lambda folder, uids, with_content: [
+        mail for mail in original_fetch(folder, uids, with_content) if mail['uid'] != '8'
+    ]
+
+    result, _ = module.search_mails(ACCOUNT_ID, {"folders": ["all"]}, CollectionPaginateArgs(page=1, page_size=3))
+
+    assert [mail['uid'] for mail in result] == ['9', '7']
+
+
+def test_search_all_folders_error_in_thread_propagates(monkeypatch):
+    """A RequestException raised while searching a folder (in a thread) is re-raised."""
+    module, fake_client = _make_all_folders_module(monkeypatch)
+
+    def failing_search(folder_path, criteria, nb_mails, attachment_types=None):
+        raise RequestException("IMAP search failed", err.ERROR_MAIL_SEARCH_FAILED)
+    fake_client.search_most_recent_uids = failing_search
+
+    with pytest.raises(RequestException, match="IMAP search failed"):
+        module.search_mails(ACCOUNT_ID, {"folders": ["all"]}, CollectionPaginateArgs(page=1, page_size=10))
+
+
+def test_search_all_folders_bounded_connections(monkeypatch):
+    """Folders are spread over at most MAIL_SEARCH_MAX_PARALLEL_CONNECTIONS connections."""
+    from app.utils import constants as cs
+    folders = tuple(f'Folder{i}' for i in range(cs.MAIL_SEARCH_MAX_PARALLEL_CONNECTIONS * 3))
+    module, fake_client = _make_all_folders_module(monkeypatch, folders=folders)
+    fake_client.search_mails_result = []
+    opened = []
+    monkeypatch.setattr(module, '_open_client_for', lambda account_id, do_login=True: opened.append(1) or fake_client)
+
+    module.search_mails(ACCOUNT_ID, {"folders": ["all"]}, CollectionPaginateArgs(page=1, page_size=10))
+
+    # One connection for the main client + one per thread
+    assert len(opened) == 1 + cs.MAIL_SEARCH_MAX_PARALLEL_CONNECTIONS
+    assert sorted(call[0] for call in fake_client.search_most_recent_uids_calls) == sorted(folders)
