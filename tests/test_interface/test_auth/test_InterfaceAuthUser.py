@@ -27,7 +27,7 @@ class FakeModuleAuth:
         self.get_user_and_domain_user_sources_result = (None, {})
         self.generate_voucher_from_user_result = {"voucher": "test-voucher-123", "expiry": "2026-02-13"}
 
-    def get_login_mech(self, user_uid):
+    def get_login_mech(self, user_uid, callback_url_builder):
         """Get login mechanism for user."""
         self.get_login_mech_args = user_uid
         return self.get_login_mech_result
@@ -208,7 +208,7 @@ def test_get_login_mech_success(monkeypatch):
         default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}}
     )
 
-    result, status_code = interface.get_login_mech(user_uid="testuser@example.com", redirect="/dashboard")
+    result, status_code = interface.get_login_mech(user_uid="testuser@example.com", redirect="/dashboard", callback_url_builder=lambda kind, domain: "")
 
     assert status_code == 200
     assert result["data"]["mechanism"] == "plain"
@@ -218,7 +218,7 @@ def test_get_login_mech_success(monkeypatch):
 def test_get_login_mech_request_exception(monkeypatch):
     """Test error handling when getting login mechanism fails."""
     fake_auth = FakeModuleAuth(None, None, None, None)
-    fake_auth.get_login_mech = lambda x: (_ for _ in ()).throw(
+    fake_auth.get_login_mech = lambda x, y: (_ for _ in ()).throw(
         RequestException("Domain not found", err.ERROR_DOMAIN_NAME_NOT_FOUND)
     )
     fake_profile = FakeModuleUserProfile(None, None)
@@ -231,7 +231,7 @@ def test_get_login_mech_request_exception(monkeypatch):
         default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}}
     )
 
-    result, status_code = interface.get_login_mech(user_uid="unknown@example.com", redirect="/dashboard")
+    result, status_code = interface.get_login_mech(user_uid="unknown@example.com", redirect="/dashboard", callback_url_builder=lambda kind, domain: "")
 
     assert status_code == 404
     assert result["error_code"] == err.ERROR_DOMAIN_NAME_NOT_FOUND.c

@@ -78,7 +78,7 @@ The rest of the JSON has the different parameters of the query.
     "scope": "openid profile email",
     "client_id": "myClient",
     "state": "eaothjshqoj.dsqkj",
-    "redirect": "https://my.api/api/user/v1/auth/callback/domain"
+    "redirect": "https://my.api/api/user/v1/auth/callback/openid/domain"
 }
 ----
 
@@ -117,7 +117,7 @@ If successful, it will return the SOGo JWT token in the body.
 
 4. User sees the OpenID login page. User logs in.
 
-5. OpenID server returns a 302 on the API `auth/callback/domain`. *_domain_* _is the id of the user domain_.
+5. OpenID server returns a 302 on the API `auth/callback/openid/domain`. *_domain_* _is the id of the user domain_.
 
 6. API checks the domain, checks the state value.
 

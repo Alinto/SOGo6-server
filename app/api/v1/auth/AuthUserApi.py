@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, cast
 
-from flask import g, request, Response
+from flask import g, request, url_for, Response
 from flask.views import MethodView
 from flask.typing import ResponseReturnValue
 from flask_smorest import Blueprint
@@ -17,6 +17,29 @@ if TYPE_CHECKING:
 
 
 blp = Blueprint("Auth", __name__, url_prefix="/auth")
+
+#Endpoint of the SSO callback, by SOGO_D_AUTH_TYPE
+SSO_CALLBACK_ENDPOINTS = {
+    "openid": ".ApiAuthUserCallbackOpenid",
+}
+
+
+def build_sso_callback_url(kind:str, domain:str) -> str:
+    """
+    Return the full url of the SSO callback for this kind and domain.
+    This is the redirect_uri given to the identity provider.
+
+    :param kind: SOGO_D_AUTH_TYPE of the domain
+    :type kind: str
+    :param domain: Domain of the user
+    :type domain: str
+    :return: The callback url, empty if this kind has no callback (plain)
+    :rtype: str
+    """
+    endpoint = SSO_CALLBACK_ENDPOINTS.get(kind)
+    if endpoint is None:
+        return ""
+    return url_for(endpoint, domain=domain, _external=True)
 
 
 @blp.before_request
@@ -47,7 +70,7 @@ class ApiAuthUserMode(MethodView):
         redirect is only useful for SSO that needs callback.
         """
         interface_api: InterfaceAuthUser = g.inter
-        return interface_api.get_login_mech(username, redirect)
+        return interface_api.get_login_mech(username, redirect, build_sso_callback_url)
 
 
 @blp.route("/login")
@@ -66,20 +89,20 @@ class ApiAuthUserLogin(MethodView):
         return interface_api.plain_login(new_data)
 
 
-@blp.route("/callback/<string:domain>")
-class ApiAuthUserCallback(MethodView):
+@blp.route("/callback/openid/<string:domain>")
+class ApiAuthUserCallbackOpenid(MethodView):
     """
-    Action, is the callback for SSO
+    Action, is the callback for openid SSO
     """
 
     @blp.response(200)
-    def get(self, new_data:dict) -> ResponseReturnValue:
+    def get(self, domain:str) -> ResponseReturnValue:
         """
-        Action, Callback for this domain when doing SSO.
-        The query parameters 
+        Action, Callback for this domain when doing openid SSO.
+        The query parameters are given by the openid server (code, or error and error_description)
         """
         interface_api : InterfaceAuthUser = g.inter
-        raise NotImplementedError("Not implemented yet")
+        return interface_api.sso_callback("openid", domain, request.args.to_dict(), build_sso_callback_url)
 
 
 @blp.route("/logout")

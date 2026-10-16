@@ -5,8 +5,10 @@ Ces tests utilisent des fakes pour tester la logique métier du module.
 import pytest
 from unittest import mock
 
-from app.module.auth.ModuleAuth import ModuleAuth
+from app.module.auth.ModuleAuth import ModuleAuth, IDENTITY_PROVIDERS
+from app.module.auth.identity_provider import IdentityProviderUserInfo
 from app.utils.exceptions import RequestException
+from app.utils import errors as err
 
 
 class FakeClientSQL:
@@ -319,6 +321,11 @@ def test_get_domain_settings_not_found_in_database(monkeypatch):
 
 # ========== Tests for get_login_mech ==========
 
+def fake_callback_url_builder(kind, domain):
+    """Fake builder of the SSO callback url."""
+    return f"http://api/auth/callback/{kind}/{domain}"
+
+
 def test_get_login_mech_plain(monkeypatch):
     """Test getting login mechanism for plain authentication."""
     fake_client = FakeClientSQL()
@@ -331,7 +338,7 @@ def test_get_login_mech_plain(monkeypatch):
 
     module = ModuleAuth(process, system, auth_settings, user_sources)
 
-    result = module.get_login_mech("user@example.com")
+    result = module.get_login_mech("user@example.com", fake_callback_url_builder)
 
     assert result['kind'] == "plain"
     assert result['location'] == ""
@@ -347,7 +354,7 @@ def test_get_login_mech_with_invalid_domain():
     module = ModuleAuth(process, system, auth_settings, user_sources)
 
     with pytest.raises(RequestException):
-        module.get_login_mech("user@unknown.com")
+        module.get_login_mech("user@unknown.com", fake_callback_url_builder)
 
 
 def test_get_login_mech_domainless():
@@ -360,7 +367,7 @@ def test_get_login_mech_domainless():
 
     module = ModuleAuth(process, system, auth_settings, user_sources)
 
-    result = module.get_login_mech("username")
+    result = module.get_login_mech("username", fake_callback_url_builder)
 
     assert result['kind'] == "plain"
     assert result['location'] == ""
@@ -492,7 +499,7 @@ def test_full_auth_flow_with_domain(monkeypatch):
     module = ModuleAuth(process, system, auth_settings, user_sources)
 
     # Step 1: Get login mechanism
-    login_mech = module.get_login_mech("user@example.com")
+    login_mech = module.get_login_mech("user@example.com", fake_callback_url_builder)
     assert login_mech['kind'] == "plain"
 
     # Step 2: Get user and sources
@@ -519,7 +526,7 @@ def test_full_auth_flow_domainless(monkeypatch):
     module = ModuleAuth(process, system, auth_settings, user_sources)
 
     # Step 1: Get login mechanism
-    login_mech = module.get_login_mech("username")
+    login_mech = module.get_login_mech("username", fake_callback_url_builder)
     assert login_mech['kind'] == "plain"
 
     # Step 2: Get user and sources
@@ -634,3 +641,72 @@ def test_logout_user_empty_voucher_raises_request_exception(monkeypatch):
 
         with pytest.raises(RequestException, match="Wrong data type for voucher"):
             module.logout_user("")
+
+
+# ========== Tests for SSO ==========
+
+class FakeIdentityProvider:
+    """Fake identity provider, records the callback url it was built with."""
+    kind = "openid"
+    callback_urls: list = []
+
+    def __init__(self, auth_settings, callback_url):
+        FakeIdentityProvider.callback_urls.append(callback_url)
+
+    def get_login_location(self):
+        return "http://idp/auth?client_id=myClient"
+
+    def authenticate_from_callback(self, callback_data):
+        return IdentityProviderUserInfo(mail="user@example.com", claims={"name": "John Doe"})
+
+
+def get_sso_module(monkeypatch, auth_type="openid"):
+    """Return a ModuleAuth whose default auth is a fake SSO"""
+    FakeIdentityProvider.callback_urls = []
+    monkeypatch.setitem(IDENTITY_PROVIDERS, "openid", FakeIdentityProvider)
+    system = FakeSystemSettings()
+    system.SOGO_S_DO_DOMAIN = False
+    return ModuleAuth(FakeProcessSettings(), system, FakeAuthSettings(auth_type=auth_type), get_default_user_sources())
+
+
+def test_get_login_mech_openid(monkeypatch):
+    """The location is the authorization url of the identity provider"""
+    module = get_sso_module(monkeypatch)
+
+    result = module.get_login_mech("user@example.com", fake_callback_url_builder)
+
+    assert result["kind"] == "openid"
+    assert result["location"] == "http://idp/auth?client_id=myClient"
+    assert FakeIdentityProvider.callback_urls == ["http://api/auth/callback/openid/example.com"]
+
+
+def test_get_user_from_sso_callback(monkeypatch):
+    """The callback url is the same as for get_login_mech and the user is authenticated"""
+    module = get_sso_module(monkeypatch)
+
+    user, sources = module.get_user_from_sso_callback("openid", "example.com", {"code": "abc"}, fake_callback_url_builder)
+
+    assert FakeIdentityProvider.callback_urls == ["http://api/auth/callback/openid/example.com"]
+    assert user.uid == "user@example.com"
+    assert user.mail == "user@example.com"
+    assert user.domain == "example.com"
+    assert user.cn == "John Doe"
+    assert user.authenticated
+    assert sources == module.default_us
+
+
+def test_get_user_from_sso_callback_wrong_auth_type(monkeypatch):
+    """Callback for openid on a plain domain"""
+    module = get_sso_module(monkeypatch, auth_type="plain")
+
+    with pytest.raises(RequestException) as e:
+        module.get_user_from_sso_callback("openid", "example.com", {"code": "abc"}, fake_callback_url_builder)
+    assert e.value.error == err.ERROR_SSO_WRONG_AUTH_TYPE
+
+
+def test_get_user_from_sso_callback_unknown_domain(monkeypatch):
+    """Callback with a domain rejected by SOGO_S_REJECT_UNKNOWN_DOMAIN"""
+    module = get_sso_module(monkeypatch)
+
+    with pytest.raises(RequestException):
+        module.get_user_from_sso_callback("openid", "unknown.com", {"code": "abc"}, fake_callback_url_builder)
