@@ -327,7 +327,7 @@ def check_non_anonymous_endpoint() -> ResponseReturnValue | None:
     anon_endpoints = {
         "user.v1.ApiConfig.ApiAuthUserLogin", 
         "user.v1.ApiConfig.ApiAuthUserMode",
-        "user.v1.ApiConfig.ApiAuthUserCallback",
+        "user.v1.ApiConfig.ApiAuthUserCallbackOpenid",
     }
     if isinstance(g.user, UserAnonymous) and request.endpoint not in anon_endpoints:
         return create_api_base_response(error=err.ERROR_AUTHENTICATED_ROUTE), 401
@@ -345,7 +345,7 @@ def check_non_anonymous_endpoint() -> ResponseReturnValue | None:
 
 * `ApiAuthUserLogin`: Login endpoint
 * `ApiAuthUserMode`: Get authentication mode for domain
-* `ApiAuthUserCallback`: OAuth callback endpoint
+* `ApiAuthUserCallbackOpenid`: OpenID callback endpoint
 
 *Error Responses*:
 
