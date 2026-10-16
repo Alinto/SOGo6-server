@@ -1,13 +1,16 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable, Type
 
 
 from app.auth.User import User
 from app.auth.service.VoucherUserService import VoucherUserService
 from app.config.db import tables as tbl
 from app.config.settings.DomainSettings import AuthSettings, AuthSettingsObj, UserSourceSettings, UserSourceSettingsObj
+from app.module.auth.identity_provider import IdentityProvider
+from app.module.auth.openid_provider import OpenIDProvider
 from app.service import sogo_cache
 from app.utils.db.Condition import EqualCondition
+from app.utils import errors as err
 from app.utils.exceptions import RequestException
 from app.utils.strings import get_domain_from_mail
 from app.utils.module.importManager import import_and_instantiate_manager
@@ -17,6 +20,13 @@ if TYPE_CHECKING:
     from app.config.settings.SystemSettings import SystemSettingsObj
     from app.config.settings.ProcessSetting import ProcessSetting
     from app.manager.db.ClientSQL import ClientSQL
+
+#Identity providers for SSO, by SOGO_D_AUTH_TYPE
+IDENTITY_PROVIDERS: dict[str, Type[IdentityProvider]] = {
+    OpenIDProvider.kind: OpenIDProvider,
+}
+#Domain used in the SSO callback url when there is no domain (SOGO_S_DOMAINLESS_LOGIN)
+SSO_NO_DOMAIN = "none"
 
 class ModuleAuth:
     """
@@ -101,25 +111,108 @@ class ModuleAuth:
 
         return domain_auth_settings, domain_user_source
 
-    def get_login_mech(self, uid:str) -> dict:
+    def _check_callback_domain(self, domain:str) -> str:
+        """
+        Check the domain given in a SSO callback url, the same way _check_domain does for a uid
+
+        :param domain: The domain from the callback url
+        :type domain: str
+        :raises RequestException: When domain is not in known domains and unknown domains are rejected
+        :return: empty string or the domain
+        :rtype: str
+        """
+        if self.domainless:
+            return ""
+        if self.reject_unknown and domain not in self.known_domains:
+            raise RequestException("Domain given for auth is not registered in SOGO_S_REJECT_UNKNOWN_DOMAIN")
+        return domain
+
+    @staticmethod
+    def _get_identity_provider(auth_settings:AuthSettingsObj, callback_url:str) -> IdentityProvider|None:
+        """
+        Return the identity provider for this domain, None if the authentication is not a SSO (plain)
+
+        :param auth_settings: Authentication settings of the domain
+        :type auth_settings: AuthSettingsObj
+        :param callback_url: API url called by the identity provider after the user logged in
+        :type callback_url: str
+        :return: The identity provider or None
+        :rtype: IdentityProvider|None
+        """
+        provider_class = IDENTITY_PROVIDERS.get(auth_settings.SOGO_D_AUTH_TYPE)
+        if provider_class is None:
+            return None
+        return provider_class(auth_settings, callback_url)
+
+    def get_login_mech(self, uid:str, callback_url_builder:Callable[[str, str], str]) -> dict:
         """
         Get the login mechanism for this uid
 
         :param uid: username/mail/uid of the user
         :type uid: str
+        :param callback_url_builder: Function (kind, domain) -> url of the API callback for SSO
+        :type callback_url_builder: Callable[[str, str], str]
         :return: Dictionary containing the authentication kind and location
         :rtype: dict
         """
+        print("######## Getting login mechanism ########")
         domain = self._check_domain(uid)
         domain_auth_settings, _ = self._get_domain_auth_and_user_source_settings(domain)
+        kind = domain_auth_settings.SOGO_D_AUTH_TYPE
 
-        #TODO Only work for plain login, do it properly for openid,cas...
+        location = ""
+        callback_url = callback_url_builder(kind, domain) # or SSO_NO_DOMAIN)
+        provider = self._get_identity_provider(domain_auth_settings, callback_url)
+        if provider:
+            location = provider.get_login_location()
+
+        #TODO cas
         ret = {
-            "kind": domain_auth_settings.SOGO_D_AUTH_TYPE,
+            "kind": kind,
             "SOGO_D_PWD_RECOVERY": domain_auth_settings.SOGO_D_PWD_RECOVERY,
-            "location": ""
+            "location": location
         }
         return ret
+
+    def get_user_from_sso_callback(self, kind:str, domain:str, callback_data:dict,
+                                   callback_url_builder:Callable[[str, str], str]) -> tuple[User, dict[str, UserSourceSettingsObj]]:
+        """
+        Authenticate a user with the data sent by the identity provider on the SSO callback
+
+        :param kind: Kind of SSO of the callback (openid, saml2...)
+        :type kind: str
+        :param domain: Domain given in the callback url
+        :type domain: str
+        :param callback_data: Data received on the callback (query parameters for openid)
+        :type callback_data: dict
+        :param callback_url_builder: Function (kind, domain) -> url of the API callback for SSO
+        :type callback_url_builder: Callable[[str, str], str]
+        :raises RequestException: If the domain is not configured for this SSO or the authentication failed
+        :return: Tuple of (authenticated User, domain user sources settings)
+        :rtype: tuple[User, dict[str, UserSourceSettingsObj]]
+        """
+        callback_domain = domain
+        domain = self._check_callback_domain(domain)
+        domain_auth_settings, domain_user_sources = self._get_domain_auth_and_user_source_settings(domain)
+        if domain_auth_settings.SOGO_D_AUTH_TYPE != kind:
+            raise RequestException(error=err.ERROR_SSO_WRONG_AUTH_TYPE)
+
+        #redirect_uri must be exactly the same as the one given in get_login_mech
+        provider = self._get_identity_provider(domain_auth_settings, callback_url_builder(kind, callback_domain))
+        if provider is None:
+            raise RequestException(error=err.ERROR_SSO_WRONG_AUTH_TYPE)
+        identity = provider.authenticate_from_callback(callback_data)
+
+        #TODO match identity.mail with the user sources to fill the user (source_id, cn...)
+        if self.domainless:
+            user = User(identity.mail, is_domainless=True)
+        else:
+            user = User(identity.mail, domain=domain)
+        user.mail = identity.mail
+        user.cn = identity.claims.get("name", "")
+        user.authenticated = True
+
+        return user, domain_user_sources
 
     def get_user_and_domain_user_sources(self, username:str, password:str) -> tuple[User, dict[str, UserSourceSettingsObj]]:
         """

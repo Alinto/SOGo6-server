@@ -71,6 +71,9 @@ ERROR_API_CONTENT_TYPE         = E("S000205", "Request POST/PATCH/PUT Content-Ty
 ERROR_VALIDITY_TIME_BELOW_0    = E("S000206", "Voucher Validity Time Below 0", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_USER_CREDS_NOT_VALID     = E("S000207", "User credentials stores in session are not valid anymore", HTTPStatus.UNAUTHORIZED)
 ERROR_LOGIN_FAILED             = E("S000208", "Login Failed: Invalid Credentials", HTTPStatus.UNAUTHORIZED)
+ERROR_SSO_WRONG_AUTH_TYPE      = E("S000209", "Domain Authentication Type Does Not Match This SSO. See SOGO_D_AUTH_TYPE", HTTPStatus.BAD_REQUEST)
+ERROR_SSO_PROVIDER_UNREACHABLE = E("S000210", "SSO Identity Provider Unreachable Or Answered An Invalid Response", HTTPStatus.BAD_GATEWAY)
+ERROR_SSO_LOGIN_FAILED         = E("S000211", "SSO Login Failed", HTTPStatus.UNAUTHORIZED)
 
 
 #API

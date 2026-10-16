@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 from app.auth.User import UserAnonymous
 from app.config.settings.SystemSettings import SystemSettingsObj, SystemSettings
@@ -44,7 +44,7 @@ class InterfaceAuthUser:
         self._module_calendar: ModuleCalendar = ModuleCalendar(process)
         self._module_contact: ModuleContact = ModuleContact(process)
 
-    def get_login_mech(self, user_uid:str, redirect:str) -> tuple[dict, int]:
+    def get_login_mech(self, user_uid:str, redirect:str, callback_url_builder:Callable[[str, str], str]) -> tuple[dict, int]:
         """
         Get the login mech from a uid
 
@@ -52,11 +52,14 @@ class InterfaceAuthUser:
         :type user_uid: str
         :param redirect: The redirect URL after authentication
         :type redirect: str
+        :param callback_url_builder: Function (kind, domain) -> url of the API callback for SSO
+        :type callback_url_builder: Callable[[str, str], str]
         :return: Tuple containing the API response dict and HTTP status code
         :rtype: tuple[dict, int]
         """
+        #TODO redirect: check it with SOGO_D_OPENID_ALLOW_REDIRECT and keep it in the state for the callback
         try:
-            ret = self.module_auth.get_login_mech(user_uid)
+            ret = self.module_auth.get_login_mech(user_uid, callback_url_builder)
         except RequestException as e:
             return create_api_base_response(str(e), e.error)
         return create_api_base_response(ret)
@@ -116,6 +119,30 @@ class InterfaceAuthUser:
             logger_api.error("Request exception when onboarding user %s: %s", uid, str(ex))
             return create_api_base_response(None, ex.error)
 
+        return create_api_base_response(ret)
+
+    def sso_callback(self, kind:str, domain:str, callback_data:dict, callback_url_builder:Callable[[str, str], str]) -> tuple[dict, int]:
+        """
+        Authenticate the user with the data sent by the identity provider and return the jwt token.
+
+        :param kind: Kind of SSO of the callback (openid, saml2...)
+        :type kind: str
+        :param domain: Domain given in the callback url
+        :type domain: str
+        :param callback_data: Data received on the callback
+        :type callback_data: dict
+        :param callback_url_builder: Function (kind, domain) -> url of the API callback for SSO
+        :type callback_url_builder: Callable[[str, str], str]
+        :return: Tuple containing the API response dict and HTTP status code
+        :rtype: tuple[dict, int]
+        """
+        try:
+            user, _ = self.module_auth.get_user_from_sso_callback(kind, domain, callback_data, callback_url_builder)
+        except RequestException as e:
+            return create_api_base_response(str(e), e.error)
+
+        #TODO onboarding like plain_login, and 302 to the UI redirect with the token
+        ret = self.module_auth.generate_voucher_from_user(user)
         return create_api_base_response(ret)
 
     def check_user_and_fill_info(self, user:User) -> tuple[bool, User]:
