@@ -126,7 +126,7 @@ class OpenIDProvider(IdentityProvider):
         try:
             print("Fetching access token from openid server...")
             print("______________________________")
-            client.fetch_token(self._get_endpoint("token_endpoint"), code=code)
+            token = client.fetch_token(self._get_endpoint("token_endpoint"), code=code)
         except AuthlibBaseError as e:
             logger_auth.info("Openid server refused the authorization code: %s", str(e))
             raise RequestException(error=err.ERROR_SSO_LOGIN_FAILED) from e
@@ -153,4 +153,4 @@ class OpenIDProvider(IdentityProvider):
             raise RequestException(error=err.ERROR_SSO_LOGIN_FAILED)
         print(f"Email retrieved: {mail}")
         print(f"User info retrieved: {user_info}")
-        return IdentityProviderUserInfo(mail=mail, claims=user_info)
+        return IdentityProviderUserInfo(mail=mail, claims=user_info, access_token=token.get("access_token", ""))
