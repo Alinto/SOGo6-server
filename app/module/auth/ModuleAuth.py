@@ -7,11 +7,13 @@ from app.auth.service.VoucherUserService import VoucherUserService
 from app.config.db import tables as tbl
 from app.config.settings.DomainSettings import AuthSettings, AuthSettingsObj, UserSourceSettings, UserSourceSettingsObj
 from app.module.auth.identity_provider import IdentityProvider
+from app.module.auth.ModuleUserSource import ModuleUserSource
 from app.module.auth.openid_provider import OpenIDProvider
 from app.service import sogo_cache
 from app.utils.db.Condition import EqualCondition
 from app.utils import errors as err
 from app.utils.exceptions import RequestException
+from app.utils.logger.logger import logger_auth
 from app.utils.strings import get_domain_from_mail
 from app.utils.module.importManager import import_and_instantiate_manager
 
@@ -203,14 +205,22 @@ class ModuleAuth:
             raise RequestException(error=err.ERROR_SSO_WRONG_AUTH_TYPE)
         identity = provider.authenticate_from_callback(callback_data)
 
-        #TODO match identity.mail with the user sources to fill the user (source_id, cn...)
+        #The access token is kept as password to authenticate on the mail servers (xoauth2)
         if self.domainless:
-            user = User(identity.mail, is_domainless=True)
+            user = User(identity.mail, identity.access_token, is_domainless=True)
         else:
-            user = User(identity.mail, domain=domain)
+            user = User(identity.mail, identity.access_token, domain=domain)
         user.mail = identity.mail
-        user.cn = identity.claims.get("name", "")
-        user.authenticated = True
+        user.auth_kind = kind
+
+        #The identity provider authenticated the user, the user sources give its uid, cn, source_id...
+        module_us = ModuleUserSource(domain_user_sources)
+        if not module_us.check_user_without_password(user):
+            logger_auth.info("SSO user %s not found in the user sources", identity.mail)
+            raise RequestException(error=err.ERROR_SSO_USER_NOT_FOUND)
+        if domain and user.domain != domain:
+            logger_auth.warning("SSO user %s found with domain %s but the callback is for domain %s", identity.mail, user.domain, domain)
+            raise RequestException(error=err.ERROR_SSO_LOGIN_FAILED)
 
         return user, domain_user_sources
 

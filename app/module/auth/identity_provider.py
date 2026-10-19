@@ -14,6 +14,7 @@ class IdentityProviderUserInfo:
     """
     mail: str #Mail of the user, used to match the user in the user sources
     claims: dict = field(default_factory=dict) #Raw data given by the identity provider (openid user info, saml attributes...)
+    access_token: str = "" #Token given by the identity provider, used to authenticate on the mail servers (xoauth2)
 
 
 class IdentityProvider(ABC):

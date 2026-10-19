@@ -657,7 +657,22 @@ class FakeIdentityProvider:
         return "http://idp/auth?client_id=myClient"
 
     def authenticate_from_callback(self, callback_data):
-        return IdentityProviderUserInfo(mail="user@example.com", claims={"name": "John Doe"})
+        return IdentityProviderUserInfo(mail="user@example.com", claims={"name": "John Doe"}, access_token="token")
+
+
+def fake_check_user_without_password(found=True, mail_domain="example.com"):
+    """Return a fake ModuleUserSource.check_user_without_password filling the user like a user source"""
+    def check(self, user):
+        if not found:
+            return False
+        user.uid = f"user@{mail_domain}"
+        user.mail = f"user@{mail_domain}"
+        user.domain = mail_domain
+        user.cn = "John Doe"
+        user.source_id = "us_db"
+        user.authenticated = True
+        return True
+    return check
 
 
 def get_sso_module(monkeypatch, auth_type="openid"):
@@ -683,6 +698,7 @@ def test_get_login_mech_openid(monkeypatch):
 def test_get_user_from_sso_callback(monkeypatch):
     """The callback url is the same as for get_login_mech and the user is authenticated"""
     module = get_sso_module(monkeypatch)
+    monkeypatch.setattr("app.module.auth.ModuleAuth.ModuleUserSource.check_user_without_password", fake_check_user_without_password())
 
     user, sources = module.get_user_from_sso_callback("openid", "example.com", {"code": "abc"}, fake_callback_url_builder)
 
@@ -691,8 +707,31 @@ def test_get_user_from_sso_callback(monkeypatch):
     assert user.mail == "user@example.com"
     assert user.domain == "example.com"
     assert user.cn == "John Doe"
+    assert user.source_id == "us_db"
+    assert user.password == "token"
+    assert user.auth_kind == "openid"
     assert user.authenticated
     assert sources == module.default_us
+
+
+def test_get_user_from_sso_callback_user_not_found(monkeypatch):
+    """The identity provider authenticated the user but it is in no user source"""
+    module = get_sso_module(monkeypatch)
+    monkeypatch.setattr("app.module.auth.ModuleAuth.ModuleUserSource.check_user_without_password", fake_check_user_without_password(found=False))
+
+    with pytest.raises(RequestException) as e:
+        module.get_user_from_sso_callback("openid", "example.com", {"code": "abc"}, fake_callback_url_builder)
+    assert e.value.error == err.ERROR_SSO_USER_NOT_FOUND
+
+
+def test_get_user_from_sso_callback_other_domain(monkeypatch):
+    """The user found in the user sources is not in the domain of the callback"""
+    module = get_sso_module(monkeypatch)
+    monkeypatch.setattr("app.module.auth.ModuleAuth.ModuleUserSource.check_user_without_password", fake_check_user_without_password(mail_domain="other.com"))
+
+    with pytest.raises(RequestException) as e:
+        module.get_user_from_sso_callback("openid", "example.com", {"code": "abc"}, fake_callback_url_builder)
+    assert e.value.error == err.ERROR_SSO_LOGIN_FAILED
 
 
 def test_get_user_from_sso_callback_wrong_auth_type(monkeypatch):

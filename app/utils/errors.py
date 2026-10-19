@@ -74,6 +74,7 @@ ERROR_LOGIN_FAILED             = E("S000208", "Login Failed: Invalid Credentials
 ERROR_SSO_WRONG_AUTH_TYPE      = E("S000209", "Domain Authentication Type Does Not Match This SSO. See SOGO_D_AUTH_TYPE", HTTPStatus.BAD_REQUEST)
 ERROR_SSO_PROVIDER_UNREACHABLE = E("S000210", "SSO Identity Provider Unreachable Or Answered An Invalid Response", HTTPStatus.BAD_GATEWAY)
 ERROR_SSO_LOGIN_FAILED         = E("S000211", "SSO Login Failed", HTTPStatus.UNAUTHORIZED)
+ERROR_SSO_USER_NOT_FOUND       = E("S000212", "SSO Login Failed: User Not Found In User Sources", HTTPStatus.UNAUTHORIZED)
 
 
 #API
