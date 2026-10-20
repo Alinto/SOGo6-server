@@ -42,10 +42,12 @@ class IdentityProvider(ABC):
         self.callback_url = callback_url
 
     @abstractmethod
-    def get_login_location(self) -> str:
+    def get_login_location(self, state: str) -> str:
         """
         Return the url of the identity provider where the user must log in
 
+        :param state: Opaque value the identity provider must send back on the callback (anti CSRF)
+        :type state: str
         :return: The login url
         :rtype: str
         """
