@@ -25,6 +25,8 @@ class IdentityProvider(ABC):
     1. get_login_location: url where the UI must send the user to log in
     2. The identity provider calls back the API (see /auth/callback/<kind>/<domain>)
     3. authenticate_from_callback: check the callback data and return the user identity
+
+    The provider generates the anti CSRF state in get_login_location and checks it in authenticate_from_callback.
     """
 
     kind: str = "" #Must match SOGO_D_AUTH_TYPE
@@ -42,12 +44,11 @@ class IdentityProvider(ABC):
         self.callback_url = callback_url
 
     @abstractmethod
-    def get_login_location(self, state: str) -> str:
+    def get_login_location(self) -> str:
         """
-        Return the url of the identity provider where the user must log in
+        Return the url of the identity provider where the user must log in.
+        The state the identity provider must send back on the callback is generated and kept here.
 
-        :param state: Opaque value the identity provider must send back on the callback (anti CSRF)
-        :type state: str
         :return: The login url
         :rtype: str
         """
@@ -55,11 +56,11 @@ class IdentityProvider(ABC):
     @abstractmethod
     def authenticate_from_callback(self, callback_data: dict) -> IdentityProviderUserInfo:
         """
-        Check the data sent by the identity provider on the callback and return the user identity
+        Check the data sent by the identity provider on the callback (state included) and return the user identity
 
         :param callback_data: Data received on the callback (query parameters, form...)
         :type callback_data: dict
-        :raises RequestException: If the authentication failed
+        :raises RequestException: If the state is invalid or the authentication failed
         :return: The user identity
         :rtype: IdentityProviderUserInfo
         """

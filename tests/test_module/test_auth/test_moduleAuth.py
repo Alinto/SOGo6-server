@@ -654,8 +654,8 @@ class FakeIdentityProvider:
     def __init__(self, auth_settings, callback_url):
         FakeIdentityProvider.callback_urls.append(callback_url)
 
-    def get_login_location(self, state):
-        return f"http://idp/auth?client_id=myClient&state={state}"
+    def get_login_location(self):
+        return "http://idp/auth?client_id=myClient&state=my-state"
 
     def authenticate_from_callback(self, callback_data):
         return IdentityProviderUserInfo(mail="user@example.com", claims={"name": "John Doe"}, access_token="token")
@@ -676,68 +676,24 @@ def fake_check_user_without_password(found=True, mail_domain="example.com"):
     return check
 
 
-class FakeStateCache:
-    """Fake redis client for the SSO state, shared by all sogo_cache() calls of a test"""
-    def __init__(self):
-        self.data: dict = {}
-        self.ttls: dict = {}
-
-    def set(self, key, value, ttl, nx=False):
-        self.data[key] = value
-        self.ttls[key] = ttl
-        return True
-
-    def pop(self, key, expected_type):
-        return self.data.pop(key, None)
-
-    def close(self):
-        pass
-
-
 def get_sso_module(monkeypatch, auth_type="openid"):
-    """Return a ModuleAuth whose default auth is a fake SSO, the fake state cache is in module.fake_cache"""
+    """Return a ModuleAuth whose default auth is a fake SSO"""
     FakeIdentityProvider.callback_urls = []
     monkeypatch.setitem(IDENTITY_PROVIDERS, "openid", FakeIdentityProvider)
-    fake_cache = FakeStateCache()
-    monkeypatch.setattr("app.module.auth.ModuleAuth.sogo_cache", lambda: fake_cache)
     system = FakeSystemSettings()
     system.SOGO_S_DO_DOMAIN = False
-    module = ModuleAuth(FakeProcessSettings(), system, FakeAuthSettings(auth_type=auth_type), get_default_user_sources())
-    module.fake_cache = fake_cache
-    return module
-
-
-def add_sso_state(module, state="my-state", kind="openid", domain="example.com"):
-    """Store a SSO state in the fake cache, as get_login_mech does"""
-    module.fake_cache.data[f"{cs.SSO_STATE_KEY_PREFIX}{state}"] = {"kind": kind, "domain": domain}
-    return state
+    return ModuleAuth(FakeProcessSettings(), system, FakeAuthSettings(auth_type=auth_type), get_default_user_sources())
 
 
 def test_get_login_mech_openid(monkeypatch):
-    """The location is the authorization url of the identity provider, with a state stored in cache"""
+    """The location is the authorization url of the identity provider (the provider keeps the state)"""
     module = get_sso_module(monkeypatch)
 
     result = module.get_login_mech("user@example.com", fake_callback_url_builder)
 
     assert result["kind"] == "openid"
     assert FakeIdentityProvider.callback_urls == ["http://api/auth/callback/openid/example.com"]
-    assert len(module.fake_cache.data) == 1
-    key, value = next(iter(module.fake_cache.data.items()))
-    state = key.removeprefix(cs.SSO_STATE_KEY_PREFIX)
-    assert key.startswith(cs.SSO_STATE_KEY_PREFIX) and len(state) >= 32
-    assert value == {"kind": "openid", "domain": "example.com"}
-    assert module.fake_cache.ttls[key] == cs.SSO_STATE_TTL
-    assert result["location"] == f"http://idp/auth?client_id=myClient&state={state}"
-
-
-def test_get_login_mech_openid_state_is_random(monkeypatch):
-    """Each login has its own state"""
-    module = get_sso_module(monkeypatch)
-
-    module.get_login_mech("user@example.com", fake_callback_url_builder)
-    module.get_login_mech("user@example.com", fake_callback_url_builder)
-
-    assert len(module.fake_cache.data) == 2
+    assert result["location"] == "http://idp/auth?client_id=myClient&state=my-state"
 
 
 def test_get_user_from_sso_callback(monkeypatch):
@@ -745,9 +701,7 @@ def test_get_user_from_sso_callback(monkeypatch):
     module = get_sso_module(monkeypatch)
     monkeypatch.setattr("app.module.auth.ModuleAuth.ModuleUserSource.check_user_without_password", fake_check_user_without_password())
 
-    state = add_sso_state(module)
-
-    user, sources = module.get_user_from_sso_callback("openid", "example.com", {"code": "abc", "state": state}, fake_callback_url_builder)
+    user, sources = module.get_user_from_sso_callback("openid", "example.com", {"code": "abc", "state": "my-state"}, fake_callback_url_builder)
 
     assert FakeIdentityProvider.callback_urls == ["http://api/auth/callback/openid/example.com"]
     assert user.uid == "user@example.com"
@@ -765,10 +719,8 @@ def test_get_user_from_sso_callback_user_not_found(monkeypatch):
     """The identity provider authenticated the user but it is in no user source"""
     module = get_sso_module(monkeypatch)
     monkeypatch.setattr("app.module.auth.ModuleAuth.ModuleUserSource.check_user_without_password", fake_check_user_without_password(found=False))
-    state = add_sso_state(module)
-
     with pytest.raises(RequestException) as e:
-        module.get_user_from_sso_callback("openid", "example.com", {"code": "abc", "state": state}, fake_callback_url_builder)
+        module.get_user_from_sso_callback("openid", "example.com", {"code": "abc", "state": "my-state"}, fake_callback_url_builder)
     assert e.value.error == err.ERROR_SSO_USER_NOT_FOUND
 
 
@@ -776,81 +728,22 @@ def test_get_user_from_sso_callback_other_domain(monkeypatch):
     """The user found in the user sources is not in the domain of the callback"""
     module = get_sso_module(monkeypatch)
     monkeypatch.setattr("app.module.auth.ModuleAuth.ModuleUserSource.check_user_without_password", fake_check_user_without_password(mail_domain="other.com"))
-    state = add_sso_state(module)
-
     with pytest.raises(RequestException) as e:
-        module.get_user_from_sso_callback("openid", "example.com", {"code": "abc", "state": state}, fake_callback_url_builder)
+        module.get_user_from_sso_callback("openid", "example.com", {"code": "abc", "state": "my-state"}, fake_callback_url_builder)
     assert e.value.error == err.ERROR_SSO_LOGIN_FAILED
 
 
 def test_get_user_from_sso_callback_wrong_auth_type(monkeypatch):
     """Callback for openid on a plain domain"""
     module = get_sso_module(monkeypatch, auth_type="plain")
-    state = add_sso_state(module)
-
     with pytest.raises(RequestException) as e:
-        module.get_user_from_sso_callback("openid", "example.com", {"code": "abc", "state": state}, fake_callback_url_builder)
+        module.get_user_from_sso_callback("openid", "example.com", {"code": "abc", "state": "my-state"}, fake_callback_url_builder)
     assert e.value.error == err.ERROR_SSO_WRONG_AUTH_TYPE
 
 
 def test_get_user_from_sso_callback_unknown_domain(monkeypatch):
     """Callback with a domain rejected by SOGO_S_REJECT_UNKNOWN_DOMAIN"""
     module = get_sso_module(monkeypatch)
-    state = add_sso_state(module, domain="unknown.com")
 
     with pytest.raises(RequestException):
-        module.get_user_from_sso_callback("openid", "unknown.com", {"code": "abc", "state": state}, fake_callback_url_builder)
-
-
-def test_get_user_from_sso_callback_state_consumed(monkeypatch):
-    """The state is removed from cache, the same callback can't be replayed"""
-    module = get_sso_module(monkeypatch)
-    monkeypatch.setattr("app.module.auth.ModuleAuth.ModuleUserSource.check_user_without_password", fake_check_user_without_password())
-    state = add_sso_state(module)
-    callback_data = {"code": "abc", "state": state}
-
-    module.get_user_from_sso_callback("openid", "example.com", callback_data, fake_callback_url_builder)
-    assert module.fake_cache.data == {}
-
-    with pytest.raises(RequestException) as e:
-        module.get_user_from_sso_callback("openid", "example.com", callback_data, fake_callback_url_builder)
-    assert e.value.error == err.ERROR_SSO_INVALID_STATE
-
-
-@pytest.mark.parametrize("callback_data", [{"code": "abc"}, {"code": "abc", "state": ""}, {"code": "abc", "state": "unknown"}])
-def test_get_user_from_sso_callback_invalid_state(monkeypatch, callback_data):
-    """No state, empty state or state not in cache (expired, forged)"""
-    module = get_sso_module(monkeypatch)
-    add_sso_state(module)
-
-    with pytest.raises(RequestException) as e:
-        module.get_user_from_sso_callback("openid", "example.com", callback_data, fake_callback_url_builder)
-    assert e.value.error == err.ERROR_SSO_INVALID_STATE
-    assert FakeIdentityProvider.callback_urls == []
-
-
-@pytest.mark.parametrize("kind,domain", [("saml2", "example.com"), ("openid", "other.com")])
-def test_get_user_from_sso_callback_state_other_callback(monkeypatch, kind, domain):
-    """State created for another kind or domain, it is consumed anyway"""
-    module = get_sso_module(monkeypatch)
-    state = add_sso_state(module, kind=kind, domain=domain)
-
-    with pytest.raises(RequestException) as e:
-        module.get_user_from_sso_callback("openid", "example.com", {"code": "abc", "state": state}, fake_callback_url_builder)
-    assert e.value.error == err.ERROR_SSO_INVALID_STATE
-    assert module.fake_cache.data == {}
-
-
-def test_get_user_from_sso_callback_error_consumes_state(monkeypatch):
-    """The identity provider returned an error, the state can't be used again"""
-    module = get_sso_module(monkeypatch)
-    state = add_sso_state(module)
-
-    def fail(self, callback_data):
-        raise RequestException(error=err.ERROR_SSO_LOGIN_FAILED)
-    monkeypatch.setattr(FakeIdentityProvider, "authenticate_from_callback", fail)
-
-    with pytest.raises(RequestException) as e:
-        module.get_user_from_sso_callback("openid", "example.com", {"error": "access_denied", "state": state}, fake_callback_url_builder)
-    assert e.value.error == err.ERROR_SSO_LOGIN_FAILED
-    assert module.fake_cache.data == {}
+        module.get_user_from_sso_callback("openid", "unknown.com", {"code": "abc", "state": "my-state"}, fake_callback_url_builder)
