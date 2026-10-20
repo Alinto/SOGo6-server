@@ -176,6 +176,19 @@ class ModuleMail:
             folder[cs.FOLDER_RIGHTS] = {right_to_camel(right): 1 for right, value in rights.items() if value}
             ModuleMail._convert_folders_rights(folder.get(cs.FOLDER_CHILDREN, []))
 
+    def get_all_mail_tags(self, account_id:str) -> list[str]:
+        """Retrieve the sorted list of all distinct tags used across every mail of every folder.
+
+        :param account_id: The account identifier ("0" for main, hash for external)
+        :type account_id: str
+        :return: Sorted list of tag names.
+        :rtype: list[str]
+        :raises RequestException: If connection or manager operations fail
+        """
+        client = self._open_client_for(account_id)
+
+        return sorted(client.get_all_tags())
+
     def get_one_folder(self, account_id:str, folder_path: str) -> dict[str, Any]:
         """Retrieve details of a specific mail folder.
         
