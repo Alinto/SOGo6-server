@@ -20,7 +20,8 @@ class OpenIDProvider(IdentityProvider):
     """
     OpenID Connect identity provider, authorization code flow.
 
-    TODO state, nonce and pkce are not implemented yet.
+    The state is generated and checked by ModuleAuth.
+    TODO nonce and pkce are not implemented yet.
     """
 
     kind = "openid"
@@ -88,23 +89,26 @@ class OpenIDProvider(IdentityProvider):
                              redirect_uri=self.callback_url,
                              default_timeout=OPENID_TIMEOUT)
 
-    def get_login_location(self) -> str:
+    def get_login_location(self, state: str) -> str:
         """
         Return the authorization url of the openid server
 
+        :param state: Opaque value the openid server must send back on the callback
+        :type state: str
         :return: The authorization url
         :rtype: str
         """
         client = self._get_client()
-        #TODO state, nonce and pkce. An empty state is not added to the url by authlib.
-        url, _ = client.create_authorization_url(self._get_endpoint("authorization_endpoint"), state="")
+        #TODO nonce and pkce
+        url, _ = client.create_authorization_url(self._get_endpoint("authorization_endpoint"), state=state)
         return url
 
     def authenticate_from_callback(self, callback_data: dict) -> IdentityProviderUserInfo:
         """
         Exchange the authorization code against an access token, then fetch the user info
 
-        :param callback_data: Query parameters of the callback (code, or error and error_description)
+        :param callback_data: Query parameters of the callback (code, or error and error_description).
+                              The state has already been checked by ModuleAuth.
         :type callback_data: dict
         :raises RequestException: If the authentication failed
         :return: The user identity
@@ -121,7 +125,6 @@ class OpenIDProvider(IdentityProvider):
         if not code:
             raise RequestException("No authorization code given in openid callback", err.ERROR_SSO_LOGIN_FAILED)
 
-        #TODO check state
         client = self._get_client()
         try:
             print("Fetching access token from openid server...")

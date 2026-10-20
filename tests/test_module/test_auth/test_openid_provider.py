@@ -64,8 +64,8 @@ def idp(monkeypatch):
 
 
 def test_get_login_location(idp):
-    """Authorization url has the client info and no state/nonce/pkce"""
-    url = OpenIDProvider(FakeAuthSettings(), CALLBACK_URL).get_login_location()
+    """Authorization url has the client info and the state, no nonce/pkce"""
+    url = OpenIDProvider(FakeAuthSettings(), CALLBACK_URL).get_login_location("my-state")
 
     parsed = urlparse(url)
     query = parse_qs(parsed.query)
@@ -74,7 +74,7 @@ def test_get_login_location(idp):
     assert query["client_id"] == ["myClient"]
     assert query["redirect_uri"] == [CALLBACK_URL]
     assert query["scope"] == ["openid profile email"]
-    assert "state" not in query
+    assert query["state"] == ["my-state"]
     assert "nonce" not in query
     assert "code_challenge" not in query
 
@@ -86,7 +86,7 @@ def test_get_login_location_idp_unreachable(monkeypatch):
     monkeypatch.setattr(op.requests, "get", fail)
 
     with pytest.raises(RequestException) as e:
-        OpenIDProvider(FakeAuthSettings(), CALLBACK_URL).get_login_location()
+        OpenIDProvider(FakeAuthSettings(), CALLBACK_URL).get_login_location("my-state")
     assert e.value.error == err.ERROR_SSO_PROVIDER_UNREACHABLE
 
 
