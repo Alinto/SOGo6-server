@@ -1,5 +1,4 @@
 from __future__ import annotations
-import secrets
 from typing import TYPE_CHECKING, Callable, Type
 
 
@@ -12,7 +11,6 @@ from app.module.auth.ModuleUserSource import ModuleUserSource
 from app.module.auth.openid_provider import OpenIDProvider
 from app.service import sogo_cache
 from app.utils.db.Condition import EqualCondition
-from app.utils import constants as cs
 from app.utils import errors as err
 from app.utils.exceptions import RequestException
 from app.utils.logger.logger import logger_auth
@@ -148,57 +146,6 @@ class ModuleAuth:
             return None
         return provider_class(auth_settings, callback_url)
 
-    @staticmethod
-    def _create_sso_state(kind:str, domain:str) -> str:
-        """
-        Generate a random state for a SSO login and keep in cache what the callback must check
-
-        :param kind: Kind of SSO (openid, saml2...)
-        :type kind: str
-        :param domain: Domain used in the callback url
-        :type domain: str
-        :return: The state, to give to the identity provider
-        :rtype: str
-        """
-        state = secrets.token_urlsafe(32)
-        cache = sogo_cache()
-        try:
-            cache.set(f"{cs.SSO_STATE_KEY_PREFIX}{state}", {"kind": kind, "domain": domain}, cs.SSO_STATE_TTL)
-        finally:
-            cache.close()
-        return state
-
-    @staticmethod
-    def _consume_sso_state(state:str|None, kind:str, domain:str) -> dict:
-        """
-        Check the state received on the SSO callback and remove it from the cache (single use)
-
-        :param state: State given by the identity provider on the callback
-        :type state: str|None
-        :param kind: Kind of SSO of the callback
-        :type kind: str
-        :param domain: Domain given in the callback url
-        :type domain: str
-        :raises RequestException: If the state is missing, unknown, expired, already used or not for this callback
-        :return: Data stored with the state
-        :rtype: dict
-        """
-        if not state or not isinstance(state, str):
-            raise RequestException("No state given in SSO callback", err.ERROR_SSO_INVALID_STATE)
-        cache = sogo_cache()
-        try:
-            state_data = cache.pop(f"{cs.SSO_STATE_KEY_PREFIX}{state}", dict)
-        finally:
-            cache.close()
-        if not isinstance(state_data, dict):
-            logger_auth.info("SSO callback with an unknown, expired or already used state")
-            raise RequestException(error=err.ERROR_SSO_INVALID_STATE)
-        if state_data.get("kind") != kind or state_data.get("domain") != domain:
-            logger_auth.warning("SSO state created for %s/%s used on callback %s/%s",
-                                state_data.get("kind"), state_data.get("domain"), kind, domain)
-            raise RequestException(error=err.ERROR_SSO_INVALID_STATE)
-        return state_data
-
     def get_login_mech(self, uid:str, callback_url_builder:Callable[[str, str], str]) -> dict:
         """
         Get the login mechanism for this uid
@@ -219,8 +166,7 @@ class ModuleAuth:
         callback_url = callback_url_builder(kind, domain) # or SSO_NO_DOMAIN)
         provider = self._get_identity_provider(domain_auth_settings, callback_url)
         if provider:
-            state = self._create_sso_state(kind, domain)
-            location = provider.get_login_location(state)
+            location = provider.get_login_location()
 
         #TODO cas
         ret = {
@@ -247,16 +193,13 @@ class ModuleAuth:
         :return: Tuple of (authenticated User, domain user sources settings)
         :rtype: tuple[User, dict[str, UserSourceSettingsObj]]
         """
-        # The state is consumed even if the callback is an error, so it can't be replayed
-        self._consume_sso_state(callback_data.get("state"), kind, domain)
-
         callback_domain = domain
         domain = self._check_callback_domain(domain)
         domain_auth_settings, domain_user_sources = self._get_domain_auth_and_user_source_settings(domain)
         if domain_auth_settings.SOGO_D_AUTH_TYPE != kind:
             raise RequestException(error=err.ERROR_SSO_WRONG_AUTH_TYPE)
 
-        #redirect_uri must be exactly the same as the one given in get_login_mech
+        #redirect_uri must be exactly the same as the one given in get_login_mech, the state is bound to it
         provider = self._get_identity_provider(domain_auth_settings, callback_url_builder(kind, callback_domain))
         if provider is None:
             raise RequestException(error=err.ERROR_SSO_WRONG_AUTH_TYPE)
