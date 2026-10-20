@@ -172,6 +172,25 @@ class InterfaceApiMailFolder:
             logger_api.error("Request exception in purge_folder_mails: %s", str(ex))
             return create_api_base_response(None, ex.error)
 
+    def folder_batch_action(self, account_id: str, folder_name: str, batch_action_data: dict[str, Any]) -> tuple[dict[str, Any], int]:
+        """Perform an action on every mail of the specified folder.
+
+        :param account_id: The ID of the account
+        :type account_id: str
+        :param folder_name: The ID of the folder
+        :type folder_name: str
+        :param batch_action_data: dictionary containing 'action' and optional 'data' fields
+        :type batch_action_data: dict[str, Any]
+        :return: A tuple of (API response dict, status code)
+        :rtype: tuple[dict[str, Any], int]
+        """
+        try:
+            result = self.mail_module.perform_folder_batch_action(account_id, folder_name, batch_action_data)
+            return create_api_base_response(result)
+        except RequestException as ex:
+            logger_api.error("Request exception in folder_batch_action: %s", str(ex))
+            return create_api_base_response(None, ex.error)
+
     def export_folder_mails(self, account_id: str, folder_name: str) -> tuple[dict[str, Any], int]:
         """Export all mails in the specified folder.
         
