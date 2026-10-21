@@ -1,12 +1,12 @@
 """
-Unit tests for OpenIDProvider. The openid server is mocked, the state is kept by authlib in the flask session.
+Unit tests for OpenIDProvider. The openid server and redis are mocked.
 """
-import time
 from urllib.parse import urlparse, parse_qs
 
 import pytest
 import requests
-from flask import Flask, session
+from redis import exceptions as rexc
+from flask import Flask
 
 from app.module.auth import openid_provider as op
 from app.module.auth.openid_provider import OpenIDProvider
@@ -36,16 +36,47 @@ class FakeAuthSettings:
         self.SOGO_D_OPENID_FETCH_USER_PROFILE = fetch_user_profile
 
 
+class FakeCache:
+    """Fake ClientRedis, the TTL is only recorded"""
+    def __init__(self):
+        self.data: dict = {}
+        self.ttl: dict = {}
+        self.down = False #Simulate an unreachable redis
+
+    def _check(self):
+        if self.down:
+            raise rexc.ConnectionError("down")
+
+    def set(self, key, value, ttl, nx=False):
+        self._check()
+        self.data[key] = value
+        self.ttl[key] = ttl
+        return True
+
+    def pop(self, key, expected_type):
+        self._check()
+        return self.data.pop(key, None)
+
+    def close(self):
+        pass
+
+
 @pytest.fixture
 def app():
-    """Flask app with a secret key, needed by the flask session"""
-    flask_app = Flask(__name__)
-    flask_app.secret_key = "test"
-    return flask_app
+    """Flask app, without secret key: the flask session must not be used"""
+    return Flask(__name__)
 
 
 @pytest.fixture
-def idp(monkeypatch):
+def cache(monkeypatch):
+    """Mock redis"""
+    fake_cache = FakeCache()
+    monkeypatch.setattr(op, "sogo_cache", lambda: fake_cache)
+    return fake_cache
+
+
+@pytest.fixture
+def idp(monkeypatch, cache):
     """Mock the openid server, return the calls made to it"""
     calls = {"fetch_token": [], "parse_id_token": [], "userinfo": {"email": "user@example.com", "name": "John Doe"},
              "id_token_claims": {"email": "id@example.com"}}
@@ -71,26 +102,27 @@ def idp(monkeypatch):
     return calls
 
 
-def login(app, callback_url=CALLBACK_URL) -> tuple[dict, dict]:
-    """Call get_login_location, return the query of the authorization url and the flask session"""
+def state_key(state, callback_url=CALLBACK_URL) -> str:
+    return f"{cs.SSO_STATE_KEY_PREFIX}openid:{callback_url}:{state}"
+
+
+def login(app, callback_url=CALLBACK_URL) -> dict:
+    """Call get_login_location, return the query of the authorization url"""
     with app.test_request_context("/auth/mode"):
         url = OpenIDProvider(FakeAuthSettings(), callback_url).get_login_location()
-        return parse_qs(urlparse(url).query), dict(session)
+        return parse_qs(urlparse(url).query)
 
 
-def callback(app, query_string: dict, session_data: dict, callback_url=CALLBACK_URL, fetch_user_profile=True):
-    """Call authenticate_from_callback with this query string and flask session, return the identity and the session after"""
+def callback(app, query_string: dict, callback_url=CALLBACK_URL, fetch_user_profile=True):
+    """Call authenticate_from_callback with this query string, return the identity"""
     with app.test_request_context("/auth/callback", query_string=query_string):
-        session.update(session_data)
-        identity = OpenIDProvider(FakeAuthSettings(fetch_user_profile), callback_url).authenticate_from_callback(query_string)
-        return identity, dict(session)
+        return OpenIDProvider(FakeAuthSettings(fetch_user_profile), callback_url).authenticate_from_callback(query_string)
 
 
-def test_get_login_location(app, idp):
-    """Authorization url has the client info, a state and a nonce, both kept in the session"""
+def test_get_login_location(app, idp, cache):
+    """Authorization url has the client info, a state and a nonce, both kept in redis"""
     with app.test_request_context("/auth/mode"):
         url = OpenIDProvider(FakeAuthSettings(), CALLBACK_URL).get_login_location()
-        session_data = dict(session)
 
     parsed = urlparse(url)
     query = parse_qs(parsed.query)
@@ -103,15 +135,15 @@ def test_get_login_location(app, idp):
 
     state = query["state"][0]
     assert len(state) >= 30 #authlib generate_token(30)
-    stored = session_data[f"_state_openid:{CALLBACK_URL}_{state}"]
-    assert stored["data"] == {"redirect_uri": CALLBACK_URL, "nonce": query["nonce"][0]}
-    assert stored["exp"] == pytest.approx(time.time() + cs.SSO_STATE_TTL, abs=5)
+    key = state_key(state)
+    assert cache.data == {key: {"redirect_uri": CALLBACK_URL, "nonce": query["nonce"][0]}}
+    assert cache.ttl[key] == cs.SSO_STATE_TTL
 
 
 def test_get_login_location_state_is_random(app, idp):
     """Each login has its own state"""
-    query1, _ = login(app)
-    query2, _ = login(app)
+    query1 = login(app)
+    query2 = login(app)
     assert query1["state"] != query2["state"]
 
 
@@ -126,89 +158,81 @@ def test_get_login_location_idp_unreachable(app, monkeypatch):
     assert e.value.error == err.ERROR_SSO_PROVIDER_UNREACHABLE
 
 
-def test_authenticate_from_callback(app, idp):
+def test_authenticate_from_callback(app, idp, cache):
     """State is checked and consumed, code is exchanged and the mail is read from user info"""
-    query, session_data = login(app)
+    query = login(app)
 
-    identity, session_after = callback(app, {"code": "abc", "state": query["state"][0]}, session_data)
+    identity = callback(app, {"code": "abc", "state": query["state"][0]})
 
     assert identity.mail == "user@example.com"
     assert identity.claims["name"] == "John Doe"
     assert identity.access_token == "at"
     assert idp["fetch_token"] == [{"code": "abc", "state": query["state"][0], "redirect_uri": CALLBACK_URL}]
     assert idp["parse_id_token"] == query["nonce"]
-    assert session_after == {}
+    assert cache.data == {}
 
 
 def test_authenticate_from_callback_id_token_claims(app, idp):
     """SOGO_D_OPENID_FETCH_USER_PROFILE=False: the mail is read from the validated id_token"""
-    query, session_data = login(app)
+    query = login(app)
 
-    identity, _ = callback(app, {"code": "abc", "state": query["state"][0]}, session_data, fetch_user_profile=False)
+    identity = callback(app, {"code": "abc", "state": query["state"][0]}, fetch_user_profile=False)
 
     assert identity.mail == "id@example.com"
 
 
 def test_authenticate_from_callback_replay(app, idp):
     """The state is single use, the same callback can't be replayed"""
-    query, session_data = login(app)
+    query = login(app)
     query_string = {"code": "abc", "state": query["state"][0]}
-    _, session_after = callback(app, query_string, session_data)
+    callback(app, query_string)
 
     with pytest.raises(RequestException) as e:
-        callback(app, query_string, session_after)
+        callback(app, query_string)
     assert e.value.error == err.ERROR_SSO_INVALID_STATE
     assert len(idp["fetch_token"]) == 1
 
 
 @pytest.mark.parametrize("state", [None, "", "unknown"])
-def test_authenticate_from_callback_invalid_state(app, idp, state):
-    """No state, empty state or state not in the session (forged)"""
-    _, session_data = login(app)
+def test_authenticate_from_callback_invalid_state(app, idp, cache, state):
+    """No state, empty state or state not in redis (forged)"""
+    login(app)
     query_string = {"code": "abc"} if state is None else {"code": "abc", "state": state}
 
     with pytest.raises(RequestException) as e:
-        callback(app, query_string, session_data)
+        callback(app, query_string)
     assert e.value.error == err.ERROR_SSO_INVALID_STATE
     assert idp["fetch_token"] == []
+    assert len(cache.data) == 1 #The real state is untouched
 
 
-def test_authenticate_from_callback_other_browser(app, idp):
-    """Valid state but another session (login CSRF: the callback url of someone else)"""
-    query, _ = login(app)
-
-    with pytest.raises(RequestException) as e:
-        callback(app, {"code": "abc", "state": query["state"][0]}, {})
-    assert e.value.error == err.ERROR_SSO_INVALID_STATE
-
-
-def test_authenticate_from_callback_other_domain(app, idp):
+def test_authenticate_from_callback_other_domain(app, idp, cache):
     """State created for the callback of another domain"""
-    query, session_data = login(app, OTHER_CALLBACK_URL)
+    query = login(app, OTHER_CALLBACK_URL)
 
     with pytest.raises(RequestException) as e:
-        callback(app, {"code": "abc", "state": query["state"][0]}, session_data)
+        callback(app, {"code": "abc", "state": query["state"][0]})
     assert e.value.error == err.ERROR_SSO_INVALID_STATE
+    assert state_key(query["state"][0], OTHER_CALLBACK_URL) in cache.data
 
 
-def test_authenticate_from_callback_expired_state(app, idp):
-    """State older than cs.SSO_STATE_TTL"""
-    query, session_data = login(app)
-    for value in session_data.values():
-        value["exp"] = 0
+def test_authenticate_from_callback_expired_state(app, idp, cache):
+    """State older than cs.SSO_STATE_TTL, removed by redis"""
+    query = login(app)
+    cache.data.clear()
 
     with pytest.raises(RequestException) as e:
-        callback(app, {"code": "abc", "state": query["state"][0]}, session_data)
+        callback(app, {"code": "abc", "state": query["state"][0]})
     assert e.value.error == err.ERROR_SSO_INVALID_STATE
 
 
 @pytest.mark.parametrize("query_string", [{}, {"error": "access_denied", "error_description": "no"}])
 def test_authenticate_from_callback_no_code(app, idp, query_string):
     """Error or missing code in callback"""
-    query, session_data = login(app)
+    query = login(app)
 
     with pytest.raises(RequestException) as e:
-        callback(app, {**query_string, "state": query["state"][0]}, session_data)
+        callback(app, {**query_string, "state": query["state"][0]})
     assert e.value.error == err.ERROR_SSO_LOGIN_FAILED
     assert idp["fetch_token"] == []
 
@@ -216,8 +240,28 @@ def test_authenticate_from_callback_no_code(app, idp, query_string):
 def test_authenticate_from_callback_no_mail(app, idp):
     """User info has no SOGO_D_OPENID_EMAIL field"""
     idp["userinfo"] = {"sub": "123"}
-    query, session_data = login(app)
+    query = login(app)
 
     with pytest.raises(RequestException) as e:
-        callback(app, {"code": "abc", "state": query["state"][0]}, session_data)
+        callback(app, {"code": "abc", "state": query["state"][0]})
     assert e.value.error == err.ERROR_SSO_LOGIN_FAILED
+
+
+def test_get_login_location_redis_unreachable(app, idp, cache):
+    """Redis down when saving the state"""
+    cache.down = True
+
+    with app.test_request_context("/auth/mode"), pytest.raises(RequestException) as e:
+        OpenIDProvider(FakeAuthSettings(), CALLBACK_URL).get_login_location()
+    assert e.value.error == err.ERROR_SSO_STATE_STORAGE_UNREACHABLE
+
+
+def test_authenticate_from_callback_redis_unreachable(app, idp, cache):
+    """Redis down when reading the state on the callback"""
+    query = login(app)
+    cache.down = True
+
+    with pytest.raises(RequestException) as e:
+        callback(app, {"code": "abc", "state": query["state"][0]})
+    assert e.value.error == err.ERROR_SSO_STATE_STORAGE_UNREACHABLE
+    assert idp["fetch_token"] == []

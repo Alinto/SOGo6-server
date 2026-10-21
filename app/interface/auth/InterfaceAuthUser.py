@@ -57,7 +57,7 @@ class InterfaceAuthUser:
         :return: Tuple containing the API response dict and HTTP status code
         :rtype: tuple[dict, int]
         """
-        #TODO redirect: check it with SOGO_D_OPENID_ALLOW_REDIRECT and keep it in the state for the callback
+        #TODO redirect: check it with SOGO_S_OPENID_ALLOW_REDIRECT and keep it in the state for the callback
         try:
             ret = self.module_auth.get_login_mech(user_uid, callback_url_builder)
         except RequestException as e:

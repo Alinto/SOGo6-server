@@ -76,6 +76,7 @@ ERROR_SSO_PROVIDER_UNREACHABLE = E("S000210", "SSO Identity Provider Unreachable
 ERROR_SSO_LOGIN_FAILED         = E("S000211", "SSO Login Failed", HTTPStatus.UNAUTHORIZED)
 ERROR_SSO_USER_NOT_FOUND       = E("S000212", "SSO Login Failed: User Not Found In User Sources", HTTPStatus.UNAUTHORIZED)
 ERROR_SSO_INVALID_STATE        = E("S000213", "SSO Login Failed: State Missing, Expired Or Already Used", HTTPStatus.UNAUTHORIZED)
+ERROR_SSO_STATE_STORAGE_UNREACHABLE = E("S000214", "SSO Login Failed: Cache Server Storing The State Is Unreachable", HTTPStatus.SERVICE_UNAVAILABLE)
 
 
 #API

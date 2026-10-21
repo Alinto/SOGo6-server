@@ -46,8 +46,9 @@ ZSET_USER_SESSIONS_UID = "user_sessions:uid"
 # Each member is a ``user_session:<uuid>`` key and its score is derived
 # from the domain string so that sessions can be sorted / filtered by domain.
 ZSET_USER_SESSIONS_DOMAIN = "user_sessions:domain"
-# SSO state: ``sso_state:<state>`` keeps what the callback needs (kind, domain...) between
-# the redirection to the identity provider and its callback. Single use (GETDEL).
+# SSO state: ``sso_state:<kind>:<callback url>:<state>`` keeps what the callback needs (redirect_uri, nonce...)
+# between the redirection to the identity provider and its callback. Single use (GETDEL).
+SSO_STATE_KEY_PREFIX = "sso_state:"
 SSO_STATE_TTL = 600 #Time given to the user to log in on the identity provider, in seconds
 
 JWT_ISS = "iss"
