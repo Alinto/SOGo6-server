@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, cast
 
-from flask import g, request, url_for, Response
+from flask import g, redirect as flask_redirect, request, url_for, Response
 from flask.views import MethodView
 from flask.typing import ResponseReturnValue
 from flask_smorest import Blueprint
@@ -70,7 +70,8 @@ class ApiAuthUserMode(MethodView):
     def get(self, username:str, redirect:str) -> ResponseReturnValue:
         """
         Action, return the url location of the login system for this username.
-        redirect is only useful for SSO that needs callback.
+        redirect is only useful for SSO that needs callback: UI url where the user is sent back after the login,
+        its origin must be in SOGO_S_OPENID_ALLOW_REDIRECT.
         """
         interface_api: InterfaceAuthUser = g.inter
         # build_sso_callback_url is the function used to construct the full SSO callback URL for the given kind and domain
@@ -100,17 +101,22 @@ class ApiAuthUserCallbackOpenid(MethodView):
     Action, is the callback for openid SSO
     """
 
-    @blp.response(200)
+    @blp.response(302)
     def get(self, domain:str) -> ResponseReturnValue:
         """
         Action, Callback for this domain when doing openid SSO.
         The query parameters are given by the openid server (code, or error and error_description)
+        Redirect to the UI url given to /mode with #token=<jwt token>, or #error=<error code>.
+        If the UI url is unknown (invalid state), return the error.
         """
         print("####### CALLBACK OPENID #######")
         print(f"Domain: {domain}")
         print(f"Query Parameters: {request.args.to_dict()}")
         interface_api : InterfaceAuthUser = g.inter
-        return interface_api.sso_callback("openid", domain, request.args.to_dict(), build_sso_callback_url)
+        ret = interface_api.sso_callback("openid", domain, request.args.to_dict(), build_sso_callback_url)
+        if isinstance(ret, str):
+            return flask_redirect(ret, 302)
+        return ret
 
 
 @blp.route("/logout")

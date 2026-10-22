@@ -21,15 +21,16 @@ class FakeModuleAuth:
         self.get_user_and_domain_user_sources_args = None
         self.generate_voucher_from_user_args = None
         self.logout_user_args = None
+        self.sso_ui_redirect = ""
 
         # Results
         self.get_login_mech_result = {"mechanism": "plain", "redirect": None}
         self.get_user_and_domain_user_sources_result = (None, {})
         self.generate_voucher_from_user_result = {"voucher": "test-voucher-123", "expiry": "2026-02-13"}
 
-    def get_login_mech(self, user_uid, callback_url_builder):
+    def get_login_mech(self, user_uid, ui_redirect, callback_url_builder):
         """Get login mechanism for user."""
-        self.get_login_mech_args = user_uid
+        self.get_login_mech_args = (user_uid, ui_redirect)
         return self.get_login_mech_result
 
     def get_user_and_domain_user_sources(self, uid, password):
@@ -212,13 +213,13 @@ def test_get_login_mech_success(monkeypatch):
 
     assert status_code == 200
     assert result["data"]["mechanism"] == "plain"
-    assert fake_auth.get_login_mech_args == "testuser@example.com"
+    assert fake_auth.get_login_mech_args == ("testuser@example.com", "/dashboard")
 
 
 def test_get_login_mech_request_exception(monkeypatch):
     """Test error handling when getting login mechanism fails."""
     fake_auth = FakeModuleAuth(None, None, None, None)
-    fake_auth.get_login_mech = lambda x, y: (_ for _ in ()).throw(
+    fake_auth.get_login_mech = lambda x, y, z: (_ for _ in ()).throw(
         RequestException("Domain not found", err.ERROR_DOMAIN_NAME_NOT_FOUND)
     )
     fake_profile = FakeModuleUserProfile(None, None)
@@ -478,3 +479,61 @@ def test_logout_invalid_voucher_type_returns_error_response(monkeypatch):
 
     assert status_code == err.ERROR_WRONG_AUTHORIZATION_TYPE.h
     assert result["error_code"] == err.ERROR_WRONG_AUTHORIZATION_TYPE.c
+
+
+# ========== Tests for sso_callback ==========
+
+UI_REDIRECT = "http://localhost:3001/en/auth/login/sso"
+
+
+def get_sso_interface(monkeypatch, ui_redirect=UI_REDIRECT, error=None):
+    """Interface whose ModuleAuth authenticates a SSO user, or raises error. The UI url is known from the state."""
+    fake_auth = FakeModuleAuth(None, None, None, None)
+    fake_auth.generate_voucher_from_user_result = {"jwt_token": "jwt"}
+
+    def get_user_from_sso_callback(kind, domain, callback_data, callback_url_builder):
+        fake_auth.sso_ui_redirect = ui_redirect
+        if error:
+            raise RequestException(error=error)
+        return FakeUser("user@example.com", "token"), {}
+
+    fake_auth.get_user_from_sso_callback = get_user_from_sso_callback
+    fake_profile = FakeModuleUserProfile(None, None)
+    fake_profile.is_user_profile_present_result = True
+    patch_modules_on_interface(monkeypatch, fake_auth, fake_profile, FakeModuleUserSource)
+
+    interface = InterfaceAuthUser(
+        process={"test": "config"},
+        system={"SYSTEM_SETTINGS": {"test": "value"}},
+        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}}
+    )
+    return interface, fake_auth
+
+
+def test_sso_callback_redirects_with_token(monkeypatch):
+    """Success: redirection to the UI with the jwt token in the fragment, never in the query"""
+    interface, _ = get_sso_interface(monkeypatch)
+
+    result = interface.sso_callback("openid", "example.com", {"code": "abc", "state": "s"}, lambda kind, domain: "")
+
+    assert result == f"{UI_REDIRECT}#token=jwt"
+
+
+def test_sso_callback_redirects_with_error(monkeypatch):
+    """Failure after the state is read: redirection to the UI with the error code"""
+    interface, _ = get_sso_interface(monkeypatch, error=err.ERROR_SSO_USER_NOT_FOUND)
+
+    result = interface.sso_callback("openid", "example.com", {"code": "abc", "state": "s"}, lambda kind, domain: "")
+
+    assert result == f"{UI_REDIRECT}#error={err.ERROR_SSO_USER_NOT_FOUND.c}"
+
+
+def test_sso_callback_unknown_ui_redirect(monkeypatch):
+    """Invalid state: the UI url is unknown, the error is returned as an API response"""
+    interface, _ = get_sso_interface(monkeypatch, ui_redirect="", error=err.ERROR_SSO_INVALID_STATE)
+
+    result, status_code = interface.sso_callback("openid", "example.com", {"code": "abc", "state": "s"}, lambda kind, domain: "")
+
+    assert status_code == err.ERROR_SSO_INVALID_STATE.h
+    assert result["error_code"] == err.ERROR_SSO_INVALID_STATE.c
+

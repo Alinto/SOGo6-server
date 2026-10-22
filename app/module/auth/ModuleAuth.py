@@ -1,5 +1,6 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Callable, Type
+from urllib.parse import urlencode, urlsplit, urlunsplit
 
 
 from app.auth.User import User
@@ -30,7 +31,42 @@ IDENTITY_PROVIDERS: dict[str, Type[IdentityProvider]] = {
 #Domain used in the SSO callback url when there is no domain (SOGO_S_DOMAINLESS_LOGIN)
 SSO_NO_DOMAIN = "none"
 
-class ModuleAuth:
+
+def _get_origin(url:str) -> str:
+    """
+    Return the origin (scheme://host[:port]) of an url, lower case, empty if the url is not http(s)
+
+    :param url: The url
+    :type url: str
+    :return: The origin or empty string
+    :rtype: str
+    """
+    try:
+        parts = urlsplit(url.strip())
+    except ValueError:
+        return ""
+    if parts.scheme.lower() not in ("http", "https") or not parts.netloc:
+        return ""
+    return f"{parts.scheme}://{parts.netloc}".lower()
+
+
+def build_ui_redirect_url(ui_redirect:str, params:dict) -> str:
+    """
+    Put the parameters in the fragment of the UI url (its own fragment is replaced, its query is kept).
+    The fragment is never sent to a server nor in the Referer header, so the jwt token does not end in access logs.
+
+    :param ui_redirect: UI url
+    :type ui_redirect: str
+    :param params: Parameters to put in the fragment
+    :type params: dict
+    :return: The full url
+    :rtype: str
+    """
+    parts = urlsplit(ui_redirect)
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, parts.query, urlencode(params)))
+
+
+class ModuleAuth:  # pylint: disable=too-many-instance-attributes
     """
     Module to handle authentication. Thos module only take one user source.
     """
@@ -56,6 +92,10 @@ class ModuleAuth:
         self.domainless     = system.SOGO_S_DOMAINLESS_LOGIN
         self.known_domains  = system.SOGO_S_KNOWN_DOMAIN
         self.reject_unknown = system.SOGO_S_REJECT_UNKNOWN_DOMAIN
+        self.allowed_redirect_origins = {_get_origin(url) for url in system.SOGO_S_OPENID_ALLOW_REDIRECT} - {""}
+
+        #UI url of the last SSO callback, known once the identity provider has read its state, even if the login failed
+        self.sso_ui_redirect = ""
 
         self.default_auth = default_auth_settings
         self.default_us = default_us_source
@@ -129,6 +169,20 @@ class ModuleAuth:
             raise RequestException("Domain given for auth is not registered in SOGO_S_REJECT_UNKNOWN_DOMAIN")
         return domain
 
+    def is_ui_redirect_allowed(self, ui_redirect:str) -> bool:
+        """
+        Check that the origin of the UI url is exactly one of SOGO_S_OPENID_ALLOW_REDIRECT
+
+        :param ui_redirect: UI url given by the UI
+        :type ui_redirect: str
+        :return: True if the UI url can be used as redirection
+        :rtype: bool
+        """
+        origin = _get_origin(ui_redirect)
+        print("Origin of UI redirect:", origin)
+        print("Allowed redirect origins:", self.allowed_redirect_origins)
+        return bool(origin) and origin in self.allowed_redirect_origins
+
     @staticmethod
     def _get_identity_provider(auth_settings:AuthSettingsObj, callback_url:str) -> IdentityProvider|None:
         """
@@ -146,14 +200,17 @@ class ModuleAuth:
             return None
         return provider_class(auth_settings, callback_url)
 
-    def get_login_mech(self, uid:str, callback_url_builder:Callable[[str, str], str]) -> dict:
+    def get_login_mech(self, uid:str, ui_redirect:str, callback_url_builder:Callable[[str, str], str]) -> dict:
         """
         Get the login mechanism for this uid
 
         :param uid: username/mail/uid of the user
         :type uid: str
+        :param ui_redirect: UI url where the user is sent back after a SSO login, ignored for plain
+        :type ui_redirect: str
         :param callback_url_builder: Function (kind, domain) -> url of the API callback for SSO
         :type callback_url_builder: Callable[[str, str], str]
+        :raises RequestException: If the domain is invalid or ui_redirect is not allowed for a SSO
         :return: Dictionary containing the authentication kind and location
         :rtype: dict
         """
@@ -166,7 +223,10 @@ class ModuleAuth:
         callback_url = callback_url_builder(kind, domain) # or SSO_NO_DOMAIN)
         provider = self._get_identity_provider(domain_auth_settings, callback_url)
         if provider:
-            location = provider.get_login_location()
+            if not self.is_ui_redirect_allowed(ui_redirect):
+                logger_auth.warning("SSO login asked with a redirect not in SOGO_S_OPENID_ALLOW_REDIRECT: %s", ui_redirect)
+                raise RequestException(error=err.ERROR_SSO_REDIRECT_NOT_ALLOWED)
+            location = provider.get_login_location(ui_redirect)
 
         #TODO cas
         ret = {
@@ -190,6 +250,7 @@ class ModuleAuth:
         :param callback_url_builder: Function (kind, domain) -> url of the API callback for SSO
         :type callback_url_builder: Callable[[str, str], str]
         :raises RequestException: If the state is invalid, the domain is not configured for this SSO or the authentication failed
+        After the call, sso_ui_redirect is the UI url kept with the state if it could be read (and is still allowed).
         :return: Tuple of (authenticated User, domain user sources settings)
         :rtype: tuple[User, dict[str, UserSourceSettingsObj]]
         """
@@ -203,7 +264,14 @@ class ModuleAuth:
         provider = self._get_identity_provider(domain_auth_settings, callback_url_builder(kind, callback_domain))
         if provider is None:
             raise RequestException(error=err.ERROR_SSO_WRONG_AUTH_TYPE)
-        identity = provider.authenticate_from_callback(callback_data)
+        try:
+            identity = provider.authenticate_from_callback(callback_data)
+        finally:
+            #Checked again: SOGO_S_OPENID_ALLOW_REDIRECT may have changed since get_login_mech
+            if self.is_ui_redirect_allowed(provider.ui_redirect):
+                self.sso_ui_redirect = provider.ui_redirect
+            elif provider.ui_redirect:
+                logger_auth.warning("SSO state with a redirect not in SOGO_S_OPENID_ALLOW_REDIRECT anymore: %s", provider.ui_redirect)
 
         #The access token is kept as password to authenticate on the mail servers (xoauth2)
         if self.domainless:

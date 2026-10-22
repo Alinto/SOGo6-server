@@ -50,6 +50,7 @@ ZSET_USER_SESSIONS_DOMAIN = "user_sessions:domain"
 # between the redirection to the identity provider and its callback. Single use (GETDEL).
 SSO_STATE_KEY_PREFIX = "sso_state:"
 SSO_STATE_TTL = 600 #Time given to the user to log in on the identity provider, in seconds
+SSO_STATE_UI_REDIRECT = "ui_redirect" #Key of the UI url in the SSO state data
 
 JWT_ISS = "iss"
 JWT_EXP = "exp"
