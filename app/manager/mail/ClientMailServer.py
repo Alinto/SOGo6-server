@@ -521,6 +521,45 @@ class ClientMailServer(metaclass=ABCMeta):
         """
 
     @abstractmethod
+    def search_most_recent_uids(self, folder_path: str, criteria: str, nb_mails: int,
+                                attachment_types: list[str] | None = None) -> tuple[list[dict[str, Any]], int]:
+        """Search a folder and return the ``nb_mails`` most recent matching mails (identifiers and date only).
+
+        When ``attachment_types`` is given, only the mails holding at least one attachment
+        with one of these extensions are kept, before keeping the ``nb_mails`` most recent.
+
+        Each entry is ``{"uid": str, "date": datetime, "folder": str}``, the most recent first.
+
+        :param folder_path: Folder path to search in.
+        :type folder_path: str
+        :param criteria: Protocol-specific search criteria (see build_search_criteria).
+        :type criteria: str
+        :param nb_mails: Maximum number of entries to return.
+        :type nb_mails: int
+        :param attachment_types: Attachment file extensions (e.g. ["pdf", "jpg"]), case-insensitive.
+        :type attachment_types: list[str] | None
+        :return: A tuple of (the most recent entries, total number of matching mails in the folder).
+        :rtype: tuple[list[dict[str, Any]], int]
+        """
+
+    @abstractmethod
+    def fetch_mails_by_uid_list(self, folder_path: str, uids: list[str], with_content: bool) -> list[dict]:
+        """Fetch the given mails of one folder in a single request.
+
+        Each mail dict has the same shape as the ones yielded by search_mails_with_content /
+        search_mails_without_content. Mails that no longer exist are missing from the result.
+
+        :param folder_path: Folder path.
+        :type folder_path: str
+        :param uids: UIDs of the mails to fetch.
+        :type uids: list[str]
+        :param with_content: If True fetch the full mails, otherwise only their headers.
+        :type with_content: bool
+        :return: List of mail dicts.
+        :rtype: list[dict]
+        """
+
+    @abstractmethod
     def get_folder_with_subfolders(self, folder_path: str, include_subfolders: bool = True) -> list[str]:
         """Return the given folder path, optionally followed by the paths of all its subfolders.
 

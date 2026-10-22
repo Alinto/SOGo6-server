@@ -2078,3 +2078,143 @@ class TestBuildSearchCriteria:
     def test_no_user_criteria_still_applies_not_deleted(self):
         client = make_client()
         assert client.build_search_criteria({}, deleted=False) == "(NOT DELETED)"
+
+
+# ===========================================================================
+# Tests: search_most_recent_uids / fetch_mails_by_uid_list
+# ===========================================================================
+
+def _bodystructure_with(filename_param: bytes) -> bytes:
+    """A multipart/mixed BODYSTRUCTURE with a text part and one attachment described by filename_param."""
+    return (b'BODYSTRUCTURE (("text" "plain" ("charset" "utf-8") NIL NIL "7bit" 4 1 NIL NIL NIL NIL)'
+            b'("application" "octet-stream" NIL NIL NIL "base64" 10 NIL ("attachment" (' + filename_param +
+            b')) NIL NIL) "mixed" ("boundary" "b") NIL NIL NIL)')
+
+
+def test_search_most_recent_uids_sorted_by_internaldate_and_limited():
+    """Entries are sorted on INTERNALDATE (not UID), the most recent first, and limited to nb_mails."""
+    conn = FakeIMAPConnection()
+    conn.uid_search_response = ("OK", [b"10 11 12"])
+    conn.uid_response = ("OK", [
+        b'1 (UID 10 INTERNALDATE "05-Jan-2024 10:00:00 +0000")',
+        b'2 (UID 11 INTERNALDATE " 3-Jan-2024 10:00:00 +0000")',
+        b'3 (UID 12 INTERNALDATE "04-Jan-2024 12:00:00 +0200")',
+    ])
+    client = authenticated_client(conn)
+
+    entries, total = client.search_most_recent_uids("INBOX", "(NOT DELETED)", 2)
+
+    assert total == 3
+    assert [entry["uid"] for entry in entries] == ["10", "12"]
+    assert all(entry["folder"] == "INBOX" for entry in entries)
+
+
+def test_search_most_recent_uids_no_match():
+    """No matching mail: no FETCH, empty result."""
+    conn = FakeIMAPConnection()
+    conn.uid_search_response = ("OK", [b""])
+    client = authenticated_client(conn)
+
+    assert client.search_most_recent_uids("INBOX", "ALL", 20) == ([], 0)
+
+
+def test_search_most_recent_uids_fetch_failure_raises():
+    """A failing FETCH raises a RequestException."""
+    conn = FakeIMAPConnection()
+    conn.uid_search_response = ("OK", [b"10"])
+    conn.uid_response = ("NO", [b"Fetch failed"])
+    client = authenticated_client(conn)
+
+    with pytest.raises(RequestException):
+        client.search_most_recent_uids("INBOX", "ALL", 20)
+
+
+def test_search_most_recent_uids_attachment_type_filter():
+    """With attachment_types, only mails with a matching attachment extension are kept and counted."""
+    conn = FakeIMAPConnection()
+    conn.uid_search_response = ("OK", [b"1 2 3 4 5"])
+    conn.uid_response = ("OK", [
+        b'1 (UID 1 INTERNALDATE "01-Jan-2024 10:00:00 +0000" ' + _bodystructure_with(b'"filename" "Report.PDF"') + b')',
+        b'2 (UID 2 INTERNALDATE "02-Jan-2024 10:00:00 +0000" ' + _bodystructure_with(b'"filename" "photo.jpg"') + b')',
+        # RFC 2047 encoded filename
+        b'3 (UID 3 INTERNALDATE "03-Jan-2024 10:00:00 +0000" ' + _bodystructure_with(b'"filename" "=?UTF-8?B?w6l0w6kucGRm?="') + b')',
+        # RFC 2231 extended filename
+        b'4 (UID 4 INTERNALDATE "04-Jan-2024 10:00:00 +0000" ' + _bodystructure_with(b'"filename*" "utf-8\'\'%C3%A9t%C3%A9.pdf"') + b')',
+        # Non-ASCII filename sent as a literal: imaplib splits it into a (prefix, literal) tuple
+        (b'5 (UID 5 INTERNALDATE "05-Jan-2024 10:00:00 +0000" BODYSTRUCTURE (("text" "plain" NIL NIL NIL "7bit" 4 1 NIL NIL NIL NIL)'
+         b'("application" "pdf" NIL NIL NIL "base64" 10 NIL ("attachment" ("filename" {9}', "été.pdf".encode()),
+        b')) NIL NIL) "mixed" ("boundary" "b") NIL NIL NIL))',
+    ])
+    client = authenticated_client(conn)
+
+    entries, total = client.search_most_recent_uids("INBOX", "ALL", 20, attachment_types=["pdf"])
+
+    assert total == 4
+    assert [entry["uid"] for entry in entries] == ["5", "4", "3", "1"]
+
+
+def test_search_most_recent_uids_attachment_filter_before_limit():
+    """The attachment filter applies before the limit, so the page is not short because of it."""
+    conn = FakeIMAPConnection()
+    conn.uid_search_response = ("OK", [b"1 2 3"])
+    conn.uid_response = ("OK", [
+        b'1 (UID 1 INTERNALDATE "01-Jan-2024 10:00:00 +0000" ' + _bodystructure_with(b'"filename" "a.pdf"') + b')',
+        b'2 (UID 2 INTERNALDATE "02-Jan-2024 10:00:00 +0000" ' + _bodystructure_with(b'"filename" "b.pdf"') + b')',
+        b'3 (UID 3 INTERNALDATE "03-Jan-2024 10:00:00 +0000" ' + _bodystructure_with(b'"filename" "c.txt"') + b')',
+    ])
+    client = authenticated_client(conn)
+
+    entries, total = client.search_most_recent_uids("INBOX", "ALL", 2, attachment_types=[".PDF"])
+
+    assert total == 2
+    assert [entry["uid"] for entry in entries] == ["2", "1"]
+
+
+def test_search_most_recent_uids_not_authenticated_raises():
+    """Calling without an authenticated connection is a bug."""
+    with pytest.raises(BugException):
+        make_client().search_most_recent_uids("INBOX", "ALL", 20)
+
+
+def test_fetch_mails_by_uid_list_with_content():
+    """Mails are fetched in one FETCH and enriched with their folder."""
+    conn = FakeIMAPConnection()
+    calls = []
+    original_uid = conn.uid
+    conn.uid = lambda command, *args: calls.append((command, args)) or original_uid(command, *args)
+    conn.uid_response = conn.fetch_response
+    client = authenticated_client(conn)
+
+    mails = client.fetch_mails_by_uid_list("INBOX", ["100", "101"], with_content=True)
+
+    assert calls == [("FETCH", ("100,101", "(BODY.PEEK[] FLAGS UID)"))]
+    assert len(mails) == 1
+    assert mails[0]["uid"] == 100
+    assert mails[0]["folder"] == "INBOX"
+
+
+def test_fetch_mails_by_uid_list_without_content():
+    """Without content, only the headers and bodystructure are fetched."""
+    conn = FakeIMAPConnection()
+    conn.uid_response = ("OK", [
+        (b'1 (FLAGS (\\Seen) UID 47 RFC822.SIZE 1234 BODY[HEADER] {18}', b"Subject: Test\r\n\r\n"),
+        b' BODYSTRUCTURE ("text" "plain" NIL NIL NIL "7bit" 4 1 NIL NIL NIL NIL))',
+    ])
+    client = authenticated_client(conn)
+
+    mails = client.fetch_mails_by_uid_list("Sent", ["47"], with_content=False)
+
+    assert len(mails) == 1
+    assert mails[0]["uid"] == 47
+    assert mails[0]["size"] == 1234
+    assert mails[0]["folder"] == "Sent"
+    assert conn.selected_mailbox is not None
+
+
+def test_fetch_mails_by_uid_list_empty_uids():
+    """No UID: nothing is selected nor fetched."""
+    conn = FakeIMAPConnection()
+    client = authenticated_client(conn)
+
+    assert client.fetch_mails_by_uid_list("INBOX", [], with_content=True) == []
+    assert conn.selected_mailbox is None
