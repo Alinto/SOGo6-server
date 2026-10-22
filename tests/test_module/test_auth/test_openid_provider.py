@@ -16,6 +16,7 @@ from app.utils import errors as err
 
 CALLBACK_URL = "http://127.0.0.1:5000/api/user/v1/auth/callback/openid/example.com"
 OTHER_CALLBACK_URL = "http://127.0.0.1:5000/api/user/v1/auth/callback/openid/other.com"
+UI_REDIRECT = "http://localhost:3001/en/auth/login/sso"
 METADATA = {
     "issuer": "http://idp",
     "authorization_endpoint": "http://idp/auth",
@@ -109,20 +110,23 @@ def state_key(state, callback_url=CALLBACK_URL) -> str:
 def login(app, callback_url=CALLBACK_URL) -> dict:
     """Call get_login_location, return the query of the authorization url"""
     with app.test_request_context("/auth/mode"):
-        url = OpenIDProvider(FakeAuthSettings(), callback_url).get_login_location()
+        url = OpenIDProvider(FakeAuthSettings(), callback_url).get_login_location(UI_REDIRECT)
         return parse_qs(urlparse(url).query)
 
 
-def callback(app, query_string: dict, callback_url=CALLBACK_URL, fetch_user_profile=True):
-    """Call authenticate_from_callback with this query string, return the identity"""
+def callback(app, query_string: dict, callback_url=CALLBACK_URL, fetch_user_profile=True, providers: list|None = None):
+    """Call authenticate_from_callback with this query string, return the identity. The provider is added to providers."""
     with app.test_request_context("/auth/callback", query_string=query_string):
-        return OpenIDProvider(FakeAuthSettings(fetch_user_profile), callback_url).authenticate_from_callback(query_string)
+        provider = OpenIDProvider(FakeAuthSettings(fetch_user_profile), callback_url)
+        if providers is not None:
+            providers.append(provider)
+        return provider.authenticate_from_callback(query_string)
 
 
 def test_get_login_location(app, idp, cache):
-    """Authorization url has the client info, a state and a nonce, both kept in redis"""
+    """Authorization url has the client info, a state and a nonce, both kept in redis with the UI url"""
     with app.test_request_context("/auth/mode"):
-        url = OpenIDProvider(FakeAuthSettings(), CALLBACK_URL).get_login_location()
+        url = OpenIDProvider(FakeAuthSettings(), CALLBACK_URL).get_login_location(UI_REDIRECT)
 
     parsed = urlparse(url)
     query = parse_qs(parsed.query)
@@ -136,7 +140,7 @@ def test_get_login_location(app, idp, cache):
     state = query["state"][0]
     assert len(state) >= 30 #authlib generate_token(30)
     key = state_key(state)
-    assert cache.data == {key: {"redirect_uri": CALLBACK_URL, "nonce": query["nonce"][0]}}
+    assert cache.data == {key: {"redirect_uri": CALLBACK_URL, "nonce": query["nonce"][0], cs.SSO_STATE_UI_REDIRECT: UI_REDIRECT}}
     assert cache.ttl[key] == cs.SSO_STATE_TTL
 
 
@@ -154,16 +158,18 @@ def test_get_login_location_idp_unreachable(app, monkeypatch):
     monkeypatch.setattr(op.FlaskOAuth2App, "load_server_metadata", fail)
 
     with app.test_request_context("/auth/mode"), pytest.raises(RequestException) as e:
-        OpenIDProvider(FakeAuthSettings(), CALLBACK_URL).get_login_location()
+        OpenIDProvider(FakeAuthSettings(), CALLBACK_URL).get_login_location(UI_REDIRECT)
     assert e.value.error == err.ERROR_SSO_PROVIDER_UNREACHABLE
 
 
 def test_authenticate_from_callback(app, idp, cache):
     """State is checked and consumed, code is exchanged and the mail is read from user info"""
     query = login(app)
+    providers: list = []
 
-    identity = callback(app, {"code": "abc", "state": query["state"][0]})
+    identity = callback(app, {"code": "abc", "state": query["state"][0]}, providers=providers)
 
+    assert providers[0].ui_redirect == UI_REDIRECT
     assert identity.mail == "user@example.com"
     assert identity.claims["name"] == "John Doe"
     assert identity.access_token == "at"
@@ -227,14 +233,43 @@ def test_authenticate_from_callback_expired_state(app, idp, cache):
 
 
 @pytest.mark.parametrize("query_string", [{}, {"error": "access_denied", "error_description": "no"}])
-def test_authenticate_from_callback_no_code(app, idp, query_string):
-    """Error or missing code in callback"""
+def test_authenticate_from_callback_no_code(app, idp, cache, query_string):
+    """Error or missing code in callback: the state is consumed and the UI url known to send the error back"""
     query = login(app)
+    providers: list = []
 
     with pytest.raises(RequestException) as e:
-        callback(app, {**query_string, "state": query["state"][0]})
+        callback(app, {**query_string, "state": query["state"][0]}, providers=providers)
     assert e.value.error == err.ERROR_SSO_LOGIN_FAILED
     assert idp["fetch_token"] == []
+    assert providers[0].ui_redirect == UI_REDIRECT
+    assert cache.data == {}
+
+
+def test_authenticate_from_callback_error_invalid_state(app, idp, cache):
+    """Error in callback with an unknown state: the UI url is unknown"""
+    login(app)
+    providers: list = []
+
+    with pytest.raises(RequestException) as e:
+        callback(app, {"error": "access_denied", "state": "unknown"}, providers=providers)
+    assert e.value.error == err.ERROR_SSO_INVALID_STATE
+    assert providers[0].ui_redirect == ""
+    assert len(cache.data) == 1
+
+
+def test_authenticate_from_callback_failure_keeps_ui_redirect(app, idp, monkeypatch):
+    """The state is read, then the code exchange fails: the UI url is known to send the error back"""
+    def fail(self, **kwargs):
+        raise requests.ConnectionError("down")
+    monkeypatch.setattr(op.FlaskOAuth2App, "fetch_access_token", fail)
+    query = login(app)
+    providers: list = []
+
+    with pytest.raises(RequestException) as e:
+        callback(app, {"code": "abc", "state": query["state"][0]}, providers=providers)
+    assert e.value.error == err.ERROR_SSO_PROVIDER_UNREACHABLE
+    assert providers[0].ui_redirect == UI_REDIRECT
 
 
 def test_authenticate_from_callback_no_mail(app, idp):
@@ -252,7 +287,7 @@ def test_get_login_location_redis_unreachable(app, idp, cache):
     cache.down = True
 
     with app.test_request_context("/auth/mode"), pytest.raises(RequestException) as e:
-        OpenIDProvider(FakeAuthSettings(), CALLBACK_URL).get_login_location()
+        OpenIDProvider(FakeAuthSettings(), CALLBACK_URL).get_login_location(UI_REDIRECT)
     assert e.value.error == err.ERROR_SSO_STATE_STORAGE_UNREACHABLE
 
 

@@ -1,0 +1,16 @@
+# SSO users (SOGO_D_AUTH_TYPE = openid): SOGo logs in with the access token given by Keycloak (XOAUTH2/OAUTHBEARER).
+# The token is checked with the token introspection endpoint of Keycloak, the user must match its email claim.
+# In post mode, the client credentials are given in the url (http basic auth), so the url is read from
+# oauth2-introspection-url (not versioned):
+#   http://myClient:<SOGO_D_OPENID_CLIENT_SECRET>@keycloak:8080/realms/myRealm/protocol/openid-connect/token/introspect
+oauth2 {
+  introspection_mode = post
+  introspection_url = </etc/dovecot/oauth2-introspection-url
+  username_attribute = email
+  active_attribute = active
+  active_value = true
+}
+
+passdb oauth2 {
+  mechanisms_filter = xoauth2 oauthbearer
+}
