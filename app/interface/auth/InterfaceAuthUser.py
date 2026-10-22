@@ -5,6 +5,7 @@ from app.auth.User import UserAnonymous
 from app.config.settings.SystemSettings import SystemSettingsObj, SystemSettings
 from app.config.settings.DomainSettings import AuthSettingsObj, AuthSettings, UserSourceSettings, UserSourceSettingsObj, MailSettings, MailSettingsObj
 from app.config.settings.UserSettings import UserGeneralSettings
+from app.module.admin.ModuleAdminConfig import ModuleAdminConfig
 from app.module.auth.ModuleAuth import ModuleAuth, build_ui_redirect_url
 from app.module.auth.ModuleUserSource import ModuleUserSource
 from app.module.calendar.ModuleCalendar import ModuleCalendar
@@ -99,15 +100,14 @@ class InterfaceAuthUser:
         if not success:
             return create_api_base_response(None, err.ERROR_LOGIN_FAILED)
 
-        # Generate the voucher for the authenticated user
-        ret = self.module_auth.generate_voucher_from_user(user)
-
         try:
             self._onboard_user_if_needed(user)
         except RequestException as ex:
             logger_api.error("Request exception when onboarding user %s: %s", uid, str(ex))
             return create_api_base_response(None, ex.error)
 
+        # Generate the voucher once the user is onboarded: no session is created if the onboarding failed
+        ret = self.module_auth.generate_voucher_from_user(user)
         return create_api_base_response(ret)
 
     def _onboard_user_if_needed(self, user:User) -> None:
@@ -121,15 +121,18 @@ class InterfaceAuthUser:
         uid = user.uid
         if self.module_user_profile.is_user_profile_present(uid):
             return
-        self.module_user_profile.create_user_profile(user)
-        raw_gen: dict = self.module_user_profile.get_partial_user_preferences(uid, UserGeneralSettings.subparent.lower())
+        #Settings of the user's domain (default ones if the domain has none): profile defaults, mail server...
+        user_domain_settings: dict = ModuleAdminConfig(self.process).get_one_domain_setting(user.domain)["settings"]
+        module_user_profile = ModuleUserProfile(self.process, user_domain_settings)
+        module_user_profile.create_user_profile(user)
+        raw_gen: dict = module_user_profile.get_partial_user_preferences(uid, UserGeneralSettings.subparent.lower())
         user_tz: str = raw_gen.get(UserGeneralSettings.subparent, {}).get("SOGO_U_TIMEZONE", "UTC")
         personal_calendar = self._module_calendar.create_personal_calendar(uid, tz=user_tz)
         personal_addressbook = self._module_contact.create_personal_addressbook(uid)
         # Update the folders column with the personal calendar and addressbook keys
         if personal_calendar.key and personal_addressbook.key:
-            self.module_user_profile.update_user_folders(uid, personal_calendar.key, personal_addressbook.key)
-        module_mail = ModuleMail(user, MailSettingsObj(self.default_domain[MailSettings.subparent]), self.process)
+            module_user_profile.update_user_folders(uid, personal_calendar.key, personal_addressbook.key)
+        module_mail = ModuleMail(user, MailSettingsObj(user_domain_settings[MailSettings.subparent]), self.process)
         module_mail.create_special_folders_if_not_exist(cs.DEFAULT_IDENTITY_KEY_VALUE)
 
     def sso_callback(self, kind:str, domain:str, callback_data:dict, callback_url_builder:Callable[[str, str], str]) -> str|tuple[dict, int]:
@@ -153,12 +156,13 @@ class InterfaceAuthUser:
         """
         try:
             user, _ = self.module_auth.get_user_from_sso_callback(kind, domain, callback_data, callback_url_builder)
-            ret = self.module_auth.generate_voucher_from_user(user)
             try:
                 self._onboard_user_if_needed(user)
             except RequestException as ex:
                 logger_api.error("Request exception when onboarding user %s: %s", user.uid, str(ex))
                 raise
+            #Generated once the user is onboarded: no session is created if the onboarding failed
+            ret = self.module_auth.generate_voucher_from_user(user)
         except RequestException as e:
             ui_redirect = self.module_auth.sso_ui_redirect
             if not ui_redirect:

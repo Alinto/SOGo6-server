@@ -150,16 +150,36 @@ class FakeUser:
         self.uid = uid
         self.password = password
         self.mail = uid
+        self.domain = uid.split("@")[-1]
         self.source_id = "source1"
+
+
+USER_DOMAIN_SETTINGS = {"USER_MODULE": {}, "MAIL_SETTINGS": {"SOGO_D_IMAP_AUTH_MECH": "xoauth2"}}
+
+
+class FakeModuleAdminConfig:
+    """Fake ModuleAdminConfig for testing, returns USER_DOMAIN_SETTINGS for every domain."""
+    get_one_domain_setting_args = None
+
+    def __init__(self, process):
+        self.process = process
+
+    def get_one_domain_setting(self, domain_id):
+        """Return the settings of the domain."""
+        FakeModuleAdminConfig.get_one_domain_setting_args = domain_id
+        return {"domain_name": domain_id, "settings": USER_DOMAIN_SETTINGS, "origin": {}}
 
 
 class FakeModuleMail:
     """Fake ModuleMail for testing."""
+    last_instance = None
+
     def __init__(self, user, mail_settings, process):
         self.user = user
         self.mail_settings = mail_settings
         self.process = process
         self.create_special_folders_args = None
+        FakeModuleMail.last_instance = self
 
     def create_special_folders_if_not_exist(self, account_id):
         """Create special folders if they don't exist."""
@@ -191,6 +211,10 @@ def patch_modules_on_interface(monkeypatch, fake_module_auth, fake_module_user_p
     monkeypatch.setattr(
         "app.interface.auth.InterfaceAuthUser.ModuleMail",
         FakeModuleMail
+    )
+    monkeypatch.setattr(
+        "app.interface.auth.InterfaceAuthUser.ModuleAdminConfig",
+        FakeModuleAdminConfig
     )
 
 
@@ -361,6 +385,35 @@ def test_plain_login_profile_creation_request_exception(monkeypatch):
     # RequestException should set the http_status
     assert status_code >= 500
     assert result["error_code"] == err.ERROR_USER_PROFILE_CREATION_FAILED.c
+    # No session is created when the onboarding failed
+    assert fake_auth.generate_voucher_from_user_args is None
+
+
+def test_plain_login_onboarding_uses_user_domain_settings(monkeypatch):
+    """The onboarding uses the settings of the user's domain, not the default domain ones"""
+    fake_auth = FakeModuleAuth(None, None, None, None)
+    fake_user = FakeUser("newuser@example.com", "secret123")
+    fake_auth.get_user_and_domain_user_sources_result = (fake_user, {"source1": {}})
+    fake_profile = FakeModuleUserProfile(None, None)
+    fake_profile.is_user_profile_present_result = False
+    profile_settings = []
+    patch_modules_on_interface(monkeypatch, fake_auth, fake_profile, lambda sources: FakeModuleUserSource({}))
+    monkeypatch.setattr("app.interface.auth.InterfaceAuthUser.ModuleUserProfile",
+                        lambda process, domain_settings: profile_settings.append(domain_settings) or fake_profile)
+    monkeypatch.setattr("app.interface.auth.InterfaceAuthUser.MailSettingsObj", lambda settings: settings)
+
+    interface = InterfaceAuthUser(
+        process={"test": "config"},
+        system={"SYSTEM_SETTINGS": {"test": "value"}},
+        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}, "MAIL_SETTINGS": {"SOGO_D_IMAP_AUTH_MECH": "login"}}
+    )
+
+    _result, status_code = interface.plain_login({"username": "newuser@example.com", "password": "secret123"})
+
+    assert status_code == 200
+    assert FakeModuleAdminConfig.get_one_domain_setting_args == "example.com"
+    assert profile_settings[-1] is USER_DOMAIN_SETTINGS
+    assert FakeModuleMail.last_instance.mail_settings == USER_DOMAIN_SETTINGS["MAIL_SETTINGS"]
 
 
 def test_plain_login_profile_creation_bug_exception(monkeypatch):
@@ -537,3 +590,18 @@ def test_sso_callback_unknown_ui_redirect(monkeypatch):
     assert status_code == err.ERROR_SSO_INVALID_STATE.h
     assert result["error_code"] == err.ERROR_SSO_INVALID_STATE.c
 
+
+
+def test_sso_callback_onboarding_failure_no_session(monkeypatch):
+    """Onboarding failure: redirection to the UI with the error, and no session is created"""
+    interface, fake_auth = get_sso_interface(monkeypatch)
+    fake_profile = interface.module_user_profile
+    fake_profile.is_user_profile_present_result = False
+    fake_profile.create_user_profile = lambda *args: (_ for _ in ()).throw(
+        RequestException(error=err.ERROR_IMAP_UNAIVALABLE)
+    )
+
+    result = interface.sso_callback("openid", "example.com", {"code": "abc", "state": "s"}, lambda kind, domain: "")
+
+    assert result == f"{UI_REDIRECT}#error={err.ERROR_IMAP_UNAIVALABLE.c}"
+    assert fake_auth.generate_voucher_from_user_args is None
