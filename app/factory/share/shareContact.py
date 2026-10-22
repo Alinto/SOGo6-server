@@ -66,5 +66,13 @@ class ShareContact(Share):
         entry: AclEntry | None = self.get_user_or_anyone(for_user_uid, owner_uid, on_key)
         return entry is not None and self._rights_satisfy(entry.rights, rights_needed)
 
+    @staticmethod
+    def grants_view(rights: dict) -> bool:
+        """Return True if the rights blob lets its holder see the address book (can_view).
+
+        This is the condition to subscribe to a shared address book.
+        """
+        return bool(rights.get(RIGHT_VIEW, False))
+
     def _rights_satisfy(self, rights: dict, rights_needed: str) -> bool:
         return bool(rights.get(rights_needed, False))

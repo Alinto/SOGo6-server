@@ -1048,3 +1048,90 @@ def test_clean_main_account_custom_fields_disabled(monkeypatch):
     assert main_account['identities'][0]['mail'] == 'test@example.com'
     assert main_account['identities'][0]['name'] == 'Test User'
     assert main_account['identities'][0]['reply-to'] == 'test@example.com'
+
+
+# ========== add_folder_key - keep_existing ==========
+
+def _folder_module(folders):
+    """ModuleUserProfile whose folders column reads back ``folders`` and records the written value."""
+    module = object.__new__(ModuleUserProfile)
+    module._get_user_column = mock.MagicMock(return_value=folders)
+    module._update_user_column = mock.MagicMock()
+    return module
+
+
+def test_add_folder_key_overwrites_existing_value_by_default():
+    module = _folder_module({"CALENDAR": {"SUBS": {"k": False}}})
+    module.add_folder_key("u", "CALENDAR", "k", owner_key="SUBS")
+    written = module._update_user_column.call_args.args[2]
+    assert written["CALENDAR"]["SUBS"]["k"] is True
+
+
+def test_add_folder_key_keep_existing_leaves_display_toggle_untouched():
+    module = _folder_module({"CALENDAR": {"SUBS": {"k": False}}})
+    module.add_folder_key("u", "CALENDAR", "k", owner_key="SUBS", keep_existing=True)
+    module._update_user_column.assert_not_called()
+
+
+def test_add_folder_key_keep_existing_adds_missing_key():
+    module = _folder_module({"CALENDAR": {"OWNER": {}}})
+    module.add_folder_key("u", "CALENDAR", "k", owner_key="SUBS", keep_existing=True)
+    written = module._update_user_column.call_args.args[2]
+    assert written["CALENDAR"]["SUBS"] == {"k": True}
+
+
+def test_add_folder_key_stores_given_value():
+    module = _folder_module({"CALENDAR": {"OWNER": {}}})
+    module.add_folder_key("u", "CALENDAR", "k", owner_key="SUBS", value={"display": True, "name": "Cal"})
+    written = module._update_user_column.call_args.args[2]
+    assert written["CALENDAR"]["SUBS"] == {"k": {"display": True, "name": "Cal"}}
+
+
+# ========== update_folder_value / update_folder_name ==========
+
+def test_update_folder_value_dict_entry_only_changes_display():
+    module = _folder_module({"CALENDAR": {"SUBS": {"k": {"display": True, "name": "Mine"}}}})
+    folders = module.update_folder_value("u", "CALENDAR", "k", False)
+    assert folders["CALENDAR"]["SUBS"]["k"] == {"display": False, "name": "Mine"}
+
+
+def test_update_folder_value_bool_entry_is_replaced():
+    module = _folder_module({"CALENDAR": {"OWNER": {"k": True}}})
+    folders = module.update_folder_value("u", "CALENDAR", "k", False)
+    assert folders["CALENDAR"]["OWNER"]["k"] is False
+
+
+def test_update_folder_name_dict_entry_keeps_display():
+    module = _folder_module({"CALENDAR": {"SUBS": {"k": {"display": False, "name": "Old"}}}})
+    folders = module.update_folder_name("u", "CALENDAR", "k", "New")
+    assert folders["CALENDAR"]["SUBS"]["k"] == {"display": False, "name": "New"}
+    module._update_user_column.assert_called_once()
+
+
+def test_update_folder_name_converts_legacy_bool_entry():
+    module = _folder_module({"CALENDAR": {"SUBS": {"k": False}}})
+    folders = module.update_folder_name("u", "CALENDAR", "k", "New")
+    assert folders["CALENDAR"]["SUBS"]["k"] == {"display": False, "name": "New"}
+
+
+def test_update_folder_name_not_subscribed_raises():
+    module = _folder_module({"CALENDAR": {"OWNER": {"k": True}}})
+    with pytest.raises(RequestException) as exc:
+        module.update_folder_name("u", "CALENDAR", "k", "New")
+    assert exc.value.error == err.ERROR_FOLDER_KEY_NOT_FOUND
+    module._update_user_column.assert_not_called()
+
+
+def test_add_folder_key_keep_existing_upgrades_legacy_bool_entry():
+    module = _folder_module({"CALENDAR": {"SUBS": {"k": False}}})
+    module.add_folder_key("u", "CALENDAR", "k", owner_key="SUBS", keep_existing=True,
+                          value={"display": True, "name": "Cal"})
+    written = module._update_user_column.call_args.args[2]
+    assert written["CALENDAR"]["SUBS"]["k"] == {"display": False, "name": "Cal"}
+
+
+def test_add_folder_key_keep_existing_leaves_dict_entry_untouched():
+    module = _folder_module({"CALENDAR": {"SUBS": {"k": {"display": False, "name": "Mine"}}}})
+    module.add_folder_key("u", "CALENDAR", "k", owner_key="SUBS", keep_existing=True,
+                          value={"display": True, "name": "Cal"})
+    module._update_user_column.assert_not_called()
