@@ -220,6 +220,18 @@ uidNumber: 1000
 gidNumber: 1000
 homeDirectory: /home/sogo2
 
+dn: uid=tibo@openid.org,ou=users,dc=example,dc=org
+uid: tibo@openid.org
+cn: Tibo
+sn: Tibo
+mail: tibo@openid.org
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+uidNumber: 1000
+gidNumber: 1000
+homeDirectory: /home/tibo
+
 # search result
 search: 2
 result: 0 Success
