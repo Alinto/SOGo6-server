@@ -27,6 +27,8 @@ class IdentityProvider(ABC):
     3. authenticate_from_callback: check the callback data and return the user identity
 
     The provider generates the anti CSRF state in get_login_location and checks it in authenticate_from_callback.
+    The UI url given in get_login_location is kept with the state, ui_redirect gives it back once the state is read
+    on the callback, even if the authentication then failed.
     """
 
     kind: str = "" #Must match SOGO_D_AUTH_TYPE
@@ -42,13 +44,16 @@ class IdentityProvider(ABC):
         """
         self.auth_settings = auth_settings
         self.callback_url = callback_url
+        self.ui_redirect = "" #UI url kept with the state, set by authenticate_from_callback once the state is read
 
     @abstractmethod
-    def get_login_location(self) -> str:
+    def get_login_location(self, ui_redirect: str) -> str:
         """
         Return the url of the identity provider where the user must log in.
-        The state the identity provider must send back on the callback is generated and kept here.
+        The state the identity provider must send back on the callback is generated and kept here, with ui_redirect.
 
+        :param ui_redirect: UI url where the user is sent back after the callback, already checked
+        :type ui_redirect: str
         :return: The login url
         :rtype: str
         """
@@ -56,7 +61,8 @@ class IdentityProvider(ABC):
     @abstractmethod
     def authenticate_from_callback(self, callback_data: dict) -> IdentityProviderUserInfo:
         """
-        Check the data sent by the identity provider on the callback (state included) and return the user identity
+        Check the data sent by the identity provider on the callback (state included) and return the user identity.
+        Set ui_redirect as soon as the state is read.
 
         :param callback_data: Data received on the callback (query parameters, form...)
         :type callback_data: dict
