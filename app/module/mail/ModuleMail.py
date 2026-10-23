@@ -734,7 +734,8 @@ class ModuleMail:
             "mail_type_data": mail_type_data
         }
 
-    def get_folder_mails(self, account_id: str, folder_name: str, collection_param: CollectionPaginateArgs, deleted: bool = False) -> tuple[list[dict[str, Any]], int]:
+    def get_folder_mails(self, account_id: str, folder_name: str, collection_param: CollectionPaginateArgs, deleted: bool = False,
+                         filters: list[str] | None = None) -> tuple[list[dict[str, Any]], int]:
         """Retrieve a list of mails in a specific folder with full details.
 
         Each mail holds ``rights``: the user's rights on the folder (only the granted ones,
@@ -751,6 +752,10 @@ class ModuleMail:
             deleted flag). Applied as an IMAP search criterion before pagination, so
             the returned page is never short because of it.
         :type deleted: bool
+        :param filters: Filters (keys of MAIL_LIST_FILTER_TO_SEARCH_PARAM, e.g. "unread", "attachments")
+            every returned mail must match. Like ``deleted``, applied as a mail-server search criterion
+            before pagination, so the returned page and the total count only hold matching mails.
+        :type filters: list[str] | None
         :raises RequestException: If fetching mails fails
         :return: A tuple of (list of mail dicts with full details, total mail count)
         :rtype: tuple[list[dict[str, Any]], int]
@@ -763,12 +768,17 @@ class ModuleMail:
         fields_params = client.parse_fields_param(collection_param.fields, collection_param.fields_action)
         without_content = not fields_params["with_content"]
 
+        # Same generic search_params as the advanced search, so the client turns them into server search criteria
+        search_params: dict[str, Any] = dict(cs.MAIL_LIST_FILTER_TO_SEARCH_PARAM[mail_filter] for mail_filter in filters or [])
+
         if without_content:
             mail_iter = client.fetch_all_mails_without_content(folder_name, number_of_mails=nb_mails, offset=offset, deleted=deleted,
-                                                               sort_by=collection_param.sort_by, sort_order=collection_param.sort_order)
+                                                               sort_by=collection_param.sort_by, sort_order=collection_param.sort_order,
+                                                               search_params=search_params)
         else:
             mail_iter = client.fetch_all_mails_with_content(folder_name, number_of_mails=nb_mails, offset=offset, deleted=deleted,
-                                                            sort_by=collection_param.sort_by, sort_order=collection_param.sort_order)
+                                                            sort_by=collection_param.sort_by, sort_order=collection_param.sort_order,
+                                                            search_params=search_params)
         total_count = next(mail_iter)["nb_mails"]
         mails = []
 

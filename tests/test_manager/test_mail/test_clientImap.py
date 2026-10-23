@@ -1143,7 +1143,27 @@ class TestFetchAllMails:
         client = authenticated_client(fake_conn)
 
         list(client.fetch_all_mails_with_content("INBOX", number_of_mails=10, offset=0))
-        assert captured_criteria == ["NOT DELETED"]
+        assert captured_criteria == ["(NOT DELETED)"]
+
+    def test_search_params_are_sent_as_search_criteria(self):
+        """Filters (search_params) are part of the IMAP SEARCH, so the count and the page
+        only hold matching mails."""
+        fake_conn = FakeIMAPConnection()
+        fake_conn.select_response = ("OK", [b"5"])
+        captured_criteria = []
+        original_uid = fake_conn.uid
+
+        def tracking_uid(command, *args):
+            if command == "SEARCH":
+                captured_criteria.append(args[0])
+            return original_uid(command, *args)
+
+        fake_conn.uid = tracking_uid
+        client = authenticated_client(fake_conn)
+
+        list(client.fetch_all_mails_with_content("INBOX", number_of_mails=10, offset=0,
+                                                 search_params={"is_read": False, "has_attachment": True}))
+        assert captured_criteria == ['(NOT DELETED UNSEEN HEADER Content-Type "multipart/mixed")']
 
     def test_pagination_does_not_short_change_page_when_filtering(self):
         """A page must contain up to number_of_mails matching mails: the filter is
@@ -1841,6 +1861,24 @@ class TestFetchAllMailsWithoutContent:
         results = list(client.fetch_all_mails_without_content("INBOX", number_of_mails=10, offset=0, deleted=True))
         assert captured_criteria == ["ALL"]
         assert results[0] == {"nb_mails": 1}
+
+    def test_search_params_with_deleted_true_are_sent_as_search_criteria(self):
+        fake_conn = FakeIMAPConnection()
+        fake_conn.select_response = ("OK", [b"5"])
+        captured_criteria = []
+        original_uid = fake_conn.uid
+
+        def tracking_uid(command, *args):
+            if command == "SEARCH":
+                captured_criteria.append(args[0])
+            return original_uid(command, *args)
+
+        fake_conn.uid = tracking_uid
+        client = authenticated_client(fake_conn)
+
+        list(client.fetch_all_mails_without_content("INBOX", number_of_mails=10, offset=0, deleted=True,
+                                                    search_params={"is_read": True, "is_flagged": True}))
+        assert captured_criteria == ["(SEEN FLAGGED)"]
 
     def test_empty_search_result_yields_only_count(self):
         fake_conn = FakeIMAPConnection()
