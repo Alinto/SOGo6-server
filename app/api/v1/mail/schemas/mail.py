@@ -1,5 +1,9 @@
-from marshmallow import Schema, fields, validate
+from marshmallow import Schema, fields, validate, validates_schema, ValidationError
+from webargs.fields import DelimitedList
+
 from app.utils.api.ApiBaseResponse import ApiBaseResponse
+from app.utils.api.paginate_sort_filter import DeletedFilterQueryArgsSchema
+from app.utils import constants as cs
 
 
 class MailDeleteSchema(Schema):
@@ -210,6 +214,31 @@ class MailDetailResponseSchema(ApiBaseResponse):
             }
         }
 
+
+
+class MailListQueryArgsSchema(DeletedFilterQueryArgsSchema):
+    """Deserializes the query params specific to GET /mailboxes/<account_id>/folders/<path:folder_name>/mails.
+
+    On top of "deleted", ``filter`` is a comma separated list of filters (e.g. ``filter=unread,attachments``).
+    Every filter must match (AND). Like "deleted", they are applied as a mail-server search criterion
+    before pagination, so a page is never short because of them.
+    """
+
+    filter = DelimitedList(
+        fields.String(validate=validate.OneOf(list(cs.MAIL_LIST_FILTER_TO_SEARCH_PARAM))),
+        load_default=list,
+        metadata={"description": f"Comma separated list of filters among: {list(cs.MAIL_LIST_FILTER_TO_SEARCH_PARAM)}. All of them must match."}
+    )
+
+    @validates_schema
+    def check_filter_not_contradictory(self, data: dict, **kwargs: dict) -> None:
+        """Reject filters that can never match together (e.g. read and unread)."""
+        values_by_key: dict[str, set[bool]] = {}
+        for mail_filter in data.get("filter", []):
+            key, value = cs.MAIL_LIST_FILTER_TO_SEARCH_PARAM[mail_filter]
+            values_by_key.setdefault(key, set()).add(value)
+        if any(len(values) > 1 for values in values_by_key.values()):
+            raise ValidationError("Contradictory filters (e.g. read and unread)", field_name="filter")
 
 
 class MailListResponseSchema(ApiBaseResponse):

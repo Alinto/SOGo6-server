@@ -36,7 +36,8 @@ class InterfaceApiMailMail:
 
         self.mail_module = ModuleMail(self.user, self.mail_settings, self.process_setting)
 
-    def get_mail_list(self, account_id: str, folder_name: str, collection_param: CollectionPaginateArgs, deleted: bool = False) -> tuple[int, dict[str, Any], int]:
+    def get_mail_list(self, account_id: str, folder_name: str, collection_param: CollectionPaginateArgs, deleted: bool = False,
+                      filters: list[str] | None = None) -> tuple[int, dict[str, Any], int]:
         """Retrieve a list of mails in a specific folder.
 
         :param account_id: The ID of the account
@@ -51,11 +52,13 @@ class InterfaceApiMailMail:
             True, they are included alongside non-deleted mails (no filtering on the
             deleted flag).
         :type deleted: bool
+        :param filters: Filters (keys of MAIL_LIST_FILTER_TO_SEARCH_PARAM) every listed mail must match
+        :type filters: list[str] | None
         :return: A tuple of (total_count, API response dict, status code)
         :rtype: tuple[int, dict[str, Any], int]
         """
         try:
-            result, total_count = self.mail_module.get_folder_mails(account_id, folder_name, collection_param, deleted)
+            result, total_count = self.mail_module.get_folder_mails(account_id, folder_name, collection_param, deleted, filters)
             return total_count, *create_api_base_response(result)
         except RequestException as ex:
             logger_api.error("Request exception in get_mail_list: %s", str(ex))
