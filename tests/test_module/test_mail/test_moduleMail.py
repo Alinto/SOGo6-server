@@ -190,7 +190,7 @@ class FakeClientMailServer:
             {'name': 'Sent', 'path': 'Sent'}
         ]
 
-    def fetch_all_mails_without_content(self, mailbox, number_of_mails, offset=0, deleted=False):
+    def fetch_all_mails_without_content(self, mailbox, number_of_mails, offset=0, deleted=False, sort_by=None, sort_order=None, search_params=None):
         """Fetch all mails from a mailbox without content (used by get_folder_mails)."""
         yield {'nb_mails': 0}
 
@@ -465,7 +465,7 @@ def test_get_folder_mails_success(monkeypatch):
     mail1 = _make_email_message(subject='Test1')
     mail2 = _make_email_message(subject='Test2')
 
-    def fetch_all(folder_name, number_of_mails, offset=0, deleted=False, sort_by=None, sort_order=None):
+    def fetch_all(folder_name, number_of_mails, offset=0, deleted=False, sort_by=None, sort_order=None, search_params=None):
         yield {'nb_mails': 100}
         yield {'uid': '1', 'mail': mail1, 'flags': {'seen': True, 'flagged': False, 'answered': False, 'forwarded': False, 'deleted': False, 'all': ['\\Seen']}, 'size': 120}
         yield {'uid': '2', 'mail': mail2, 'flags': {'seen': False, 'flagged': False, 'answered': False, 'forwarded': False, 'deleted': False, 'all': []}, 'size': 120}
@@ -484,7 +484,7 @@ def test_get_folder_mails_empty_folder(monkeypatch):
     """Test getting mails from empty folder."""
     module, fake_client = _make_module(monkeypatch)
 
-    def fetch_all(folder_name, number_of_mails, offset=0, deleted=False, sort_by=None, sort_order=None):
+    def fetch_all(folder_name, number_of_mails, offset=0, deleted=False, sort_by=None, sort_order=None, search_params=None):
         yield {'nb_mails': 0}
 
     fake_client.fetch_all_mails_with_content = fetch_all
@@ -499,7 +499,7 @@ def test_get_folder_mails_adds_folder_rights_fetched_once(monkeypatch):
     module, fake_client = _make_module(monkeypatch)
     fake_client.my_rights_by_folder = {'shared/user2@example.org': 'lrs'}
 
-    def fetch_all(folder_name, number_of_mails, offset=0, deleted=False, sort_by=None, sort_order=None):
+    def fetch_all(folder_name, number_of_mails, offset=0, deleted=False, sort_by=None, sort_order=None, search_params=None):
         yield {'nb_mails': 3}
         for uid in ('1', '2', '3'):
             yield {'uid': uid, 'mail': _make_email_message(), 'flags': {'seen': False, 'flagged': False, 'answered': False, 'forwarded': False, 'deleted': False, 'all': []}, 'size': 120}
@@ -1525,6 +1525,47 @@ def test_purge_all_folders_with_permanent_delete(monkeypatch):
     assert result['mails_deleted'] == 30
 
 
+def test_get_folder_mails_no_filter_passes_empty_search_params(monkeypatch):
+    """Without filter, no extra search criterion is sent to the mail server."""
+    module, fake_client = _make_module(monkeypatch)
+    captured = {}
+
+    def fetch_all(folder_name, number_of_mails, offset=0, deleted=False, sort_by=None, sort_order=None, search_params=None):
+        captured["search_params"] = search_params
+        yield {'nb_mails': 0}
+
+    fake_client.fetch_all_mails_with_content = fetch_all
+
+    module.get_folder_mails(ACCOUNT_ID, "INBOX", CollectionPaginateArgs(page=1, page_size=10))
+    assert captured["search_params"] == {}
+
+
+def test_get_folder_mails_filters_are_sent_as_search_params(monkeypatch):
+    """Filters are translated into search_params given to the mail server (not post-fetch filtered),
+    so the page and the total count only hold matching mails."""
+    module, fake_client = _make_module(monkeypatch)
+    captured = {}
+
+    def fetch_all(folder_name, number_of_mails, offset=0, deleted=False, sort_by=None, sort_order=None, search_params=None):
+        captured.update(number_of_mails=number_of_mails, offset=offset, deleted=deleted, search_params=search_params)
+        yield {'nb_mails': 42}
+        for uid in ('1', '2'):
+            yield {'uid': uid, 'mail': _make_email_message(), 'flags': {'seen': False, 'flagged': False, 'answered': False, 'forwarded': False, 'deleted': False, 'all': []}, 'size': 120}
+
+    fake_client.fetch_all_mails_with_content = fetch_all
+
+    result, total = module.get_folder_mails(ACCOUNT_ID, "INBOX", CollectionPaginateArgs(page=2, page_size=20),
+                                            deleted=True, filters=["unread", "attachments", "flagged"])
+    assert captured == {
+        "number_of_mails": 20,
+        "offset": 21,
+        "deleted": True,
+        "search_params": {"is_read": False, "has_attachment": True, "is_flagged": True},
+    }
+    assert total == 42
+    assert len(result) == 2
+
+
 # ========== Additional Tests for get_folder_mails with fields filtering ==========
 
 def test_get_folder_mails_without_content_include_filter(monkeypatch):
@@ -1533,7 +1574,7 @@ def test_get_folder_mails_without_content_include_filter(monkeypatch):
 
     mail1 = _make_email_message(subject='Test1')
 
-    def fetch_all_without_content(mailbox, number_of_mails, offset=0, deleted=False, sort_by=None, sort_order=None):
+    def fetch_all_without_content(mailbox, number_of_mails, offset=0, deleted=False, sort_by=None, sort_order=None, search_params=None):
         yield {'nb_mails': 50}
         yield {'uid': '1', 'mail': mail1, 'flags': {'seen': True, 'flagged': False, 'answered': False, 'forwarded': False, 'deleted': False, 'all': ['\\Seen']}, 'size': 120}
 
@@ -1560,7 +1601,7 @@ def test_get_folder_mails_without_content_exclude_filter(monkeypatch):
 
     mail1 = _make_email_message(subject='Test1')
 
-    def fetch_all_without_content(mailbox, number_of_mails, offset=0, deleted=False, sort_by=None, sort_order=None):
+    def fetch_all_without_content(mailbox, number_of_mails, offset=0, deleted=False, sort_by=None, sort_order=None, search_params=None):
         yield {'nb_mails': 25}
         yield {'uid': '1', 'mail': mail1, 'flags': {'seen': False, 'flagged': False, 'answered': False, 'forwarded': False, 'deleted': False, 'all': []}, 'size': 120}
 

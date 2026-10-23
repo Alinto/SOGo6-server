@@ -1582,20 +1582,24 @@ class ClientImap(ClientMailServer):
             "size": size
         }
 
-    def _search_deleted_filtered_uids(self, folder_path: str, deleted: bool,
-                                      sort_by: str | None = None, sort_order: str | None = None) -> list[str]:
-        """Select ``folder_path`` and run an IMAP UID SEARCH (or UID SORT) filtering on the deleted flag.
+    def _search_filtered_uids(self, folder_path: str, deleted: bool, search_params: dict | None = None,
+                              sort_by: str | None = None, sort_order: str | None = None) -> list[str]:
+        """Select ``folder_path`` and run an IMAP UID SEARCH (or UID SORT) filtering on the deleted
+        flag and on ``search_params``.
 
-        Filtering on the deleted flag is done as an IMAP search criterion (not a
-        post-fetch filter) so that pagination on the result is always accurate:
-        slicing a fixed-size page out of this list can never yield fewer than the
-        requested number of mails just because some in-range mails were filtered out.
+        Filtering is done as an IMAP search criterion (not a post-fetch filter) so that
+        pagination on the result is always accurate: slicing a fixed-size page out of this
+        list can never yield fewer than the requested number of mails just because some
+        in-range mails were filtered out.
 
         :param folder_path: IMAP folder path (already quoted as needed by the caller).
         :type folder_path: str
         :param deleted: If False, mails flagged \\Deleted are excluded. If True, they
             are included alongside non-deleted mails (no filtering on the deleted flag).
         :type deleted: bool
+        :param search_params: Generic search parameters, turned into IMAP criteria by
+            ``build_search_criteria`` (e.g. {"is_read": False, "has_attachment": True}).
+        :type search_params: dict | None
         :param sort_by: One of the IMAP_SORT_KEYS keys. If None, unknown, or if the server
             lacks the SORT capability, mails are ordered by UID (most recent first).
         :type sort_by: str | None
@@ -1609,7 +1613,7 @@ class ClientImap(ClientMailServer):
             raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
         self.select_mailbox(folder_path)
 
-        criteria = "ALL" if deleted else "NOT DELETED"
+        criteria = self.build_search_criteria(search_params or {}, deleted)
 
         sort_key = IMAP_SORT_KEYS.get(sort_by) if sort_by else None
         if sort_key is not None and "SORT" not in self.capabilities:
@@ -1637,7 +1641,8 @@ class ClientImap(ClientMailServer):
         return uid_list
 
     def fetch_all_mails_with_content(self, folder_path: str, number_of_mails: int, offset: int, deleted: bool = False,
-                                     sort_by: str | None = None, sort_order: str | None = None) -> Iterator[dict]:
+                                     sort_by: str | None = None, sort_order: str | None = None,
+                                     search_params: dict | None = None) -> Iterator[dict]:
         """
         https://datatracker.ietf.org/doc/html/rfc9051#name-fetch-response
         Fetch a specific number of mails from a mailbox with full details.
@@ -1649,7 +1654,7 @@ class ClientImap(ClientMailServer):
             "size": size, int
         }
 
-        Always yield the total number of mails matching the ``deleted`` filter
+        Always yield the total number of mails matching the ``deleted`` and ``search_params`` filters
         Then yield mail by mail, in the requested sort order (default: from the most recent to the oldest)
 
         :param mailbox: The mailbox to fetch mails from.
@@ -1666,6 +1671,9 @@ class ClientImap(ClientMailServer):
         :type sort_by: str | None
         :param sort_order: "asc" or "desc" (default "desc"), only used with ``sort_by``.
         :type sort_order: str | None
+        :param search_params: Generic search parameters (see ``build_search_criteria``, e.g. {"is_read": False}),
+            applied as a search criterion before pagination like ``deleted``. None means no extra criterion.
+        :type search_params: dict | None
         :raises RequestException: If fetching mails fails
         :return: A tuple of (list of mail dicts with full details, total count)
         :rtype: tuple[list[dict[str, Any]], int]
@@ -1675,7 +1683,7 @@ class ClientImap(ClientMailServer):
             if not folder_path.isascii():
                 raise RequestException(f"Mailbox name is not ascii: {folder_path}", err.ERROR_IMAP_NOT_ASCII)
             folder_path = quote(folder_path)
-            uid_list = self._search_deleted_filtered_uids(folder_path, deleted, sort_by, sort_order)
+            uid_list = self._search_filtered_uids(folder_path, deleted, search_params, sort_by, sort_order)
 
             #yield length
             yield {"nb_mails": len(uid_list)}
@@ -1805,7 +1813,8 @@ class ClientImap(ClientMailServer):
         return ret
 
     def fetch_all_mails_without_content(self, folder_path: str, number_of_mails: int, offset: int, deleted: bool = False,
-                                        sort_by: str | None = None, sort_order: str | None = None) -> Iterator[dict]:
+                                        sort_by: str | None = None, sort_order: str | None = None,
+                                        search_params: dict | None = None) -> Iterator[dict]:
         """
         https://datatracker.ietf.org/doc/html/rfc9051#name-fetch-response
         Fetch a specific number of mails from a mailbox with full details.
@@ -1818,7 +1827,7 @@ class ClientImap(ClientMailServer):
             "has_attachment": bool
         }
 
-        Always yield the total number of mails matching the ``deleted`` filter
+        Always yield the total number of mails matching the ``deleted`` and ``search_params`` filters
         Then yield mail by mail, in the requested sort order (default: from the most recent to the oldest)
 
         :param mailbox: The mailbox to fetch mails from.
@@ -1835,6 +1844,9 @@ class ClientImap(ClientMailServer):
         :type sort_by: str | None
         :param sort_order: "asc" or "desc" (default "desc"), only used with ``sort_by``.
         :type sort_order: str | None
+        :param search_params: Generic search parameters (see ``build_search_criteria``, e.g. {"is_read": False}),
+            applied as a search criterion before pagination like ``deleted``. None means no extra criterion.
+        :type search_params: dict | None
         :raises RequestException: If fetching mails fails
         :return: A tuple of (list of mail dicts with full details, total count)
         :rtype: tuple[list[dict[str, Any]], int]
@@ -1844,7 +1856,7 @@ class ClientImap(ClientMailServer):
             if not folder_path.isascii():
                 raise RequestException(f"Mailbox name is not ascii: {folder_path}", err.ERROR_IMAP_NOT_ASCII)
             folder_path = quote(folder_path)
-            uid_list = self._search_deleted_filtered_uids(folder_path, deleted, sort_by, sort_order)
+            uid_list = self._search_filtered_uids(folder_path, deleted, search_params, sort_by, sort_order)
 
             #yield length
             yield {"nb_mails": len(uid_list)}

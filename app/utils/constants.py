@@ -126,6 +126,17 @@ TMP_DRAFT_KEY_SIZE = 32  # Length of the unique hash key for a tmp_draft entry
 # Mail "fields" query param values (used by collection_paginate on mail list/search endpoints)
 MAIL_FIELD_CONTENTS = "contents"  # Include/exclude the mail content (body, attachments, ...)
 
+# Mail list "filter" query param values, mapped to the generic search_params key/value
+# understood by ClientMailServer.build_search_criteria (applied as a mail-server search criterion)
+MAIL_LIST_FILTER_TO_SEARCH_PARAM: dict[str, tuple[str, bool]] = {
+    # filter         search_params key  value
+    "read":        ("is_read",         True),
+    "unread":      ("is_read",         False),
+    "flagged":     ("is_flagged",      True),
+    "unflagged":   ("is_flagged",      False),
+    "attachments": ("has_attachment",  True),
+}
+
 # Mail deletion behavior mapping to (move_to_trash, permanently) flags
 DELETE_MAIL_BEHAVIOR_MAP = {
     # behavior                   move_to_trash  permanently

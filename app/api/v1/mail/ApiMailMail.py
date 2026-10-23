@@ -10,9 +10,10 @@ from flask_smorest import Blueprint
 
 from app.interface.mail.InterfaceApiMailMail import InterfaceApiMailMail
 from app.utils.logger.logger import logger_api
-from app.utils.api.paginate_sort_filter import collection_paginate, CustomPaginateResponse, DeletedFilterQueryArgsSchema
+from app.utils.api.paginate_sort_filter import collection_paginate, CustomPaginateResponse
 from .schemas.mail import (
     MailDetailResponseSchema,
+    MailListQueryArgsSchema,
     MailListResponseSchema,
     MailDeleteResponseSchema,
     MailRawResponseSchema,
@@ -60,9 +61,9 @@ class ApiMailFolderIdMail(MethodView):
     """
 
     @blp.response(200, MailListResponseSchema, example=MailListResponseSchema.example())
-    @blp.arguments(DeletedFilterQueryArgsSchema, location="query", arg_name="deleted_query")
+    @blp.arguments(MailListQueryArgsSchema, location="query", arg_name="list_query", error_status_code=400)
     @collection_paginate(blp, sort_value_set=MailListResponseSchema.sort_by_values(), filter_value_set=MailListResponseSchema.filter_by_values())
-    def get(self, collection_param: CollectionPaginateArgs, deleted_query: dict, account_id: str, folder_name: str) -> CustomPaginateResponse:
+    def get(self, collection_param: CollectionPaginateArgs, list_query: dict, account_id: str, folder_name: str) -> CustomPaginateResponse:
         """Fetch the list of mails in a specific folder.
 
         The filtering for this endpoint is special:\r\n
@@ -106,12 +107,24 @@ class ApiMailFolderIdMail(MethodView):
         them alongside non-deleted mails. It is applied as an IMAP search criterion, not
         a post-fetch filter, so pagination is unaffected by it.
 
+        The `filter` query parameter is a comma separated list of filters, all of which must match:
+
+        * **read**: only mails already seen
+        * **unread**: only mails not seen yet
+        * **flagged**: only mails flagged as important
+        * **unflagged**: only mails not flagged as important
+        * **attachments**: only mails with attachment(s)
+
+        e.g. `?filter=unread,attachments`. Contradictory filters (e.g. `read,unread`) are rejected (400).
+        Like `deleted`, filters are applied as IMAP search criteria before pagination: a page of 20
+        holds the 20 first matching mails, and the pagination total is the number of matching mails.
+
         ---
 
         :param collection_param: pagination, sorting and filtering args
         :type collection_param: CollectionPaginateArgs
-        :param deleted_query: parsed "deleted" query param
-        :type deleted_query: dict
+        :param list_query: parsed "deleted" and "filter" query params
+        :type list_query: dict
         :param account_id: The account identifier
         :type account_id: str
         :param folder_name: The folder identifier
@@ -122,7 +135,8 @@ class ApiMailFolderIdMail(MethodView):
         logger_api.debug("Calling ApiMailFolderIdMail: Fetching mail list for account_id: %s, folder_name: %s, params: %s", account_id, folder_name, collection_param)
         interface: InterfaceApiMailMail = g.inter
 
-        item_count, response, status_code = interface.get_mail_list(account_id, folder_name, collection_param, deleted_query["deleted"])
+        item_count, response, status_code = interface.get_mail_list(account_id, folder_name, collection_param,
+                                                                    list_query["deleted"], list_query["filter"])
 
         return item_count, response, status_code
 
