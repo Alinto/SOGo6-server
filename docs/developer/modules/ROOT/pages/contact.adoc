@@ -129,6 +129,31 @@ The contact ACL is deliberately simple: a single ordered level `ContactShareLeve
 
 Access (who, via ownership / sharing) and source capability (whether the backend can be written at all, `ContactSource.is_writable()`) are orthogonal concerns, kept separate. The engine is the adapter point for the future centralized ACL module: only `get_share_level` and the surfacing of shared books in `ContactSources` change when it lands.
 
+=== Shared address books: rights vs subscription
+
+Same model as shared calendars (see xref:calendar.adoc[]):
+
+* *Rights* (`sogo6_acl`, type `addressbook`) are decided by the owner through `/addressbooks/\{key}/share`. They are the only source of access.
+* *Subscription* (`folders.ADDRESSBOOKS.SUBS` in the recipient's profile) is the recipient's preference: "show this address book in my list". Presence of the key is the subscription; its boolean is only a display toggle. A subscription never grants anything - every read keeps resolving the ACL.
+
+A share only _offers_ the address book. The recipient discovers it and subscribes:
+
+* `GET /shared-addressbooks` - every address book the user can view (`can_view`) without owning it: direct shares and "anyone" shares (`<default>`) of the user's mail domain, each with the user's own `rights` and `subscribed`.
+* `PUT /shared-addressbooks/\{key}/subscribe` with body `{"subscribe": 1}` or `{"subscribe": 0}` (booleans accepted too). Both directions are idempotent and never touch the ACL.
+** `1` - requires `can_view` (`ModuleContact.require_subscribable`), then adds the key to SUBS and returns the book with `rights` and `subscribed: true`. An existing subscription keeps its display toggle. A book the user cannot view answers `ERROR_CONTACT_ADDRESSBOOK_NOT_FOUND`, like an unknown key; their own book answers `ERROR_CONTACT_CANNOT_SUBSCRIBE_OWN`.
+** `0` - removes the key from SUBS and returns `{key, subscribed: false}`. No access check, so a subscription whose share was revoked can still be cleaned up.
+
+The owner can still subscribe a recipient at share time with `"subscribe": true` on a `/share` body item. It is ignored for the "anyone" pseudo-user and for rights without `can_view`. Without it, nothing is written to the recipient's profile.
+
+`ContactSources` keeps two sets apart:
+
+* `get_all(uid)` - *access resolution*: every owned or shared book, subscribed or not. `get_by_key` resolves a single book the same way, so `GET /addressbooks/\{key}/contacts` and the per-book routes work on an unsubscribed book the user may read.
+* `get_listed(uid, shared_keys)` - *listing*: owned books plus the subscribed ones that still grant `can_view`. Used by `GET /addressbooks`, the transverse `GET /contacts` and recipient autocompletion (contacts and distribution lists).
+
+Layering: `ModuleContact` reads the subscriptions itself from `user.folders` and sets the transient `CardAddressBook.rights` / `CardAddressBook.subscribed` (`get_shared_addressbooks`, `require_subscribable`), so the interface only passes calls through and serializes. The only cross-module step left in the interface is the write to `folders.ADDRESSBOOKS.SUBS`, owned by `ModuleUserProfile`: `add_folder_key(..., keep_existing=True)` keeps an existing display toggle, `remove_folder_key` unsubscribes.
+
+Stale subscriptions (share revoked, `can_view` withdrawn, book deleted) are filtered at read time, without error, and never written back from a GET. The "anyone" shares are looked up with an SQL prefilter on the owner's domain, then the exact domain is compared in Python.
+
 [#Directory]
 == Directory (annuaire)
 

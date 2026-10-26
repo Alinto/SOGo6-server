@@ -29,6 +29,9 @@ from .schemas.calendar import (
     CalendarSharePutSchema,
     CalendarSharePostSchema,
     CalendarShareResponseSchema,
+    SharedCalendarListResponseSchema,
+    SharedCalendarResponseSchema,
+    SharedCalendarSubscribeSchema,
 )
 from .schemas.event import (
     AttendanceSchema,
@@ -442,6 +445,39 @@ class ApiCalendarShare(MethodView):
             return create_api_base_response(None, ERROR_SHARE_ANY_AUTH_DISABLED)
         interface: InterfaceApiCalendarCalendar = g.inter
         return interface.post_calendar_share(key, body)
+
+
+@blp.route("/shared-calendars")
+class ApiSharedCalendarList(MethodView):
+    """API to discover the calendars shared with the current user.
+
+    Sharing a calendar only offers it: it shows in GET /calendars once the recipient subscribes.
+    Not to be confused with /calendars/{key}/subscription, the public .ics link.
+    """
+
+    @blp.response(200, SharedCalendarListResponseSchema)
+    def get(self) -> ResponseReturnValue:
+        """List the calendars shared with the user (directly or with anyone in their domain) and whether they subscribed."""
+        logger_api.debug("GET /shared-calendars user=%s", g.user.uid)
+        interface: InterfaceApiCalendarCalendar = g.inter
+        return interface.get_shared_calendars()
+
+
+@blp.route("/shared-calendars/<string:key>/subscribe")
+class ApiSharedCalendarSubscribe(MethodView):
+    """API to subscribe to, or unsubscribe from, a calendar shared with the current user."""
+
+    @blp.arguments(SharedCalendarSubscribeSchema, example=SharedCalendarSubscribeSchema.example())
+    @blp.response(200, SharedCalendarResponseSchema)
+    def put(self, body: dict, key: str) -> ResponseReturnValue:
+        """Subscribe to (``subscribe: 1``) or unsubscribe from (``subscribe: 0``) a shared calendar.
+
+        Subscribing requires view rights on the calendar. Unsubscribing leaves the owner's share
+        untouched. Both are idempotent.
+        """
+        logger_api.debug("PUT /shared-calendars/%s/subscribe user=%s body=%s", key, g.user.uid, body)
+        interface: InterfaceApiCalendarCalendar = g.inter
+        return interface.set_calendar_subscription(key, body)
 
 
 @blp.route("/external-calendars")
