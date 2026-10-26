@@ -410,7 +410,7 @@ class ClientImap(ClientMailServer):
         except imaplib.IMAP4.error as e:
             # e.args is a tuple of bytes
             logger_imap.warning("IMAP command returns this error %s", e)
-            print(list(e.args))
+            logger_imap.warning(list(e.args))
             return False, list(e.args)
 
     def login(self, username: str, password: str, authname: str = "") -> None:

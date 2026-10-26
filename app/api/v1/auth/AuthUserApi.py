@@ -36,10 +36,7 @@ def build_sso_callback_url(kind:str, domain:str) -> str:
     :return: The callback url, empty if this kind has no callback (plain)
     :rtype: str
     """
-    print("######## Building SSO callback URL ########")
-    print(f"Building SSO callback URL for kind: {kind}, domain: {domain}")
     endpoint = SSO_CALLBACK_ENDPOINTS.get(kind)
-    print(f"Resolved endpoint for kind '{kind}': {endpoint}")
     if endpoint is None:
         return ""
     return url_for(endpoint, domain=domain, _external=True)
@@ -109,9 +106,6 @@ class ApiAuthUserCallbackOpenid(MethodView):
         Redirect to the UI url given to /mode with #token=<jwt token>, or #error=<error code>.
         If the UI url is unknown (invalid state), return the error.
         """
-        print("####### CALLBACK OPENID #######")
-        print(f"Domain: {domain}")
-        print(f"Query Parameters: {request.args.to_dict()}")
         interface_api : InterfaceAuthUser = g.inter
         ret = interface_api.sso_callback("openid", domain, request.args.to_dict(), build_sso_callback_url)
         if isinstance(ret, str):

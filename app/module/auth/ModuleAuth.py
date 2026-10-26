@@ -179,8 +179,7 @@ class ModuleAuth:  # pylint: disable=too-many-instance-attributes
         :rtype: bool
         """
         origin = _get_origin(ui_redirect)
-        print("Origin of UI redirect:", origin)
-        print("Allowed redirect origins:", self.allowed_redirect_origins)
+        logger_auth.info("Origin of UI redirect: %s", origin)
         return bool(origin) and origin in self.allowed_redirect_origins
 
     @staticmethod
@@ -214,7 +213,6 @@ class ModuleAuth:  # pylint: disable=too-many-instance-attributes
         :return: Dictionary containing the authentication kind and location
         :rtype: dict
         """
-        print("######## Getting login mechanism ########")
         domain = self._check_domain(uid)
         domain_auth_settings, _ = self._get_domain_auth_and_user_source_settings(domain)
         kind = domain_auth_settings.SOGO_D_AUTH_TYPE
