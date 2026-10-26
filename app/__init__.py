@@ -185,7 +185,7 @@ def register_before_request(base_blueprint: Blueprint, kind: str, sogo_state: in
             anon_endpoints = {
                 "user#Auth.v1_Auth.Auth.ApiAuthUserMode", 
                 "user#Auth.v1_Auth.Auth.ApiAuthUserLogin",
-                "user#Auth.v1_Auth.Auth.ApiAuthUserCallback",
+                "user#Auth.v1_Auth.Auth.ApiAuthUserCallbackOpenid",
                 "user#System.v1_System.System.ApiSystem",
             }
             if (isinstance(g.user, UserAnonymous)

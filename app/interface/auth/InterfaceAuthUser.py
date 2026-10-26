@@ -1,11 +1,12 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 from app.auth.User import UserAnonymous
 from app.config.settings.SystemSettings import SystemSettingsObj, SystemSettings
 from app.config.settings.DomainSettings import AuthSettingsObj, AuthSettings, UserSourceSettings, UserSourceSettingsObj, MailSettings, MailSettingsObj
 from app.config.settings.UserSettings import UserGeneralSettings
-from app.module.auth.ModuleAuth import ModuleAuth
+from app.module.admin.ModuleAdminConfig import ModuleAdminConfig
+from app.module.auth.ModuleAuth import ModuleAuth, build_ui_redirect_url
 from app.module.auth.ModuleUserSource import ModuleUserSource
 from app.module.calendar.ModuleCalendar import ModuleCalendar
 from app.module.contact.ModuleContact import ModuleContact
@@ -44,19 +45,21 @@ class InterfaceAuthUser:
         self._module_calendar: ModuleCalendar = ModuleCalendar(process)
         self._module_contact: ModuleContact = ModuleContact(process)
 
-    def get_login_mech(self, user_uid:str, redirect:str) -> tuple[dict, int]:
+    def get_login_mech(self, user_uid:str, redirect:str, callback_url_builder:Callable[[str, str], str]) -> tuple[dict, int]:
         """
         Get the login mech from a uid
 
         :param user_uid: The user unique ID
         :type user_uid: str
-        :param redirect: The redirect URL after authentication
+        :param redirect: UI url where the user is sent back after a SSO login, must match SOGO_S_OPENID_ALLOW_REDIRECT
         :type redirect: str
+        :param callback_url_builder: Function (kind, domain) -> url of the API callback for SSO
+        :type callback_url_builder: Callable[[str, str], str]
         :return: Tuple containing the API response dict and HTTP status code
         :rtype: tuple[dict, int]
         """
         try:
-            ret = self.module_auth.get_login_mech(user_uid)
+            ret = self.module_auth.get_login_mech(user_uid, redirect, callback_url_builder)
         except RequestException as e:
             return create_api_base_response(str(e), e.error)
         return create_api_base_response(ret)
@@ -97,26 +100,76 @@ class InterfaceAuthUser:
         if not success:
             return create_api_base_response(None, err.ERROR_LOGIN_FAILED)
 
-        # Generate the voucher for the authenticated user
-        ret = self.module_auth.generate_voucher_from_user(user)
-
         try:
-            if not self.module_user_profile.is_user_profile_present(uid):
-                self.module_user_profile.create_user_profile(user)
-                raw_gen: dict = self.module_user_profile.get_partial_user_preferences(uid, UserGeneralSettings.subparent.lower())
-                user_tz: str = raw_gen.get(UserGeneralSettings.subparent, {}).get("SOGO_U_TIMEZONE", "UTC")
-                personal_calendar = self._module_calendar.create_personal_calendar(uid, tz=user_tz)
-                personal_addressbook = self._module_contact.create_personal_addressbook(uid)
-                # Update the folders column with the personal calendar and addressbook keys
-                if personal_calendar.key and personal_addressbook.key:
-                    self.module_user_profile.update_user_folders(uid, personal_calendar.key, personal_addressbook.key)
-                module_mail = ModuleMail(user, MailSettingsObj(self.default_domain[MailSettings.subparent]), self.process)
-                module_mail.create_special_folders_if_not_exist(cs.DEFAULT_IDENTITY_KEY_VALUE)
+            self._onboard_user_if_needed(user)
         except RequestException as ex:
             logger_api.error("Request exception when onboarding user %s: %s", uid, str(ex))
             return create_api_base_response(None, ex.error)
 
+        # Generate the voucher once the user is onboarded: no session is created if the onboarding failed
+        ret = self.module_auth.generate_voucher_from_user(user)
         return create_api_base_response(ret)
+
+    def _onboard_user_if_needed(self, user:User) -> None:
+        """
+        On first login, create the user profile, personal calendar, personal addressbook and special mail folders
+
+        :param user: Authenticated user
+        :type user: User
+        :raises RequestException: If the onboarding failed
+        """
+        uid = user.uid
+        if self.module_user_profile.is_user_profile_present(uid):
+            return
+        #Settings of the user's domain (default ones if the domain has none): profile defaults, mail server...
+        user_domain_settings: dict = ModuleAdminConfig(self.process).get_one_domain_setting(user.domain)["settings"]
+        module_user_profile = ModuleUserProfile(self.process, user_domain_settings)
+        module_user_profile.create_user_profile(user)
+        raw_gen: dict = module_user_profile.get_partial_user_preferences(uid, UserGeneralSettings.subparent.lower())
+        user_tz: str = raw_gen.get(UserGeneralSettings.subparent, {}).get("SOGO_U_TIMEZONE", "UTC")
+        personal_calendar = self._module_calendar.create_personal_calendar(uid, tz=user_tz)
+        personal_addressbook = self._module_contact.create_personal_addressbook(uid)
+        # Update the folders column with the personal calendar and addressbook keys
+        if personal_calendar.key and personal_addressbook.key:
+            module_user_profile.update_user_folders(uid, personal_calendar.key, personal_addressbook.key)
+        module_mail = ModuleMail(user, MailSettingsObj(user_domain_settings[MailSettings.subparent]), self.process)
+        module_mail.create_special_folders_if_not_exist(cs.DEFAULT_IDENTITY_KEY_VALUE)
+
+    def sso_callback(self, kind:str, domain:str, callback_data:dict, callback_url_builder:Callable[[str, str], str]) -> str|tuple[dict, int]:
+        """
+        Authenticate the user with the data sent by the identity provider, then send the user back to the UI url
+        given to /auth/mode (kept with the state), with the result in the fragment:
+        - success: <ui url>#token=<jwt token>
+        - failure: <ui url>#error=<error code>
+        If the UI url is unknown (state missing, expired, already used...), the error is returned as an API response.
+
+        :param kind: Kind of SSO of the callback (openid, saml2...)
+        :type kind: str
+        :param domain: Domain given in the callback url
+        :type domain: str
+        :param callback_data: Data received on the callback
+        :type callback_data: dict
+        :param callback_url_builder: Function (kind, domain) -> url of the API callback for SSO
+        :type callback_url_builder: Callable[[str, str], str]
+        :return: The UI url to redirect to, or the API response and HTTP status code
+        :rtype: str|tuple[dict, int]
+        """
+        try:
+            user, _ = self.module_auth.get_user_from_sso_callback(kind, domain, callback_data, callback_url_builder)
+            try:
+                self._onboard_user_if_needed(user)
+            except RequestException as ex:
+                logger_api.error("Request exception when onboarding user %s: %s", user.uid, str(ex))
+                raise
+            #Generated once the user is onboarded: no session is created if the onboarding failed
+            ret = self.module_auth.generate_voucher_from_user(user)
+        except RequestException as e:
+            ui_redirect = self.module_auth.sso_ui_redirect
+            if not ui_redirect:
+                return create_api_base_response(str(e), e.error)
+            return build_ui_redirect_url(ui_redirect, {"error": e.error.c})
+
+        return build_ui_redirect_url(self.module_auth.sso_ui_redirect, {"token": ret["jwt_token"]})
 
     def check_user_and_fill_info(self, user:User) -> tuple[bool, User]:
         """
@@ -128,7 +181,13 @@ class InterfaceAuthUser:
         :return: True if the user credentials are ok
         :rtype: bool
         """
-        success, user_found, module_us = self._check_login(user.uid, user.password)
+        if user.auth_kind != cs.AUTH_KIND_PLAIN:
+            #SSO: the identity provider already authenticated the user, only check it still exists in its user source
+            #TODO check/refresh the access token (SOGO_D_OPENID_TOKEN_CHECK_INTERVAL, SOGO_D_OPENID_REFRESH_ENABLE)
+            module_us = ModuleUserSource.init_from_domain_settings(self.default_domain)
+            success, user_found = module_us.check_user_without_password(user), user
+        else:
+            success, user_found, module_us = self._check_login(user.uid, user.password)
         if success:
             self.module_user_profile.get_user_profile(user_found)
             return True, user_found

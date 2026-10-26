@@ -42,7 +42,6 @@ class AuthSettings(SogoSchema):
         "SOGO_D_OPENID_REFRESH_ENABLE": ("SOGO_D_AUTH_TYPE", "openid"),
         "SOGO_D_OPENID_ENDSESSION_ENABLED": ("SOGO_D_AUTH_TYPE", "openid"),
         "SOGO_D_OPENID_FETCH_USER_PROFILE": ("SOGO_D_AUTH_TYPE", "openid"),
-        "SOGO_D_OPENID_ALLOW_REDIRECT": ("SOGO_D_AUTH_TYPE", "openid"),
 
         "SOGO_D_SAML2_URL": ("SOGO_D_AUTH_TYPE", "saml2"),
 
@@ -59,7 +58,7 @@ class AuthSettings(SogoSchema):
 
     }
     is_secret = {"SOGO_D_OPENID_CLIENT_SECRET",}
-    is_required = {"SOGO_D_OPENID_CLIENT_NAME", "SOGO_D_OPENID_CLIENT_SECRET", "SOGO_D_OPENID_ALLOW_REDIRECT"}
+    is_required = {"SOGO_D_OPENID_CLIENT_NAME", "SOGO_D_OPENID_CLIENT_SECRET"}
     is_needed_by_ui = {"SOGO_D_PWD_CHANGE_ENABLED", "SOGO_D_PWD_RECOVERY",
                        "SOGO_D_PWD_RECOVERY_METHOD", "SOGO_D_LOGIN_MFA",
                         "SOGO_D_LOGIN_MFA_METHOD"}
@@ -81,7 +80,6 @@ class AuthSettings(SogoSchema):
     SOGO_D_OPENID_REFRESH_ENABLE       = fields.Boolean(load_default=True, dump_default=True) # Allowed or not sogo to refresh token if the openid server has the mechanism
     SOGO_D_OPENID_ENDSESSION_ENABLED   = fields.Boolean(load_default=False, dump_default=False) # Allowed or not sogo to logout from the openid server instead of just the webmail
     SOGO_D_OPENID_FETCH_USER_PROFILE   = fields.Boolean(load_default=True, dump_default=True) # sogo will fetch the user profile to get the user's email. If no, directly fetch from the token.
-    SOGO_D_OPENID_ALLOW_REDIRECT       = fields.List(fields.Url()) #List of UI redirect link that are allowed after the obtention of access_token. See openid flow pdf.
 
     #IF SOGO_D_AUTH_TYPE = 'saml2'
     SOGO_D_SAML2_URL  = fields.Url(schemes={'http','https'}, require_tld=False) #TODO saml2 configuration....
@@ -119,7 +117,6 @@ class AuthSettingsObj(SettingsObj):
     SOGO_D_OPENID_REFRESH_ENABLE: bool = True
     SOGO_D_OPENID_ENDSESSION_ENABLED: bool = False
     SOGO_D_OPENID_FETCH_USER_PROFILE: bool = True
-    SOGO_D_OPENID_ALLOW_REDIRECT: list[str] = []
     SOGO_D_SAML2_URL: str = ""
     SOGO_D_PWD_CHANGE_ENABLED: bool = False
     SOGO_D_LOGIN_CHECK_MAX_ATTEMPT: int = 0

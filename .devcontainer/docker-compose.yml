@@ -146,7 +146,26 @@ services:
       - openldap
     entrypoint: /entrypoint.sh
 
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.8.1
+    container_name: keycloak
+    ports:
+    - 8080:8080
+    environment:
+    - KEYCLOAK_ADMIN=admin
+    - KEYCLOAK_ADMIN_PASSWORD=admin
+    # Browser urls (authorization endpoint, issuer) use localhost:8080,
+    # backchannel calls from the server container (token, userinfo) can use keycloak:8080
+    - KC_HOSTNAME=http://localhost:8080
+    - KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true
+    volumes:
+    - keycloak:/opt/keycloak/data/
+    restart: unless-stopped
+    command:
+    - "start-dev"
+
 volumes:
   # sogo6-postgres:
   sogo6-mail-data:
   sogo6-sieve-data: # sogo6-mysql-data:
+  keycloak:

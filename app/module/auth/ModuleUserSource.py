@@ -175,6 +175,54 @@ class ModuleUserSource:
         self.fill_user_with_source_info(user, raw_contact)
         return auth
 
+    def check_user_without_password(self, user:User) -> bool:
+        """
+        Find a user already authenticated by an identity provider (SSO), no password is checked.
+        If user.source_id is set, only this user source is checked and the user is matched on its uid.
+        Otherwise all user sources that can authenticate are checked and the user is matched on its mail (user.mail).
+
+        :param user: User authenticated by the identity provider
+        :type user: User
+        :return: True if the user is found, user is then filled with the user source info
+        :rtype: bool
+        """
+        if user.source_id:
+            if user.source_id not in self.all_user_sources:
+                logger.warning("User source %s of user %s does not exist anymore", user.source_id, user.uid)
+                return False
+            sources = {user.source_id: self.all_user_sources[user.source_id]}
+        else:
+            sources = self.all_user_sources
+
+        for source_uid, source_settings in sources.items():
+            if not source_settings.US_CAN_AUTH:
+                continue
+            if source_settings.US_TYPE == "ldap" and source_settings.US_LDAP_BIND_AS_USER:
+                #Cannot search without the user password
+                logger.warning("User source %s has US_LDAP_BIND_AS_USER, it cannot be used with SSO", source_uid)
+                continue
+
+            search_cond: Condition.Condition
+            if user.source_id:
+                search_cond = Condition.EqualCondition(source_settings.US_FIELD_UID, user.uid)
+            else:
+                mail_conds: list[Condition.Condition] = [Condition.EqualCondition(field, user.mail) for field in source_settings.US_MAIL]
+                search_cond = mail_conds[0] if len(mail_conds) == 1 else Condition.OrCondition(*mail_conds)
+
+            client_us = self._get_manager_for_user_source(source_settings)
+            record = client_us.get_user_info(user.uid, search_cond, user.uid, user.domain, "")
+            if not record:
+                continue
+
+            user.uid = record[source_settings.US_FIELD_UID][0]
+            user.source_id = source_uid
+            user.authenticated = True
+            self.fill_user_with_contact_info(user, record)
+            self.fill_user_with_source_info(user, record)
+            return True
+
+        return False
+
 
     def _build_condition_for_search(self, search:str, user:User, us:UserSourceSettingsObj) -> Condition.Condition|None:
         """

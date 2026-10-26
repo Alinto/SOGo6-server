@@ -622,11 +622,8 @@ class ModuleUserProfile:
         # Encrypt certificates
         #TODO
 
-        print(f"Current content: {external_account}")
-        print(f"Patch content: {account_data}")
         # Partial update: merge with existing data, all_external_accounts, being a mutable dict, will be changed automatically
         merge_patch(account_data, external_account)
-        print(f"Result content: {external_account}")
 
         self._update_user_column(user.uid, tbl.COL_USER_EXTERNAL_ACCOUNTS.name, all_external_accounts)
 

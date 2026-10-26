@@ -22,6 +22,8 @@ USER_EMAIL  = "email"
 USER_SRC_ID = "source_id"
 USER_UNIT   = "unit"
 USER_CN     = "cn"
+USER_AUTH_KIND = "auth_kind" #SOGO_D_AUTH_TYPE used to log in (plain, openid...)
+AUTH_KIND_PLAIN = "plain"
 SESSION_KEY = "session_key"
 SESSION_LAST_SEEN = "last_activity"
 SESSION_SENSITIVE = "sensitive_data"
@@ -44,6 +46,11 @@ ZSET_USER_SESSIONS_UID = "user_sessions:uid"
 # Each member is a ``user_session:<uuid>`` key and its score is derived
 # from the domain string so that sessions can be sorted / filtered by domain.
 ZSET_USER_SESSIONS_DOMAIN = "user_sessions:domain"
+# SSO state: ``sso_state:<kind>:<callback url>:<state>`` keeps what the callback needs (redirect_uri, nonce...)
+# between the redirection to the identity provider and its callback. Single use (GETDEL).
+SSO_STATE_KEY_PREFIX = "sso_state:"
+SSO_STATE_TTL = 600 #Time given to the user to log in on the identity provider, in seconds
+SSO_STATE_UI_REDIRECT = "ui_redirect" #Key of the UI url in the SSO state data
 
 JWT_ISS = "iss"
 JWT_EXP = "exp"

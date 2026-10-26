@@ -39,6 +39,10 @@ class SystemSettings(SogoSchema):
     SOGO_S_DOMAINLESS_LOGIN = fields.Boolean(load_default=False, dump_default=False) #Allow login with only the username/uid and not the full email.
     SOGO_S_DIRECT_LOGIN = fields.Boolean(load_default=False, dump_default=False) #Tell the UI to directly do the login mech configured (only one for all users/domains)
 
+    #OpenID
+    SOGO_S_OPENID_ALLOW_REDIRECT = fields.List(fields.Url(schemes={'http','https'}, require_tld=False),
+                                               load_default=list, dump_default=list) #List of UI origins (scheme://host[:port]) allowed as redirection after a SSO login. See openid flow pdf.
+
     #Binary
     SOGO_S_SENDMAIL = fields.String(load_default="/usr/lib/sendmail", dump_default="/usr/lib/sendmail") #Admin can decide to use sendmail instead of smtp.
 
@@ -55,5 +59,6 @@ class SystemSettingsObj(SettingsObj):
     SOGO_S_REJECT_UNKNOWN_DOMAIN: bool = False
     SOGO_S_DOMAINLESS_LOGIN: bool = False
     SOGO_S_DIRECT_LOGIN: bool = False
+    SOGO_S_OPENID_ALLOW_REDIRECT: list[str] = []
     SOGO_S_SENDMAIL: str = "/usr/lib/sendmail"
 

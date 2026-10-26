@@ -291,6 +291,9 @@ class ClientLdap(ClientUserSource):
 
     def check_login(self, username: str, password: str, domain:str) -> tuple[bool, dict, dict[str, list[str]]]:
         """Check the user credentials"""
+        #An empty password is an unauthenticated bind, refused by the server with an error instead of invalid credentials
+        if not password:
+            return False, {}, {}
 
         #Create the base dn
         base_dn = self._get_dn_for_user(username, domain)

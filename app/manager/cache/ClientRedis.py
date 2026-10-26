@@ -150,6 +150,32 @@ class ClientRedis():
         logger_cache.info("Get no value for key '%s'", key)
         return None
 
+    def pop(self, key: str, expected_type: Type[str]|Type[list]|Type[dict]) -> str|list|dict|None:
+        """
+        Get the value stored in redis and delete it, atomically (GETDEL, needs REDIS 6.2).
+        Useful for single use values, only one caller can get it.
+
+        :param key: key name of the value
+        :type key: str
+        :param expected_type: type of value expected
+        :type expected_type: Type[str] | Type[list] | Type[dict]
+        :raises BugException: If expecting a list or dict but the value is not a json
+        :return: The value or None if the key does not exist.
+        :rtype: str|list|dict|None
+        """
+        result_str = cast(str|None, self.redis.getdel(key))
+        if result_str is None:
+            logger_cache.info("Pop no value for key '%s'", key)
+            return None
+        logger_cache.info("Pop cached value '%s' for key '%s'", result_str, key)
+        if expected_type == str:
+            return result_str
+        try:
+            result: list|dict = json_loads(result_str)
+        except (TypeError, JSONDecodeError) as e:
+            raise BugException("list/dict stored in redis is not a Json", err.ERROR_CACHE_DATA_NOT_JSON) from e
+        return result
+
     def hashset(self, key:str, data: dict, ttl: int) -> bool:
         """
         Create or update a hash in redis.
