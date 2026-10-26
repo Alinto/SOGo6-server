@@ -4,11 +4,13 @@
 # oauth2-introspection-url (not versioned):
 #   http://myClient:<SOGO_D_OPENID_CLIENT_SECRET>@keycloak:8080/realms/myRealm/protocol/openid-connect/token/introspect
 oauth2 {
-  introspection_mode = post
-  introspection_url = </etc/dovecot/oauth2-introspection-url
+  introspection_mode = auth
+  introspection_url = http://localhost:8080/realms/myRealm/protocol/openid-connect/userinfo
   username_attribute = email
+  username_format = %n
   active_attribute = active
   active_value = true
+  openid_configuration_url = http://localhost:8080/realms/myRealm/.well-known/openid-configuration
 }
 
 passdb oauth2 {

@@ -183,4 +183,3 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
-.devcontainer/conf/dovecot/oauth2-introspection-url
