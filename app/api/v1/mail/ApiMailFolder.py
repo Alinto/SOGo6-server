@@ -28,6 +28,8 @@ from .schemas.folder import (
     FolderExpungeResponseSchema,
     FolderPurgeResponseSchema,
     FolderShareResponseSchema,
+    FolderBatchActionSchema,
+    FolderBatchActionResponseSchema,
 )
 
 if TYPE_CHECKING:
@@ -208,6 +210,47 @@ class ApiMailFolderIdPurge(MethodView):
                         account_id, folder_name, purge_data)
         interface: InterfaceApiMailFolder = g.inter
         return interface.purge_folder_mails(account_id, folder_name, purge_data)
+
+
+@blp.route("/<path:folder_name>/batch-action")
+class ApiMailFolderIdBatchAction(MethodView):
+    """API to perform an action on every mail of a specific folder.
+    """
+    @blp.arguments(FolderBatchActionSchema, example=FolderBatchActionSchema.example(), error_status_code=400)
+    @blp.response(200, FolderBatchActionResponseSchema, example=FolderBatchActionResponseSchema.example())
+    def post(self, data: dict, account_id: str, folder_name: str) -> ResponseReturnValue:
+        """Action: Perform an action (tag, untag, move, spam, ham, copy...) on every mail of the specified folder.
+
+        Behaves like the mailbox batch action endpoint, without ``uids``: the action is applied
+        to all the mails present in the folder when the call starts (mails arriving meanwhile are
+        not affected), without listing their UIDs. In the response, ``mail_uid`` is the UID range
+        that was processed, or null if the folder is empty (nothing done).
+
+        **Supported actions:**
+
+        * **tag**: Add one or more tags to the mails. Tags are provided in the ``data`` field as a list of strings.
+        * **untag**: Remove one or more tags from the mails. Tags to remove are provided in the ``data`` field as a list of strings.
+        * **move**: Move the mails to another folder. The destination folder name must be provided in the ``data`` field as a string.
+        * **spam**: Mark the mails as spam.
+        * **ham**: Mark the mails as not spam: move them to INBOX and permanently remove them from the Junk folder. Only allowed when the folder is the Junk folder (error ``S000309`` otherwise).
+        * **copy**: Copy the mails to another folder. The destination folder name must be provided in the ``data`` field as a string.
+        * **delete**: Delete the mails, following the user's mail delete behavior preference.
+        * **illegal**: Report the mails as illegal content and move them to the Junk folder.
+        * **phishing**: Report the mails as phishing and move them to the Junk folder.
+
+        :param data: The batch action data containing 'action' and optional 'data' field
+        :type data: dict
+        :param account_id: The ID of the account
+        :type account_id: str
+        :param folder_name: The ID of the folder
+        :type folder_name: str
+        :return: A response indicating the result of the action
+        :rtype: ResponseReturnValue
+        """
+        logger_api.debug("Calling ApiMailFolderIdBatchAction.post for account_id: %s, folder_name: %s with action: %s",
+                        account_id, folder_name, data["action"])
+        interface: InterfaceApiMailFolder = g.inter
+        return interface.folder_batch_action(account_id, folder_name, data)
 
 
 @blp.route("/<path:folder_name>/export")

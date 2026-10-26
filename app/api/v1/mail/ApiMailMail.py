@@ -145,7 +145,7 @@ class ApiMailFolderIdAction(MethodView):
         * **untag**: Remove one or more tags from the selected mails. Tags to remove are provided in the ``data`` field as a list of strings.
         * **move**: Move the selected mails to another folder. The destination folder name must be provided in the ``data`` field as a string.
         * **spam**: Mark the selected mails as spam.
-        * **ham**: Mark the selected mails as not spam.
+        * **ham**: Mark the selected mails as not spam: move them to INBOX and permanently remove them from the Junk folder. Only allowed when the folder is the Junk folder (error ``S000309`` otherwise).
         * **copy**: Copy the selected mails to another folder. The destination folder name must be provided in the ``data`` field as a string.
         * **delete**: Delete the selected mails, following the user's mail delete behavior preference.
         * **illegal**: Report the selected mails as illegal content and move them to the Junk folder.
@@ -236,7 +236,7 @@ class ApiMailDetailAction(MethodView):
         * **untag**: Remove one or more tags from the mail. Tags to remove are provided in the ``data`` field as a list of strings.
         * **move**: Move the mail to another folder. The destination folder name must be provided in the ``data`` field as a string.
         * **spam**: Mark the mail as spam.
-        * **ham**: Mark the mail as not spam.
+        * **ham**: Mark the mail as not spam: move it to INBOX and permanently remove it from the Junk folder. Only allowed when the folder is the Junk folder (error ``S000309`` otherwise).
         * **copy**: Copy the mail to another folder. The destination folder name must be provided in the ``data`` field as a string.
         * **delete**: Delete the mail, following the user's mail delete behavior preference.
         * **illegal**: Report the mail as illegal content and move it to the Junk folder.

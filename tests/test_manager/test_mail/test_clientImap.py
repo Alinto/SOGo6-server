@@ -1390,6 +1390,40 @@ class TestGetFolderMessageCounts:
 
 
 # ===========================================================================
+# Tests: get_folder_uid_range
+# ===========================================================================
+
+class TestGetFolderUidRange:
+    def test_returns_range_below_uidnext(self):
+        fake_conn = FakeIMAPConnection()
+        fake_conn.status_response = ("OK", [b"INBOX (MESSAGES 42 UIDNEXT 4392)"])
+        client = authenticated_client(fake_conn)
+
+        assert client.get_folder_uid_range("INBOX") == "1:4391"
+
+    def test_empty_folder_returns_none(self):
+        fake_conn = FakeIMAPConnection()
+        fake_conn.status_response = ("OK", [b"INBOX (MESSAGES 0 UIDNEXT 4392)"])
+        client = authenticated_client(fake_conn)
+
+        assert client.get_folder_uid_range("INBOX") is None
+
+    def test_not_found_raises_request_exception(self):
+        fake_conn = FakeIMAPConnection()
+        fake_conn.status_response = ("NO", [b"Mailbox doesn't exist"])
+        client = authenticated_client(fake_conn)
+        with pytest.raises(RequestException):
+            client.get_folder_uid_range("Ghost")
+
+    def test_unexpected_response_raises_request_exception(self):
+        fake_conn = FakeIMAPConnection()
+        fake_conn.status_response = ("OK", [b"INBOX (MESSAGES 42)"])
+        client = authenticated_client(fake_conn)
+        with pytest.raises(RequestException):
+            client.get_folder_uid_range("INBOX")
+
+
+# ===========================================================================
 # Tests: copy_mail_to_mailbox
 # ===========================================================================
 

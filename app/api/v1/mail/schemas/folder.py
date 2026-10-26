@@ -74,6 +74,30 @@ class FolderPurgeSchema(Schema):
         }
 
 
+class FolderBatchActionSchema(Schema):
+    """
+    Schema for POST /mailboxes/<account_id>/folders/<path:folder_name>/batch-action - Perform an action
+    on every mail of a folder.
+    """
+    action = fields.String(
+        required=True,
+        validate=validate.OneOf(['tag', 'untag', 'move', 'spam', 'ham', 'copy', 'delete', 'illegal', 'phishing'])
+    )
+    data = fields.Raw(required=False, allow_none=True)
+
+    @classmethod
+    def example(cls) -> dict:
+        """Example data for folder batch action.
+
+        :return: Example folder batch action payload
+        :rtype: dict
+        """
+        return {
+            "action": "tag",
+            "data": ["important"]
+        }
+
+
 class FolderShareRightsInputSchema(Schema):
     """
     Advanced permission rights (one flag per IMAP ACL code) for the folder sharing request body.
@@ -489,6 +513,30 @@ class FolderPurgeResponseSchema(ApiBaseResponse):
             "error_msg": "",
             "data": {
                 "mails_deleted": 23
+            }
+        }
+
+
+class FolderBatchActionResponseSchema(ApiBaseResponse):
+    """
+    Schema for POST /mailboxes/<account_id>/folders/<path:folder_name>/batch-action response
+    """
+    data = fields.Dict(required=False, allow_none=True)
+
+    @classmethod
+    def example(cls) -> dict:
+        """Example response for folder batch action.
+
+        :return: Example folder batch action response
+        :rtype: dict
+        """
+        return {
+            "error_code": 0,
+            "error_msg": "",
+            "data": {
+                "action": "tag",
+                "mail_uid": "1:4391",
+                "tags_added": ["important"]
             }
         }
 
