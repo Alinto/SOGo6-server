@@ -105,10 +105,10 @@ class FakeVoucherUserService:
 
 
 def patch_import_manager(monkeypatch, fake_client):
-    """Patch import_and_instantiate_manager to return fake client."""
+    """Patch get_sogo6_database to return fake client."""
     monkeypatch.setattr(
-        "app.module.auth.ModuleAuth.import_and_instantiate_manager",
-        lambda module_path, module_and_class_name, module_args: fake_client
+        "app.module.auth.ModuleAuth.get_sogo6_database",
+        lambda process_settings: fake_client
     )
 
 

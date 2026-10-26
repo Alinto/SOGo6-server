@@ -1,12 +1,17 @@
-from typing import Any
+from typing import Any, Annotated, Literal
+
+from pydantic import Field, ValidationError, BeforeValidator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from app.utils.exceptions import BugException
+from app.utils.exceptions import BugException, AggravatedException
 
 # Path to the process configuration file (key=value format).
 # Environment variables always take precedence over values defined in this file.
 PROCESS_CONF_PATH = "/etc/sogo/process.conf"
+DEFAULT_SECRET_KEY = "90777fd15f122afad7f16f65895feaec5394b053847cb8beab51a7969b2ac75c"
 
+def _lowercase(v: str) -> str:
+    return v.lower() if isinstance(v, str) else v
 
 class FlaskConfig(BaseSettings):
     """
@@ -23,8 +28,7 @@ class FlaskConfig(BaseSettings):
     ######
 
     #Set you own secret key for production
-    SECRET_KEY: str = "90777fd15f122afad7f16f65895feaec5394b053847cb8beab51a7969b2ac75c"
-
+    SECRET_KEY: str = Field(DEFAULT_SECRET_KEY, min_length=32)
 
     #Flask smorest
     ##############
@@ -80,20 +84,20 @@ class ProcessSetting(FlaskConfig):
     SOGO_P_REDIS_URL: str #Url of the redis server
     SOGO_P_REDIS_RESP_3: bool = True # Version of RESP, 3 is strongly recommanded
 
-    SOGO_P_VOUCHER_SECRET: str #Fernet key must be 32 char string in utf-8.
+    SOGO_P_VOUCHER_SECRET: str = Field(..., pattern=r"^[A-Za-z0-9_-]{32}$") #Fernet key must be an url-safe 32 char string in utf-8.
     SOGO_AES_ENC_KEY: str #32 bytes key for AES-256
 
-    SOGO_P_DB_TYPE: str = "PostgreSQL"
+    SOGO_P_DB_TYPE: Annotated[Literal["postgresql", "mysql"], BeforeValidator(_lowercase)] = Field("postgresql")
     SOGO_P_DB_NAME: str = "sogo"
     SOGO_P_DB_USER: str = "admin"
     SOGO_P_DB_PASS: str = "admin"
     SOGO_P_DB_HOST: str = "localhost"
-    SOGO_P_DB_PORT: int = 5432
+    SOGO_P_DB_PORT: int = Field(5432, ge=1, le=65535)
     SOGO_P_DB_SSL: bool = False
     SOGO_P_DB_ENC: str  = "utf8" #encoding, needed or autodetected ?
 
     # Backend selecting the ClientStorage implementation (ClientStorage<Type>): database, local, webdav...
-    SOGO_P_STORAGE_TYPE: str = "database"
+    SOGO_P_STORAGE_TYPE: Literal["database"] = "database"
 
     SOGO_LOG_PATH: str = "/var/log/sogo/sogo.log"
 
@@ -141,12 +145,10 @@ class ProcessSetting(FlaskConfig):
     SOGO_P_TABLE_CONTACTS: str             = "sogo6_contacts_contacts"
     SOGO_P_TABLE_CONTACT_LISTS: str        = "sogo6_contacts_lists"
     SOGO_P_TABLE_CONTACT_LIST_MEMBERS: str = "sogo6_contacts_list_members"
-    SOGO_P_TABLE_FILE_STORAGE:         str = "sogo6_file_storage"
-    SOGO_P_TABLE_ACL:                  str = "sogo6_acl"
+    SOGO_P_TABLE_FILE_STORAGE: str         = "sogo6_file_storage"
+    SOGO_P_TABLE_ACL: str                  = "sogo6_acl"
 
     # --- Admin Authentication ---
-    # SOGO_P_ADMIN: str = "" # Admin username
-    # SOGO_P_ADMIN_PWD: str = "" # Admin password
     SOGO_P_ADMIN: str = "admin" # Admin username
     SOGO_P_ADMIN_PWD: str = "admin" # Admin password
 
@@ -189,5 +191,7 @@ class ProcessSetting(FlaskConfig):
         }
         return redis_dict
 
-
-process_config = ProcessSetting() # type: ignore [call-arg]
+try:
+    process_config = ProcessSetting() # type: ignore [call-arg]
+except ValidationError as e:
+    raise AggravatedException(f"Invalid Process Settings: {e}") from e

@@ -17,9 +17,11 @@ SELECT TOP 1 * from sogo_settings WHERE id = 1;
 # settings_system: sogo's system settings
 # settings_domain_default: sogo's domain default settings
 COL_SETTINGS_UNIQUE         = Column(name="settings_unique", data_type="int8")
+COL_SETTINGS_VERSION        = Column(name="settings_version", data_type="str")
 COL_SETTINGS_SYSTEM         = Column(name="settings_system", data_type="dict")
 COL_SETTINGS_DOMAIN_DEFAULT = Column(name="settings_domain_default", data_type="dict")
 ALL_SETTINGS_COL            = [COL_SETTINGS_UNIQUE,
+                               COL_SETTINGS_VERSION,
                                COL_SETTINGS_SYSTEM,
                                COL_SETTINGS_DOMAIN_DEFAULT]
 TABLE_SETTINGS = Table(name=process_config.SOGO_P_TABLE_SETTINGS, columns=ALL_SETTINGS_COL, primary_keys=(COL_SETTINGS_UNIQUE.name,))

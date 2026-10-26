@@ -7,6 +7,7 @@ from app.config.db import tables as tbl
 from app.config.settings.UserSettings import get_all_user_settings_schema, user_settings_dict
 from app.config.settings.SogoSchema import check_data_for_sogo_schemas
 from app.config.settings.DomainSettings import UserModuleSettingsObj, UserModuleSettings
+from app.module.common_module import get_sogo6_database
 from app.utils import errors as err
 from app.utils.db.Condition import EqualCondition
 from app.utils.dict import merge_patch
@@ -14,7 +15,6 @@ from app.utils.exceptions import BugException, RequestException, AggravatedExcep
 from app.utils.logger.logger import logger_user_profile
 from app.utils.maths.sogo_hash import get_unique_token, HASH_SIZE_USER, HASH_SIZE_ACCOUNT
 from app.utils.maths.crypto_utils import encrypt_password
-from app.utils.module.importManager import import_and_instantiate_manager
 
 if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
@@ -39,16 +39,9 @@ class ModuleUserProfile:
         """
         self.process_settings = process_settings
         self.user_domain = domain_settings
-
         self.user_module_settings = UserModuleSettingsObj(domain_settings[UserModuleSettings.subparent])
 
-        sogo_db_type = f"Client{process_settings.SOGO_P_DB_TYPE}"
-
-        self.sogo_db_manager: ClientSQL = import_and_instantiate_manager(
-            module_path="app.manager.db",
-            module_and_class_name=sogo_db_type,
-            module_args=self.process_settings.get_db_settings()
-        )
+        self.sogo_db_manager: ClientSQL = get_sogo6_database(process_settings)
 
     def is_user_profile_present(self, uid: str) -> bool:
         """
@@ -622,11 +615,8 @@ class ModuleUserProfile:
         # Encrypt certificates
         #TODO
 
-        print(f"Current content: {external_account}")
-        print(f"Patch content: {account_data}")
         # Partial update: merge with existing data, all_external_accounts, being a mutable dict, will be changed automatically
         merge_patch(account_data, external_account)
-        print(f"Result content: {external_account}")
 
         self._update_user_column(user.uid, tbl.COL_USER_EXTERNAL_ACCOUNTS.name, all_external_accounts)
 

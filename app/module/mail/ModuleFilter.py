@@ -2,6 +2,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from app.config.db import tables as tbl
+from app.module.common_module import get_sogo6_database
 from app.utils import errors as err
 from app.utils.constants import (
     FILTER_SECTIONS,
@@ -38,12 +39,7 @@ class ModuleFilter:
         self.mail_settings = mail_settings
         self.process_settings = process_settings
 
-        sogo_db_type = f"Client{process_settings.SOGO_P_DB_TYPE}"
-        self.sogo_db_manager: ClientSQL = import_and_instantiate_manager(
-            module_path="app.manager.db",
-            module_and_class_name=sogo_db_type,
-            module_args=process_settings.get_db_settings()
-        )
+        self.sogo_db_manager: ClientSQL = get_sogo6_database(process_settings)
 
     # ------------------------------------------------------------------ #
     # Filtering client                                                         #

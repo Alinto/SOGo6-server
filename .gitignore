@@ -2,6 +2,7 @@
 .history/
 README.private.md
 .devcontainer/conf/dovecot/sharing.db
+deploy/custom
 
 # antora
 node_modules/

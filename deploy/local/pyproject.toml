@@ -3,42 +3,43 @@ requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
 
 [project]
-name = "SOGo"
+name = "SOGo6-server"
 description = "SOGo 6 backend API server"
 authors = [
     {name = "Quentin Hivert", email = "quentin.hivert.fr@gmail.com"},
 ]
-license = { text = "GPL-3.0-or-later" }
+license = "GPL-3.0-or-later"
 dynamic = [ "version" ]
 requires-python = ">=3.13,<4.0"
 keywords = ["sogo", "webmail", "mail", "calendar"]
 dependencies = [
+    "argon2-cffi==25.1.0",
     "celery==5.6.3",
-    "click==8.4.2",
-    "cryptography==49.0.0",
+    "click==8.5.0",
+    "cryptography==50.0.2",
     "flask==3.1.3",
-    "flask-compress==1.24",
+    "flask-compress==1.25",
     "flask-cors==6.0.5",
     "flask-smorest==0.47.0",
-    "gunicorn==26.0.0",
-    "icalendar==7.2.0",
-    "marshmallow==4.3.0",
-    "mysql-connector-python==9.7.0",
-    "psycopg==3.3.4",
-    "pydantic==2.13.4",
-    "pydantic-settings==2.14.2",
-    "pyjwt==2.13.0",
-    "python-ldap==3.4.7",
-    "pytest-mock==3.15.1",
-    "redis==8.0.1",
-    "sievelib==1.5.0",
-    "types-smorest==1.1.2",
-    "yarl==1.24.2",
+    "gunicorn==26.2.0",
+    "icalendar==7.3.0",
+    "marshmallow==4.3.1",
+    "mysql-connector-python==26.10.0",
+    "passlib==1.7.4",
+    "psycopg==3.3.6",
+    "pydantic==2.14.1",
+    "pydantic-settings==2.16.1",
+    "pyjwt==2.15.1",
+    "python-ldap==3.4.8",
+    "redis==8.1.0",
+    "sievelib==1.6.0",
+    "yarl==1.25.1",
 ]
 
 
+
 [tool.poetry]
-version = "6.0.alpha"  # base version
+version = "6.0.0a2"  # base version
 packages = [
     { include = "app" },
 ]

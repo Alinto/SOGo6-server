@@ -283,10 +283,18 @@ class ImapFolder:
             self.nb_unseen = 0
             return False
         #Check status
-        match = re.search(r'^([^\s]+)\s+\(MESSAGES\s+(\d+).*?UNSEEN\s+(\d+)\)', response_status)
+        pattern = re.compile(r'^(?P<name>.+?) \(MESSAGES (?P<messages>\d+) UNSEEN (?P<unseen>\d+)\)$')
+        match = pattern.match(response_status)
         if match:
-            self.nb_mails = int(match.group(2))
-            self.nb_unseen = int(match.group(3))
+            name_from_status = match["name"]
+            if name_from_status != self.path:
+                #Happen for sharing folder. The folder appears as selectable but cannot
+                self.can_be_select = False
+                self.nb_mails = 0
+                self.nb_unseen = 0
+                return False
+            self.nb_mails = int(match["messages"])
+            self.nb_unseen = int(match["unseen"])
             return True
         return False
 
@@ -420,7 +428,6 @@ class ClientImap(ClientMailServer):
         except imaplib.IMAP4.error as e:
             # e.args is a tuple of bytes
             logger_imap.warning("IMAP command returns this error %s", e)
-            print(list(e.args))
             return False, list(e.args)
 
     def login(self, username: str, password: str, authname: str = "") -> None:

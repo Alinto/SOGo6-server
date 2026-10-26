@@ -61,7 +61,7 @@ logger_ldap = getLogger("sogolog.ldap")
 
 logger_imap.setLevel(WARNING)
 # logger_cache.setLevel(DEBUG)
-logger_sql.setLevel(DEBUG)
+logger_sql.setLevel(WARNING)
 # logger_sql.setLevel(ERROR)
 logger_cache.setLevel(WARNING)
 logger_api.setLevel(DEBUG)

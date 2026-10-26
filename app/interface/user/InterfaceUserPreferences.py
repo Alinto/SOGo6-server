@@ -100,7 +100,6 @@ class InterfaceUserPreferences:
         """
         try:
             data = self.module_user_profile.update_user_preferences(self.user.uid, new_data)
-            print(data)
         except ValidationError as ex:
             return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR)
         except RequestException as e:

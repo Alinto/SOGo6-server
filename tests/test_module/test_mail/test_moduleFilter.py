@@ -94,9 +94,9 @@ def _make_module(monkeypatch, fake_db=None, fake_filter_client=None):
     mock_process_settings.SOGO_P_DB_TYPE = 'PostgreSQL'
     mock_process_settings.get_db_settings.return_value = {}
 
-    # Patch import_and_instantiate_manager so that __init__ receives our fake DB
+    # Patch get_sogo6_database so that __init__ receives our fake DB
     monkeypatch.setattr(
-        'app.module.mail.ModuleFilter.import_and_instantiate_manager',
+        'app.module.mail.ModuleFilter.get_sogo6_database',
         lambda *args, **kwargs: fake_db,
     )
 
@@ -124,7 +124,7 @@ def test_module_init_success(monkeypatch):
     mock_process_settings.get_db_settings.return_value = {}
 
     monkeypatch.setattr(
-        'app.module.mail.ModuleFilter.import_and_instantiate_manager',
+        'app.module.mail.ModuleFilter.get_sogo6_database',
         lambda *args, **kwargs: fake_db,
     )
 

@@ -82,7 +82,7 @@ You can find example of those files there [system_settings](scripts/init/system_
 * [Doc for system settings](https://www.sogo.nu/files/docs/v6/SOGo6-AdminDoc/alpha/2_2_system_settings.html)
 * Doc for domain settings: Not finished yet
 
-### Start
+### Start dev mode (Flask only)
 
 Once all of this is done, use poetry to install the dependencies:
 
@@ -93,10 +93,17 @@ poetry install
 Then you can run the Flask server:
 
 ```
-poetry run start
+poetry run dev
 ```
 
-*No proper gunicorn conf is provided yet, you can only run Flask in develloper mode.*
+### Start server mode (with gunicorn)
+
+This mode use gunicorn to deploy a server with several worker.
+
+
+```
+poetry run gunicorn -c app/gunicorn.conf.py app.run_server:app
+```
 
 ### Swaggers
 

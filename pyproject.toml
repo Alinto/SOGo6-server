@@ -3,17 +3,18 @@ requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
 
 [project]
-name = "SOGo"
+name = "SOGo6-server"
 description = "SOGo 6 backend API server"
 authors = [
     {name = "Quentin Hivert", email = "quentin.hivert.fr@gmail.com"},
 ]
-license = { text = "GPL-3.0-or-later" }
+license = "GPL-3.0-or-later"
 readme = "README.md"
 dynamic = [ "version" ]
 requires-python = ">=3.13,<4.0"
 keywords = ["sogo", "webmail", "mail", "calendar"]
 dependencies = [
+    "argon2-cffi",
     "celery",
     "click",
     "cryptography",
@@ -25,23 +26,20 @@ dependencies = [
     "icalendar",
     "marshmallow",
     "mysql-connector-python",
+    "passlib",
     "psycopg",
     "pydantic",
     "pydantic-settings",
     "pyjwt",
     "python-ldap",
-    "pytest-mock",
     "redis",
     "sievelib",
-    "types-smorest",
     "yarl",
-    "passlib (>=1.7.4,<2.0.0)",
-    "argon2-cffi (>=25.1.0,<26.0.0)",
 ]
 
 
 [tool.poetry]
-version = "6.0.0-alpha2"  # base version
+version = "6.0.0a2"  # base version
 packages = [
     { include = "app" },
 ]
@@ -50,18 +48,22 @@ exclude = ["tests"]
 [tool.poetry.group.dev.dependencies]
 pytest = "^9.0.0"
 pytest-cov = "^7.0.0"
+pytest-mock = "^3.17.0"
 black = "^26.1"
 pylint = "^4.0.0"
 pre-commit = "^4.2.0"
 mypy = "^1.17.1"
+types-smorest = "^1.1.0"
 
 
 [tool.poetry.requires-plugins]
 poetry-plugin-export = ">=1.8"
 
-[tool.poetry.scripts]
+[project.scripts]
 # poetry run start
-start = "app.run:main"
+start = "app.run_dev:main"
+# poetry run dev
+dev = "app.run_dev:main"
 # poetry run agent
 agent = "app.agent.run:main"
 # poetry run agent-beat

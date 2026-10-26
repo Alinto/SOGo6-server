@@ -42,11 +42,11 @@ from app.module.calendar.jobs.JobRequestExportIcs import JobRequestExportIcs
 from app.module.calendar.jobs.JobRequestImportIcs import JobRequestImportIcs
 from app.module.calendar.jobs.JobRequestSyncExternalManual import JobRequestSyncExternalManual
 from app.module.calendar.source.CalendarSources import CalendarSources
+from app.module.common_module import get_sogo6_database
 from app.utils import errors as err
 from app.utils.exceptions import BugException, RequestException
 from app.utils.logger.logger import logger_calendar
 from app.utils.maths.sogo_hash import generate_uuid, get_unique_token
-from app.utils.module.importManager import import_and_instantiate_manager
 from app.auth.User import User
 
 if TYPE_CHECKING:
@@ -67,12 +67,7 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
         self, process_settings: ProcessSetting,
         cache: ClientRedis | None = None, agent: ClientAgent | None = None,
     ) -> None:
-        sogo_db_type: str = f"Client{process_settings.SOGO_P_DB_TYPE}"
-        self._db: ClientSQL = import_and_instantiate_manager(
-            module_path="app.manager.db",
-            module_and_class_name=sogo_db_type,
-            module_args=process_settings.get_db_settings(),
-        )
+        self._db: ClientSQL = get_sogo6_database(process_settings)
         self._db.connect()
         self._cache: ClientRedis | None = cache
         self._agent: ClientAgent | None = agent

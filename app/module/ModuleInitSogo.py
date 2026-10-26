@@ -3,11 +3,11 @@ from typing import TYPE_CHECKING
 
 from os import getpid
 
-from app.utils.logger.logger import logger
-from app.utils.exceptions import AggravatedException
-from app.utils.module.importManager import import_and_instantiate_manager
 from app.config.db.tables import ALL_TABLES
 from app.manager.cache.ClientRedis import ClientRedis
+from app.module.common_module import get_sogo6_database
+from app.utils.logger.logger import logger
+
 
 if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
@@ -32,12 +32,24 @@ class ModuleInitSogo:
         self.first_init: bool  = True
         self.errors: list[str] = []
 
-    def check_redis(self) -> ClientRedis:
+    def get_cache(self) -> ClientRedis:
         """
-        Check sogo can reach the reddis cache
+        Instantiate and return the cache client
+
+        :return: _description_
+        :rtype: ClientRedis
         """
+        #TODO mache an abstract cache_client instead of directly use redis_client.
         redis_conf = self.process_settings.get_redis_settings()
         cache_client = ClientRedis(**redis_conf)
+
+        return cache_client
+
+    def check_cache(self) -> None:
+        """
+        Check sogo can reach the reddis cache.
+        """
+        cache_client = self.get_cache()
 
         # Test connectivity
         cache_client.ping()
@@ -48,23 +60,16 @@ class ModuleInitSogo:
         if ret:= cache_client.get(key, str) != "simplestring":
             self.errors.append(f"Cache client did not read the correct string {ret}")
         cache_client.delete(key)
+        cache_client.close()
 
-        return cache_client
+
 
 
     def check_sogo_database(self) -> None:
         """
         Check the database, meamning connection and structure
         """
-        # For now, SOGo 6 forces the use of a postgresql database for its own data
-        # If we want to change in the future, we must import the manager dynamically
-        # to avoid a complete code rewritting.
-        fake_process_settings_db = self.process_settings.SOGO_P_DB_TYPE
-        sogo_db_type = f"Client{fake_process_settings_db}"
-
-        sogo_db_manager: ClientSQL = import_and_instantiate_manager(module_path="app.manager.db",
-                                                         module_and_class_name=sogo_db_type,
-                                                         module_args=self.process_settings.get_db_settings())
+        sogo_db_manager: ClientSQL = get_sogo6_database(self.process_settings)
 
         # Check tables
         table_ok = []
@@ -90,6 +95,7 @@ class ModuleInitSogo:
             sogo_db_manager.create_several_table(ALL_TABLES)
         elif temp_error:
             # Some tables are ok, the others not. SOGo is in an unknwon state
+            #TODO add the update from version here
             self.errors.extend(temp_error)
         elif len(table_ok) == len(ALL_TABLES):
             #All tables are ok

@@ -1,19 +1,19 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Any, Type, Callable
+from typing import TYPE_CHECKING, Callable
 
-from marshmallow import EXCLUDE
-import json
+
+from app import __version__
 from app.config.db import tables as tbl
 from app.config.settings.SystemSettings import get_all_system_schemas
 from app.config.settings.DomainSettings import get_all_domain_schemas
 from app.config.settings.DynamicFormSettings import create_dynamic_dict_for_settings
-from app.config.settings.SogoSchema import SogoSchema, check_data_for_sogo_schemas
+from app.config.settings.SogoSchema import check_data_for_sogo_schemas
+from app.module.common_module import get_sogo6_database
 from app.utils.dict import merge_patch, set_origin_from_settings
-from app.utils.db.Condition import EqualCondition, NotEqualCondition, TrueCondition, Order, order_str_to_order_enum
+from app.utils.db.Condition import EqualCondition, NotEqualCondition, TrueCondition, Order
 from app.utils.db.Table import Column
 from app.utils.exceptions import AggravatedException, BugException, RequestException
-from app.utils.logger.logger import logger, logger_api
-from app.utils.module.importManager import import_and_instantiate_manager
+from app.utils.logger.logger import logger
 from app.utils.maths.sogo_hash import get_unique_token, HASH_SIZE_DOMAIN
 from app.utils import errors as err
 
@@ -34,12 +34,7 @@ class ModuleAdminConfig:
         :param process_settings: Process settings containing database configuration
         :type process_settings: ProcessSetting
         """
-        self.process_settings  = process_settings
-        sogo_db_type = f"Client{process_settings.SOGO_P_DB_TYPE}"
-
-        self.sogo_db_manager: ClientSQL = import_and_instantiate_manager(module_path="app.manager.db",
-                                                         module_and_class_name=sogo_db_type,
-                                                         module_args=self.process_settings.get_db_settings())
+        self.sogo_db_manager: ClientSQL = get_sogo6_database(process_settings)
 
     def get_dynamic_form_settings(self) -> dict:
         """
@@ -100,6 +95,15 @@ class ModuleAdminConfig:
 
         return ret
 
+
+    def get_version(self) -> str:
+        """
+        Return the version storeds in the database
+
+        :return: _description_
+        :rtype: str
+        """
+        return self._get_setting_from_table_settings([tbl.COL_SETTINGS_VERSION])[0]
 
     def get_system_settings(self) -> dict:
         """
@@ -277,13 +281,13 @@ class ModuleAdminConfig:
             merge_patch(new_param, clean_param)
             values = check_data_for_sogo_schemas(clean_param, get_schema)
             if column.name == tbl.COL_SETTINGS_SYSTEM.name:
-                values_tuple = [1, values, {}]
+                values_tuple = [1, __version__, values, {}]
             elif column.name == tbl.COL_SETTINGS_DOMAIN_DEFAULT.name:
-                values_tuple = [1, {}, values]
+                values_tuple = [1, __version__, {}, values]
             else:
                 raise BugException(f"Trying to insert an unknown column in {tbl.TABLE_SETTINGS.name}: {column.name}", err.ERROR_BUG_UNKNWON_COLUMN)
             ret = self.sogo_db_manager.insert_in_table(table_name=tbl.TABLE_SETTINGS.name,
-                                               column_tuple=(tbl.COL_SETTINGS_UNIQUE.name, tbl.COL_SETTINGS_SYSTEM.name,tbl.COL_SETTINGS_DOMAIN_DEFAULT.name),
+                                               column_tuple=tuple(tbl.TABLE_SETTINGS.columns_name),
                                                values_tuple=[values_tuple])
         if size == 1:
             #Merge the new data and check it

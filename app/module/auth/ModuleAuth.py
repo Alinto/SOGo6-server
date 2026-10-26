@@ -6,11 +6,11 @@ from app.auth.User import User
 from app.auth.service.VoucherUserService import VoucherUserService
 from app.config.db import tables as tbl
 from app.config.settings.DomainSettings import AuthSettings, AuthSettingsObj, UserSourceSettings, UserSourceSettingsObj
+from app.module.common_module import get_sogo6_database
 from app.service import sogo_cache
 from app.utils.db.Condition import EqualCondition
 from app.utils.exceptions import RequestException
 from app.utils.strings import get_domain_from_mail
-from app.utils.module.importManager import import_and_instantiate_manager
 
 if TYPE_CHECKING:
     from app.config.settings.DomainSettings import AuthSettingsObj, UserSourceSettingsObj
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from app.manager.db.ClientSQL import ClientSQL
 
 class ModuleAuth:
-    """
+    """from app.utils.module.importManager import import_and_instantiate_manager
     Module to handle authentication. Thos module only take one user source.
     """
     def __init__(self, process: ProcessSetting,
@@ -81,12 +81,7 @@ class ModuleAuth:
         domain_auth_settings = self.default_auth
         domain_user_source = self.default_us
         if domain and self.do_domains:
-            fake_process_settings_db = self.process_settings.SOGO_P_DB_TYPE
-            sogo_db_type = f"Client{fake_process_settings_db}"
-
-            sogo_db_manager: ClientSQL = import_and_instantiate_manager(module_path="app.manager.db",
-                                                            module_and_class_name=sogo_db_type,
-                                                            module_args=self.process_settings.get_db_settings())
+            sogo_db_manager: ClientSQL = get_sogo6_database(self.process_settings)
             condition = EqualCondition(tbl.COL_DOMAIN_NAME.name, domain)
             sogo_db_manager.connect()
             result = list(sogo_db_manager.select_from_table(tbl.TABLE_DOMAIN,

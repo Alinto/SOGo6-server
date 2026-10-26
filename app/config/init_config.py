@@ -100,6 +100,46 @@ def check_basic_config() -> bool:
     logger.info("SOGo auto-initialization succeeded. Moving to SOGO_OK state.")
     return True
 
+def init_once() -> None:
+    """
+    This method is called once by gunicorn (or others WSGI App Server).
+    Its roles:
+    * Check the database is reachable
+    * Check the database tables and columns (with auto-update system)
+    * Check the system_settings and domain_settings (with auto-write from files if configured)
+    * Check that redis is reachable
+
+    If one of this fail, it will raise AggravatedException and the worker will not be launch
+    """
+    init_module = ModuleInitSogo(process_config)
+    init_module.check_sogo_database()
+    init_module.check_cache()
+    if init_module.errors:
+        raise AggravatedException(f"Sogo cannot be initiated because: {init_module.errors}")
+
+def init_worker() -> tuple[int, ClientRedis, ClientAgent]:
+    """
+    This method is called by each Flask workers
+    Its roles:
+    * Instantiate redis
+    * Check database system_settings and domain_settings and get them
+    """
+    init_module = ModuleInitSogo(process_config)
+    cache_client = init_module.get_cache()
+    persistency = JobPersistency(
+            cache_client, ttl_seconds=process_config.SOGO_P_AGENT_JOB_STATE_TTL_SECONDS,
+    )
+    init_jobs()
+    agent_client = ClientAgent(
+            agent, persistency, JobCanceller(agent, persistency), cache_client,
+            agent.get_large_store(),
+    )
+    sogo_state = cs.SOGO_NOT_INIT
+    #No errors, check if SOGo already has a configuration
+    if check_basic_config():
+        sogo_state = cs.SOGO_OK
+    return sogo_state, cache_client, agent_client
+
 def init_infra() -> tuple[ClientRedis, JobPersistency]:
     """
     Check shared infrastructure (DB, Redis) and build the resources used by both
@@ -108,7 +148,7 @@ def init_infra() -> tuple[ClientRedis, JobPersistency]:
     """
     init_module = ModuleInitSogo(process_config)
     init_module.check_sogo_database()
-    cache_client = init_module.check_redis()
+    cache_client = init_module.get_cache()
     if init_module.errors:
         raise AggravatedException(f"Sogo cannot be initiated because: {init_module.errors}")
     persistency = JobPersistency(

@@ -62,7 +62,7 @@ def init_sogo() -> tuple[int, ClientRedis]:
     init_module = ModuleInitSogo(process_config)
     init_module.check_sogo_database()
     
-    cache_client = init_module.check_redis()
+    cache_client = init_module.check_cache()
     
     #TODO
     #check agent
@@ -184,13 +184,13 @@ sogo_db_manager.close()
 
 === 4. Redis Verification
 
-==== 4.1. Method: `check_redis()`
+==== 4.1. Method: `check_cache()`
 
 File: `/workspace/app/module/ModuleInitSogo.py`
 
 [source,python]
 ----
-def check_redis(self) -> ClientRedis:
+def check_cache(self) -> ClientRedis:
     redis_conf = self.process_settings.get_redis_settings()
     cache_client = ClientRedis(**redis_conf)
     
@@ -398,7 +398,7 @@ If `check_basic_config()` returns `True` (both configurations exist and are not 
            │
            v
 ┌─────────────────────────────┐
-│ check_redis()               │
+│ check_cache()               │
 │                             │
 │ • Test ping                 │
 │ • Test set/get/delete       │

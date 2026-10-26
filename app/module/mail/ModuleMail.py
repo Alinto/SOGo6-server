@@ -19,6 +19,7 @@ from app.factory.share.RepositoryAcl import AclEntry
 from app.factory.share.shareMailFolder import (
     FOLDER_RESOURCE_TYPE, imap_permissions_to_rights, rights_to_imap_permissions, right_to_camel,
 )
+from app.module.common_module import get_sogo6_database
 from app.module.mail.model.TmpDraftManager import TmpDraftManager
 from app.manager.mail.ClientMailServer import ClientMailServer
 from app.utils import constants as cs
@@ -54,7 +55,6 @@ class ModuleMail:
         self.domain_mail_folder_name: dict = {}
         self._process_setting: ProcessSetting | None = process_setting
         self._db: ClientSQL | None = None
-        self._share: ShareMailFolder | None = None
 
     def _get_db(self) -> ClientSQL:
         """Return the DB client, lazily initialising it on first call.
@@ -65,20 +65,9 @@ class ModuleMail:
         if self._process_setting is None:
             raise BugException("ModuleMail was instantiated without a process_setting but a DB operation was requested")
         if self._db is None:
-            sogo_db_type = f"Client{self._process_setting.SOGO_P_DB_TYPE}"
-            self._db = import_and_instantiate_manager(
-                module_path="app.manager.db",
-                module_and_class_name=sogo_db_type,
-                module_args=self._process_setting.get_db_settings(),
-            )
+            self._db = get_sogo6_database(self._process_setting)
             self._db.connect()
         return self._db
-
-    def _get_share(self) -> ShareMailFolder:
-        """Return the mail folder ACL sharing helper, lazily initialising it on first call."""
-        if self._share is None:
-            self._share = ShareMailFolder(self._get_db())
-        return self._share
 
     @staticmethod
     def _folder_acl_key(account_id: str, folder_path: str) -> str:

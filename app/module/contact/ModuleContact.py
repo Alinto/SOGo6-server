@@ -19,6 +19,7 @@ from app.module.contact.model.CardAddressBook import CardAddressBook
 from app.module.contact.model.ContactImportResult import ContactImportResult
 from app.module.contact.model.enums.CardSourceType import CardSourceType
 from app.module.contact.source.ContactSources import ContactSources
+from app.module.common_module import get_sogo6_database
 from app.utils import errors as err
 from app.utils.db.Condition import Order
 from app.utils.exceptions import BugException, RequestException
@@ -46,12 +47,7 @@ class ModuleContact:  # pylint: disable=too-many-public-methods
         self, process_settings: ProcessSetting,
         cache: ClientRedis | None = None, agent: ClientAgent | None = None,
     ) -> None:
-        sogo_db_type: str = f"Client{process_settings.SOGO_P_DB_TYPE}"
-        self._db: ClientSQL = import_and_instantiate_manager(
-            module_path="app.manager.db",
-            module_and_class_name=sogo_db_type,
-            module_args=process_settings.get_db_settings(),
-        )
+        self._db: ClientSQL = get_sogo6_database(process_settings)
         self._db.connect()
         self._cache: ClientRedis | None = cache
         self._agent: ClientAgent | None = agent

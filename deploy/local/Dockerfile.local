@@ -24,4 +24,4 @@ RUN curl -sSL https://install.python-poetry.org | python - && \
     poetry config virtualenvs.in-project true && \
     poetry install --no-cache --no-ansi --no-interaction
 
-CMD ["poetry", "run", "gunicorn", "-c", "app/gunicorn.conf.py", "app.run:app"]
+CMD ["poetry", "run", "gunicorn", "-c", "app/gunicorn.conf.py", "app.run_server:app"]
