@@ -72,10 +72,10 @@ class FakeClientSQL:
     def connect(self):
         self.connect_calls += 1
 
-    def select_from_table(self, table_name, column_tuple, condition=None, offset=None, limit=None, sort_by=None, order=None):
+    def select_from_table(self, table, columns, condition=None, offset=None, limit=None, sort_by=None, order=None):
         self.select_calls.append({
-            "table_name": table_name,
-            "column_tuple": column_tuple,
+            "table": table,
+            "columns": columns,
             "condition": condition,
         })
         result = self.select_result
@@ -136,7 +136,7 @@ def _make_module(monkeypatch, fake_db=None):
     mock_process_settings.SOGO_P_DB_TYPE = "MySQL"
     mock_process_settings.get_db_settings.return_value = {}
 
-    with patch("app.module.admin.ModuleAdminConfig.import_and_instantiate_manager", return_value=fake_db):
+    with patch("app.module.admin.ModuleAdminConfig.get_sogo6_database", return_value=fake_db):
         module = ModuleAdminConfig(process_settings=mock_process_settings)
 
     return module, fake_db
@@ -367,7 +367,7 @@ def test_get_one_domain_setting_not_found_returns_default(monkeypatch):
     results_queue = [[], [(DEFAULT_DOMAIN_SETTINGS,)]]
     idx = [0]
 
-    def queued_select(table_name, column_tuple, condition=None, **kwargs):
+    def queued_select(table, columns, condition=None, **kwargs):
         res = results_queue[idx[0]] if idx[0] < len(results_queue) else []
         idx[0] += 1
         return iter(res)
@@ -406,7 +406,7 @@ def test_get_one_domain_setting_found_merges_with_defaults(monkeypatch):
     ]
     idx = [0]
 
-    def queued_select(table_name, column_tuple, condition=None, **kwargs):
+    def queued_select(table, columns, condition=None, **kwargs):
         res = results_queue[idx[0]] if idx[0] < len(results_queue) else []
         idx[0] += 1
         return iter(res)
@@ -445,7 +445,7 @@ def test_create_domain_settings_success(monkeypatch):
     ]
     idx = [0]
 
-    def queued_select(table_name, column_tuple, condition=None, **kwargs):
+    def queued_select(table, columns, condition=None, **kwargs):
         res = results_queue[idx[0]] if idx[0] < len(results_queue) else []
         idx[0] += 1
         return iter(res)
@@ -499,7 +499,7 @@ def test_create_domain_settings_insert_fails_raises(monkeypatch):
     ]
     idx = [0]
 
-    def queued_select(table_name, column_tuple, condition=None, **kwargs):
+    def queued_select(table, columns, condition=None, **kwargs):
         res = results_queue[idx[0]] if idx[0] < len(results_queue) else []
         idx[0] += 1
         return iter(res)
@@ -540,7 +540,7 @@ def test_update_one_domain_settings_success(monkeypatch):
     ]
     idx = [0]
 
-    def queued_select(table_name, column_tuple, condition=None, **kwargs):
+    def queued_select(table, columns, condition=None, **kwargs):
         res = results_queue[idx[0]] if idx[0] < len(results_queue) else []
         idx[0] += 1
         return iter(res)
@@ -572,7 +572,7 @@ def test_update_one_domain_settings_update_fails_raises(monkeypatch):
     ]
     idx = [0]
 
-    def queued_select(table_name, column_tuple, condition=None, **kwargs):
+    def queued_select(table, columns, condition=None, **kwargs):
         res = results_queue[idx[0]] if idx[0] < len(results_queue) else []
         idx[0] += 1
         return iter(res)
@@ -599,7 +599,7 @@ def test_delete_one_domain_setting_success(monkeypatch):
     ]
     idx = [0]
 
-    def queued_select(table_name, column_tuple, condition=None, **kwargs):
+    def queued_select(table, columns, condition=None, **kwargs):
         res = results_queue[idx[0]] if idx[0] < len(results_queue) else []
         idx[0] += 1
         return iter(res)
@@ -622,7 +622,7 @@ def test_delete_one_domain_setting_propagates_error(monkeypatch):
     ]
     idx = [0]
 
-    def queued_select(table_name, column_tuple, condition=None, **kwargs):
+    def queued_select(table, columns, condition=None, **kwargs):
         res = results_queue[idx[0]] if idx[0] < len(results_queue) else []
         idx[0] += 1
         return iter(res)
