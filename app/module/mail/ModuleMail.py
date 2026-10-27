@@ -11,6 +11,7 @@ from email.utils import parseaddr, getaddresses, make_msgid, formatdate
 from hashlib import sha256
 from io import BytesIO
 from re import search as reg_search
+import threading
 import zipfile
 
 
@@ -844,6 +845,10 @@ class ModuleMail:
             deleted flag). Applied as part of the IMAP search criteria, not as a
             post-fetch filter.
         :type deleted: bool
+        When searching all the folders ("folders" empty or ["all"]), see
+        ``_search_mails_in_all_folders``: the results are then always sorted by date, the most
+        recent first, whatever ``collection_param.sort_by`` / ``sort_order`` are.
+
         :return: A tuple of (list of mail dicts, total count).
         :rtype: tuple[list[dict[str, Any]], int]
         :raises RequestException: If mail server operations fail or search_params are invalid.
@@ -857,20 +862,22 @@ class ModuleMail:
         # --- Build the protocol-specific search criteria (delegated to the client) ---
         criteria = client.build_search_criteria(search_params, deleted)
 
-        # --- Determine folders to search ---
+        # --- Search all the folders: dedicated parallel pipeline ---
         folder_list = search_params.get("folders") or []
         if not folder_list or folder_list == ["all"]:
-            raw_folders = client.list_folders()
-            folders_to_search = self._flatten_selectable_folder_paths(raw_folders)
-        else:
-            include_subfolders = search_params.get("include_subfolders", True)
-            folders_to_search = []
-            seen_folders: set[str] = set()
-            for folder in folder_list:
-                for folder_path in client.get_folder_with_subfolders(folder, include_subfolders):
-                    if folder_path not in seen_folders:
-                        seen_folders.add(folder_path)
-                        folders_to_search.append(folder_path)
+            return self._search_mails_in_all_folders(
+                account_id, client, criteria, search_params.get("attachment_type"), collection_param, without_content
+            )
+
+        # --- Determine folders to search ---
+        include_subfolders = search_params.get("include_subfolders", True)
+        folders_to_search = []
+        seen_folders: set[str] = set()
+        for folder in folder_list:
+            for folder_path in client.get_folder_with_subfolders(folder, include_subfolders):
+                if folder_path not in seen_folders:
+                    seen_folders.add(folder_path)
+                    folders_to_search.append(folder_path)
 
         # --- Fetch the user's rights once per searched folder (not once per mail) ---
         rights_by_folder = {
@@ -888,15 +895,8 @@ class ModuleMail:
         # --- Collect all results ---
         all_mails: list[dict] = []
         for _folder_path, mail_dict in mail_iter:
-            parsed = self._parse_mail(mail_dict)
-            parsed["folder"] = mail_dict.get("folder", _folder_path)
-            parsed[cs.FOLDER_RIGHTS] = dict(rights_by_folder.get(parsed["folder"], {}))
-            if without_content:
-                parsed.pop("contents", None)
-                parsed.pop("attachments", None)
-                parsed.pop("certificates", None)
-                parsed.pop("mail_type_data", None)
-            all_mails.append(parsed)
+            folder_path = mail_dict.get("folder", _folder_path)
+            all_mails.append(self._to_search_result_mail(mail_dict, folder_path, rights_by_folder.get(folder_path, {}), without_content))
 
         # --- Post-filter by attachment_type (IMAP has no direct extension filter) ---
         # Applied as an additional AND filter regardless of search_params["operator"],
@@ -932,6 +932,176 @@ class ModuleMail:
         nb_mails = collection_param.page_size
         page = all_mails[offset: offset + nb_mails]
 
+        return page, total
+
+    def _to_search_result_mail(self, mail_dict: dict, folder_path: str, folder_rights: dict[str, int], without_content: bool) -> dict[str, Any]:
+        """Parse a mail returned by the mail client into a search result mail.
+
+        :param mail_dict: Mail dict as returned by the mail client.
+        :type mail_dict: dict
+        :param folder_path: Path of the folder holding the mail.
+        :type folder_path: str
+        :param folder_rights: The user's granted rights on that folder (see _granted_rights).
+        :type folder_rights: dict[str, int]
+        :param without_content: If True, drop the content related fields.
+        :type without_content: bool
+        :return: The parsed mail, with its "folder" and "rights".
+        :rtype: dict[str, Any]
+        """
+        parsed = self._parse_mail(mail_dict)
+        parsed["folder"] = folder_path
+        parsed[cs.FOLDER_RIGHTS] = dict(folder_rights)
+        if without_content:
+            parsed.pop("contents", None)
+            parsed.pop("attachments", None)
+            parsed.pop("certificates", None)
+            parsed.pop("mail_type_data", None)
+        return parsed
+
+    def _search_most_recent_in_folders(self, account_id: str, folder_paths: list[str], criteria: Any,
+                                       nb_mails: int, attachment_types: list[str] | None) -> tuple[list[dict[str, Any]], int]:
+        """Get, for each given folder, the ``nb_mails`` most recent mails matching the criteria.
+
+        Meant to run in its own thread: it opens its own mail server connection since a
+        connection holds a state (the selected folder) and cannot be shared between threads.
+
+        :param account_id: The account identifier.
+        :type account_id: str
+        :param folder_paths: Folders to search in.
+        :type folder_paths: list[str]
+        :param criteria: Protocol-specific search criteria (see ClientMailServer.build_search_criteria).
+        :type criteria: Any
+        :param nb_mails: Maximum number of mails to keep per folder.
+        :type nb_mails: int
+        :param attachment_types: Attachment file extensions to filter on, if any.
+        :type attachment_types: list[str] | None
+        :raises RequestException: If mail server operations fail.
+        :return: A tuple of (entries {"uid", "date", "folder"} of all the folders, total number of matching mails).
+        :rtype: tuple[list[dict[str, Any]], int]
+        """
+        client = self._open_client_for(account_id)
+        entries: list[dict[str, Any]] = []
+        total = 0
+        for folder_path in folder_paths:
+            folder_entries, folder_total = client.search_most_recent_uids(folder_path, criteria, nb_mails, attachment_types)
+            entries.extend(folder_entries)
+            total += folder_total
+        return entries, total
+
+    def _search_mails_in_all_folders(self, account_id: str, client: ClientMailServer, criteria: Any,
+                                     attachment_types: list[str] | None, collection_param: CollectionPaginateArgs,
+                                     without_content: bool) -> tuple[list[dict[str, Any]], int]:
+        """Execute an advanced search across all the folders of the account.
+
+        Only the identifiers and dates of the matching mails are fetched to sort them; then
+        only the mails of the requested page are fetched, with one request per folder.
+        To get page ``p`` (of size ``n``), the ``p * n`` most recent matching mails of each
+        folder are needed: the mails of that page can be anywhere among them.
+
+        Results are always sorted by date (arrival date), the most recent first.
+
+        :param account_id: The account identifier.
+        :type account_id: str
+        :param client: An opened mail client of the account.
+        :type client: ClientMailServer
+        :param criteria: Protocol-specific search criteria (see ClientMailServer.build_search_criteria).
+        :type criteria: Any
+        :param attachment_types: Attachment file extensions to filter on, if any. Applied as an
+            additional AND filter, whatever the search operator is.
+        :type attachment_types: list[str] | None
+        :param collection_param: Pagination parameters.
+        :type collection_param: CollectionPaginateArgs
+        :param without_content: If True, mails are fetched without their content.
+        :type without_content: bool
+        :raises RequestException: If mail server operations fail.
+        :return: A tuple of (list of mail dicts of the requested page, total count).
+        :rtype: tuple[list[dict[str, Any]], int]
+        """
+        # ---------------------------------------------------------------
+        # Step 1: get the path of every selectable folder of the account
+        # ---------------------------------------------------------------
+        folders_to_search = self._flatten_selectable_folder_paths(client.list_folders())
+        if not folders_to_search:
+            return [], 0
+
+        # ---------------------------------------------------------------
+        # Step 2: in parallel, get the uid, date and folder of the most recent matching
+        # mails of each folder. Page p needs the p * page_size most recent of each folder.
+        # Folders are spread over a bounded number of threads, each one with its own connection.
+        # ---------------------------------------------------------------
+        nb_mails_per_folder = collection_param.last_item + 1
+        nb_threads = min(cs.MAIL_SEARCH_MAX_PARALLEL_CONNECTIONS, len(folders_to_search))
+        folder_chunks = [folders_to_search[i::nb_threads] for i in range(nb_threads)]
+        logger_mail_server.debug("Searching the %d most recent mails of %d folders with %d threads",
+                                 nb_mails_per_folder, len(folders_to_search), nb_threads)
+
+        results: list[tuple[list[dict[str, Any]], int] | None] = [None] * nb_threads
+        errors: list[RequestException | None] = [None] * nb_threads
+
+        def search_chunk(idx: int, folder_chunk: list[str]) -> None:
+            try:
+                results[idx] = self._search_most_recent_in_folders(
+                    account_id, folder_chunk, criteria, nb_mails_per_folder, attachment_types
+                )
+            except RequestException as ex:
+                errors[idx] = ex
+
+        threads = []
+        for idx, folder_chunk in enumerate(folder_chunks):
+            thread = threading.Thread(target=search_chunk, args=(idx, folder_chunk))
+            threads.append(thread)
+            thread.start()
+        for thread in threads:
+            thread.join()  # If a thread has already ended, join does nothing
+
+        for error in errors:
+            if error is not None:
+                raise error
+
+        # ---------------------------------------------------------------
+        # Step 3: merge the results of all the folders, sort them by date (most recent
+        # first) and keep only the mails of the requested page
+        # ---------------------------------------------------------------
+        all_entries: list[dict[str, Any]] = []
+        total = 0
+        for result in results:
+            if result is None:
+                raise BugException("A search thread ended without result nor RequestException")
+            all_entries.extend(result[0])
+            total += result[1]
+
+        all_entries.sort(key=lambda entry: (entry["date"], int(entry["uid"])), reverse=True)
+        page_entries = all_entries[collection_param.first_item: collection_param.last_item + 1]
+        if not page_entries:
+            return [], total
+
+        # ---------------------------------------------------------------
+        # Step 4: fetch the mails of the page, with one fetch per folder
+        # ---------------------------------------------------------------
+        uids_by_folder: dict[str, list[str]] = {}
+        for entry in page_entries:
+            uids_by_folder.setdefault(entry["folder"], []).append(entry["uid"])
+
+        rights_by_folder = {
+            folder_path: self._granted_rights(raw_rights)
+            for folder_path, raw_rights in client.get_my_rights_raw_for_folders(list(uids_by_folder)).items()
+        }
+
+        mails_by_key: dict[tuple[str, str], dict[str, Any]] = {}
+        for folder_path, uids in uids_by_folder.items():
+            for mail_dict in client.fetch_mails_by_uid_list(folder_path, uids, with_content=not without_content):
+                mails_by_key[(folder_path, str(mail_dict["uid"]))] = self._to_search_result_mail(
+                    mail_dict, folder_path, rights_by_folder.get(folder_path, {}), without_content
+                )
+
+        # ---------------------------------------------------------------
+        # Step 5: return the mails in the sorted order of step 3
+        # ---------------------------------------------------------------
+        page = [
+            mails_by_key[(entry["folder"], entry["uid"])]
+            for entry in page_entries
+            if (entry["folder"], entry["uid"]) in mails_by_key
+        ]
         return page, total
 
     def delete_mails(self, account_id:str, folder_path: str, mail_uids: str|list[str]) -> None:

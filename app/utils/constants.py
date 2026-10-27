@@ -119,6 +119,11 @@ TMP_DRAFT_KEY_SIZE = 32  # Length of the unique hash key for a tmp_draft entry
 # Mail "fields" query param values (used by collection_paginate on mail list/search endpoints)
 MAIL_FIELD_CONTENTS = "contents"  # Include/exclude the mail content (body, attachments, ...)
 
+# Advanced mail search across all the folders of an account: maximum number of mail server
+# connections opened in parallel (one thread each) to search the folders. Kept low because
+# mail servers limit the simultaneous connections per user (e.g. Dovecot mail_max_userip_connections)
+MAIL_SEARCH_MAX_PARALLEL_CONNECTIONS = 4
+
 # Mail deletion behavior mapping to (move_to_trash, permanently) flags
 DELETE_MAIL_BEHAVIOR_MAP = {
     # behavior                   move_to_trash  permanently
