@@ -207,6 +207,11 @@ carried over.
 ** "None": Will only use plain (unencrypted) communication
 ** "SSL/TLS": Will only use encrypted communication
 ** "StartTLS": Will start in plain mode, then negotiate an encrypted communication with the StartTLS command
+* *US_LDAP_CHECK_CERT*: In case of SSL or startTLS, if sogo must check the certificate or not.
+** "trusted": the certificate must be trusted (by a CA or add your cert path to US_LDAP_CA_PATH)
+** "legacy": (NOT RECOMMANDED) Let the python-ldap client default value about cert
+** "none": No verification at all.
+* *US_LDAP_CA_PATH*: Path to your cert
 
 === Admin Bind
 

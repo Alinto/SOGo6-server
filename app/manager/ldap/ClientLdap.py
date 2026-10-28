@@ -123,17 +123,20 @@ class ClientLdap(ClientUserSource):
                  ldap_id:str,
                  ldap_cn:str,
                  ldap_mails:list[str],
-                 ldap_search:list[str],
                  ldap_bind_fields:list[str]|None = None,
                  ldap_bind_as_user:bool = False,
                  ldap_filter: Condition.Condition|None = None,
-                 ldap_pwd_policy:bool = False
+                 ldap_pwd_policy:bool = False,
+                 ldap_check_cert:str = cs.CERT_LEGACY,
+                 ldap_ca_path:str = ""
                  ) -> None:
         super().__init__()
         #Hostname
         self.host = ldap_host
         self.port = ldap_port
         self.enc = ldap_enc
+        self.check_cert = ldap_check_cert
+        self.ca_path = ldap_ca_path
 
         #bind
         self.bind_dn = ldap_bind_dn
@@ -219,6 +222,12 @@ class ClientLdap(ClientUserSource):
 
         if self.enc == cs.SOCKET_ENC_IMPLICIT_TLS:
             uri_with_scheme = f"ldaps://{self.host}:{self.port}"
+            if self.ca_path:
+                ldap.set_option(ldap.OPT_X_TLS_CACERTFILE, self.ca_path)
+            if self.check_cert == cs.CERT_TRUSTED:
+                ldap.set_option(ldap.OPT_X_TLS_REQUIRE_CERT, ldap.OPT_X_TLS_DEMAND)
+            elif self.check_cert == cs.CERT_NONE:
+                ldap.set_option(ldap.OPT_X_TLS_REQUIRE_CERT, ldap.OPT_X_TLS_NEVER)
         else:
             uri_with_scheme = f"ldap://{self.host}:{self.port}"
 
@@ -231,12 +240,8 @@ class ClientLdap(ClientUserSource):
         # Not sur if mandatory. I don't know if some sogo users stiil used ldap2 version
         self.ldap_conn.protocol_version = ldap.VERSION3
 
-        if self.enc != cs.SOCKET_ENC_PLAIN:
-            self.ldap_conn.set_option(ldap.OPT_X_TLS_REQUIRE_CERT, ldap.OPT_X_TLS_DEMAND)
-
         if self.enc == cs.SOCKET_ENC_EXPLICIT_TLS:
             self.ldap_conn.start_tls_s()
-
 
         self.connected = True
 
@@ -514,7 +519,7 @@ class ClientLdap(ClientUserSource):
 
         if success:
             list_records = self._search_big(new_base_dn, search_filter)
-            if n := len(list_records) == 1:
+            if (n := len(list_records)) == 1:
                 return parse_python_ldap_record(list_records[0])
             elif n > 1:
                 raise exc.AggravatedException(f"More than one user returns for the uid '{uid}'", err.ERROR_US_NOT_UNIQUE_USER)
