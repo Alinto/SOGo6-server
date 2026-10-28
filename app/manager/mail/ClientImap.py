@@ -1453,16 +1453,6 @@ class ClientImap(ClientMailServer):
             if (not success and create_if_special and _is_mailbox_nonexistent_error(datas)
                     and self._create_special_folder_if_missing(mailbox)):
                 success, datas = self._imap_select(mailbox, readonly)
-            try:
-                success, datas = self._exec_imap4_method(self.connection.select, mailbox, readonly)
-            except BugException as e:
-                # The server answered [READ-ONLY] to SELECT (e.g. shared folder without s/w/t/e rights).
-                # imaplib raises in that case and would keep raising on every following command,
-                # so re-select the mailbox with EXAMINE to open it read-only.
-                if readonly or e.error is not err.ERROR_IMAP_READONLY:
-                    raise
-                logger_imap.info("Mailbox '%s' is read-only, selecting it with EXAMINE", mailbox)
-                success, datas = self._exec_imap4_method(self.connection.select, mailbox, True)
             if not success:
                 if _is_mailbox_nonexistent_error(datas):
                     raise RequestException(f"Folder '{mailbox}' does not exist", err.ERROR_FOLDER_NAME_NOT_FOUND)
