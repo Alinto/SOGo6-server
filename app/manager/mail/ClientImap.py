@@ -19,7 +19,6 @@ from app.utils import constants as cs
 from app.utils.strings import quote, unquote, imap_join_folders, escape_imap_string
 
 # Maximum debug output from imaplib
-#TODO all imap are logged, including login/auth password used SecretString (on ldap branch not in develoope now)
 if logger_imap.level < WARNING:
     imaplib.Debug = 4  # type: ignore[attr-defined]
 else:
@@ -467,7 +466,11 @@ class ClientImap(ClientMailServer):
                 self.authenticated = True
                 return
 
+            #Disable imaplib logger as it prints the password
+            cur_debug = self.connection.debug
+            self.connection.debug = 0
             if self.auth_mech == "login":
+                logger_imap.info("> b'LOGIN %s <plain_password>", username)
                 success, datas = self._exec_imap4_method(self.connection.login, username, password)
             elif self.auth_mech in ("plain", "xoauth2", "oauthbearer"):
                 if not authname:
@@ -478,8 +481,10 @@ class ClientImap(ClientMailServer):
                     "oauthbearer": lambda _: f"n,a={username},\x01host={self.server}\x01port={self.port}\x01auth=Bearer {password}\x01\x01"
                 }
                 # The ignores comments are here because mypy is drunk and don't know what IMAP4.authenticate expects or returns
+                auth_mech = self.auth_mech.upper()
+                logger_imap.info("> b'AUTH %s %s <plain_password>", auth_mech, username)
                 success, datas = self._exec_imap4_method(self.connection.authenticate, # type: ignore [arg-type]
-                                                         self.auth_mech.upper(),
+                                                         auth_mech,
                                                          conn_by_mech[self.auth_mech]) # type: ignore [arg-type]
             else:
                 raise BugException(f"Unsupported imap authentication mechanism: {self.auth_mech}", err.ERROR_IMAP_UNKNWON_AUTH_MECH)
@@ -491,6 +496,9 @@ class ClientImap(ClientMailServer):
                     raise RequestException(f"Failed to login to IMAP server: {datas} ", err.ERROR_IMAP_UNAUTHORIZED)
                 raise RequestException(f"Cannot login to IMAP server: {datas}", err.ERROR_IMAP_FAILED)
             self.authenticated = True
+
+            #Reset the logger
+            self.connection.debug = cur_debug
 
             #Get capabilities
             capabilities: bytes = self.connection.response('CAPABILITY')[1][0]
