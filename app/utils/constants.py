@@ -81,7 +81,6 @@ MAIL_FOLDER_ACTION_LIST = (MAIL_FOLDER_ACTION_RENAME, MAIL_FOLDER_ACTION_TYPE)
 
 
 #IMAP
-IMAP_DEFAULT_DELIMITER = "/./." #It will be a key (not the value) to get the default delimiter of all namespaces.
                                 #the strange key value is just to make sure it won't overwritte a real prefix name (see ClientImap.py)
 
 #TTL
