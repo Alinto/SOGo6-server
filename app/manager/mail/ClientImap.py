@@ -227,6 +227,52 @@ def _is_mailbox_nonexistent_error(datas: list) -> bool:
     return first_error.startswith(_IMAP_NONEXISTENT_ERRORS)
 
 
+# Tokens of a NAMESPACE response: parenthesis, quoted string (with escapes) or atom (NIL, ...)
+_IMAP_NAMESPACE_TOKEN = re.compile(r'\(|\)|"((?:[^"\\]|\\.)*)"|([^\s()"]+)')
+
+
+def _parse_namespace_response(raw: str) -> tuple[list[tuple[str, str | None]], ...]:
+    """Parse an IMAP NAMESPACE response.
+
+    The response always holds 3 groups in a fixed order: personal, other users and shared.
+    Each group is either NIL or a list of ("prefix" "delimiter" *extensions), the delimiter 
+    can be NIL (flat namespace).
+
+    :param raw: The untagged NAMESPACE response, without the '* NAMESPACE ' part.
+    :type raw: str
+    :raises ValueError: If the response does not hold exactly 3 groups.
+    :return: (personal, other_users, shared), each a list of (prefix, delimiter or None).
+    :rtype: tuple[list[tuple[str, str | None]], ...]
+    """
+    stack: list[list] = [[]]
+    for match in _IMAP_NAMESPACE_TOKEN.finditer(raw):
+        token = match.group(0)
+        if token == "(":
+            stack.append([])
+        elif token == ")":
+            if len(stack) == 1:
+                raise ValueError(f"Malformed NAMESPACE response: {raw!r}")
+            done = stack.pop()
+            stack[-1].append(done)
+        elif match.group(1) is not None:
+            stack[-1].append(re.sub(r"\\(.)", r"\1", match.group(1)))
+        elif token.upper() == "NIL":
+            stack[-1].append(None)
+        else:
+            stack[-1].append(token)
+
+    if len(stack) != 1 or len(stack[0]) != 3:
+        raise ValueError(f"Malformed NAMESPACE response: {raw!r}")
+
+    groups = []
+    for group in stack[0]:
+        if group is not None and not all(isinstance(entry, list) and len(entry) >= 2 for entry in group):
+            raise ValueError(f"Malformed NAMESPACE response: {raw!r}")
+        # Extensions (entry[2:]) are ignored as allowed by the RFC
+        groups.append([(entry[0], entry[1]) for entry in group] if group else [])
+    return tuple(groups)
+
+
 class ImapFolder:
     """
     Simple class to parse folder response and store useful values
@@ -388,6 +434,10 @@ class ClientImap(ClientMailServer):
         self.default_delimiter: str = ""
         self.default_prefix: str = ""
         self.others_prefixes: dict = {} # dict of {"prefix": "delimiter"}
+        # Namespaces as returned by the server, list of (prefix, delimiter or None)
+        self.personal: list[tuple[str, str | None]] = []
+        self.other_users: list[tuple[str, str | None]] = []
+        self.shared: list[tuple[str, str | None]] = []
 
     def connect(self) -> None:
         """
@@ -515,39 +565,35 @@ class ClientImap(ClientMailServer):
 
         There is a lot to say about namespace but what we want here is to
         get the delimiter for the associated prefix.
+        The first personal namespace is the default one, every other namespace
+        (secondary personal, other users and shared) goes to self.others_prefixes.
 
-        :raises RequestException: _description_
-        :raises BugException: _description_
+        :raises RequestException: If the NAMESPACE command fails or its response is malformed.
+        :raises BugException: If the client is not authenticated.
         """
-        if self.connection is not None and self.authenticated:
-            success, datas = self._exec_imap4_method(self.connection.namespace)
-            if not success:
-                raise RequestException("Failed to list mailboxes", err.ERROR_IMAP_FAILED)
+        if self.connection is None or not self.authenticated:
+            raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehand")
 
-            def _extract_namespace(namespace_str:str, is_default:bool = False) -> None:
-                """
-                A imap namespace response is either 'NIL' or
-                '(("prefix1" "delimiter1" "extra_param_optionnal")("prefix2" "delimiter2"))
-                """
-                if namespace_str == "NIL":
-                    return None
-                ##Removing the first '((' and last '))', then split ')('
-                namespace_list = namespace_str[2:-2].split(")(")
-                for idx, namespace in enumerate(namespace_list):
-                    _, prefix, _, delimiter, *_ = namespace.split('"')
-                    if is_default and idx == 0:
-                        self.default_prefix = prefix
-                        self.default_delimiter = delimiter
-                    else:
-                        if not prefix:
-                            prefix = cs.IMAP_DEFAULT_DELIMITER
-                        self.others_prefixes[prefix] = delimiter
-                return None
+        success, datas = self._exec_imap4_method(self.connection.namespace)
+        if not success:
+            raise RequestException("Failed to get namespaces", err.ERROR_IMAP_FAILED)
 
-            for idx, namespaces in enumerate(re.findall(r'\(\(.*?\)\)', datas[0].decode())):
-                _extract_namespace(namespaces, idx == 0)
-        else:
-            raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
+        try:
+            self.personal, self.other_users, self.shared = _parse_namespace_response(datas[0].decode())
+        except ValueError as e:
+            logger_imap.error("%s", e)
+            raise RequestException("Failed to parse namespaces", err.ERROR_IMAP_FAILED) from e
+
+        if self.personal:
+            prefix, delimiter = self.personal[0]
+            self.default_prefix = prefix
+            # A NIL delimiter means a flat namespace, without hierarchy
+            self.default_delimiter = delimiter or ""
+
+        for prefix, delimiter in self.personal[1:] + self.other_users + self.shared:
+            # An empty prefix would match every folder path in self._get_delimiter_for
+            if prefix:
+                self.others_prefixes[prefix] = delimiter or self.default_delimiter
 
     def _get_delimiter_for(self, folder_path:str) -> str:
         """

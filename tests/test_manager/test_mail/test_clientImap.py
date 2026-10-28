@@ -1660,6 +1660,33 @@ class TestNamespace:
         assert client.default_delimiter == "."
         assert client.default_prefix == ""
 
+    def test_namespace_all_groups(self):
+        fake_conn = FakeIMAPConnection()
+        fake_conn.namespace_response = ("OK", [b'(("" "/") ("#mbox/" "/")) NIL (("Shared." "." "X-EXT" ("v")))'])
+        client = authenticated_client(fake_conn)
+        client.namespace()
+        assert client.default_delimiter == "/"
+        assert client.default_prefix == ""
+        assert client.others_prefixes == {"#mbox/": "/", "Shared.": "."}
+        assert client.personal == [("", "/"), ("#mbox/", "/")]
+        assert client.other_users == []
+        assert client.shared == [("Shared.", ".")]
+
+    def test_namespace_nil_delimiter_falls_back_to_default(self):
+        fake_conn = FakeIMAPConnection()
+        fake_conn.namespace_response = ("OK", [b'(("INBOX." ".")) (("flat" NIL)) NIL'])
+        client = authenticated_client(fake_conn)
+        client.namespace()
+        assert client.default_prefix == "INBOX."
+        assert client.others_prefixes == {"flat": "."}
+
+    def test_namespace_malformed_raises(self):
+        fake_conn = FakeIMAPConnection()
+        fake_conn.namespace_response = ("OK", [b'(("" "/")) NIL'])
+        client = authenticated_client(fake_conn)
+        with pytest.raises(RequestException):
+            client.namespace()
+
     def test_namespace_not_authenticated_raises(self):
         client = make_client()
         client.connection = None

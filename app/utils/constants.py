@@ -69,7 +69,6 @@ MAIL_FOLDER_NORMAL   = "NORMAL"   #Folder with no special used except to store m
 
 
 #IMAP
-IMAP_DEFAULT_DELIMITER = "/./." #It will be a key (not the value) to get the default delimiter of all namespaces.
                                 #the strange key value is just to make sure it won't overwritte a real prefix name (see ClientImap.py)
 
 #TTL
