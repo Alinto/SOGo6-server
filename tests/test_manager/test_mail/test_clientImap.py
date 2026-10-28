@@ -67,6 +67,7 @@ class FakeIMAPConnection:
         self.logged_in = False
         self.selected_mailbox = None
         self.folders: dict = {}
+        self.debug = 0
 
         # Configurable responses
         self.login_should_fail = False
