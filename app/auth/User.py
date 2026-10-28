@@ -23,8 +23,6 @@ class UserProfile:
     def __init__(self) -> None:
         """
         Define Attribute
-        WARNING Must match columns names of table TABLE_USER
-        #TODO add a unit test to check that
         """
         self.id : str = ""
         self.hash : str = ""

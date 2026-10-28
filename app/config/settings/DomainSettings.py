@@ -1,7 +1,8 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Type
+from typing import TYPE_CHECKING, Type, Any
+import os
 
-from marshmallow import fields, validate, validates_schema, ValidationError
+from marshmallow import fields, validate, validates, ValidationError, post_load
 
 from app.config.settings.SogoSchema import SogoSchema
 from app.utils import errors as err
@@ -146,6 +147,8 @@ class UserSourceSettings(SogoSchema):
         "US_LDAP_HOSTNAME": ("US_TYPE", "ldap"),
         "US_LDAP_PORT": ("US_TYPE", "ldap"),
         "US_LDAP_ENCRYPTION": ("US_TYPE", "ldap"),
+        "US_LDAP_CHECK_CERT": ("US_TYPE", "ldap"),
+        "US_LDAP_CA_PATH": ("US_TYPE", "ldap"),
         "US_LDAP_BIND_DN": ("US_TYPE", "ldap"),
         "US_LDAP_BIND_DN_PWD": ("US_TYPE", "ldap"),
         "US_LDAP_BASE_DN": ("US_TYPE", "ldap"),
@@ -246,6 +249,8 @@ class UserSourceSettings(SogoSchema):
     US_LDAP_HOSTNAME = fields.String() #Hostname or ip of the ldap server
     US_LDAP_PORT = fields.Integer(load_default=390, dump_default=390, validate=validate.Range(min=1, max=65535))
     US_LDAP_ENCRYPTION = fields.String(load_default="None", dump_default="None", validate=validate.OneOf(cs.SOCK_ENC_LIST))
+    US_LDAP_CHECK_CERT = fields.String(load_default="legacy", dump_default="legacy", validate=validate.OneOf(cs.CERT_OPTIONS)) #trusted -> check, legacy -> do not set option, none -> no check
+    US_LDAP_CA_PATH    = fields.String() #path to the ca cert in case of trusted
     US_LDAP_BIND_DN      = fields.String() #The bind DN used to authentify against the ldap server
     US_LDAP_BIND_DN_PWD  = fields.String() #The password for the bindDN
     US_LDAP_BASE_DN    = fields.String() #Example: 'dc=example,dc=com'
@@ -325,13 +330,29 @@ class UserSourceSettings(SogoSchema):
     US_RESOURCE_MULTIBOOKING = fields.String() #sqldap field where to check how much time a resource can be booked simultaneously
     US_RESOURCE_EXTRA_INFO = fields.String() #TODO add moreflexibility and let the admin tell how it should be shwon? sqladp field to show when doing autocompletion (will be "cn <extra> mail")
 
-    @validates_schema
-    def validate_pwd_algo_if_db(self, data: dict, **kwargs: object) -> None:
+    @validates("US_LDAP_CA_PATH")
+    def validate_ca_path(self, value: str) -> None:
         """
-        Ensure exactly one of ``uid`` or ``redis_key`` is provided.
+        If ca path is provided, check this is an asbolute path to a file.
         """
-        if data.get("US_TYPE") == "db" and not data.get("US_PWD_ALGO"):
-            raise ValidationError("In case of sql user source, US_PWD_ALGO must be provided")
+        if not value:
+            return
+
+        path = os.path.abspath(value)
+
+        if not os.path.isfile(path):
+            raise ValidationError(f"US_LDAP_CA_PATH cert file not found: {path}")
+        if not os.access(path, os.R_OK):
+            raise ValidationError(f"US_LDAP_CA_PATH cert file not readable: {path}")
+
+    @post_load
+    def normalize_path(self, data: dict, **kwargs: Any) -> dict:
+        """
+        Convert path value to absolute path
+        """
+        if data.get("US_LDAP_CA_CERT_FILE"):
+            data["US_LDAP_CA_CERT_FILE"] = os.path.abspath(data["US_LDAP_CA_CERT_FILE"])
+        return data
 
 class UserSourceSettingsObj(SettingsObj):
     """
@@ -346,6 +367,8 @@ class UserSourceSettingsObj(SettingsObj):
     US_LDAP_HOSTNAME: str = ""
     US_LDAP_PORT: int = 390
     US_LDAP_ENCRYPTION: str = "None"
+    US_LDAP_CHECK_CERT: str = "legacy"
+    US_LDAP_CA_PATH: str = ""
     US_LDAP_BIND_DN: str = ""
     US_LDAP_BIND_DN_PWD: str = ""
     US_LDAP_BASE_DN: str = ""
@@ -445,7 +468,6 @@ class UserSourceSettingsObj(SettingsObj):
                     "ldap_bind_as_user": self.US_LDAP_BIND_AS_USER,
                     "ldap_pwd_policy": self.US_LDAP_PWD_POLICY,
                     "ldap_filter": us_filter,
-                    "ldap_search": self.US_SEARCH_FIELD
                     # self.US_LDAP_PWD_UPDATE_SAMBA,
                     # self.US_LDAP_QUERY_TIMEOUT,
                     # self.US_LDAP_ATTR_FIELD,
