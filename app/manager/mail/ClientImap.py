@@ -1,10 +1,12 @@
 from __future__ import annotations
 from typing import Any, Callable, TypeVar, ParamSpec, Iterator, cast
 
+import base64
 from datetime import datetime, timedelta
 from email import message_from_bytes
 from email.header import decode_header, make_header
 from email.message import EmailMessage
+from email import policy
 import imaplib
 from logging import WARNING
 import re
@@ -26,6 +28,59 @@ else:
 
 P = ParamSpec("P")
 R = TypeVar("R")
+
+
+def imap_utf7_encode(s: str) -> str:
+    """
+    Imap can only use ascii for mail folder's name and search string
+    Encode a string to utf-7
+    https://www.rfc-editor.org/info/rfc3501/#section-5.1
+    """
+    out: list[str] = []
+    buf: list[str] = []
+
+    def flush() -> None:
+        """
+        Add all non-ascii chars in buf to out buffer
+        """
+        if buf:
+            raw = "".join(buf).encode("utf-16-be")
+            b64 = base64.b64encode(raw).decode().rstrip("=").replace("/", ",")
+            out.append(f"&{b64}-")
+            buf.clear()
+
+    for ch in s:
+        if 0x20 <= ord(ch) <= 0x7E:
+            flush()
+            out.append("&-" if ch == "&" else ch) # char '&' must be written '&-'
+        else:
+            buf.append(ch)
+    flush()
+    return "".join(out)
+
+def imap_utf7_decode(s: str) -> str:
+    """
+    Imap can only use ascii for mail folder's name and search string
+    Decode utf-7 to string
+    https://www.rfc-editor.org/info/rfc3501/#section-5.1
+    """
+    out, i = [], 0
+    while i < len(s):
+        if s[i] == "&":
+            # '&' means the start of a non-ascii block (except if there is a '-' just after, it means '&')
+            j = s.index("-", i)
+            if j == i + 1:
+                out.append("&")
+            else:
+                b64 = s[i + 1:j].replace(",", "/")
+                b64 += "=" * (-len(b64) % 4)
+                out.append(base64.b64decode(b64).decode("utf-16-be"))
+            i = j + 1
+        else:
+            out.append(s[i])
+            i += 1
+    return "".join(out)
+
 
 # API sort_by values -> IMAP SORT keys (RFC 5256)
 IMAP_SORT_KEYS = {
@@ -281,6 +336,9 @@ class ImapFolder:
         else:
             self.name = self.path
 
+        #Keep the path intact but decode from utf7 th name
+        self.name = imap_utf7_decode(self.name)
+
         #Check type
         self.type =  folder_name_to_type.get(self.path, cs.MAIL_FOLDER_NORMAL)
 
@@ -303,7 +361,7 @@ class ImapFolder:
         match = pattern.match(response_status)
         if match:
             name_from_status = match["name"]
-            if name_from_status != self.path:
+            if unquote(name_from_status) != self.path:
                 #Happen for sharing folder. The folder appears as selectable but cannot
                 self.can_be_select = False
                 self.nb_mails = 0
@@ -807,9 +865,7 @@ class ClientImap(ClientMailServer):
         """
         logger_imap.debug("Creating folder '%s'", folder_path)
         if self.connection is not None and self.authenticated:
-            if not folder_path.isascii():
-                raise RequestException(f"Mailbox name is not ascii: {folder_path}", err.ERROR_IMAP_NOT_ASCII)
-            folder_path = quote(folder_path)
+            folder_path = quote(self._fix_folder_path(folder_path))
 
             success, datas = self._exec_imap4_method(self.connection.create, folder_path)
             if not success:
@@ -880,15 +936,15 @@ class ClientImap(ClientMailServer):
 
     def _fix_folder_path(self, folder_path: str) -> str:
         """
-        Ensure the folder path is ASCII and return it unchanged.
+        Ensure the folder path is ASCII or utf7 encode and return it unchanged.
 
         :param folder_path: The folder path as received from the API.
         :type folder_path: str
         :return: The folder path, unchanged.
         :rtype: str
         """
-        if not folder_path.isascii():
-            raise RequestException(f"Mailbox name is not ascii: {folder_path}", err.ERROR_IMAP_NOT_ASCII)
+        if not folder_path.isascii() or "&" in folder_path:
+            folder_path = imap_utf7_encode(folder_path)
 
         return folder_path
 
@@ -1585,7 +1641,7 @@ class ClientImap(ClientMailServer):
 
         return {
             "uid": uid,
-            "mail": message_from_bytes(mail_bytes),
+            "mail": message_from_bytes(mail_bytes, policy=policy.default), # type: ignore [arg-type]
             "flags": flags_dict,
             "size": size
         }
@@ -1802,7 +1858,7 @@ class ClientImap(ClientMailServer):
 
         ret = {
             "uid": uid,
-            "mail": message_from_bytes(mail_bytes),
+            "mail": message_from_bytes(mail_bytes, policy=policy.default), # type: ignore [arg-type]
             "flags": flags_dict,
             "size": size
         }
@@ -2116,7 +2172,7 @@ class ClientImap(ClientMailServer):
                 raise RequestException(f"Mail UID {mail_uid} not found in {folder_path}.", err.ERROR_MAIL_UID_NOT_FOUND)
 
             mail_bytes: bytes = datas[0][1]
-            message = message_from_bytes(mail_bytes)
+            message = message_from_bytes(mail_bytes, policy=policy.default) # type: ignore [arg-type]
 
             for part in message.walk():
                 if part.get_content_maintype() == "multipart":
@@ -2655,17 +2711,15 @@ class ClientImap(ClientMailServer):
         """
         if self.connection is None or not self.authenticated:
             raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
-        
-        if not folder_path.isascii():
-            raise RequestException(f"Mailbox name is not ascii: {folder_path}", err.ERROR_IMAP_NOT_ASCII)
 
+        folder_path = self._fix_folder_path(folder_path)
         try:
             self.select_mailbox(folder_path, readonly=True)
         except RequestException:
             logger_imap.warning("Folder '%s' not found or not selectable, skipping", folder_path)
             return None
 
-        success, datas = self._exec_imap4_method(self.connection.uid, 'SEARCH', criteria)
+        success, datas = self._exec_imap4_method(self.connection.uid, 'SEARCH', "CHARSET", "UTF-8", criteria.encode()) # type: ignore [arg-type]
         if not success:
             raise RequestException(
                 f"IMAP SEARCH failed in folder '{folder_path}' with criteria: {criteria}",

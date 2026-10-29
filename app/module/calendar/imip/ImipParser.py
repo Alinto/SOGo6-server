@@ -3,6 +3,7 @@ from __future__ import annotations
 import email as email_lib
 from email.message import Message
 from email.utils import getaddresses, parseaddr
+from email import policy
 from typing import TYPE_CHECKING, cast
 
 from app.module.calendar.imip.ImipMessage import ImipMessage
@@ -36,7 +37,7 @@ class ImipParser:
         :rtype: ImipMessage
         :raises RequestException: If no text/calendar part is found or the METHOD is missing/unsupported.
         """
-        msg: Message = email_lib.message_from_bytes(raw_bytes)
+        msg: Message = email_lib.message_from_bytes(raw_bytes, policy=policy.default) # type: ignore [arg-type])
         _, from_email = parseaddr(msg.get("From", ""))
         to_emails: list[str] = [
             addr for _, addr in getaddresses(msg.get_all("To", []))
