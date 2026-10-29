@@ -178,12 +178,12 @@ class ModuleUserProfile:
         folders_data = {
             "CALENDAR": {
                 "OWNER": {
-                    calendar_key: True
+                    calendar_key: {"display": True}
                 }
             },
             "ADDRESSBOOKS": {
                 "OWNER": {
-                    addressbook_key: True
+                    addressbook_key: {"display": True}
                 }
             }
         }
@@ -191,7 +191,8 @@ class ModuleUserProfile:
         # Use the generic _update_user_column method
         self._update_user_column(uid, tbl.COL_USER_FOLDERS.name, folders_data)
 
-    def add_folder_key(self, uid: str, folder_type: str, key: str, owner_key: str = "OWNER") -> None:
+    def add_folder_key(self, uid: str, folder_type: str, key: str, owner_key: str = "OWNER", keep_existing: bool = False,
+                       value: dict | None = None) -> None:
         """
         Add a new calendar or addressbook key to the folders column of a user profile.
         
@@ -200,7 +201,13 @@ class ModuleUserProfile:
         folder type (default is "OWNER" for personal resources, but can be "EXT" for external ones).
         
         If the folders column doesn't exist or is empty, it initializes the structure.
-        If the key already exists, it's overwritten (harmless for boolean flags).
+        If the key already exists, it's overwritten, unless keep_existing is True: the existing value
+        (e.g. a display toggle set to False or a personal name) is then kept and nothing is written -
+        except a legacy bare boolean entry, which is upgraded to the given dict while keeping its
+        display toggle.
+
+        The stored value is a ``{"display": bool}`` dict, plus a ``name`` for a subscribed shared
+        resource (the subscriber's own name for it). Legacy entries may still be a bare boolean.
         
         :param uid: User unique identifier
         :type uid: str
@@ -210,6 +217,10 @@ class ModuleUserProfile:
         :type key: str
         :param owner_key: Owner section key - "OWNER" for personal, "EXT" for external, etc.
         :type owner_key: str
+        :param keep_existing: When True, an already present key is left untouched (idempotent add).
+        :type keep_existing: bool
+        :param value: Value stored for the key, ``{"display": True}`` by default.
+        :type value: dict | None
         :raises RequestException: If user profile not found
         :raises AggravatedException: If multiple user profiles found or update fails
         """
@@ -234,8 +245,18 @@ class ModuleUserProfile:
         if owner_key not in current_folders[folder_type]:
             current_folders[folder_type][owner_key] = {}
         
+        if value is None:
+            value = {"display": True}
+
+        existing = current_folders[folder_type][owner_key].get(key)
+        if keep_existing and existing is not None:
+            if isinstance(existing, dict):
+                return
+            # Legacy bare display toggle: upgrade it to the dict format, keeping the toggle
+            value = {**value, "display": bool(existing)}
+
         # Add the new key
-        current_folders[folder_type][owner_key][key] = True
+        current_folders[folder_type][owner_key][key] = value
         
         # Update the database
         self._update_user_column(uid, tbl.COL_USER_FOLDERS.name, current_folders)
@@ -276,39 +297,91 @@ class ModuleUserProfile:
 
         self._update_user_column(uid, tbl.COL_USER_FOLDERS.name, current_folders)
 
-    def update_folder_value(self, uid: str, resource: str, folder_id: str, value: bool) -> dict:
+    def update_folders_display(self, uid: str, patch: dict) -> dict:
         """
-        Update the boolean value of a single folder key within the folders column (CALENDAR or ADDRESSBOOKS).
+        Update the display toggle of one or several folder keys within the folders column.
 
-        Searches every owner-type sub-section (OWNER, SUBS, EXT, ...) of the given resource for folder_id
-        and updates the first match found; folder_id is expected to be unique across the whole structure.
+        The patch has the same shape as the folders column (``{resource: {owner_key: {folder_id: {"display": bool}}}}``)
+        and only the given entries are changed. Only ``display`` is updated, any other field (e.g. a personal name)
+        is kept; a legacy bare boolean entry is upgraded to the ``{"display": bool}`` format.
+        Every entry must already exist in its owner section, otherwise nothing is written.
+
+        :param uid: User unique identifier
+        :type uid: str
+        :param patch: Folders entries to update, with their new display toggle
+        :type patch: dict
+        :return: The updated folders dictionary
+        :rtype: dict
+        :raises RequestException: If user profile not found or a folder_id not found in its section
+        :raises AggravatedException: If multiple user profiles found
+        """
+        logger_user_profile.debug("Updating folders display for uid: %s, patch: %s", uid, patch)
+
+        current_folders = self._get_user_column(uid, tbl.COL_USER_FOLDERS)
+
+        # Check every entry before modifying anything, so that the patch is applied entirely or not at all
+        for resource, sections in patch.items():
+            for owner_key, entries in sections.items():
+                section: dict = current_folders.get(resource, {}).get(owner_key, {})
+                for folder_id in entries:
+                    if folder_id not in section:
+                        logger_user_profile.error("Folder key not found for uid: %s, resource: %s, owner_key: %s, id: %s",
+                                                  uid, resource, owner_key, folder_id)
+                        raise RequestException(err.ERROR_FOLDER_KEY_NOT_FOUND.m, err.ERROR_FOLDER_KEY_NOT_FOUND)
+
+        for resource, sections in patch.items():
+            for owner_key, entries in sections.items():
+                section = current_folders[resource][owner_key]
+                for folder_id, entry in entries.items():
+                    if isinstance(section[folder_id], dict):
+                        section[folder_id]["display"] = entry["display"]
+                    else:
+                        section[folder_id] = {"display": entry["display"]}
+
+        self._update_user_column(uid, tbl.COL_USER_FOLDERS.name, current_folders)
+        return current_folders
+
+    def update_folder_name(self, uid: str, resource: str, folder_id: str, name: str, owner_key: str = "SUBS") -> dict:
+        """
+        Set the user's own name for a folder key of the given owner section (a subscribed shared resource).
+
+        The name lives only in this user's folders column: the shared resource itself, its owner and its
+        other subscribers are left untouched. A bare boolean entry (legacy format) is turned into
+        ``{"display": <that boolean>, "name": name}``.
 
         :param uid: User unique identifier
         :type uid: str
         :param resource: Resource type - "CALENDAR" or "ADDRESSBOOKS"
         :type resource: str
-        :param folder_id: Unique id of the folder to update
+        :param folder_id: Unique id of the folder to rename
         :type folder_id: str
-        :param value: New boolean value to set
-        :type value: bool
+        :param name: New name for the folder, for this user only
+        :type name: str
+        :param owner_key: Owner section key holding folder_id, "SUBS" by default
+        :type owner_key: str
         :return: The updated folders dictionary
         :rtype: dict
-        :raises RequestException: If user profile not found or folder_id not found for this resource
+        :raises RequestException: If user profile not found or folder_id not found in that section
         :raises AggravatedException: If multiple user profiles found
         """
-        logger_user_profile.debug("Updating folder value for uid: %s, resource: %s, id: %s, value: %s",
-                                  uid, resource, folder_id, value)
+        logger_user_profile.debug("Updating folder name for uid: %s, resource: %s, owner_key: %s, id: %s",
+                                  uid, resource, owner_key, folder_id)
 
         current_folders = self._get_user_column(uid, tbl.COL_USER_FOLDERS)
+        section: dict = current_folders.get(resource, {}).get(owner_key, {})
 
-        for section in current_folders.get(resource, {}).values():
-            if folder_id in section:
-                section[folder_id] = value
-                self._update_user_column(uid, tbl.COL_USER_FOLDERS.name, current_folders)
-                return current_folders
+        if folder_id not in section:
+            logger_user_profile.error("Folder key not found for uid: %s, resource: %s, owner_key: %s, id: %s",
+                                      uid, resource, owner_key, folder_id)
+            raise RequestException(err.ERROR_FOLDER_KEY_NOT_FOUND.m, err.ERROR_FOLDER_KEY_NOT_FOUND)
 
-        logger_user_profile.error("Folder key not found for uid: %s, resource: %s, id: %s", uid, resource, folder_id)
-        raise RequestException(err.ERROR_FOLDER_KEY_NOT_FOUND.m, err.ERROR_FOLDER_KEY_NOT_FOUND)
+        if isinstance(section[folder_id], dict):
+            section[folder_id]["name"] = name
+        else:
+            section[folder_id] = {"display": bool(section[folder_id]), "name": name}
+
+        self._update_user_column(uid, tbl.COL_USER_FOLDERS.name, current_folders)
+        return current_folders
 
     def _get_user_column(self, uid: str, column: Column) -> Any:
         """
@@ -741,6 +814,27 @@ class ModuleUserProfile:
         logger_user_profile.debug("Getting folders for uid: %s", uid)
 
         return self._get_user_column(uid, tbl.COL_USER_FOLDERS)
+
+    @staticmethod
+    def strip_folders_names(folders: dict) -> dict:
+        """
+        Return a copy of the folders structure without the personal ``name`` of its entries
+
+        :param folders: Folders dictionary containing CALENDAR and ADDRESSBOOKS structure
+        :type folders: dict
+        :return: Same structure where each entry only keeps its display toggle (and any other field but ``name``)
+        :rtype: dict
+        """
+        return {
+            resource: {
+                owner_key: {
+                    folder_id: {k: v for k, v in entry.items() if k != "name"} if isinstance(entry, dict) else entry
+                    for folder_id, entry in entries.items()
+                }
+                for owner_key, entries in sections.items()
+            }
+            for resource, sections in folders.items()
+        }
 
     def get_partial_user_preferences(self, uid:str, subparent:str) -> dict:
         """

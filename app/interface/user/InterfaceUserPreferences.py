@@ -43,7 +43,7 @@ class InterfaceUserPreferences:
 
     def get_user_folders(self) -> tuple[dict, int]:
         """
-        Get the user's folders (calendars and addressbooks)
+        Get the user's folders (calendars and addressbooks), without the personal names of the entries
 
         :return: Tuple containing response dict and HTTP status code
         :rtype: tuple[dict, int]
@@ -53,27 +53,23 @@ class InterfaceUserPreferences:
         except RequestException as ex:
             return create_api_base_response(None, ex.error)
 
-        return create_api_base_response(folders)
+        return create_api_base_response(ModuleUserProfile.strip_folders_names(folders))
 
-    def update_folder_value(self, resource: str, folder_id: str, value: bool) -> tuple[dict, int]:
+    def update_folders_display(self, patch: dict) -> tuple[dict, int]:
         """
-        Update a single folder key's boolean value in the user's folders structure (CALENDAR or ADDRESSBOOKS)
+        Update the display toggle of one or several folder keys in the user's folders structure (CALENDAR or ADDRESSBOOKS)
 
-        :param resource: Resource type - "CALENDAR" or "ADDRESSBOOKS"
-        :type resource: str
-        :param folder_id: Unique id of the folder to update
-        :type folder_id: str
-        :param value: New boolean value to set
-        :type value: bool
-        :return: Tuple containing response dict and HTTP status code
+        :param patch: Folders entries to update, same format as the GET response
+        :type patch: dict
+        :return: Tuple containing response dict (folders without personal names) and HTTP status code
         :rtype: tuple[dict, int]
         """
         try:
-            folders = self.module_user_profile.update_folder_value(self.user.uid, resource, folder_id, value)
+            folders = self.module_user_profile.update_folders_display(self.user.uid, patch)
         except RequestException as ex:
             return create_api_base_response(None, ex.error)
 
-        return create_api_base_response(folders)
+        return create_api_base_response(ModuleUserProfile.strip_folders_names(folders))
 
     def get_partial_preferences(self, subparent:str) -> tuple[dict, int]:
         """Get partial user preferences for a specific subparent

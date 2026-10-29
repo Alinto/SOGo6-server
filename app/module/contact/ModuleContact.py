@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from app.manager.storage.ClientStorage import ClientStorage
@@ -83,11 +84,98 @@ class ModuleContact:  # pylint: disable=too-many-public-methods
     #
     # Address books
     #
+    @staticmethod
+    def _subscribed_shared_keys(user: User) -> list[str]:
+        """Return the keys of the shared address books the user subscribed to (folders.ADDRESSBOOKS.SUBS).
+
+        Presence in SUBS is the subscription; the boolean value is only a display toggle, so a
+        hidden subscription is still returned.
+        """
+        subs: object = user.folders.get("ADDRESSBOOKS", {}).get("SUBS", {})
+        return list(subs) if isinstance(subs, dict) else []
+
+    @staticmethod
+    def _subscription_name(user: User, key: str | None) -> str | None:
+        """Return the user's own name for a subscribed shared address book (folders.ADDRESSBOOKS.SUBS.{key}.name).
+
+        None when the book is not subscribed, or its entry is a bare display toggle (legacy format).
+        """
+        subs: object = user.folders.get("ADDRESSBOOKS", {}).get("SUBS", {})
+        entry: object = subs.get(key) if isinstance(subs, dict) else None
+        return entry.get("name") if isinstance(entry, dict) else None
+
+    @staticmethod
+    def with_personal_name(user: User, book: CardAddressBook) -> CardAddressBook:
+        """Return the address book named as user sees it: their own name for a shared book, if any.
+
+        The owner always sees the stored name. A renamed book is returned as a copy (the given one is
+        left untouched); it is meant for display only and must never be persisted (that would rename
+        the book for its owner and every subscriber).
+        """
+        personal_name: str | None = None
+        if book.user_uid != user.uid:
+            personal_name = ModuleContact._subscription_name(user, book.key)
+        return replace(book, name=personal_name) if personal_name else book
+
+    @staticmethod
+    def split_personal_update(user: User, book: CardAddressBook, update: dict) -> tuple[dict, str | None]:
+        """Split an address book update into what is written on the book and the user's own name for it.
+
+        On a book shared with user, ``name`` is personal (stored in folders.ADDRESSBOOKS.SUBS by the
+        user profile module), so it is taken out of the update. The owner's update is returned as is.
+
+        :return: the update for the address book row, and the personal name (None when there is none).
+        """
+        if book.user_uid == user.uid or "name" not in update:
+            return update, None
+        shared_update: dict = {field: value for field, value in update.items() if field != "name"}
+        return shared_update, update["name"]
+
     def get_all_addressbooks(
         self, user: User, user_sources: dict[str, UserSourceSettingsObj] | None = None,
     ) -> list[CardAddressBook]:
-        """Return all address books owned by or shared with the user (local DB books; directory when user_sources set)."""
-        return [source.addressbook for source in self._sources.get_all(user.uid, user_sources)]
+        """Return the owned address books plus the shared ones the user subscribed to (folders.ADDRESSBOOKS.SUBS).
+
+        A subscribed book the user can no longer view is dropped, so stale subscriptions vanish
+        without error. Shared books not subscribed to are only returned by get_shared_addressbooks.
+        A shared book carries the user's own name for it.
+        """
+        sources: list[ContactSource] = self._sources.get_listed(user.uid, self._subscribed_shared_keys(user), user_sources)
+        return [self.with_personal_name(user, source.addressbook) for source in sources]
+
+    def get_shared_addressbooks(self, user: User) -> list[CardAddressBook]:
+        """Return every address book shared with the user (direct or "anyone" share) that they can view.
+
+        Each book carries the user's own ``rights`` and ``subscribed``: whether it is in the user's
+        subscriptions (folders.ADDRESSBOOKS.SUBS).
+        """
+        subscribed: set[str] = set(self._subscribed_shared_keys(user))
+        books: list[CardAddressBook] = [
+            book for book in self._sources.get_shared_addressbooks(user.uid)
+            if self._acl.has_right(book, user, RIGHT_VIEW)
+        ]
+        for book in books:
+            book.rights = self.get_rights_on(user, book)
+            book.subscribed = book.key in subscribed
+        return books
+
+    def require_subscribable(self, user: User, key: str) -> CardAddressBook:
+        """Return the shared address book the user may subscribe to (can_view required), or raise.
+
+        The book is returned with the user's ``rights`` and ``subscribed=True``: the state once the
+        caller has written the subscription (folders.ADDRESSBOOKS.SUBS belongs to the user profile
+        module, not to this one). A book the user cannot view is reported like an unknown key
+        (ERROR_CONTACT_ADDRESSBOOK_NOT_FOUND), so the endpoint does not reveal which keys exist.
+        Raises ERROR_CONTACT_CANNOT_SUBSCRIBE_OWN when the user owns it.
+        """
+        book: CardAddressBook = self.get_addressbook(user, key).addressbook
+        if book.user_uid == user.uid:
+            raise RequestException(error=err.ERROR_CONTACT_CANNOT_SUBSCRIBE_OWN)
+        if not self._acl.has_right(book, user, RIGHT_VIEW):
+            raise RequestException(error=err.ERROR_CONTACT_ADDRESSBOOK_NOT_FOUND)
+        book.rights = self.get_rights_on(user, book)
+        book.subscribed = True
+        return book
 
     def get_addressbook(
         self, user: User, key: str, user_sources: dict[str, UserSourceSettingsObj] | None = None,
@@ -97,6 +185,15 @@ class ModuleContact:  # pylint: disable=too-many-public-methods
         if source is None:
             raise RequestException(error=err.ERROR_CONTACT_ADDRESSBOOK_NOT_FOUND)
         return source
+
+    def get_displayed_addressbook(
+        self, user: User, key: str, user_sources: dict[str, UserSourceSettingsObj] | None = None,
+    ) -> CardAddressBook:
+        """Return an address book as the user sees it: their own name for it when it is shared with them.
+
+        For display only: the returned book must never be persisted (see with_personal_name).
+        """
+        return self.with_personal_name(user, self.get_addressbook(user, key, user_sources).addressbook)
 
     def _get_readable_addressbook(
         self, user: User, key: str, user_sources: dict[str, UserSourceSettingsObj] | None = None,
@@ -122,9 +219,13 @@ class ModuleContact:  # pylint: disable=too-many-public-methods
         The owner has every right. Any other user gets the rights of their sogo6_acl entry (their own,
         or the "anyone" one), each flag defaulting to False; no entry means no right at all.
         """
-        book: CardAddressBook = self.get_addressbook(user, key, user_sources).addressbook
+        return self.get_rights_on(user, self.get_addressbook(user, key, user_sources).addressbook)
+
+    def get_rights_on(self, user: User, book: CardAddressBook) -> dict[str, bool]:
+        """Return the acting user's own rights on an already-resolved address book (see get_addressbook_rights)."""
         if book.user_uid == user.uid:
             return dict(FULL_MODIFY_RIGHTS)
+        key: str = book.require_key
         entry: AclEntry | None = self._share.get_user_or_anyone(user.uid, book.user_uid, key)
         stored: dict = entry.rights if entry is not None else {}
         return {name: bool(stored.get(name, False)) for name in FULL_MODIFY_RIGHTS}
@@ -266,8 +367,9 @@ class ModuleContact:  # pylint: disable=too-many-public-methods
     ) -> tuple[list[CardContact], int]:
         """Return a page of contacts plus the total count.
 
-        When addressbook_key is None the search spans all the user's address books (transverse,
-        like ModuleCalendar.get_all_events with calendar_key=None); otherwise it is scoped to one book.
+        When addressbook_key is None the search spans the user's listed address books - the owned ones
+        plus the shared ones they subscribed to (transverse, like ModuleCalendar.get_all_events with
+        calendar_key=None); otherwise it is scoped to one book, which only needs the ACL.
         sort_by must be validated against an allowlist by the caller (it becomes an ORDER BY column);
         the interface restricts it to the sortable contact fields.
 
@@ -283,6 +385,7 @@ class ModuleContact:  # pylint: disable=too-many-public-methods
             contacts, total = self._sources.get_contacts(
                 user.uid, search=search, offset=offset, limit=limit, sort_by=sort_by,
                 order=order, addressbook_key=addressbook_key, user_sources=user_sources, resolve_ab=resolve_ab,
+                listed_shared_keys=None if addressbook_key is not None else self._subscribed_shared_keys(user),
             )
             for contact in contacts:
                 if resolve_images:
@@ -419,13 +522,16 @@ class ModuleContact:  # pylint: disable=too-many-public-methods
         self, user: User, search: str | None = None, limit: int = 0,
         user_sources: dict[str, UserSourceSettingsObj] | None = None,
     ) -> list[CardList]:
-        """Return the user's distribution lists across every book, name-filtered and capped (autocomplete).
+        """Return the user's distribution lists across their listed books, name-filtered and capped (autocomplete).
 
         Transverse counterpart of get_all_lists, used by recipient autocompletion so a list surfaces
-        as a suggestion alongside contacts.
+        as a suggestion alongside contacts. Spans the same books as the transverse get_contacts.
         """
         try:
-            return self._sources.search_all_lists(user.uid, search=search, limit=limit, user_sources=user_sources)
+            return self._sources.search_all_lists(
+                user.uid, search=search, limit=limit, user_sources=user_sources,
+                listed_shared_keys=self._subscribed_shared_keys(user),
+            )
         except RequestException:
             raise
         except Exception as exc:

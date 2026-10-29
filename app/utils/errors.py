@@ -241,6 +241,7 @@ ERROR_CALENDAR_END_BEFORE_START              = E("S000627", "End Time Must Be Af
 ERROR_CALENDAR_IMIP_REPLY_SENDER_MISMATCH    = E("S000628", "iMIP Sender Is Not The Replying Attendee", HTTPStatus.FORBIDDEN)
 ERROR_CALENDAR_EVENT_REVISION_OBSOLETE       = E("S000629", "Event Has Been Revised Since It Was Read", HTTPStatus.CONFLICT)
 ERROR_CALENDAR_NOT_ATTENDEE                  = E("S000630", "Not An Attendee Of This Event", HTTPStatus.FORBIDDEN)
+ERROR_CALENDAR_CANNOT_SUBSCRIBE_OWN          = E("S000631", "Cannot Subscribe To Your Own Calendar", HTTPStatus.BAD_REQUEST)
 
 #the contacts
 ERROR_CONTACT_JSON_PARSE_FAILED              = E("S000700", "Failed To Parse Contact JSON Content", HTTPStatus.UNPROCESSABLE_ENTITY)
@@ -264,6 +265,7 @@ ERROR_CONTACT_IMPORT_TOO_LARGE               = E("S000717", "Import Payload Exce
 ERROR_CONTACT_IMPORT_PARSE_FAILED            = E("S000718", "Failed To Parse The Import Document", HTTPStatus.UNPROCESSABLE_ENTITY)
 ERROR_CONTACT_DISPLAY_NAME_REQUIRED          = E("S000719", "Contact Display Name Is Required", HTTPStatus.UNPROCESSABLE_ENTITY)
 ERROR_CONTACT_SHARING_DISABLED               = E("S000720", "Address Book Sharing Is Disabled For This Domain", HTTPStatus.FORBIDDEN)
+ERROR_CONTACT_CANNOT_SUBSCRIBE_OWN           = E("S000721", "Cannot Subscribe To Your Own Address Book", HTTPStatus.BAD_REQUEST)
 
 #AGENT / TASK
 ERROR_JOB_NOT_FOUND        = E("S000800", "Job Not Found", HTTPStatus.NOT_FOUND)
