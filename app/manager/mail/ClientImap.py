@@ -1796,9 +1796,9 @@ class ClientImap(ClientMailServer):
         """
 
 
-        has_att = bool(re.search(rb'\(.*?"attachment".*?\)', bodystructure, re.IGNORECASE))
+        has_att = bool(re.search(rb'"attachment"', bodystructure, re.IGNORECASE))
         is_signed = bool(re.search(rb'\(.*?"application".*?"(pkcs7|x-pkcs7|pgp)-signature".*?\)', bodystructure, re.IGNORECASE))
-        has_event = bool(re.search(rb'\(.*?("text".*?"calendar")|("application".*?"ics").*?\)', bodystructure, re.IGNORECASE))
+        has_event = bool(re.search(rb'\(.*?(?:"text".*?"calendar"|"application".*?"ics").*?\)', bodystructure, re.IGNORECASE))
         has_contact = bool(re.search(rb'\(.*?"(vcard|x-vcard)".*?\)', bodystructure, re.IGNORECASE))
         return {"has_attachment": has_att,
                 "is_signed": is_signed,
@@ -1868,6 +1868,57 @@ class ClientImap(ClientMailServer):
 
         return ret
 
+    def _group_fetch_response(self, datas: list) -> reversed[tuple[tuple[bytes, bytes], bytes]]:
+        """
+        Parse the response of a fetch that uses (BODY.PEEK[HEADER] BODYSTRUCTURE FLAGS UID RFC822.SIZE)
+
+        The return is a iterator with most recent message first
+
+        Return [((metadata_bytes, header_bytes), bodystructure_bytes)] per message:
+        * metadata_bytes: b'236 (UID 236 FLAGS (\\Seen NonJunk) RFC822.SIZE 3158 BODY[HEADER] {764}'
+        * header_bytes: b'Return-Path: <>\r\nDelivered-To: jnadal@alinto.eu\r\nReceived: from smt....'
+        * bodystructure_bytes: b'BODYSTRUCTURE (("text" "plain" ("charset" "us-ascii") N....'
+        """
+        messages = []
+        header = b""
+        metadata = b""
+        parts: list[bytes] = []
+        started = False
+
+        #Match the start of a response
+        msg_start = re.compile(rb'^\d+ \(')
+        #Match the start of the header tuple
+        header_literal = re.compile(rb'BODY(?:\.PEEK)?\[HEADER[^\]]*\]\s*\{\d+\}$', re.IGNORECASE)
+
+        def flush() -> None:
+            """"""
+            if started:
+                raw = b"".join(parts)
+                idx = raw.find(b"BODYSTRUCTURE")
+                messages.append(((metadata, header), raw[idx:] if idx != -1 else b""))
+
+        for item in datas:
+            first = item[0] if isinstance(item, tuple) else item
+            if not isinstance(first, bytes):
+                continue
+            if msg_start.match(first): # new message
+                flush()
+                metadata, header, parts, started = b"", b"", [], True
+            if not started:
+                continue
+            if isinstance(item, tuple):
+                if header_literal.search(first):
+                    metadata = item[0] # the real headers
+                    header = item[1]
+                    parts.append(first)
+                else: # literal inside another field
+                    parts.append(first)
+                    parts.append(b'"' + item[1].replace(b'"', b"'") + b'"')
+            else:
+                parts.append(first) # plain continuation / b')'
+        flush()
+        return reversed(messages)
+
     def fetch_all_mails_without_content(self, folder_path: str, number_of_mails: int, offset: int, deleted: bool = False,
                                         sort_by: str | None = None, sort_order: str | None = None) -> Iterator[dict]:
         """
@@ -1930,10 +1981,7 @@ class ClientImap(ClientMailServer):
 
             mails_by_uid: dict[str, dict] = {}
             # Iterate from the end, two items at a time
-            for i in range(len(datas) - 1, -1, -2):
-                pair = datas[i-1:i+1]  # Get the current and previous item
-                bodystruct = pair[1]
-                message_parts = cast(tuple[bytes, bytes], pair[0])
+            for message_parts, bodystruct in self._group_fetch_response(datas):
                 has_attachment = self._parse_body_structure_for_attachment(bodystruct)
                 #b'1 (FLAGS (\\Draft) UID 47 RFC822.SIZE 74732 BODY[HEADER] {1080}
                 mail_dict = self._parse_mail_without_content_fetching(message_parts, has_attachment)
@@ -2770,14 +2818,7 @@ class ClientImap(ClientMailServer):
                     err.ERROR_MAIL_SEARCH_FAILED
                 )
 
-            for i in range(len(fetch_datas) - 1, -1, -2):
-                pair = fetch_datas[i - 1:i + 1]
-                if len(pair) < 2:
-                    continue
-                bodystruct = pair[1]
-                message_parts = cast(tuple[bytes, bytes], pair[0])
-                if not isinstance(message_parts, tuple):
-                    continue
+            for message_parts, bodystruct in self._group_fetch_response(fetch_datas):
                 has_attachment = self._parse_body_structure_for_attachment(bodystruct)
                 mail_dict = self._parse_mail_without_content_fetching(message_parts, has_attachment)
                 mail_dict["folder"] = folder_path
