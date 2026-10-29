@@ -75,6 +75,8 @@ testpaths = [
     "tests"
 ]
 
+[tool.pylint.main]
+ignore-paths = ["^tests/.*"]
 
 [tool.pylint.basic]
 module-naming-style="any"

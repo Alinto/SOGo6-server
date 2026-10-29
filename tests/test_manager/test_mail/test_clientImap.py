@@ -1682,10 +1682,11 @@ class TestFixFolderPath:
         result = client._fix_folder_path("INBOX.Folder")
         assert result == "INBOX.Folder"
 
-    def test_fix_folder_path_non_ascii_raises(self):
+    def test_fix_folder_path_non_ascii(self):
         client = make_client()
-        with pytest.raises(RequestException):
-            client._fix_folder_path("INBØX")
+        client.default_delimiter = "."
+        result = client._fix_folder_path("Cédric")
+        assert result == "C&AOk-dric"
 
 
 # ===========================================================================

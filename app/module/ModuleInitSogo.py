@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING
 
 from os import getpid
 
-from app.config.db.tables import ALL_TABLES
+from app.config.db.tables import ALL_TABLES, TABLE_SETTINGS
 from app.manager.cache.ClientRedis import ClientRedis
 from app.module.common_module import get_sogo6_database
 from app.utils.logger.logger import logger

@@ -224,7 +224,7 @@ class ClientMySQL(ClientSQL):
         """
         Init the MySQL client.
         """
-        self.safe_conn_string: str = f"mysql://SOGO_M_DB_USER:SOGO_M_DB_PWD@{db_host}:{db_port}/{db_name}?charset={db_enc}"
+        self.safe_conn_string: str = f"mysql://SOGO_P_DB_USER:SOGO_P_DB_PWD@{db_host}:{db_port}/{db_name}?charset={db_enc}"
         self.conn_config = {
             "user": db_user,
             "password": db_pwd,
