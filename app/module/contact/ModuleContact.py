@@ -67,12 +67,13 @@ class ModuleContact:  # pylint: disable=too-many-public-methods
     def create_personal_addressbook(self, user_uid: str, name: str = DEFAULT_ADDRESSBOOK_NAME) -> CardAddressBook:
         """Create and persist the default personal address book for a user.
 
-        Idempotent: if the user already has a default address book, returns it without creating
-        a new one. Called at first login alongside the personal calendar provisioning.
+        Idempotent: if the user already owns a default address book, returns it without creating
+        a new one. Default address books shared with the user by others are ignored.
+        Called at first login alongside the personal calendar provisioning.
         """
-        for source in self._sources.get_all(user_uid):
-            if source.addressbook.is_default and source.addressbook.user_uid == user_uid:
-                return source.addressbook
+        existing: ContactSource | None = self._sources.get_default(user_uid)
+        if existing is not None:
+            return existing.addressbook
         book: CardAddressBook = CardAddressBook(
             user_uid=user_uid, name=name, is_default=True, source_type=CardSourceType.LOCAL,
         )
