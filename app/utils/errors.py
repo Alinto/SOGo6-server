@@ -89,6 +89,7 @@ ERROR_FOLDER_SPECIAL_CANNOT_RENAME = E("S000382", "A Special Folder (Inbox, Sent
 ERROR_FOLDER_SPECIAL_CANNOT_CHANGE_TYPE = E("S000383", "The Type Of A Special Folder (Inbox, Sent, Drafts, Trash, Junk, Templates...) Cannot Be Changed", HTTPStatus.BAD_REQUEST)
 ERROR_FOLDER_TYPE_NOT_ASSIGNABLE = E("S000384", "This Folder Type Cannot Be Assigned By The User", HTTPStatus.BAD_REQUEST)
 ERROR_FOLDER_TYPE_EXT_ACCOUNT = E("S000385", "Folder Types Can Only Be Changed On The Main Account", HTTPStatus.BAD_REQUEST)
+ERROR_FOLDER_CANNOT_EMPTY    = E("S000386", "Folder Cannot Be Emptied (only TRASH and JUNK folders can be emptied)", HTTPStatus.BAD_REQUEST)
 ERROR_INVALID_ACTION         = E("S000309", "Invalid Action Specified", HTTPStatus.BAD_REQUEST)
 ERROR_MISSING_ACTION_DATA    = E("S001306", "Missing Required Data For Action", HTTPStatus.BAD_REQUEST)
 
