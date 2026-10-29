@@ -52,15 +52,30 @@ def _build_module():
 def test_create_personal_addressbook_returns_existing_default():
     module = _build_module()
     existing = _fake_source(_book(is_default=True))
-    module._sources.get_all.return_value = [existing]
+    module._sources.get_default.return_value = existing
     result = module.create_personal_addressbook("alice@example.com")
     assert result is existing.addressbook
+    module._sources.get_default.assert_called_once_with("alice@example.com")
     module._sources.get.assert_not_called()
+
+
+def test_create_personal_addressbook_ignores_shared_default():
+    """A default address book shared by another user must not prevent provisioning."""
+    module = _build_module()
+    module._sources.get_all.return_value = [_fake_source(_book(is_default=True, user_uid="bob@example.com"))]
+    module._sources.get_default.return_value = None
+    new_source = _fake_source()
+    new_source.save_addressbook.side_effect = lambda book: book
+    module._sources.get.return_value = new_source
+    result = module.create_personal_addressbook("alice@example.com")
+    assert result.user_uid == "alice@example.com"
+    assert result.is_default is True
+    new_source.save_addressbook.assert_called_once()
 
 
 def test_create_personal_addressbook_creates_when_none():
     module = _build_module()
-    module._sources.get_all.return_value = []
+    module._sources.get_default.return_value = None
     new_source = _fake_source()
     new_source.save_addressbook.side_effect = lambda book: book
     module._sources.get.return_value = new_source

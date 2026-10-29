@@ -84,13 +84,14 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
     def create_personal_calendar(self, user_uid: str, name: str = DEFAULT_CALENDAR_NAME, tz: str = "UTC") -> CalCalendar:
         """Create and persist the default personal calendar for a user.
 
-        If the user already has a default calendar, returns it without creating a new one.
+        If the user already owns a default calendar, returns it without creating a new one.
+        Default calendars shared with the user by others are ignored.
         The caller (auth onboarding) passes the user's preferred timezone (``tz``) so
         floating-time events imported later are anchored to the user's locale rather than UTC.
         """
-        for source in self._sources.get_all(user_uid):
-            if source.calendar.is_default:
-                return source.calendar
+        existing: CalendarSource | None = self._sources.get_default(user_uid)
+        if existing is not None:
+            return existing.calendar
         cal: CalCalendar = CalCalendar(
             user_uid=user_uid, name=name, timezone=tz,
             is_default=True, source_type=CalendarSourceType.LOCAL,
