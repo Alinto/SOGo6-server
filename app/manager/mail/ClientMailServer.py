@@ -583,3 +583,16 @@ class ClientMailServer(metaclass=ABCMeta):
         :rtype: list[str]
         :raises RequestException: If not connected to the server.
         """
+
+    @abstractmethod
+    def empty_folder(self, folder_path: str) -> int:
+        """Completely empty a folder by permanently deleting all mails.
+
+        Performs the sequence: UID SEARCH ALL, UID STORE +FLAGS (\\Deleted), EXPUNGE.
+        Only implemented for TRASH and JUNK folders at the module level.
+
+        :param folder_path: path of the folder to empty
+        :type folder_path: str
+        :return: Number of messages permanently deleted
+        :rtype: int
+        """
