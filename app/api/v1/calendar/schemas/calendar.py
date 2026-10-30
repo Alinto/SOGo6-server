@@ -109,7 +109,7 @@ class SharedCalendarSchema(CalendarSchema):
 
 
 class SharedCalendarQueryArgsSchema(Schema):
-    """Query string for GET /shared-calendars (search only; pagination is handled separately)."""
+    """Query string for GET /shared-calendars."""
 
     search = fields.String(load_default=None, allow_none=True,
                            validate=[validate.Length(max=_SEARCH_MAX_LENGTH), _validate_search],

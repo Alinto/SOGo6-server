@@ -1,6 +1,7 @@
 """Unit tests for InterfaceApiContactContact - shared address book discovery, subscription and share-time subscribe."""
 from unittest.mock import MagicMock, patch
 
+from app.auth.User import User
 from app.interface.contact.InterfaceApiContactContact import InterfaceApiContactContact
 from app.module.contact.ModuleContact import ModuleContact
 from app.module.contact.model.CardAddressBook import CardAddressBook
@@ -86,17 +87,61 @@ def test_autocomplete_does_not_pass_subscriptions():
 
 # ========== discovery ==========
 
+def _with_owner_names(inter, names):
+    """Make the user source resolve each owner uid in names to that cn; any other uid is unknown (ANON)."""
+    def resolve(uid):
+        target = User(uid=uid, cn=names.get(uid, ""))
+        target.user_class = cs.USER_CLASS_USER if uid in names else cs.USER_CLASS_ANON
+        return target
+    inter._resolve_share_target = resolve
+
+
+def _shared(inter, search=None, page=1, page_size=20):
+    total, response, _ = inter.get_shared_addressbooks(CollectionPaginateArgs(page=page, page_size=page_size), search=search)
+    return total, response["data"]["addressbooks"]
+
+
 def test_get_shared_addressbooks_serializes_module_result():
     inter = _build_interface()
+    _with_owner_names(inter, {})
     subscribed, offered = _book("a"), _book("b")
     subscribed.rights, subscribed.subscribed = dict(_VIEW_RIGHTS), True
     offered.rights, offered.subscribed = dict(_VIEW_RIGHTS), False
     inter.module.get_shared_addressbooks.return_value = [subscribed, offered]
-    response, _ = inter.get_shared_addressbooks()
-    books = response["data"]["addressbooks"]
-    assert response["data"]["total_count"] == 2
+    total, books = _shared(inter)
+    assert total == 2
     assert [(b["key"], b["subscribed"]) for b in books] == [("a", True), ("b", False)]
     assert books[0]["rights"] == _VIEW_RIGHTS
+
+
+def test_get_shared_addressbooks_adds_owner_username():
+    inter = _build_interface()
+    _with_owner_names(inter, {"alice@example.com": "Alice Liddell"})
+    inter.module.get_shared_addressbooks.return_value = [_book("a"), _book("b", owner="ghost@example.com")]
+    _, books = _shared(inter)
+    assert {b["key"]: b["username"] for b in books} == {"a": "Alice Liddell", "b": ""}
+
+
+def test_get_shared_addressbooks_search_matches_owner_or_username_case_insensitive():
+    inter = _build_interface()
+    _with_owner_names(inter, {"alice@example.com": "Alice", "u42@example.com": "Sogo Admin", "carol@example.com": "Carol"})
+    inter.module.get_shared_addressbooks.return_value = [
+        _book("by-owner", owner="sogo-tests1@example.com"),
+        _book("by-username", owner="u42@example.com"),
+        _book("no-match", owner="carol@example.com"),
+    ]
+    total, books = _shared(inter, search=" SOG ")
+    assert total == 2
+    assert sorted(b["key"] for b in books) == ["by-owner", "by-username"]
+
+
+def test_get_shared_addressbooks_paginates_sorted_by_username():
+    inter = _build_interface()
+    _with_owner_names(inter, {f"u{i}@example.com": f"User {i}" for i in range(5)})
+    inter.module.get_shared_addressbooks.return_value = [_book(f"k{i}", owner=f"u{i}@example.com") for i in (3, 0, 4, 1, 2)]
+    total, books = _shared(inter, page=2, page_size=2)
+    assert total == 5
+    assert [b["key"] for b in books] == ["k2", "k3"]
 
 
 # ========== subscribe / unsubscribe ==========

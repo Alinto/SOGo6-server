@@ -142,13 +142,15 @@ class SharedAddressBookSchema(AddressBookSchema):
                                metadata={"description": "The current user's own rights on the address book."})
     subscribed = fields.Boolean(dump_only=True,
                                 metadata={"description": "True when the address book is in the user's subscriptions (shown in GET /addressbooks)."})
+    username   = fields.String(dump_only=True,
+                               metadata={"description": "Complete name of the owner, read from the user source (US_FIELD_CN). "
+                                                        "Empty when no user source knows the owner.", "example": "John Doe"})
 
 
 class SharedAddressBookListDataSchema(Schema):
-    """Data payload for the shared address book list response."""
+    """Data payload for the shared address book list response. The total count is in the X-Pagination header."""
 
     addressbooks = fields.List(fields.Nested(SharedAddressBookSchema))
-    total_count  = fields.Integer()
 
 
 class SharedAddressBookListResponseSchema(ApiBaseResponse):

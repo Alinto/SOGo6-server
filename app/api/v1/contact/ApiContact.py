@@ -45,6 +45,7 @@ from .schemas.contact import (
     ContactSearchQueryArgsSchema,
     ContactAutocompleteQueryArgsSchema,
     ContactAutocompleteResponseSchema,
+    SharedAddressBookQueryArgsSchema,
 )
 from .schemas.list import (
     ListCreateSchema,
@@ -202,11 +203,24 @@ class ApiSharedAddressBookList(MethodView):
     """
 
     @blp.response(200, SharedAddressBookListResponseSchema)
-    def get(self) -> ResponseReturnValue:
-        """List the address books shared with the user (directly or with anyone in their domain) and whether they subscribed."""
-        logger_api.debug("GET /shared-addressbooks user=%s", g.user.uid)
+    @blp.arguments(SharedAddressBookQueryArgsSchema, location="query", arg_name="query_args")
+    @collection_paginate(blp, can_sort=False, can_filter=False)
+    def get(self, query_args: dict, collection_param: CollectionPaginateArgs) -> CustomPaginateResponse:
+        """List the address books shared with the user (directly or with anyone in their domain) and whether they subscribed.
+
+        Each address book carries ``username``: the owner's complete name from the user source.
+
+        Query parameters:
+        - ``search``: optional, case-insensitive substring matched against ``owner`` or ``username``
+          (minimum 2 non-whitespace characters, otherwise 422).
+        - ``page`` (default 1) / ``page_size`` (default 20, max 100): pagination.
+
+        Address books are ordered by ``username``, then ``owner``, then ``name``. The total number of
+        matching address books is returned in the ``X-Pagination`` response header, not in the body.
+        """
+        logger_api.debug("GET /shared-addressbooks user=%s args=%s params=%s", g.user.uid, query_args, collection_param)
         interface: InterfaceApiContactContact = g.inter
-        return interface.get_shared_addressbooks()
+        return interface.get_shared_addressbooks(collection_param, search=query_args.get("search"))
 
 
 @blp.route("/shared-addressbooks/<string:key>")

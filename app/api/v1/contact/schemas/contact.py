@@ -17,6 +17,9 @@ from app.utils.api.ApiBaseResponse import ApiBaseResponse
 _KIND_VALUES = [k.value for k in CardKind]
 
 
+_SEARCH_MAX_LENGTH = 200
+
+
 def validate_search(value: str | None) -> None:
     """Reject a too-short search query (less than 2 non-whitespace characters)."""
     if value is not None and len(value.strip()) < 2:
@@ -132,6 +135,16 @@ class ContactSearchQueryArgsSchema(Schema):
                                "description": "Full-text query matched against the contact fields "
                                               "(min 2 non-whitespace characters). Omit to list everything.",
                                "example": "doe"})
+
+
+class SharedAddressBookQueryArgsSchema(Schema):
+    """Query string for GET /shared-addressbooks."""
+
+    search = fields.String(load_default=None, allow_none=True,
+                           validate=[validate.Length(max=_SEARCH_MAX_LENGTH), validate_search],
+                           metadata={"description": "Case-insensitive substring matched against the owner uid and the owner "
+                                                    "username (min 2 non-whitespace characters). Omit to list everything.",
+                                     "example": "doe"})
 
 
 class ContactListDataSchema(Schema):
