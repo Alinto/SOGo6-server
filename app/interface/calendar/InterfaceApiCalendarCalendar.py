@@ -60,6 +60,7 @@ if TYPE_CHECKING:
     from app.module.calendar.imip.ImipMessage import ImipMessage
     from app.module.calendar.model.CalEvent import CalEvent
     from app.module.calendar.source.CalendarSource import CalendarSource
+    from app.utils.api.paginate_sort_filter import CollectionPaginateArgs, CustomPaginateResponse
 
 
 class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attributes,too-many-public-methods
@@ -401,16 +402,37 @@ class InterfaceApiCalendarCalendar:  # pylint: disable=too-many-instance-attribu
     #
     # Shared calendars - subscriptions
     #
-    def get_shared_calendars(self) -> tuple[dict[str, Any], int]:
-        """List every calendar shared with the user (direct or "anyone" share), with its subscription state."""
+    def get_shared_calendars(self, collection_param: CollectionPaginateArgs, search: str | None = None) -> CustomPaginateResponse:
+        """List every calendar shared with the user (direct or "anyone" share), with its subscription state.
+
+        Each calendar gets ``username``, the owner's complete name (US_FIELD_CN) resolved through the
+        user sources - which is why the search and the pagination happen here and not in ModuleCalendar:
+        the architecture rule forbids the calendar module calling the user source module.
+        ``search`` keeps the calendars whose owner uid or username contains it (case-insensitive).
+        The list is sorted (username, owner, name) so the pages are stable; the total count goes to
+        the X-Pagination header.
+
+        :return: A tuple (total_count, API response dict, status code).
+        """
         try:
             calendars: list[CalCalendar] = self.module.get_shared_calendars(self.user)
-            return create_api_base_response({
-                "calendars": self._calendars_serializer.serialize(calendars), "total_count": len(calendars),
-            })
+            serialized: list[dict[str, Any]] = self._calendars_serializer.serialize(calendars)
+            for cal_dict in serialized:
+                cal_dict["username"] = self._owner_username(cal_dict["owner"])
+            if search:
+                needle: str = search.strip().casefold()
+                serialized = [c for c in serialized if needle in c["owner"].casefold() or needle in c["username"].casefold()]
+            serialized.sort(key=lambda c: (c["username"].casefold(), c["owner"].casefold(), (c["name"] or "").casefold()))
+            page: list[dict[str, Any]] = serialized[collection_param.first_item:collection_param.last_item + 1]
+            return len(serialized), *create_api_base_response({"calendars": page})
         except RequestException as ex:
             logger_api.error("get_shared_calendars failed for user %s: %s", self.user.uid, ex)
-            return create_api_base_response(None, ex.error)
+            return 0, *create_api_base_response(None, ex.error)
+
+    def _owner_username(self, owner_uid: str) -> str:
+        """Return the owner's complete name (US_FIELD_CN) from the user sources, "" when no source knows them."""
+        owner: User = self._resolve_share_target(owner_uid)
+        return owner.cn if owner.user_class == cs.USER_CLASS_USER else ""
 
     def set_calendar_subscription(self, key: str, body: dict[str, Any]) -> tuple[dict[str, Any], int]:
         """Subscribe to, or unsubscribe from, a shared calendar according to ``body["subscribe"]``.
