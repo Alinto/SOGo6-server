@@ -12,6 +12,7 @@ from app.config.settings.DomainSettings import UserModuleSettings
 from app.interface.calendar.InterfaceApiCalendarCalendar import InterfaceApiCalendarCalendar
 from app.utils.api.ApiBaseResponse import create_api_base_response
 from app.utils.api.is_async import async_endpoint
+from app.utils.api.paginate_sort_filter import collection_paginate, CustomPaginateResponse
 from app.utils.api.share import is_share_any_auth_forbidden
 from app.utils.errors import ERROR_CALENDAR_IMPORT_NO_FILE, ERROR_CALENDAR_SHARING_DISABLED, ERROR_SHARE_ANY_AUTH_DISABLED
 from app.utils.logger.logger import logger_api
@@ -30,6 +31,7 @@ from .schemas.calendar import (
     CalendarSharePostSchema,
     CalendarShareResponseSchema,
     SharedCalendarListResponseSchema,
+    SharedCalendarQueryArgsSchema,
     SharedCalendarResponseSchema,
     SharedCalendarSubscribeSchema,
 )
@@ -62,6 +64,7 @@ from .schemas.external_calendar import (
 if TYPE_CHECKING:
     from app.auth.User import User
     from app.config.settings.ProcessSetting import ProcessSetting
+    from app.utils.api.paginate_sort_filter import CollectionPaginateArgs
 
 blp = Blueprint("Calendar", __name__, url_prefix="")
 
@@ -456,11 +459,24 @@ class ApiSharedCalendarList(MethodView):
     """
 
     @blp.response(200, SharedCalendarListResponseSchema)
-    def get(self) -> ResponseReturnValue:
-        """List the calendars shared with the user (directly or with anyone in their domain) and whether they subscribed."""
-        logger_api.debug("GET /shared-calendars user=%s", g.user.uid)
+    @blp.arguments(SharedCalendarQueryArgsSchema, location="query", arg_name="query_args")
+    @collection_paginate(blp, can_sort=False, can_filter=False)
+    def get(self, query_args: dict, collection_param: CollectionPaginateArgs) -> CustomPaginateResponse:
+        """List the calendars shared with the user (directly or with anyone in their domain) and whether they subscribed.
+
+        Each calendar carries ``username``: the owner's complete name from the user source.
+
+        Query parameters:
+        - ``search``: optional, case-insensitive substring matched against ``owner`` or ``username``
+          (minimum 2 non-whitespace characters, otherwise 422).
+        - ``page`` (default 1) / ``page_size`` (default 20, max 100): pagination.
+
+        Calendars are ordered by ``username``, then ``owner``, then ``name``. The total number of
+        matching calendars is returned in the ``X-Pagination`` response header, not in the body.
+        """
+        logger_api.debug("GET /shared-calendars user=%s args=%s params=%s", g.user.uid, query_args, collection_param)
         interface: InterfaceApiCalendarCalendar = g.inter
-        return interface.get_shared_calendars()
+        return interface.get_shared_calendars(collection_param, search=query_args.get("search"))
 
 
 @blp.route("/shared-calendars/<string:key>")

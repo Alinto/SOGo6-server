@@ -4,7 +4,7 @@ from typing import Any
 from marshmallow import Schema, fields, validate, validates_schema, ValidationError
 
 from app.api.v1.calendar.schemas.components import CalendarRightsSchema
-from app.api.v1.calendar.schemas.event import DateTimeEndUtcField, DateTimeUtcField
+from app.api.v1.calendar.schemas.event import _SEARCH_MAX_LENGTH, _validate_search, DateTimeEndUtcField, DateTimeUtcField
 from app.module.calendar.model.enums.EventVisibility import EventVisibility
 from app.utils.api.ApiBaseResponse import ApiBaseResponse
 
@@ -103,6 +103,19 @@ class SharedCalendarSchema(CalendarSchema):
 
     subscribed = fields.Boolean(dump_only=True,
                                 metadata={"description": "True when the calendar is in the user's subscriptions (shown in GET /calendars)."})
+    username   = fields.String(dump_only=True,
+                               metadata={"description": "Complete name of the owner, read from the user source (US_FIELD_CN). "
+                                                        "Empty when no user source knows the owner.", "example": "John Doe"})
+
+
+class SharedCalendarQueryArgsSchema(Schema):
+    """Query string for GET /shared-calendars (search only; pagination is handled separately)."""
+
+    search = fields.String(load_default=None, allow_none=True,
+                           validate=[validate.Length(max=_SEARCH_MAX_LENGTH), _validate_search],
+                           metadata={"description": "Case-insensitive substring matched against the owner uid and the owner "
+                                                    "username (min 2 non-whitespace characters). Omit to list everything.",
+                                     "example": "doe"})
 
 
 class SharedCalendarSubscribeSchema(Schema):
@@ -121,10 +134,9 @@ class SharedCalendarSubscribeSchema(Schema):
 
 
 class SharedCalendarListDataSchema(Schema):
-    """Data payload for the shared calendar list response."""
+    """Data payload for the shared calendar list response. The total count is in the X-Pagination header."""
 
     calendars   = fields.List(fields.Nested(SharedCalendarSchema))
-    total_count = fields.Integer()
 
 
 class SharedCalendarListResponseSchema(ApiBaseResponse):

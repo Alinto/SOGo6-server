@@ -6,7 +6,9 @@ from app.module.calendar.ModuleCalendar import ModuleCalendar
 from app.module.calendar.model.CalCalendar import CalCalendar
 from app.module.calendar.serializer.CalCalendarSerializerDict import CalCalendarSerializerDict
 from app.module.calendar.serializer.CalCalendarsSerializerList import CalCalendarsSerializerList
+from app.auth.User import User
 from app.utils import constants as cs
+from app.utils.api.paginate_sort_filter import CollectionPaginateArgs
 from app.utils import errors as err
 from app.utils.exceptions import RequestException
 
@@ -77,14 +79,59 @@ def test_get_tasks_does_not_pass_subscriptions():
 
 # ========== discovery ==========
 
+def _with_owner_names(inter, names):
+    """Make the user source resolve each owner uid in names to that cn; any other uid is unknown (ANON)."""
+    def resolve(uid):
+        target = User(uid=uid, cn=names.get(uid, ""))
+        target.user_class = cs.USER_CLASS_USER if uid in names else cs.USER_CLASS_ANON
+        return target
+    inter._resolve_share_target = resolve
+
+
+def _shared(inter, search=None, page=1, page_size=20):
+    total, response, _ = inter.get_shared_calendars(CollectionPaginateArgs(page=page, page_size=page_size), search=search)
+    return total, response["data"]["calendars"]
+
+
 def test_get_shared_calendars_serializes_module_result():
     inter = _build_interface()
+    _with_owner_names(inter, {})
     subscribed, offered = _cal("a"), _cal("b")
     subscribed.subscribed, offered.subscribed = True, False
     inter.module.get_shared_calendars.return_value = [subscribed, offered]
-    response, _ = inter.get_shared_calendars()
-    assert response["data"]["total_count"] == 2
-    assert [(c["key"], c["subscribed"]) for c in response["data"]["calendars"]] == [("a", True), ("b", False)]
+    total, calendars = _shared(inter)
+    assert total == 2
+    assert [(c["key"], c["subscribed"]) for c in calendars] == [("a", True), ("b", False)]
+
+
+def test_get_shared_calendars_adds_owner_username():
+    inter = _build_interface()
+    _with_owner_names(inter, {"alice@example.com": "Alice Liddell"})
+    inter.module.get_shared_calendars.return_value = [_cal("a"), _cal("b", owner="ghost@example.com")]
+    _, calendars = _shared(inter)
+    assert {c["key"]: c["username"] for c in calendars} == {"a": "Alice Liddell", "b": ""}
+
+
+def test_get_shared_calendars_search_matches_owner_or_username_case_insensitive():
+    inter = _build_interface()
+    _with_owner_names(inter, {"alice@example.com": "Alice", "u42@example.com": "Sogo Admin", "carol@example.com": "Carol"})
+    inter.module.get_shared_calendars.return_value = [
+        _cal("by-owner", owner="sogo-tests1@example.com"),
+        _cal("by-username", owner="u42@example.com"),
+        _cal("no-match", owner="carol@example.com"),
+    ]
+    total, calendars = _shared(inter, search=" SOG ")
+    assert total == 2
+    assert sorted(c["key"] for c in calendars) == ["by-owner", "by-username"]
+
+
+def test_get_shared_calendars_paginates_sorted_by_username():
+    inter = _build_interface()
+    _with_owner_names(inter, {f"u{i}@example.com": f"User {i}" for i in range(5)})
+    inter.module.get_shared_calendars.return_value = [_cal(f"k{i}", owner=f"u{i}@example.com") for i in (3, 0, 4, 1, 2)]
+    total, calendars = _shared(inter, page=2, page_size=2)
+    assert total == 5
+    assert [c["key"] for c in calendars] == ["k2", "k3"]
 
 
 # ========== subscribe / unsubscribe ==========
