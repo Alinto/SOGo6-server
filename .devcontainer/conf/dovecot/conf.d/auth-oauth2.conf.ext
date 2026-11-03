@@ -5,7 +5,7 @@
 #   http://myClient:<SOGO_D_OPENID_CLIENT_SECRET>@keycloak:8080/realms/myRealm/protocol/openid-connect/token/introspect
 oauth2 {
   introspection_mode = auth
-  introspection_url = http://localhost:8080/realms/myRealm/protocol/openid-connect/userinfo
+  introspection_url = http://keycloak:8080/realms/myRealm/protocol/openid-connect/userinfo
   username_attribute = email
   username_format = %n
   active_attribute = active
