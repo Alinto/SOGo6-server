@@ -420,17 +420,20 @@ class ApiMailFolderIdEmpty(MethodView):
 
         :param account_id: The ID of the account
         :type account_id: str
+        With ``?is_async=true``, the deletion runs in the background: the response carries a
+        ``job_id`` (202). Clients poll ``GET /jobs/<job_id>`` until ``status == "success"``;
+        ``mails_deleted`` is then in the job's ``result``.
+
+        :param account_id: The ID of the account
+        :type account_id: str
         :param folder_name: The ID of the folder to empty
         :type folder_name: str
-        :return: ApiBaseResponse with mails_deleted count (sync) or task_id (async with HTTP 202)
+        :param is_async: Whether to run the deletion asynchronously (query ``?is_async``, defaults to false)
+        :type is_async: bool
+        :return: ApiBaseResponse with mails_deleted count (sync, 200) or job_id (async, 202)
         :rtype: ResponseReturnValue
         """
-        if is_async:
-            logger_api.debug("Calling ApiMailFolderIdEmpty.post (async) for account_id: %s, folder_name: %s", account_id, folder_name)
-            raise NotImplementedError("Async processing for empty folder is not implemented yet.")
-            # Return 202 Accepted with task_id for async processing
-            #return jsonify({"task_id": 14}), 202 #TODO: Use celery agent
-
-        logger_api.debug("Calling ApiMailFolderIdEmpty.post (sync) for account_id: %s, folder_name: %s", account_id, folder_name)
+        logger_api.debug("Calling ApiMailFolderIdEmpty.post for account_id: %s, folder_name: %s, is_async: %s",
+                        account_id, folder_name, is_async)
         interface: InterfaceApiMailFolder = g.inter
-        return interface.empty_folder(account_id, folder_name)
+        return interface.empty_folder(account_id, folder_name, is_async=is_async)

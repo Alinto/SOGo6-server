@@ -10,6 +10,7 @@ from app.module.user.ModuleUserProfile import ModuleUserProfile
 from app.factory.share.shareMailFolder import FOLDER_PERMISSION_CODE_TO_RIGHT, right_to_camel
 from app.config.settings.DomainSettings import MailSettings, MailSettingsObj
 from app.config.settings.UserSettings import UserMailViewSettings
+from app.service import sogo_agent
 from app.utils import constants as cs
 from app.utils import errors as err
 from app.utils.exceptions import RequestException
@@ -33,7 +34,7 @@ class InterfaceApiMailFolder:
         self.mail_settings = MailSettingsObj(user_domain_settings[MailSettings.subparent])
         self.user = user
 
-        self.mail_module = ModuleMail(self.user, self.mail_settings, process_setting=process_setting)
+        self.mail_module = ModuleMail(self.user, self.mail_settings, process_setting=process_setting, agent=sogo_agent())
         self.module_user_profile = ModuleUserProfile(process_setting, user_domain_settings)
         self._user_source_module: ModuleUserSource = ModuleUserSource.init_from_domain_settings(user_domain_settings)
         self._share_targets: dict[str, User] = {}
@@ -415,21 +416,28 @@ class InterfaceApiMailFolder:
         return users
 
 
-    def empty_folder(self, account_id: str, folder_path: str) -> tuple[dict[str, Any], int]:
+    def empty_folder(self, account_id: str, folder_path: str, is_async: bool = False) -> tuple[dict[str, Any], int]:
         """Completely empty a folder by permanently deleting all mails.
 
         Only allowed for TRASH and JUNK folders.
+
+        When ``is_async=True``, enqueues an Agent job and returns a ``job_id`` (202). The caller
+        polls ``GET /jobs/<job_id>`` until SUCCESS; ``mails_deleted`` is then in the job's ``result``.
 
         :param account_id: The ID of the account
         :type account_id: str
         :param folder_path: The path of the folder to empty
         :type folder_path: str
-        :return: A tuple of (API response dict with mails_deleted count, status code)
+        :param is_async: Whether to run the deletion asynchronously (default: False).
+        :type is_async: bool
+        :return: A tuple of (API response dict with mails_deleted count (sync) or job_id (async), status code)
         :rtype: tuple[dict[str, Any], int]
         """
         try:
-            result = self.mail_module.empty_folder(account_id, folder_path)
-            return create_api_base_response(result)
+            result = self.mail_module.empty_folder(account_id, folder_path, is_async=is_async)
         except RequestException as ex:
-            logger_api.error("Request exception in empty_folder: %s", str(ex))
+            logger_api.error("Request exception in empty_folder (is_async=%s): %s", is_async, str(ex))
             return create_api_base_response(None, ex.error)
+        if is_async:
+            return create_api_base_response({"job_id": result}, code=HTTPStatus.ACCEPTED)
+        return create_api_base_response(result)

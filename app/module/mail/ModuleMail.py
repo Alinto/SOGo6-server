@@ -20,12 +20,13 @@ from app.factory.share.shareMailFolder import (
     FOLDER_RESOURCE_TYPE, imap_permissions_to_rights, rights_to_imap_permissions, right_to_camel,
 )
 from app.module.common_module import get_sogo6_database
+from app.module.mail.jobs.JobRequestEmptyFolder import JobRequestEmptyFolder
 from app.module.mail.model.TmpDraftManager import TmpDraftManager
 from app.manager.mail.ClientMailServer import ClientMailServer
 from app.utils import constants as cs
 from app.utils import errors as err
 from app.utils.exceptions import RequestException, BugException
-from app.utils.maths.crypto_utils import decrypt_password
+from app.utils.maths.crypto_utils import decrypt_password, encrypt_password
 from app.utils.module.importManager import import_and_instantiate_manager
 from app.utils.logger.logger import logger_mail_server
 from app.utils.strings import get_imap_config_from_url, get_domain_from_mail, get_domain_from_contact, encode_imap_tag, decode_imap_tag
@@ -35,6 +36,7 @@ if TYPE_CHECKING:
     from app.auth.User import User
     from app.config.settings.DomainSettings import MailSettingsObj
     from app.config.settings.ProcessSetting import ProcessSetting
+    from app.manager.agent.ClientAgent import ClientAgent
     from app.manager.db.ClientSQL import ClientSQL
     from app.utils.api.paginate_sort_filter import CollectionPaginateArgs
 
@@ -49,11 +51,15 @@ class ModuleMail:
     Module to handle mail operations using different mail client implementations.
     """
 
-    def __init__(self, user: User, mail_settings: MailSettingsObj, process_setting: ProcessSetting | None = None):
+    def __init__(
+        self, user: User, mail_settings: MailSettingsObj, process_setting: ProcessSetting | None = None,
+        agent: ClientAgent | None = None,
+    ):
         self.user = user
         self.mail_settings = mail_settings
         self.domain_mail_folder_name: dict = {}
         self._process_setting: ProcessSetting | None = process_setting
+        self._agent: ClientAgent | None = agent
         self._db: ClientSQL | None = None
 
     def _get_db(self) -> ClientSQL:
@@ -2183,19 +2189,27 @@ class ModuleMail:
         return zip_buffer
 
 
-    def empty_folder(self, account_id: str, folder_path: str) -> dict[str, int]:
+    def empty_folder(self, account_id: str, folder_path: str, is_async: bool = False) -> str | dict[str, int]:
         """Completely empty a folder by permanently deleting all mails.
 
         Only allowed for TRASH and JUNK folders. This operation is irreversible.
+
+        The folder type check runs synchronously in both modes so the caller sees the error
+        immediately. When ``is_async=True``, the deletion itself is enqueued as an Agent job
+        (run by the worker through :meth:`empty_folder` in sync mode) and the job id is returned.
 
         :param account_id: The account identifier ("0" for main, hash for external)
         :type account_id: str
         :param folder_path: The path of the folder to empty
         :type folder_path: str
-        :return: dict with count of mails permanently deleted
-        :rtype: dict[str, int]
+        :param is_async: Whether to run the deletion asynchronously (default: False).
+        :type is_async: bool
+        :return: Job id (if async) or dict with count of mails permanently deleted (if sync)
+        :rtype: str | dict[str, int]
         :raises RequestException: If folder type is not TRASH or JUNK
         :raises RequestException: If connection or manager operations fail
+        :raises RequestException: ERROR_JOB_CONCURRENT_LIMIT if an empty job is already running for the user
+        :raises BugException: If async is requested but the module has no ClientAgent
         """
         client = self._open_client_for(account_id)
         
@@ -2209,7 +2223,16 @@ class ModuleMail:
                 f"Folder type '{folder_type}' cannot be emptied. Only TRASH and JUNK folders can be emptied.",
                 error=err.ERROR_FOLDER_CANNOT_EMPTY
             )
-        
+
+        if is_async:
+            if self._agent is None:
+                raise BugException("ModuleMail.empty_folder requires a ClientAgent for async processing")
+            request: JobRequestEmptyFolder = JobRequestEmptyFolder(
+                account_id=account_id, folder_path=folder_path,
+                domain=self.user.domain, password=encrypt_password(self.user.password),
+            )
+            return self._agent.enqueue(request, user_uid=self.user.uid)
+
         mails_deleted = client.empty_folder(folder_path)
         logger_mail_server.info("Successfully emptied folder '%s', permanently deleted %d message(s)", folder_path, mails_deleted)
         return {"mails_deleted": mails_deleted}
