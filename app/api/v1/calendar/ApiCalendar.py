@@ -34,6 +34,7 @@ from .schemas.calendar import (
     SharedCalendarQueryArgsSchema,
     SharedCalendarResponseSchema,
     SharedCalendarSubscribeSchema,
+    SharedCalendarUserListResponseSchema,
 )
 from .schemas.event import (
     AttendanceSchema,
@@ -450,38 +451,52 @@ class ApiCalendarShare(MethodView):
         return interface.post_calendar_share(key, body)
 
 
-@blp.route("/shared-calendars")
-class ApiSharedCalendarList(MethodView):
-    """API to discover the calendars shared with the current user.
+@blp.route("/shared-calendars/users")
+class ApiSharedCalendarUserList(MethodView):
+    """API to discover the users sharing calendars with the current user.
 
     Sharing a calendar only offers it: it shows in GET /calendars once the recipient subscribes.
     Not to be confused with /calendars/{key}/subscription, the public .ics link.
     """
 
-    @blp.response(200, SharedCalendarListResponseSchema)
+    @blp.response(200, SharedCalendarUserListResponseSchema)
     @blp.arguments(SharedCalendarQueryArgsSchema, location="query", arg_name="query_args")
     @collection_paginate(blp, can_sort=False, can_filter=False)
     def get(self, query_args: dict, collection_param: CollectionPaginateArgs) -> CustomPaginateResponse:
-        """List the calendars shared with the user (directly or with anyone in their domain) and whether they subscribed.
+        """List the users sharing at least one calendar with the user (directly or with anyone in their domain).
 
-        Each calendar carries ``username``: the owner's complete name from the user source.
+        Each user carries ``mail`` and ``username``: the owner's complete name from the user source.
 
         Query parameters:
-        - ``search``: optional, case-insensitive substring matched against ``owner`` or ``username``
+        - ``search``: optional, case-insensitive substring matched against ``mail`` or ``username``
           (minimum 2 non-whitespace characters, otherwise 422).
         - ``page`` (default 1) / ``page_size`` (default 20, max 100): pagination.
 
-        Calendars are ordered by ``username``, then ``owner``, then ``name``. The total number of
-        matching calendars is returned in the ``X-Pagination`` response header, not in the body.
+        Users are ordered by ``username``, then ``mail``. The total number of matching users is
+        returned in the ``X-Pagination`` response header, not in the body.
         """
-        logger_api.debug("GET /shared-calendars user=%s args=%s params=%s", g.user.uid, query_args, collection_param)
+        logger_api.debug("GET /shared-calendars/users user=%s args=%s params=%s", g.user.uid, query_args, collection_param)
         interface: InterfaceApiCalendarCalendar = g.inter
-        return interface.get_shared_calendars(collection_param, search=query_args.get("search"))
+        return interface.get_shared_calendar_users(collection_param, search=query_args.get("search"))
 
 
 @blp.route("/shared-calendars/<string:key>")
 class ApiSharedCalendarSubscribe(MethodView):
-    """API to subscribe to, or unsubscribe from, a calendar shared with the current user."""
+    """API to list the calendars a user shares with the current user, and to subscribe to or unsubscribe from one.
+
+    The path parameter is the owner's mail on GET, the calendar key on PUT.
+    """
+
+    @blp.response(200, SharedCalendarListResponseSchema)
+    def get(self, key: str) -> ResponseReturnValue:
+        """List the calendars the user ``key`` (owner's mail) shares with the user, and whether they subscribed.
+
+        Each calendar carries ``username``: the owner's complete name from the user source.
+        Calendars are ordered by ``name``; the list is not paginated.
+        """
+        logger_api.debug("GET /shared-calendars/%s user=%s", key, g.user.uid)
+        interface: InterfaceApiCalendarCalendar = g.inter
+        return interface.get_shared_calendars_of(key)
 
     @blp.arguments(SharedCalendarSubscribeSchema, example=SharedCalendarSubscribeSchema.example())
     @blp.response(200, SharedCalendarResponseSchema)

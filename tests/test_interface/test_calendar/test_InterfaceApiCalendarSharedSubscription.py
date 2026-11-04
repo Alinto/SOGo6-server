@@ -88,31 +88,26 @@ def _with_owner_names(inter, names):
     inter._resolve_share_target = resolve
 
 
-def _shared(inter, search=None, page=1, page_size=20):
-    total, response, _ = inter.get_shared_calendars(CollectionPaginateArgs(page=page, page_size=page_size), search=search)
-    return total, response["data"]["calendars"]
+def _shared_users(inter, search=None, page=1, page_size=20):
+    total, response, _ = inter.get_shared_calendar_users(CollectionPaginateArgs(page=page, page_size=page_size), search=search)
+    return total, response["data"]["users"]
 
 
-def test_get_shared_calendars_serializes_module_result():
-    inter = _build_interface()
-    _with_owner_names(inter, {})
-    subscribed, offered = _cal("a"), _cal("b")
-    subscribed.subscribed, offered.subscribed = True, False
-    inter.module.get_shared_calendars.return_value = [subscribed, offered]
-    total, calendars = _shared(inter)
-    assert total == 2
-    assert [(c["key"], c["subscribed"]) for c in calendars] == [("a", True), ("b", False)]
+def _shared_of(inter, account_id):
+    response, _ = inter.get_shared_calendars_of(account_id)
+    return response["data"]["calendars"]
 
 
-def test_get_shared_calendars_adds_owner_username():
+def test_get_shared_calendar_users_lists_each_owner_once():
     inter = _build_interface()
     _with_owner_names(inter, {"alice@example.com": "Alice Liddell"})
-    inter.module.get_shared_calendars.return_value = [_cal("a"), _cal("b", owner="ghost@example.com")]
-    _, calendars = _shared(inter)
-    assert {c["key"]: c["username"] for c in calendars} == {"a": "Alice Liddell", "b": ""}
+    inter.module.get_shared_calendars.return_value = [_cal("a"), _cal("b"), _cal("c", owner="ghost@example.com")]
+    total, users = _shared_users(inter)
+    assert total == 2
+    assert users == [{"mail": "ghost@example.com", "username": ""}, {"mail": "alice@example.com", "username": "Alice Liddell"}]
 
 
-def test_get_shared_calendars_search_matches_owner_or_username_case_insensitive():
+def test_get_shared_calendar_users_search_matches_mail_or_username_case_insensitive():
     inter = _build_interface()
     _with_owner_names(inter, {"alice@example.com": "Alice", "u42@example.com": "Sogo Admin", "carol@example.com": "Carol"})
     inter.module.get_shared_calendars.return_value = [
@@ -120,18 +115,37 @@ def test_get_shared_calendars_search_matches_owner_or_username_case_insensitive(
         _cal("by-username", owner="u42@example.com"),
         _cal("no-match", owner="carol@example.com"),
     ]
-    total, calendars = _shared(inter, search=" SOG ")
+    total, users = _shared_users(inter, search=" SOG ")
     assert total == 2
-    assert sorted(c["key"] for c in calendars) == ["by-owner", "by-username"]
+    assert sorted(u["mail"] for u in users) == ["sogo-tests1@example.com", "u42@example.com"]
 
 
-def test_get_shared_calendars_paginates_sorted_by_username():
+def test_get_shared_calendar_users_paginates_sorted_by_username():
     inter = _build_interface()
     _with_owner_names(inter, {f"u{i}@example.com": f"User {i}" for i in range(5)})
     inter.module.get_shared_calendars.return_value = [_cal(f"k{i}", owner=f"u{i}@example.com") for i in (3, 0, 4, 1, 2)]
-    total, calendars = _shared(inter, page=2, page_size=2)
+    total, users = _shared_users(inter, page=2, page_size=2)
     assert total == 5
-    assert [c["key"] for c in calendars] == ["k2", "k3"]
+    assert [u["mail"] for u in users] == ["u2@example.com", "u3@example.com"]
+
+
+def test_get_shared_calendars_of_keeps_only_the_owner_calendars():
+    inter = _build_interface()
+    _with_owner_names(inter, {"alice@example.com": "Alice Liddell"})
+    subscribed, offered = _cal("b"), _cal("a")
+    subscribed.subscribed, offered.subscribed = True, False
+    inter.module.get_shared_calendars.return_value = [subscribed, _cal("other", owner="carol@example.com"), offered]
+    calendars = _shared_of(inter, "Alice@Example.com")
+    assert [(c["key"], c["subscribed"], c["username"]) for c in calendars] == [
+        ("a", False, "Alice Liddell"), ("b", True, "Alice Liddell"),
+    ]
+
+
+def test_get_shared_calendars_of_unknown_owner_is_empty():
+    inter = _build_interface()
+    _with_owner_names(inter, {})
+    inter.module.get_shared_calendars.return_value = [_cal("a")]
+    assert _shared_of(inter, "nobody@example.com") == []
 
 
 # ========== subscribe / unsubscribe ==========
