@@ -109,13 +109,34 @@ class SharedCalendarSchema(CalendarSchema):
 
 
 class SharedCalendarQueryArgsSchema(Schema):
-    """Query string for GET /shared-calendars."""
+    """Query string for GET /shared-calendars/users."""
 
     search = fields.String(load_default=None, allow_none=True,
                            validate=[validate.Length(max=_SEARCH_MAX_LENGTH), _validate_search],
-                           metadata={"description": "Case-insensitive substring matched against the owner uid and the owner "
+                           metadata={"description": "Case-insensitive substring matched against the owner mail and the owner "
                                                     "username (min 2 non-whitespace characters). Omit to list everything.",
                                      "example": "doe"})
+
+
+class SharedCalendarUserSchema(Schema):
+    """A user sharing at least one calendar with the current user."""
+
+    mail     = fields.String(dump_only=True, metadata={"description": "Mail of the owner.", "example": "john.doe@example.com"})
+    username = fields.String(dump_only=True,
+                             metadata={"description": "Complete name of the owner, read from the user source (US_FIELD_CN). "
+                                                      "Empty when no user source knows the owner.", "example": "John Doe"})
+
+
+class SharedCalendarUserListDataSchema(Schema):
+    """Data payload for the shared calendar owners list. The total count is in the X-Pagination header."""
+
+    users = fields.List(fields.Nested(SharedCalendarUserSchema))
+
+
+class SharedCalendarUserListResponseSchema(ApiBaseResponse):
+    """Response schema for GET /shared-calendars/users."""
+
+    data = fields.Nested(SharedCalendarUserListDataSchema, allow_none=True)
 
 
 class SharedCalendarSubscribeSchema(Schema):
@@ -134,13 +155,13 @@ class SharedCalendarSubscribeSchema(Schema):
 
 
 class SharedCalendarListDataSchema(Schema):
-    """Data payload for the shared calendar list response. The total count is in the X-Pagination header."""
+    """Data payload for GET /shared-calendars/{account_id}: every calendar a given user shares with the current user."""
 
     calendars   = fields.List(fields.Nested(SharedCalendarSchema))
 
 
 class SharedCalendarListResponseSchema(ApiBaseResponse):
-    """Response schema for the shared calendar discovery endpoint."""
+    """Response schema for GET /shared-calendars/{account_id}."""
 
     data = fields.Nested(SharedCalendarListDataSchema, allow_none=True)
 
