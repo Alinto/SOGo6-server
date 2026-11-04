@@ -32,6 +32,8 @@ class Agent:
     def __init__(self, process_setting: ProcessSetting) -> None:
         self._process_setting: ProcessSetting = process_setting
         self._job_handlers: dict[str, Job] = {}
+        # Set by ``register_lifecycle_hooks``: only the worker writes job progress.
+        self._persistency: JobPersistency | None = None
         # Holds no live connection: the DB-backed store opens one per operation (db=None),
         # so this singleton built at import never leaks a connection across the worker fork.
         self._large_store: ClientStorage = import_and_instantiate_manager(
@@ -111,6 +113,27 @@ class Agent:
         """
         return self._job_handlers.get(name)
 
+    def report_progress(self, job_id: str, percent: int) -> None:
+        """Store the completion percentage of a running job in its ``JobState``.
+
+        Bound to every handler by :meth:`register_job_handler` and called through
+        ``Job.report_progress``. Ignored before ``register_lifecycle_hooks`` (no
+        persistency) and once the job reached a terminal status.
+
+        :param job_id: id of the running job.
+        :type job_id: str
+        :param percent: completion percentage, 0 to 100.
+        :type percent: int
+        """
+        if self._persistency is None:
+            return
+        state: JobState | None = self._persistency.get(job_id)
+        if state is None or JobStatus.is_terminal(state.status):
+            return
+        state.progress = percent
+        self._persistency.save(state)
+        logger_agent.debug("report_progress: job_id=%s name=%s progress=%d%%", job_id, state.name, percent)
+
     def cancel(self, job_id: str, *, signal: str = "SIGTERM") -> None:
         """Send a control signal to a running job.
 
@@ -146,6 +169,7 @@ class Agent:
         """
         req: type[JobRequest] = handler.request_class
         self._job_handlers[req.name] = handler
+        handler.bind_progress_writer(self.report_progress)
         soft_limit: int = req.soft_timeout_seconds
         max_retries: int = max(0, req.max_try - 1)
 
@@ -203,6 +227,8 @@ class Agent:
         :param cache: ClientRedis used to release the concurrency lock.
         :type cache: ClientRedis
         """
+
+        self._persistency = persistency
 
         def _release_concurrency_lock(state: JobState) -> None:
             # Only jobs that took a lock (max_concurrent > 0) have one to release.

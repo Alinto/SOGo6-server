@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 class JobStateSerializerDict(Serializer["JobState", dict]):
     """JobState -> public dict: only the owner-facing fields, nothing internal.
 
-    Emits exactly ``status`` / ``payload`` / ``result`` / ``error``. Internal fields
+    Emits exactly ``status`` / ``payload`` / ``result`` / ``error`` / ``progress``. Internal fields
     (job_id, name, user_uid, dates, attempts...) are never exposed: this serializer
     IS the public view, it does not rely on a downstream schema to drop them. The
     payload is run through the job's own ``public_payload`` (secrets / large-input
@@ -30,7 +30,7 @@ class JobStateSerializerDict(Serializer["JobState", dict]):
 
         :param data: internal job state to expose.
         :type data: JobState
-        :return: ``{"status", "payload", "result", "error"}`` only, payload redacted
+        :return: ``{"status", "payload", "result", "error", "progress"}`` only, payload redacted
             and the internal blob pointer dropped.
         :rtype: dict[str, Any]
         """
@@ -46,4 +46,5 @@ class JobStateSerializerDict(Serializer["JobState", dict]):
             "payload": payload,
             "result": result,
             "error": data.error,
+            "progress": data.progress,
         }

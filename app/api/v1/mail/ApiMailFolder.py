@@ -418,11 +418,12 @@ class ApiMailFolderIdEmpty(MethodView):
         Only allowed for TRASH and JUNK folders.
         This operation is irreversible and ignores SOGO_U_MAIL_DELETE_BEHAVIOR preference.
 
-        :param account_id: The ID of the account
-        :type account_id: str
-        With ``?is_async=true``, the deletion runs in the background: the response carries a
-        ``job_id`` (202). Clients poll ``GET /jobs/<job_id>`` until ``status == "success"``;
-        ``mails_deleted`` is then in the job's ``result``.
+        With ``?is_async=true``, the deletion runs in the background, by batches of 500 mails: the
+        response carries a ``job_id`` (202). Clients poll ``GET /jobs/<job_id>`` until
+        ``status == "success"``; the job's ``result`` then holds ``mails_deleted``. If some batches
+        could not be deleted, the other batches still go through and the job ends with
+        ``status == "failure"``, its ``error`` giving the number of deleted and failed mails.
+        While the job runs, its ``progress`` field gives the completion percentage, updated after each batch.
 
         :param account_id: The ID of the account
         :type account_id: str

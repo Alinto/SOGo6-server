@@ -2346,20 +2346,7 @@ class TestEmptyFolder:
         fake_conn = FakeIMAPConnection()
         fake_conn.select_response = ("OK", [b"5"])
         fake_conn.uid_response = ("OK", [b""])  # UID STORE succeeds
-        # Make expunge return something that will fail the 'if not success' check
-        # The code at line 906 checks 'if not success' where success is the first element of tuple
-        # Since imaplib returns ("OK", data) or ("NO", data), we need to ensure
-        # that the code properly detects failure. Looking at empty_folder:905,
-        # it calls self.connection.expunge() directly (not via _exec_imap4_method)
-        # So it gets a raw tuple. The check 'if not success' means success must be falsy.
-        # But "NO" is a truthy string. The code must handle it differently.
-        # Actually, looking closer, the issue is that connection.expunge() directly 
-        # returns the tuple, so we need to make the response tuple fail that check.
-        # Since "if not success" will be "if not 'NO'" = False (because "NO" is truthy),
-        # the exception won't be raised. This is a bug in the implementation or the test.
-        # Let's check if maybe the code should use _exec_imap4_method instead.
-        # For now, let's just verify that when expunge returns False-like value, it raises.
-        fake_conn.expunge_response = (False, [b"Expunge failed"])
+        fake_conn.expunge_response = ("NO", [b"Expunge failed"])  # EXPUNGE refused by server
 
         client = authenticated_client(fake_conn)
 

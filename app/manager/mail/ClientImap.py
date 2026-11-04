@@ -10,6 +10,7 @@ from email import policy
 import imaplib
 from logging import WARNING
 import re
+import time  # TODO remove: test-only slowdown of empty_folder_by_batch
 from socket import timeout as sock_timeout, gaierror
 from ssl import SSLError
 
@@ -2915,7 +2916,7 @@ class ClientImap(ClientMailServer):
                 logger_imap.debug("Marked mails as deleted in mailbox '%s': %s", folder_path, datas)
 
                 # Step 2: EXPUNGE - Permanently remove deleted mails
-                success, datas = self.connection.expunge()
+                success, datas = self._exec_imap4_method(self.connection.expunge)
                 if not success:
                     raise RequestException(f"Failed to expunge mailbox {folder_path}", err.ERROR_IMAP_FAILED)
 
@@ -2929,18 +2930,95 @@ class ClientImap(ClientMailServer):
                 logger_imap.info("Mailbox '%s' is already empty", folder_path)
 
             # Step 3: DELETE ALL SUBFOLDERS (always execute this, even if folder is empty)
-            delimiter = self._get_delimiter_for(folder_path)
-            pattern_folder_path = quote(f"{folder_path}{delimiter}*")
-            try:
-                for folder in self._imap_list_folders(pattern_folder_path):
-                    logger_imap.debug("Deleting subfolder '%s' of '%s'", folder.path, folder_path)
-                    success, _ = self._exec_imap4_method(self.connection.delete, folder.path)
-                    if not success:
-                        logger_imap.warning("Failed to delete subfolder '%s', continuing anyway", folder.path)
-            except RequestException as e:
-                logger_imap.warning("Error while listing subfolders of '%s': %s, continuing anyway", folder_path, e)
+            self._delete_subfolders(folder_path)
 
             logger_imap.info("Emptied mailbox '%s', permanently deleted %d message(s)", folder_path, expunged_count)
             return expunged_count
         else:
             raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
+
+    def empty_folder_by_batch(
+        self, folder_path: str, batch_size: int, on_progress: Callable[[int, int], None] | None = None,
+    ) -> tuple[int, int]:
+        """Completely empty a folder by permanently deleting all mails, batch by batch.
+
+        Same result as :meth:`empty_folder`, but the UIDs present when the call starts are
+        processed by batches of ``batch_size`` (UID STORE +FLAGS.SILENT (\\Deleted) then EXPUNGE
+        for each batch). A failing batch is logged and skipped: the other batches are still
+        processed. Mails arriving meanwhile are not deleted. Subfolders are deleted at the end.
+
+        :param folder_path: The name of the folder to empty.
+        :type folder_path: str
+        :param batch_size: Number of mails deleted per batch.
+        :type batch_size: int
+        :param on_progress: Called once the mails are listed, then after each batch (failed
+            ones included), with (number of mails processed, total number of mails to delete).
+        :type on_progress: Callable[[int, int], None] | None
+        :return: A tuple of (number of mails permanently deleted, number of mails in failed batches).
+        :rtype: tuple[int, int]
+        :raises RequestException: If the folder cannot be selected or its mails cannot be listed.
+        """
+        logger_imap.debug("Emptying mailbox '%s' by batches of %d", folder_path, batch_size)
+        if self.connection is not None and self.authenticated:
+            # Snapshot of the UIDs; get_mail_uids_before_date also selects the mailbox
+            uids: list[str] = list(self.get_mail_uids_before_date(self._fix_folder_path(folder_path), exclude_deleted=False))
+
+            if on_progress is not None:
+                on_progress(0, len(uids))
+
+            deleted_count = 0
+            failed_count = 0
+            for start in range(0, len(uids), batch_size):
+                batch: list[str] = uids[start:start + batch_size]
+                try:
+                    deleted_count += self._delete_uids_permanently(batch)
+                except RequestException as e:
+                    failed_count += len(batch)
+                    logger_imap.warning("Failed to delete a batch of %d mail(s) in '%s': %s, continuing anyway",
+                                        len(batch), folder_path, e)
+                if on_progress is not None:
+                    on_progress(start + len(batch), len(uids))
+
+            self._delete_subfolders(folder_path)
+
+            logger_imap.info("Emptied mailbox '%s' by batches, permanently deleted %d message(s), %d failed",
+                             folder_path, deleted_count, failed_count)
+            return deleted_count, failed_count
+        else:
+            raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
+
+    def _delete_uids_permanently(self, uids: list[str]) -> int:
+        """Flag the given UIDs of the selected mailbox as deleted, then expunge the mailbox.
+
+        :param uids: UIDs of the mails to delete, in the selected mailbox.
+        :type uids: list[str]
+        :return: The number of messages expunged.
+        :rtype: int
+        :raises RequestException: If the STORE or the EXPUNGE fails.
+        """
+        if self.connection is None or not self.authenticated:
+            raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
+        self.uid_store_flags(uids, ['\\Deleted'], operation='+FLAGS.SILENT')
+        success, datas = self._exec_imap4_method(self.connection.expunge)
+        if not success:
+            raise RequestException(f"Failed to expunge mails {uids[0]}..{uids[-1]}: {datas}", err.ERROR_IMAP_FAILED)
+        return len(datas)
+
+    def _delete_subfolders(self, folder_path: str) -> None:
+        """Delete every subfolder of a folder. Best effort: a failure is logged, never raised.
+
+        :param folder_path: The folder whose subfolders are deleted.
+        :type folder_path: str
+        """
+        if self.connection is None or not self.authenticated:
+            raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
+        delimiter = self._get_delimiter_for(folder_path)
+        pattern_folder_path = quote(f"{folder_path}{delimiter}*")
+        try:
+            for folder in self._imap_list_folders(pattern_folder_path):
+                logger_imap.debug("Deleting subfolder '%s' of '%s'", folder.path, folder_path)
+                success, _ = self._exec_imap4_method(self.connection.delete, folder.path)
+                if not success:
+                    logger_imap.warning("Failed to delete subfolder '%s', continuing anyway", folder.path)
+        except RequestException as e:
+            logger_imap.warning("Error while listing subfolders of '%s': %s, continuing anyway", folder_path, e)

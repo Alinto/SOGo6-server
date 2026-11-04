@@ -19,6 +19,7 @@ class JobStateSchema(Schema):
     payload = fields.Dict(metadata={"description": "Job-specific input echoed back to the owner, redacted of internal references (free-form: the keys depend on the job type)."})
     result  = fields.Dict(allow_none=True, metadata={"description": "Small job-specific result, free-form (e.g. import counters). A large blob result is not inlined - download it from /jobs/<id>/result."})
     error   = fields.String(allow_none=True, metadata={"description": "Error message when status is FAILURE, otherwise null."})
+    progress = fields.Integer(allow_none=True, metadata={"description": "Completion percentage (0-100) updated while the job runs. Null for jobs that do not report their progress, or before the first report."})
 
 
 class JobResponseSchema(ApiBaseResponse):

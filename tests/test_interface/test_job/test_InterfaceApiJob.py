@@ -44,7 +44,7 @@ def test_get_job_returns_state_dict_for_owner():
     assert body["error_code"] == err.ERROR_NO_ERROR.c
     assert body["data"]["status"] == "success"
     # Only public fields are exposed - never internal ones (user_uid, job_id, name, dates...).
-    assert set(body["data"].keys()) == {"status", "payload", "result", "error"}
+    assert set(body["data"].keys()) == {"status", "payload", "result", "error", "progress"}
     assert "user_uid" not in body["data"]
 
 

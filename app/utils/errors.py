@@ -90,6 +90,7 @@ ERROR_FOLDER_SPECIAL_CANNOT_CHANGE_TYPE = E("S000383", "The Type Of A Special Fo
 ERROR_FOLDER_TYPE_NOT_ASSIGNABLE = E("S000384", "This Folder Type Cannot Be Assigned By The User", HTTPStatus.BAD_REQUEST)
 ERROR_FOLDER_TYPE_EXT_ACCOUNT = E("S000385", "Folder Types Can Only Be Changed On The Main Account", HTTPStatus.BAD_REQUEST)
 ERROR_FOLDER_CANNOT_EMPTY    = E("S000386", "Folder Cannot Be Emptied (only TRASH and JUNK folders can be emptied)", HTTPStatus.BAD_REQUEST)
+ERROR_FOLDER_EMPTY_PARTIAL   = E("S000387", "Folder Partially Emptied: Some Mails Could Not Be Deleted, See Logs To Get More Details", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_INVALID_ACTION         = E("S000309", "Invalid Action Specified", HTTPStatus.BAD_REQUEST)
 ERROR_MISSING_ACTION_DATA    = E("S001306", "Missing Required Data For Action", HTTPStatus.BAD_REQUEST)
 

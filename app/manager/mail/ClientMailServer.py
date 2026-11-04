@@ -1,5 +1,5 @@
 from abc import ABCMeta, abstractmethod
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 from email.message import EmailMessage
 
 from app.utils import constants as cs
@@ -595,4 +595,22 @@ class ClientMailServer(metaclass=ABCMeta):
         :type folder_path: str
         :return: Number of messages permanently deleted
         :rtype: int
+        """
+
+    @abstractmethod
+    def empty_folder_by_batch(
+        self, folder_path: str, batch_size: int, on_progress: Callable[[int, int], None] | None = None,
+    ) -> tuple[int, int]:
+        """Completely empty a folder by permanently deleting all mails, batch by batch.
+
+        A failing batch is skipped, the other batches are still processed.
+
+        :param folder_path: path of the folder to empty
+        :type folder_path: str
+        :param batch_size: number of mails deleted per batch
+        :type batch_size: int
+        :param on_progress: called after each batch with (mails processed, total mails)
+        :type on_progress: Callable[[int, int], None] | None
+        :return: (number of mails permanently deleted, number of mails in failed batches)
+        :rtype: tuple[int, int]
         """

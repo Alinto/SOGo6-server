@@ -27,7 +27,7 @@ def test_exposes_only_public_fields():
     # The serializer IS the public view: no internal field (job_id, name, user_uid,
     # dates, attempts...) must leak, regardless of what JobState holds.
     out = JobStateSerializerDict(_agent(None)).serialize(_state(payload={"k": "v"}, result={"n": 1}))
-    assert set(out.keys()) == {"status", "payload", "result", "error"}
+    assert set(out.keys()) == {"status", "payload", "result", "error", "progress"}
     assert out["status"] == "success"
 
 

@@ -7,7 +7,7 @@ Flask before_request does from the session, before instantiating ``ModuleMail``.
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 from app.auth.User import User
 from app.config.init_config import init_get_system_and_default_domain_settings, init_get_user_domain_settings
@@ -35,17 +35,22 @@ class InterfaceAgentMail:
             self.user, MailSettingsObj(user_domain_settings[MailSettings.subparent]), process_setting=process_setting,
         )
 
-    def empty_folder(self, account_id: str, folder_path: str) -> dict[str, int]:
-        """Permanently delete every mail of a TRASH or JUNK folder.
+    def empty_folder(
+        self, account_id: str, folder_path: str, on_progress: Callable[[int, int], None] | None = None,
+    ) -> dict[str, int]:
+        """Permanently delete every mail of a TRASH or JUNK folder, batch by batch.
 
         :param account_id: The account identifier ("0" for main, hash for external)
         :type account_id: str
         :param folder_path: The path of the folder to empty
         :type folder_path: str
+        :param on_progress: Called after each batch with (mails processed, total mails)
+        :type on_progress: Callable[[int, int], None] | None
         :return: ``{"mails_deleted": int}``
         :rtype: dict[str, int]
+        :raises RequestException: ERROR_FOLDER_EMPTY_PARTIAL if at least one batch could not be deleted
         """
-        return self.module.empty_folder(account_id, folder_path)
+        return self.module.empty_folder_by_batch(account_id, folder_path, on_progress=on_progress)
 
     @staticmethod
     def _load_user(

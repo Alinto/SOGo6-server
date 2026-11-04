@@ -74,6 +74,9 @@ MAIL_FOLDER_NORMAL   = "NORMAL"   #Folder with no special used except to store m
 MAIL_FOLDER_TYPE_LIST = (MAIL_FOLDER_INBOX, MAIL_FOLDER_SENT, MAIL_FOLDER_DRAFT, MAIL_FOLDER_JUNK,
                          MAIL_FOLDER_TRASH, MAIL_FOLDER_TEMPLATE, MAIL_FOLDER_PLANNED, MAIL_FOLDER_NORMAL)
 
+#Number of mails permanently deleted per batch when a folder is emptied asynchronously
+MAIL_EMPTY_FOLDER_BATCH_SIZE = 500
+
 #MAIL FOLDER ACTIONS (POST /folders/<folder>/action)
 MAIL_FOLDER_ACTION_RENAME = "rename"
 MAIL_FOLDER_ACTION_TYPE   = "type"

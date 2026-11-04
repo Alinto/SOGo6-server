@@ -40,6 +40,8 @@ class JobState:  # pylint: disable=too-many-instance-attributes
     payload: dict[str, Any] = field(default_factory=dict)
     result: dict[str, Any] | None = None
     error: str | None = None
+    # Completion percentage (0-100) reported by jobs that track it; None otherwise.
+    progress: int | None = None
 
     schedule_name: str | None = None
 
@@ -61,6 +63,7 @@ class JobState:  # pylint: disable=too-many-instance-attributes
             "payload": self.payload,
             "result": self.result,
             "error": self.error,
+            "progress": self.progress,
             "schedule_name": self.schedule_name,
         }
 
@@ -85,6 +88,7 @@ class JobState:  # pylint: disable=too-many-instance-attributes
             payload=data.get("payload") or {},
             result=data.get("result"),
             error=data.get("error"),
+            progress=data.get("progress"),
             schedule_name=data.get("schedule_name"),
         )
 

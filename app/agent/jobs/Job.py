@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, ClassVar, TYPE_CHECKING
+from typing import Any, Callable, ClassVar, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from app.agent.jobs.JobRequest import JobRequest
@@ -61,6 +61,35 @@ class Job(ABC):
     """
 
     request_class: ClassVar[type[JobRequest]]
+
+    # Writes the completion percentage of a running job; bound by ``Agent.register_job_handler``.
+    _progress_writer: Callable[[str, int], None] | None = None
+
+    def bind_progress_writer(self, writer: Callable[[str, int], None]) -> None:
+        """Attach the callable persisting the progress of a job (``writer(job_id, percent)``).
+
+        :param writer: callable storing the percentage in the job's ``JobState``.
+        :type writer: Callable[[str, int], None]
+        """
+        self._progress_writer = writer
+
+    def report_progress(self, job_id: str, done: int, total: int) -> None:
+        """Publish the completion of the running job, exposed as ``progress`` by ``GET /jobs/<id>``.
+
+        Jobs that can measure their work call it as it advances (e.g. after each batch).
+        No-op when no writer is bound (job run outside the worker, e.g. in tests).
+
+        :param job_id: id of the running job, as received by :meth:`process`.
+        :type job_id: str
+        :param done: number of work units already processed.
+        :type done: int
+        :param total: total number of work units; ``0`` means nothing to do (100%).
+        :type total: int
+        """
+        if self._progress_writer is None:
+            return
+        percent: int = 100 if total <= 0 else min(100, done * 100 // total)
+        self._progress_writer(job_id, percent)
 
     @abstractmethod
     def process(

@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Any, Iterator, cast
+from typing import TYPE_CHECKING, Any, Callable, Iterator, cast
 
 import email as email_existing
 import email.mime.text
@@ -2196,7 +2196,7 @@ class ModuleMail:
 
         The folder type check runs synchronously in both modes so the caller sees the error
         immediately. When ``is_async=True``, the deletion itself is enqueued as an Agent job
-        (run by the worker through :meth:`empty_folder` in sync mode) and the job id is returned.
+        (run by the worker through :meth:`empty_folder_by_batch`) and the job id is returned.
 
         :param account_id: The account identifier ("0" for main, hash for external)
         :type account_id: str
@@ -2212,17 +2212,7 @@ class ModuleMail:
         :raises BugException: If async is requested but the module has no ClientAgent
         """
         client = self._open_client_for(account_id)
-        
-        # Get folder details to check type
-        folder_details = client.get_one_folder(folder_path)
-        folder_type = folder_details.get("type", "").upper()
-        
-        # Only allow emptying TRASH and JUNK folders
-        if folder_type not in (cs.MAIL_FOLDER_TRASH, cs.MAIL_FOLDER_JUNK):
-            raise RequestException(
-                f"Folder type '{folder_type}' cannot be emptied. Only TRASH and JUNK folders can be emptied.",
-                error=err.ERROR_FOLDER_CANNOT_EMPTY
-            )
+        self._check_folder_can_be_emptied(client, folder_path)
 
         if is_async:
             if self._agent is None:
@@ -2236,3 +2226,55 @@ class ModuleMail:
         mails_deleted = client.empty_folder(folder_path)
         logger_mail_server.info("Successfully emptied folder '%s', permanently deleted %d message(s)", folder_path, mails_deleted)
         return {"mails_deleted": mails_deleted}
+
+    def empty_folder_by_batch(
+        self, account_id: str, folder_path: str, batch_size: int = cs.MAIL_EMPTY_FOLDER_BATCH_SIZE,
+        on_progress: Callable[[int, int], None] | None = None,
+    ) -> dict[str, int]:
+        """Completely empty a folder by permanently deleting all mails, batch by batch.
+
+        Only allowed for TRASH and JUNK folders. This operation is irreversible.
+        Used by the Agent worker: a failing batch is skipped and the other batches are still
+        processed, then an exception is raised if any batch failed (the job ends in failure,
+        the mails of the successful batches stay deleted).
+
+        :param account_id: The account identifier ("0" for main, hash for external)
+        :type account_id: str
+        :param folder_path: The path of the folder to empty
+        :type folder_path: str
+        :param batch_size: Number of mails deleted per batch
+        :type batch_size: int
+        :param on_progress: Called after each batch with (mails processed, total mails)
+        :type on_progress: Callable[[int, int], None] | None
+        :return: dict with count of mails permanently deleted
+        :rtype: dict[str, int]
+        :raises RequestException: If folder type is not TRASH or JUNK
+        :raises RequestException: If connection fails or the mails of the folder cannot be listed
+        :raises RequestException: ERROR_FOLDER_EMPTY_PARTIAL if at least one batch could not be deleted
+        """
+        client = self._open_client_for(account_id)
+        self._check_folder_can_be_emptied(client, folder_path)
+
+        mails_deleted, mails_failed = client.empty_folder_by_batch(folder_path, batch_size, on_progress)
+        if mails_failed:
+            raise RequestException(
+                f"Folder '{folder_path}' partially emptied: {mails_deleted} mail(s) deleted, "
+                f"{mails_failed} mail(s) could not be deleted",
+                error=err.ERROR_FOLDER_EMPTY_PARTIAL
+            )
+        logger_mail_server.info("Emptied folder '%s' by batches, permanently deleted %d message(s)", folder_path, mails_deleted)
+        return {"mails_deleted": mails_deleted}
+
+    @staticmethod
+    def _check_folder_can_be_emptied(client: ClientMailServer, folder_path: str) -> None:
+        """Raise if the folder is not a TRASH or JUNK folder (the only ones that can be emptied).
+
+        :raises RequestException: ERROR_FOLDER_CANNOT_EMPTY if the folder type is not TRASH or JUNK
+        """
+        folder_details = client.get_one_folder(folder_path)
+        folder_type = folder_details.get("type", "").upper()
+        if folder_type not in (cs.MAIL_FOLDER_TRASH, cs.MAIL_FOLDER_JUNK):
+            raise RequestException(
+                f"Folder type '{folder_type}' cannot be emptied. Only TRASH and JUNK folders can be emptied.",
+                error=err.ERROR_FOLDER_CANNOT_EMPTY
+            )
