@@ -8,9 +8,9 @@ from app.auth.service.VoucherUserService import VoucherUserService
 from app.config.db import tables as tbl
 from app.config.settings.DomainSettings import AuthSettings, AuthSettingsObj, UserSourceSettings, UserSourceSettingsObj
 from app.module.common_module import get_sogo6_database
-from app.module.auth.identity_provider import IdentityProvider
+from app.module.auth.IdentityProvider import IdentityProvider
 from app.module.auth.ModuleUserSource import ModuleUserSource
-from app.module.auth.openid_provider import OpenIDProvider
+from app.module.auth.OpenIDProvider import OpenIDProvider
 from app.service import sogo_cache
 from app.utils.db.Condition import EqualCondition
 from app.utils import errors as err
@@ -19,7 +19,6 @@ from app.utils.logger.logger import logger_auth
 from app.utils.strings import get_domain_from_mail
 
 if TYPE_CHECKING:
-    from app.config.settings.DomainSettings import AuthSettingsObj, UserSourceSettingsObj
     from app.config.settings.SystemSettings import SystemSettingsObj
     from app.config.settings.ProcessSetting import ProcessSetting
     from app.manager.db.ClientSQL import ClientSQL
@@ -221,7 +220,6 @@ class ModuleAuth:  # pylint: disable=too-many-instance-attributes
                 raise RequestException(error=err.ERROR_SSO_REDIRECT_NOT_ALLOWED)
             location = provider.get_login_location(ui_redirect)
 
-        #TODO cas
         ret = {
             "kind": kind,
             "SOGO_D_PWD_RECOVERY": domain_auth_settings.SOGO_D_PWD_RECOVERY,

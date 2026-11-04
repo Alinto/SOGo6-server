@@ -6,11 +6,11 @@ from authlib.common.errors import AuthlibBaseError
 from authlib.integrations.base_client import MismatchingStateError, OAuthError
 from authlib.integrations.flask_client import FlaskIntegration
 from authlib.integrations.flask_client.apps import FlaskOAuth2App
-from flask import session
+from flask import session as flask_session
 from joserfc.errors import JoseError
 from redis import exceptions as rexc
 
-from app.module.auth.identity_provider import IdentityProvider, IdentityProviderUserInfo
+from app.module.auth.IdentityProvider import IdentityProvider, IdentityProviderUserInfo
 from app.service import sogo_cache
 from app.utils import constants as cs
 from app.utils import errors as err
@@ -157,7 +157,7 @@ class OpenIDProvider(IdentityProvider):
         """
         if "error" in callback_data or not callback_data.get("code"):
             #authlib fails before reading the state: read (and consume) it here to know where to send the user back
-            state_data = self._framework.get_state_data(session, callback_data.get("state"))
+            state_data = self._framework.get_state_data(flask_session, callback_data.get("state"))
             if state_data is None:
                 logger_auth.info("Openid callback with a missing, unknown, expired or already used state")
                 raise RequestException(error=err.ERROR_SSO_INVALID_STATE)
