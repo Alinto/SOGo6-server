@@ -15,6 +15,7 @@ requires-python = ">=3.13,<4.0"
 keywords = ["sogo", "webmail", "mail", "calendar"]
 dependencies = [
     "argon2-cffi",
+    "authlib",
     "celery",
     "click",
     "cryptography",
@@ -33,12 +34,9 @@ dependencies = [
     "pyjwt",
     "python-ldap",
     "redis",
+    "requests",
     "sievelib",
     "yarl",
-    "passlib (>=1.7.4,<2.0.0)",
-    "argon2-cffi (>=25.1.0,<26.0.0)",
-    "authlib (>=1.9.1,<2.0.0)",
-    "requests (>=2.34.2,<3.0.0)",
 ]
 
 

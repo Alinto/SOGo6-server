@@ -8,8 +8,8 @@ import requests
 from redis import exceptions as rexc
 from flask import Flask
 
-from app.module.auth import openid_provider as op
-from app.module.auth.openid_provider import OpenIDProvider
+from app.module.auth import OpenIDProvider as op
+from app.module.auth.OpenIDProvider import OpenIDProvider
 from app.utils.exceptions import RequestException
 from app.utils import constants as cs
 from app.utils import errors as err

@@ -10,7 +10,7 @@ oauth2 {
   username_format = %n
   active_attribute = active
   active_value = true
-  openid_configuration_url = http://localhost:8080/realms/myRealm/.well-known/openid-configuration
+  openid_configuration_url = http://keycloak:8080/realms/myRealm/.well-known/openid-configuration
 }
 
 passdb oauth2 {

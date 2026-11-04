@@ -6,7 +6,7 @@ import pytest
 from unittest import mock
 
 from app.module.auth.ModuleAuth import ModuleAuth, IDENTITY_PROVIDERS, build_ui_redirect_url
-from app.module.auth.identity_provider import IdentityProviderUserInfo
+from app.module.auth.IdentityProvider import IdentityProviderUserInfo
 from app.utils.exceptions import RequestException
 from app.utils import constants as cs
 from app.utils import errors as err

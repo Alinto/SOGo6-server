@@ -41,7 +41,7 @@ class SystemSettings(SogoSchema):
 
     #OpenID
     SOGO_S_OPENID_ALLOW_REDIRECT = fields.List(fields.Url(schemes={'http','https'}, require_tld=False),
-                                               load_default=list, dump_default=list) #List of UI origins (scheme://host[:port]) allowed as redirection after a SSO login. See openid flow pdf.
+                                               load_default=list, dump_default=list) #List of UI origins (scheme://host[:port]) allowed as redirection after a SSO login.
 
     #Binary
     SOGO_S_SENDMAIL = fields.String(load_default="/usr/lib/sendmail", dump_default="/usr/lib/sendmail") #Admin can decide to use sendmail instead of smtp.
