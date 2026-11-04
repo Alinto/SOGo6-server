@@ -12,13 +12,14 @@ from app.module.calendar.repository.RepositoryCalendar import RepositoryCalendar
 from app.module.calendar.rrule.RecurrenceScopeProcessor import EventAction, ScopeResult
 from app.module.calendar.source.CalendarSourceDb import CalendarSourceDb
 from app.module.calendar.source.CalendarSourceIcsMirror import CalendarSourceIcsMirror
-from app.utils import constants as cs
 from app.utils import errors as err
 from app.utils.exceptions import RequestException
 from app.utils.logger.logger import logger_calendar
 from app.utils.strings import get_domain_from_mail
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from app.factory.share.shareCalendar import ShareCalendar
     from app.manager.db.ClientSQL import ClientSQL
     from app.module.calendar.source.CalendarSource import CalendarSource
@@ -54,13 +55,14 @@ class CalendarSources:
         logger_calendar.error("Unknown source_type=%s for calendar key=%s", calendar.source_type, calendar.key)
         raise RequestException(error=err.ERROR_CALENDAR_NOT_SUPPORTED)
 
-    def _get_shared_calendars(self, user_uid: str) -> list[CalCalendar]:
+    def get_shared_calendars(self, user_uid: str) -> list[CalCalendar]:
         """Return every calendar shared with user_uid, directly or via an "anyone" share.
 
         Directly: sogo6_acl entries where to_user=user_uid. Via "anyone": sogo6_acl entries where
         to_user="<default>", restricted to calendars whose owner shares user_uid's mail domain
         (see ShareCalendar.get_user_or_anyone). Skips entries whose key no longer resolves to a
-        calendar (deleted resource, stale ACL row).
+        calendar (deleted resource, stale ACL row). Rights are not checked here: an entry granting
+        no visibility class at all is still returned.
         """
         if self._share is None:
             return []
@@ -73,7 +75,7 @@ class CalendarSources:
                 seen_keys.add(cal.key)
         user_domain: str | None = get_domain_from_mail(user_uid)
         if user_domain:
-            for entry in self._share.get_keys_shared_with(cs.ANYONE_TO_USER):
+            for entry in self._share.get_keys_shared_with_anyone_in_domain(user_domain):
                 if entry.key in seen_keys:
                     continue
                 cal = self._repo_calendar.find_by_key_only(entry.key)
@@ -85,10 +87,33 @@ class CalendarSources:
         return shared
 
     def get_all(self, user_uid: str) -> list[CalendarSource]:
-        """Return a source for every calendar owned by, or shared with, user_uid."""
+        """Return a source for every calendar owned by, or shared with, user_uid.
+
+        This is the access-resolution set (event lookup by key, iMIP, ACL masking): it ignores
+        subscriptions. Listings shown to the user go through :meth:`get_listed` instead.
+        """
         owned: list[CalCalendar] = self._repo_calendar.find_all(user_uid)
-        shared: list[CalCalendar] = self._get_shared_calendars(user_uid)
+        shared: list[CalCalendar] = self.get_shared_calendars(user_uid)
         return [self.get(cal) for cal in owned + shared]
+
+    def get_listed(self, user_uid: str, shared_keys: Iterable[str]) -> list[CalendarSource]:
+        """Return the calendars listed for user_uid: every owned calendar, plus the shared ones in shared_keys.
+
+        shared_keys are the user's subscriptions (folders.CALENDAR.SUBS). Each one is resolved
+        through :meth:`get_by_key`, so a subscription whose share was revoked (or whose calendar
+        was deleted) is silently dropped: a subscription never grants access on its own.
+        """
+        owned: list[CalCalendar] = self._repo_calendar.find_all(user_uid)
+        sources: list[CalendarSource] = [self.get(cal) for cal in owned]
+        seen_keys: set[str] = {cal.key for cal in owned if cal.key is not None}
+        for key in shared_keys:
+            if key in seen_keys:
+                continue
+            source: CalendarSource | None = self.get_by_key(user_uid, key)
+            if source is not None:
+                sources.append(source)
+                seen_keys.add(key)
+        return sources
 
     def get_default(self, user_uid: str) -> CalendarSource | None:
         """Return the default writable calendar source for user_uid, or None if the user has no local calendar."""
@@ -148,12 +173,16 @@ class CalendarSources:
         search: str | None = None,
         calendar_key: str | None = None,
         subscribed_keys: set[str] | None = None,
+        listed_shared_keys: Iterable[str] | None = None,
     ) -> list[CalEvent]:
         """Return events for user_uid, optionally restricted to a single calendar.
 
         When calendar_key is None, events from all user calendars are merged and sorted.
         When subscribed_keys is not None, calendars whose key is not in that set are skipped
         entirely (e.g. ``only_subscribe`` filtering from folders.CALENDAR).
+        When listed_shared_keys is not None (and calendar_key is None), only the owned calendars
+        and the shared ones in that set are scanned (see :meth:`get_listed`); otherwise every
+        accessible calendar is.
         Raises ERROR_CALENDAR_NOT_FOUND if calendar_key is given but does not exist.
         """
         if calendar_key is not None:
@@ -164,12 +193,18 @@ class CalendarSources:
                 return []
             return source.get_all_events(start, end, search)
         events: list[CalEvent] = []
-        for source in self.get_all(user_uid):
+        for source in self._listing_sources(user_uid, listed_shared_keys):
             if subscribed_keys is not None and source.calendar.key not in subscribed_keys:
                 continue
             events.extend(source.get_all_events(start, end, search))
         events.sort(key=lambda e: e.require_date_start)
         return events
+
+    def _listing_sources(self, user_uid: str, listed_shared_keys: Iterable[str] | None) -> list[CalendarSource]:
+        """Sources scanned by a multi-calendar listing: the listed ones, or every accessible one when None."""
+        if listed_shared_keys is None:
+            return self.get_all(user_uid)
+        return self.get_listed(user_uid, listed_shared_keys)
 
     def get_freebusy_events(
         self,
@@ -197,10 +232,12 @@ class CalendarSources:
         end: datetime | None = None,
         search: str | None = None,
         calendar_key: str | None = None,
+        listed_shared_keys: Iterable[str] | None = None,
     ) -> list[CalEvent]:
         """Return tasks for user_uid, optionally restricted to a single calendar.
 
         When calendar_key is None, tasks from all user calendars are merged and sorted.
+        listed_shared_keys restricts the shared calendars scanned, as in :meth:`get_all_events`.
         Raises ERROR_CALENDAR_NOT_FOUND if calendar_key is given but does not exist.
         """
         if calendar_key is not None:
@@ -209,7 +246,7 @@ class CalendarSources:
                 raise RequestException(error=err.ERROR_CALENDAR_NOT_FOUND)
             return source.get_all_tasks(start, end, search)
         tasks: list[CalEvent] = []
-        for source in self.get_all(user_uid):
+        for source in self._listing_sources(user_uid, listed_shared_keys):
             tasks.extend(source.get_all_tasks(start, end, search))
         tasks.sort(key=lambda e: e.require_date_start)
         return tasks

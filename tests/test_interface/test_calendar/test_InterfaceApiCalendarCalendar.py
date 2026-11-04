@@ -1,7 +1,9 @@
 """Unit tests for InterfaceApiCalendarCalendar - calendar CRUD timezone defaulting and public subscription."""
 from unittest.mock import MagicMock, patch
 
+from app.auth.User import User
 from app.interface.calendar.InterfaceApiCalendarCalendar import InterfaceApiCalendarCalendar
+from app.module.calendar.ModuleCalendar import ModuleCalendar
 from app.module.calendar.model.CalCalendar import CalCalendar
 from app.module.calendar.model.enums.CalendarSourceType import CalendarSourceType
 from app.module.calendar.model.enums.EventVisibility import EventVisibility
@@ -12,14 +14,19 @@ from app.utils import errors as err
 from app.utils.exceptions import RequestException
 
 
-def _build_interface(user_tz="Europe/Paris"):
+def _build_interface(user_tz="Europe/Paris", subs=None):
     inter = object.__new__(InterfaceApiCalendarCalendar)
-    inter.user = MagicMock()
-    inter.user.uid = "alice@example.com"
+    inter.user = User(uid="alice@example.com")
     inter.user.mail = "alice@example.com"
+    inter.user.profile.folders = {"CALENDAR": {"OWNER": {}, "SUBS": dict(subs or {})}}
     inter.module = MagicMock()
     # Return the calendar passed in so we can assert on what was built.
     inter.module.create_calendar.side_effect = lambda user, cal: cal
+    # Pure helpers keep their real behaviour; get_displayed_calendar goes through the mocked get_calendar.
+    inter.module.with_personal_name.side_effect = ModuleCalendar.with_personal_name
+    inter.module.split_personal_update.side_effect = ModuleCalendar.split_personal_update
+    inter.module.get_displayed_calendar.side_effect = lambda user, key: ModuleCalendar.with_personal_name(
+        user, inter.module.get_calendar(user, key).calendar)
     inter._calendar_deserializer = CalCalendarDeserializerDict()
     inter._calendar_serializer = CalCalendarSerializerDict()
     inter._calendars_serializer = CalCalendarsSerializerList()
@@ -87,6 +94,77 @@ def test_update_calendar_default_type_null_clears():
     inter.update_calendar("k", {"default_type": None})
     merged = inter.module.update_calendar.call_args.args[2]
     assert merged.default_type is None
+
+
+# ========== personal name of a shared calendar ==========
+
+def _shared_calendar(inter, name="Owner name"):
+    calendar = CalCalendar(key="k", user_uid="bob@example.com", name=name, color="#000000")
+    inter.module.get_calendar.return_value.calendar = calendar
+    inter.module.update_calendar.side_effect = lambda user, key, cal: cal
+    inter._user_module.update_folder_name.return_value = {
+        "CALENDAR": {"SUBS": {"k": {"display": True, "name": "Mine"}}},
+    }
+    return calendar
+
+
+def test_get_calendar_shared_returns_personal_name():
+    inter = _build_interface(subs={"k": {"display": True, "name": "Mine"}})
+    _shared_calendar(inter)
+    response, _ = inter.get_calendar("k")
+    assert response["data"]["name"] == "Mine"
+
+
+def test_get_calendar_shared_legacy_entry_keeps_owner_name():
+    inter = _build_interface(subs={"k": True})
+    _shared_calendar(inter)
+    response, _ = inter.get_calendar("k")
+    assert response["data"]["name"] == "Owner name"
+
+
+def test_update_calendar_shared_name_only_writes_folders_not_calendar():
+    inter = _build_interface(subs={"k": {"display": True, "name": "Owner name"}})
+    _shared_calendar(inter)
+    response, _ = inter.update_calendar("k", {"name": "Mine"})
+    assert response["error_code"] == "S000000"
+    assert response["data"]["name"] == "Mine"
+    inter._user_module.update_folder_name.assert_called_once_with(
+        "alice@example.com", "CALENDAR", "k", "Mine", owner_key="SUBS")
+    inter.module.update_calendar.assert_not_called()
+
+
+def test_update_calendar_shared_other_fields_still_go_to_calendar_without_name():
+    inter = _build_interface(subs={"k": {"display": True, "name": "Owner name"}})
+    _shared_calendar(inter)
+    inter.update_calendar("k", {"name": "Mine", "color": "#FFFFFF"})
+    merged = inter.module.update_calendar.call_args.args[2]
+    assert merged.name == "Owner name"
+    assert merged.color == "#FFFFFF"
+
+
+def test_update_calendar_shared_not_subscribed_returns_folder_error():
+    inter = _build_interface()
+    _shared_calendar(inter)
+    inter._user_module.update_folder_name.side_effect = RequestException(error=err.ERROR_FOLDER_KEY_NOT_FOUND)
+    response, _ = inter.update_calendar("k", {"name": "Mine"})
+    assert response["error_code"] == err.ERROR_FOLDER_KEY_NOT_FOUND.c
+    inter.module.update_calendar.assert_not_called()
+
+
+def test_update_calendar_owner_renames_calendar_row():
+    inter = _build_interface()
+    inter.module.get_calendar.return_value.calendar = CalCalendar(key="k", user_uid="alice@example.com", name="Old")
+    inter.module.update_calendar.side_effect = lambda user, key, cal: cal
+    inter.update_calendar("k", {"name": "New"})
+    assert inter.module.update_calendar.call_args.args[2].name == "New"
+    inter._user_module.update_folder_name.assert_not_called()
+
+
+def test_subscribed_calendar_keys_reads_display_of_dict_entries():
+    inter = _build_interface(subs={"shown": {"display": True, "name": "A"}, "hidden": {"display": False, "name": "B"},
+                                   "legacy": True})
+    inter.user.folders["CALENDAR"]["OWNER"] = {"mine": True, "off": False}
+    assert inter._subscribed_calendar_keys() == {"mine", "shown", "legacy"}
 
 
 # ========== public subscription ==========

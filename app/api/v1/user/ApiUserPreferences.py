@@ -74,10 +74,10 @@ class ApiUserPreferencesFolders(MethodView):
     @blp.response(200)
     def patch(self, new_data: dict) -> ResponseReturnValue:
         """
-        Update a single folder key's value in the user's folders structure
+        Update the display toggle of one or several folder keys in the user's folders structure
         """
         interface_api: InterfaceUserPreferences = g.inter
-        return interface_api.update_folder_value(new_data["resource"], new_data["id"], new_data["value"])
+        return interface_api.update_folders_display(new_data)
 
 
 # @blp.route("/<string:pref_type>")

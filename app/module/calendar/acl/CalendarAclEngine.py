@@ -74,6 +74,10 @@ class CalendarAclEngine:
             return CalendarPermissions.denied()
         return self._share.to_calendar_permissions(entry.rights)
 
+    def can_view(self, permissions: CalendarPermissions) -> bool:
+        """Return True if permissions let the user see at least one visibility class (VIEW)."""
+        return self._any_level_at_least(permissions, CalendarShareLevel.VIEW_DATETIME)
+
     def check_permission(self, permissions: CalendarPermissions | None, action: CalendarPermissionAction,
                          event: CalEvent | None = None, calendar_user: CalendarUser | None = None) -> None:
         """Raise ERROR_CALENDAR_ACCESS_DENIED if the action is not allowed.

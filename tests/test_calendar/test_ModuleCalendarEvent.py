@@ -119,7 +119,7 @@ def _build_module(sources: dict):
 
     sources_mock.require_event.side_effect = _require_event
 
-    def _get_events(uid, start, end, search, calendar_key=None, subscribed_keys=None):
+    def _get_events(uid, start, end, search, calendar_key=None, subscribed_keys=None, listed_shared_keys=None):
         if calendar_key is not None:
             source = sources.get(calendar_key)
             if source is None:

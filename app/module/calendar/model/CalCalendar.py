@@ -91,6 +91,9 @@ class CalCalendar:  # pylint: disable=too-many-instance-attributes,invalid-name
 
     # Transient - populated at read time by CalendarAclEngine, not persisted.
     permissions: CalendarPermissions | None = None
+    # Transient - for a calendar shared with the acting user: whether they subscribed to it
+    # (folders.CALENDAR.SUBS). None when not resolved (owned calendars, plain listings).
+    subscribed: bool | None = None
 
     # Transient - the calendar collection's components (RFC 4791), populated when serializing
     # to or deserializing from a full VCALENDAR. Not persisted: events live in their own table.
