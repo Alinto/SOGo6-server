@@ -2386,7 +2386,7 @@ class TestEmptyFolder:
         # the exception won't be raised. This is a bug in the implementation or the test.
         # Let's check if maybe the code should use _exec_imap4_method instead.
         # For now, let's just verify that when expunge returns False-like value, it raises.
-        fake_conn.expunge_response = (False, [b"Expunge failed"])
+        fake_conn.expunge_response = ("NO", [b"Expunge failed"])
 
         client = authenticated_client(fake_conn)
 
