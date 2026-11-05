@@ -7,9 +7,8 @@ oauth2 {
   introspection_mode = auth
   introspection_url = http://keycloak:8080/realms/myRealm/protocol/openid-connect/userinfo
   username_attribute = email
-  username_format = %n
-  active_attribute = active
-  active_value = true
+  username_validation_format = %{user}
+  #No active_attribute: the userinfo endpoint has no "active" field, it answers 401 if the token is not valid
   openid_configuration_url = http://keycloak:8080/realms/myRealm/.well-known/openid-configuration
 }
 
