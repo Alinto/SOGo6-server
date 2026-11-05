@@ -91,7 +91,6 @@ class ModuleAuth:  # pylint: disable=too-many-instance-attributes
         self.domainless     = system.SOGO_S_DOMAINLESS_LOGIN
         self.known_domains  = system.SOGO_S_KNOWN_DOMAIN
         self.reject_unknown = system.SOGO_S_REJECT_UNKNOWN_DOMAIN
-        self.allowed_redirect_origins = {_get_origin(url) for url in system.SOGO_S_OPENID_ALLOW_REDIRECT} - {""}
 
         #UI url of the last SSO callback, known once the identity provider has read its state, even if the login failed
         self.sso_ui_redirect = ""
@@ -163,18 +162,21 @@ class ModuleAuth:  # pylint: disable=too-many-instance-attributes
             raise RequestException("Domain given for auth is not registered in SOGO_S_REJECT_UNKNOWN_DOMAIN")
         return domain
 
-    def is_ui_redirect_allowed(self, ui_redirect:str) -> bool:
+    @staticmethod
+    def is_ui_redirect_allowed(ui_redirect:str, auth_settings:AuthSettingsObj) -> bool:
         """
-        Check that the origin of the UI url is exactly one of SOGO_S_OPENID_ALLOW_REDIRECT
+        Check that the origin of the UI url is exactly one of SOGO_D_OPENID_ALLOW_REDIRECT of the domain
 
         :param ui_redirect: UI url given by the UI
         :type ui_redirect: str
+        :param auth_settings: Authentication settings of the domain
+        :type auth_settings: AuthSettingsObj
         :return: True if the UI url can be used as redirection
         :rtype: bool
         """
+        allowed_origins = {_get_origin(url) for url in auth_settings.SOGO_D_OPENID_ALLOW_REDIRECT} - {""}
         origin = _get_origin(ui_redirect)
-        logger_auth.info("Origin of UI redirect: %s", origin)
-        return bool(origin) and origin in self.allowed_redirect_origins
+        return bool(origin) and origin in allowed_origins
 
     @staticmethod
     def _get_identity_provider(auth_settings:AuthSettingsObj, callback_url:str) -> IdentityProvider|None:
@@ -215,8 +217,8 @@ class ModuleAuth:  # pylint: disable=too-many-instance-attributes
         callback_url = callback_url_builder(kind, domain) # or SSO_NO_DOMAIN)
         provider = self._get_identity_provider(domain_auth_settings, callback_url)
         if provider:
-            if not self.is_ui_redirect_allowed(ui_redirect):
-                logger_auth.warning("SSO login asked with a redirect not in SOGO_S_OPENID_ALLOW_REDIRECT: %s", ui_redirect)
+            if not self.is_ui_redirect_allowed(ui_redirect, domain_auth_settings):
+                logger_auth.warning("SSO login asked with a redirect not in SOGO_D_OPENID_ALLOW_REDIRECT: %s", ui_redirect)
                 raise RequestException(error=err.ERROR_SSO_REDIRECT_NOT_ALLOWED)
             location = provider.get_login_location(ui_redirect)
 
@@ -258,11 +260,11 @@ class ModuleAuth:  # pylint: disable=too-many-instance-attributes
         try:
             identity = provider.authenticate_from_callback(callback_data)
         finally:
-            #Checked again: SOGO_S_OPENID_ALLOW_REDIRECT may have changed since get_login_mech
-            if self.is_ui_redirect_allowed(provider.ui_redirect):
+            #Checked again: SOGO_D_OPENID_ALLOW_REDIRECT may have changed since get_login_mech
+            if self.is_ui_redirect_allowed(provider.ui_redirect, domain_auth_settings):
                 self.sso_ui_redirect = provider.ui_redirect
             elif provider.ui_redirect:
-                logger_auth.warning("SSO state with a redirect not in SOGO_S_OPENID_ALLOW_REDIRECT anymore: %s", provider.ui_redirect)
+                logger_auth.warning("SSO state with a redirect not in SOGO_D_OPENID_ALLOW_REDIRECT anymore: %s", provider.ui_redirect)
 
         #The access token is kept as password to authenticate on the mail servers (xoauth2)
         if self.domainless:
@@ -282,6 +284,30 @@ class ModuleAuth:  # pylint: disable=too-many-instance-attributes
             raise RequestException(error=err.ERROR_SSO_LOGIN_FAILED)
 
         return user, domain_user_sources
+
+    def check_sso_access_token(self, user:User, auth_settings:AuthSettingsObj) -> bool:
+        """
+        Check that the access token of a SSO user (kept as password) is still valid on its identity provider.
+        #TODO refresh the access token when it is not valid anymore (SOGO_D_OPENID_REFRESH_ENABLE)
+
+        :param user: User logged in with a SSO
+        :type user: User
+        :param auth_settings: Authentication settings of the domain of the user
+        :type auth_settings: AuthSettingsObj
+        :return: True if the domain still uses this SSO and the token is still valid.
+                 False if the identity provider is unreachable: the token cannot be trusted.
+        :rtype: bool
+        """
+        if auth_settings.SOGO_D_AUTH_TYPE != user.auth_kind:
+            logger_auth.info("SSO user %s logged in with %s but its domain now uses %s", user.uid, user.auth_kind, auth_settings.SOGO_D_AUTH_TYPE)
+            return False
+        provider = self._get_identity_provider(auth_settings, "") #No callback needed to check a token
+        if provider is None:
+            return False
+        try:
+            return provider.check_access_token(user.password)
+        except RequestException:
+            return False
 
     def get_user_and_domain_user_sources(self, username:str, password:str) -> tuple[User, dict[str, UserSourceSettingsObj]]:
         """

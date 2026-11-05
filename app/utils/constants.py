@@ -51,6 +51,9 @@ ZSET_USER_SESSIONS_DOMAIN = "user_sessions:domain"
 SSO_STATE_KEY_PREFIX = "sso_state:"
 SSO_STATE_TTL = 600 #Time given to the user to log in on the identity provider, in seconds
 SSO_STATE_UI_REDIRECT = "ui_redirect" #Key of the UI url in the SSO state data
+# SSO token check: ``sso_token_check:<kind>:<sha256 of the access token>`` is set once the access token is checked valid
+# on the identity provider, it is not checked again until its TTL expires (SOGO_D_OPENID_TOKEN_CHECK_INTERVAL)
+SSO_TOKEN_CHECK_KEY_PREFIX = "sso_token_check:"
 
 JWT_ISS = "iss"
 JWT_EXP = "exp"

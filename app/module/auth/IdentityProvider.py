@@ -25,6 +25,7 @@ class IdentityProvider(ABC):
     1. get_login_location: url where the UI must send the user to log in
     2. The identity provider calls back the API (see /auth/callback/<kind>/<domain>)
     3. authenticate_from_callback: check the callback data and return the user identity
+    4. check_access_token: on every request of the user, check the token given at the login is still valid
 
     The provider generates the anti CSRF state in get_login_location and checks it in authenticate_from_callback.
     The UI url given in get_login_location is kept with the state, ui_redirect gives it back once the state is read
@@ -69,4 +70,16 @@ class IdentityProvider(ABC):
         :raises RequestException: If the state is invalid or the authentication failed
         :return: The user identity
         :rtype: IdentityProviderUserInfo
+        """
+
+    @abstractmethod
+    def check_access_token(self, access_token: str) -> bool:
+        """
+        Check that the access token given by authenticate_from_callback is still valid on the identity provider
+        (not expired, not revoked, user not disabled...).
+
+        :param access_token: Access token of the user
+        :type access_token: str
+        :return: True if the token is still valid
+        :rtype: bool
         """

@@ -1,5 +1,6 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
+from hashlib import sha256
 
 import requests
 from authlib.common.errors import AuthlibBaseError
@@ -194,3 +195,89 @@ class OpenIDProvider(IdentityProvider):
             logger_auth.warning("Openid user info has no field %s (see SOGO_D_OPENID_EMAIL)", mail_field)
             raise RequestException(error=err.ERROR_SSO_LOGIN_FAILED)
         return IdentityProviderUserInfo(mail=mail, claims=user_info, access_token=token.get("access_token", ""))
+
+    def check_access_token(self, access_token: str) -> bool:
+        """
+        Check that the access token is still valid on the openid server.
+        The introspection endpoint (RFC 7662) is used if the server has one, else the userinfo endpoint:
+        the token is valid if the server accepts it.
+        Once valid, the token is not checked again for SOGO_D_OPENID_TOKEN_CHECK_INTERVAL seconds (0: always checked),
+        the last valid check is kept in redis. If redis is unreachable, the token is checked every time.
+
+        :param access_token: Access token of the user
+        :type access_token: str
+        :raises RequestException: If the openid server is unreachable or its configuration is invalid
+        :return: True if the token is still valid
+        :rtype: bool
+        """
+        if not access_token:
+            return False
+        interval = self.auth_settings.SOGO_D_OPENID_TOKEN_CHECK_INTERVAL
+        #The token is hashed: it is the password of the user for the mail servers, it must not be readable in redis
+        key = f"{cs.SSO_TOKEN_CHECK_KEY_PREFIX}{self.kind}:{sha256(access_token.encode('utf-8')).hexdigest()}"
+        if interval and self._get_token_check(key):
+            return True
+
+        try:
+            metadata = self._client.load_server_metadata()
+            introspection_url = metadata.get("introspection_endpoint")
+            if introspection_url:
+                resp = requests.post(introspection_url,
+                                     data={"token": access_token, "token_type_hint": "access_token"},
+                                     auth=(self.auth_settings.SOGO_D_OPENID_CLIENT_NAME, self.auth_settings.SOGO_D_OPENID_CLIENT_SECRET),
+                                     timeout=OPENID_TIMEOUT)
+                resp.raise_for_status()
+                is_valid = resp.json().get("active") is True
+            else:
+                resp = requests.get(metadata["userinfo_endpoint"],
+                                    headers={"Authorization": f"Bearer {access_token}"},
+                                    timeout=OPENID_TIMEOUT)
+                is_valid = resp.status_code not in (401, 403)
+                if is_valid:
+                    resp.raise_for_status()
+        except (requests.RequestException, ValueError, KeyError, RuntimeError) as e:
+            logger_auth.error("Cannot check the access token on openid server: %s", str(e))
+            raise RequestException(error=err.ERROR_SSO_PROVIDER_UNREACHABLE) from e
+
+        if not is_valid:
+            logger_auth.info("Openid access token is not valid anymore")
+        elif interval:
+            self._set_token_check(key, interval)
+        return is_valid
+
+    @staticmethod
+    def _get_token_check(key: str) -> bool:
+        """
+        Return True if the access token has been checked valid less than SOGO_D_OPENID_TOKEN_CHECK_INTERVAL seconds ago
+
+        :param key: Redis key of the token check
+        :type key: str
+        :return: True if the token check is still in redis
+        :rtype: bool
+        """
+        cache = sogo_cache()
+        try:
+            return cache.get(key, str) is not None
+        except (rexc.ConnectionError, rexc.TimeoutError) as e:
+            logger_auth.warning("Cannot read the openid token check from redis: %s", repr(e))
+            return False
+        finally:
+            cache.close()
+
+    @staticmethod
+    def _set_token_check(key: str, interval: int) -> None:
+        """
+        Keep in redis that the access token is valid, for SOGO_D_OPENID_TOKEN_CHECK_INTERVAL seconds
+
+        :param key: Redis key of the token check
+        :type key: str
+        :param interval: SOGO_D_OPENID_TOKEN_CHECK_INTERVAL
+        :type interval: int
+        """
+        cache = sogo_cache()
+        try:
+            cache.set(key, "1", interval)
+        except (rexc.ConnectionError, rexc.TimeoutError) as e:
+            logger_auth.warning("Cannot save the openid token check in redis: %s", repr(e))
+        finally:
+            cache.close()

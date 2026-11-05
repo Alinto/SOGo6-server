@@ -476,7 +476,8 @@ def test_plain_login_onboarding_uses_user_domain_settings(monkeypatch):
     interface = InterfaceAuthUser(
         process={"test": "config"},
         system={"SYSTEM_SETTINGS": {"test": "value"}},
-        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}, "MAIL_SETTINGS": {"SOGO_D_IMAP_AUTH_MECH": "login"}}
+        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}, "MAIL_SETTINGS": {"SOGO_D_IMAP_AUTH_MECH": "login"}},
+        user=ANONYMOUS_USER
     )
 
     _result, status_code = interface.plain_login({"username": "newuser@example.com", "password": "secret123"})
@@ -634,7 +635,8 @@ def get_sso_interface(monkeypatch, ui_redirect=UI_REDIRECT, error=None):
     interface = InterfaceAuthUser(
         process={"test": "config"},
         system={"SYSTEM_SETTINGS": {"test": "value"}},
-        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}}
+        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}},
+        user=ANONYMOUS_USER
     )
     return interface, fake_auth
 
@@ -681,3 +683,83 @@ def test_sso_callback_onboarding_failure_no_session(monkeypatch):
 
     assert result == f"{UI_REDIRECT}#error={err.ERROR_IMAP_UNAIVALABLE.c}"
     assert fake_auth.generate_voucher_from_user_args is None
+
+
+# ========== Tests for check_user_and_fill_info (SSO) ==========
+
+SSO_DOMAIN_SETTINGS = {"AUTH_SETTINGS": {"SOGO_D_AUTH_TYPE": "openid"}, "USER_SOURCE": {}}
+
+
+class FakeSsoModuleUserSource(FakeModuleUserSource):
+    """Fake ModuleUserSource for a SSO user, found or not"""
+    user_found = True
+    checked_users: list = []
+
+    @staticmethod
+    def init_from_domain_settings(domain_settings):
+        return FakeSsoModuleUserSource(domain_settings["USER_SOURCE"])
+
+    def check_user_without_password(self, user):
+        FakeSsoModuleUserSource.checked_users.append(user)
+        return FakeSsoModuleUserSource.user_found
+
+
+def get_sso_check_interface(monkeypatch, token_valid=True, user_found=True):
+    """Interface built with the domain settings of a SSO user, as the before_request does"""
+    fake_auth = FakeModuleAuth(None, None, None, None)
+    fake_auth.check_sso_access_token_args = None
+
+    def check_sso_access_token(user, auth_settings):
+        fake_auth.check_sso_access_token_args = (user, auth_settings)
+        return token_valid
+
+    fake_auth.check_sso_access_token = check_sso_access_token
+    fake_profile = FakeModuleUserProfile(None, None)
+    fake_profile.get_user_profile = lambda user: None
+    FakeSsoModuleUserSource.user_found = user_found
+    FakeSsoModuleUserSource.checked_users = []
+    patch_modules_on_interface(monkeypatch, fake_auth, fake_profile, FakeSsoModuleUserSource)
+
+    user = FakeUser("user@example.com", "token", authenticated=True)
+    user.auth_kind = "openid"
+    interface = InterfaceAuthUser(
+        process={"test": "config"},
+        system={"SYSTEM_SETTINGS": {"test": "value"}},
+        default_domain=SSO_DOMAIN_SETTINGS,
+        user=user
+    )
+    return interface, fake_auth, user
+
+
+def test_check_user_and_fill_info_sso(monkeypatch):
+    """Valid access token and user still in its user source"""
+    interface, fake_auth, user = get_sso_check_interface(monkeypatch)
+
+    success, user_found = interface.check_user_and_fill_info(user)
+
+    assert success
+    assert user_found is user
+    checked_user, auth_settings = fake_auth.check_sso_access_token_args
+    assert checked_user is user
+    assert auth_settings.SOGO_D_AUTH_TYPE == "openid"
+    assert FakeSsoModuleUserSource.checked_users == [user]
+
+
+def test_check_user_and_fill_info_sso_token_not_valid(monkeypatch):
+    """Access token expired or revoked on the identity provider: the user is not authenticated anymore"""
+    interface, _, user = get_sso_check_interface(monkeypatch, token_valid=False)
+
+    success, user_found = interface.check_user_and_fill_info(user)
+
+    assert not success
+    assert user_found.anonymous
+    assert FakeSsoModuleUserSource.checked_users == []
+
+
+def test_check_user_and_fill_info_sso_user_not_found(monkeypatch):
+    """Valid access token but the user is not in its user source anymore"""
+    interface, _, user = get_sso_check_interface(monkeypatch, user_found=False)
+
+    success, _ = interface.check_user_and_fill_info(user)
+
+    assert not success
