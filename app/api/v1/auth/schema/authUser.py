@@ -8,7 +8,7 @@ class AuthUserGetMechSchema(Schema):
     Data schema of the query for /mode
     """
     username = fields.String(required=True)
-    #UI url where the user is sent back after a SSO login, its origin must be in SOGO_S_OPENID_ALLOW_REDIRECT
+    #UI url where the user is sent back after a SSO login, its origin must be in SOGO_D_OPENID_ALLOW_REDIRECT
     redirect = fields.String(load_default="", dump_default="")
 
 class AuthUserBasicPostSchema(Schema):

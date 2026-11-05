@@ -61,7 +61,6 @@ class FakeSystemSettings:
         self.SOGO_S_DOMAINLESS_LOGIN = False
         self.SOGO_S_KNOWN_DOMAIN = ["example.com", "test.com"]
         self.SOGO_S_REJECT_UNKNOWN_DOMAIN = True
-        self.SOGO_S_OPENID_ALLOW_REDIRECT = ["http://localhost:3001", "https://mail.example.com/"]
 
 
 class FakeAuthSettings:
@@ -70,6 +69,7 @@ class FakeAuthSettings:
     def __init__(self, auth_type="plain", pwd_recovery=False):
         self.SOGO_D_AUTH_TYPE = auth_type
         self.SOGO_D_PWD_RECOVERY = pwd_recovery
+        self.SOGO_D_OPENID_ALLOW_REDIRECT = ["http://localhost:3001", "https://mail.example.com/"]
 
 
 class FakeUserSourceSettings:
@@ -722,7 +722,7 @@ def test_get_login_mech_openid(monkeypatch):
     "javascript://localhost:3001/%0aalert(1)",
 ])
 def test_get_login_mech_openid_redirect_not_allowed(monkeypatch, ui_redirect):
-    """The origin of the UI url must be exactly one of SOGO_S_OPENID_ALLOW_REDIRECT, no state is created otherwise"""
+    """The origin of the UI url must be exactly one of SOGO_D_OPENID_ALLOW_REDIRECT of the domain, no state is created otherwise"""
     module = get_sso_module(monkeypatch)
 
     with pytest.raises(RequestException) as e:
@@ -783,7 +783,7 @@ def test_get_user_from_sso_callback_error_keeps_ui_redirect(monkeypatch):
 
 
 def test_get_user_from_sso_callback_ui_redirect_not_allowed_anymore(monkeypatch):
-    """SOGO_S_OPENID_ALLOW_REDIRECT changed between the login and the callback"""
+    """SOGO_D_OPENID_ALLOW_REDIRECT changed between the login and the callback"""
     module = get_sso_module(monkeypatch)
     monkeypatch.setattr("app.module.auth.ModuleAuth.ModuleUserSource.check_user_without_password", fake_check_user_without_password())
     FakeIdentityProvider.state_ui_redirect = "http://old-ui.example.com/en/auth/login/sso"
@@ -824,6 +824,60 @@ def test_get_user_from_sso_callback_unknown_domain(monkeypatch):
 
     with pytest.raises(RequestException):
         module.get_user_from_sso_callback("openid", "unknown.com", {"code": "abc", "state": "my-state"}, fake_callback_url_builder)
+
+
+def test_get_login_mech_openid_redirect_from_domain_settings(monkeypatch):
+    """SOGO_D_OPENID_ALLOW_REDIRECT is read from the settings of the domain of the user, not the default ones"""
+    module = get_sso_module(monkeypatch)
+    domain_auth = FakeAuthSettings(auth_type="openid")
+    domain_auth.SOGO_D_OPENID_ALLOW_REDIRECT = ["https://other-ui.example.com"]
+    monkeypatch.setattr(module, "_get_domain_auth_and_user_source_settings", lambda domain: (domain_auth, {}))
+
+    with pytest.raises(RequestException) as e:
+        module.get_login_mech("user@example.com", UI_REDIRECT, fake_callback_url_builder)
+    assert e.value.error == err.ERROR_SSO_REDIRECT_NOT_ALLOWED
+
+    module.get_login_mech("user@example.com", "https://other-ui.example.com/en/auth/login/sso", fake_callback_url_builder)
+    assert FakeIdentityProvider.ui_redirects == ["https://other-ui.example.com/en/auth/login/sso"]
+
+
+# ========== Tests for check_sso_access_token ==========
+
+def get_sso_user(auth_kind="openid"):
+    """Return a user logged in with a SSO, the access token is its password"""
+    user = FakeUser(uid="user@example.com", password="token")
+    user.auth_kind = auth_kind
+    return user
+
+
+@pytest.mark.parametrize("token_valid", [True, False])
+def test_check_sso_access_token(monkeypatch, token_valid):
+    """The identity provider of the domain checks the access token"""
+    module = get_sso_module(monkeypatch)
+    checked = []
+    def check_access_token(self, access_token):
+        checked.append(access_token)
+        return token_valid
+    monkeypatch.setattr(FakeIdentityProvider, "check_access_token", check_access_token, raising=False)
+
+    assert module.check_sso_access_token(get_sso_user(), FakeAuthSettings(auth_type="openid")) is token_valid
+    assert checked == ["token"]
+
+
+def test_check_sso_access_token_domain_auth_type_changed(monkeypatch):
+    """The domain does not use the SSO the user logged in with anymore"""
+    module = get_sso_module(monkeypatch)
+    assert not module.check_sso_access_token(get_sso_user(), FakeAuthSettings(auth_type="plain"))
+
+
+def test_check_sso_access_token_provider_unreachable(monkeypatch):
+    """The token cannot be checked: it is not trusted"""
+    module = get_sso_module(monkeypatch)
+    def check_access_token(self, access_token):
+        raise RequestException(error=err.ERROR_SSO_PROVIDER_UNREACHABLE)
+    monkeypatch.setattr(FakeIdentityProvider, "check_access_token", check_access_token, raising=False)
+
+    assert not module.check_sso_access_token(get_sso_user(), FakeAuthSettings(auth_type="openid"))
 
 
 # ========== Tests for build_ui_redirect_url ==========

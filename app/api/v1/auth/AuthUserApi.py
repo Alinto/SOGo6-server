@@ -68,7 +68,7 @@ class ApiAuthUserMode(MethodView):
         """
         Action, return the url location of the login system for this username.
         redirect is only useful for SSO that needs callback: UI url where the user is sent back after the login,
-        its origin must be in SOGO_S_OPENID_ALLOW_REDIRECT.
+        its origin must be in SOGO_D_OPENID_ALLOW_REDIRECT.
         """
         interface_api: InterfaceAuthUser = g.inter
         # build_sso_callback_url is the function used to construct the full SSO callback URL for the given kind and domain

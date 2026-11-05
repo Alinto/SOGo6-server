@@ -27,7 +27,7 @@ METADATA = {
 
 class FakeAuthSettings:
     """Fake AuthSettingsObj for openid."""
-    def __init__(self, fetch_user_profile=True):
+    def __init__(self, fetch_user_profile=True, token_check_interval=0):
         self.SOGO_D_AUTH_TYPE = "openid"
         self.SOGO_D_OPENID_CONFIG_URL = "http://idp/.well-known/openid-configuration"
         self.SOGO_D_OPENID_CLIENT_NAME = "myClient"
@@ -35,6 +35,7 @@ class FakeAuthSettings:
         self.SOGO_D_OPENID_SCOPE = "openid profile email"
         self.SOGO_D_OPENID_EMAIL = "email"
         self.SOGO_D_OPENID_FETCH_USER_PROFILE = fetch_user_profile
+        self.SOGO_D_OPENID_TOKEN_CHECK_INTERVAL = token_check_interval
 
 
 class FakeCache:
@@ -53,6 +54,10 @@ class FakeCache:
         self.data[key] = value
         self.ttl[key] = ttl
         return True
+
+    def get(self, key, expected_type):
+        self._check()
+        return self.data.get(key)
 
     def pop(self, key, expected_type):
         self._check()
@@ -300,3 +305,129 @@ def test_authenticate_from_callback_redis_unreachable(app, idp, cache):
         callback(app, {"code": "abc", "state": query["state"][0]})
     assert e.value.error == err.ERROR_SSO_STATE_STORAGE_UNREACHABLE
     assert idp["fetch_token"] == []
+
+
+# ========== Tests for check_access_token ==========
+
+class FakeResponse:
+    """Fake requests response"""
+    def __init__(self, status_code=200, json_data=None):
+        self.status_code = status_code
+        self._json = json_data or {}
+
+    def json(self):
+        return self._json
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise requests.HTTPError(f"{self.status_code}")
+
+
+@pytest.fixture
+def token_server(monkeypatch, idp):
+    """Mock the introspection and userinfo endpoints, return the calls made to them"""
+    calls = {"introspect": [], "userinfo": [], "introspect_response": FakeResponse(json_data={"active": True}),
+             "userinfo_response": FakeResponse()}
+
+    def fake_post(url, data, auth, timeout):
+        calls["introspect"].append({"url": url, "data": data, "auth": auth})
+        return calls["introspect_response"]
+
+    def fake_get(url, headers, timeout):
+        calls["userinfo"].append({"url": url, "headers": headers})
+        return calls["userinfo_response"]
+
+    monkeypatch.setattr(op.requests, "post", fake_post)
+    monkeypatch.setattr(op.requests, "get", fake_get)
+    return calls
+
+
+def with_introspection(monkeypatch):
+    """The openid server has an introspection endpoint"""
+    metadata = dict(METADATA, introspection_endpoint="http://idp/introspect")
+    monkeypatch.setattr(op.FlaskOAuth2App, "load_server_metadata", lambda self: metadata)
+
+
+@pytest.mark.parametrize("active, expected", [(True, True), (False, False), (None, False)])
+def test_check_access_token_introspection(monkeypatch, token_server, cache, active, expected):
+    """The introspection endpoint is used with the client credentials, the token is valid only if active is true"""
+    with_introspection(monkeypatch)
+    token_server["introspect_response"] = FakeResponse(json_data={} if active is None else {"active": active})
+
+    assert OpenIDProvider(FakeAuthSettings(), "").check_access_token("at") is expected
+    assert token_server["introspect"] == [{"url": "http://idp/introspect",
+                                           "data": {"token": "at", "token_type_hint": "access_token"},
+                                           "auth": ("myClient", "secret")}]
+    assert token_server["userinfo"] == []
+    assert cache.data == {}
+
+
+@pytest.mark.parametrize("status_code, expected", [(200, True), (401, False), (403, False)])
+def test_check_access_token_userinfo(token_server, status_code, expected):
+    """No introspection endpoint: the token is valid if the userinfo endpoint accepts it"""
+    token_server["userinfo_response"] = FakeResponse(status_code=status_code)
+
+    assert OpenIDProvider(FakeAuthSettings(), "").check_access_token("at") is expected
+    assert token_server["userinfo"] == [{"url": "http://idp/userinfo", "headers": {"Authorization": "Bearer at"}}]
+
+
+def test_check_access_token_empty(token_server):
+    """No token, nothing is asked to the openid server"""
+    assert not OpenIDProvider(FakeAuthSettings(), "").check_access_token("")
+    assert token_server["userinfo"] == []
+
+
+@pytest.mark.parametrize("response", [FakeResponse(status_code=500), FakeResponse(status_code=502)])
+def test_check_access_token_server_error(token_server, response):
+    """The openid server answered an error that does not say the token is invalid"""
+    token_server["userinfo_response"] = response
+
+    with pytest.raises(RequestException) as e:
+        OpenIDProvider(FakeAuthSettings(), "").check_access_token("at")
+    assert e.value.error == err.ERROR_SSO_PROVIDER_UNREACHABLE
+
+
+def test_check_access_token_idp_unreachable(monkeypatch, cache):
+    """Discovery url not reachable"""
+    def fail(self):
+        raise requests.ConnectionError("down")
+    monkeypatch.setattr(op.FlaskOAuth2App, "load_server_metadata", fail)
+
+    with pytest.raises(RequestException) as e:
+        OpenIDProvider(FakeAuthSettings(), "").check_access_token("at")
+    assert e.value.error == err.ERROR_SSO_PROVIDER_UNREACHABLE
+
+
+def test_check_access_token_interval(token_server, cache):
+    """Once valid, the token is not checked again during SOGO_D_OPENID_TOKEN_CHECK_INTERVAL, the token is not in redis"""
+    provider = OpenIDProvider(FakeAuthSettings(token_check_interval=300), "")
+
+    assert provider.check_access_token("at")
+    assert provider.check_access_token("at")
+    assert len(token_server["userinfo"]) == 1
+    [key] = cache.data
+    assert key.startswith(f"{cs.SSO_TOKEN_CHECK_KEY_PREFIX}openid:")
+    assert "at" not in key.removeprefix(f"{cs.SSO_TOKEN_CHECK_KEY_PREFIX}openid:")
+    assert cache.ttl[key] == 300
+
+    #Another token is checked
+    assert provider.check_access_token("other")
+    assert len(token_server["userinfo"]) == 2
+
+
+def test_check_access_token_interval_invalid_not_cached(token_server, cache):
+    """An invalid token is never kept as checked"""
+    token_server["userinfo_response"] = FakeResponse(status_code=401)
+
+    assert not OpenIDProvider(FakeAuthSettings(token_check_interval=300), "").check_access_token("at")
+    assert cache.data == {}
+
+
+def test_check_access_token_interval_redis_unreachable(token_server, cache):
+    """Redis down: the token is checked on the openid server every time"""
+    cache.down = True
+    provider = OpenIDProvider(FakeAuthSettings(token_check_interval=300), "")
+
+    assert provider.check_access_token("at")
+    assert provider.check_access_token("at")
+    assert len(token_server["userinfo"]) == 2

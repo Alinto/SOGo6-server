@@ -52,7 +52,7 @@ class InterfaceAuthUser:
 
         :param user_uid: The user unique ID
         :type user_uid: str
-        :param redirect: UI url where the user is sent back after a SSO login, must match SOGO_S_OPENID_ALLOW_REDIRECT
+        :param redirect: UI url where the user is sent back after a SSO login, must match SOGO_D_OPENID_ALLOW_REDIRECT
         :type redirect: str
         :param callback_url_builder: Function (kind, domain) -> url of the API callback for SSO
         :type callback_url_builder: Callable[[str, str], str]
@@ -189,10 +189,13 @@ class InterfaceAuthUser:
         :rtype: bool
         """
         if user.auth_kind != cs.AUTH_KIND_PLAIN:
-            #SSO: the identity provider already authenticated the user, only check it still exists in its user source
-            #TODO check/refresh the access token (SOGO_D_OPENID_TOKEN_CHECK_INTERVAL, SOGO_D_OPENID_REFRESH_ENABLE)
+            #SSO: the access token must still be valid on the identity provider, then the user must still exist in its user source.
+            #default_domain is the settings of the domain of the user here (see before_request)
+            auth_settings = AuthSettingsObj(self.default_domain[AuthSettings.subparent])
             module_us = ModuleUserSource.init_from_domain_settings(self.default_domain)
-            success, user_found = module_us.check_user_without_password(user), user
+            success = (self.module_auth.check_sso_access_token(user, auth_settings)
+                       and module_us.check_user_without_password(user))
+            user_found = user
         else:
             success, user_found, module_us = self._check_login(user.uid, user.password)
         if success:
