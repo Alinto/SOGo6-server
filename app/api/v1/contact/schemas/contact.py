@@ -138,11 +138,11 @@ class ContactSearchQueryArgsSchema(Schema):
 
 
 class SharedAddressBookQueryArgsSchema(Schema):
-    """Query string for GET /shared-addressbooks."""
+    """Query string for GET /shared-addressbooks/users."""
 
     search = fields.String(load_default=None, allow_none=True,
                            validate=[validate.Length(max=_SEARCH_MAX_LENGTH), validate_search],
-                           metadata={"description": "Case-insensitive substring matched against the owner uid and the owner "
+                           metadata={"description": "Case-insensitive substring matched against the owner mail and the owner "
                                                     "username (min 2 non-whitespace characters). Omit to list everything.",
                                      "example": "doe"})
 

@@ -89,7 +89,7 @@ class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attribute
         """List the address books of the current user.
 
         Owned books plus the shared ones the user subscribed to (folders.ADDRESSBOOKS.SUBS), then the
-        directory books. Shared books not subscribed to are only listed by GET /shared-addressbooks.
+        directory books. Shared books not subscribed to are only listed by GET /shared-addressbooks/{account_id}.
         """
         try:
             #Get user's address book
@@ -174,32 +174,51 @@ class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attribute
     #
     # Shared address books - subscriptions
     #
-    def get_shared_addressbooks(self, collection_param: CollectionPaginateArgs, search: str | None = None) -> CustomPaginateResponse:
-        """List every address book shared with the user (direct or "anyone" share), with rights and subscription state.
+    def get_shared_addressbook_users(self, collection_param: CollectionPaginateArgs, search: str | None = None) -> CustomPaginateResponse:
+        """List the users sharing at least one address book with the user (direct or "anyone" share).
 
-        Each address book gets ``username``, the owner's complete name (US_FIELD_CN) resolved through
-        the user sources - which is why the search and the pagination happen here and not in ModuleContact:
-        the architecture rule forbids the contact module calling the user source module.
-        ``search`` keeps the address books whose owner uid or username contains it (case-insensitive).
-        The list is sorted (username, owner, name) so the pages are stable; the total count goes to
+        Each user is ``{"mail", "username"}``: ``username`` is the owner's complete name (US_FIELD_CN)
+        resolved through the user sources - which is why the search and the pagination happen here and
+        not in ModuleContact: the architecture rule forbids the contact module calling the user source module.
+        ``search`` keeps the users whose mail or username contains it (case-insensitive).
+        The list is sorted (username, mail) so the pages are stable; the total count goes to
         the X-Pagination header.
 
         :return: A tuple (total_count, API response dict, status code).
         """
         try:
-            books: list[CardAddressBook] = self.module.get_shared_addressbooks(self.user)
+            owners: set[str] = {book.user_uid for book in self.module.get_shared_addressbooks(self.user)}
+            users: list[dict[str, str]] = [{"mail": owner, "username": self._owner_username(owner)} for owner in owners]
+            if search:
+                needle: str = search.strip().casefold()
+                users = [u for u in users if needle in u["mail"].casefold() or needle in u["username"].casefold()]
+            users.sort(key=lambda u: (u["username"].casefold(), u["mail"].casefold()))
+            page: list[dict[str, str]] = users[collection_param.first_item:collection_param.last_item + 1]
+            return len(users), *create_api_base_response({"users": page})
+        except RequestException as ex:
+            logger_api.error("get_shared_addressbook_users failed for user %s: %s", self.user.uid, ex)
+            return 0, *create_api_base_response(None, ex.error)
+
+    def get_shared_addressbooks_of(self, account_id: str) -> tuple[dict[str, Any], int]:
+        """List every address book account_id shares with the user, with rights and subscription state.
+
+        Each address book gets ``username``, the owner's complete name (US_FIELD_CN). The match on the
+        owner is case-insensitive; an owner sharing nothing with the user gives an empty list.
+        The list is sorted by address book name.
+        """
+        try:
+            owner: str = account_id.casefold()
+            books: list[CardAddressBook] = [
+                book for book in self.module.get_shared_addressbooks(self.user) if book.user_uid.casefold() == owner
+            ]
             serialized: list[dict[str, Any]] = self._addressbooks_serializer.serialize(books)
             for book_dict in serialized:
                 book_dict["username"] = self._owner_username(book_dict["owner"])
-            if search:
-                needle: str = search.strip().casefold()
-                serialized = [b for b in serialized if needle in b["owner"].casefold() or needle in b["username"].casefold()]
-            serialized.sort(key=lambda b: (b["username"].casefold(), b["owner"].casefold(), (b["name"] or "").casefold()))
-            page: list[dict[str, Any]] = serialized[collection_param.first_item:collection_param.last_item + 1]
-            return len(serialized), *create_api_base_response({"addressbooks": page})
+            serialized.sort(key=lambda b: (b["name"] or "").casefold())
+            return create_api_base_response({"addressbooks": serialized})
         except RequestException as ex:
-            logger_api.error("get_shared_addressbooks failed for user %s: %s", self.user.uid, ex)
-            return 0, *create_api_base_response(None, ex.error)
+            logger_api.error("get_shared_addressbooks_of failed for user %s account %s: %s", self.user.uid, account_id, ex)
+            return create_api_base_response(None, ex.error)
 
     def _owner_username(self, owner_uid: str) -> str:
         """Return the owner's complete name (US_FIELD_CN) from the user sources, "" when no source knows them."""
