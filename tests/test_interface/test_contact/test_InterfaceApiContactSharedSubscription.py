@@ -96,33 +96,26 @@ def _with_owner_names(inter, names):
     inter._resolve_share_target = resolve
 
 
-def _shared(inter, search=None, page=1, page_size=20):
-    total, response, _ = inter.get_shared_addressbooks(CollectionPaginateArgs(page=page, page_size=page_size), search=search)
-    return total, response["data"]["addressbooks"]
+def _shared_users(inter, search=None, page=1, page_size=20):
+    total, response, _ = inter.get_shared_addressbook_users(CollectionPaginateArgs(page=page, page_size=page_size), search=search)
+    return total, response["data"]["users"]
 
 
-def test_get_shared_addressbooks_serializes_module_result():
-    inter = _build_interface()
-    _with_owner_names(inter, {})
-    subscribed, offered = _book("a"), _book("b")
-    subscribed.rights, subscribed.subscribed = dict(_VIEW_RIGHTS), True
-    offered.rights, offered.subscribed = dict(_VIEW_RIGHTS), False
-    inter.module.get_shared_addressbooks.return_value = [subscribed, offered]
-    total, books = _shared(inter)
-    assert total == 2
-    assert [(b["key"], b["subscribed"]) for b in books] == [("a", True), ("b", False)]
-    assert books[0]["rights"] == _VIEW_RIGHTS
+def _shared_of(inter, account_id):
+    response, _ = inter.get_shared_addressbooks_of(account_id)
+    return response["data"]["addressbooks"]
 
 
-def test_get_shared_addressbooks_adds_owner_username():
+def test_get_shared_addressbook_users_lists_each_owner_once():
     inter = _build_interface()
     _with_owner_names(inter, {"alice@example.com": "Alice Liddell"})
-    inter.module.get_shared_addressbooks.return_value = [_book("a"), _book("b", owner="ghost@example.com")]
-    _, books = _shared(inter)
-    assert {b["key"]: b["username"] for b in books} == {"a": "Alice Liddell", "b": ""}
+    inter.module.get_shared_addressbooks.return_value = [_book("a"), _book("b"), _book("c", owner="ghost@example.com")]
+    total, users = _shared_users(inter)
+    assert total == 2
+    assert users == [{"mail": "ghost@example.com", "username": ""}, {"mail": "alice@example.com", "username": "Alice Liddell"}]
 
 
-def test_get_shared_addressbooks_search_matches_owner_or_username_case_insensitive():
+def test_get_shared_addressbook_users_search_matches_mail_or_username_case_insensitive():
     inter = _build_interface()
     _with_owner_names(inter, {"alice@example.com": "Alice", "u42@example.com": "Sogo Admin", "carol@example.com": "Carol"})
     inter.module.get_shared_addressbooks.return_value = [
@@ -130,18 +123,39 @@ def test_get_shared_addressbooks_search_matches_owner_or_username_case_insensiti
         _book("by-username", owner="u42@example.com"),
         _book("no-match", owner="carol@example.com"),
     ]
-    total, books = _shared(inter, search=" SOG ")
+    total, users = _shared_users(inter, search=" SOG ")
     assert total == 2
-    assert sorted(b["key"] for b in books) == ["by-owner", "by-username"]
+    assert sorted(u["mail"] for u in users) == ["sogo-tests1@example.com", "u42@example.com"]
 
 
-def test_get_shared_addressbooks_paginates_sorted_by_username():
+def test_get_shared_addressbook_users_paginates_sorted_by_username():
     inter = _build_interface()
     _with_owner_names(inter, {f"u{i}@example.com": f"User {i}" for i in range(5)})
     inter.module.get_shared_addressbooks.return_value = [_book(f"k{i}", owner=f"u{i}@example.com") for i in (3, 0, 4, 1, 2)]
-    total, books = _shared(inter, page=2, page_size=2)
+    total, users = _shared_users(inter, page=2, page_size=2)
     assert total == 5
-    assert [b["key"] for b in books] == ["k2", "k3"]
+    assert [u["mail"] for u in users] == ["u2@example.com", "u3@example.com"]
+
+
+def test_get_shared_addressbooks_of_keeps_only_the_owner_books():
+    inter = _build_interface()
+    _with_owner_names(inter, {"alice@example.com": "Alice Liddell"})
+    subscribed, offered = _book("b"), _book("a")
+    subscribed.rights, subscribed.subscribed = dict(_VIEW_RIGHTS), True
+    offered.rights, offered.subscribed = dict(_VIEW_RIGHTS), False
+    inter.module.get_shared_addressbooks.return_value = [subscribed, _book("other", owner="carol@example.com"), offered]
+    books = _shared_of(inter, "Alice@Example.com")
+    assert [(b["key"], b["subscribed"], b["username"]) for b in books] == [
+        ("a", False, "Alice Liddell"), ("b", True, "Alice Liddell"),
+    ]
+    assert books[0]["rights"] == _VIEW_RIGHTS
+
+
+def test_get_shared_addressbooks_of_unknown_owner_is_empty():
+    inter = _build_interface()
+    _with_owner_names(inter, {})
+    inter.module.get_shared_addressbooks.return_value = [_book("a")]
+    assert _shared_of(inter, "nobody@example.com") == []
 
 
 # ========== subscribe / unsubscribe ==========

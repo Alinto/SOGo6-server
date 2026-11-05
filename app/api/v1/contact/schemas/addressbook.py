@@ -148,15 +148,36 @@ class SharedAddressBookSchema(AddressBookSchema):
 
 
 class SharedAddressBookListDataSchema(Schema):
-    """Data payload for the shared address book list response. The total count is in the X-Pagination header."""
+    """Data payload for GET /shared-addressbooks/{account_id}: every address book a given user shares with the current user."""
 
     addressbooks = fields.List(fields.Nested(SharedAddressBookSchema))
 
 
 class SharedAddressBookListResponseSchema(ApiBaseResponse):
-    """Response schema for the shared address book discovery endpoint."""
+    """Response schema for GET /shared-addressbooks/{account_id}."""
 
     data = fields.Nested(SharedAddressBookListDataSchema, allow_none=True)
+
+
+class SharedAddressBookUserSchema(Schema):
+    """A user sharing at least one address book with the current user."""
+
+    mail     = fields.String(dump_only=True, metadata={"description": "Mail of the owner.", "example": "john.doe@example.com"})
+    username = fields.String(dump_only=True,
+                             metadata={"description": "Complete name of the owner, read from the user source (US_FIELD_CN). "
+                                                      "Empty when no user source knows the owner.", "example": "John Doe"})
+
+
+class SharedAddressBookUserListDataSchema(Schema):
+    """Data payload for the shared address book owners list. The total count is in the X-Pagination header."""
+
+    users = fields.List(fields.Nested(SharedAddressBookUserSchema))
+
+
+class SharedAddressBookUserListResponseSchema(ApiBaseResponse):
+    """Response schema for GET /shared-addressbooks/users."""
+
+    data = fields.Nested(SharedAddressBookUserListDataSchema, allow_none=True)
 
 
 class SharedAddressBookResponseSchema(ApiBaseResponse):
