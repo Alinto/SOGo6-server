@@ -30,6 +30,10 @@ class FlaskConfig(BaseSettings):
     #Set you own secret key for production
     SECRET_KEY: str = Field(DEFAULT_SECRET_KEY, min_length=32)
 
+    #Flas CORS
+    CORS_ORIGINS: str = "*" #comma-separated list of allowed origins
+
+
     #Flask smorest
     ##############
 
