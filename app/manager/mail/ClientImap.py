@@ -4,7 +4,6 @@ from typing import Any, Callable, TypeVar, ParamSpec, Iterator, cast
 import base64
 from datetime import datetime, timedelta
 from email import message_from_bytes
-from email.header import decode_header, make_header
 from email.message import EmailMessage
 from email import policy
 import imaplib
@@ -16,6 +15,7 @@ from ssl import SSLError
 from app.utils.exceptions import RequestException, BugException
 from app.utils.logger.logger import logger_imap
 from app.manager.mail.ClientMailServer import ClientMailServer
+from app.module.mail.mime_cid import find_named_part
 from app.utils import errors as err
 from app.utils import constants as cs
 from app.utils.strings import quote, unquote, imap_join_folders, escape_imap_string
@@ -2243,7 +2243,8 @@ class ClientImap(ClientMailServer):
         """Fetch a specific attachment from a mail by filename.
 
         Fetches the full RFC 822 message, walks the MIME tree and returns the first
-        part whose decoded filename matches *filename*.
+        part whose download name matches *filename*. Inline images are found by the
+        name derived from their Content-ID (``cid:logo.png`` → ``logo.png``).
 
         :param folder_path: The folder containing the mail.
         :type folder_path: str
@@ -2271,28 +2272,19 @@ class ClientImap(ClientMailServer):
             mail_bytes: bytes = datas[0][1]
             message = message_from_bytes(mail_bytes, policy=policy.default) # type: ignore [arg-type]
 
-            for part in message.walk():
-                if part.get_content_maintype() == "multipart":
-                    continue
-                part_filename = part.get_filename()
-                if part_filename:
-                    try:
-                        part_filename = str(make_header(decode_header(part_filename)))
-                    except (UnicodeDecodeError, AttributeError):
-                        pass
-                if part_filename == filename:
-                    payload = part.get_payload(decode=True)
-                    if payload is None:
-                        raise RequestException(
-                            f"Attachment '{filename}' has no payload in mail UID {mail_uid}.",
-                            err.ERROR_MAIL_ATTACHMENT_NOT_FOUND,
-                        )
-                    return payload, part.get_content_type()
-
-            raise RequestException(
-                f"Attachment '{filename}' not found in mail UID {mail_uid}.",
-                err.ERROR_MAIL_ATTACHMENT_NOT_FOUND,
-            )
+            part = find_named_part(message, filename)
+            if part is None:
+                raise RequestException(
+                    f"Attachment '{filename}' not found in mail UID {mail_uid}.",
+                    err.ERROR_MAIL_ATTACHMENT_NOT_FOUND,
+                )
+            payload = part.get_payload(decode=True)
+            if payload is None:
+                raise RequestException(
+                    f"Attachment '{filename}' has no payload in mail UID {mail_uid}.",
+                    err.ERROR_MAIL_ATTACHMENT_NOT_FOUND,
+                )
+            return payload, part.get_content_type()
         else:
             raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
 

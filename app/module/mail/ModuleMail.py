@@ -20,6 +20,7 @@ from app.factory.share.shareMailFolder import (
     FOLDER_RESOURCE_TYPE, imap_permissions_to_rights, rights_to_imap_permissions, right_to_camel,
 )
 from app.module.common_module import get_sogo6_database
+from app.module.mail.mime_cid import iter_named_parts
 from app.module.mail.model.TmpDraftManager import TmpDraftManager
 from app.manager.mail.ClientMailServer import ClientMailServer
 from app.utils import constants as cs
@@ -568,7 +569,8 @@ class ModuleMail:
                             "filename": str, name of the file,
                             "contentType": str, content type,
                             "size": int,  attachment_size,
-                            "extension": str, extension of the file
+                            "extension": str, extension of the file,
+                            "contentId": str, Content-ID when the part is referenced as cid:
                         },..]
             "is_signed": bool, true if signed,
             "certificates": certificates,
@@ -632,6 +634,10 @@ class ModuleMail:
         # Parse content, attachments, and encryption info
         contents = []
         attachments = []
+        named_parts = {
+            id(part): (filename, content_id)
+            for part, filename, content_id in iter_named_parts(email_msg)
+        }
         is_signed = False
         certificates: list[dict[str, Any]] = []
         mail_type = []
@@ -656,28 +662,26 @@ class ModuleMail:
             if content_type in ("application/pkcs7-mime", "application/x-pkcs7-mime") and "smime-type=enveloped-data" in str(part):
                 continue
 
-            # Check for attachments
-            if "attachment" in content_disposition.lower() or part.get_filename():
-                try:
-                    filename = part.get_filename()
-                    if filename:
-                        # Decode filename if encoded
-                        try:
-                            filename = str(make_header(decode_header(filename)))
-                        except (UnicodeDecodeError, AttributeError):
-                            pass
-
+            # Classic attachments, plus inline images referenced by Content-ID.
+            named = named_parts.get(id(part))
+            is_regular_attachment = "attachment" in content_disposition.lower() or bool(part.get_filename())
+            if is_regular_attachment or named is not None:
+                if named is not None:
+                    try:
+                        filename, content_id = named
                         attachment_size = len(part.get_payload(decode=True) or b"")
                         extension = filename.rsplit('.', 1)[-1] if '.' in filename else ""
-
-                        attachments.append({
+                        entry = {
                             "filename": filename,
                             "contentType": content_type,
                             "size": attachment_size,
-                            "extension": extension
-                        })
-                except (AttributeError, TypeError) as e:
-                    logger_mail_server.warning("Error parsing attachment for UID %s: %s", uid, e)
+                            "extension": extension,
+                        }
+                        if content_id:
+                            entry["contentId"] = content_id
+                        attachments.append(entry)
+                    except (AttributeError, TypeError) as e:
+                        logger_mail_server.warning("Error parsing attachment for UID %s: %s", uid, e)
                 continue
 
             # Parse text content
