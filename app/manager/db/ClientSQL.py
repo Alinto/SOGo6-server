@@ -55,6 +55,42 @@ class ClientSQL(metaclass=ABCMeta):
         raise NotImplementedError
 
     @abstractmethod
+    def add_column(self, table: Table, column: Column, default: Any = None) -> None:
+        """
+        Add a column at the end of an existing table. Does nothing if the column already exists.
+
+        A NOT NULL column added to a table which already has rows needs a default value.
+        The default value only fills the existing rows, it is removed afterwards so the schema
+        stays the same as a table created from scratch.
+
+        :param table: Table to alter
+        :type table: Table
+        :param column: Column to add
+        :type column: Column
+        :param default: Value for the existing rows, None means no value
+        :type default: Any, optional
+        :raises RequestException: raise if the database refuses the alteration
+        """
+        logger.error("Method 'add_column' of clientSQL must be implemented by the children %s", type(self).__name__)
+        raise NotImplementedError
+
+    @abstractmethod
+    def modify_column(self, table: Table, column: Column) -> None:
+        """
+        Change the type and the nullability of an existing column to match the given Column.
+
+        Column.is_unique is ignored: existing unique constraints are kept and none is added.
+
+        :param table: Table to alter
+        :type table: Table
+        :param column: New definition of the column, found by its name
+        :type column: Column
+        :raises RequestException: raise if the database refuses the alteration
+        """
+        logger.error("Method 'modify_column' of clientSQL must be implemented by the children %s", type(self).__name__)
+        raise NotImplementedError
+
+    @abstractmethod
     def select_from_table(self, table: Table, columns: list[Column], condition: Condition,
                           offset: int = 0, limit: int = 0,
                           sort_by: str | None = None, order: Order = Order.ASC,
@@ -64,7 +100,9 @@ class ClientSQL(metaclass=ABCMeta):
 
         :param table: table to look for
         :type table: Table
-        :param columns: List of the columns to fetch, empty list means all
+        :param columns: List of the columns to fetch, the values come back in this order. An empty list
+            means all columns (SELECT *): the values then follow the physical order of the table,
+            which depends on its update history, and are not converted to python types
         :type columns: list[Column]
         :param condition: Condition on the query
         :type condition: Condition
