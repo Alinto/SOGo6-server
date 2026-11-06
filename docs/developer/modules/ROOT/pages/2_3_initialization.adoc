@@ -168,12 +168,64 @@ a|
 * `first_init` is set to `False`
 * No errors added
 
-|*Some tables exist, others don't*
+|*Some tables or columns are missing or different*
 a|
-* Inconsistent/unknown state
-* Temporary errors are added to `self.errors`
-* Initialization will fail
+* The database may come from an older version: see <<database-update>>
+* If no update applies, the differences are added to `self.errors` and initialization fails
 |===
+
+[[database-update]]
+===== 3.1.5. Database Update
+
+The stored version (`COL_SETTINGS_VERSION`) is compared with the current one (`+app.__version__+`):
+
+[cols="1,3"]
+|===
+|Case |Action
+
+|*No stored version*
+|Raise `AggravatedException`
+
+|*Current version is older*
+|The differences are errors, rollback is not supported
+
+|*Same version, or no update applies*
+|The differences are errors
+
+|*Updates apply*
+a|
+* Run the `update()` function of `app/update/update_MAJOR_MINOR.py` of each version, in order. A failure raises `AggravatedException` and stops everything
+* Store the version after each script, so a restart continues from the one that failed
+* Check the database again, then store the current version
+|===
+
+When the database is correct, the current version is stored if it is newer than the stored one.
+
+The updates apply according to major and minor only, ignoring patches and pre-releases: `6.1.0rc1` runs `update_6_1`, going from `6.1.0rc1` to `6.1.0` does not run it again.
+
+*Add an update when a change modifies the database:*
+
+. Add `Version("MAJOR.MINOR")` to `LIST_UPDATE_VERSIONS` in `+app/update/__init__.py+`
+. Create `app/update/update_MAJOR_MINOR.py`
+. Do not rely on the position of a column: an added column is at the end of the table for existing clients, and where `Table` declares it for new ones. Always give `columns` to `select_from_table`
+
+An update can be run again after a failure and must keep working, so it uses `add_column` and `modify_column`. New `NOT NULL` columns need a `default` to fill the existing rows.
+
+[source,python]
+----
+from app.config.db import tables as tbl
+from app.config.settings.ProcessSetting import process_config
+from app.module.common_module import get_sogo6_database
+
+
+def update() -> None:
+    sogo_db_manager = get_sogo6_database(process_config)
+    sogo_db_manager.create_table(tbl.TABLE_NEW)
+    sogo_db_manager.create_indexes(tbl.TABLE_NEW)
+    sogo_db_manager.add_column(tbl.TABLE_USER, tbl.COL_USER_NEW, default="")
+    sogo_db_manager.modify_column(tbl.TABLE_USER, tbl.COL_USER_LONGER)
+    sogo_db_manager.close()
+----
 
 ===== 3.1.4. Connection Closure
 

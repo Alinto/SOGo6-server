@@ -75,6 +75,20 @@ data_type_mysql_to_sogo: dict[str, str] = {
 }
 
 
+def column_to_type(column: Column) -> str:
+    """
+    Return the mysql data type of a column
+    """
+    data_type = data_type_sogo_to_mysql[column.data_type]
+    if isinstance(data_type, str):
+        return data_type
+    if callable(data_type):
+        if column.extra_args is None:
+            return data_type()
+        return data_type(**column.extra_args)
+    raise BugException("Invalid data type mapping for mysql")
+
+
 def table_to_query(table: Table) -> str:
     """
     Return the SQL string to create a table in MySQL
@@ -85,19 +99,7 @@ def table_to_query(table: Table) -> str:
 
     sql_all_column: list[str] = []
     for column in table.columns:
-        # Get mysql data type
-        data_type = data_type_sogo_to_mysql[column.data_type]
-        if isinstance(data_type, str):
-            column_type = data_type
-        elif callable(data_type):
-            if column.extra_args is None:
-                column_type = data_type()
-            else:
-                column_type = data_type(**column.extra_args)
-        else:
-            raise BugException("Invalid data type mapping for mysql")
-
-        sql_column = f"`{column.name}` {column_type}"
+        sql_column = f"`{column.name}` {column_to_type(column)}"
 
         if not column.is_nullable:
             sql_column += " NOT NULL"
@@ -116,6 +118,45 @@ def table_to_query(table: Table) -> str:
 
     sql_query = f"CREATE TABLE `{table.name}` ({', '.join(sql_all_column)}) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
     return sql_query
+
+
+def add_column_to_query(table: Table, column: Column, default: Any = None) -> tuple[str, list[Any]]:
+    """
+    Return the SQL string to add a column to a table in MariaDB, and its parameters
+
+    "ADD COLUMN IF NOT EXISTS" is a MariaDB syntax, MySQL does not have it.
+    """
+    params: list[Any] = []
+    sql_column = f"`{column.name}` {column_to_type(column)}"
+
+    if not column.is_nullable:
+        sql_column += " NOT NULL"
+
+    if default is not None:
+        sql_column += " DEFAULT %s"
+        params.append(json.dumps(default) if isinstance(default, (dict, list)) else default)
+
+    if column.is_unique:
+        sql_column += " UNIQUE"
+
+    return f"ALTER TABLE `{table.name}` ADD COLUMN IF NOT EXISTS {sql_column}", params
+
+
+def drop_default_to_query(table: Table, column: Column) -> str:
+    """
+    Return the SQL string to remove the default value of a column in MySQL
+    """
+    return f"ALTER TABLE `{table.name}` ALTER COLUMN `{column.name}` DROP DEFAULT"
+
+
+def modify_column_to_query(table: Table, column: Column) -> str:
+    """
+    Return the SQL string to change the type and the nullability of a column in MySQL
+
+    UNIQUE is left out on purpose: the existing index is kept, repeating it would create a second one.
+    """
+    nullability = "NULL" if column.is_nullable else "NOT NULL"
+    return f"ALTER TABLE `{table.name}` MODIFY COLUMN `{column.name}` {column_to_type(column)} {nullability}"
 
 
 def _col_ref(name: str) -> str:
@@ -288,7 +329,7 @@ class ClientMySQL(ClientSQL):
         """
         Create a table in MySQL. Table should already be sql-exploit free (names validated).
         """
-        if self.db_conn and not self.db_conn.is_connected():
+        if self.db_conn is None or not self.db_conn.is_connected():
             self.connect()
 
         sql_query = table_to_query(table)
@@ -317,7 +358,7 @@ class ClientMySQL(ClientSQL):
         """Create all indexes defined on the table. Existing indexes are silently skipped."""
         if not table.index:
             return
-        if self.db_conn and not self.db_conn.is_connected():
+        if self.db_conn is None or not self.db_conn.is_connected():
             self.connect()
         for idx in table.index:
             cols = ", ".join(f"`{c}`" for c in idx.columns)
@@ -346,12 +387,53 @@ class ClientMySQL(ClientSQL):
         """
         Create several tables and their indexes
         """
-        if self.db_conn and not self.db_conn.is_connected():
+        if self.db_conn is None or not self.db_conn.is_connected():
             self.connect()
 
         for table in table_list:
             self.create_table(table)
             self.create_indexes(table)
+
+    def _alter_table(self, table: Table, sql_query: str, params: list[Any] | None = None) -> None:
+        """
+        Execute a query altering a table
+        """
+        if self.db_conn is None or not self.db_conn.is_connected():
+            self.connect()
+
+        logger_sql.info("QUERY: %s -- params=%s", sql_query, params)
+
+        if self.db_conn is not None:
+            cursor = self.db_conn.cursor()
+            try:
+                cursor.execute(sql_query, tuple(params) if params else None)
+                self.db_conn.commit()
+            except Error as e:
+                logger_sql.error("Error when altering table %s: %s", table.name, e)
+                self.db_conn.rollback()
+                raise RequestException(f"Error when altering table {table.name}") from e
+            finally:
+                cursor.close()
+
+    def add_column(self, table: Table, column: Column, default: Any = None) -> None:
+        """
+        Add a column at the end of an existing table. Does nothing if the column already exists.
+
+        The default value only fills the existing rows, it is removed afterwards so the schema
+        stays the same as a table created from scratch.
+        """
+        sql_query, params = add_column_to_query(table, column, default)
+        self._alter_table(table, sql_query, params)
+        if default is not None:
+            self._alter_table(table, drop_default_to_query(table, column))
+
+    def modify_column(self, table: Table, column: Column) -> None:
+        """
+        Change the type and the nullability of an existing column to match the given Column.
+
+        Column.is_unique is ignored: existing unique constraints are kept and none is added.
+        """
+        self._alter_table(table, modify_column_to_query(table, column))
 
     def insert_in_table(self, table_name: str, column_tuple: tuple[str, ...], values_tuple: list[list[Any]]) -> int:
         """

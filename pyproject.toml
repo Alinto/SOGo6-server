@@ -26,6 +26,7 @@ dependencies = [
     "icalendar",
     "marshmallow",
     "mysql-connector-python",
+    "packaging",
     "passlib",
     "psycopg",
     "pydantic",

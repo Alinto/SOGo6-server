@@ -764,3 +764,40 @@ def test_get_all_domains_settings_pagination(monkeypatch):
     module.get_all_domains_settings(_make_collection_param(page=3, page_size=10))
 
     assert len(fake_db.count_calls) == 1
+
+
+# ---------------------------------------------------------------------------
+# Version
+# ---------------------------------------------------------------------------
+
+def test_set_version(monkeypatch):
+    module, fake_db = _make_module(monkeypatch)
+    module.set_version("6.1.0")
+    assert fake_db.update_calls[0]["column_tuple"] == ("settings_version",)
+    assert fake_db.update_calls[0]["values_list"] == ["6.1.0"]
+
+
+def test_set_version_already_stored(monkeypatch):
+    """MariaDB may count 0 updated row when the value is the same"""
+    module, fake_db = _make_module(monkeypatch)
+    fake_db.update_result = 0
+    fake_db.select_result = [("6.1.0",)]
+    module.set_version("6.1.0")
+
+
+def test_set_version_not_stored(monkeypatch):
+    module, fake_db = _make_module(monkeypatch)
+    fake_db.update_result = 0
+    fake_db.select_result = [("6.0.0",)]
+    with pytest.raises(AggravatedException, match="Could not store the version 6.1.0"):
+        module.set_version("6.1.0")
+
+
+def test_get_domain_settings_selects_the_columns_by_name(monkeypatch):
+    """The values are read by position: SELECT * would depend on the physical order of the table"""
+    from app.config.db import tables as tbl
+    module, fake_db = _make_module(monkeypatch)
+    fake_db.select_result = []
+    module.get_one_domain_setting(DOMAIN_ID)
+    assert fake_db.select_calls[0]["table"] is tbl.TABLE_DOMAIN
+    assert fake_db.select_calls[0]["columns"] == tbl.TABLE_DOMAIN.columns

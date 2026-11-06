@@ -125,6 +125,8 @@ Methods that must be implemented within children:
 * **get_table_info**: Get info about a table (For SOGo 6 to check integrity and current state)
 * **create_table**: Create a table
 * **create_several_table**: Create several tables at once
+* **add_column**: Add a column at the end of an existing table, does nothing if it already exists
+* **modify_column**: Change the type and the nullability of an existing column
 * **select_from_table**: get given columns values from a table  with a given condition
 * **select_from_several_table**: get given columns values from several table with given conditions
 * **count_row_in_table**: get number of rows/documents from a table given a condition
