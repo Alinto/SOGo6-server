@@ -141,6 +141,11 @@ MAIL_LIST_FILTER_TO_SEARCH_PARAM: dict[str, tuple[str, bool]] = {
     "attachments": ("has_attachment",  True),
 }
 
+# Calendar (invitation) MIME parts of a mail. A part without filename is exposed as "<event uid>.ics",
+# or under the fallback name below when its content holds no UID
+MAIL_ICS_CONTENT_TYPES = ("text/calendar", "application/ics")
+MAIL_INVITATION_FALLBACK_FILENAME = "invitation.ics"
+
 # Mail deletion behavior mapping to (move_to_trash, permanently) flags
 DELETE_MAIL_BEHAVIOR_MAP = {
     # behavior                   move_to_trash  permanently

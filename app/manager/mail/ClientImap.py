@@ -18,7 +18,7 @@ from app.utils.logger.logger import logger_imap
 from app.manager.mail.ClientMailServer import ClientMailServer
 from app.utils import errors as err
 from app.utils import constants as cs
-from app.utils.strings import quote, unquote, imap_join_folders, escape_imap_string
+from app.utils.strings import quote, unquote, imap_join_folders, escape_imap_string, get_invitation_filename
 
 # Maximum debug output from imaplib
 if logger_imap.level < WARNING:
@@ -2255,7 +2255,9 @@ class ClientImap(ClientMailServer):
         """Fetch a specific attachment from a mail by filename.
 
         Fetches the full RFC 822 message, walks the MIME tree and returns the first
-        part whose decoded filename matches *filename*.
+        part whose decoded filename matches *filename*. The mail's
+        first calendar part without a filename is matched on the name built by
+        ``get_invitation_filename``, which is how it is listed in the mail's attachments.
 
         :param folder_path: The folder containing the mail.
         :type folder_path: str
@@ -2283,6 +2285,8 @@ class ClientImap(ClientMailServer):
             mail_bytes: bytes = datas[0][1]
             message = message_from_bytes(mail_bytes, policy=policy.default) # type: ignore [arg-type]
 
+            matching_part = None
+            invitation_part = None
             for part in message.walk():
                 if part.get_content_maintype() == "multipart":
                     continue
@@ -2293,13 +2297,23 @@ class ClientImap(ClientMailServer):
                     except (UnicodeDecodeError, AttributeError):
                         pass
                 if part_filename == filename:
-                    payload = part.get_payload(decode=True)
-                    if payload is None:
-                        raise RequestException(
-                            f"Attachment '{filename}' has no payload in mail UID {mail_uid}.",
-                            err.ERROR_MAIL_ATTACHMENT_NOT_FOUND,
-                        )
-                    return payload, part.get_content_type()
+                    matching_part = part
+                    break
+                if invitation_part is None and not part_filename and part.get_content_type() in cs.MAIL_ICS_CONTENT_TYPES:
+                    invitation_part = part
+
+            if matching_part is None and invitation_part is not None \
+                    and filename == get_invitation_filename(invitation_part.get_payload(decode=True) or b""):
+                matching_part = invitation_part
+
+            if matching_part is not None:
+                payload = matching_part.get_payload(decode=True)
+                if payload is None:
+                    raise RequestException(
+                        f"Attachment '{filename}' has no payload in mail UID {mail_uid}.",
+                        err.ERROR_MAIL_ATTACHMENT_NOT_FOUND,
+                    )
+                return payload, matching_part.get_content_type()
 
             raise RequestException(
                 f"Attachment '{filename}' not found in mail UID {mail_uid}.",
@@ -2756,7 +2770,11 @@ class ClientImap(ClientMailServer):
             field_groups.append("UNFLAGGED")
 
         if search_params.get("has_attachment") is True:
-            field_groups.append('HEADER Content-Type "multipart/mixed"')
+            # IMAP can only search the top-level Content-Type: a calendar part nested in a
+            # multipart/alternative can't be matched here.
+            field_groups.append(_group_imap_search_parts_or(
+                [f'HEADER Content-Type "{content_type}"' for content_type in ("multipart/mixed", *cs.MAIL_ICS_CONTENT_TYPES)]
+            ))
 
         if search_params.get("labels"):
             label_parts = [f'KEYWORD "{label}"' for label in search_params["labels"]]

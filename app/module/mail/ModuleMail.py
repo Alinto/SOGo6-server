@@ -28,7 +28,7 @@ from app.utils.exceptions import RequestException, BugException
 from app.utils.maths.crypto_utils import decrypt_password
 from app.utils.module.importManager import import_and_instantiate_manager
 from app.utils.logger.logger import logger_mail_server
-from app.utils.strings import get_imap_config_from_url, get_domain_from_mail, get_domain_from_contact, encode_imap_tag, decode_imap_tag
+from app.utils.strings import get_imap_config_from_url, get_domain_from_mail, get_domain_from_contact, encode_imap_tag, decode_imap_tag, get_invitation_filename
 from app.utils.constants import DELETE_MAIL_BEHAVIOR_MAP
 
 if TYPE_CHECKING:
@@ -631,12 +631,13 @@ class ModuleMail:
 
         # Parse content, attachments, and encryption info
         contents = []
-        attachments = []
+        attachments: list[dict[str, Any]] = []
         is_signed = False
         certificates: list[dict[str, Any]] = []
         mail_type = []
         mail_type_data: list[dict[str, Any]] = []
         has_walked = False
+        calendar_part: Message | None = None
 
         for part in email_msg.walk():
             #The first part will be the full email, skip it
@@ -701,8 +702,9 @@ class ModuleMail:
                 continue
 
             # Check for calendar events (ICS)
-            if content_type in ("text/calendar", "application/ics"):
+            if content_type in cs.MAIL_ICS_CONTENT_TYPES:
                 mail_type.append("event")
+                calendar_part = calendar_part or part
                 try:
                     payload = part.get_payload(decode=True)
                     if payload and isinstance(payload, bytes):
@@ -726,6 +728,17 @@ class ModuleMail:
                     logger_mail_server.warning("Error parsing vCard content for UID %s: %s", uid, e)
                 continue
 
+        # An invitation's calendar part is exposed as a downloadable .ics, unless the mail already attaches one by name
+        if calendar_part is not None and not any(
+                att["contentType"] in cs.MAIL_ICS_CONTENT_TYPES or att["extension"].lower() == "ics" for att in attachments):
+            calendar_payload: bytes = calendar_part.get_payload(decode=True) or b""  # type: ignore [assignment]
+            attachments.append({
+                "filename": get_invitation_filename(calendar_payload),
+                "contentType": calendar_part.get_content_type(),
+                "size": len(calendar_payload),
+                "extension": "ics"
+            })
+
         # Check if mail has extra info
         has_attachment = len(attachments) > 0
         if not has_walked:
@@ -733,6 +746,7 @@ class ModuleMail:
             is_signed = mail_dict["is_signed"] if mail_dict.get("is_signed", None) is not None else is_signed
             if mail_dict.get("has_event", False):
                 mail_type.append("event")
+                has_attachment = True
             if mail_dict.get("has_contact", False):
                 mail_type.append("contact")
 

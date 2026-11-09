@@ -1,6 +1,6 @@
 import pytest
 
-from app.utils.strings import get_domain_from_mail, strip_accents, parse_url_str, quote, unquote
+from app.utils.strings import get_domain_from_mail, strip_accents, parse_url_str, quote, unquote, get_invitation_filename
 
 def test_get_domain_from_mail():
     with pytest.raises(TypeError):
@@ -51,3 +51,27 @@ def test_unquote():
     assert unquote('"') == '"'
     for value in ("My Folder", 'With "quotes"', "Back\\slash"):
         assert unquote(quote(value)) == value
+
+
+class TestGetInvitationFilename:
+    def test_uses_event_uid(self):
+        assert get_invitation_filename(b"BEGIN:VEVENT\r\nUID:e34b3139-0bc6\r\nEND:VEVENT\r\n") == "e34b3139-0bc6.ics"
+
+    def test_keeps_email_like_uid(self):
+        assert get_invitation_filename(b"UID:abc123@google.com\n") == "abc123@google.com.ics"
+
+    def test_unfolds_long_uid(self):
+        assert get_invitation_filename(b"UID:e34b\r\n 3139\r\nEND:VEVENT\r\n") == "e34b3139.ics"
+
+    def test_ignores_other_properties_ending_in_uid(self):
+        assert get_invitation_filename(b"X-UID:wrong\r\nUID:right\r\n") == "right.ics"
+
+    def test_sanitizes_path_characters(self):
+        filename = get_invitation_filename(b'UID:../../etc/pa"ss\r\n')
+        assert "/" not in filename and '"' not in filename
+
+    def test_caps_length(self):
+        assert len(get_invitation_filename(b"UID:" + b"a" * 5000 + b"\r\n")) == 204
+
+    def test_falls_back_without_uid(self):
+        assert get_invitation_filename(b"BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n") == "invitation.ics"

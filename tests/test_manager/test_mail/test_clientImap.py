@@ -1213,7 +1213,11 @@ class TestFetchAllMails:
 
         list(client.fetch_all_mails_with_content("INBOX", number_of_mails=10, offset=0,
                                                  search_params={"is_read": False, "has_attachment": True}))
-        assert captured_criteria == ['(NOT DELETED UNSEEN HEADER Content-Type "multipart/mixed")']
+        assert len(captured_criteria) == 1
+        criteria = captured_criteria[0]
+        assert criteria.startswith('(NOT DELETED UNSEEN ')
+        for content_type in ("multipart/mixed", "text/calendar", "application/ics"):
+            assert f'HEADER Content-Type "{content_type}"' in criteria
 
     def test_pagination_does_not_short_change_page_when_filtering(self):
         """A page must contain up to number_of_mails matching mails: the filter is
@@ -2130,6 +2134,31 @@ class TestFetchAttachment:
         client.connection = None
         with pytest.raises(BugException):
             client.fetch_attachment("INBOX", "100", "file.txt")
+
+    @staticmethod
+    def _client_returning(raw_mail: bytes) -> ClientImap:
+        client = authenticated_client(mock.MagicMock())
+        client.select_mailbox = mock.MagicMock()
+        client._exec_imap4_method = mock.MagicMock(return_value=(True, [(b"1 (RFC822 {1}", raw_mail)]))
+        return client
+
+    def test_fetch_attachment_invitation_without_filename(self):
+        raw_mail = (b"Subject: Invitation\r\nContent-Type: text/calendar; method=REQUEST\r\n\r\n"
+                    b"BEGIN:VCALENDAR\r\nUID:e34b3139-0bc6\r\nEND:VCALENDAR\r\n")
+        payload, content_type = self._client_returning(raw_mail).fetch_attachment("INBOX", "148", "e34b3139-0bc6.ics")
+        assert payload.startswith(b"BEGIN:VCALENDAR")
+        assert content_type == "text/calendar"
+
+    def test_fetch_attachment_invitation_name_on_mail_without_calendar_raises(self):
+        raw_mail = b"Subject: Hello\r\nContent-Type: text/plain\r\n\r\nHello\r\n"
+        with pytest.raises(RequestException):
+            self._client_returning(raw_mail).fetch_attachment("INBOX", "148", "e34b3139-0bc6.ics")
+
+    def test_fetch_attachment_other_uid_on_invitation_raises(self):
+        raw_mail = (b"Subject: Invitation\r\nContent-Type: text/calendar; method=REQUEST\r\n\r\n"
+                    b"BEGIN:VCALENDAR\r\nUID:e34b3139-0bc6\r\nEND:VCALENDAR\r\n")
+        with pytest.raises(RequestException):
+            self._client_returning(raw_mail).fetch_attachment("INBOX", "148", "other-uid.ics")
 
 
 # ===========================================================================

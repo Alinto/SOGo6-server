@@ -113,7 +113,7 @@ class ApiMailFolderIdMail(MethodView):
         * **unread**: only mails not seen yet
         * **flagged**: only mails flagged as important
         * **unflagged**: only mails not flagged as important
-        * **attachments**: only mails with attachment(s)
+        * **attachments**: only mails with attachment(s), including calendar invitations
 
         e.g. `?filter=unread,attachments`. Contradictory filters (e.g. `read,unread`) are rejected (400).
         Like `deleted`, filters are applied as IMAP search criteria before pagination: a page of 20

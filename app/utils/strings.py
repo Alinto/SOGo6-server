@@ -271,3 +271,21 @@ def escape_imap_string(value: str) -> str:
     """Escape special characters for IMAP protocol."""
     # RFC 9051: Escape backslashes and double quotes
     return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def get_invitation_filename(ics_payload: bytes) -> str:
+    """Build the attachment name of a calendar part without filename: "<event uid>.ics".
+
+    The UID is chosen by the mail's sender: characters unsafe in a filename or a URL path are
+    replaced by "_", and its length is capped.
+
+    :param ics_payload: The decoded content of the calendar part
+    :type ics_payload: bytes
+    :return: The filename, or MAIL_INVITATION_FALLBACK_FILENAME if the content holds no UID
+    :rtype: str
+    """
+    unfolded = re.sub(r"\r?\n[ \t]", "", ics_payload.decode("utf-8", errors="replace"))
+    match = re.search(r"^UID(?:;[^:\r\n]*)?:[ \t]*(.+?)[ \t]*\r?$", unfolded, re.MULTILINE | re.IGNORECASE)
+    if match is None:
+        return cs.MAIL_INVITATION_FALLBACK_FILENAME
+    return f"{re.sub(r'[^\w.@-]', '_', match.group(1))[:200]}.ics"

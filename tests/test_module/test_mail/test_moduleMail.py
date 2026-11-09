@@ -3,6 +3,8 @@ Tests unitaires pour ModuleMail (Module layer).
 Ces tests utilisent un fake ClientMailServer pour tester la logique mtier du module.
 """
 import pytest
+from email import message_from_bytes
+from email.policy import default as default_policy
 from io import BytesIO
 from unittest.mock import MagicMock
 from app.module.mail.ModuleMail import ModuleMail
@@ -2204,3 +2206,54 @@ def test_empty_folder_missing_type_in_response(monkeypatch):
     # Should raise because type defaults to empty string which is not TRASH or JUNK
     with pytest.raises(RequestException, match="cannot be emptied"):
         module.empty_folder(ACCOUNT_ID, "SomeFolder")
+
+
+# ===========================================================================
+# Tests: calendar invitations exposed as attachments
+# ===========================================================================
+
+ICS_BODY = b"BEGIN:VCALENDAR\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\nUID:e34b3139-0bc6\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+TOP_LEVEL_INVITATION_HEADERS = b"Subject: Invitation\r\nContent-Type: text/calendar; method=REQUEST\r\n\r\n"
+
+
+def _parse_raw_mail(monkeypatch, raw_mail: bytes, **extra_info) -> dict:
+    module, _ = _make_module(monkeypatch)
+    return module._parse_mail({"uid": 148, "mail": message_from_bytes(raw_mail, policy=default_policy),
+                               "flags": {}, "size": len(raw_mail), **extra_info})
+
+
+def test_parse_mail_exposes_invitation_as_ics_attachment(monkeypatch):
+    parsed = _parse_raw_mail(monkeypatch, TOP_LEVEL_INVITATION_HEADERS + ICS_BODY)
+    assert parsed["has_attachment"] is True
+    assert parsed["attachments"] == [{"filename": "e34b3139-0bc6.ics", "contentType": "text/calendar",
+                                      "size": len(ICS_BODY), "extension": "ics"}]
+    assert parsed["mail_type"] == ["event"]
+
+
+def test_parse_mail_does_not_duplicate_named_ics_attachment(monkeypatch):
+    raw_mail = (b'Subject: Invitation\r\nContent-Type: multipart/mixed; boundary="b"\r\n\r\n'
+                b'--b\r\nContent-Type: text/calendar; method=REQUEST\r\n\r\n' + ICS_BODY +
+                b'--b\r\nContent-Type: application/ics; name="invite.ics"\r\n'
+                b'Content-Disposition: attachment; filename="invite.ics"\r\n\r\n' + ICS_BODY +
+                b'--b--\r\n')
+    parsed = _parse_raw_mail(monkeypatch, raw_mail)
+    assert [att["filename"] for att in parsed["attachments"]] == ["invite.ics"]
+    assert parsed["has_attachment"] is True
+
+
+def test_parse_mail_without_content_top_level_invitation_has_attachment(monkeypatch):
+    parsed = _parse_raw_mail(monkeypatch, TOP_LEVEL_INVITATION_HEADERS, has_attachment=False, has_event=True)
+    assert parsed["has_attachment"] is True
+
+
+def test_parse_mail_without_content_nested_invitation_has_attachment(monkeypatch):
+    headers = b'Subject: Invitation\r\nContent-Type: multipart/alternative; boundary="b"\r\n\r\n'
+    parsed = _parse_raw_mail(monkeypatch, headers, has_attachment=False, has_event=True)
+    assert parsed["has_attachment"] is True
+    assert parsed["mail_type"] == ["event"]
+
+
+def test_parse_mail_plain_mail_has_no_attachment(monkeypatch):
+    parsed = _parse_raw_mail(monkeypatch, b"Subject: Hello\r\nContent-Type: text/plain\r\n\r\nHello\r\n")
+    assert parsed["has_attachment"] is False
+    assert parsed["attachments"] == []
