@@ -79,6 +79,8 @@ class User:
         user.source_id = user_session[cs.USER_SRC_ID]
         user.unit = user_session[cs.USER_UNIT]
         user.auth_kind = user_session.get(cs.USER_AUTH_KIND, cs.AUTH_KIND_PLAIN)
+        user.refresh_token = user_session.get(cs.USER_REFRESH_TOKEN, "")
+        user.token_expires_at = user_session.get(cs.USER_TOKEN_EXPIRES_AT, 0)
         return user
 
     def __init__(self, uid:str, password:str= "", cn:str= "", domain:str= "", is_domainless:bool = False):
@@ -105,6 +107,13 @@ class User:
         self.user_class = cs.USER_CLASS_USER
         self.unit = "" # Depends on US_UNIT_FIELD, user will see others users with the same unit
         self.auth_kind = cs.AUTH_KIND_PLAIN #SOGO_D_AUTH_TYPE used to log in. For SSO, password is the access token of the identity provider
+        self.refresh_token = "" #SSO only: refresh token of the identity provider, empty if it gave none
+        self.token_expires_at = 0 #SSO only: unix timestamp when the access token (password) expires, 0 if unknown
+
+        #Reference of the user session in redis, set when the user is read from a voucher (see VoucherUserService).
+        #Needed to save the session again when the access token is refreshed. Never stored in the session itself.
+        self.session_id = ""
+        self.session_key = ""
 
         uid_domain = get_domain_from_mail(uid)
 
@@ -154,7 +163,9 @@ class User:
             cs.USER_EMAIL:  self.mail,
             cs.USER_SRC_ID: self.source_id,
             cs.USER_UNIT: self.unit,
-            cs.USER_AUTH_KIND: self.auth_kind
+            cs.USER_AUTH_KIND: self.auth_kind,
+            cs.USER_REFRESH_TOKEN: self.refresh_token,
+            cs.USER_TOKEN_EXPIRES_AT: self.token_expires_at
         }
 
         return ret

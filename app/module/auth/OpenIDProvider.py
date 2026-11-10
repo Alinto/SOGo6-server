@@ -7,11 +7,12 @@ from authlib.common.errors import AuthlibBaseError
 from authlib.integrations.base_client import MismatchingStateError, OAuthError
 from authlib.integrations.flask_client import FlaskIntegration
 from authlib.integrations.flask_client.apps import FlaskOAuth2App
+from authlib.integrations.requests_client import OAuth2Session
 from flask import session as flask_session
 from joserfc.errors import JoseError
 from redis import exceptions as rexc
 
-from app.module.auth.IdentityProvider import IdentityProvider, IdentityProviderUserInfo
+from app.module.auth.IdentityProvider import IdentityProvider, IdentityProviderTokens, IdentityProviderUserInfo
 from app.service import sogo_cache
 from app.utils import constants as cs
 from app.utils import errors as err
@@ -82,6 +83,10 @@ class OpenIDProvider(IdentityProvider):
     (see _RedisStateIntegration), under a key bound to the callback url: the callback must be made
     for the same kind and domain, within cs.SSO_STATE_TTL, and only once.
     The UI url is stored with them (cs.SSO_STATE_UI_REDIRECT), authlib ignores the extra keys of the state data.
+
+    Every exchange with the openid server is done by authlib: the flask client (FlaskOAuth2App) for the login flow
+    and the userinfo endpoint, an authlib requests session (OAuth2Session) for the refresh and the introspection,
+    that the flask client does not expose. Both use the same client settings (see _get_client_settings).
     TODO pkce: add code_challenge_method="S256" in client_kwargs, authlib does the rest.
     """
 
@@ -101,6 +106,19 @@ class OpenIDProvider(IdentityProvider):
         self._framework.expires_in = cs.SSO_STATE_TTL
         self._client = self._create_client()
 
+    def _get_client_settings(self) -> dict:
+        """
+        Settings of the openid client, shared by the flask client and the requests sessions of authlib.
+        The client authenticates on the token and introspection endpoints with client_secret_basic (authlib default).
+
+        :return: Keyword arguments for the authlib client
+        :rtype: dict
+        """
+        return {"client_id": self.auth_settings.SOGO_D_OPENID_CLIENT_NAME,
+                "client_secret": self.auth_settings.SOGO_D_OPENID_CLIENT_SECRET,
+                "scope": self.auth_settings.SOGO_D_OPENID_SCOPE,
+                "default_timeout": OPENID_TIMEOUT}
+
     def _create_client(self) -> FlaskOAuth2App:
         """
         Create the authlib client for this domain.
@@ -111,15 +129,26 @@ class OpenIDProvider(IdentityProvider):
         :return: The authlib flask client
         :rtype: FlaskOAuth2App
         """
+        settings = self._get_client_settings()
         #The name is in the redis key of the state, it binds the state to this callback (kind and domain)
         name = self._framework.name
         return FlaskOAuth2App(self._framework,
                               name=name,
-                              client_id=self.auth_settings.SOGO_D_OPENID_CLIENT_NAME,
-                              client_secret=self.auth_settings.SOGO_D_OPENID_CLIENT_SECRET,
+                              client_id=settings.pop("client_id"),
+                              client_secret=settings.pop("client_secret"),
                               server_metadata_url=self.auth_settings.SOGO_D_OPENID_CONFIG_URL,
-                              client_kwargs={"scope": self.auth_settings.SOGO_D_OPENID_SCOPE,
-                                             "default_timeout": OPENID_TIMEOUT})
+                              client_kwargs=settings)
+
+    def _create_session(self, metadata: dict) -> OAuth2Session:
+        """
+        Create an authlib requests session for the token endpoint of the openid server, outside of the login flow.
+
+        :param metadata: Metadata of the openid server
+        :type metadata: dict
+        :return: The authlib session, to use as a context manager
+        :rtype: OAuth2Session
+        """
+        return OAuth2Session(token_endpoint=metadata.get("token_endpoint"), **self._get_client_settings())
 
     def get_login_location(self, ui_redirect: str) -> str:
         """
@@ -194,13 +223,17 @@ class OpenIDProvider(IdentityProvider):
         if not mail or not isinstance(mail, str):
             logger_auth.warning("Openid user info has no field %s (see SOGO_D_OPENID_EMAIL)", mail_field)
             raise RequestException(error=err.ERROR_SSO_LOGIN_FAILED)
-        return IdentityProviderUserInfo(mail=mail, claims=user_info, access_token=token.get("access_token", ""))
+        #token is an authlib OAuth2Token: expires_at is computed from expires_in
+        return IdentityProviderUserInfo(mail=mail, claims=user_info,
+                                        access_token=token.get("access_token", ""),
+                                        refresh_token=token.get("refresh_token") or "",
+                                        expires_at=int(token.get("expires_at") or 0))
 
     def check_access_token(self, access_token: str) -> bool:
         """
         Check that the access token is still valid on the openid server.
-        The introspection endpoint (RFC 7662) is used if the server has one, else the userinfo endpoint:
-        the token is valid if the server accepts it.
+        The introspection endpoint (RFC 7662, authlib OAuth2Session.introspect_token) is used if the server has one,
+        else the userinfo endpoint (authlib flask client): the token is valid if the server accepts it.
         Once valid, the token is not checked again for SOGO_D_OPENID_TOKEN_CHECK_INTERVAL seconds (0: always checked),
         the last valid check is kept in redis. If redis is unreachable, the token is checked every time.
 
@@ -222,19 +255,12 @@ class OpenIDProvider(IdentityProvider):
             metadata = self._client.load_server_metadata()
             introspection_url = metadata.get("introspection_endpoint")
             if introspection_url:
-                resp = requests.post(introspection_url,
-                                     data={"token": access_token, "token_type_hint": "access_token"},
-                                     auth=(self.auth_settings.SOGO_D_OPENID_CLIENT_NAME, self.auth_settings.SOGO_D_OPENID_CLIENT_SECRET),
-                                     timeout=OPENID_TIMEOUT)
+                with self._create_session(metadata) as session:
+                    resp = session.introspect_token(introspection_url, token=access_token, token_type_hint="access_token")
                 resp.raise_for_status()
                 is_valid = resp.json().get("active") is True
             else:
-                resp = requests.get(metadata["userinfo_endpoint"],
-                                    headers={"Authorization": f"Bearer {access_token}"},
-                                    timeout=OPENID_TIMEOUT)
-                is_valid = resp.status_code not in (401, 403)
-                if is_valid:
-                    resp.raise_for_status()
+                is_valid = self._check_access_token_with_userinfo(access_token)
         except (requests.RequestException, ValueError, KeyError, RuntimeError) as e:
             logger_auth.error("Cannot check the access token on openid server: %s", str(e))
             raise RequestException(error=err.ERROR_SSO_PROVIDER_UNREACHABLE) from e
@@ -244,6 +270,60 @@ class OpenIDProvider(IdentityProvider):
         elif interval:
             self._set_token_check(key, interval)
         return is_valid
+
+    def _check_access_token_with_userinfo(self, access_token: str) -> bool:
+        """
+        Check the access token by calling the userinfo endpoint with it (authlib flask client)
+
+        :param access_token: Access token of the user
+        :type access_token: str
+        :raises requests.RequestException: If the openid server is unreachable or answers with an error other than 401/403
+        :return: False if the openid server refuses the token (401/403)
+        :rtype: bool
+        """
+        try:
+            self._client.userinfo(token={"access_token": access_token, "token_type": "Bearer"})
+        except requests.HTTPError as e:
+            if e.response is not None and e.response.status_code in (401, 403):
+                return False
+            raise
+        return True
+
+    def refresh_access_token(self, refresh_token: str) -> IdentityProviderTokens|None:
+        """
+        Get a new access token with the refresh token: authlib OAuth2Session.refresh_token (grant_type=refresh_token
+        on the token endpoint, client_secret_basic, the scope is sent again). A refusal is raised by authlib as OAuthError.
+        If the server rotates the refresh token, the new one is returned and the old one must not be used anymore.
+        Else the refresh token given is returned as is.
+
+        :param refresh_token: Refresh token of the user
+        :type refresh_token: str
+        :raises RequestException: If the openid server is unreachable or its answer is invalid
+        :return: The new tokens, None if the server refused the refresh token (invalid_grant: session ended, user disabled...)
+        :rtype: IdentityProviderTokens|None
+        """
+        if not refresh_token:
+            return None
+        try:
+            metadata = self._client.load_server_metadata()
+            with self._create_session(metadata) as session:
+                token = session.refresh_token(metadata["token_endpoint"], refresh_token=refresh_token)
+            access_token = token.get("access_token")
+            if not access_token or not isinstance(access_token, str):
+                raise ValueError("No access_token in the refresh response")
+        except OAuthError as e:
+            #RFC 6749 5.2: invalid_grant (refresh token expired or revoked), invalid_client...
+            logger_auth.info("Openid server refused the refresh token: %s - %s", e.error, e.description)
+            return None
+        except (requests.RequestException, ValueError, KeyError, RuntimeError) as e:
+            logger_auth.error("Cannot refresh the access token on openid server: %s", str(e))
+            raise RequestException(error=err.ERROR_SSO_PROVIDER_UNREACHABLE) from e
+
+        #token is an authlib OAuth2Token: refresh_token is the one given if the server did not rotate it,
+        #expires_at is computed from expires_in
+        return IdentityProviderTokens(access_token=access_token,
+                                      refresh_token=token.get("refresh_token") or refresh_token,
+                                      expires_at=int(token.get("expires_at") or 0))
 
     @staticmethod
     def _get_token_check(key: str) -> bool:

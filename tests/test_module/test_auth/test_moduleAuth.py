@@ -6,7 +6,8 @@ import pytest
 from unittest import mock
 
 from app.module.auth.ModuleAuth import ModuleAuth, IDENTITY_PROVIDERS, build_ui_redirect_url
-from app.module.auth.IdentityProvider import IdentityProviderUserInfo
+from app.module.auth import ModuleAuth as ma
+from app.module.auth.IdentityProvider import IdentityProviderTokens, IdentityProviderUserInfo
 from app.utils.exceptions import RequestException
 from app.utils import constants as cs
 from app.utils import errors as err
@@ -66,9 +67,10 @@ class FakeSystemSettings:
 class FakeAuthSettings:
     """Fake AuthSettingsObj for testing."""
 
-    def __init__(self, auth_type="plain", pwd_recovery=False):
+    def __init__(self, auth_type="plain", pwd_recovery=False, refresh_enable=True):
         self.SOGO_D_AUTH_TYPE = auth_type
         self.SOGO_D_PWD_RECOVERY = pwd_recovery
+        self.SOGO_D_OPENID_REFRESH_ENABLE = refresh_enable
         self.SOGO_D_OPENID_ALLOW_REDIRECT = ["http://localhost:3001", "https://mail.example.com/"]
 
 
@@ -669,7 +671,8 @@ class FakeIdentityProvider:
         self.ui_redirect = FakeIdentityProvider.state_ui_redirect
         if FakeIdentityProvider.error:
             raise RequestException(error=FakeIdentityProvider.error)
-        return IdentityProviderUserInfo(mail="user@example.com", claims={"name": "John Doe"}, access_token="token")
+        return IdentityProviderUserInfo(mail="user@example.com", claims={"name": "John Doe"}, access_token="token",
+                                        refresh_token="refresh", expires_at=1234)
 
 
 def fake_check_user_without_password(found=True, mail_domain="example.com"):
@@ -766,6 +769,8 @@ def test_get_user_from_sso_callback(monkeypatch):
     assert user.cn == "John Doe"
     assert user.source_id == "us_db"
     assert user.password == "token"
+    assert user.refresh_token == "refresh"
+    assert user.token_expires_at == 1234
     assert user.auth_kind == "openid"
     assert user.authenticated
     assert sources == module.default_us
@@ -843,10 +848,14 @@ def test_get_login_mech_openid_redirect_from_domain_settings(monkeypatch):
 
 # ========== Tests for check_sso_access_token ==========
 
-def get_sso_user(auth_kind="openid"):
+def get_sso_user(auth_kind="openid", refresh_token="", token_expires_at=0, session_id="sid"):
     """Return a user logged in with a SSO, the access token is its password"""
     user = FakeUser(uid="user@example.com", password="token")
     user.auth_kind = auth_kind
+    user.refresh_token = refresh_token
+    user.token_expires_at = token_expires_at
+    user.session_id = session_id
+    user.session_key = "skey" if session_id else ""
     return user
 
 
@@ -878,6 +887,213 @@ def test_check_sso_access_token_provider_unreachable(monkeypatch):
     monkeypatch.setattr(FakeIdentityProvider, "check_access_token", check_access_token, raising=False)
 
     assert not module.check_sso_access_token(get_sso_user(), FakeAuthSettings(auth_type="openid"))
+
+
+# ========== Tests for the refresh of the SSO access token ==========
+
+LOCK_KEY = f"{cs.SSO_REFRESH_LOCK_KEY_PREFIX}sid"
+
+
+class FakeRefreshCache:
+    """Fake ClientRedis for the refresh lock"""
+    def __init__(self):
+        self.data: dict = {}
+        self.locks_taken: list = []
+
+    def set(self, key, value, ttl, nx=False):
+        if nx and key in self.data:
+            return False
+        self.data[key] = value
+        self.locks_taken.append(key)
+        return True
+
+    def get(self, key, expected_type):
+        return self.data.get(key)
+
+    def delete(self, *keys):
+        for key in keys:
+            self.data.pop(key, None)
+
+    def close(self):
+        pass
+
+
+class FakeSessionVoucherService:
+    """Fake VoucherUserService keeping one user session"""
+    session: dict|None = None
+    saved: list = []
+
+    def __init__(self, process_settings):
+        pass
+
+    def read_user_session(self, session_id, session_key):
+        return None if FakeSessionVoucherService.session is None else dict(FakeSessionVoucherService.session)
+
+    def save_user_session(self, user):
+        if FakeSessionVoucherService.session is None:
+            return False
+        FakeSessionVoucherService.session = {cs.USER_PWD: user.password, cs.USER_REFRESH_TOKEN: user.refresh_token,
+                                             cs.USER_TOKEN_EXPIRES_AT: user.token_expires_at}
+        FakeSessionVoucherService.saved.append(user.password)
+        return True
+
+
+@pytest.fixture
+def refresh_env(monkeypatch):
+    """ModuleAuth with a fake identity provider, redis and user session. Return what the identity provider got."""
+    module = get_sso_module(monkeypatch)
+    cache = FakeRefreshCache()
+    monkeypatch.setattr(ma, "sogo_cache", lambda: cache)
+    FakeSessionVoucherService.session = {cs.USER_PWD: "token", cs.USER_REFRESH_TOKEN: "refresh", cs.USER_TOKEN_EXPIRES_AT: 0}
+    FakeSessionVoucherService.saved = []
+    monkeypatch.setattr(ma, "VoucherUserService", FakeSessionVoucherService)
+    env = {"module": module, "cache": cache, "checked": [], "refreshed": [], "check_result": True,
+           "refresh_result": IdentityProviderTokens("new-token", "new-refresh", 9999999999)}
+
+    def check_access_token(self, access_token):
+        env["checked"].append(access_token)
+        if isinstance(env["check_result"], Exception):
+            raise env["check_result"]
+        return env["check_result"]
+
+    def refresh_access_token(self, refresh_token):
+        env["refreshed"].append(refresh_token)
+        if isinstance(env["refresh_result"], Exception):
+            raise env["refresh_result"]
+        return env["refresh_result"]
+
+    monkeypatch.setattr(FakeIdentityProvider, "check_access_token", check_access_token, raising=False)
+    monkeypatch.setattr(FakeIdentityProvider, "refresh_access_token", refresh_access_token, raising=False)
+    return env
+
+
+def check(env, user, refresh_enable=True):
+    return env["module"].check_sso_access_token(user, FakeAuthSettings(auth_type="openid", refresh_enable=refresh_enable))
+
+
+def expires_in(seconds):
+    return int(ma.time.time()) + seconds
+
+
+def test_refresh_not_needed(refresh_env):
+    """The token does not expire soon: only checked"""
+    user = get_sso_user(refresh_token="refresh", token_expires_at=expires_in(3600))
+    assert check(refresh_env, user)
+    assert refresh_env["checked"] == ["token"]
+    assert refresh_env["refreshed"] == []
+
+
+def test_refresh_proactive(refresh_env):
+    """The token expires in less than SSO_REFRESH_MARGIN: refreshed without being checked, saved in the session, lock released"""
+    user = get_sso_user(refresh_token="refresh", token_expires_at=expires_in(cs.SSO_REFRESH_MARGIN - 1))
+    assert check(refresh_env, user)
+    assert refresh_env["checked"] == []
+    assert refresh_env["refreshed"] == ["refresh"]
+    assert (user.password, user.refresh_token, user.token_expires_at) == ("new-token", "new-refresh", 9999999999)
+    assert FakeSessionVoucherService.saved == ["new-token"]
+    assert refresh_env["cache"].locks_taken == [LOCK_KEY]
+    assert refresh_env["cache"].data == {}
+
+
+@pytest.mark.parametrize("refresh_enable, refresh_token", [(False, "refresh"), (True, "")])
+def test_refresh_not_possible(refresh_env, refresh_enable, refresh_token):
+    """SOGO_D_OPENID_REFRESH_ENABLE=False or no refresh token: the expiring token is only checked"""
+    user = get_sso_user(refresh_token=refresh_token, token_expires_at=expires_in(10))
+    refresh_env["check_result"] = False
+    assert not check(refresh_env, user, refresh_enable)
+    assert refresh_env["checked"] == ["token"]
+    assert refresh_env["refreshed"] == []
+
+
+def test_refresh_when_not_valid(refresh_env):
+    """Expiration unknown: refreshed once the identity provider says the token is not valid"""
+    user = get_sso_user(refresh_token="refresh", token_expires_at=0)
+    refresh_env["check_result"] = False
+    assert check(refresh_env, user)
+    assert refresh_env["checked"] == ["token"]
+    assert user.password == "new-token"
+
+
+def test_refresh_refused(refresh_env):
+    """The session ended on the identity provider: the user must log in again"""
+    user = get_sso_user(refresh_token="refresh", token_expires_at=expires_in(10))
+    refresh_env["refresh_result"] = None
+    assert not check(refresh_env, user)
+    assert user.password == "token"
+    assert FakeSessionVoucherService.saved == []
+    assert refresh_env["cache"].data == {}
+
+
+@pytest.mark.parametrize("seconds, expected", [(10, True), (-1, False)])
+def test_refresh_provider_unreachable(refresh_env, seconds, expected):
+    """The identity provider is unreachable: the current token is used until it really expires"""
+    user = get_sso_user(refresh_token="refresh", token_expires_at=expires_in(seconds))
+    refresh_env["refresh_result"] = RequestException(error=err.ERROR_SSO_PROVIDER_UNREACHABLE)
+    assert check(refresh_env, user) is expected
+    assert user.password == "token"
+
+
+def test_refresh_unreachable_after_not_valid(refresh_env):
+    """The token was said not valid: not trusted if it cannot be refreshed, even before its expiration"""
+    user = get_sso_user(refresh_token="refresh", token_expires_at=expires_in(3600))
+    refresh_env["check_result"] = False
+    refresh_env["refresh_result"] = RequestException(error=err.ERROR_SSO_PROVIDER_UNREACHABLE)
+    assert not check(refresh_env, user)
+
+
+def test_refresh_concurrent_request_waits(refresh_env, monkeypatch):
+    """Another request of the session is refreshing: wait for it and use its tokens, no second refresh"""
+    cache = refresh_env["cache"]
+    cache.data[LOCK_KEY] = "other-request"
+    def other_request_done(seconds):
+        FakeSessionVoucherService.session = {cs.USER_PWD: "other-token", cs.USER_REFRESH_TOKEN: "other-refresh",
+                                             cs.USER_TOKEN_EXPIRES_AT: 42}
+        cache.data.pop(LOCK_KEY)
+    monkeypatch.setattr(ma.time, "sleep", other_request_done)
+    user = get_sso_user(refresh_token="refresh", token_expires_at=expires_in(10))
+
+    assert check(refresh_env, user)
+    assert refresh_env["refreshed"] == []
+    assert (user.password, user.refresh_token, user.token_expires_at) == ("other-token", "other-refresh", 42)
+
+
+def test_refresh_concurrent_request_failed(refresh_env, monkeypatch):
+    """The other request could not refresh: the current token is used while it is not expired"""
+    cache = refresh_env["cache"]
+    cache.data[LOCK_KEY] = "other-request"
+    monkeypatch.setattr(ma.time, "sleep", lambda seconds: cache.data.pop(LOCK_KEY))
+    user = get_sso_user(refresh_token="refresh", token_expires_at=expires_in(10))
+
+    assert check(refresh_env, user)
+    assert refresh_env["refreshed"] == []
+    assert user.password == "token"
+
+
+def test_refresh_already_done(refresh_env):
+    """Refreshed by another request between the read of the session and the lock: its tokens are used"""
+    FakeSessionVoucherService.session = {cs.USER_PWD: "other-token", cs.USER_REFRESH_TOKEN: "other-refresh", cs.USER_TOKEN_EXPIRES_AT: 42}
+    user = get_sso_user(refresh_token="refresh", token_expires_at=expires_in(10))
+    assert check(refresh_env, user)
+    assert refresh_env["refreshed"] == []
+    assert user.password == "other-token"
+    assert refresh_env["cache"].data == {}
+
+
+def test_refresh_session_revoked(refresh_env):
+    """The user session does not exist anymore (logout, revoked by an admin): not refreshed"""
+    FakeSessionVoucherService.session = None
+    user = get_sso_user(refresh_token="refresh", token_expires_at=expires_in(10))
+    assert not check(refresh_env, user)
+    assert refresh_env["refreshed"] == []
+
+
+def test_refresh_without_session(refresh_env):
+    """User not read from a voucher: refreshed for this request only, no lock, nothing saved"""
+    user = get_sso_user(refresh_token="refresh", token_expires_at=expires_in(10), session_id="")
+    assert check(refresh_env, user)
+    assert user.password == "new-token"
+    assert refresh_env["cache"].locks_taken == []
+    assert FakeSessionVoucherService.saved == []
 
 
 # ========== Tests for build_ui_redirect_url ==========

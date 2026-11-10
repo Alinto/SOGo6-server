@@ -15,6 +15,18 @@ class IdentityProviderUserInfo:
     mail: str #Mail of the user, used to match the user in the user sources
     claims: dict = field(default_factory=dict) #Raw data given by the identity provider (openid user info, saml attributes...)
     access_token: str = "" #Token given by the identity provider, used to authenticate on the mail servers (xoauth2)
+    refresh_token: str = "" #Token to get a new access token without the user (see refresh_access_token), empty if none given
+    expires_at: int = 0 #Unix timestamp when the access token expires, 0 if unknown
+
+
+@dataclass
+class IdentityProviderTokens:
+    """
+    Tokens given by an identity provider when the access token is refreshed
+    """
+    access_token: str
+    refresh_token: str #The new refresh token if the identity provider rotates it, else the one used to refresh
+    expires_at: int = 0 #Unix timestamp when the access token expires, 0 if unknown
 
 
 class IdentityProvider(ABC):
@@ -26,6 +38,7 @@ class IdentityProvider(ABC):
     2. The identity provider calls back the API (see /auth/callback/<kind>/<domain>)
     3. authenticate_from_callback: check the callback data and return the user identity
     4. check_access_token: on every request of the user, check the token given at the login is still valid
+    5. refresh_access_token: get a new access token with the refresh token, before (or when) the access token expires
 
     The provider generates the anti CSRF state in get_login_location and checks it in authenticate_from_callback.
     The UI url given in get_login_location is kept with the state, ui_redirect gives it back once the state is read
@@ -82,4 +95,16 @@ class IdentityProvider(ABC):
         :type access_token: str
         :return: True if the token is still valid
         :rtype: bool
+        """
+
+    @abstractmethod
+    def refresh_access_token(self, refresh_token: str) -> IdentityProviderTokens|None:
+        """
+        Get a new access token from the identity provider with the refresh token, without the user.
+
+        :param refresh_token: Refresh token of the user
+        :type refresh_token: str
+        :raises RequestException: If the identity provider is unreachable: the refresh token may still be valid
+        :return: The new tokens, None if the identity provider refused the refresh token (session ended on its side)
+        :rtype: IdentityProviderTokens|None
         """

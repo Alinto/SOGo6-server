@@ -1,7 +1,10 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Callable, Type
 from urllib.parse import urlencode, urlsplit, urlunsplit
+from uuid import uuid4
+import time
 
+from redis import exceptions as rexc
 
 from app.auth.User import User
 from app.auth.service.VoucherUserService import VoucherUserService
@@ -13,6 +16,7 @@ from app.module.auth.ModuleUserSource import ModuleUserSource
 from app.module.auth.OpenIDProvider import OpenIDProvider
 from app.service import sogo_cache
 from app.utils.db.Condition import EqualCondition
+from app.utils import constants as cs
 from app.utils import errors as err
 from app.utils.exceptions import RequestException
 from app.utils.logger.logger import logger_auth
@@ -22,6 +26,7 @@ if TYPE_CHECKING:
     from app.config.settings.SystemSettings import SystemSettingsObj
     from app.config.settings.ProcessSetting import ProcessSetting
     from app.manager.db.ClientSQL import ClientSQL
+    from app.manager.cache.ClientRedis import ClientRedis
 
 #Identity providers for SSO, by SOGO_D_AUTH_TYPE
 IDENTITY_PROVIDERS: dict[str, Type[IdentityProvider]] = {
@@ -212,7 +217,6 @@ class ModuleAuth:  # pylint: disable=too-many-instance-attributes
         domain = self._check_domain(uid)
         domain_auth_settings, _ = self._get_domain_auth_and_user_source_settings(domain)
         kind = domain_auth_settings.SOGO_D_AUTH_TYPE
-
         location = ""
         callback_url = callback_url_builder(kind, domain) # or SSO_NO_DOMAIN)
         provider = self._get_identity_provider(domain_auth_settings, callback_url)
@@ -273,6 +277,8 @@ class ModuleAuth:  # pylint: disable=too-many-instance-attributes
             user = User(identity.mail, identity.access_token, domain=domain)
         user.mail = identity.mail
         user.auth_kind = kind
+        user.refresh_token = identity.refresh_token
+        user.token_expires_at = identity.expires_at
 
         #The identity provider authenticated the user, the user sources give its uid, cn, source_id...
         module_us = ModuleUserSource(domain_user_sources)
@@ -287,27 +293,173 @@ class ModuleAuth:  # pylint: disable=too-many-instance-attributes
 
     def check_sso_access_token(self, user:User, auth_settings:AuthSettingsObj) -> bool:
         """
-        Check that the access token of a SSO user (kept as password) is still valid on its identity provider.
-        #TODO refresh the access token when it is not valid anymore (SOGO_D_OPENID_REFRESH_ENABLE)
+        Check that the access token of a SSO user (kept as password) is still valid, refresh it when needed.
 
-        :param user: User logged in with a SSO
+        The access token is proactively refreshed when it is about to expire (within SSO_REFRESH_MARGIN) to 
+        prevent expired tokens from being sent to mail servers.
+        If expiration is unknown, the token is checked with the identity provider and refreshed when invalid. 
+        If the provider is unavailable, the current token is used until it expires.
+
+        The new tokens are saved in the user session in redis: the voucher (jwt) of the UI is unchanged, it only references the session.
+        The UI sends concurrent requests: a lock per session (cs.SSO_REFRESH_LOCK_KEY_PREFIX) lets only one of them refresh,
+        the others wait for it and read the new tokens from the session. Without it, each request would refresh,
+        and with a rotation with reuse detection (keycloak "Revoke Refresh Token") all but one would end the session.
+
+        :param user: User logged in with a SSO, its access token, refresh token and expiration are updated if refreshed
         :type user: User
         :param auth_settings: Authentication settings of the domain of the user
         :type auth_settings: AuthSettingsObj
-        :return: True if the domain still uses this SSO and the token is still valid.
-                 False if the identity provider is unreachable: the token cannot be trusted.
+        :return: True if the domain still uses this SSO and the token is valid (or has been refreshed).
+                 False if the identity provider is unreachable and the token cannot be trusted anymore.
         :rtype: bool
         """
+        provider = None
         if auth_settings.SOGO_D_AUTH_TYPE != user.auth_kind:
             logger_auth.info("SSO user %s logged in with %s but its domain now uses %s", user.uid, user.auth_kind, auth_settings.SOGO_D_AUTH_TYPE)
-            return False
-        provider = self._get_identity_provider(auth_settings, "") #No callback needed to check a token
+        else:
+            provider = self._get_identity_provider(auth_settings, "") #No callback needed to check a token
         if provider is None:
             return False
+
+        can_refresh = auth_settings.SOGO_D_OPENID_REFRESH_ENABLE and bool(user.refresh_token)
+        now = time.time()
+        if can_refresh and user.token_expires_at and now >= user.token_expires_at - cs.SSO_REFRESH_MARGIN:
+            #Proactive: the current token is still usable until it really expires if the refresh cannot be done now
+            logger_auth.info("Refreshing SSO access token for user %s", user.uid)
+            return self._refresh_sso_access_token(user, provider, still_valid=now < user.token_expires_at)
+
         try:
-            return provider.check_access_token(user.password)
+            is_valid = provider.check_access_token(user.password)
         except RequestException:
             return False
+        if is_valid or not can_refresh:
+            return is_valid
+        #Expiration unknown, or token revoked before it: the identity provider said it is not valid anymore
+        return self._refresh_sso_access_token(user, provider, still_valid=False)
+
+    def _refresh_sso_access_token(self, user:User, provider:IdentityProvider, still_valid:bool) -> bool:
+        """
+        Refresh the access token of the user, once per user session (see check_sso_access_token).
+        The request holding the lock refreshes, the others wait for it and read the new tokens from the session.
+
+        :param user: SSO user with a refresh token, updated with the new tokens
+        :type user: User
+        :param provider: Identity provider of the domain of the user
+        :type provider: IdentityProvider
+        :param still_valid: True if the current access token can still be used when the refresh cannot be done now
+        :type still_valid: bool
+        :return: True if the user has a valid access token
+        :rtype: bool
+        """
+        if not user.session_id:
+            #Not read from a voucher: no session to share the new tokens with, only this request uses them
+            return self._do_refresh_sso_access_token(user, provider, still_valid, None)
+
+        voucher_service = VoucherUserService(self.process_settings)
+        lock_key = f"{cs.SSO_REFRESH_LOCK_KEY_PREFIX}{user.session_id}"
+        lock_value = str(uuid4())
+        got_lock = False
+        cache = sogo_cache()
+        try:
+            got_lock = cache.set(lock_key, lock_value, cs.SSO_REFRESH_LOCK_TTL, nx=True)
+            if not got_lock:
+                self._wait_refresh_lock(cache, lock_key)
+
+            #Refreshed by a concurrent request, while waiting or between the read of the session and the lock?
+            loaded = self._load_sso_tokens_from_session(user, voucher_service)
+            if loaded is None:
+                return False
+            if loaded:
+                return True
+            if not got_lock:
+                logger_auth.info("Concurrent refresh of the SSO access token of %s failed", user.uid)
+                return still_valid
+            return self._do_refresh_sso_access_token(user, provider, still_valid, voucher_service)
+        except (rexc.ConnectionError, rexc.TimeoutError) as e:
+            logger_auth.error("Cannot use redis to refresh the SSO access token of %s: %s", user.uid, repr(e))
+            return False
+        finally:
+            try:
+                if got_lock and cache.get(lock_key, str) == lock_value:
+                    cache.delete(lock_key)
+            except (rexc.ConnectionError, rexc.TimeoutError) as e:
+                logger_auth.warning("Cannot release the SSO refresh lock %s, it expires in %ss: %s", lock_key, cs.SSO_REFRESH_LOCK_TTL, repr(e))
+            cache.close()
+
+    @staticmethod
+    def _wait_refresh_lock(cache:ClientRedis, lock_key:str) -> None:
+        """
+        Wait until the refresh lock is released by the request holding it, at most cs.SSO_REFRESH_LOCK_TTL seconds
+
+        :param cache: Redis client
+        :type cache: ClientRedis
+        :param lock_key: Redis key of the lock
+        :type lock_key: str
+        """
+        deadline = time.monotonic() + cs.SSO_REFRESH_LOCK_TTL
+        while cache.get(lock_key, str) is not None and time.monotonic() < deadline:
+            time.sleep(0.1)
+
+    @staticmethod
+    def _load_sso_tokens_from_session(user:User, voucher_service:VoucherUserService) -> bool|None:
+        """
+        Read the tokens of the user session again, and update the user if another request has refreshed them
+
+        :param user: SSO user read from a voucher
+        :type user: User
+        :param voucher_service: Service to read the user session
+        :type voucher_service: VoucherUserService
+        :return: True if the user got new tokens, False if unchanged, None if the session does not exist anymore
+        :rtype: bool|None
+        """
+        try:
+            session_data = voucher_service.read_user_session(user.session_id, user.session_key)
+        except RequestException as e:
+            logger_auth.warning("Cannot read the user session of %s again: %s", user.uid, str(e))
+            return None
+        if session_data is None:
+            logger_auth.info("User session of %s is expired or revoked", user.uid)
+            return None
+        access_token = session_data.get(cs.USER_PWD, "")
+        if not access_token or access_token == user.password:
+            return False
+        user.password = access_token
+        user.refresh_token = session_data.get(cs.USER_REFRESH_TOKEN, "")
+        user.token_expires_at = session_data.get(cs.USER_TOKEN_EXPIRES_AT, 0)
+        return True
+
+    @staticmethod
+    def _do_refresh_sso_access_token(user:User, provider:IdentityProvider, still_valid:bool,
+                                     voucher_service:VoucherUserService|None) -> bool:
+        """
+        Ask the identity provider for new tokens, update the user and its session with them
+
+        :param user: SSO user with a refresh token
+        :type user: User
+        :param provider: Identity provider of the domain of the user
+        :type provider: IdentityProvider
+        :param still_valid: Returned if the identity provider is unreachable
+        :type still_valid: bool
+        :param voucher_service: Service to save the user session, None to only update the user
+        :type voucher_service: VoucherUserService|None
+        :return: True if the user has a valid access token
+        :rtype: bool
+        """
+        try:
+            tokens = provider.refresh_access_token(user.refresh_token)
+        except RequestException:
+            return still_valid
+        if tokens is None:
+            logger_auth.info("SSO session of %s ended on the identity provider, it must log in again", user.uid)
+            return False
+
+        user.password = tokens.access_token
+        user.refresh_token = tokens.refresh_token
+        user.token_expires_at = tokens.expires_at
+        if voucher_service is not None and not voucher_service.save_user_session(user):
+            return False
+        logger_auth.info("SSO access token of %s refreshed", user.uid)
+        return True
 
     def get_user_and_domain_user_sources(self, username:str, password:str) -> tuple[User, dict[str, UserSourceSettingsObj]]:
         """

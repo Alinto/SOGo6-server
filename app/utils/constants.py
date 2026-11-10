@@ -23,6 +23,8 @@ USER_SRC_ID = "source_id"
 USER_UNIT   = "unit"
 USER_CN     = "cn"
 USER_AUTH_KIND = "auth_kind" #SOGO_D_AUTH_TYPE used to log in (plain, openid...)
+USER_REFRESH_TOKEN = "refresh_token" #SSO only: refresh token of the identity provider, used to renew the access token (password)
+USER_TOKEN_EXPIRES_AT = "token_expires_at" #SSO only: unix timestamp when the access token expires, 0 if unknown
 AUTH_KIND_PLAIN = "plain"
 SESSION_KEY = "session_key"
 SESSION_LAST_SEEN = "last_activity"
@@ -54,6 +56,11 @@ SSO_STATE_UI_REDIRECT = "ui_redirect" #Key of the UI url in the SSO state data
 # SSO token check: ``sso_token_check:<kind>:<sha256 of the access token>`` is set once the access token is checked valid
 # on the identity provider, it is not checked again until its TTL expires (SOGO_D_OPENID_TOKEN_CHECK_INTERVAL)
 SSO_TOKEN_CHECK_KEY_PREFIX = "sso_token_check:"
+# SSO refresh lock: ``sso_refresh_lock:<user session id>`` is held by the request refreshing the access token of this session,
+# the concurrent requests of the same session wait for it instead of refreshing too
+SSO_REFRESH_LOCK_KEY_PREFIX = "sso_refresh_lock:"
+SSO_REFRESH_LOCK_TTL = 30 #Max time to refresh, in seconds: discovery + token request, each with a timeout of 10s
+SSO_REFRESH_MARGIN = 60 #The access token is refreshed when it expires in less than this, in seconds
 
 JWT_ISS = "iss"
 JWT_EXP = "exp"
