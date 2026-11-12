@@ -1,0 +1,17 @@
+# SSO users (SOGO_D_AUTH_TYPE = openid): SOGo logs in with the access token given by Keycloak (XOAUTH2/OAUTHBEARER).
+# The token is checked with the token introspection endpoint of Keycloak, the user must match its email claim.
+# In post mode, the client credentials are given in the url (http basic auth), so the url is read from
+# oauth2-introspection-url (not versioned):
+#   http://myClient:<SOGO_D_OPENID_CLIENT_SECRET>@keycloak:8080/realms/myRealm/protocol/openid-connect/token/introspect
+oauth2 {
+  introspection_mode = auth
+  introspection_url = http://keycloak:8080/realms/myRealm/protocol/openid-connect/userinfo
+  username_attribute = email
+  username_validation_format = %{user}
+  #No active_attribute: the userinfo endpoint has no "active" field, it answers 401 if the token is not valid
+  openid_configuration_url = http://keycloak:8080/realms/myRealm/.well-known/openid-configuration
+}
+
+passdb oauth2 {
+  mechanisms_filter = xoauth2 oauthbearer
+}

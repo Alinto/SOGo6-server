@@ -52,7 +52,8 @@ def create_app(sogo_state: int) -> Flask:
     register_route(flask_api, cs.API_BASIC, sogo_state)
     register_route(admin_api, cs.API_ADMIN, sogo_state)
 
-    CORS(app, resources={r"/api/*": {"origins": "*",
+    allowed_origins = process_config.CORS_ORIGINS
+    CORS(app, resources={r"/api/*": {"origins": allowed_origins.split(","),
                                      "allow_headers": ["authorization", "content-type"],
                                         "expose_headers": ["X-Pagination"]}})
     #TODO: remove CORS policy when we have a proper frontend
@@ -182,7 +183,7 @@ def register_before_request(base_blueprint: Blueprint, kind: str, sogo_state: in
             anon_endpoints = {
                 "user#Auth.v1_Auth.Auth.ApiAuthUserMode", 
                 "user#Auth.v1_Auth.Auth.ApiAuthUserLogin",
-                "user#Auth.v1_Auth.Auth.ApiAuthUserCallback",
+                "user#Auth.v1_Auth.Auth.ApiAuthUserCallbackOpenid",
                 "user#System.v1_System.System.ApiSystem",
             }
             if (isinstance(g.user, UserAnonymous)
