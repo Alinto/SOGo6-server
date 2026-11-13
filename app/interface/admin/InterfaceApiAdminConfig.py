@@ -79,6 +79,28 @@ class InterfaceApiAdminConfig:
             return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR)
         return create_api_base_response(ret_values)
 
+    def get_all_setting_user_default(self) -> tuple[dict, int]:
+        """
+        Return the global default user preferences
+        """
+        ret = self.module.get_user_default_settings()
+        return create_api_base_response(ret)
+
+    def update_all_setting_user_default(self, new_param: dict) -> tuple[dict, int]:
+        """
+        Update the global default user preferences
+
+        :param new_param: new parameters (JSON merge patch)
+        :type new_param: dict
+        :return: Tuple containing API response dict and HTTP status code
+        :rtype: tuple[dict, int]
+        """
+        try:
+            _, ret_values = self.module.update_user_default_settings(new_param)
+        except ValidationError as ex:
+            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR)
+        return create_api_base_response(ret_values)
+
 
     def get_all_domain_settings(self, collection_param: CollectionPaginateArgs) -> tuple[int, dict, int]:
         """
@@ -163,3 +185,34 @@ class InterfaceApiAdminConfig:
         except RequestException as ex:
             return create_api_base_response(str(ex), ex.error)
         return {}, 200
+
+    def get_domain_user_default_settings(self, domain_id: str) -> tuple[dict, int]:
+        """
+        Get the default user preferences of a domain (merged with the global ones)
+
+        :param domain_id: The domain name/ID
+        :type domain_id: str
+        :return: Tuple containing API response dict and HTTP status code
+        :rtype: tuple[dict, int]
+        """
+        ret = self.module.get_one_domain_user_default_settings(domain_id)
+        return create_api_base_response(ret)
+
+    def update_domain_user_default_settings(self, domain_id: str, new_param: dict) -> tuple[dict, int]:
+        """
+        Update the default user preferences of a domain
+
+        :param domain_id: The domain name/ID
+        :type domain_id: str
+        :param new_param: new parameters (JSON merge patch)
+        :type new_param: dict
+        :return: Tuple containing API response dict and HTTP status code
+        :rtype: tuple[dict, int]
+        """
+        try:
+            _, ret_values = self.module.update_one_domain_user_default_settings(domain_id, new_param)
+        except RequestException as ex:
+            return create_api_base_response(str(ex), ex.error)
+        except ValidationError as ex:
+            return create_api_base_response(ex.messages, err.ERROR_VALIDATION_ERROR)
+        return create_api_base_response(ret_values)

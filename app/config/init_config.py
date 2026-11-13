@@ -57,6 +57,7 @@ def check_basic_config() -> bool:
     system_settings = config_module.get_system_settings()
     default_domain_settings = config_module.get_default_domain_settings()
     if system_settings and default_domain_settings:
+        _init_user_default_settings(config_module)
         return True
 
     # Settings are missing – try to auto-initialize from JSON files if paths are set
@@ -99,8 +100,56 @@ def check_basic_config() -> bool:
             logger.error("Auto-initialization error: %s", err_msg)
         return False
 
+    _init_user_default_settings(config_module)
     logger.info("SOGo auto-initialization succeeded. Moving to SOGO_OK state.")
     return True
+
+
+def _load_init_user_default_settings() -> dict:
+    """
+    Return the default user preferences found in SOGO_INIT_USER_SETTINGS_PATH,
+    or an empty dict (meaning marshmallow defaults) if the path is not set or the file is unusable.
+    """
+    user_path = process_config.SOGO_INIT_USER_SETTINGS_PATH
+    if not user_path:
+        return {}
+
+    user_data = _load_json_file(user_path)
+    if user_data is None or "settings" not in user_data:
+        logger.error("Default user settings file %s is unusable (it must have a top-level 'settings' key). Using marshmallow defaults.", user_path)
+        return {}
+    return user_data["settings"]
+
+
+def _init_user_default_settings(config_module: ModuleAdminConfig) -> None:
+    """
+    Fill the global default user preferences if they are empty (first init, or database
+    created before this setting existed).
+    Values come from SOGO_INIT_USER_SETTINGS_PATH if set, otherwise from the marshmallow defaults.
+
+    This never blocks SOGo initialization: on error, new users simply get the marshmallow defaults.
+
+    :param config_module: The admin config module
+    :type config_module: ModuleAdminConfig
+    """
+    if config_module.get_user_default_settings():
+        return
+
+    init_settings = _load_init_user_default_settings()
+    try:
+        config_module.update_user_default_settings(init_settings)
+        logger.info("Default user settings initialized")
+        return
+    except ValidationError as e:
+        logger.error("Default user settings from %s are invalid: %s. Using marshmallow defaults.", process_config.SOGO_INIT_USER_SETTINGS_PATH, e)
+    except (AggravatedException, BugException) as e:
+        logger.error("Default user settings could not be written: %s", e)
+        return
+
+    try:
+        config_module.update_user_default_settings({})
+    except (AggravatedException, BugException) as e:
+        logger.error("Default user settings could not be written: %s", e)
 
 def init_once() -> None:
     """

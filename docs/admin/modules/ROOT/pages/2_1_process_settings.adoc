@@ -154,6 +154,13 @@ on first init. Just put the file on a path, and set the path above.
 For alpha version, you can find such files in `scripts/init/`, `system_settings.json` and  `domain_settings.json`
 ====
 
+* **SOGO_INIT_USER_SETTINGS_PATH**: str = ""
+
+Optional. The default user preferences applied when a new user onboards are also stored in the database. When SOGo starts and they are empty,
+they are filled from this JSON file (same format, a top-level `settings` key) if the path is set, otherwise with SOGo's built-in defaults.
+An invalid file never blocks the startup: the built-in defaults are used instead. They can then be changed with the Admin API
+(`/config/user-default` globally, `/config/domains/<domain>/user-default` per domain).
+
 
 == Debug
 

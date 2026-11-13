@@ -524,3 +524,123 @@ def test_delete_domain_settings_not_found(monkeypatch):
 
     assert status_code == 404
     assert result["error_code"] == err.ERROR_DOMAIN_NAME_NOT_FOUND.c
+
+
+# ========== Tests for the default user preferences ==========
+
+USER_DEFAULT = {"USER_GENERAL": {"SOGO_U_LANGUAGE": "English"}}
+DOMAIN_USER_DEFAULT = {
+    "domain_name": "example.com",
+    "settings": {"USER_GENERAL": {"SOGO_U_LANGUAGE": "French"}},
+    "origin": {"USER_GENERAL": {"SOGO_U_LANGUAGE": "example.com"}},
+}
+
+
+def _raise(exception):
+    """Return a callable raising the exception, whatever its arguments."""
+    def _raiser(*_args, **_kwargs):
+        raise exception
+    return _raiser
+
+
+def test_get_all_setting_user_default_success(monkeypatch):
+    """The global default user preferences are wrapped in the API response."""
+    fake_module = FakeModuleAdminConfig(None)
+    fake_module.get_user_default_settings = lambda: USER_DEFAULT
+    patch_module_on_interface(monkeypatch, fake_module)
+    interface = InterfaceApiAdminConfig(process_setting={"test": "config"})
+
+    result, status_code = interface.get_all_setting_user_default()
+
+    assert status_code == 200
+    assert result["data"] == USER_DEFAULT
+
+
+def test_update_all_setting_user_default_success(monkeypatch):
+    """The patch is forwarded to the module and the new values returned."""
+    fake_module = FakeModuleAdminConfig(None)
+    calls = []
+    def fake_update(new_param):
+        calls.append(new_param)
+        return err.ERROR_NO_ERROR.c, USER_DEFAULT
+    fake_module.update_user_default_settings = fake_update
+    patch_module_on_interface(monkeypatch, fake_module)
+    interface = InterfaceApiAdminConfig(process_setting={"test": "config"})
+
+    result, status_code = interface.update_all_setting_user_default(USER_DEFAULT)
+
+    assert status_code == 200
+    assert result["data"] == USER_DEFAULT
+    assert calls == [USER_DEFAULT]
+
+
+def test_update_all_setting_user_default_validation_error(monkeypatch):
+    """A ValidationError is returned as a 400."""
+    fake_module = FakeModuleAdminConfig(None)
+    fake_module.update_user_default_settings = _raise(ValidationError({"field": ["Invalid value"]}))
+    patch_module_on_interface(monkeypatch, fake_module)
+    interface = InterfaceApiAdminConfig(process_setting={"test": "config"})
+
+    result, status_code = interface.update_all_setting_user_default({"invalid": "data"})
+
+    assert status_code == 400
+    assert result["error_code"] == err.ERROR_VALIDATION_ERROR.c
+
+
+def test_get_domain_user_default_settings_success(monkeypatch):
+    """The domain default user preferences are wrapped in the API response."""
+    fake_module = FakeModuleAdminConfig(None)
+    fake_module.get_one_domain_user_default_settings = lambda domain_id: DOMAIN_USER_DEFAULT
+    patch_module_on_interface(monkeypatch, fake_module)
+    interface = InterfaceApiAdminConfig(process_setting={"test": "config"})
+
+    result, status_code = interface.get_domain_user_default_settings("example.com")
+
+    assert status_code == 200
+    assert result["data"] == DOMAIN_USER_DEFAULT
+
+
+def test_update_domain_user_default_settings_success(monkeypatch):
+    """The patch is forwarded to the module with the domain."""
+    fake_module = FakeModuleAdminConfig(None)
+    calls = []
+    def fake_update(domain_id, new_param):
+        calls.append((domain_id, new_param))
+        return err.ERROR_NO_ERROR.c, DOMAIN_USER_DEFAULT
+    fake_module.update_one_domain_user_default_settings = fake_update
+    patch_module_on_interface(monkeypatch, fake_module)
+    interface = InterfaceApiAdminConfig(process_setting={"test": "config"})
+
+    new_param = {"USER_GENERAL": {"SOGO_U_LANGUAGE": "French"}}
+    result, status_code = interface.update_domain_user_default_settings("example.com", new_param)
+
+    assert status_code == 200
+    assert result["data"] == DOMAIN_USER_DEFAULT
+    assert calls == [("example.com", new_param)]
+
+
+def test_update_domain_user_default_settings_not_found(monkeypatch):
+    """An unknown domain is returned as a 404."""
+    fake_module = FakeModuleAdminConfig(None)
+    fake_module.update_one_domain_user_default_settings = _raise(
+        RequestException("Domain not found", err.ERROR_DOMAIN_NAME_NOT_FOUND))
+    patch_module_on_interface(monkeypatch, fake_module)
+    interface = InterfaceApiAdminConfig(process_setting={"test": "config"})
+
+    result, status_code = interface.update_domain_user_default_settings("nonexistent.com", {})
+
+    assert status_code == 404
+    assert result["error_code"] == err.ERROR_DOMAIN_NAME_NOT_FOUND.c
+
+
+def test_update_domain_user_default_settings_validation_error(monkeypatch):
+    """A ValidationError is returned as a 400."""
+    fake_module = FakeModuleAdminConfig(None)
+    fake_module.update_one_domain_user_default_settings = _raise(ValidationError({"field": ["Invalid value"]}))
+    patch_module_on_interface(monkeypatch, fake_module)
+    interface = InterfaceApiAdminConfig(process_setting={"test": "config"})
+
+    result, status_code = interface.update_domain_user_default_settings("example.com", {"invalid": "data"})
+
+    assert status_code == 400
+    assert result["error_code"] == err.ERROR_VALIDATION_ERROR.c

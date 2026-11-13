@@ -9,6 +9,7 @@ class AdminConfigDynamicFormData(Schema):
     """
     domain = fields.List(fields.Dict())
     system = fields.List(fields.Dict())
+    user = fields.List(fields.Dict())
 
 
 class AdminConfigDynamicFormSchemaRet(ApiBaseResponse):
@@ -857,6 +858,106 @@ class AdminConfigDomainPatchSchema(Schema):
                     "SOGO_D_CARDAV_PUBLIC_ACCESS_ENABLE": False,
                     "SOGO_D_JITSI_LINK_ENABLED": True,
                     "SOGO_D_REMINDER_ALLOW_MAIL": True
+                }
+            }
+        }
+
+
+class AdminConfigUserDefaultGetSchema(ApiBaseResponse):
+    """
+    Schema of the result for GET/PATCH /user-default
+    """
+    data = fields.Dict()
+
+    @classmethod
+    def example(cls) -> dict:
+        """
+        Example of result for GET /user-default (truncated)
+
+        :return: example
+        :rtype: dict
+        """
+        return {
+            "error_code": 0,
+            "error_msg": "",
+            "data": {
+                "USER_GENERAL": {
+                    "SOGO_U_LANGUAGE": "English",
+                    "SOGO_U_TIMEZONE": "UTC",
+                    "SOGO_U_TIME_FORMAT": "HH:mm",
+                    "SOGO_U_FIRST_MODULE": "mail",
+                    "SOGO_U_REFRESH_MAIL_VIEW": 0,
+                    "SOGO_U_BROWSER_NOTIF": False,
+                    "SOGO_U_EXT_AVATAR_ENABLED": False,
+                    "SOGO_U_PROFILE_PICTURE": "default"
+                },
+                "USER_SECURITY": {
+                    "SOGO_U_MFA_ENABLE": False
+                }
+            }
+        }
+
+
+class AdminConfigUserDefaultPatchSchema(Schema):
+    """
+    Schema of the body expected for patching default user preferences (global or for a domain)
+
+    Expected JSON Merge Patch data. For a domain, a null value removes the domain
+    override so the global value applies again.
+    """
+    settings  = fields.Dict(required=True, keys=fields.String(), values=fields.Raw())
+
+    @classmethod
+    def example(cls) -> dict:
+        """
+        Example of data for the patch request
+
+        :return: Example data
+        :rtype: dict
+        """
+        return {
+            "settings": {
+                "USER_GENERAL": {
+                    "SOGO_U_LANGUAGE": "French",
+                    "SOGO_U_TIMEZONE": "Europe/Paris"
+                },
+                "USER_CALENDAR_GENERAL": {
+                    "SOGO_U_CALENDAR_VIEW_FIRST_DAY": 1
+                }
+            }
+        }
+
+
+class AdminConfigDomainUserDefaultGetSchema(ApiBaseResponse):
+    """
+    Schema of the result for GET/PATCH /domains/<domain_name>/user-default
+    """
+    data = fields.Dict()
+
+    @classmethod
+    def example(cls) -> dict:
+        """
+        Example of result for GET /domains/<domain_name>/user-default (truncated)
+
+        :return: example
+        :rtype: dict
+        """
+        return {
+            "error_code": 0,
+            "error_msg": "",
+            "data": {
+                "domain_name": "sogo.nu",
+                "settings": {
+                    "USER_GENERAL": {
+                        "SOGO_U_LANGUAGE": "French",
+                        "SOGO_U_TIMEZONE": "Europe/Paris"
+                    }
+                },
+                "origin": {
+                    "USER_GENERAL": {
+                        "SOGO_U_LANGUAGE": "sogo.nu",
+                        "SOGO_U_TIMEZONE": "default"
+                    }
                 }
             }
         }
