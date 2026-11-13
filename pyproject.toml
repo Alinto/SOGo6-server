@@ -68,6 +68,8 @@ dev = "app.run_dev:main"
 agent = "app.agent.run:main"
 # poetry run agent-beat
 agent-beat = "app.agent.run:beat"
+# poetry run dav
+dav = "app.dav.run_dev:main"
 
 
 [tool.pytest.ini_options]

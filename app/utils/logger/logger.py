@@ -58,6 +58,7 @@ logger_calendar = getLogger("sogolog.calendar")
 logger_agent = getLogger("sogolog.agent")
 logger_contact = getLogger("sogolog.contact")
 logger_ldap = getLogger("sogolog.ldap")
+logger_dav = getLogger("sogolog.dav")
 
 logger_imap.setLevel(WARNING)
 # logger_cache.setLevel(DEBUG)

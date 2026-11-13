@@ -1,0 +1,136 @@
+= DAV Server
+
+The DAV server exposes calendars and address books to standard clients (Apple Calendar and Contacts, Thunderbird, DAVx5...) over WebDAV, CalDAV (RFC 4791) and CardDAV (RFC 6352).
+It runs as a separate process, deployable in its own container: heavy clients keep long sessions and sync often, and this load must not slow down the REST API used by the web interface.
+
+The server reuses the business modules of the REST API (xref:calendar.adoc[], xref:contact.adoc[]); only the protocol layer is specific to DAV.
+
+== Architecture overview
+
+----
+  Client (CalDAV / CardDAV)
+       |
+       v
+  DavApp (WSGI, Flask)          only file depending on Flask
+       |  DavRequest
+       v
+  DavDispatcher                 configuration check, method -> handler, error -> HTTP status
+       |
+       +-- DavOptionsHandler    OPTIONS
+       +-- ...                  one handler per HTTP method
+       |
+       v  DavResponse
+  DavApp -> WSGI response
+----
+
+**Responsibilities:**
+
+* *build_app* - Builds the application for both launchers, like the REST API: initialises the worker (configuration state, cache, agent client), creates the handlers and the dispatcher.
+* *DavApp* - Converts each Flask request into a `DavRequest`, hands it to the dispatcher and converts the `DavResponse` back. Redirects the well-known URIs. Turns off the Flask behaviours meant for web applications (see below).
+* *DavDispatcher* - Routes a request to the handler of its HTTP method. Answers 503 while SOGo is not configured, and the HTTP status of the error when a handler raises a `RequestException`.
+* *DavHandler* - Abstract handler of one HTTP method. Handlers only see `DavRequest` and `DavResponse`, never Flask, so they are tested without a WSGI layer.
+* *DavOptionsHandler* - Answers OPTIONS with the `DAV` compliance classes and the `Allow` methods.
+
+The DAV server never imports the REST layer (`app.api`): no Smorest, no JSON middleware, no `ApiBaseResponse`.
+
+=== Layers compared with the REST API and the Agent
+
+The DAV server follows the same layers as the other entry points (xref:1_4_archi_interfaces.adoc[], xref:agent.adoc[]).
+A handler deals with the protocol of one HTTP method (XML, `Depth`, `If-Match`, multistatus) whatever the resource targeted; the glue between modules and serializers lives in the `InterfaceDav*` classes, one per domain, next to the `InterfaceApi*` and `InterfaceAgent*` ones in `app/interface/<domain>/`.
+
+[cols="1,1,1,1"]
+|===
+| Layer | REST API | Agent | DAV
+
+| Framework wrapper
+| `create_app` (Flask-Smorest)
+| `Agent` (Celery)
+| `DavApp` (Flask)
+
+| Routing
+| blueprints
+| `Agent` job handlers
+| `DavDispatcher`
+
+| Protocol
+| `MethodView` and schemas
+| `Job`
+| `DavHandler`
+
+| Glue between modules
+| `InterfaceApi*`
+| `InterfaceAgent*`
+| `InterfaceDav*`
+
+| Business logic
+| `Module*`
+| `Module*`
+| `Module*`
+|===
+
+== Routes
+
+[cols="1,3"]
+|===
+| Path | Behaviour
+
+| `/dav/` and below
+| The methods of `DAV_METHODS` (`app/dav/DavConst.py`) are forwarded to the dispatcher. Any other method is answered 405 with an `Allow` header listing them.
+
+| `/.well-known/caldav`, `/.well-known/carddav`
+| 301 redirect to `/dav/` whatever the method (RFC 6764 section 5). The redirect is sent with `Cache-Control: no-cache`, so that clients follow the DAV root if a deployment moves it.
+|===
+
+`DAV_METHODS` lists the methods served, each one by its own handler: it feeds the routes, the `Allow` header of OPTIONS and of 405 responses. Serving a new method means adding its handler in `build_app` and the method to `DAV_METHODS`; a unit test checks that both match.
+
+The path given to the handlers is relative to `/dav/` and percent-decoded: `/dav/alice%40example.org/` reaches them as `alice@example.org/`.
+
+== Flask behaviours turned off
+
+DAV clients trip on three defaults that suit web applications:
+
+* *Automatic OPTIONS* - Flask answers OPTIONS itself, without the `DAV` header clients look for. The routes disable it so that `DavOptionsHandler` answers.
+* *Trailing slash redirects* - clients address a collection with or without its trailing slash. Strict slashes are disabled, so both forms reach the same handler without a redirect.
+* *HTML pages* - errors raised by Flask (unknown path or method, oversized body, unexpected exception) are answered without body. Responses without body carry no `Content-Type`.
+
+Unexpected exceptions are not caught by the dispatcher: Flask logs them and answers 500.
+
+== Running
+
+Development, on the Werkzeug server (port 5001 by default, so that it runs next to `poetry run start`):
+
+[source,bash]
+----
+poetry run dav
+poetry run dav --port 5001 --no-debug
+----
+
+Production, with gunicorn and the same settings file as the REST API (`app/gunicorn.conf.py`):
+
+[source,bash]
+----
+gunicorn -c app/gunicorn.conf.py app.dav.run_server:app
+----
+
+Each service runs in its own container, from the same image:
+
+[cols="1,3"]
+|===
+| Container | Command
+
+| api
+| `poetry run gunicorn -c app/gunicorn.conf.py app.run_server:app`
+
+| agent
+| `poetry run agent`
+
+| agent-beat
+| `poetry run agent-beat`
+
+| dav
+| `poetry run gunicorn -c app/gunicorn.conf.py app.dav.run_server:app`
+|===
+
+The `GUNICORN_*` variables (`GUNICORN_WORKERS`, `GUNICORN_BIND`...) are set per container. Like the REST API, the master checks the database and the cache once before starting the workers (`init_once`), and each worker reads the configuration state at start-up: a SOGo configured afterwards needs a restart of the DAV server.
+
+The reverse proxy routes `/dav/`, `/.well-known/caldav` and `/.well-known/carddav` to the DAV container, everything else to the REST API.
