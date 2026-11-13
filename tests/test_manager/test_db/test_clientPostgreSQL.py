@@ -6,7 +6,8 @@ from pytest_mock.plugin import MockerFixture
 
 from psycopg.errors import Error, OperationalError, DuplicateTable, UniqueViolation
 
-from app.manager.db.ClientPostgreSQL import ClientPostgreSQL, str_to_varchar, list_to_array, table_to_query, condition_to_query
+from app.manager.db.ClientPostgreSQL import (ClientPostgreSQL, str_to_varchar, list_to_array, table_to_query, condition_to_query,
+                                             add_column_to_query, modify_column_to_query)
 from app.utils.exceptions import RequestException, BugException
 from app.utils.db.Condition import EqualCondition, NotEqualCondition, AndCondition, OrCondition, TrueCondition, FullTextCondition, JoinClause
 from app.utils.db.Table import Table, Column, Index
@@ -49,6 +50,48 @@ def test_table_to_query():
     assert sql_query.as_string() == "CREATE TABLE \"test\" (\"test1\" varchar NOT NULL, \"test2\" smallint NOT NULL," + \
           " \"test3\" serial NOT NULL, \"test4\" jsonb NOT NULL, \"test5\" jsonb NOT NULL, \"test6\" varchar[] NOT NULL," + \
           " \"test7\" varchar(255) , \"test8\" varchar NOT NULL UNIQUE, PRIMARY KEY (\"test1\", \"test2\"))"
+
+def test_add_column_to_query():
+    """
+    Test the proper sql query generation to add a column
+    """
+    table = Table(name="test", columns=[Column(name="test1", data_type="str")])
+
+    col = Column(name="new", data_type="str", extra_args={"max_len": 64})
+    assert add_column_to_query(table, col).as_string() == \
+        "ALTER TABLE \"test\" ADD COLUMN IF NOT EXISTS \"new\" varchar(64) NOT NULL"
+
+    col = Column(name="new", data_type="str", is_nullable=True)
+    assert add_column_to_query(table, col).as_string() == \
+        "ALTER TABLE \"test\" ADD COLUMN IF NOT EXISTS \"new\" varchar"
+
+    col = Column(name="new", data_type="int8", is_unique=True)
+    assert add_column_to_query(table, col, default=0).as_string() == \
+        "ALTER TABLE \"test\" ADD COLUMN IF NOT EXISTS \"new\" smallint NOT NULL DEFAULT 0 UNIQUE"
+
+    col = Column(name="new", data_type="str")
+    assert add_column_to_query(table, col, default="it's").as_string() == \
+        "ALTER TABLE \"test\" ADD COLUMN IF NOT EXISTS \"new\" varchar NOT NULL DEFAULT 'it''s'"
+
+    col = Column(name="new", data_type="dict")
+    assert add_column_to_query(table, col, default={"a": 1}).as_string() == \
+        "ALTER TABLE \"test\" ADD COLUMN IF NOT EXISTS \"new\" jsonb NOT NULL DEFAULT '{\"a\": 1}'::jsonb"
+
+def test_modify_column_to_query():
+    """
+    Test the proper sql query generation to modify a column. A unique column doesn't add a constraint.
+    """
+    table = Table(name="test", columns=[Column(name="test1", data_type="str")])
+
+    col = Column(name="test1", data_type="str", is_unique=True, extra_args={"max_len": 2048})
+    assert modify_column_to_query(table, col).as_string() == \
+        "ALTER TABLE \"test\" ALTER COLUMN \"test1\" TYPE varchar(2048) USING \"test1\"::varchar(2048), " + \
+        "ALTER COLUMN \"test1\" SET NOT NULL"
+
+    col = Column(name="test1", data_type="dict", is_nullable=True)
+    assert modify_column_to_query(table, col).as_string() == \
+        "ALTER TABLE \"test\" ALTER COLUMN \"test1\" TYPE jsonb USING \"test1\"::jsonb, " + \
+        "ALTER COLUMN \"test1\" DROP NOT NULL"
 
 def test_table_to_query_tsvector():
     """A tsvector column maps to the native PostgreSQL tsvector type."""
@@ -182,6 +225,12 @@ class FakePostgresqlConn:
         elif query_str == "CREATE TABLE \"error\" (\"test\" varchar NOT NULL)":
             raise Error()
         
+        # Alter table queries
+        elif query_str.startswith("ALTER TABLE"):
+            if "\"error\"" in query_str:
+                raise Error()
+            return FakePostgresqlCursor([], rowcount=0)
+
         # Insert queries
         elif query_str.startswith("INSERT INTO"):
             if "test_insert" in query_str:
@@ -293,6 +342,56 @@ def test_client_create_table(mock_db: MockerFixture):
     table_error = Table(name="error", columns=[col])
     with pytest.raises(RequestException, match="Error when creating table"):
         client.create_table(table_error)
+
+def test_client_create_table_connects_by_itself(mock_db: MockerFixture):
+    """
+    create_table and create_indexes must not silently do nothing without a connection
+    """
+    col   = Column(name="test", data_type='str')
+    table = Table(name="test", columns=[col], indexes=[Index(name="idx", columns=("test",))])
+
+    client = ClientPostgreSQL(db_user= "", db_pwd= "", db_host= "", db_port= 25,  db_ssl= False, db_enc= "")
+    client.create_table(table)
+    assert client.db_conn.executed[-1] == "CREATE TABLE \"test\" (\"test\" varchar NOT NULL)"
+
+    client = ClientPostgreSQL(db_user= "", db_pwd= "", db_host= "", db_port= 25,  db_ssl= False, db_enc= "")
+    client.create_indexes(table)
+    assert client.db_conn.executed[-1] == "CREATE INDEX IF NOT EXISTS \"idx\" ON \"test\" (\"test\")"
+
+def test_client_add_column(mock_db: MockerFixture):
+    """
+    Test the add_column method of PostgreSQL client. It connects by itself and raises on error.
+    """
+    client = ClientPostgreSQL(db_user= "", db_pwd= "", db_host= "", db_port= 25,  db_ssl= False, db_enc= "")
+
+    col   = Column(name="new", data_type='str')
+    table = Table(name="test", columns=[col])
+    client.add_column(table, col, default="a")
+    assert client.db_conn.executed == ["ALTER TABLE \"test\" ADD COLUMN IF NOT EXISTS \"new\" varchar NOT NULL DEFAULT 'a'",
+                                       "ALTER TABLE \"test\" ALTER COLUMN \"new\" DROP DEFAULT"]
+
+    client.db_conn.executed.clear()
+    client.add_column(table, col)
+    assert client.db_conn.executed == ["ALTER TABLE \"test\" ADD COLUMN IF NOT EXISTS \"new\" varchar NOT NULL"]
+
+    table_error = Table(name="error", columns=[col])
+    with pytest.raises(RequestException, match="Error when altering table error"):
+        client.add_column(table_error, col)
+
+def test_client_modify_column(mock_db: MockerFixture):
+    """
+    Test the modify_column method of PostgreSQL client. It connects by itself and raises on error.
+    """
+    client = ClientPostgreSQL(db_user= "", db_pwd= "", db_host= "", db_port= 25,  db_ssl= False, db_enc= "")
+
+    col   = Column(name="col", data_type='str', extra_args={"max_len": 2048})
+    table = Table(name="test", columns=[col])
+    client.modify_column(table, col)
+    assert len(client.db_conn.executed) == 1
+
+    table_error = Table(name="error", columns=[col])
+    with pytest.raises(RequestException, match="Error when altering table error"):
+        client.modify_column(table_error, col)
 
 def test_client_create_several_table(mock_db: MockerFixture):
     """

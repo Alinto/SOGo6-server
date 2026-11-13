@@ -133,6 +133,31 @@ class ModuleAdminConfig:
         """
         return self._get_setting_from_table_settings([tbl.COL_SETTINGS_VERSION])[0]
 
+    def set_version(self, version: str) -> None:
+        """
+        Store the version in the database
+
+        :param version: Version to store
+        :type version: str
+        :raises AggravatedException: if the version could not be stored
+        """
+        self.sogo_db_manager.connect()
+
+        cond_update = EqualCondition(param_name=tbl.COL_SETTINGS_UNIQUE.name, param_value=1)
+        ret = self.sogo_db_manager.update_in_table(table_name=tbl.TABLE_SETTINGS.name,
+                                                   column_tuple=(tbl.COL_SETTINGS_VERSION.name,),
+                                                   values_list=[version],
+                                                   condition=cond_update)
+        # MariaDB may count 0 updated row when the value was already the same
+        if ret != 1 and self.get_version() != version:
+            raise AggravatedException(f"Could not store the version {version} in table {tbl.TABLE_SETTINGS.name}")
+
+    def close(self) -> None:
+        """
+        Close the connection to the database
+        """
+        self.sogo_db_manager.close()
+
     def get_system_settings(self) -> dict:
         """
         Return the system settings or an empty dict if there is not
@@ -247,7 +272,7 @@ class ModuleAdminConfig:
         #Get the domain setting
         cond_select = EqualCondition(param_name=tbl.COL_DOMAIN_NAME.name, param_value=domain_id)
         result = list(self.sogo_db_manager.select_from_table(table=tbl.TABLE_DOMAIN,
-                                               columns=[],
+                                               columns=tbl.TABLE_DOMAIN.columns,
                                                condition=cond_select))
         size = len(result)
         if size > 1:

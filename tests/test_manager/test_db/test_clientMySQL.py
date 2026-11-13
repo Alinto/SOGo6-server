@@ -12,6 +12,8 @@ from app.manager.db.ClientMySQL import (
     list_to_json,
     table_to_query,
     condition_to_query,
+    add_column_to_query,
+    modify_column_to_query,
 )
 from app.utils.exceptions import RequestException, BugException
 from app.utils.db.Condition import EqualCondition, NotEqualCondition, AndCondition, OrCondition, TrueCondition, FullTextCondition, JoinClause
@@ -61,6 +63,40 @@ def test_table_to_query():
         "PRIMARY KEY (`test1`, `test2`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
     )
     assert " ".join(sql.split()) == " ".join(expected.split())
+
+
+def test_add_column_to_query():
+    """
+    Test the SQL generated to add a column, the default value is passed as a parameter.
+    """
+    table = Table(name="test", columns=[Column(name="test1", data_type="str")])
+
+    col = Column(name="new", data_type="str", extra_args={"max_len": 64})
+    assert add_column_to_query(table, col) == ("ALTER TABLE `test` ADD COLUMN IF NOT EXISTS `new` VARCHAR(64) NOT NULL", [])
+
+    col = Column(name="new", data_type="str", is_nullable=True)
+    assert add_column_to_query(table, col) == ("ALTER TABLE `test` ADD COLUMN IF NOT EXISTS `new` VARCHAR(255)", [])
+
+    col = Column(name="new", data_type="int8", is_unique=True)
+    assert add_column_to_query(table, col, default=0) == \
+        ("ALTER TABLE `test` ADD COLUMN IF NOT EXISTS `new` SMALLINT NOT NULL DEFAULT %s UNIQUE", [0])
+
+    col = Column(name="new", data_type="dict")
+    assert add_column_to_query(table, col, default={"a": 1}) == \
+        ("ALTER TABLE `test` ADD COLUMN IF NOT EXISTS `new` JSON NOT NULL DEFAULT %s", ['{"a": 1}'])
+
+
+def test_modify_column_to_query():
+    """
+    Test the SQL generated to modify a column. UNIQUE must not be repeated, it would create a second index.
+    """
+    table = Table(name="test", columns=[Column(name="test1", data_type="str")])
+
+    col = Column(name="test1", data_type="str", is_unique=True, extra_args={"max_len": 2048})
+    assert modify_column_to_query(table, col) == "ALTER TABLE `test` MODIFY COLUMN `test1` VARCHAR(2048) NOT NULL"
+
+    col = Column(name="test1", data_type="dict", is_nullable=True)
+    assert modify_column_to_query(table, col) == "ALTER TABLE `test` MODIFY COLUMN `test1` JSON NULL"
 
 
 def test_table_to_query_tsvector():
@@ -187,6 +223,13 @@ class FakeMySQLCursor:
                 raise Error("generic error")
             self._rows = []
             self.rowcount = 0
+        # alter table
+        elif s.upper().startswith("ALTER TABLE"):
+            if "`error`" in s:
+                raise Error("generic error")
+            self.conn.altered.append((sql, params))
+            self._rows = []
+            self.rowcount = 0
         # insert
         elif s.upper().startswith("INSERT INTO"):
             lower = s.lower()
@@ -260,6 +303,7 @@ class FakeMySQLCursor:
 class FakeMySQLConn:
     def __init__(self):
         self._closed = False
+        self.altered = []
 
     def cursor(self):
         return FakeMySQLCursor(self)
@@ -341,6 +385,59 @@ def test_client_create_table(mock_db: MockerFixture):
     table_error = Table(name="error", columns=[col])
     with pytest.raises(RequestException, match="Error when creating table"):
         client.create_table(table_error)
+
+
+def test_client_create_table_connects_by_itself(mock_db: MockerFixture):
+    """
+    create_table and create_indexes must not silently do nothing without a connection
+    """
+    col = Column(name="test", data_type="str")
+    table = Table(name="test", columns=[col], indexes=[Index(name="idx", columns=("test",))])
+
+    client = ClientMySQL(db_user="", db_pwd="", db_host="", db_port=3307, db_ssl=False, db_enc="")
+    client.create_table(table)
+    assert client.db_conn is not None
+
+    client = ClientMySQL(db_user="", db_pwd="", db_host="", db_port=3307, db_ssl=False, db_enc="")
+    client.create_indexes(table)
+    assert client.db_conn is not None
+
+
+def test_client_add_column(mock_db: MockerFixture):
+    """
+    Test adding a column. It connects by itself and raises on error.
+    """
+    client = ClientMySQL(db_user="", db_pwd="", db_host="", db_port=3307, db_ssl=False, db_enc="")
+
+    col = Column(name="new", data_type="str")
+    table = Table(name="test", columns=[col])
+    client.add_column(table, col, default="a")
+    assert client.db_conn.altered == [("ALTER TABLE `test` ADD COLUMN IF NOT EXISTS `new` VARCHAR(255) NOT NULL DEFAULT %s", ("a",)),
+                                      ("ALTER TABLE `test` ALTER COLUMN `new` DROP DEFAULT", None)]
+
+    client.db_conn.altered.clear()
+    client.add_column(table, col)
+    assert client.db_conn.altered == [("ALTER TABLE `test` ADD COLUMN IF NOT EXISTS `new` VARCHAR(255) NOT NULL", None)]
+
+    table_error = Table(name="error", columns=[col])
+    with pytest.raises(RequestException, match="Error when altering table error"):
+        client.add_column(table_error, col)
+
+
+def test_client_modify_column(mock_db: MockerFixture):
+    """
+    Test modifying a column. It connects by itself and raises on error.
+    """
+    client = ClientMySQL(db_user="", db_pwd="", db_host="", db_port=3307, db_ssl=False, db_enc="")
+
+    col = Column(name="col", data_type="str", extra_args={"max_len": 2048})
+    table = Table(name="test", columns=[col])
+    client.modify_column(table, col)
+    assert client.db_conn.altered == [("ALTER TABLE `test` MODIFY COLUMN `col` VARCHAR(2048) NOT NULL", None)]
+
+    table_error = Table(name="error", columns=[col])
+    with pytest.raises(RequestException, match="Error when altering table error"):
+        client.modify_column(table_error, col)
 
 
 def test_client_create_several_table(mock_db: MockerFixture):

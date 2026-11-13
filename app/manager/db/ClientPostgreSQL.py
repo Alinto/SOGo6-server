@@ -100,6 +100,17 @@ data_type_postgre_to_sogo: dict[str, Any] = {
     "bytea":                       "bytes",
 }
 
+def column_to_type(column: Column) -> str:
+    """
+    Return the postgre data type of a column
+    """
+    data_type = data_type_sogo_to_postgre[column.data_type]
+    if isinstance(data_type, str):
+        return data_type
+    if column.extra_args is None:
+        return data_type()
+    return data_type(**column.extra_args)
+
 def table_to_query(table: Table) -> Composed:
     """
     Return the SQL query to create a table
@@ -110,19 +121,9 @@ def table_to_query(table: Table) -> Composed:
 
     sql_all_column = []
     for column in table.columns:
-        #Get postgre data type
-        data_type = data_type_sogo_to_postgre[column.data_type]
-        if isinstance(data_type, str):
-            pass
-        elif callable(data_type):
-            if column.extra_args is None:
-                data_type = data_type()
-            else:
-                data_type = data_type(**column.extra_args)
-
         sql_column = SQL("{column_name} {column_type} ").format(
             column_name=Identifier(column.name),
-            column_type=SQL(data_type),
+            column_type=SQL(column_to_type(column)),
         )
 
         if not column.is_nullable:
@@ -142,6 +143,51 @@ def table_to_query(table: Table) -> Composed:
     )
 
     return sql_query
+
+def add_column_to_query(table: Table, column: Column, default: Any = None) -> Composed:
+    """
+    Return the SQL query to add a column to a table
+    """
+    sql_column = SQL("{column_name} {column_type}").format(
+        column_name=Identifier(column.name),
+        column_type=SQL(column_to_type(column)),
+    )
+
+    if not column.is_nullable:
+        sql_column = Composed([sql_column, SQL(" NOT NULL")])
+
+    if default is not None:
+        default_value = Jsonb(default) if isinstance(default, dict) else default
+        sql_column = Composed([sql_column, SQL(" DEFAULT {}").format(Literal(default_value))])
+
+    if column.is_unique:
+        sql_column = Composed([sql_column, SQL(" UNIQUE")])
+
+    return SQL("ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {column}").format(
+        table_name=Identifier(table.name),
+        column=sql_column,
+    )
+
+def drop_default_to_query(table: Table, column: Column) -> Composed:
+    """
+    Return the SQL query to remove the default value of a column
+    """
+    return SQL("ALTER TABLE {table_name} ALTER COLUMN {column_name} DROP DEFAULT").format(
+        table_name=Identifier(table.name),
+        column_name=Identifier(column.name),
+    )
+
+def modify_column_to_query(table: Table, column: Column) -> Composed:
+    """
+    Return the SQL query to change the type and the nullability of a column
+    """
+    return SQL("ALTER TABLE {table_name} ALTER COLUMN {column_name} TYPE {column_type} USING {column_name}::{column_type}, "
+               "ALTER COLUMN {column_name} {nullability}").format(
+        table_name=Identifier(table.name),
+        column_name=Identifier(column.name),
+        column_type=SQL(column_to_type(column)),
+        nullability=SQL("DROP NOT NULL") if column.is_nullable else SQL("SET NOT NULL"),
+    )
 
 def _col_ref(name: str) -> Composed:
     """Build a column reference, supporting qualified names (table.column)."""
@@ -294,7 +340,7 @@ class ClientPostgreSQL(ClientSQL):
         Create a table
         Table should already be sql-exploit free
         """
-        if self.db_conn and self.db_conn.closed:
+        if self.db_conn is None or self.db_conn.closed:
             self.connect()
 
         sql_query = table_to_query(table)
@@ -317,7 +363,7 @@ class ClientPostgreSQL(ClientSQL):
         """Create all indexes defined on the table. Existing indexes are silently skipped."""
         if not table.index:
             return
-        if self.db_conn and self.db_conn.closed:
+        if self.db_conn is None or self.db_conn.closed:
             self.connect()
         for idx in table.index:
             if idx.fulltext:
@@ -349,12 +395,49 @@ class ClientPostgreSQL(ClientSQL):
         """
         Create several tables and their indexes
         """
-        if self.db_conn and self.db_conn.closed:
+        if self.db_conn is None or self.db_conn.closed:
             self.connect()
 
         for table in table_list:
             self.create_table(table)
             self.create_indexes(table)
+
+    def _alter_table(self, table: Table, sql_query: Composed) -> None:
+        """
+        Execute a query altering a table
+        """
+        if self.db_conn is None or self.db_conn.closed:
+            self.connect()
+
+        logger_sql.info("QUERY: %s", sql_query.as_string())
+
+        if self.db_conn is not None:
+            try:
+                self.db_conn.execute(sql_query)
+            except Error as e:
+                logger_sql.error("Error when altering table %s: %s", table.name, e)
+                raise RequestException(f"Error when altering table {table.name}") from e
+            finally:
+                self.db_conn.commit()
+
+    def add_column(self, table: Table, column: Column, default: Any = None) -> None:
+        """
+        Add a column at the end of an existing table. Does nothing if the column already exists.
+
+        The default value only fills the existing rows, it is removed afterwards so the schema
+        stays the same as a table created from scratch.
+        """
+        self._alter_table(table, add_column_to_query(table, column, default))
+        if default is not None:
+            self._alter_table(table, drop_default_to_query(table, column))
+
+    def modify_column(self, table: Table, column: Column) -> None:
+        """
+        Change the type and the nullability of an existing column to match the given Column.
+
+        Column.is_unique is ignored: existing unique constraints are kept and none is added.
+        """
+        self._alter_table(table, modify_column_to_query(table, column))
 
     def insert_in_table(self, table_name: str, column_tuple: tuple[str, ...], values_tuple: list[list[Any]]) -> int:  # pylint: disable=too-many-locals,too-many-branches
         """
