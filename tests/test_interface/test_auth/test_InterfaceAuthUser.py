@@ -84,6 +84,7 @@ class FakeModuleUserProfile:
         # Tracking
         self.is_user_profile_present_args = None
         self.create_user_profile_args = None
+        self.create_user_profile_default_preferences = None
         self.update_user_folders_args = None
 
         # Results
@@ -94,9 +95,10 @@ class FakeModuleUserProfile:
         self.is_user_profile_present_args = uid
         return self.is_user_profile_present_result
 
-    def create_user_profile(self, user):
+    def create_user_profile(self, user, default_preferences=None):
         """Create user profile."""
         self.create_user_profile_args = user
+        self.create_user_profile_default_preferences = default_preferences
 
     def update_user_folders(self, uid, calendar_key, addressbook_key):
         """Update user folders with calendar and addressbook keys."""
@@ -105,6 +107,22 @@ class FakeModuleUserProfile:
     def get_partial_user_preferences(self, uid, subparent):
         """Return fake general preferences carrying the user timezone."""
         return {"USER_GENERAL": {"SOGO_U_TIMEZONE": "Europe/Paris"}}
+
+
+FAKE_USER_DEFAULT_PREFERENCES = {"USER_GENERAL": {"SOGO_U_LANGUAGE": "French"}}
+
+
+class FakeModuleAdminConfig:
+    """Fake ModuleAdminConfig for testing."""
+    requested_domains: list = []
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def get_user_default_settings_for_domain(self, domain_id):
+        """Return fake default user preferences for the domain."""
+        FakeModuleAdminConfig.requested_domains.append(domain_id)
+        return FAKE_USER_DEFAULT_PREFERENCES
 
 
 class FakeCalendarObject:
@@ -151,6 +169,7 @@ class FakeUser:
         self.mail = uid
         self.source_id = "source1"
         self.authenticated = authenticated
+        self.domain = uid.split("@")[1] if "@" in uid else ""
 
 
 ANONYMOUS_USER = FakeUser("anonymous", "anonymous", authenticated=False)
@@ -194,6 +213,11 @@ def patch_modules_on_interface(monkeypatch, fake_module_auth, fake_module_user_p
     monkeypatch.setattr(
         "app.interface.auth.InterfaceAuthUser.ModuleMail",
         FakeModuleMail
+    )
+    FakeModuleAdminConfig.requested_domains = []
+    monkeypatch.setattr(
+        "app.interface.auth.InterfaceAuthUser.ModuleAdminConfig",
+        FakeModuleAdminConfig
     )
 
 
@@ -393,6 +417,9 @@ def test_plain_login_create_user_profile(monkeypatch):
     assert status_code == 200
     assert fake_profile.create_user_profile_args is not None
     assert fake_profile.create_user_profile_args.uid == "newuser@example.com"
+    # The admin default user preferences of the user's domain are used for the new profile
+    assert FakeModuleAdminConfig.requested_domains == ["example.com"]
+    assert fake_profile.create_user_profile_default_preferences == FAKE_USER_DEFAULT_PREFERENCES
     assert interface._module_calendar.create_personal_calendar_args == "newuser@example.com"  # pylint: disable=protected-access
     # The user's preferred timezone is forwarded to the default calendar.
     assert interface._module_calendar.create_personal_calendar_timezone == "Europe/Paris"  # pylint: disable=protected-access

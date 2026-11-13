@@ -391,7 +391,7 @@ def test_get_one_domain_setting_found_merges_with_defaults(monkeypatch):
     from app.config.db import tables as tbl
 
     results_queue = [
-        # domain select returns one row with all columns (id, hash, name, desc, info, settings, origin)
+        # domain select returns one row with all columns (id, hash, name, desc, info, settings, origin, user_defaults)
         [(
             1,
             "hash123",
@@ -400,6 +400,7 @@ def test_get_one_domain_setting_found_merges_with_defaults(monkeypatch):
             {},
             domain_diff,
             {},
+            {"USER_GENERAL": {"SOGO_U_LANGUAGE": "French"}},
         )],
         # default settings select
         [(default_settings,)],
@@ -418,6 +419,8 @@ def test_get_one_domain_setting_found_merges_with_defaults(monkeypatch):
     assert "settings" in result
     assert result["settings"]["SOGoTimeZone"] == "Europe/Paris"
     assert "origin" in result
+    # The user defaults have their own resource and are not exposed with the domain settings
+    assert tbl.COL_DOMAIN_USER_DEFAULTS.name not in result
 
 
 def test_get_one_domain_setting_too_many_rows_raises(monkeypatch):
@@ -469,6 +472,9 @@ def test_create_domain_settings_success(monkeypatch):
     assert "hash" in result
     assert "settings" in result
     assert "origin" in result
+    # A new domain starts without any user defaults override
+    row = dict(zip(fake_db.insert_calls[0]["column_tuple"], fake_db.insert_calls[0]["values_tuple"][0]))
+    assert row[tbl.COL_DOMAIN_USER_DEFAULTS.name] == {}
 
 
 def test_create_domain_settings_domain_already_exists_raises(monkeypatch):
@@ -764,3 +770,235 @@ def test_get_all_domains_settings_pagination(monkeypatch):
     module.get_all_domains_settings(_make_collection_param(page=3, page_size=10))
 
     assert len(fake_db.count_calls) == 1
+
+
+# ===========================================================================
+# Tests for the default user preferences (global and per domain)
+# ===========================================================================
+
+from app.config.db import tables as tbl  # pylint: disable=wrong-import-position
+from app.config.settings.SogoSchema import check_data_for_sogo_schemas  # pylint: disable=wrong-import-position
+from app.config.settings.UserSettings import get_all_user_settings_schema  # pylint: disable=wrong-import-position
+from marshmallow import ValidationError  # pylint: disable=wrong-import-position
+
+
+class SequencedFakeClientSQL(FakeClientSQL):
+    """FakeClientSQL returning a different select result for each successive call."""
+
+    def __init__(self, select_results):
+        super().__init__()
+        self.select_results = list(select_results)
+
+    def select_from_table(self, table, columns, condition=None, offset=None, limit=None, sort_by=None, order=None):
+        self.select_calls.append({"table": table, "columns": columns, "condition": condition})
+        return iter(self.select_results.pop(0))
+
+
+def _user_marshmallow_defaults() -> dict:
+    """Complete default user preferences, as produced by marshmallow."""
+    return check_data_for_sogo_schemas({}, get_all_user_settings_schema)
+
+
+def test_get_user_default_settings_empty_table(monkeypatch):
+    """get_user_default_settings returns {} when TABLE_SETTINGS is empty."""
+    module, fake_db = _make_module(monkeypatch)
+    fake_db.select_result = []
+    assert module.get_user_default_settings() == {}
+
+
+def test_get_user_default_settings_null_column(monkeypatch):
+    """get_user_default_settings returns {} when the column is NULL (database older than the column)."""
+    module, fake_db = _make_module(monkeypatch)
+    fake_db.select_result = [(None,)]
+    assert module.get_user_default_settings() == {}
+
+
+def test_update_user_default_settings_fills_marshmallow_defaults(monkeypatch):
+    """Updating a NULL column with {} stores the complete marshmallow defaults."""
+    module, fake_db = _make_module(monkeypatch)
+    fake_db.select_result = [(None,)]
+
+    _, result = module.update_user_default_settings({})
+
+    assert result == _user_marshmallow_defaults()
+    assert fake_db.update_calls[0]["column_tuple"] == (tbl.COL_SETTINGS_USER_DEFAULT.name,)
+    assert fake_db.update_calls[0]["values_list"] == [result]
+
+
+def test_update_user_default_settings_merge_patch(monkeypatch):
+    """The patch is merged on the stored values, the other values are kept."""
+    module, fake_db = _make_module(monkeypatch)
+    fake_db.select_result = [(_user_marshmallow_defaults(),)]
+
+    _, result = module.update_user_default_settings({"USER_GENERAL": {"SOGO_U_LANGUAGE": "French"}})
+
+    assert result["USER_GENERAL"]["SOGO_U_LANGUAGE"] == "French"
+    assert result["USER_GENERAL"]["SOGO_U_TIMEZONE"] == _user_marshmallow_defaults()["USER_GENERAL"]["SOGO_U_TIMEZONE"]
+
+
+def test_update_user_default_settings_invalid_raises(monkeypatch):
+    """An invalid value raises ValidationError and nothing is written."""
+    module, fake_db = _make_module(monkeypatch)
+    fake_db.select_result = [(_user_marshmallow_defaults(),)]
+
+    with pytest.raises(ValidationError):
+        module.update_user_default_settings({"USER_GENERAL": {"SOGO_U_TIMEZONE": "Not/A_Timezone"}})
+    assert fake_db.update_calls == []
+
+
+def test_update_user_default_settings_insert_first_time(monkeypatch):
+    """On an empty TABLE_SETTINGS, the row is inserted with the user defaults in the right column."""
+    module, fake_db = _make_module(monkeypatch)
+    fake_db.select_result = []
+
+    _, result = module.update_user_default_settings({})
+
+    values_tuple = fake_db.insert_calls[0]["values_tuple"][0]
+    column_tuple = fake_db.insert_calls[0]["column_tuple"]
+    assert len(values_tuple) == len(column_tuple)
+    row = dict(zip(column_tuple, values_tuple))
+    assert row[tbl.COL_SETTINGS_USER_DEFAULT.name] == result
+    assert row[tbl.COL_SETTINGS_SYSTEM.name] == {}
+    assert row[tbl.COL_SETTINGS_DOMAIN_DEFAULT.name] == {}
+
+
+def test_update_system_settings_insert_leaves_user_default_empty(monkeypatch):
+    """Inserting the system settings creates the row with an empty user defaults column."""
+    module, fake_db = _make_module(monkeypatch)
+    fake_db.select_result = []
+
+    with patch("app.module.admin.ModuleAdminConfig.check_data_for_sogo_schemas", return_value=SYSTEM_SETTINGS):
+        module.update_system_settings(SYSTEM_SETTINGS)
+
+    row = dict(zip(fake_db.insert_calls[0]["column_tuple"], fake_db.insert_calls[0]["values_tuple"][0]))
+    assert row[tbl.COL_SETTINGS_SYSTEM.name] == SYSTEM_SETTINGS
+    assert row[tbl.COL_SETTINGS_USER_DEFAULT.name] == {}
+
+
+def test_get_user_default_settings_for_domain_merges_diff(monkeypatch):
+    """The domain diff is applied on top of the global default user preferences."""
+    global_settings = _user_marshmallow_defaults()
+    domain_diff = {"USER_GENERAL": {"SOGO_U_LANGUAGE": "French"}}
+    fake_db = SequencedFakeClientSQL([[(deepcopy(global_settings),)], [(domain_diff,)]])
+    module, _ = _make_module(monkeypatch, fake_db)
+
+    result = module.get_user_default_settings_for_domain(DOMAIN_ID)
+
+    assert result["USER_GENERAL"]["SOGO_U_LANGUAGE"] == "French"
+    assert result["USER_GENERAL"]["SOGO_U_TIMEZONE"] == global_settings["USER_GENERAL"]["SOGO_U_TIMEZONE"]
+
+
+def test_get_user_default_settings_for_domain_unknown_domain(monkeypatch):
+    """An unknown domain gets the global default user preferences."""
+    global_settings = _user_marshmallow_defaults()
+    fake_db = SequencedFakeClientSQL([[(deepcopy(global_settings),)], []])
+    module, _ = _make_module(monkeypatch, fake_db)
+
+    assert module.get_user_default_settings_for_domain(DOMAIN_ID) == global_settings
+
+
+def test_get_user_default_settings_for_domain_domainless(monkeypatch):
+    """A user without domain gets the global settings, without querying the domain table."""
+    global_settings = _user_marshmallow_defaults()
+    fake_db = SequencedFakeClientSQL([[(deepcopy(global_settings),)]])
+    module, _ = _make_module(monkeypatch, fake_db)
+
+    assert module.get_user_default_settings_for_domain("") == global_settings
+    assert len(fake_db.select_calls) == 1
+
+
+def test_get_one_domain_user_default_settings_unknown_domain(monkeypatch):
+    """An unknown domain returns the global settings, all marked as default."""
+    global_settings = {"USER_GENERAL": {"SOGO_U_LANGUAGE": "English"}}
+    fake_db = SequencedFakeClientSQL([[(global_settings,)], []])
+    module, _ = _make_module(monkeypatch, fake_db)
+
+    result = module.get_one_domain_user_default_settings(DOMAIN_ID)
+
+    assert result["domain_name"] == "default"
+    assert result["settings"] == global_settings
+    assert result["origin"] == {"USER_GENERAL": {"SOGO_U_LANGUAGE": "default"}}
+
+
+def test_get_one_domain_user_default_settings_with_diff(monkeypatch):
+    """A known domain returns the merged settings and the origin of each value."""
+    global_settings = {"USER_GENERAL": {"SOGO_U_LANGUAGE": "English", "SOGO_U_TIMEZONE": "UTC"}}
+    domain_diff = {"USER_GENERAL": {"SOGO_U_LANGUAGE": "French"}}
+    fake_db = SequencedFakeClientSQL([[(global_settings,)], [(domain_diff,)]])
+    module, _ = _make_module(monkeypatch, fake_db)
+
+    result = module.get_one_domain_user_default_settings(DOMAIN_ID)
+
+    assert result["domain_name"] == DOMAIN_ID
+    assert result["settings"] == {"USER_GENERAL": {"SOGO_U_LANGUAGE": "French", "SOGO_U_TIMEZONE": "UTC"}}
+    assert result["origin"] == {"USER_GENERAL": {"SOGO_U_LANGUAGE": DOMAIN_ID, "SOGO_U_TIMEZONE": "default"}}
+
+
+def test_update_one_domain_user_default_settings_unknown_domain_raises(monkeypatch):
+    """Updating the user defaults of an unknown domain raises RequestException (404)."""
+    fake_db = SequencedFakeClientSQL([[]])
+    module, _ = _make_module(monkeypatch, fake_db)
+
+    with pytest.raises(RequestException) as exc_info:
+        module.update_one_domain_user_default_settings(DOMAIN_ID, {})
+    assert exc_info.value.error == err.ERROR_DOMAIN_NAME_NOT_FOUND
+    assert fake_db.update_calls == []
+
+
+def test_update_one_domain_user_default_settings_stores_only_diff(monkeypatch):
+    """Only the values different from the global ones are stored for the domain."""
+    global_settings = _user_marshmallow_defaults()
+    fake_db = SequencedFakeClientSQL([[({},)], [(deepcopy(global_settings),)]])
+    module, _ = _make_module(monkeypatch, fake_db)
+
+    patch_data = {"USER_GENERAL": {"SOGO_U_LANGUAGE": "French",
+                                   "SOGO_U_TIMEZONE": global_settings["USER_GENERAL"]["SOGO_U_TIMEZONE"]}}
+    _, result = module.update_one_domain_user_default_settings(DOMAIN_ID, patch_data)
+
+    stored = fake_db.update_calls[0]
+    assert stored["column_tuple"] == (tbl.COL_DOMAIN_USER_DEFAULTS.name,)
+    assert stored["values_list"] == [{"USER_GENERAL": {"SOGO_U_LANGUAGE": "French"}}]
+    assert result["settings"]["USER_GENERAL"]["SOGO_U_LANGUAGE"] == "French"
+    assert result["origin"]["USER_GENERAL"]["SOGO_U_LANGUAGE"] == DOMAIN_ID
+    assert result["origin"]["USER_GENERAL"]["SOGO_U_TIMEZONE"] == "default"
+
+
+def test_update_one_domain_user_default_settings_null_reverts_to_global(monkeypatch):
+    """A null value removes the domain override: the global value applies again."""
+    global_settings = _user_marshmallow_defaults()
+    global_settings["USER_GENERAL"]["SOGO_U_LANGUAGE"] = "German"
+    stored_diff = {"USER_GENERAL": {"SOGO_U_LANGUAGE": "French"}}
+    fake_db = SequencedFakeClientSQL([[(stored_diff,)], [(deepcopy(global_settings),)]])
+    module, _ = _make_module(monkeypatch, fake_db)
+
+    _, result = module.update_one_domain_user_default_settings(DOMAIN_ID, {"USER_GENERAL": {"SOGO_U_LANGUAGE": None}})
+
+    assert fake_db.update_calls[0]["values_list"] == [{}]
+    assert result["settings"]["USER_GENERAL"]["SOGO_U_LANGUAGE"] == "German"
+
+
+def test_update_one_domain_user_default_settings_invalid_raises(monkeypatch):
+    """An invalid value raises ValidationError and nothing is written."""
+    fake_db = SequencedFakeClientSQL([[({},)], [(_user_marshmallow_defaults(),)]])
+    module, _ = _make_module(monkeypatch, fake_db)
+
+    with pytest.raises(ValidationError):
+        module.update_one_domain_user_default_settings(DOMAIN_ID, {"USER_GENERAL": {"SOGO_U_TIMEZONE": "Not/A_Timezone"}})
+    assert fake_db.update_calls == []
+
+
+def test_update_one_domain_user_default_settings_update_fails_raises(monkeypatch):
+    """BugException is raised when the update does not touch exactly one row."""
+    fake_db = SequencedFakeClientSQL([[({},)], [(_user_marshmallow_defaults(),)]])
+    fake_db.update_result = 0
+    module, _ = _make_module(monkeypatch, fake_db)
+
+    with pytest.raises(BugException):
+        module.update_one_domain_user_default_settings(DOMAIN_ID, {})
+
+
+def test_get_dynamic_form_settings_includes_user(monkeypatch):
+    """The dynamic form exposes the user settings schemas for the admin UI."""
+    module, _ = _make_module(monkeypatch)
+    form = module.get_dynamic_form_settings()
+    assert len(form["user"]) == len(get_all_user_settings_schema())

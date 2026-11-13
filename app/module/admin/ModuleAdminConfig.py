@@ -9,6 +9,7 @@ import json
 from app.config.db import tables as tbl
 from app.config.settings.SystemSettings import get_all_system_schemas
 from app.config.settings.DomainSettings import get_all_domain_schemas
+from app.config.settings.UserSettings import get_all_user_settings_schema
 from app.config.settings.DynamicFormSettings import create_dynamic_dict_for_settings
 from app.config.settings.SogoSchema import check_data_for_sogo_schemas
 from app.module.common_module import get_sogo6_database
@@ -82,6 +83,10 @@ class ModuleAdminConfig:
         for schema in get_all_domain_schemas():
             full_form["domain"].append(create_dynamic_dict_for_settings(schema()))
 
+        #User default settings
+        full_form["user"] = []
+        for schema in get_all_user_settings_schema():
+            full_form["user"].append(create_dynamic_dict_for_settings(schema()))
 
         return full_form
 
@@ -152,6 +157,15 @@ class ModuleAdminConfig:
         """
 
         return self._get_setting_from_table_settings([tbl.COL_SETTINGS_DOMAIN_DEFAULT])[0]
+
+    def get_user_default_settings(self) -> dict:
+        """
+        Return the global default user preferences or an empty dict if there is not
+
+        :return: dict with current global default user preferences
+        :rtype: dict
+        """
+        return self._get_setting_from_table_settings([tbl.COL_SETTINGS_USER_DEFAULT])[0] or {}
 
     def get_both_system_and_default_domain_settings(self) -> tuple[dict, dict]:
         """
@@ -272,6 +286,9 @@ class ModuleAdminConfig:
         for idx, col in enumerate(tbl.TABLE_DOMAIN.columns):
             if col.name == tbl.COL_DOMAIN_SETTINGS.name:
                 domain_specific_settings = result[0][idx]
+            elif col.name == tbl.COL_DOMAIN_USER_DEFAULTS.name:
+                #Exposed by its own resource, see get_one_domain_user_default_settings
+                continue
             else:
                 ret[col.name] = result[0][idx]
 
@@ -343,18 +360,24 @@ class ModuleAdminConfig:
             clean_param: dict = {}
             merge_patch(new_param, clean_param)
             values = check_data_for_sogo_schemas(clean_param, get_schema)
-            if column.name == tbl.COL_SETTINGS_SYSTEM.name:
-                values_tuple = [1, __version__, values, {}]
-            elif column.name == tbl.COL_SETTINGS_DOMAIN_DEFAULT.name:
-                values_tuple = [1, __version__, {}, values]
-            else:
+            values_by_column: dict[str, dict] = {tbl.COL_SETTINGS_SYSTEM.name: {},
+                                                 tbl.COL_SETTINGS_DOMAIN_DEFAULT.name: {},
+                                                 tbl.COL_SETTINGS_USER_DEFAULT.name: {}}
+            if column.name not in values_by_column:
                 raise BugException(f"Trying to insert an unknown column in {tbl.TABLE_SETTINGS.name}: {column.name}", err.ERROR_BUG_UNKNWON_COLUMN)
+            values_by_column[column.name] = values
+            values_tuple = [1,
+                            __version__,
+                            values_by_column[tbl.COL_SETTINGS_SYSTEM.name],
+                            values_by_column[tbl.COL_SETTINGS_DOMAIN_DEFAULT.name],
+                            values_by_column[tbl.COL_SETTINGS_USER_DEFAULT.name]]
             ret = self.sogo_db_manager.insert_in_table(table_name=tbl.TABLE_SETTINGS.name,
                                                column_tuple=tuple(tbl.TABLE_SETTINGS.columns_name),
                                                values_tuple=[values_tuple])
         if size == 1:
             #Merge the new data and check it
-            current_settings: dict = result[0][0]
+            #The column may be NULL (e.g. settings_user_default on a database created before this column)
+            current_settings: dict = result[0][0] or {}
             merge_patch(new_param, current_settings)
 
             values = check_data_for_sogo_schemas(current_settings, get_schema)
@@ -397,6 +420,21 @@ class ModuleAdminConfig:
 
         return self._update_setting_in_table_settings(new_param, tbl.COL_SETTINGS_DOMAIN_DEFAULT, get_all_domain_schemas)
 
+    def update_user_default_settings(self, new_param: dict) -> tuple[str, dict]:
+        """
+        Method to update/insert the global default user preferences.
+        The stored value is always complete: missing values are filled with the marshmallow defaults.
+
+        :param new_param: values for the settings (JSON merge patch)
+        :type new_param: dict
+        :return: Return the code error and the new settings values
+        :rtype: tuple[str, dict]
+
+        :raises: ValidationError()
+        """
+
+        return self._update_setting_in_table_settings(new_param, tbl.COL_SETTINGS_USER_DEFAULT, get_all_user_settings_schema)
+
     def create_domain_settings(self, new_param: dict) -> tuple[str, dict]:
         """
         Create new domain settings
@@ -429,8 +467,9 @@ class ModuleAdminConfig:
 
         value_hash = get_unique_token(HASH_SIZE_DOMAIN)
 
-        insert_values = [[value_hash, domain_name, domain_description, domain_info, diff, origins]]
-        colums = (tbl.COL_HASH.name, tbl.COL_DOMAIN_NAME.name, tbl.COL_DOMAIN_DESCRIPTION.name, tbl.COL_DOMAIN_INFO.name, tbl.COL_DOMAIN_SETTINGS.name, tbl.COL_DOMAIN_ORIGIN.name)
+        insert_values = [[value_hash, domain_name, domain_description, domain_info, diff, origins, {}]]
+        colums = (tbl.COL_HASH.name, tbl.COL_DOMAIN_NAME.name, tbl.COL_DOMAIN_DESCRIPTION.name, tbl.COL_DOMAIN_INFO.name,
+                  tbl.COL_DOMAIN_SETTINGS.name, tbl.COL_DOMAIN_ORIGIN.name, tbl.COL_DOMAIN_USER_DEFAULTS.name)
 
         #Insert in column
         try:
@@ -540,3 +579,118 @@ class ModuleAdminConfig:
         deleted_rows = self.sogo_db_manager.delete_row_in_table(tbl.TABLE_DOMAIN.name, cond, expected_row=1)
 
         return deleted_rows
+
+    def _get_one_domain_user_default_diff(self, domain_id: str) -> dict | None:
+        """
+        Get the raw stored diff of the default user preferences for a domain.
+
+        :param domain_id: The domain name
+        :type domain_id: str
+        :return: The stored diff (empty dict if none), or None if the domain does not exist
+        :rtype: dict | None
+        """
+        self.sogo_db_manager.connect()
+        cond_select = EqualCondition(param_name=tbl.COL_DOMAIN_NAME.name, param_value=domain_id)
+        result = list(self.sogo_db_manager.select_from_table(table=tbl.TABLE_DOMAIN,
+                                                             columns=[tbl.COL_DOMAIN_USER_DEFAULTS],
+                                                             condition=cond_select))
+        if len(result) == 0:
+            return None
+        return result[0][0] or {}
+
+    def get_user_default_settings_for_domain(self, domain_id: str) -> dict:
+        """
+        Return the default user preferences that apply to a new user of this domain:
+        the global default user preferences merged with the domain-specific diff.
+        If the domain has no specific settings, the global ones are returned.
+
+        :param domain_id: The domain name (can be empty for domainless login)
+        :type domain_id: str
+        :return: The merged default user preferences
+        :rtype: dict
+        """
+        merged = deepcopy(self.get_user_default_settings())
+        domain_diff = self._get_one_domain_user_default_diff(domain_id) if domain_id else None
+        if domain_diff:
+            merge_patch(domain_diff, merged)
+        return merged
+
+    def get_one_domain_user_default_settings(self, domain_id: str) -> dict:
+        """
+        Get the default user preferences of a domain, with the origin of each value.
+        If the domain does not exist, the global default user preferences are returned
+        (same behavior as get_one_domain_setting).
+
+        :param domain_id: The domain name
+        :type domain_id: str
+        :return: Dict with keys domain_name, settings (merged) and origin
+        :rtype: dict
+        """
+        global_settings = self.get_user_default_settings()
+        domain_diff = self._get_one_domain_user_default_diff(domain_id)
+
+        if domain_diff is None:
+            logger.debug("No domain found for name %s, return the global default user settings", domain_id)
+            return {
+                "domain_name": "default",
+                "settings": global_settings,
+                "origin": set_origin_from_settings("default", global_settings, global_settings)
+            }
+
+        merged_settings = deepcopy(global_settings)
+        merge_patch(domain_diff, merged_settings)
+        return {
+            "domain_name": domain_id,
+            "settings": merged_settings,
+            "origin": set_origin_from_settings(domain_id, domain_diff, global_settings)
+        }
+
+    def update_one_domain_user_default_settings(self, domain_id: str, new_param: dict) -> tuple[str, dict]:
+        """
+        Update the default user preferences of a domain.
+
+        new_param is a JSON merge patch applied on the stored diff: a null value removes
+        the domain override, so the global value applies again.
+        The merged result is validated, and only the diff against the global
+        default user preferences is stored.
+
+        :param domain_id: The domain name
+        :type domain_id: str
+        :param new_param: values for the settings (JSON merge patch)
+        :type new_param: dict
+        :return: Return the code error and the new settings (merged) with their origin
+        :rtype: tuple[str, dict]
+
+        :raises: RequestException() if the domain does not exist
+        :raises: ValidationError()
+        """
+        stored_diff = self._get_one_domain_user_default_diff(domain_id)
+        if stored_diff is None:
+            raise RequestException(f"Domain '{domain_id}' not found", err.ERROR_DOMAIN_NAME_NOT_FOUND)
+
+        global_settings = self.get_user_default_settings()
+
+        merge_patch(new_param, stored_diff)
+        merged_settings = deepcopy(global_settings)
+        merge_patch(stored_diff, merged_settings)
+        merged_settings = check_data_for_sogo_schemas(merged_settings, get_all_user_settings_schema)
+
+        # Keep only what differs from the global default user preferences
+        new_diff = _compute_diff(merged_settings, global_settings)
+
+        cond = EqualCondition(tbl.COL_DOMAIN_NAME.name, domain_id)
+        row_updated = self.sogo_db_manager.update_in_table(table_name=tbl.TABLE_DOMAIN.name,
+                                                           column_tuple=(tbl.COL_DOMAIN_USER_DEFAULTS.name,),
+                                                           values_list=[new_diff],
+                                                           condition=cond)
+        if row_updated != 1:
+            #Only one row is supposed to be updated
+            logger.error("Something went wrong when updating the domain user default settings for %s, rows updated: %s, should be 1", domain_id, row_updated)
+            raise BugException(f"Something went wrong when updating the domain user default settings, rows updated: {row_updated}, should be 1", err.ERROR_TABLE_SYSTEM_NOT_UNIQUE)
+
+        result = {
+            "domain_name": domain_id,
+            "settings": merged_settings,
+            "origin": set_origin_from_settings(domain_id, new_diff, global_settings),
+        }
+        return err.ERROR_NO_ERROR.c, result

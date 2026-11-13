@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, cast, Any
+from typing import TYPE_CHECKING, Any
 
 from marshmallow import EXCLUDE, ValidationError
 
@@ -70,14 +70,16 @@ class ModuleUserProfile:
         logger_user_profile.debug("No user profile found for uid: %s", uid)
         return False
 
-    def create_user_profile(self, user: User) -> None:
+    def create_user_profile(self, user: User, default_preferences: dict | None = None) -> None:
         """
         Create a new user profile in the database with default values
-        
-        :param uid: User unique identifier
-        :type uid: str
-        :param contact_info: Contact information from user source (uid, cn, email)
-        :type contact_info: dict
+
+        :param user: The user to create the profile for
+        :type user: User
+        :param default_preferences: default user preferences set by the admin (global merged with the
+            user's domain ones). Each part is validated, an invalid or missing part falls back on the
+            marshmallow defaults.
+        :type default_preferences: dict | None
         """
         self.sogo_db_manager.connect()
 
@@ -98,7 +100,7 @@ class ModuleUserProfile:
         }
 
         # Generate the default preferences
-        default_pref_by_admin = cast(dict[str, dict], self.user_domain.get("USER_DEFAULT", {}))
+        default_pref_by_admin: dict[str, dict] = default_preferences or {}
         preferences: dict[str, dict] = {}
         for user_schema in get_all_user_settings_schema():
             default_schema = user_schema()

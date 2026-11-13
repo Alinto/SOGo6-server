@@ -94,6 +94,31 @@ class ApiAdminConfigDefaultDomain(MethodView):
         interface_api : InterfaceApiAdminConfig = g.inter
         return interface_api.update_all_setting_domain_default(new_data["settings"])
 
+@blp.route("/user-default")
+class ApiAdminConfigUserDefault(MethodView):
+    """
+    Singleton, can't be created, only modified
+
+    Endpoint for the global default user preferences, applied when a new user onboards
+    """
+    @blp.response(200, sch.AdminConfigUserDefaultGetSchema, example=sch.AdminConfigUserDefaultGetSchema.example())
+    def get(self,) -> ResponseReturnValue:
+        """
+        Singleton, fetch the global default user preferences
+        """
+        interface_api : InterfaceApiAdminConfig = g.inter
+        return interface_api.get_all_setting_user_default()
+
+    @blp.arguments(sch.AdminConfigUserDefaultPatchSchema, example=sch.AdminConfigUserDefaultPatchSchema.example(), error_status_code=400)
+    @blp.response(200, sch.AdminConfigUserDefaultGetSchema, example=sch.AdminConfigUserDefaultGetSchema.example())
+    def patch(self, new_data: dict) -> ResponseReturnValue:
+        """
+        Singleton, update the global default user preferences (JSON merge patch).
+        Only new users are affected, existing user profiles are not modified.
+        """
+        interface_api : InterfaceApiAdminConfig = g.inter
+        return interface_api.update_all_setting_user_default(new_data["settings"])
+
 @blp.route("/domains")
 class ApiAdminConfigDomain(MethodView):
     """
@@ -153,6 +178,32 @@ class ApiAdminConfigDomainSettings(MethodView):
         if code == 200:
             return None
         return ret, code
+
+
+@blp.route("/domains/<string:domain_name>/user-default")
+class ApiAdminConfigDomainUserDefault(MethodView):
+    """
+    Singleton for a domain, the default user preferences applied when a new user of this domain onboards
+    """
+    @blp.response(200, sch.AdminConfigDomainUserDefaultGetSchema, example=sch.AdminConfigDomainUserDefaultGetSchema.example())
+    def get(self, domain_name: str) -> ResponseReturnValue:
+        """
+        Resource, get the default user preferences of the domain, merged with the global ones,
+        and the origin of each value. Unknown domain returns the global default user preferences.
+        """
+        interface_api : InterfaceApiAdminConfig = g.inter
+        return interface_api.get_domain_user_default_settings(domain_name)
+
+    @blp.arguments(sch.AdminConfigUserDefaultPatchSchema, example=sch.AdminConfigUserDefaultPatchSchema.example(), error_status_code=400)
+    @blp.response(200, sch.AdminConfigDomainUserDefaultGetSchema, example=sch.AdminConfigDomainUserDefaultGetSchema.example())
+    def patch(self, new_data: dict, domain_name: str) -> ResponseReturnValue:
+        """
+        Resource, update the default user preferences of the domain (JSON merge patch).
+        A null value removes the domain override, the global value applies again.
+        Only the diff against the global default user preferences is stored.
+        """
+        interface_api : InterfaceApiAdminConfig = g.inter
+        return interface_api.update_domain_user_default_settings(domain_name, new_data["settings"])
 
 # @blp.route("/rulesList")
 # class ApiAdminConfigRule(MethodView):

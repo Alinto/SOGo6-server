@@ -5,6 +5,7 @@ from app.auth.User import UserAnonymous
 from app.config.settings.SystemSettings import SystemSettingsObj, SystemSettings
 from app.config.settings.DomainSettings import AuthSettingsObj, AuthSettings, UserSourceSettings, UserSourceSettingsObj, MailSettings, MailSettingsObj
 from app.config.settings.UserSettings import UserGeneralSettings
+from app.module.admin.ModuleAdminConfig import ModuleAdminConfig
 from app.module.auth.ModuleAuth import ModuleAuth
 from app.module.auth.ModuleUserSource import ModuleUserSource
 from app.module.calendar.ModuleCalendar import ModuleCalendar
@@ -109,7 +110,9 @@ class InterfaceAuthUser:
 
         try:
             if not self.module_user_profile.is_user_profile_present(uid):
-                self.module_user_profile.create_user_profile(user)
+                # Default preferences set by the admin (global merged with the user's domain ones)
+                self.module_user_profile.create_user_profile(
+                    user, ModuleAdminConfig(self.process).get_user_default_settings_for_domain(user.domain))
                 raw_gen: dict = self.module_user_profile.get_partial_user_preferences(uid, UserGeneralSettings.subparent.lower())
                 user_tz: str = raw_gen.get(UserGeneralSettings.subparent, {}).get("SOGO_U_TIMEZONE", "UTC")
                 personal_calendar = self._module_calendar.create_personal_calendar(uid, tz=user_tz)

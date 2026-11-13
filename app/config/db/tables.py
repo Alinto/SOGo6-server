@@ -16,14 +16,18 @@ SELECT TOP 1 * from sogo_settings WHERE id = 1;
 # settings_unique is just a watchguard to make sure there is only one row in this table
 # settings_system: sogo's system settings
 # settings_domain_default: sogo's domain default settings
+# settings_user_default: global default user preferences applied when a new user onboards,
+#   complete set validated by the user settings schemas (filled with marshmallow defaults at init)
 COL_SETTINGS_UNIQUE         = Column(name="settings_unique", data_type="int8")
 COL_SETTINGS_VERSION        = Column(name="settings_version", data_type="str")
 COL_SETTINGS_SYSTEM         = Column(name="settings_system", data_type="dict")
 COL_SETTINGS_DOMAIN_DEFAULT = Column(name="settings_domain_default", data_type="dict")
+COL_SETTINGS_USER_DEFAULT   = Column(name="settings_user_default", data_type="dict", is_nullable=True)
 ALL_SETTINGS_COL            = [COL_SETTINGS_UNIQUE,
                                COL_SETTINGS_VERSION,
                                COL_SETTINGS_SYSTEM,
-                               COL_SETTINGS_DOMAIN_DEFAULT]
+                               COL_SETTINGS_DOMAIN_DEFAULT,
+                               COL_SETTINGS_USER_DEFAULT]
 TABLE_SETTINGS = Table(name=process_config.SOGO_P_TABLE_SETTINGS, columns=ALL_SETTINGS_COL, primary_keys=(COL_SETTINGS_UNIQUE.name,))
 
 ###############################
@@ -41,20 +45,22 @@ SELECT domain_settings,domain_origin from sogo_settings_domains WHERE domain_nam
 # domain_info: Info for this domain
 # domain_settings: Settings of this domain
 # domain_origin: Origin of the tsettings (default sogo, default admin, rule's name or direct)
-# domain_user_defaults: all user settings with value force by the admin
+# domain_user_defaults: default user preferences applied when a new user of this domain onboards.
+#   Only the diff against the global settings_user_default is stored (same pattern as domain_settings)
 COL_DOMAIN_NAME          = Column(name="domain_name", data_type="str", extra_args={"max_len": 255}, is_unique=True) #max length is 255 -> https://www.rfc-editor.org/rfc/rfc1035#section-2.3.4
 COL_DOMAIN_DESCRIPTION   = Column(name="domain_description", data_type="str", is_nullable=True)
 COL_DOMAIN_INFO          = Column(name="domain_info", data_type="str", is_nullable=True)
 COL_DOMAIN_SETTINGS      = Column(name="domain_settings", data_type="dict")
 COL_DOMAIN_ORIGIN        = Column(name="domain_origins", data_type="dict")
-COL_DOMAIN_USER_DEFAULTS = Column(name="domain_user_defaults", data_type="dict")
+COL_DOMAIN_USER_DEFAULTS = Column(name="domain_user_defaults", data_type="dict", is_nullable=True)
 ALL_DOMAIN_COL           = [COL_ID,
                             COL_HASH,
                             COL_DOMAIN_NAME,
                             COL_DOMAIN_DESCRIPTION,
                             COL_DOMAIN_INFO,
                             COL_DOMAIN_SETTINGS,
-                            COL_DOMAIN_ORIGIN]
+                            COL_DOMAIN_ORIGIN,
+                            COL_DOMAIN_USER_DEFAULTS]
 TABLE_DOMAIN = Table(name=process_config.SOGO_P_TABLE_DOMAINS, columns=ALL_DOMAIN_COL, primary_keys=(COL_ID.name, COL_HASH.name, COL_DOMAIN_NAME.name))
 
 #############################

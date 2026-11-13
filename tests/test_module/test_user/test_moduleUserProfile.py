@@ -122,8 +122,7 @@ def get_default_domain_settings():
             "SOGO_D_IDENTITIES_CUSTOM_REPLY_TO_ENABLED": True,
             "SOGO_D_ALLOW_EXT_MAIL_ACCOUNT": True,
             "SOGO_D_SIGNATURE_SIZE_LIMIT": 100
-        },
-        "USER_DEFAULT": {}
+        }
     }
 
 
@@ -209,6 +208,54 @@ def test_create_user_profile_success(monkeypatch):
 
     assert len(fake_client.insert_calls) == 1
     assert fake_client.insert_calls[0]['table'] == tbl.TABLE_USER.name
+
+
+def _inserted_preferences(fake_client) -> dict:
+    """Return the preferences column of the inserted user profile."""
+    insert = fake_client.insert_calls[0]
+    return dict(zip(insert['columns'], insert['values'][0]))[tbl.COL_USER_DEFAULTS.name]
+
+
+def test_create_user_profile_without_admin_defaults(monkeypatch):
+    """Without admin default preferences, the marshmallow defaults are used."""
+    fake_client = FakeClientSQL()
+    patch_import_manager(monkeypatch, fake_client)
+    module = ModuleUserProfile(FakeProcessSettings(), get_default_domain_settings())
+
+    module.create_user_profile(FakeUser())
+
+    preferences = _inserted_preferences(fake_client)
+    assert preferences["USER_GENERAL"]["SOGO_U_LANGUAGE"] == "English"
+    assert preferences["USER_GENERAL"]["SOGO_U_TIMEZONE"] == "UTC"
+
+
+def test_create_user_profile_with_admin_defaults(monkeypatch):
+    """The admin default preferences are used, missing values fall back on the marshmallow defaults."""
+    fake_client = FakeClientSQL()
+    patch_import_manager(monkeypatch, fake_client)
+    module = ModuleUserProfile(FakeProcessSettings(), get_default_domain_settings())
+
+    module.create_user_profile(FakeUser(), {"USER_GENERAL": {"SOGO_U_LANGUAGE": "French", "SOGO_U_TIMEZONE": "Europe/Paris"}})
+
+    preferences = _inserted_preferences(fake_client)
+    assert preferences["USER_GENERAL"]["SOGO_U_LANGUAGE"] == "French"
+    assert preferences["USER_GENERAL"]["SOGO_U_TIMEZONE"] == "Europe/Paris"
+    assert preferences["USER_GENERAL"]["SOGO_U_TIME_FORMAT"] == "HH:mm"
+    assert preferences["USER_SECURITY"]["SOGO_U_MFA_ENABLE"] is False
+
+
+def test_create_user_profile_with_invalid_admin_defaults(monkeypatch):
+    """An invalid part of the admin defaults falls back on the marshmallow defaults, the other parts are kept."""
+    fake_client = FakeClientSQL()
+    patch_import_manager(monkeypatch, fake_client)
+    module = ModuleUserProfile(FakeProcessSettings(), get_default_domain_settings())
+
+    module.create_user_profile(FakeUser(), {"USER_GENERAL": {"SOGO_U_TIMEZONE": "Not/A_Timezone"},
+                                            "USER_SECURITY": {"SOGO_U_MFA_ENABLE": True}})
+
+    preferences = _inserted_preferences(fake_client)
+    assert preferences["USER_GENERAL"]["SOGO_U_TIMEZONE"] == "UTC"
+    assert preferences["USER_SECURITY"]["SOGO_U_MFA_ENABLE"] is True
 
 
 def test_create_user_profile_insert_failed(monkeypatch):
