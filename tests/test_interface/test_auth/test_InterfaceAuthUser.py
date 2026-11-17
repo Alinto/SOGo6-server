@@ -21,20 +21,26 @@ class FakeModuleAuth:
         self.get_user_and_domain_user_sources_args = None
         self.generate_voucher_from_user_args = None
         self.logout_user_args = None
+        self.logout_from_identity_provider_args = None
+        self.sso_ui_redirect = ""
 
         # Results
         self.get_login_mech_result = {"mechanism": "plain", "redirect": None}
         self.get_user_and_domain_user_sources_result = (None, {})
+        self.get_user_and_domain_user_sources_error = None #RequestException raised instead
+        self.logout_from_identity_provider_result = ""
         self.generate_voucher_from_user_result = {"voucher": "test-voucher-123", "expiry": "2026-02-13"}
 
-    def get_login_mech(self, user_uid):
+    def get_login_mech(self, user_uid, ui_redirect, callback_url_builder):
         """Get login mechanism for user."""
-        self.get_login_mech_args = user_uid
+        self.get_login_mech_args = (user_uid, ui_redirect)
         return self.get_login_mech_result
 
     def get_user_and_domain_user_sources(self, uid, password):
         """Get user object and domain user sources."""
         self.get_user_and_domain_user_sources_args = (uid, password)
+        if self.get_user_and_domain_user_sources_error:
+            raise self.get_user_and_domain_user_sources_error
         return self.get_user_and_domain_user_sources_result
 
     def generate_voucher_from_user(self, user):
@@ -45,6 +51,11 @@ class FakeModuleAuth:
     def logout_user(self, voucher_data):
         """Revoke the session associated with the given voucher."""
         self.logout_user_args = voucher_data
+
+    def logout_from_identity_provider(self, user, post_logout_redirect):
+        """Logout from the identity provider of a SSO user."""
+        self.logout_from_identity_provider_args = (user, post_logout_redirect)
+        return self.logout_from_identity_provider_result
 
 
 class FakeModuleUserSource:
@@ -149,6 +160,7 @@ class FakeUser:
         self.uid = uid
         self.password = password
         self.mail = uid
+        self.domain = uid.split("@")[-1]
         self.source_id = "source1"
         self.authenticated = authenticated
 
@@ -156,13 +168,32 @@ class FakeUser:
 ANONYMOUS_USER = FakeUser("anonymous", "anonymous", authenticated=False)
 
 
+USER_DOMAIN_SETTINGS = {"USER_MODULE": {}, "MAIL_SETTINGS": {"SOGO_D_IMAP_AUTH_MECH": "xoauth2"}}
+
+
+class FakeModuleAdminConfig:
+    """Fake ModuleAdminConfig for testing, returns USER_DOMAIN_SETTINGS for every domain."""
+    get_one_domain_setting_args = None
+
+    def __init__(self, process):
+        self.process = process
+
+    def get_one_domain_setting(self, domain_id):
+        """Return the settings of the domain."""
+        FakeModuleAdminConfig.get_one_domain_setting_args = domain_id
+        return {"domain_name": domain_id, "settings": USER_DOMAIN_SETTINGS, "origin": {}}
+
+
 class FakeModuleMail:
     """Fake ModuleMail for testing."""
+    last_instance = None
+
     def __init__(self, user, mail_settings, process):
         self.user = user
         self.mail_settings = mail_settings
         self.process = process
         self.create_special_folders_args = None
+        FakeModuleMail.last_instance = self
 
     def create_special_folders_if_not_exist(self, account_id):
         """Create special folders if they don't exist."""
@@ -195,6 +226,10 @@ def patch_modules_on_interface(monkeypatch, fake_module_auth, fake_module_user_p
         "app.interface.auth.InterfaceAuthUser.ModuleMail",
         FakeModuleMail
     )
+    monkeypatch.setattr(
+        "app.interface.auth.InterfaceAuthUser.ModuleAdminConfig",
+        FakeModuleAdminConfig
+    )
 
 
 # ========== Tests for get_login_mech ==========
@@ -213,17 +248,17 @@ def test_get_login_mech_success(monkeypatch):
         user=ANONYMOUS_USER
     )
 
-    result, status_code = interface.get_login_mech(user_uid="testuser@example.com", redirect="/dashboard")
+    result, status_code = interface.get_login_mech(user_uid="testuser@example.com", redirect="/dashboard", callback_url_builder=lambda kind, domain: "")
 
     assert status_code == 200
     assert result["data"]["mechanism"] == "plain"
-    assert fake_auth.get_login_mech_args == "testuser@example.com"
+    assert fake_auth.get_login_mech_args == ("testuser@example.com", "/dashboard")
 
 
 def test_get_login_mech_request_exception(monkeypatch):
     """Test error handling when getting login mechanism fails."""
     fake_auth = FakeModuleAuth(None, None, None, None)
-    fake_auth.get_login_mech = lambda x: (_ for _ in ()).throw(
+    fake_auth.get_login_mech = lambda x, y, z: (_ for _ in ()).throw(
         RequestException("Domain not found", err.ERROR_DOMAIN_NAME_NOT_FOUND)
     )
     fake_profile = FakeModuleUserProfile(None, None)
@@ -237,7 +272,7 @@ def test_get_login_mech_request_exception(monkeypatch):
         user=ANONYMOUS_USER
     )
 
-    result, status_code = interface.get_login_mech(user_uid="unknown@example.com", redirect="/dashboard")
+    result, status_code = interface.get_login_mech(user_uid="unknown@example.com", redirect="/dashboard", callback_url_builder=lambda kind, domain: "")
 
     assert status_code == 404
     assert result["error_code"] == err.ERROR_DOMAIN_NAME_NOT_FOUND.c
@@ -302,6 +337,26 @@ def test_plain_login_failed_authentication(monkeypatch):
     _result, status_code = interface.plain_login(data)
 
     assert status_code == 401
+
+
+def test_plain_login_domain_with_sso(monkeypatch):
+    """The domain of the user uses a SSO: the password is refused, nothing is checked"""
+    fake_auth = FakeModuleAuth(None, None, None, None)
+    fake_auth.get_user_and_domain_user_sources_error = RequestException(error=err.ERROR_PLAIN_LOGIN_NOT_ALLOWED)
+    fake_us_instance = FakeModuleUserSource({})
+    patch_modules_on_interface(monkeypatch, fake_auth, FakeModuleUserProfile(None, None), lambda sources: fake_us_instance)
+    interface = InterfaceAuthUser(
+        process={"test": "config"},
+        system={"SYSTEM_SETTINGS": {"test": "value"}},
+        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}},
+        user=ANONYMOUS_USER
+    )
+
+    result, status_code = interface.plain_login({"username": "user@example.com", "password": "secret"})
+
+    assert status_code == err.ERROR_PLAIN_LOGIN_NOT_ALLOWED.h
+    assert result["error_code"] == err.ERROR_PLAIN_LOGIN_NOT_ALLOWED.c
+    assert fake_auth.generate_voucher_from_user_args is None
 
 
 def test_plain_login_already_logged_in_same_user(monkeypatch):
@@ -431,6 +486,36 @@ def test_plain_login_profile_creation_request_exception(monkeypatch):
     # RequestException should set the http_status
     assert status_code >= 500
     assert result["error_code"] == err.ERROR_USER_PROFILE_CREATION_FAILED.c
+    # No session is created when the onboarding failed
+    assert fake_auth.generate_voucher_from_user_args is None
+
+
+def test_plain_login_onboarding_uses_user_domain_settings(monkeypatch):
+    """The onboarding uses the settings of the user's domain, not the default domain ones"""
+    fake_auth = FakeModuleAuth(None, None, None, None)
+    fake_user = FakeUser("newuser@example.com", "secret123")
+    fake_auth.get_user_and_domain_user_sources_result = (fake_user, {"source1": {}})
+    fake_profile = FakeModuleUserProfile(None, None)
+    fake_profile.is_user_profile_present_result = False
+    profile_settings = []
+    patch_modules_on_interface(monkeypatch, fake_auth, fake_profile, lambda sources: FakeModuleUserSource({}))
+    monkeypatch.setattr("app.interface.auth.InterfaceAuthUser.ModuleUserProfile",
+                        lambda process, domain_settings: profile_settings.append(domain_settings) or fake_profile)
+    monkeypatch.setattr("app.interface.auth.InterfaceAuthUser.MailSettingsObj", lambda settings: settings)
+
+    interface = InterfaceAuthUser(
+        process={"test": "config"},
+        system={"SYSTEM_SETTINGS": {"test": "value"}},
+        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}, "MAIL_SETTINGS": {"SOGO_D_IMAP_AUTH_MECH": "login"}},
+        user=ANONYMOUS_USER
+    )
+
+    _result, status_code = interface.plain_login({"username": "newuser@example.com", "password": "secret123"})
+
+    assert status_code == 200
+    assert FakeModuleAdminConfig.get_one_domain_setting_args == "example.com"
+    assert profile_settings[-1] is USER_DOMAIN_SETTINGS
+    assert FakeModuleMail.last_instance.mail_settings == USER_DOMAIN_SETTINGS["MAIL_SETTINGS"]
 
 
 def test_plain_login_profile_creation_bug_exception(monkeypatch):
@@ -486,8 +571,29 @@ def test_logout_success(monkeypatch):
     result, status_code = interface.logout("fake-jwt-token")
 
     assert status_code == 200
-    assert result["data"] is None
+    assert result["data"] == {"location": ""}
     assert fake_auth.logout_user_args == "fake-jwt-token"
+    assert fake_auth.logout_from_identity_provider_args == (ANONYMOUS_USER, "")
+
+
+def test_logout_sso_location(monkeypatch):
+    """SSO user: the logout url of the identity provider is returned, the UI url is given to it"""
+    fake_auth = FakeModuleAuth(None, None, None, None)
+    fake_auth.logout_from_identity_provider_result = "http://idp/logout?id_token_hint=jwt"
+    patch_modules_on_interface(monkeypatch, fake_auth, FakeModuleUserProfile(None, None), FakeModuleUserSource)
+    user = FakeUser("user@example.com", "token", authenticated=True)
+    interface = InterfaceAuthUser(
+        process={"test": "config"},
+        system={"SYSTEM_SETTINGS": {"test": "value"}},
+        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}},
+        user=user
+    )
+
+    result, status_code = interface.logout("fake-jwt-token", "http://localhost:3001/en/auth/login")
+
+    assert status_code == 200
+    assert result["data"] == {"location": "http://idp/logout?id_token_hint=jwt"}
+    assert fake_auth.logout_from_identity_provider_args == (user, "http://localhost:3001/en/auth/login")
 
 
 def test_logout_empty_token(monkeypatch):
@@ -554,3 +660,177 @@ def test_logout_invalid_voucher_type_returns_error_response(monkeypatch):
 
     assert status_code == err.ERROR_WRONG_AUTHORIZATION_TYPE.h
     assert result["error_code"] == err.ERROR_WRONG_AUTHORIZATION_TYPE.c
+
+
+# ========== Tests for sso_callback ==========
+
+UI_REDIRECT = "http://localhost:3001/en/auth/login/sso"
+
+
+def get_sso_interface(monkeypatch, ui_redirect=UI_REDIRECT, error=None):
+    """Interface whose ModuleAuth authenticates a SSO user, or raises error. The UI url is known from the state."""
+    fake_auth = FakeModuleAuth(None, None, None, None)
+    fake_auth.generate_voucher_from_user_result = {"jwt_token": "jwt"}
+
+    def get_user_from_sso_callback(kind, domain, callback_data, callback_url_builder):
+        fake_auth.sso_ui_redirect = ui_redirect
+        if error:
+            raise RequestException(error=error)
+        return FakeUser("user@example.com", "token"), {}
+
+    fake_auth.get_user_from_sso_callback = get_user_from_sso_callback
+    fake_profile = FakeModuleUserProfile(None, None)
+    fake_profile.is_user_profile_present_result = True
+    patch_modules_on_interface(monkeypatch, fake_auth, fake_profile, FakeModuleUserSource)
+
+    interface = InterfaceAuthUser(
+        process={"test": "config"},
+        system={"SYSTEM_SETTINGS": {"test": "value"}},
+        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}},
+        user=ANONYMOUS_USER
+    )
+    return interface, fake_auth
+
+
+def test_sso_callback_redirects_with_token(monkeypatch):
+    """Success: redirection to the UI with the jwt token in the fragment, never in the query"""
+    interface, _ = get_sso_interface(monkeypatch)
+
+    result = interface.sso_callback("openid", "example.com", {"code": "abc", "state": "s"}, lambda kind, domain: "")
+
+    assert result == f"{UI_REDIRECT}#token=jwt"
+
+
+def test_sso_callback_redirects_with_error(monkeypatch):
+    """Failure after the state is read: redirection to the UI with the error code"""
+    interface, _ = get_sso_interface(monkeypatch, error=err.ERROR_SSO_USER_NOT_FOUND)
+
+    result = interface.sso_callback("openid", "example.com", {"code": "abc", "state": "s"}, lambda kind, domain: "")
+
+    assert result == f"{UI_REDIRECT}#error={err.ERROR_SSO_USER_NOT_FOUND.c}"
+
+
+def test_sso_callback_unknown_ui_redirect(monkeypatch):
+    """Invalid state: the UI url is unknown, the error is returned as an API response"""
+    interface, _ = get_sso_interface(monkeypatch, ui_redirect="", error=err.ERROR_SSO_INVALID_STATE)
+
+    result, status_code = interface.sso_callback("openid", "example.com", {"code": "abc", "state": "s"}, lambda kind, domain: "")
+
+    assert status_code == err.ERROR_SSO_INVALID_STATE.h
+    assert result["error_code"] == err.ERROR_SSO_INVALID_STATE.c
+
+
+
+def test_sso_callback_onboarding_failure_no_session(monkeypatch):
+    """Onboarding failure: redirection to the UI with the error, and no session is created"""
+    interface, fake_auth = get_sso_interface(monkeypatch)
+    fake_profile = interface.module_user_profile
+    fake_profile.is_user_profile_present_result = False
+    fake_profile.create_user_profile = lambda *args: (_ for _ in ()).throw(
+        RequestException(error=err.ERROR_IMAP_UNAIVALABLE)
+    )
+
+    result = interface.sso_callback("openid", "example.com", {"code": "abc", "state": "s"}, lambda kind, domain: "")
+
+    assert result == f"{UI_REDIRECT}#error={err.ERROR_IMAP_UNAIVALABLE.c}"
+    assert fake_auth.generate_voucher_from_user_args is None
+
+
+# ========== Tests for check_user_and_fill_info (SSO) ==========
+
+SSO_DOMAIN_SETTINGS = {"AUTH_SETTINGS": {"SOGO_D_AUTH_TYPE": "openid"}, "USER_SOURCE": {}}
+
+
+class FakeSsoModuleUserSource(FakeModuleUserSource):
+    """Fake ModuleUserSource for a SSO user, found or not"""
+    user_found = True
+    checked_users: list = []
+
+    @staticmethod
+    def init_from_domain_settings(domain_settings):
+        return FakeSsoModuleUserSource(domain_settings["USER_SOURCE"])
+
+    def check_user_without_password(self, user):
+        FakeSsoModuleUserSource.checked_users.append(user)
+        return FakeSsoModuleUserSource.user_found
+
+
+def get_sso_check_interface(monkeypatch, token_valid=True, user_found=True):
+    """Interface built with the domain settings of a SSO user, as the before_request does"""
+    fake_auth = FakeModuleAuth(None, None, None, None)
+    fake_auth.check_sso_access_token_args = None
+
+    def check_sso_access_token(user, auth_settings):
+        fake_auth.check_sso_access_token_args = (user, auth_settings)
+        return token_valid
+
+    fake_auth.check_sso_access_token = check_sso_access_token
+    fake_profile = FakeModuleUserProfile(None, None)
+    fake_profile.get_user_profile = lambda user: None
+    FakeSsoModuleUserSource.user_found = user_found
+    FakeSsoModuleUserSource.checked_users = []
+    patch_modules_on_interface(monkeypatch, fake_auth, fake_profile, FakeSsoModuleUserSource)
+
+    user = FakeUser("user@example.com", "token", authenticated=True)
+    user.auth_kind = "openid"
+    interface = InterfaceAuthUser(
+        process={"test": "config"},
+        system={"SYSTEM_SETTINGS": {"test": "value"}},
+        default_domain=SSO_DOMAIN_SETTINGS,
+        user=user
+    )
+    return interface, fake_auth, user
+
+
+def test_check_user_and_fill_info_sso(monkeypatch):
+    """Valid access token and user still in its user source"""
+    interface, fake_auth, user = get_sso_check_interface(monkeypatch)
+
+    success, user_found = interface.check_user_and_fill_info(user)
+
+    assert success
+    assert user_found is user
+    checked_user, auth_settings = fake_auth.check_sso_access_token_args
+    assert checked_user is user
+    assert auth_settings.SOGO_D_AUTH_TYPE == "openid"
+    assert FakeSsoModuleUserSource.checked_users == [user]
+
+
+def test_check_user_and_fill_info_sso_token_not_valid(monkeypatch):
+    """Access token expired or revoked on the identity provider: the user is not authenticated anymore"""
+    interface, _, user = get_sso_check_interface(monkeypatch, token_valid=False)
+
+    success, user_found = interface.check_user_and_fill_info(user)
+
+    assert not success
+    assert user_found.anonymous
+    assert FakeSsoModuleUserSource.checked_users == []
+
+
+def test_check_user_and_fill_info_sso_user_not_found(monkeypatch):
+    """Valid access token but the user is not in its user source anymore"""
+    interface, _, user = get_sso_check_interface(monkeypatch, user_found=False)
+
+    success, _ = interface.check_user_and_fill_info(user)
+
+    assert not success
+
+
+def test_check_user_and_fill_info_plain_domain_now_sso(monkeypatch):
+    """Plain session of a domain that now uses a SSO: the session ends"""
+    fake_auth = FakeModuleAuth(None, None, None, None)
+    fake_auth.get_user_and_domain_user_sources_error = RequestException(error=err.ERROR_PLAIN_LOGIN_NOT_ALLOWED)
+    patch_modules_on_interface(monkeypatch, fake_auth, FakeModuleUserProfile(None, None), FakeModuleUserSource)
+    user = FakeUser("user@example.com", "secret", authenticated=True)
+    user.auth_kind = "plain"
+    interface = InterfaceAuthUser(
+        process={"test": "config"},
+        system={"SYSTEM_SETTINGS": {"test": "value"}},
+        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}},
+        user=user
+    )
+
+    success, user_found = interface.check_user_and_fill_info(user)
+
+    assert not success
+    assert user_found.anonymous
