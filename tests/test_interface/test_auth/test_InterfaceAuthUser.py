@@ -85,26 +85,37 @@ class FakeModuleUserProfile:
         self.is_user_profile_present_args = None
         self.create_user_profile_args = None
         self.update_user_folders_args = None
+        self.get_user_profile_args = None
 
         # Results
         self.is_user_profile_present_result = False
+        self.folders = None  # Folders of the stored profile, None without profile
 
     def is_user_profile_present(self, uid):
         """Check if user profile exists."""
         self.is_user_profile_present_args = uid
-        return self.is_user_profile_present_result
+        return self.is_user_profile_present_result or self.folders is not None
 
     def create_user_profile(self, user):
         """Create user profile."""
         self.create_user_profile_args = user
+        self.folders = {}
 
     def update_user_folders(self, uid, calendar_key, addressbook_key):
         """Update user folders with calendar and addressbook keys."""
         self.update_user_folders_args = (uid, calendar_key, addressbook_key)
+        self.folders = {"CALENDAR": calendar_key, "ADDRESSBOOKS": addressbook_key}
 
     def get_partial_user_preferences(self, uid, subparent):
         """Return fake general preferences carrying the user timezone."""
         return {"USER_GENERAL": {"SOGO_U_TIMEZONE": "Europe/Paris"}}
+
+    def get_user_profile(self, user):
+        """Fill the user with its profile."""
+        self.get_user_profile_args = user
+        if self.folders is None:
+            raise RequestException(err.ERROR_USER_PROFILE_NOT_FOUND.m, err.ERROR_USER_PROFILE_NOT_FOUND)
+        user.folders = self.folders
 
 
 class FakeCalendarObject:
@@ -151,17 +162,43 @@ class FakeUser:
         self.mail = uid
         self.source_id = "source1"
         self.authenticated = authenticated
+        self.folders = {}
 
 
 ANONYMOUS_USER = FakeUser("anonymous", "anonymous", authenticated=False)
+ONBOARDED_FOLDERS = {"CALENDAR": "calendar-key", "ADDRESSBOOKS": "addressbook-key"}
+
+
+class FakeCache:
+    """Fake cache client keeping the onboarding lock."""
+    def __init__(self):
+        self.keys = {}
+        self.reads = []
+
+    def get(self, key, expected_type):
+        """Return the value of a key, None if absent."""
+        self.reads.append(key)
+        return self.keys.get(key)
+
+    def set(self, key, value, ttl, nx=False):
+        """Store a value, or refuse it with nx when the key is held."""
+        if nx and key in self.keys:
+            return False
+        self.keys[key] = value
+        return True
+
+    def delete(self, *keys):
+        """Delete keys."""
+        for key in keys:
+            self.keys.pop(key, None)
 
 
 class FakeModuleMail:
     """Fake ModuleMail for testing."""
-    def __init__(self, user, mail_settings, process):
+    def __init__(self, user, mail_settings, process_setting):
         self.user = user
         self.mail_settings = mail_settings
-        self.process = process
+        self.process = process_setting
         self.create_special_folders_args = None
 
     def create_special_folders_if_not_exist(self, account_id):
@@ -195,6 +232,9 @@ def patch_modules_on_interface(monkeypatch, fake_module_auth, fake_module_user_p
         "app.interface.auth.InterfaceAuthUser.ModuleMail",
         FakeModuleMail
     )
+    fake_cache = FakeCache()
+    monkeypatch.setattr("app.interface.auth.InterfaceAuthUser.sogo_cache", lambda: fake_cache)
+    return fake_cache
 
 
 # ========== Tests for get_login_mech ==========
@@ -253,12 +293,13 @@ def test_plain_login_success(monkeypatch):
 
     fake_profile = FakeModuleUserProfile(None, None)
     fake_profile.is_user_profile_present_result = True  # User already exists
+    fake_profile.folders = ONBOARDED_FOLDERS
 
     fake_us_instance = FakeModuleUserSource({})
     def fake_us_class(sources):
         return fake_us_instance
 
-    patch_modules_on_interface(monkeypatch, fake_auth, fake_profile, fake_us_class)
+    fake_cache = patch_modules_on_interface(monkeypatch, fake_auth, fake_profile, fake_us_class)
 
     interface = InterfaceAuthUser(
         process={"test": "config"},
@@ -274,6 +315,8 @@ def test_plain_login_success(monkeypatch):
     assert result["data"]["voucher"] == "test-voucher-123"
     assert fake_auth.get_user_and_domain_user_sources_args == ("testuser@example.com", "secret123")
     assert fake_us_instance.check_login_args == fake_user
+    # The profile of an onboarded user is read without looking at the onboarding lock
+    assert not fake_cache.reads
 
 
 def test_plain_login_failed_authentication(monkeypatch):
@@ -342,6 +385,7 @@ def test_plain_login_already_logged_in_different_user_proceeds(monkeypatch):
 
     fake_profile = FakeModuleUserProfile(None, None)
     fake_profile.is_user_profile_present_result = True  # User already exists
+    fake_profile.folders = ONBOARDED_FOLDERS
 
     fake_us_instance = FakeModuleUserSource({})
     def fake_us_class(sources):
@@ -378,7 +422,7 @@ def test_plain_login_create_user_profile(monkeypatch):
     def fake_us_class(sources):
         return fake_us_instance
 
-    patch_modules_on_interface(monkeypatch, fake_auth, fake_profile, fake_us_class)
+    fake_cache = patch_modules_on_interface(monkeypatch, fake_auth, fake_profile, fake_us_class)
 
     interface = InterfaceAuthUser(
         process={"test": "config"},
@@ -391,6 +435,8 @@ def test_plain_login_create_user_profile(monkeypatch):
     _result, status_code = interface.plain_login(data)
 
     assert status_code == 200
+    # The onboarding lock is released
+    assert not fake_cache.keys
     assert fake_profile.create_user_profile_args is not None
     assert fake_profile.create_user_profile_args.uid == "newuser@example.com"
     assert interface._module_calendar.create_personal_calendar_args == "newuser@example.com"  # pylint: disable=protected-access
@@ -416,7 +462,7 @@ def test_plain_login_profile_creation_request_exception(monkeypatch):
     def fake_us_class(sources):
         return fake_us_instance
 
-    patch_modules_on_interface(monkeypatch, fake_auth, fake_profile, fake_us_class)
+    fake_cache = patch_modules_on_interface(monkeypatch, fake_auth, fake_profile, fake_us_class)
 
     interface = InterfaceAuthUser(
         process={"test": "config"},
@@ -431,6 +477,10 @@ def test_plain_login_profile_creation_request_exception(monkeypatch):
     # RequestException should set the http_status
     assert status_code >= 500
     assert result["error_code"] == err.ERROR_USER_PROFILE_CREATION_FAILED.c
+    # The onboarding lock is released for the next request to retry
+    assert not fake_cache.keys
+    # No session is created for a user whose onboarding failed
+    assert fake_auth.generate_voucher_from_user_args is None
 
 
 def test_plain_login_profile_creation_bug_exception(monkeypatch):
@@ -465,6 +515,117 @@ def test_plain_login_profile_creation_bug_exception(monkeypatch):
         interface.plain_login(data)
 
     assert exc_info.value.error == err.ERROR_BUG_UNKNOWN_ORDER
+
+
+# ========== Tests for the onboarding of a first sign-in ==========
+
+def _onboarding_interface(monkeypatch, fake_profile):
+    """Build the interface for a user who never signed in, with fake modules and cache."""
+    fake_auth = FakeModuleAuth(None, None, None, None)
+    fake_auth.get_user_and_domain_user_sources_result = (FakeUser("newuser@example.com", "secret123"), {"source1": {}})
+    fake_cache = patch_modules_on_interface(
+        monkeypatch, fake_auth, fake_profile, lambda sources: FakeModuleUserSource({})
+    )
+    interface = InterfaceAuthUser(
+        process={"test": "config"},
+        system={"SYSTEM_SETTINGS": {"test": "value"}},
+        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}, "MAIL_SETTINGS": {"test": "value"}},
+        user=ANONYMOUS_USER
+    )
+    return interface, fake_cache
+
+
+def test_onboarding_waits_for_other_request(monkeypatch):
+    """A request arriving during the onboarding run by another one waits for it and creates nothing."""
+    fake_profile = FakeModuleUserProfile(None, None)
+    interface, fake_cache = _onboarding_interface(monkeypatch, fake_profile)
+    fake_cache.keys["onboarding_lock:newuser@example.com"] = "other request"
+
+    def other_request_ends(_seconds):
+        fake_cache.keys.clear()
+        fake_profile.folders = ONBOARDED_FOLDERS
+
+    monkeypatch.setattr("app.interface.auth.InterfaceAuthUser.sleep", other_request_ends)
+
+    _result, status_code = interface.plain_login({"username": "newuser@example.com", "password": "secret123"})
+
+    assert status_code == 200
+    assert fake_profile.create_user_profile_args is None
+
+
+def test_onboarding_running_too_long(monkeypatch):
+    """A request gives up when the onboarding of another one lasts more than the wait timeout."""
+    fake_profile = FakeModuleUserProfile(None, None)
+    interface, fake_cache = _onboarding_interface(monkeypatch, fake_profile)
+    fake_cache.keys["onboarding_lock:newuser@example.com"] = "other request"
+    clock = iter([0.0, 11.0])
+    monkeypatch.setattr("app.interface.auth.InterfaceAuthUser.monotonic", lambda: next(clock))
+    monkeypatch.setattr("app.interface.auth.InterfaceAuthUser.sleep", lambda _seconds: None)
+
+    with pytest.raises(RequestException) as exc_info:
+        interface.onboard_user_and_fill_info(FakeUser("newuser@example.com", "secret123"), fake_cache)
+
+    assert exc_info.value.error == err.ERROR_LOGIN_ONBOARDING_RUNNING
+    assert fake_profile.create_user_profile_args is None
+
+
+def test_onboarding_lock_taken_meanwhile(monkeypatch):
+    """A request losing the lock to another one, which onboards the user, creates nothing."""
+    fake_profile = FakeModuleUserProfile(None, None)
+    interface, fake_cache = _onboarding_interface(monkeypatch, fake_profile)
+
+    def other_request_onboards(key, value, ttl, nx=False):
+        fake_profile.folders = ONBOARDED_FOLDERS
+        return False
+
+    fake_cache.set = other_request_onboards
+
+    _result, status_code = interface.plain_login({"username": "newuser@example.com", "password": "secret123"})
+
+    assert status_code == 200
+    assert fake_profile.create_user_profile_args is None
+
+
+def test_onboarding_keeps_lock_of_other_request(monkeypatch):
+    """A lock expired during the onboarding and taken by another request is left to that request."""
+    fake_profile = FakeModuleUserProfile(None, None)
+    interface, fake_cache = _onboarding_interface(monkeypatch, fake_profile)
+
+    def lock_expired_and_taken(_user):
+        fake_cache.keys["onboarding_lock:newuser@example.com"] = "other request"
+
+    fake_profile.create_user_profile = lock_expired_and_taken
+
+    interface.plain_login({"username": "newuser@example.com", "password": "secret123"})
+
+    assert fake_cache.keys == {"onboarding_lock:newuser@example.com": "other request"}
+
+
+def test_onboard_user_and_fill_info(monkeypatch):
+    """A user who never signed in is onboarded before its profile is read."""
+    fake_profile = FakeModuleUserProfile(None, None)
+    interface, fake_cache = _onboarding_interface(monkeypatch, fake_profile)
+    user = FakeUser("newuser@example.com", "secret123")
+
+    interface.onboard_user_and_fill_info(user, fake_cache)
+
+    assert fake_profile.create_user_profile_args is user
+    assert user.folders == {"CALENDAR": "fake-calendar-key", "ADDRESSBOOKS": "fake-addressbook-key"}
+    assert not fake_cache.keys
+
+
+def test_fill_info_of_onboarded_user(monkeypatch):
+    """The profile of an onboarded user is read without looking at the onboarding lock."""
+    fake_profile = FakeModuleUserProfile(None, None)
+    fake_profile.folders = ONBOARDED_FOLDERS
+    interface, fake_cache = _onboarding_interface(monkeypatch, fake_profile)
+    user = FakeUser("alice@example.com", "secret123")
+
+    interface.onboard_user_and_fill_info(user, fake_cache)
+
+    assert user.folders is fake_profile.folders
+    assert not fake_cache.reads
+    assert fake_profile.is_user_profile_present_args is None
 
 
 # ========== Tests for logout ==========

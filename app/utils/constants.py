@@ -90,6 +90,12 @@ TTL_1D = 86400
 TTL_1H =  3600
 TTL_5M =   300
 
+#Onboarding of a user signing in for the first time: the other requests of the user wait for the one onboarding it
+ONBOARDING_LOCK_PREFIX  = "onboarding_lock:"
+ONBOARDING_LOCK_TTL     = 60  #Seconds, above the gunicorn worker timeout: frees the lock of a killed worker
+ONBOARDING_WAIT_TIMEOUT = 10  #Seconds a request waits for the onboarding before giving up
+ONBOARDING_WAIT_STEP    = 0.2 #Seconds between two checks of the lock
+
 # HTTP LIMITS
 # Hard cap on the HTTP request body size, wired into Flask's MAX_CONTENT_LENGTH at startup.
 # Rejects oversized uploads (e.g. calendar .ics imports) at the WSGI layer before any

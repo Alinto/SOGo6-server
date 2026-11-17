@@ -34,7 +34,7 @@ The server reuses the business modules of the REST API (xref:calendar.adoc[], xr
 * *DavAuthenticator* - Checks the Basic credentials of a request and builds its `DavContext` (see <<Authentication>>).
 * *DavLoginLimiter* - Counts the wrong passwords of each login in Redis and blocks the login once the limit of its domain is reached (see <<login-blocking>>).
 * *DavContext* - Configuration, user and cache client of one request, handed to `process`: the DAV counterpart of Flask `g` in the REST API.
-* *DavHandler* - Abstract handler of one HTTP method. Its `handle` method, which handlers cannot override, opens the cache client of the request, authenticates the request then calls `process`, the method each handler implements, and closes the cache client once the response is built. Handlers only see `DavRequest`, `DavContext` and `DavResponse`, never Flask, so they are tested without a WSGI layer.
+* *DavHandler* - Abstract handler of one HTTP method. Its `handle` method, which handlers cannot override, gets the cache client of the request, authenticates the request then calls `process`, the method each handler implements. Handlers only see `DavRequest`, `DavContext` and `DavResponse`, never Flask, so they are tested without a WSGI layer.
 * *DavOptionsHandler* - Answers OPTIONS with the `DAV` compliance classes and the `Allow` methods.
 
 The DAV server never imports the REST layer (`app.api`): no Smorest, no JSON middleware, no `ApiBaseResponse`.
@@ -120,13 +120,35 @@ Checked again with the domain of the account found in the user source, when it d
 | Login refused by the domain rules (no domain while `SOGO_S_DOMAINLESS_LOGIN` is off, unknown domain while `SOGO_S_REJECT_UNKNOWN_DOMAIN` is on)
 | 401, like a wrong password, before the user source is queried. `ModuleAuth` raises this refusal without error code: the web sign-in answers it 500, that DAV clients would not take for a wrong login.
 
-| User who never signed in to the web interface
-| 404. The profile, the personal calendar and the personal address book are created at the first web sign-in.
+| User who never signed in
+| Onboarded by its first request, like at the first web sign-in: profile, personal calendar and address book, special mail folders. See <<onboarding>>.
+
+| Onboarding running in another request for more than 10 seconds
+| 503, so that the client tries again. See <<onboarding>>.
 |===
 
-The credentials are checked against the user sources on every request, like the REST API does for the user of a voucher: `DavAuthenticator` calls `InterfaceAuthUser.check_user_and_fill_info`, the method of the REST auth middleware.
+The credentials are checked against the user sources on every request, like the REST API does for the user of a voucher: `DavAuthenticator` calls `InterfaceAuthUser.check_user`, then `InterfaceAuthUser.onboard_user_and_fill_info` once the domain of the account is checked.
 Logins with or without domain follow the same rules as the web sign-in.
 There is no cache: a password changed or an account disabled in the user source is refused from the next request on.
+
+[[onboarding]]
+=== First connection
+
+A user can add the account to a client before ever signing in to the web interface. The first request onboards the user like the first web sign-in, with the same code (`InterfaceAuthUser.onboard_user_and_fill_info`): profile, personal calendar and address book, special mail folders.
+The onboarding comes after the check of the domain of the account: an account whose domain refuses passwords is not onboarded, and its password is not sent to the mail server. The DAV server onboards with the settings of the domain of the account.
+
+Every request, DAV or web sign-in, reads the profile first. Its folders are set once the personal calendar and address book exist: with folders, the request goes on without reading the lock.
+
+Clients adding an account often send several requests at once. The onboarding runs under a Redis lock per user (`onboarding_lock:<login>`, `SET NX`, 60 seconds): the other requests of the user wait until it is released, checking every 0.2 seconds, and give up after 10 seconds with `ERROR_LOGIN_ONBOARDING_RUNNING` (503).
+The time to live frees the lock of a worker killed during the onboarding: it is longer than the gunicorn worker timeout (30 seconds by default).
+
+Known limits, rare cases left as is:
+
+* An onboarding failing once the profile is created is not resumed, like at the web sign-in: the profile keeps no folders, and each request of the user then reads the lock.
+* A request losing the race for the lock waits for the request holding it: if that one fails before creating the profile, the waiting one fails as well. The next request onboards the user.
+* The lock key is the login as sent: two spellings of an account differing by their case do not share it.
+* The lock is released by a read then a deletion, not atomically.
+* Waiting requests hold their worker, up to 10 seconds.
 
 [[login-checks]]
 === Login and password checks
@@ -160,7 +182,7 @@ These are the authentication settings of the login domain, read before the block
 `DavLoginLimiter` keeps, per login, a Redis hash whose fields are keyed fingerprints of the wrong passwords (HMAC-SHA256, key derived from `SOGO_AES_ENC_KEY`): a dump of the cache gives away neither the wrong passwords, often typos of the right one, nor a way to brute-force them.
 Each wrong password adds its field with one `HSET`: requests sent in parallel never overwrite each other's fingerprints, which a read then write of a list would do. Each one also restarts the time to live of the hash.
 When Redis is unreachable and the blocking is on for the domain of the login, DAV requests fail with a 500 error, like the REST API whose sessions live in Redis: passwords are never tried without the counters.
-With the blocking off, the DAV server does not use Redis.
+With the blocking off, the requests of an onboarded user do not use Redis. The onboarding of a user needs Redis for its lock whatever the blocking: without Redis, the requests of a user who never signed in, or whose onboarding failed, fail with a 500 error.
 
 The block is checked before the user source is queried and set after the refusal: requests sent at the same time all pass the check before the block is set.
 The overshoot is bounded by the number of requests the DAV server processes at once, one per gunicorn worker (`GUNICORN_WORKERS`) and per container.
@@ -172,7 +194,7 @@ Anyone knowing a login can block the DAV access of that account. The block only 
 Handlers receive a `DavContext`: process and system settings, settings of the user domain, the user filled with its directory info and profile, and the cache client of the request.
 The user keeps the password in memory, for the mail servers.
 A handler that needs an interface builds it from the context, with the same arguments as the `InterfaceApi*` classes.
-The cache client is opened by `DavHandler.handle` and closed once the response is built, even on errors: handlers use it and never close it.
+The cache client comes from `sogo_cache()`, called by `DavHandler.handle`. Nobody closes it: CPython frees it once the request no longer references it, and the redis-py destructor then closes its connection. A client shared by `sogo_cache()` stays open.
 
 == Flask behaviours turned off
 

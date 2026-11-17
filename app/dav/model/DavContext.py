@@ -15,7 +15,7 @@ class DavContext:
 
     The DAV counterpart of what the REST API keeps in Flask ``g``. ``user`` is authenticated, filled
     with its directory info and profile, and keeps the password in memory for the mail servers. ``cache``
-    is closed by the handler once the request is processed.
+    is not closed: its connection is closed when it is freed with the request.
     """
 
     process_settings: ProcessSetting

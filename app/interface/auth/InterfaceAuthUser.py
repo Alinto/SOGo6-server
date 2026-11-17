@@ -1,6 +1,8 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
+from time import monotonic, sleep
+
 from app.auth.User import UserAnonymous
 from app.config.settings.SystemSettings import SystemSettingsObj, SystemSettings
 from app.config.settings.DomainSettings import AuthSettingsObj, AuthSettings, UserSourceSettings, UserSourceSettingsObj, MailSettings, MailSettingsObj
@@ -11,16 +13,21 @@ from app.module.calendar.ModuleCalendar import ModuleCalendar
 from app.module.contact.ModuleContact import ModuleContact
 from app.module.mail.ModuleMail import ModuleMail
 from app.module.user.ModuleUserProfile import ModuleUserProfile
+from app.service import sogo_cache
 from app.utils.api.ApiBaseResponse import create_api_base_response
 from app.utils.exceptions import RequestException, BugException
 from app.utils import errors as err
 from app.utils.logger.logger import logger_api
 from app.utils import constants as cs
+from app.utils.maths.sogo_hash import generate_uuid
 
 
 if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
     from app.auth.User import User
+    from app.manager.cache.ClientRedis import ClientRedis
+    from app.module.calendar.model.CalCalendar import CalCalendar
+    from app.module.contact.model.CardAddressBook import CardAddressBook
 
 
 class InterfaceAuthUser:
@@ -104,24 +111,16 @@ class InterfaceAuthUser:
         if not success:
             return create_api_base_response(None, err.ERROR_LOGIN_FAILED)
 
-        # Generate the voucher for the authenticated user
-        ret = self.module_auth.generate_voucher_from_user(user)
-
         try:
-            if not self.module_user_profile.is_user_profile_present(uid):
-                self.module_user_profile.create_user_profile(user)
-                raw_gen: dict = self.module_user_profile.get_partial_user_preferences(uid, UserGeneralSettings.subparent.lower())
-                user_tz: str = raw_gen.get(UserGeneralSettings.subparent, {}).get("SOGO_U_TIMEZONE", "UTC")
-                personal_calendar = self._module_calendar.create_personal_calendar(uid, tz=user_tz)
-                personal_addressbook = self._module_contact.create_personal_addressbook(uid)
-                # Update the folders column with the personal calendar and addressbook keys
-                if personal_calendar.key and personal_addressbook.key:
-                    self.module_user_profile.update_user_folders(uid, personal_calendar.key, personal_addressbook.key)
-                module_mail = ModuleMail(user, MailSettingsObj(self.default_domain[MailSettings.subparent]), self.process)
-                module_mail.create_special_folders_if_not_exist(cs.DEFAULT_IDENTITY_KEY_VALUE)
+            # Not closed: CPython frees the client once the onboarding is done, and the redis-py destructor
+            # then closes its connection. A client shared by sogo_cache() stays open.
+            self.onboard_user_and_fill_info(user=user, cache=sogo_cache())
         except RequestException as ex:
             logger_api.error("Request exception when onboarding user %s: %s", uid, str(ex))
             return create_api_base_response(None, ex.error)
+
+        # Generate the voucher for the authenticated user, once onboarded: a failed onboarding leaves no session
+        ret = self.module_auth.generate_voucher_from_user(user)
 
         return create_api_base_response(ret)
 
@@ -135,11 +134,97 @@ class InterfaceAuthUser:
         :return: True if the user credentials are ok
         :rtype: bool
         """
-        success, user_found, module_us = self._check_login(user.uid, user.password)
+        success, user_found = self.check_user(user)
         if success:
             self.module_user_profile.get_user_profile(user_found)
-            return True, user_found
-        return False, UserAnonymous()
+        return success, user_found
+
+    def check_user(self, user: User) -> tuple[bool, User]:
+        """
+        Check the user credentials against the user sources, without loading the profile: a user who never
+        signed in has none yet.
+
+        :param user: The user with the credentials to check
+        :type user: User
+        :return: True and the user found if the credentials are ok, False and an anonymous user otherwise
+        :rtype: tuple[bool, User]
+        """
+        success, user_found, _ = self._check_login(user.uid, user.password)
+        if not success:
+            return False, UserAnonymous()
+        return True, user_found
+
+    def onboard_user_and_fill_info(self, user: User, cache: ClientRedis) -> None:
+        """
+        Fill the user instance with its profile, after onboarding the user if it signs in for the first time.
+        Called by the web sign-in and by every DAV request: DAV clients may connect before any web sign-in.
+
+        The folders of the profile are set once the personal calendar and address book exist: the profile of
+        an onboarded user is read once, without reading the onboarding lock.
+
+        :param user: The authenticated user
+        :type user: User
+        :param cache: The cache client keeping the onboarding lock
+        :type cache: ClientRedis
+        :raises RequestException: When a step fails, or when the onboarding runs too long in another request
+        """
+        try:
+            self.module_user_profile.get_user_profile(user)
+            if user.folders:
+                return
+        except RequestException as ex:
+            if ex.error is not err.ERROR_USER_PROFILE_NOT_FOUND:
+                raise
+        self._onboard_user(user=user, cache=cache)
+        self.module_user_profile.get_user_profile(user)
+
+    def _onboard_user(self, user: User, cache: ClientRedis) -> None:
+        """
+        Create the profile, the personal calendar and address book and the special mail folders of a user
+        signing in for the first time. Clients adding an account often send several requests at once: the
+        first one onboards the user under a lock, the others wait for it.
+        """
+        uid: str = user.uid
+        lock_key: str = cs.ONBOARDING_LOCK_PREFIX + uid
+        deadline: float = monotonic() + cs.ONBOARDING_WAIT_TIMEOUT
+        InterfaceAuthUser._wait_onboarding_end(cache=cache, lock_key=lock_key, deadline=deadline)
+        if self.module_user_profile.is_user_profile_present(uid):
+            return
+        lock_token: str = generate_uuid()
+        if not cache.set(key=lock_key, value=lock_token, ttl=cs.ONBOARDING_LOCK_TTL, nx=True):
+            InterfaceAuthUser._wait_onboarding_end(cache=cache, lock_key=lock_key, deadline=deadline)
+            return
+        try:
+            # Another request may have onboarded the user between the check and the lock
+            if self.module_user_profile.is_user_profile_present(uid):
+                return
+            self.module_user_profile.create_user_profile(user)
+            raw_gen: dict = self.module_user_profile.get_partial_user_preferences(
+                uid, UserGeneralSettings.subparent.lower()
+            )
+            user_tz: str = raw_gen.get(UserGeneralSettings.subparent, {}).get("SOGO_U_TIMEZONE", "UTC")
+            personal_calendar: CalCalendar = self._module_calendar.create_personal_calendar(uid, tz=user_tz)
+            personal_addressbook: CardAddressBook = self._module_contact.create_personal_addressbook(uid)
+            # Update the folders column with the personal calendar and addressbook keys
+            if personal_calendar.key and personal_addressbook.key:
+                self.module_user_profile.update_user_folders(
+                    uid=uid, calendar_key=personal_calendar.key, addressbook_key=personal_addressbook.key
+                )
+            mail_settings: MailSettingsObj = MailSettingsObj(self.default_domain[MailSettings.subparent])
+            module_mail: ModuleMail = ModuleMail(user=user, mail_settings=mail_settings, process_setting=self.process)
+            module_mail.create_special_folders_if_not_exist(cs.DEFAULT_IDENTITY_KEY_VALUE)
+        finally:
+            if cache.get(lock_key, expected_type=str) == lock_token:
+                cache.delete(lock_key)
+
+    @staticmethod
+    def _wait_onboarding_end(cache: ClientRedis, lock_key: str, deadline: float) -> None:
+        """Wait for the onboarding run by another request to release its lock, and raise
+        ERROR_LOGIN_ONBOARDING_RUNNING if it still runs at the deadline (``monotonic()`` clock)."""
+        while cache.get(lock_key, expected_type=str) is not None:
+            if monotonic() >= deadline:
+                raise RequestException(error=err.ERROR_LOGIN_ONBOARDING_RUNNING)
+            sleep(cs.ONBOARDING_WAIT_STEP)
 
     def logout(self, voucher_data: str) -> tuple[dict, int]:
         """

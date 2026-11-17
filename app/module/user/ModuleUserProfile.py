@@ -877,7 +877,7 @@ class ModuleUserProfile:
         ))
 
         if len(result) == 0:
-            logger_user_profile.error("No user found for uid: %s when retrieving their profile", user.uid)
+            logger_user_profile.warning("No user found for uid: %s when retrieving their profile", user.uid)
             raise RequestException(err.ERROR_USER_PROFILE_NOT_FOUND.m, err.ERROR_USER_PROFILE_NOT_FOUND)
 
         if len(result) > 1:

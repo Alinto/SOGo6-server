@@ -25,17 +25,21 @@ class FakeInterfaceAuthUser:
         self.result = True
         self.domain = None
         self.checked = []
+        self.onboarded = []
 
-    def check_user_and_fill_info(self, user):
+    def check_user(self, user):
         self.checked.append((user.uid, user.password))
         if not self.result:
             return False, UserAnonymous()
-        filled = User(user.uid, user.password)
-        filled.cn = "Alice"
-        filled.authenticated = True
+        found = User(user.uid, user.password)
+        found.authenticated = True
         if self.domain is not None:
-            filled.domain = self.domain
-        return True, filled
+            found.domain = self.domain
+        return True, found
+
+    def onboard_user_and_fill_info(self, user, cache):
+        self.onboarded.append((user.domain, cache))
+        user.cn = "Alice"
 
 
 class FakeLoginLimiter:
@@ -190,6 +194,7 @@ def test_wrong_password_recorded(env):
         _authenticator().authenticate(_request(credentials="alice@Example.org:wrong"), CACHE)
     assert ex.value.error is err.ERROR_LOGIN_FAILED
     assert env.limiter.failures == [("alice@example.org", "wrong", 5)]
+    assert not env.interface.onboarded
 
 
 def test_right_password_not_recorded(env):
@@ -208,6 +213,7 @@ def test_context_with_filled_user(env):
     assert context.user.password == "secret"
     assert context.user_domain_settings is USER_DOMAIN
     assert context.cache is CACHE
+    assert env.interface.onboarded == [("example.org", CACHE)]
     assert env.interface_class.call_args.kwargs["default_domain"] is USER_DOMAIN
 
 
@@ -230,6 +236,7 @@ def test_identity_provider_domain_of_account_refused(env):
     assert ex.value.error is err.ERROR_LOGIN_FAILED
     assert settings.call_args.args[0].domain == "sso.example.org"
     assert env.limiter.failures == [("alice@example.org", "secret", 5)]
+    assert not env.interface.onboarded
 
 
 def test_account_domain_reloaded_lowercased(env):
@@ -241,6 +248,8 @@ def test_account_domain_reloaded_lowercased(env):
         context = _authenticator().authenticate(_request(), CACHE)
     assert settings.call_args.args[0].domain == "other.example.org"
     assert context.user_domain_settings is other_domain
+    assert env.interface_class.call_args.kwargs["default_domain"] is other_domain
+    assert env.interface.onboarded == [("other.example.org", CACHE)]
 
 
 def test_account_domain_with_other_case_not_reloaded(env):
@@ -248,3 +257,4 @@ def test_account_domain_with_other_case_not_reloaded(env):
     with patch("app.dav.DavAuthenticator.init_get_user_domain_settings", return_value=USER_DOMAIN) as settings:
         _authenticator().authenticate(_request(), CACHE)
     assert settings.call_count == 1
+    assert env.interface_class.call_count == 1

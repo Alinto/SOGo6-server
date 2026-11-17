@@ -71,6 +71,7 @@ ERROR_API_CONTENT_TYPE         = E("S000205", "Request POST/PATCH/PUT Content-Ty
 ERROR_VALIDITY_TIME_BELOW_0    = E("S000206", "Voucher Validity Time Below 0", HTTPStatus.INTERNAL_SERVER_ERROR)
 ERROR_USER_CREDS_NOT_VALID     = E("S000207", "User credentials stores in session are not valid anymore", HTTPStatus.UNAUTHORIZED)
 ERROR_LOGIN_FAILED             = E("S000208", "Login Failed: Invalid Credentials", HTTPStatus.UNAUTHORIZED)
+ERROR_LOGIN_ONBOARDING_RUNNING = E("S000209", "First Sign-In Still Running, Retry", HTTPStatus.SERVICE_UNAVAILABLE)
 
 #API
 ERROR_VALIDATION_ERROR      = E("S000300", "Request Data Incorrect Format", HTTPStatus.BAD_REQUEST)

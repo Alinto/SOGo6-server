@@ -41,13 +41,16 @@ class DavAuthenticator:
         Basic credentials travel in clear and are refused without TLS (RFC 4918 section 20.1, RFC 4791
         section 11). That refusal is a 403: a 401 would carry the Basic challenge, forbidden as well.
 
+        A user signing in for the first time is onboarded once the domain of its account accepts passwords.
+
         :param request: The DAV request
         :type request: DavRequest
-        :param cache: The cache client of the request, keeping the wrong passwords and the blocked logins
+        :param cache: The cache client of the request, keeping the wrong passwords, the blocked logins and the
+            onboarding lock
         :type cache: ClientRedis
         :raises RequestException: 403 without TLS or when the domain of the login refuses passwords, 401
             when the credentials are missing, malformed or refused, or when the domain of the account refuses
-            passwords, 429 while the login is blocked
+            passwords, 429 while the login is blocked, 503 while another request onboards the user for too long
         :return: The context of the request, with the authenticated user
         :rtype: DavContext
         """
@@ -75,7 +78,7 @@ class DavAuthenticator:
             process=self._process_settings, system=system_settings, default_domain=user_domain_settings, user=user
         )
         # TODO cache the user source check, shared with the REST API
-        creds_ok, user_found = interface.check_user_and_fill_info(user)
+        creds_ok, user_found = interface.check_user(user=user)
         if not creds_ok:
             limiter.record_failure(login=login, password=password, auth_settings=auth_settings)
             raise RequestException(error=err.ERROR_LOGIN_FAILED)
@@ -91,6 +94,14 @@ class DavAuthenticator:
                 )
                 limiter.record_failure(login=login, password=password, auth_settings=auth_settings)
                 raise RequestException(error=err.ERROR_LOGIN_FAILED)
+            # The account is onboarded with the settings of its own domain
+            interface = InterfaceAuthUser(
+                process=self._process_settings,
+                system=system_settings,
+                default_domain=user_domain_settings,
+                user=user_found,
+            )
+        interface.onboard_user_and_fill_info(user=user_found, cache=cache)
         return DavContext(
             process_settings=self._process_settings,
             system_settings=system_settings,

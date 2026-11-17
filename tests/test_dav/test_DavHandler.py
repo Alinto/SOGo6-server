@@ -1,6 +1,7 @@
 """Unit tests for DavHandler - the authenticator and the cache client are fakes."""
 
 from http import HTTPStatus
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -10,14 +11,6 @@ from app.dav.model.DavRequest import DavRequest
 from app.dav.model.DavResponse import DavResponse
 from app.utils import errors as err
 from app.utils.exceptions import RequestException
-
-
-class FakeCache:
-    def __init__(self):
-        self.closed = False
-
-    def close(self):
-        self.closed = True
 
 
 class FakeAuthenticator:
@@ -47,7 +40,7 @@ class FakePropfindHandler(DavHandler):
 
 @pytest.fixture
 def cache():
-    fake = FakeCache()
+    fake = SimpleNamespace()
     with patch("app.dav.handler.DavHandler.sogo_cache", return_value=fake):
         yield fake
 
@@ -63,20 +56,12 @@ def test_process_with_authenticated_context(cache):
     assert handler.handle(request).status == HTTPStatus.MULTI_STATUS
     assert handler.calls == [(request, "alice context")]
     assert authenticator.caches == [cache]
-    assert cache.closed
 
 
-def test_refused_authentication_not_processed(cache):
+@pytest.mark.usefixtures("cache")
+def test_refused_authentication_not_processed():
     handler = FakePropfindHandler(FakeAuthenticator(error=err.ERROR_LOGIN_FAILED))
     with pytest.raises(RequestException) as ex:
         handler.handle(_request())
     assert ex.value.error is err.ERROR_LOGIN_FAILED
     assert not handler.calls
-    assert cache.closed
-
-
-def test_cache_closed_when_process_fails(cache):
-    handler = FakePropfindHandler(FakeAuthenticator(), error=err.ERROR_UNKOWN)
-    with pytest.raises(RequestException):
-        handler.handle(_request())
-    assert cache.closed
