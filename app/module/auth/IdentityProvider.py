@@ -17,6 +17,7 @@ class IdentityProviderUserInfo:
     access_token: str = "" #Token given by the identity provider, used to authenticate on the mail servers (xoauth2)
     refresh_token: str = "" #Token to get a new access token without the user (see refresh_access_token), empty if none given
     expires_at: int = 0 #Unix timestamp when the access token expires, 0 if unknown
+    id_token: str = "" #Openid id_token, sent back to the identity provider on logout (id_token_hint), empty if none
 
 
 @dataclass
@@ -27,6 +28,7 @@ class IdentityProviderTokens:
     access_token: str
     refresh_token: str #The new refresh token if the identity provider rotates it, else the one used to refresh
     expires_at: int = 0 #Unix timestamp when the access token expires, 0 if unknown
+    id_token: str = "" #New openid id_token if the identity provider gave one, else empty (keep the previous one)
 
 
 class IdentityProvider(ABC):
@@ -39,6 +41,7 @@ class IdentityProvider(ABC):
     3. authenticate_from_callback: check the callback data and return the user identity
     4. check_access_token: on every request of the user, check the token given at the login is still valid
     5. refresh_access_token: get a new access token with the refresh token, before (or when) the access token expires
+    6. logout: revoke the tokens and return the url where the UI must send the user to end the session of the identity provider
 
     The provider generates the anti CSRF state in get_login_location and checks it in authenticate_from_callback.
     The UI url given in get_login_location is kept with the state, ui_redirect gives it back once the state is read
@@ -108,3 +111,24 @@ class IdentityProvider(ABC):
         :return: The new tokens, None if the identity provider refused the refresh token (session ended on its side)
         :rtype: IdentityProviderTokens|None
         """
+
+    def logout(self, access_token: str, refresh_token: str, id_token: str, post_logout_redirect: str) -> str: # pylint: disable=unused-argument
+        """
+        Called when the user logs out of SOGo, once its user session is revoked.
+        Revoke the tokens on the identity provider if possible, and return the url where the browser must be sent
+        to end the session of the user on the identity provider (single logout), if enabled.
+        Never raises: the user is logged out of SOGo anyway.
+
+        :param access_token: Access token of the user
+        :type access_token: str
+        :param refresh_token: Refresh token of the user, empty if none
+        :type refresh_token: str
+        :param id_token: Id token of the user (openid), empty if none
+        :type id_token: str
+        :param post_logout_redirect: UI url where the identity provider sends the user back after its logout, already checked.
+                                     Empty to let the identity provider show its own page.
+        :type post_logout_redirect: str
+        :return: The logout url of the identity provider, empty if the browser does not need to go there
+        :rtype: str
+        """
+        return ""

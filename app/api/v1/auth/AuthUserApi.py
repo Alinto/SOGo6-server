@@ -68,7 +68,8 @@ class ApiAuthUserMode(MethodView):
         """
         Action, return the url location of the login system for this username.
         redirect is only useful for SSO that needs callback: UI url where the user is sent back after the login,
-        its origin must be in SOGO_D_OPENID_ALLOW_REDIRECT.
+        it must be under one of SOGO_D_OPENID_ALLOW_REDIRECT. The API does not bind the login to the browser:
+        the UI must put a nonce of its own in this url and check it when the user comes back (login CSRF).
         """
         interface_api: InterfaceAuthUser = g.inter
         # build_sso_callback_url is the function used to construct the full SSO callback URL for the given kind and domain
@@ -124,15 +125,19 @@ class ApiAuthUserLogout(MethodView):
     Action, revoke the current user session
     """
 
+    @blp.arguments(sch.AuthUserLogoutSchema, location='query', as_kwargs=True, error_status_code=400)
     @blp.response(200)
-    def post(self) -> ResponseReturnValue:
+    def post(self, redirect:str) -> ResponseReturnValue:
         """
         Action, logout the authenticated user by revoking the session associated
         with the JWT token present in the Authorization header.
+        For a SSO user, the tokens are revoked on the identity provider, and data.location is the url where the UI
+        must send the browser to also end the session on the identity provider (empty if none, see SOGO_D_OPENID_ENDSESSION_ENABLED).
+        redirect is where the identity provider sends the user back after its logout.
         """
         auth_header = request.authorization
         voucher_data: str = ""
         if auth_header and auth_header.token:
             voucher_data = auth_header.token
         interface_api: InterfaceAuthUser = g.inter
-        return interface_api.logout(voucher_data)
+        return interface_api.logout(voucher_data, redirect)

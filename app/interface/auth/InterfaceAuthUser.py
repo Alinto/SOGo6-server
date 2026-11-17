@@ -67,13 +67,13 @@ class InterfaceAuthUser:
 
     def _check_login(self, uid:str, password:str) -> tuple[bool, User, ModuleUserSource]:
         """
-        Check credentials uid/password/token of a user
-        #TODO get login auth with AuthSettingsObj
+        Check credentials uid/password of a user, only for a domain with plain authentication (SOGO_D_AUTH_TYPE)
 
         :param uid: uid of the user
         :type username: str
-        :param password: password or token or any equivalent
+        :param password: password
         :type password: str
+        :raises RequestException: If the domain is invalid or uses a SSO
         :return: True if success, instante of User, instande of Appropriate ModuleUserSource
         :rtype: tuple[bool, User, ModuleUserSource]
         """
@@ -102,7 +102,10 @@ class InterfaceAuthUser:
         if voucher_data and self.user.authenticated and self.user.uid == uid:
             return create_api_base_response({"jwt_token": voucher_data})
 
-        success, user, module_us = self._check_login(uid, password)
+        try:
+            success, user, module_us = self._check_login(uid, password)
+        except RequestException as e:
+            return create_api_base_response(str(e), e.error)
 
         if not success:
             return create_api_base_response(None, err.ERROR_LOGIN_FAILED)
@@ -197,24 +200,35 @@ class InterfaceAuthUser:
                        and module_us.check_user_without_password(user))
             user_found = user
         else:
-            success, user_found, module_us = self._check_login(user.uid, user.password)
+            try:
+                success, user_found, module_us = self._check_login(user.uid, user.password)
+            except RequestException as e:
+                #The domain is not valid anymore, or uses a SSO now: the password session must end
+                logger_api.info("Plain session of %s not valid anymore: %s", user.uid, str(e))
+                return False, UserAnonymous()
         if success:
             self.module_user_profile.get_user_profile(user_found)
             return True, user_found
         return False, UserAnonymous()
 
-    def logout(self, voucher_data: str) -> tuple[dict, int]:
+    def logout(self, voucher_data: str, redirect: str = "") -> tuple[dict, int]:
         """
         Revoke the session associated with the given voucher.
+        For a SSO user, its tokens are also revoked on the identity provider, and location is the url where the UI
+        must send the browser to end the session on the identity provider (SOGO_D_OPENID_ENDSESSION_ENABLED), empty if none.
 
         :param voucher_data: The raw JWT token from the Authorization header
         :type voucher_data: str
-        :return: Tuple containing the API response dict and HTTP status code
+        :param redirect: UI url where the identity provider sends the user back after its logout, empty for none
+        :type redirect: str
+        :return: Tuple containing the API response dict ({"location": str}) and HTTP status code
         :rtype: tuple[dict, int]
         """
         try:
             self.module_auth.logout_user(voucher_data)
         except RequestException as e:
             return create_api_base_response(None, e.error)
-        return create_api_base_response(None)
+        #self.user is the user of this voucher, checked (and its token refreshed if needed) by the before_request
+        location = self.module_auth.logout_from_identity_provider(self.user, redirect)
+        return create_api_base_response({"location": location})
 

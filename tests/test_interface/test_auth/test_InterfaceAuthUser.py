@@ -21,11 +21,14 @@ class FakeModuleAuth:
         self.get_user_and_domain_user_sources_args = None
         self.generate_voucher_from_user_args = None
         self.logout_user_args = None
+        self.logout_from_identity_provider_args = None
         self.sso_ui_redirect = ""
 
         # Results
         self.get_login_mech_result = {"mechanism": "plain", "redirect": None}
         self.get_user_and_domain_user_sources_result = (None, {})
+        self.get_user_and_domain_user_sources_error = None #RequestException raised instead
+        self.logout_from_identity_provider_result = ""
         self.generate_voucher_from_user_result = {"voucher": "test-voucher-123", "expiry": "2026-02-13"}
 
     def get_login_mech(self, user_uid, ui_redirect, callback_url_builder):
@@ -36,6 +39,8 @@ class FakeModuleAuth:
     def get_user_and_domain_user_sources(self, uid, password):
         """Get user object and domain user sources."""
         self.get_user_and_domain_user_sources_args = (uid, password)
+        if self.get_user_and_domain_user_sources_error:
+            raise self.get_user_and_domain_user_sources_error
         return self.get_user_and_domain_user_sources_result
 
     def generate_voucher_from_user(self, user):
@@ -46,6 +51,11 @@ class FakeModuleAuth:
     def logout_user(self, voucher_data):
         """Revoke the session associated with the given voucher."""
         self.logout_user_args = voucher_data
+
+    def logout_from_identity_provider(self, user, post_logout_redirect):
+        """Logout from the identity provider of a SSO user."""
+        self.logout_from_identity_provider_args = (user, post_logout_redirect)
+        return self.logout_from_identity_provider_result
 
 
 class FakeModuleUserSource:
@@ -329,6 +339,26 @@ def test_plain_login_failed_authentication(monkeypatch):
     assert status_code == 401
 
 
+def test_plain_login_domain_with_sso(monkeypatch):
+    """The domain of the user uses a SSO: the password is refused, nothing is checked"""
+    fake_auth = FakeModuleAuth(None, None, None, None)
+    fake_auth.get_user_and_domain_user_sources_error = RequestException(error=err.ERROR_PLAIN_LOGIN_NOT_ALLOWED)
+    fake_us_instance = FakeModuleUserSource({})
+    patch_modules_on_interface(monkeypatch, fake_auth, FakeModuleUserProfile(None, None), lambda sources: fake_us_instance)
+    interface = InterfaceAuthUser(
+        process={"test": "config"},
+        system={"SYSTEM_SETTINGS": {"test": "value"}},
+        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}},
+        user=ANONYMOUS_USER
+    )
+
+    result, status_code = interface.plain_login({"username": "user@example.com", "password": "secret"})
+
+    assert status_code == err.ERROR_PLAIN_LOGIN_NOT_ALLOWED.h
+    assert result["error_code"] == err.ERROR_PLAIN_LOGIN_NOT_ALLOWED.c
+    assert fake_auth.generate_voucher_from_user_args is None
+
+
 def test_plain_login_already_logged_in_same_user(monkeypatch):
     """Test that a login request from an already authenticated user for the same uid is short-circuited."""
     fake_auth = FakeModuleAuth(None, None, None, None)
@@ -541,8 +571,29 @@ def test_logout_success(monkeypatch):
     result, status_code = interface.logout("fake-jwt-token")
 
     assert status_code == 200
-    assert result["data"] is None
+    assert result["data"] == {"location": ""}
     assert fake_auth.logout_user_args == "fake-jwt-token"
+    assert fake_auth.logout_from_identity_provider_args == (ANONYMOUS_USER, "")
+
+
+def test_logout_sso_location(monkeypatch):
+    """SSO user: the logout url of the identity provider is returned, the UI url is given to it"""
+    fake_auth = FakeModuleAuth(None, None, None, None)
+    fake_auth.logout_from_identity_provider_result = "http://idp/logout?id_token_hint=jwt"
+    patch_modules_on_interface(monkeypatch, fake_auth, FakeModuleUserProfile(None, None), FakeModuleUserSource)
+    user = FakeUser("user@example.com", "token", authenticated=True)
+    interface = InterfaceAuthUser(
+        process={"test": "config"},
+        system={"SYSTEM_SETTINGS": {"test": "value"}},
+        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}},
+        user=user
+    )
+
+    result, status_code = interface.logout("fake-jwt-token", "http://localhost:3001/en/auth/login")
+
+    assert status_code == 200
+    assert result["data"] == {"location": "http://idp/logout?id_token_hint=jwt"}
+    assert fake_auth.logout_from_identity_provider_args == (user, "http://localhost:3001/en/auth/login")
 
 
 def test_logout_empty_token(monkeypatch):
@@ -763,3 +814,23 @@ def test_check_user_and_fill_info_sso_user_not_found(monkeypatch):
     success, _ = interface.check_user_and_fill_info(user)
 
     assert not success
+
+
+def test_check_user_and_fill_info_plain_domain_now_sso(monkeypatch):
+    """Plain session of a domain that now uses a SSO: the session ends"""
+    fake_auth = FakeModuleAuth(None, None, None, None)
+    fake_auth.get_user_and_domain_user_sources_error = RequestException(error=err.ERROR_PLAIN_LOGIN_NOT_ALLOWED)
+    patch_modules_on_interface(monkeypatch, fake_auth, FakeModuleUserProfile(None, None), FakeModuleUserSource)
+    user = FakeUser("user@example.com", "secret", authenticated=True)
+    user.auth_kind = "plain"
+    interface = InterfaceAuthUser(
+        process={"test": "config"},
+        system={"SYSTEM_SETTINGS": {"test": "value"}},
+        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}},
+        user=user
+    )
+
+    success, user_found = interface.check_user_and_fill_info(user)
+
+    assert not success
+    assert user_found.anonymous

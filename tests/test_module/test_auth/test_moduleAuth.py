@@ -144,7 +144,7 @@ def test_module_init_success():
     assert module.process_settings == process
     assert module.do_domains is True
     assert module.domainless is False
-    assert module.known_domains == ["example.com", "test.com"]
+    assert module.known_domains == {"example.com", "test.com"}
     assert module.reject_unknown is True
     assert module.default_auth == auth_settings
     assert module.default_us == user_sources
@@ -230,6 +230,21 @@ def test_check_domain_unknown_domain_allowed():
 
     result = module._check_domain("user@unknown.com")
     assert result == "unknown.com"
+
+
+@pytest.mark.parametrize("uid", ["user@Example.COM", "USER@EXAMPLE.COM"])
+def test_check_domain_lower_case(uid):
+    """The domain does not depend on the case typed: same settings and same SSO callback url"""
+    module = ModuleAuth(FakeProcessSettings(), FakeSystemSettings(), get_default_auth_settings(), get_default_user_sources())
+    assert module._check_domain(uid) == "example.com"
+
+
+def test_check_domain_known_domains_lower_case():
+    """SOGO_S_KNOWN_DOMAIN written with upper case letters"""
+    system = FakeSystemSettings()
+    system.SOGO_S_KNOWN_DOMAIN = ["Example.COM"]
+    module = ModuleAuth(FakeProcessSettings(), system, get_default_auth_settings(), get_default_user_sources())
+    assert module._check_domain("user@example.com") == "example.com"
 
 
 # ========== Tests for _get_domain_auth_and_user_source_settings ==========
@@ -432,6 +447,27 @@ def test_get_user_invalid_domain():
 
     with pytest.raises(RequestException):
         module.get_user_and_domain_user_sources("user@unknown.com", "password")
+
+
+@pytest.mark.parametrize("auth_type", ["openid", "cas", "saml2"])
+def test_get_user_domain_with_sso(auth_type):
+    """A domain using a SSO refuses the password: it would skip the identity provider (MFA...)"""
+    module = ModuleAuth(FakeProcessSettings(), FakeSystemSettings(), FakeAuthSettings(auth_type=auth_type), get_default_user_sources())
+    module.do_domains = False
+
+    with pytest.raises(RequestException) as e:
+        module.get_user_and_domain_user_sources("user@example.com", "password")
+    assert e.value.error == err.ERROR_PLAIN_LOGIN_NOT_ALLOWED
+
+
+def test_get_user_domain_with_sso_from_domain_settings(monkeypatch):
+    """The auth type is read from the settings of the domain of the user"""
+    module = ModuleAuth(FakeProcessSettings(), FakeSystemSettings(), get_default_auth_settings(), get_default_user_sources())
+    monkeypatch.setattr(module, "_get_domain_auth_and_user_source_settings", lambda domain: (FakeAuthSettings(auth_type="openid"), {}))
+
+    with pytest.raises(RequestException) as e:
+        module.get_user_and_domain_user_sources("user@example.com", "password")
+    assert e.value.error == err.ERROR_PLAIN_LOGIN_NOT_ALLOWED
 
 
 def test_get_user_no_domain_when_required():
@@ -672,7 +708,7 @@ class FakeIdentityProvider:
         if FakeIdentityProvider.error:
             raise RequestException(error=FakeIdentityProvider.error)
         return IdentityProviderUserInfo(mail="user@example.com", claims={"name": "John Doe"}, access_token="token",
-                                        refresh_token="refresh", expires_at=1234)
+                                        refresh_token="refresh", expires_at=1234, id_token="id-token")
 
 
 def fake_check_user_without_password(found=True, mail_domain="example.com"):
@@ -747,6 +783,87 @@ def test_get_login_mech_openid_redirect_allowed(monkeypatch, ui_redirect):
     assert FakeIdentityProvider.ui_redirects == [ui_redirect]
 
 
+ALLOWED_PREFIXES = ["https://mail.example.com/en/auth/login/sso", "https://mail.example.com/fr/auth/login/sso/"]
+
+
+@pytest.mark.parametrize("ui_redirect, allowed", [
+    ("https://mail.example.com/en/auth/login/sso", True),
+    ("https://mail.example.com/en/auth/login/sso?nonce=abc", True),
+    ("https://mail.example.com/en/auth/login/sso/", True),
+    ("https://mail.example.com/fr/auth/login/sso", True),
+    ("https://mail.example.com/fr/auth/login/sso/x", True),
+    ("https://MAIL.example.com/en/auth/login/sso", True),
+    ("https://mail.example.com/en/auth/login/sso-evil", False),
+    ("https://mail.example.com/en/auth/login", False),
+    ("https://mail.example.com/", False),
+    ("https://mail.example.com/de/auth/login/sso", False),
+    ("https://mail.example.com/EN/auth/login/sso", False),
+    ("https://mail.example.com/en/auth/login/sso/../../../redirect?to=evil", False),
+    ("https://mail.example.com/en/auth/login/sso/%2e%2e/%2e%2e/open", False),
+    ("https://mail.example.com/en/auth/login/sso/..%2f..%2fopen", False),
+    ("https://mail.example.com\\@evil.com/en/auth/login/sso", False),
+    ("https://mail.example.com:443@evil.com/en/auth/login/sso", False),
+    ("http://mail.example.com/en/auth/login/sso", False),
+])
+def test_is_ui_redirect_allowed_prefix(ui_redirect, allowed):
+    """SOGO_D_OPENID_ALLOW_REDIRECT with paths: the UI url must be under one of them, on a path segment, without dot segments"""
+    auth_settings = FakeAuthSettings(auth_type="openid")
+    auth_settings.SOGO_D_OPENID_ALLOW_REDIRECT = ALLOWED_PREFIXES
+    assert ModuleAuth.is_ui_redirect_allowed(ui_redirect, auth_settings) is allowed
+
+
+@pytest.mark.parametrize("redirect, allowed", [
+    ("https://mail.example.com/en/auth/login", True),
+    ("https://mail.example.com/", True),
+    ("https://other.example.com/en/auth/login", False),
+    ("https://user@mail.example.com/", False),
+    ("", False),
+])
+def test_is_post_logout_redirect_allowed(redirect, allowed):
+    """After the logout, any page of an allowed origin: nothing secret is sent to it"""
+    auth_settings = FakeAuthSettings(auth_type="openid")
+    auth_settings.SOGO_D_OPENID_ALLOW_REDIRECT = ALLOWED_PREFIXES
+    assert ModuleAuth.is_post_logout_redirect_allowed(redirect, auth_settings) is allowed
+
+
+def test_get_login_mech_openid_domainless(monkeypatch):
+    """Domainless login: the callback url has SSO_NO_DOMAIN, the callback route needs a domain"""
+    module = get_sso_module(monkeypatch)
+    module.domainless = True
+
+    module.get_login_mech("user", UI_REDIRECT, fake_callback_url_builder)
+    assert FakeIdentityProvider.callback_urls == [f"http://api/auth/callback/openid/{ma.SSO_NO_DOMAIN}"]
+
+
+def test_get_login_mech_openid_domain_lower_case(monkeypatch):
+    """The callback url has the domain in lower case"""
+    module = get_sso_module(monkeypatch)
+
+    module.get_login_mech("user@EXAMPLE.com", UI_REDIRECT, fake_callback_url_builder)
+    assert FakeIdentityProvider.callback_urls == ["http://api/auth/callback/openid/example.com"]
+
+
+def test_get_user_from_sso_callback_domainless(monkeypatch):
+    """Domainless login: same callback url as get_login_mech, default settings, the user has the domain of its mail"""
+    module = get_sso_module(monkeypatch)
+    module.domainless = True
+    monkeypatch.setattr("app.module.auth.ModuleAuth.ModuleUserSource.check_user_without_password", fake_check_user_without_password())
+
+    user, _ = module.get_user_from_sso_callback("openid", ma.SSO_NO_DOMAIN, {"code": "abc", "state": "my-state"}, fake_callback_url_builder)
+    assert FakeIdentityProvider.callback_urls == [f"http://api/auth/callback/openid/{ma.SSO_NO_DOMAIN}"]
+    assert user.uid == "user@example.com"
+
+
+def test_get_user_from_sso_callback_domainless_with_domain(monkeypatch):
+    """Domainless login: a callback for a domain was not made by get_login_mech"""
+    module = get_sso_module(monkeypatch)
+    module.domainless = True
+
+    with pytest.raises(RequestException):
+        module.get_user_from_sso_callback("openid", "example.com", {"code": "abc", "state": "my-state"}, fake_callback_url_builder)
+    assert FakeIdentityProvider.callback_urls == []
+
+
 def test_get_login_mech_plain_ignores_redirect(monkeypatch):
     """No SSO: the UI url is not checked"""
     module = get_sso_module(monkeypatch, auth_type="plain")
@@ -771,6 +888,7 @@ def test_get_user_from_sso_callback(monkeypatch):
     assert user.password == "token"
     assert user.refresh_token == "refresh"
     assert user.token_expires_at == 1234
+    assert user.id_token == "id-token"
     assert user.auth_kind == "openid"
     assert user.authenticated
     assert sources == module.default_us
@@ -804,6 +922,14 @@ def test_get_user_from_sso_callback_user_not_found(monkeypatch):
     with pytest.raises(RequestException) as e:
         module.get_user_from_sso_callback("openid", "example.com", {"code": "abc", "state": "my-state"}, fake_callback_url_builder)
     assert e.value.error == err.ERROR_SSO_USER_NOT_FOUND
+
+
+def test_get_user_from_sso_callback_domain_case(monkeypatch):
+    """The user source gives the domain with another case"""
+    module = get_sso_module(monkeypatch)
+    monkeypatch.setattr("app.module.auth.ModuleAuth.ModuleUserSource.check_user_without_password", fake_check_user_without_password(mail_domain="Example.COM"))
+    user, _ = module.get_user_from_sso_callback("openid", "example.com", {"code": "abc", "state": "my-state"}, fake_callback_url_builder)
+    assert user.authenticated
 
 
 def test_get_user_from_sso_callback_other_domain(monkeypatch):
@@ -854,6 +980,7 @@ def get_sso_user(auth_kind="openid", refresh_token="", token_expires_at=0, sessi
     user.auth_kind = auth_kind
     user.refresh_token = refresh_token
     user.token_expires_at = token_expires_at
+    user.id_token = "id-token"
     user.session_id = session_id
     user.session_key = "skey" if session_id else ""
     return user
@@ -990,6 +1117,7 @@ def test_refresh_proactive(refresh_env):
     assert refresh_env["checked"] == []
     assert refresh_env["refreshed"] == ["refresh"]
     assert (user.password, user.refresh_token, user.token_expires_at) == ("new-token", "new-refresh", 9999999999)
+    assert user.id_token == "id-token" #No new id_token given: the previous one is kept
     assert FakeSessionVoucherService.saved == ["new-token"]
     assert refresh_env["cache"].locks_taken == [LOCK_KEY]
     assert refresh_env["cache"].data == {}
@@ -1094,6 +1222,102 @@ def test_refresh_without_session(refresh_env):
     assert user.password == "new-token"
     assert refresh_env["cache"].locks_taken == []
     assert FakeSessionVoucherService.saved == []
+
+
+def test_refresh_new_id_token(refresh_env):
+    """The identity provider gave a new id_token: kept for the logout"""
+    refresh_env["refresh_result"] = IdentityProviderTokens("new-token", "new-refresh", 9999999999, id_token="new-id-token")
+    user = get_sso_user(refresh_token="refresh", token_expires_at=expires_in(10))
+    assert check(refresh_env, user)
+    assert user.id_token == "new-id-token"
+
+
+def test_refresh_concurrent_request_wait_is_short(refresh_env, monkeypatch):
+    """The other request takes too long: wait at most SSO_REFRESH_LOCK_WAIT, then use the current token"""
+    cache = refresh_env["cache"]
+    cache.data[LOCK_KEY] = "other-request" #Never released
+    clock = {"now": 0.0}
+    monkeypatch.setattr(ma.time, "monotonic", lambda: clock["now"])
+    monkeypatch.setattr(ma.time, "sleep", lambda seconds: clock.update(now=clock["now"] + seconds))
+    user = get_sso_user(refresh_token="refresh", token_expires_at=expires_in(30))
+
+    assert check(refresh_env, user)
+    assert cs.SSO_REFRESH_LOCK_WAIT <= clock["now"] < cs.SSO_REFRESH_LOCK_WAIT + 1
+    assert cs.SSO_REFRESH_LOCK_WAIT < cs.SSO_REFRESH_LOCK_TTL
+    assert refresh_env["refreshed"] == []
+    assert user.password == "token"
+    assert cache.data[LOCK_KEY] == "other-request" #Not released by this request
+
+
+# ========== Tests for logout_from_identity_provider ==========
+
+@pytest.fixture
+def logout_env(monkeypatch):
+    """ModuleAuth with a fake identity provider recording the logout"""
+    module = get_sso_module(monkeypatch)
+    calls: list = []
+
+    def logout(self, access_token, refresh_token, id_token, post_logout_redirect):
+        calls.append((access_token, refresh_token, id_token, post_logout_redirect))
+        return "http://idp/logout"
+
+    monkeypatch.setattr(FakeIdentityProvider, "logout", logout, raising=False)
+    return module, calls
+
+
+def get_logged_sso_user(auth_kind="openid"):
+    user = get_sso_user(auth_kind=auth_kind, refresh_token="refresh")
+    user.domain = "example.com"
+    user.authenticated = True
+    return user
+
+
+def test_logout_from_identity_provider(logout_env):
+    """The tokens of the user are given to the identity provider, with the allowed UI url"""
+    module, calls = logout_env
+    location = module.logout_from_identity_provider(get_logged_sso_user(), "http://localhost:3001/en/auth/login")
+    assert location == "http://idp/logout"
+    assert calls == [("token", "refresh", "id-token", "http://localhost:3001/en/auth/login")]
+
+
+def test_logout_from_identity_provider_redirect_not_allowed(logout_env):
+    """UI url of another origin: not given to the identity provider"""
+    module, calls = logout_env
+    module.logout_from_identity_provider(get_logged_sso_user(), "http://evil.com/")
+    assert calls == [("token", "refresh", "id-token", "")]
+
+
+def test_logout_from_identity_provider_plain(logout_env):
+    """Plain user: nothing to do"""
+    module, calls = logout_env
+    assert module.logout_from_identity_provider(get_logged_sso_user(auth_kind="plain"), "") == ""
+    assert calls == []
+
+
+def test_logout_from_identity_provider_anonymous(logout_env):
+    """User not authenticated (voucher not valid): nothing to do"""
+    module, calls = logout_env
+    user = get_logged_sso_user()
+    user.authenticated = False
+    assert module.logout_from_identity_provider(user, "") == ""
+    assert calls == []
+
+
+def test_logout_from_identity_provider_auth_type_changed(logout_env, monkeypatch):
+    """The domain does not use this SSO anymore: its settings are not the ones of the tokens"""
+    module, calls = logout_env
+    monkeypatch.setattr(module, "default_auth", FakeAuthSettings(auth_type="plain"))
+    assert module.logout_from_identity_provider(get_logged_sso_user(), "") == ""
+    assert calls == []
+
+
+def test_logout_from_identity_provider_settings_error(logout_env, monkeypatch):
+    """The settings cannot be read (database down): the user is logged out of SOGo anyway"""
+    module, calls = logout_env
+    def fail(domain):
+        raise ConnectionError("db down")
+    monkeypatch.setattr(module, "_get_domain_auth_and_user_source_settings", fail)
+    assert module.logout_from_identity_provider(get_logged_sso_user(), "") == ""
 
 
 # ========== Tests for build_ui_redirect_url ==========

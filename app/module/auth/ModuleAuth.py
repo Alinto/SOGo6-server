@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Callable, Type
-from urllib.parse import urlencode, urlsplit, urlunsplit
+from urllib.parse import unquote, urlencode, urlsplit, urlunsplit
 from uuid import uuid4
 import time
 
@@ -36,22 +36,60 @@ IDENTITY_PROVIDERS: dict[str, Type[IdentityProvider]] = {
 SSO_NO_DOMAIN = "none"
 
 
+def _split_redirect_url(url:str) -> tuple[str, str]|None:
+    """
+    Return the origin (scheme://host[:port], lower case) and the path of a redirection url.
+    None if the url is not http(s), has credentials (user@host), a backslash or a dot segment (/../):
+    the browser would not go where the path seems to point.
+
+    :param url: The url
+    :type url: str
+    :return: (origin, path) or None
+    :rtype: tuple[str, str]|None
+    """
+    url = url.strip()
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return None
+    if parts.scheme.lower() not in ("http", "https") or not parts.netloc or "@" in parts.netloc or "\\" in url:
+        return None
+    path = parts.path or "/"
+    if any(segment in (".", "..") for segment in unquote(path).split("/")):
+        return None
+    return f"{parts.scheme}://{parts.netloc}".lower(), path
+
+
 def _get_origin(url:str) -> str:
     """
-    Return the origin (scheme://host[:port]) of an url, lower case, empty if the url is not http(s)
+    Return the origin (scheme://host[:port]) of an url, lower case, empty if the url is not a valid redirection
 
     :param url: The url
     :type url: str
     :return: The origin or empty string
     :rtype: str
     """
-    try:
-        parts = urlsplit(url.strip())
-    except ValueError:
-        return ""
-    if parts.scheme.lower() not in ("http", "https") or not parts.netloc:
-        return ""
-    return f"{parts.scheme}://{parts.netloc}".lower()
+    split = _split_redirect_url(url)
+    return split[0] if split else ""
+
+
+def _is_url_under(url:str, allowed_url:str) -> bool:
+    """
+    Return True if url has the same origin as allowed_url, and its path starts with the path of allowed_url
+    (on a path segment: /sso allows /sso, /sso/ and /sso/x, not /sso-x). The query of url is not checked.
+
+    :param url: Url to check
+    :type url: str
+    :param allowed_url: Allowed url prefix
+    :type allowed_url: str
+    :return: True if url is under allowed_url
+    :rtype: bool
+    """
+    split, allowed = _split_redirect_url(url), _split_redirect_url(allowed_url)
+    if split is None or allowed is None or split[0] != allowed[0]:
+        return False
+    prefix = allowed[1].rstrip("/")
+    return not prefix or split[1] == prefix or split[1].startswith(f"{prefix}/")
 
 
 def build_ui_redirect_url(ui_redirect:str, params:dict) -> str:
@@ -94,7 +132,7 @@ class ModuleAuth:  # pylint: disable=too-many-instance-attributes
 
         self.do_domains     = system.SOGO_S_DO_DOMAIN
         self.domainless     = system.SOGO_S_DOMAINLESS_LOGIN
-        self.known_domains  = system.SOGO_S_KNOWN_DOMAIN
+        self.known_domains  = {domain.lower() for domain in system.SOGO_S_KNOWN_DOMAIN}
         self.reject_unknown = system.SOGO_S_REJECT_UNKNOWN_DOMAIN
 
         #UI url of the last SSO callback, known once the identity provider has read its state, even if the login failed
@@ -105,7 +143,8 @@ class ModuleAuth:  # pylint: disable=too-many-instance-attributes
 
     def _check_domain(self, uid:str) -> str:
         """
-        Check if a domain is found and if it matches system settings rules
+        Check if a domain is found and if it matches system settings rules.
+        The domain is lower case: the settings of the domain and the SSO callback url do not depend on the case typed.
 
         :param uid: The user unique ID
         :type uid: str
@@ -116,7 +155,7 @@ class ModuleAuth:  # pylint: disable=too-many-instance-attributes
         """
         domain = ""
         if not self.domainless:
-            tmp_domain = get_domain_from_mail(uid)
+            tmp_domain = (get_domain_from_mail(uid) or "").lower()
             if not tmp_domain:
                 raise RequestException("No domain given for auth when this is required")
             if self.reject_unknown and tmp_domain not in self.known_domains:
@@ -153,16 +192,20 @@ class ModuleAuth:  # pylint: disable=too-many-instance-attributes
 
     def _check_callback_domain(self, domain:str) -> str:
         """
-        Check the domain given in a SSO callback url, the same way _check_domain does for a uid
+        Check the domain given in a SSO callback url, the same way _check_domain does for a uid.
+        With a domainless login, the callback url has SSO_NO_DOMAIN instead of a domain (see get_login_mech).
 
         :param domain: The domain from the callback url
         :type domain: str
         :raises RequestException: When domain is not in known domains and unknown domains are rejected
-        :return: empty string or the domain
+        :return: empty string or the domain, lower case
         :rtype: str
         """
         if self.domainless:
+            if domain != SSO_NO_DOMAIN:
+                raise RequestException(f"Login is domainless, the SSO callback must be for '{SSO_NO_DOMAIN}'", err.ERROR_LOGIN_NO_DOMAIN)
             return ""
+        domain = domain.lower()
         if self.reject_unknown and domain not in self.known_domains:
             raise RequestException("Domain given for auth is not registered in SOGO_S_REJECT_UNKNOWN_DOMAIN")
         return domain
@@ -170,7 +213,9 @@ class ModuleAuth:  # pylint: disable=too-many-instance-attributes
     @staticmethod
     def is_ui_redirect_allowed(ui_redirect:str, auth_settings:AuthSettingsObj) -> bool:
         """
-        Check that the origin of the UI url is exactly one of SOGO_D_OPENID_ALLOW_REDIRECT of the domain
+        Check that the UI url is under one of SOGO_D_OPENID_ALLOW_REDIRECT of the domain: same origin,
+        and its path starts with the path of the allowed url (see _is_url_under).
+        The jwt token is sent to this url: the narrower the allowed urls, the fewer pages can read it.
 
         :param ui_redirect: UI url given by the UI
         :type ui_redirect: str
@@ -179,8 +224,24 @@ class ModuleAuth:  # pylint: disable=too-many-instance-attributes
         :return: True if the UI url can be used as redirection
         :rtype: bool
         """
+        return any(_is_url_under(ui_redirect, allowed) for allowed in auth_settings.SOGO_D_OPENID_ALLOW_REDIRECT)
+
+    @staticmethod
+    def is_post_logout_redirect_allowed(redirect:str, auth_settings:AuthSettingsObj) -> bool:
+        """
+        Check that the origin of the UI url where the identity provider sends the user back after its logout
+        is the origin of one of SOGO_D_OPENID_ALLOW_REDIRECT. Nothing secret is sent to this url, any page of the UI is allowed.
+        The identity provider also checks it (post_logout_redirect_uri registered for the client).
+
+        :param redirect: UI url given by the UI
+        :type redirect: str
+        :param auth_settings: Authentication settings of the domain
+        :type auth_settings: AuthSettingsObj
+        :return: True if the UI url can be used as redirection after the logout
+        :rtype: bool
+        """
         allowed_origins = {_get_origin(url) for url in auth_settings.SOGO_D_OPENID_ALLOW_REDIRECT} - {""}
-        origin = _get_origin(ui_redirect)
+        origin = _get_origin(redirect)
         return bool(origin) and origin in allowed_origins
 
     @staticmethod
@@ -218,7 +279,8 @@ class ModuleAuth:  # pylint: disable=too-many-instance-attributes
         domain_auth_settings, _ = self._get_domain_auth_and_user_source_settings(domain)
         kind = domain_auth_settings.SOGO_D_AUTH_TYPE
         location = ""
-        callback_url = callback_url_builder(kind, domain) # or SSO_NO_DOMAIN)
+        #The callback route needs a domain: SSO_NO_DOMAIN when the login is domainless (see _check_callback_domain)
+        callback_url = callback_url_builder(kind, domain or SSO_NO_DOMAIN)
         provider = self._get_identity_provider(domain_auth_settings, callback_url)
         if provider:
             if not self.is_ui_redirect_allowed(ui_redirect, domain_auth_settings):
@@ -279,13 +341,14 @@ class ModuleAuth:  # pylint: disable=too-many-instance-attributes
         user.auth_kind = kind
         user.refresh_token = identity.refresh_token
         user.token_expires_at = identity.expires_at
+        user.id_token = identity.id_token
 
         #The identity provider authenticated the user, the user sources give its uid, cn, source_id...
         module_us = ModuleUserSource(domain_user_sources)
         if not module_us.check_user_without_password(user):
             logger_auth.info("SSO user %s not found in the user sources", identity.mail)
             raise RequestException(error=err.ERROR_SSO_USER_NOT_FOUND)
-        if domain and user.domain != domain:
+        if domain and (user.domain or "").lower() != domain:
             logger_auth.warning("SSO user %s found with domain %s but the callback is for domain %s", identity.mail, user.domain, domain)
             raise RequestException(error=err.ERROR_SSO_LOGIN_FAILED)
 
@@ -389,14 +452,16 @@ class ModuleAuth:  # pylint: disable=too-many-instance-attributes
     @staticmethod
     def _wait_refresh_lock(cache:ClientRedis, lock_key:str) -> None:
         """
-        Wait until the refresh lock is released by the request holding it, at most cs.SSO_REFRESH_LOCK_TTL seconds
+        Wait until the refresh lock is released by the request holding it, at most cs.SSO_REFRESH_LOCK_WAIT seconds:
+        a slow identity provider must not hold a worker for each concurrent request of the session.
+        If the lock is still held, the request uses the current token while it is not expired (see _refresh_sso_access_token).
 
         :param cache: Redis client
         :type cache: ClientRedis
         :param lock_key: Redis key of the lock
         :type lock_key: str
         """
-        deadline = time.monotonic() + cs.SSO_REFRESH_LOCK_TTL
+        deadline = time.monotonic() + cs.SSO_REFRESH_LOCK_WAIT
         while cache.get(lock_key, str) is not None and time.monotonic() < deadline:
             time.sleep(0.1)
 
@@ -426,6 +491,7 @@ class ModuleAuth:  # pylint: disable=too-many-instance-attributes
         user.password = access_token
         user.refresh_token = session_data.get(cs.USER_REFRESH_TOKEN, "")
         user.token_expires_at = session_data.get(cs.USER_TOKEN_EXPIRES_AT, 0)
+        user.id_token = session_data.get(cs.USER_ID_TOKEN, "")
         return True
 
     @staticmethod
@@ -456,6 +522,8 @@ class ModuleAuth:  # pylint: disable=too-many-instance-attributes
         user.password = tokens.access_token
         user.refresh_token = tokens.refresh_token
         user.token_expires_at = tokens.expires_at
+        if tokens.id_token:
+            user.id_token = tokens.id_token
         if voucher_service is not None and not voucher_service.save_user_session(user):
             return False
         logger_auth.info("SSO access token of %s refreshed", user.uid)
@@ -469,12 +537,17 @@ class ModuleAuth:  # pylint: disable=too-many-instance-attributes
         :type username: str
         :param password: password
         :type password: str
+        :raises RequestException: If the domain is invalid or does not use plain authentication (SOGO_D_AUTH_TYPE)
         :return: Tuple of (User object ready for authentication, domain user sources settings)
         :rtype: tuple[User, dict[str, UserSourceSettingsObj]]
         """
 
         domain = self._check_domain(username)
-        _, domain_user_sources = self._get_domain_auth_and_user_source_settings(domain)
+        domain_auth_settings, domain_user_sources = self._get_domain_auth_and_user_source_settings(domain)
+        #A domain using a SSO must not accept the password of the user source: it would skip the identity provider (MFA, lockout...)
+        if domain_auth_settings.SOGO_D_AUTH_TYPE != cs.AUTH_KIND_PLAIN:
+            logger_auth.info("Login with password refused for %s, its domain uses %s", username, domain_auth_settings.SOGO_D_AUTH_TYPE)
+            raise RequestException(error=err.ERROR_PLAIN_LOGIN_NOT_ALLOWED)
 
         if self.domainless:
             user = User(username, password, is_domainless=True)
@@ -510,3 +583,36 @@ class ModuleAuth:  # pylint: disable=too-many-instance-attributes
         cache = sogo_cache()
         cache.revoke_user_sessions_by_key([redis_key])
         cache.close()
+
+    def logout_from_identity_provider(self, user:User, post_logout_redirect:str) -> str:
+        """
+        For a SSO user, once its user session is revoked (see logout_user): revoke its tokens on the identity provider,
+        and return the url where the browser must go to end its session on the identity provider (if enabled).
+        Never raises: the user is logged out of SOGo anyway.
+
+        :param user: User logging out, read from its voucher
+        :type user: User
+        :param post_logout_redirect: UI url where the identity provider sends the user back after its logout.
+                                     Ignored if its origin is not in SOGO_D_OPENID_ALLOW_REDIRECT.
+        :type post_logout_redirect: str
+        :return: Logout url of the identity provider, empty if none
+        :rtype: str
+        """
+        if not user.authenticated or user.auth_kind == cs.AUTH_KIND_PLAIN:
+            return ""
+        try:
+            #Same settings as the login: the default ones for a domainless login
+            domain = "" if self.domainless else user.domain
+            auth_settings, _ = self._get_domain_auth_and_user_source_settings(domain)
+        except Exception as e: # pylint: disable=broad-exception-caught
+            logger_auth.error("Cannot read the auth settings of %s to logout from the identity provider: %s", user.uid, repr(e))
+            return ""
+        if auth_settings.SOGO_D_AUTH_TYPE != user.auth_kind:
+            return ""
+        provider = self._get_identity_provider(auth_settings, "") #No callback needed to logout
+        if provider is None:
+            return ""
+        if post_logout_redirect and not self.is_post_logout_redirect_allowed(post_logout_redirect, auth_settings):
+            logger_auth.warning("SSO logout asked with a redirect not in SOGO_D_OPENID_ALLOW_REDIRECT: %s", post_logout_redirect)
+            post_logout_redirect = ""
+        return provider.logout(user.password, user.refresh_token, user.id_token, post_logout_redirect)

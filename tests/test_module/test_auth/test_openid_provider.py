@@ -2,6 +2,7 @@
 Unit tests for OpenIDProvider. The openid server and redis are mocked.
 """
 from urllib.parse import urlparse, parse_qs
+from hashlib import sha256
 import base64
 import json
 import time
@@ -30,7 +31,7 @@ METADATA = {
 
 class FakeAuthSettings:
     """Fake AuthSettingsObj for openid."""
-    def __init__(self, fetch_user_profile=True, token_check_interval=0):
+    def __init__(self, fetch_user_profile=True, token_check_interval=0, require_email_verified=True, endsession_enabled=False):
         self.SOGO_D_AUTH_TYPE = "openid"
         self.SOGO_D_OPENID_CONFIG_URL = "http://idp/.well-known/openid-configuration"
         self.SOGO_D_OPENID_CLIENT_NAME = "myClient"
@@ -39,6 +40,8 @@ class FakeAuthSettings:
         self.SOGO_D_OPENID_EMAIL = "email"
         self.SOGO_D_OPENID_FETCH_USER_PROFILE = fetch_user_profile
         self.SOGO_D_OPENID_TOKEN_CHECK_INTERVAL = token_check_interval
+        self.SOGO_D_OPENID_REQUIRE_EMAIL_VERIFIED = require_email_verified
+        self.SOGO_D_OPENID_ENDSESSION_ENABLED = endsession_enabled
 
 
 class FakeCache:
@@ -70,6 +73,14 @@ class FakeCache:
         pass
 
 
+@pytest.fixture(autouse=True)
+def clear_metadata_cache():
+    """The server metadata is cached in the process: each test starts without it"""
+    op.server_metadata_cache.clear()
+    yield
+    op.server_metadata_cache.clear()
+
+
 @pytest.fixture
 def app():
     """Flask app, without secret key: the flask session must not be used"""
@@ -87,10 +98,12 @@ def cache(monkeypatch):
 @pytest.fixture
 def idp(monkeypatch, cache):
     """Mock the openid server, return the calls made to it"""
-    calls = {"fetch_token": [], "parse_id_token": [], "userinfo": {"email": "user@example.com", "name": "John Doe"},
-             "id_token_claims": {"email": "id@example.com"}}
+    calls = {"fetch_token": [], "parse_id_token": [], "load_server_metadata": 0,
+             "userinfo": {"sub": "123", "email": "user@example.com", "email_verified": True, "name": "John Doe"},
+             "id_token_claims": {"sub": "123", "email": "id@example.com", "email_verified": True}}
 
     def fake_load_server_metadata(self):
+        calls["load_server_metadata"] += 1
         return METADATA
 
     def fake_fetch_access_token(self, **kwargs):
@@ -143,13 +156,20 @@ def test_get_login_location(app, idp, cache):
     assert query["client_id"] == ["myClient"]
     assert query["redirect_uri"] == [CALLBACK_URL]
     assert query["scope"] == ["openid profile email"]
-    assert "code_challenge" not in query
 
     state = query["state"][0]
     assert len(state) >= 30 #authlib generate_token(30)
     key = state_key(state)
-    assert cache.data == {key: {"redirect_uri": CALLBACK_URL, "nonce": query["nonce"][0], cs.SSO_STATE_UI_REDIRECT: UI_REDIRECT}}
+    code_verifier = cache.data[key]["code_verifier"]
+    assert cache.data == {key: {"redirect_uri": CALLBACK_URL, "nonce": query["nonce"][0], "code_verifier": code_verifier,
+                                cs.SSO_STATE_UI_REDIRECT: UI_REDIRECT}}
     assert cache.ttl[key] == cs.SSO_STATE_TTL
+
+    #PKCE: only the challenge is sent, the verifier is kept in the state for the code exchange
+    assert query["code_challenge_method"] == ["S256"]
+    expected_challenge = base64.urlsafe_b64encode(sha256(code_verifier.encode()).digest()).rstrip(b"=").decode()
+    assert query["code_challenge"] == [expected_challenge]
+    assert code_verifier not in url
 
 
 def test_get_login_location_state_is_random(app, idp):
@@ -181,8 +201,13 @@ def test_authenticate_from_callback(app, idp, cache):
     assert identity.mail == "user@example.com"
     assert identity.claims["name"] == "John Doe"
     assert identity.access_token == "at"
-    assert idp["fetch_token"] == [{"code": "abc", "state": query["state"][0], "redirect_uri": CALLBACK_URL}]
+    [fetch_token] = idp["fetch_token"]
+    assert fetch_token["code"] == "abc"
+    assert fetch_token["state"] == query["state"][0]
+    assert fetch_token["redirect_uri"] == CALLBACK_URL
+    assert len(fetch_token["code_verifier"]) >= 43 #PKCE verifier sent with the code (RFC 7636)
     assert idp["parse_id_token"] == query["nonce"]
+    assert identity.id_token == "jwt"
     assert cache.data == {}
 
 
@@ -332,8 +357,9 @@ def token_server(monkeypatch, idp):
     Return the calls made (form data and Authorization header), by endpoint.
     A response can be an exception, raised when sending the request.
     """
-    endpoints = {"http://idp/userinfo": "userinfo", "http://idp/introspect": "introspect", "http://idp/token": "token"}
-    calls = {"userinfo": [], "introspect": [], "token": [],
+    endpoints = {"http://idp/userinfo": "userinfo", "http://idp/introspect": "introspect", "http://idp/token": "token",
+                 "http://idp/revoke": "revoke"}
+    calls = {"userinfo": [], "introspect": [], "token": [], "revoke": [], "revoke_response": http_response(),
              "userinfo_response": http_response(json_data={"email": "user@example.com"}),
              "introspect_response": http_response(json_data={"active": True}),
              "token_response": http_response(json_data={"access_token": "new-at", "refresh_token": "new-rt", "expires_in": 300})}
@@ -527,3 +553,178 @@ def test_refresh_access_token_non_json_error(token_server):
     with pytest.raises(RequestException) as e:
         OpenIDProvider(FakeAuthSettings(), "").refresh_access_token("rt")
     assert e.value.error == err.ERROR_SSO_PROVIDER_UNREACHABLE
+
+
+def test_refresh_access_token_new_id_token(token_server):
+    """The openid server gave a new id_token with the refresh: it is returned, for the next logout"""
+    token_server["token_response"] = http_response(json_data={"access_token": "new-at", "id_token": "new-jwt"})
+    assert OpenIDProvider(FakeAuthSettings(), "").refresh_access_token("rt").id_token == "new-jwt"
+
+
+# ========== Tests for the trust in the mail claim ==========
+
+@pytest.mark.parametrize("email_verified", [False, "false", None, "missing"])
+def test_authenticate_from_callback_email_not_verified(app, idp, email_verified):
+    """SOGO_D_OPENID_REQUIRE_EMAIL_VERIFIED: a mail not verified by the openid server could be the mail of someone else"""
+    for claims in (idp["userinfo"], idp["id_token_claims"]):
+        if email_verified == "missing":
+            claims.pop("email_verified")
+        else:
+            claims["email_verified"] = email_verified
+    query = login(app)
+
+    with pytest.raises(RequestException) as e:
+        callback(app, {"code": "abc", "state": query["state"][0]})
+    assert e.value.error == err.ERROR_SSO_EMAIL_NOT_VERIFIED
+
+
+@pytest.mark.parametrize("email_verified", [True, "true", "True"])
+def test_authenticate_from_callback_email_verified(app, idp, email_verified):
+    """Boolean, or string for some openid servers"""
+    idp["userinfo"]["email_verified"] = email_verified
+    query = login(app)
+    assert callback(app, {"code": "abc", "state": query["state"][0]}).mail == "user@example.com"
+
+
+def test_authenticate_from_callback_email_verified_from_id_token(app, idp):
+    """The user info does not have email_verified: read from the validated id_token"""
+    idp["userinfo"].pop("email_verified")
+    query = login(app)
+    assert callback(app, {"code": "abc", "state": query["state"][0]}).mail == "user@example.com"
+
+
+def test_authenticate_from_callback_email_verified_not_required(app, idp):
+    """SOGO_D_OPENID_REQUIRE_EMAIL_VERIFIED off (claim not editable by the users): not checked"""
+    idp["userinfo"]["email_verified"] = False
+    idp["id_token_claims"]["email_verified"] = False
+    query = login(app)
+    with app.test_request_context("/auth/callback", query_string={"code": "abc", "state": query["state"][0]}):
+        provider = OpenIDProvider(FakeAuthSettings(require_email_verified=False), CALLBACK_URL)
+        identity = provider.authenticate_from_callback({"code": "abc", "state": query["state"][0]})
+    assert identity.mail == "user@example.com"
+
+
+def test_authenticate_from_callback_userinfo_other_sub(app, idp):
+    """OIDC Core 5.3.2: the user info must be about the user of the id_token"""
+    idp["userinfo"]["sub"] = "456"
+    query = login(app)
+
+    with pytest.raises(RequestException) as e:
+        callback(app, {"code": "abc", "state": query["state"][0]})
+    assert e.value.error == err.ERROR_SSO_LOGIN_FAILED
+
+
+# ========== Tests for the server metadata cache ==========
+
+def test_server_metadata_cached(app, idp):
+    """The discovery document is fetched once for all the providers of this openid server, until it expires"""
+    login(app)
+    login(app)
+    assert idp["load_server_metadata"] == 1
+
+
+def test_server_metadata_cache_expired(app, idp, monkeypatch):
+    """Fetched again once cs.SSO_METADATA_TTL is over"""
+    login(app)
+    now = time.monotonic()
+    monkeypatch.setattr(op.time, "monotonic", lambda: now + cs.SSO_METADATA_TTL + 1)
+    login(app)
+    assert idp["load_server_metadata"] == 2
+
+
+def test_server_metadata_cache_by_url(app, idp):
+    """Each openid server (SOGO_D_OPENID_CONFIG_URL) has its own metadata"""
+    login(app)
+    settings = FakeAuthSettings()
+    settings.SOGO_D_OPENID_CONFIG_URL = "http://other-idp/.well-known/openid-configuration"
+    with app.test_request_context("/auth/mode"):
+        OpenIDProvider(settings, CALLBACK_URL).get_login_location(UI_REDIRECT)
+    assert idp["load_server_metadata"] == 2
+
+
+def test_server_metadata_not_cached_on_error(app, idp, monkeypatch):
+    """An unreachable openid server is asked again on the next login"""
+    def fail(self):
+        idp["load_server_metadata"] += 1
+        raise requests.ConnectionError("down")
+    monkeypatch.setattr(op.FlaskOAuth2App, "load_server_metadata", fail)
+    for _ in range(2):
+        with app.test_request_context("/auth/mode"), pytest.raises(RequestException):
+            OpenIDProvider(FakeAuthSettings(), CALLBACK_URL).get_login_location(UI_REDIRECT)
+    assert idp["load_server_metadata"] == 2
+
+
+def test_server_metadata_jwks_cached(monkeypatch):
+    """The jwks fetched by authlib (validation of the id_token) are cached with the metadata"""
+    op.server_metadata_cache.set("http://idp/.well-known/openid-configuration", dict(METADATA, _loaded_at=1))
+    monkeypatch.setattr(op.FlaskOAuth2App, "fetch_jwk_set", lambda self, force=False: {"keys": ["k1"]})
+
+    OpenIDProvider(FakeAuthSettings(), "")._client.fetch_jwk_set()
+    assert op.server_metadata_cache.get("http://idp/.well-known/openid-configuration")["jwks"] == {"keys": ["k1"]}
+
+
+# ========== Tests for logout ==========
+
+LOGOUT_METADATA = dict(METADATA, revocation_endpoint="http://idp/revoke", end_session_endpoint="http://idp/logout")
+POST_LOGOUT = "http://localhost:3001/en/auth/login"
+
+
+def logout(monkeypatch, metadata=None, **settings):
+    """Call logout with the tokens of a user, the openid server has these metadata"""
+    metadata = LOGOUT_METADATA if metadata is None else metadata
+    monkeypatch.setattr(op.FlaskOAuth2App, "load_server_metadata", lambda self: metadata)
+    return OpenIDProvider(FakeAuthSettings(**settings), "").logout("at", "rt", "jwt", POST_LOGOUT)
+
+
+def test_logout_revokes_tokens(monkeypatch, token_server):
+    """RFC 7009: refresh token then access token, with the client credentials. No end session by default."""
+    assert logout(monkeypatch) == ""
+    assert token_server["revoke"] == [
+        {"method": "POST", "data": {"token": "rt", "token_type_hint": "refresh_token"}, "authorization": BASIC_AUTH, "timeout": op.OPENID_TIMEOUT},
+        {"method": "POST", "data": {"token": "at", "token_type_hint": "access_token"}, "authorization": BASIC_AUTH, "timeout": op.OPENID_TIMEOUT},
+    ]
+
+
+def test_logout_end_session(monkeypatch, token_server):
+    """SOGO_D_OPENID_ENDSESSION_ENABLED: the url of the end_session_endpoint (RP-Initiated Logout) is returned"""
+    location = logout(monkeypatch, endsession_enabled=True)
+
+    parsed = urlparse(location)
+    query = parse_qs(parsed.query)
+    assert f"{parsed.scheme}://{parsed.netloc}{parsed.path}" == "http://idp/logout"
+    assert query["id_token_hint"] == ["jwt"]
+    assert query["post_logout_redirect_uri"] == [POST_LOGOUT]
+    assert query["client_id"] == ["myClient"]
+    assert len(token_server["revoke"]) == 2
+
+
+def test_logout_end_session_without_redirect(monkeypatch, token_server):
+    """No UI url: the openid server shows its own page"""
+    monkeypatch.setattr(op.FlaskOAuth2App, "load_server_metadata", lambda self: LOGOUT_METADATA)
+    location = OpenIDProvider(FakeAuthSettings(endsession_enabled=True), "").logout("at", "", "", "")
+    query = parse_qs(urlparse(location).query)
+    assert "post_logout_redirect_uri" not in query
+    assert "id_token_hint" not in query
+    assert query["client_id"] == ["myClient"]
+    assert [call["data"]["token"] for call in token_server["revoke"]] == ["at"]
+
+
+def test_logout_no_endpoints(monkeypatch, token_server):
+    """No revocation endpoint and no end_session_endpoint: nothing to do on the openid server"""
+    assert logout(monkeypatch, metadata=METADATA, endsession_enabled=True) == ""
+    assert token_server["revoke"] == []
+
+
+@pytest.mark.parametrize("response", [http_response(400, {"error": "unsupported_token_type"}), requests.ConnectionError("down")])
+def test_logout_revoke_error(monkeypatch, token_server, response):
+    """The revocation failed: only logged, the logout url is still returned"""
+    token_server["revoke_response"] = response
+    assert logout(monkeypatch, endsession_enabled=True).startswith("http://idp/logout?")
+
+
+def test_logout_idp_unreachable(monkeypatch, cache):
+    """Discovery url not reachable: the user is logged out of SOGo anyway"""
+    def fail(self):
+        raise requests.ConnectionError("down")
+    monkeypatch.setattr(op.FlaskOAuth2App, "load_server_metadata", fail)
+    assert OpenIDProvider(FakeAuthSettings(endsession_enabled=True), "").logout("at", "rt", "jwt", POST_LOGOUT) == ""

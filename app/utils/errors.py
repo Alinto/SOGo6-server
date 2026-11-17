@@ -78,6 +78,8 @@ ERROR_SSO_USER_NOT_FOUND       = E("S000212", "SSO Login Failed: User Not Found 
 ERROR_SSO_INVALID_STATE        = E("S000213", "SSO Login Failed: State Missing, Expired Or Already Used", HTTPStatus.UNAUTHORIZED)
 ERROR_SSO_STATE_STORAGE_UNREACHABLE = E("S000214", "SSO Login Failed: Cache Server Storing The State Is Unreachable", HTTPStatus.SERVICE_UNAVAILABLE)
 ERROR_SSO_REDIRECT_NOT_ALLOWED = E("S000215", "SSO Redirect Url Not Allowed. See SOGO_D_OPENID_ALLOW_REDIRECT", HTTPStatus.BAD_REQUEST)
+ERROR_PLAIN_LOGIN_NOT_ALLOWED  = E("S000216", "Login With Password Not Allowed: The Domain Uses A SSO. See SOGO_D_AUTH_TYPE", HTTPStatus.FORBIDDEN)
+ERROR_SSO_EMAIL_NOT_VERIFIED   = E("S000217", "SSO Login Failed: Email Not Verified By The Identity Provider. See SOGO_D_OPENID_REQUIRE_EMAIL_VERIFIED", HTTPStatus.UNAUTHORIZED)
 
 #API
 ERROR_VALIDATION_ERROR      = E("S000300", "Request Data Incorrect Format", HTTPStatus.BAD_REQUEST)
