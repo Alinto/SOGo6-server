@@ -298,5 +298,10 @@ ERROR_SHARE_CANNOT_SHARE_WITH_SELF = E("S001102", "Cannot Share A Resource With 
 ERROR_SHARE_PERMISSIONS_RIGHTS_MISMATCH = E("S001103", "Simplified 'permissions' And Advanced 'rights' Fields Are Inconsistent", HTTPStatus.BAD_REQUEST)
 ERROR_SHARE_ANY_AUTH_DISABLED = E("S001104", "Sharing With Any Authenticated User Is Disabled For This Domain", HTTPStatus.FORBIDDEN)
 
+#DAV
+ERROR_DAV_INSECURE_CONNECTION     = E("S001200", "Basic Authentication Refused On A Connection Without TLS", HTTPStatus.FORBIDDEN)
+ERROR_DAV_PASSWORD_LOGIN_DISABLED = E("S001201", "Password Login Is Disabled For This Domain", HTTPStatus.FORBIDDEN)
+ERROR_DAV_LOGIN_BLOCKED           = E("S001202", "Login Blocked After Too Many Wrong Passwords", HTTPStatus.TOO_MANY_REQUESTS)
+
 #the bugs
 ERROR_UNKOWN = E("S999999", "Undefined Error", HTTPStatus.INTERNAL_SERVER_ERROR)

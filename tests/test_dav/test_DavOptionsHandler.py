@@ -9,7 +9,7 @@ from app.dav.model.DavRequest import DavRequest
 
 def test_options_headers():
     with patch("app.dav.handler.DavOptionsHandler.DAV_METHODS", frozenset({"PROPFIND", "OPTIONS"})):
-        response = DavOptionsHandler().handle(DavRequest(method="OPTIONS", path=""))
+        response = DavOptionsHandler(authenticator=None).process(DavRequest(method="OPTIONS", path=""), context=None)
     assert response.status == HTTPStatus.OK
     assert response.headers["DAV"] == "1"
     assert response.headers["Allow"] == "OPTIONS, PROPFIND"

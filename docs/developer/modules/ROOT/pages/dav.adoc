@@ -16,6 +16,9 @@ The server reuses the business modules of the REST API (xref:calendar.adoc[], xr
        v
   DavDispatcher                 configuration check, method -> handler, error -> HTTP status
        |
+       v
+  DavHandler.handle             DavAuthenticator: Basic credentials -> DavContext, then process()
+       |
        +-- DavOptionsHandler    OPTIONS
        +-- ...                  one handler per HTTP method
        |
@@ -25,10 +28,13 @@ The server reuses the business modules of the REST API (xref:calendar.adoc[], xr
 
 **Responsibilities:**
 
-* *build_app* - Builds the application for both launchers, like the REST API: initialises the worker (configuration state, cache, agent client), creates the handlers and the dispatcher.
+* *build_app* - Builds the application for both launchers, like the REST API: initialises the worker (configuration state, cache, agent client), creates the authenticator, the handlers and the dispatcher.
 * *DavApp* - Converts each Flask request into a `DavRequest`, hands it to the dispatcher and converts the `DavResponse` back. Redirects the well-known URIs. Turns off the Flask behaviours meant for web applications (see below).
-* *DavDispatcher* - Routes a request to the handler of its HTTP method. Answers 503 while SOGo is not configured, and the HTTP status of the error when a handler raises a `RequestException`.
-* *DavHandler* - Abstract handler of one HTTP method. Handlers only see `DavRequest` and `DavResponse`, never Flask, so they are tested without a WSGI layer.
+* *DavDispatcher* - Routes a request to the handler of its HTTP method. Answers 503 while SOGo is not configured, and the HTTP status of the error when the handler raises a `RequestException`, authentication included. A 401 always carries the Basic challenge.
+* *DavAuthenticator* - Checks the Basic credentials of a request and builds its `DavContext` (see <<Authentication>>).
+* *DavLoginLimiter* - Counts the wrong passwords of each login in Redis and blocks the login once the limit of its domain is reached (see <<login-blocking>>).
+* *DavContext* - Configuration, user and cache client of one request, handed to `process`: the DAV counterpart of Flask `g` in the REST API.
+* *DavHandler* - Abstract handler of one HTTP method. Its `handle` method, which handlers cannot override, opens the cache client of the request, authenticates the request then calls `process`, the method each handler implements, and closes the cache client once the response is built. Handlers only see `DavRequest`, `DavContext` and `DavResponse`, never Flask, so they are tested without a WSGI layer.
 * *DavOptionsHandler* - Answers OPTIONS with the `DAV` compliance classes and the `Allow` methods.
 
 The DAV server never imports the REST layer (`app.api`): no Smorest, no JSON middleware, no `ApiBaseResponse`.
@@ -85,6 +91,89 @@ A handler deals with the protocol of one HTTP method (XML, `Depth`, `If-Match`, 
 
 The path given to the handlers is relative to `/dav/` and percent-decoded: `/dav/alice%40example.org/` reaches them as `alice@example.org/`.
 
+== Authentication
+
+DAV clients authenticate with HTTP Basic and send their credentials with every request: there is no session.
+Every request is authenticated, OPTIONS included: `DavHandler.handle` calls the authenticator before `process`, so that no handler can skip it.
+The REST API authenticates in a Flask middleware run before its views; the DAV server reduces Flask to a single route, and the base handler plays that role.
+
+[cols="1,3"]
+|===
+| Case | Answer
+
+| Connection without TLS
+| 403, without challenge. Basic credentials travel in clear: RFC 4918 section 20.1 forbids both using them and sending the Basic challenge on an insecure connection.
+
+| Credentials missing, malformed or refused
+| 401 with `WWW-Authenticate: Basic realm="SOGo", charset="UTF-8"`, so that the client asks for the password again.
+
+| Login altering the user source queries, empty password
+| 401, like a wrong password, before the user source is queried. See <<login-checks>>.
+
+| Login blocked after too many wrong passwords
+| 429, before the user source is queried, even with the right password. See <<login-blocking>>.
+
+| Domain authenticated by an identity provider (`SOGO_D_AUTH_TYPE` other than `plain`)
+| 403, before the user source is queried. The user source password would bypass the provider and its second factor.
+Checked again with the domain of the account found in the user source, when it differs from the domain of the login: the password has then been checked, and the refusal is answered 401 and counted like a wrong password, so that the answer does not tell whether the password is right.
+
+| Login refused by the domain rules (no domain while `SOGO_S_DOMAINLESS_LOGIN` is off, unknown domain while `SOGO_S_REJECT_UNKNOWN_DOMAIN` is on)
+| 401, like a wrong password, before the user source is queried. `ModuleAuth` raises this refusal without error code: the web sign-in answers it 500, that DAV clients would not take for a wrong login.
+
+| User who never signed in to the web interface
+| 404. The profile, the personal calendar and the personal address book are created at the first web sign-in.
+|===
+
+The credentials are checked against the user sources on every request, like the REST API does for the user of a voucher: `DavAuthenticator` calls `InterfaceAuthUser.check_user_and_fill_info`, the method of the REST auth middleware.
+Logins with or without domain follow the same rules as the web sign-in.
+There is no cache: a password changed or an account disabled in the user source is refused from the next request on.
+
+[[login-checks]]
+=== Login and password checks
+
+The login is inserted in the LDAP filters and DNs, and in the SQL queries of the user sources. Before they are queried, `DavAuthenticator` refuses the logins with:
+
+* a space: LDAP ignores the spaces around a value, while the domain settings are looked up with the exact domain name;
+* a non-printable character: control, invisible (zero width space, soft hyphen...);
+* a leading `#`: a DN value starting with it is read as hexadecimal BER (RFC 4514 section 2.4), another spelling of the same account with its own counters;
+* a character of the LDAP filters and DNs (`DAV_LOGIN_FORBIDDEN_CHARS`): `* ( ) \ , = ; < > "`. A wildcard would test the password against another account;
+* more than one `@`.
+
+`+` is accepted on purpose, for subaddresses (`alice+tag@example.org`), although it separates the values of an LDAP DN: such logins only work with SQL user sources and with LDAP sources that search the DN of the user (`US_LDAP_BIND_FIELD`). When the DN is built from the login, the bind fails.
+The domain part of the login is lowercased: domain names ignore case (RFC 4343), the domain settings are looked up with the exact name. The local part is kept as is.
+
+The password is never altered nor filtered, it can hold any character, colons included.
+Only the empty password is refused: LDAP takes it as an unauthenticated bind request (RFC 4513 section 5.1.2), that some directories (Active Directory by default) grant without checking anything.
+
+[[login-blocking]]
+=== Blocking after wrong passwords
+
+A login is blocked for `SOGO_D_LOGIN_CHECK_BLOCK_TIME` seconds (300 by default) once `SOGO_D_LOGIN_CHECK_MAX_ATTEMPT` distinct wrong passwords were sent, each within `SOGO_D_LOGIN_CHECK_TIME_SPAN` seconds (600 by default) of the previous one.
+These are the authentication settings of the login domain, read before the block is checked. `SOGO_D_LOGIN_CHECK_MAX_ATTEMPT` at 0, its default value, turns the blocking off.
+
+* *Distinct passwords* - a device still sending an old password counts once, and does not block the account in a loop.
+* *No reset on success* - a client syncing every few minutes would clear the count before an attacker reaches the limit.
+* *Blocked login* - answered 429 without querying the user source, even with the right password: the brute force cannot go on during the block. A 401 would make the client ask the password again, in vain.
+* *Login variants* - the counters are shared by the variants of a login that the user sources take as the same (case, accents, Unicode compatibility forms): the default MariaDB collations ignore accents, `álice@example.org` finds the account `alice@example.org`.
+* *What counts* - the refusals of the user source, and the password refused by the domain of the account. Malformed credentials and 403 answers do not count.
+
+`DavLoginLimiter` keeps, per login, a Redis hash whose fields are keyed fingerprints of the wrong passwords (HMAC-SHA256, key derived from `SOGO_AES_ENC_KEY`): a dump of the cache gives away neither the wrong passwords, often typos of the right one, nor a way to brute-force them.
+Each wrong password adds its field with one `HSET`: requests sent in parallel never overwrite each other's fingerprints, which a read then write of a list would do. Each one also restarts the time to live of the hash.
+When Redis is unreachable and the blocking is on for the domain of the login, DAV requests fail with a 500 error, like the REST API whose sessions live in Redis: passwords are never tried without the counters.
+With the blocking off, the DAV server does not use Redis.
+
+The block is checked before the user source is queried and set after the refusal: requests sent at the same time all pass the check before the block is set.
+The overshoot is bounded by the number of requests the DAV server processes at once, one per gunicorn worker (`GUNICORN_WORKERS`) and per container.
+
+Anyone knowing a login can block the DAV access of that account. The block only applies to the DAV server: the web sign-in reads neither these counters nor the `SOGO_D_LOGIN_CHECK_*` settings.
+
+=== Request context
+
+Handlers receive a `DavContext`: process and system settings, settings of the user domain, the user filled with its directory info and profile, and the cache client of the request.
+The user keeps the password in memory, for the mail servers.
+A handler that needs an interface builds it from the context, with the same arguments as the `InterfaceApi*` classes.
+The cache client is opened by `DavHandler.handle` and closed once the response is built, even on errors: handlers use it and never close it.
+
 == Flask behaviours turned off
 
 DAV clients trip on three defaults that suit web applications:
@@ -97,7 +186,8 @@ Unexpected exceptions are not caught by the dispatcher: Flask logs them and answ
 
 == Running
 
-Development, on the Werkzeug server (port 5001 by default, so that it runs next to `poetry run start`):
+Development, on the Werkzeug server (port 5001 by default, so that it runs next to `poetry run start`).
+It has no reverse proxy in front of it and accepts Basic authentication over plain HTTP:
 
 [source,bash]
 ----
@@ -134,3 +224,15 @@ Each service runs in its own container, from the same image:
 The `GUNICORN_*` variables (`GUNICORN_WORKERS`, `GUNICORN_BIND`...) are set per container. Like the REST API, the master checks the database and the cache once before starting the workers (`init_once`), and each worker reads the configuration state at start-up: a SOGo configured afterwards needs a restart of the DAV server.
 
 The reverse proxy routes `/dav/`, `/.well-known/caldav` and `/.well-known/carddav` to the DAV container, everything else to the REST API.
+
+=== Reverse proxy and TLS
+
+The reverse proxy terminates TLS.
+The DAV server learns that the client used https from the `X-Forwarded-Proto` header, which gunicorn only trusts from the addresses listed in `FORWARDED_ALLOW_IPS` (`app/gunicorn.conf.py`, `127.0.0.1,::1` by default).
+For the dav container:
+
+* set `FORWARDED_ALLOW_IPS` to the address of the reverse proxy;
+* make the proxy overwrite `X-Forwarded-Proto` instead of passing on the header sent by the client (nginx: `proxy_set_header X-Forwarded-Proto $scheme;`);
+* expose `/dav/` and the well-known URIs over https only.
+
+Without `FORWARDED_ALLOW_IPS`, every authenticated request is answered 403.

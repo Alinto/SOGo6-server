@@ -27,6 +27,13 @@ def test_request_converted_for_dispatcher():
     assert request.path == "alice@example.org/Calendar/"
     assert request.headers["depth"] == "1"
     assert request.body == b"<body/>"
+    assert not request.secure
+
+
+def test_https_request_secure():
+    client, dispatcher = _client()
+    client.open("/dav/", method="OPTIONS", base_url="https://localhost")
+    assert dispatcher.dispatch.call_args.args[0].secure
 
 
 def test_root_without_trailing_slash_not_redirected():

@@ -27,7 +27,8 @@ def main(host: str, port: int, debug: bool) -> None:
     # The reloader runs this module again in a child process: check the database only once.
     if os.environ.get("WERKZEUG_RUN_MAIN") != "true":
         init_once()
-    app: Flask = build_app()
+    app: Flask = build_app(require_secure=False)
+    logger_dav.warning("SOGo DAV server accepts Basic authentication without TLS, for development only")
     if debug:
         logger_dav.warning("SOGo DAV server is in debug mode")
     app.run(host=host, port=port, debug=debug)

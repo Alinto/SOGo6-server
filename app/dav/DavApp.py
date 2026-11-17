@@ -70,6 +70,9 @@ class DavApp:
             path=path,
             headers={name.lower(): value for name, value in request.headers.items()},
             body=request.get_data(),
+            # Behind the reverse proxy, gunicorn sets the https scheme only for the addresses of
+            # forwarded_allow_ips sending X-Forwarded-Proto: https.
+            secure=request.is_secure,
         )
         dav_response: DavResponse = self._dispatcher.dispatch(dav_request)
         response: Response = Response(

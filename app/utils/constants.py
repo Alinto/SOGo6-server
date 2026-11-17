@@ -26,6 +26,8 @@ SESSION_KEY = "session_key"
 SESSION_LAST_SEEN = "last_activity"
 SESSION_SENSITIVE = "sensitive_data"
 
+AUTH_TYPE_PLAIN = "plain" #SOGO_D_AUTH_TYPE of domains checking the password against their user sources
+
 USER_CLASS_USER  = "user"      #Simple user
 USER_CLASS_GROUP = "group"     #Group of one or sevral users
 USER_CLASS_RES   = "ressource" #Ressource, location, room, things...
