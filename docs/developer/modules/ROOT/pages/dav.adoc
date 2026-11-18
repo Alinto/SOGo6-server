@@ -61,7 +61,7 @@ A handler deals with the protocol of one HTTP method (XML, `Depth`, `If-Match`, 
 | Protocol
 | `MethodView` and schemas
 | `Job`
-| `DavHandler`
+| `DavHandler`, with `app/manager/dav/protocol` for the XML
 
 | Glue between modules
 | `InterfaceApi*`
@@ -90,6 +90,18 @@ A handler deals with the protocol of one HTTP method (XML, `Depth`, `If-Match`, 
 `DAV_METHODS` lists the methods served, each one by its own handler: it feeds the routes, the `Allow` header of OPTIONS and of 405 responses. Serving a new method means adding its handler in `build_app` and the method to `DAV_METHODS`; a unit test checks that both match.
 
 The path given to the handlers is relative to `/dav/` and percent-decoded: `/dav/alice%40example.org/` reaches them as `alice@example.org/`.
+
+== XML protocol
+
+The XML of WebDAV, CalDAV and CardDAV is read and written in `app/manager/dav/protocol`, with the `xml.etree` module of the standard library: no DAV library. The package depends neither on Flask nor on the DAV server, so that a DAV client can reuse it.
+As for the calendars and the contacts, the messages are models (`model/`) converted by serializers (`serializer/`): the DAV server builds and reads objects, never XML.
+Element and property names use the Clark notation of ElementTree, `\{namespace\}name`, for instance `{DAV:}displayname`.
+
+* *PropfindRequest* - The properties asked by a PROPFIND: all of them (allprop, with the extra ones of its include element), their names only (propname), or a list (prop).
+* *DavMultistatus* - The responses of a multistatus, one *DavPropResponse* per resource: its path, the properties found with their value, the names of the missing ones. A value is a text, or a value written as child elements: *DavHrefs* (references to resources), *DavResourceType*.
+* *PropfindRequestDeserializerXml* - Reads a PROPFIND body. A PROPFIND without body asks for all the properties (RFC 4918 section 9.1). A malformed body, or a body declaring a document type, is refused with 400 (`ERROR_DAV_XML_INVALID`). The body is given to the parser by chunks of 4 KB, so that a document type stops the parse at the end of its chunk; expat bounds the expansion of the entities of that chunk. Unknown elements are ignored, as WebDAV requires for its extensions (RFC 4918 section 17).
+* *DavMultistatusSerializerXml* - Writes a multistatus: for each resource, the properties found in a 200 propstat and the missing ones in a 404 propstat. An href is the percent-encoded path of the resource, `@` kept as is. The characters XML 1.0 forbids, as the control characters, are removed from the text values.
+The namespaces get fixed prefixes (`D:` WebDAV, `C:` CalDAV, `CR:` CardDAV, `CS:` CalendarServer, `IC:` Apple iCal), which keep the logs of the clients readable.
 
 == Authentication
 

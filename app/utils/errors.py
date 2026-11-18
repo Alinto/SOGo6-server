@@ -303,6 +303,7 @@ ERROR_SHARE_ANY_AUTH_DISABLED = E("S001104", "Sharing With Any Authenticated Use
 ERROR_DAV_INSECURE_CONNECTION     = E("S001200", "Basic Authentication Refused On A Connection Without TLS", HTTPStatus.FORBIDDEN)
 ERROR_DAV_PASSWORD_LOGIN_DISABLED = E("S001201", "Password Login Is Disabled For This Domain", HTTPStatus.FORBIDDEN)
 ERROR_DAV_LOGIN_BLOCKED           = E("S001202", "Login Blocked After Too Many Wrong Passwords", HTTPStatus.TOO_MANY_REQUESTS)
+ERROR_DAV_XML_INVALID             = E("S001203", "Request Body Is Not Valid DAV XML", HTTPStatus.BAD_REQUEST)
 
 #the bugs
 ERROR_UNKOWN = E("S999999", "Undefined Error", HTTPStatus.INTERNAL_SERVER_ERROR)
