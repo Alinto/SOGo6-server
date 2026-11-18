@@ -15,6 +15,7 @@ TOTP_SECRET_LENGTH = 32  #base32 chars = 160 bits
 #A used step must stay marked as long as it can be accepted
 TTL_TOTP_USED = (2 * TOTP_VALID_WINDOW + 1) * TOTP_PERIOD
 
+# TODO : mettre tout cela en pref? ou en constantes?
 
 class ProviderTotp(MfaProvider):
     """

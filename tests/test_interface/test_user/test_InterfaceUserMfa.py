@@ -133,7 +133,7 @@ def test_confirm_wrong_code_no_session_issued():
     session = FakeMfaSession(cs.MFA_STAGE_ENROLL)
     interface = InterfaceUserMfa(None, DOMAIN, UserAnonymous(), session)
     result, status = interface.confirm_enrollment("000000", None)
-    assert status == 401
+    assert status == 400
     assert [c[0] for c in FakeModuleMfa.last.calls] == ["confirm"]
 
 

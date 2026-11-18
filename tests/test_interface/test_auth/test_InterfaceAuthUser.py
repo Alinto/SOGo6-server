@@ -693,5 +693,5 @@ def test_mfa_verify_wrong_code(monkeypatch):
 
     result, status_code = interface.mfa_verify(FakeMfaSession(), "000000")
 
-    assert status_code == 401
+    assert status_code == 400
     assert result["error_code"] == err.ERROR_MFA_CODE_INVALID.c

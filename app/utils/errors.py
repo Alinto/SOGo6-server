@@ -74,7 +74,7 @@ ERROR_LOGIN_FAILED             = E("S000208", "Login Failed: Invalid Credentials
 
 #MFA
 ERROR_MFA_SESSION_INVALID       = E("S000209", "MFA Session Invalid Or Expired, Login Again", HTTPStatus.UNAUTHORIZED)
-ERROR_MFA_CODE_INVALID          = E("S000210", "MFA Code Invalid", HTTPStatus.UNAUTHORIZED)
+ERROR_MFA_CODE_INVALID          = E("S000210", "MFA Code Invalid", HTTPStatus.BAD_REQUEST)  #Not 401: a wrong code does not mean the session is invalid
 ERROR_MFA_TOO_MANY_ATTEMPTS     = E("S000211", "Too Many MFA Attempts, Try Again Later", HTTPStatus.TOO_MANY_REQUESTS)
 ERROR_MFA_ENFORCED              = E("S000212", "MFA Is Enforced For Your Domain And Cannot Be Disabled", HTTPStatus.FORBIDDEN)
 ERROR_MFA_METHOD_NOT_ALLOWED    = E("S000213", "MFA Method Not Allowed For Your Domain", HTTPStatus.BAD_REQUEST)
