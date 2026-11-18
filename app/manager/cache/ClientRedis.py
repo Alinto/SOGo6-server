@@ -194,6 +194,46 @@ class ClientRedis():
         return ret
 
 
+    def hash_incr(self, key: str, field: str, amount: int = 1) -> int:
+        """
+        Atomically increment an integer field of a hash (HINCRBY).
+        The field is created with 0 before incrementing if missing.
+
+        :param key: key of the hash
+        :type key: str
+        :param field: field of the hash to increment
+        :type field: str
+        :param amount: value to add, defaults to 1
+        :type amount: int
+        :return: the new value of the field
+        :rtype: int
+        """
+        ret = cast(int, self.redis.hincrby(key, field, amount))
+        logger_cache.info("Hash field '%s' of key '%s' incremented to %s", field, key, ret)
+        return ret
+
+    def incr(self, key: str, ttl: int) -> int:
+        """
+        Atomically increment a counter (INCR). The TTL is only set when the counter is created,
+        so the counter lives for a fixed window starting at the first increment.
+
+        :param key: key of the counter
+        :type key: str
+        :param ttl: time to live of the counter, in seconds, set at creation
+        :type ttl: int
+        :raises BugException: ttl below 1
+        :return: the new value of the counter
+        :rtype: int
+        """
+        if ttl < 1:
+            logger_cache.error("TTL for redis is below 1: %s", ttl)
+            raise BugException(f"TTL for redis is below 1: {ttl}", err.ERROR_CACHE_TTL_BELOW_0)
+        ret = cast(int, self.redis.incr(key))
+        if ret == 1:
+            self.redis.expire(key, ttl)
+        logger_cache.info("Counter '%s' incremented to %s", key, ret)
+        return ret
+
     # -- Sorted-set helpers --------------------------------------------------
 
     def zset_add(self, zset_key: str, member: str, score: float) -> None:

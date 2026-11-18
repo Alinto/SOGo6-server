@@ -72,6 +72,19 @@ ERROR_VALIDITY_TIME_BELOW_0    = E("S000206", "Voucher Validity Time Below 0", H
 ERROR_USER_CREDS_NOT_VALID     = E("S000207", "User credentials stores in session are not valid anymore", HTTPStatus.UNAUTHORIZED)
 ERROR_LOGIN_FAILED             = E("S000208", "Login Failed: Invalid Credentials", HTTPStatus.UNAUTHORIZED)
 
+#MFA
+ERROR_MFA_SESSION_INVALID       = E("S000209", "MFA Session Invalid Or Expired, Login Again", HTTPStatus.UNAUTHORIZED)
+ERROR_MFA_CODE_INVALID          = E("S000210", "MFA Code Invalid", HTTPStatus.BAD_REQUEST)  #Not 401: a wrong code does not mean the session is invalid
+ERROR_MFA_TOO_MANY_ATTEMPTS     = E("S000211", "Too Many MFA Attempts, Try Again Later", HTTPStatus.TOO_MANY_REQUESTS)
+ERROR_MFA_ENFORCED              = E("S000212", "MFA Is Enforced For Your Domain And Cannot Be Disabled", HTTPStatus.FORBIDDEN)
+ERROR_MFA_METHOD_NOT_ALLOWED    = E("S000213", "MFA Method Not Allowed For Your Domain", HTTPStatus.BAD_REQUEST)
+ERROR_MFA_PROVIDER_REQUIRED     = E("S000214", "Several MFA Methods Are Allowed, 'provider' Must Be Given", HTTPStatus.BAD_REQUEST)
+ERROR_MFA_NO_PENDING_ENROLLMENT = E("S000215", "No Pending MFA Enrollment Or Enrollment Expired", HTTPStatus.BAD_REQUEST)
+ERROR_MFA_DISABLED              = E("S000216", "MFA Is Not Enabled For Your Domain", HTTPStatus.BAD_REQUEST)
+ERROR_MFA_NOT_SET               = E("S000217", "No MFA Method Set For This User", HTTPStatus.NOT_FOUND)
+ERROR_MFA_CODE_REQUIRED         = E("S000218", "The Code Of The Current MFA Method Is Required To Replace It", HTTPStatus.BAD_REQUEST)
+ERROR_MFA_SECRET_UNREADABLE     = E("S000219", "MFA Secret Cannot Be Decrypted (SOGO_P_VOUCHER_SECRET changed?). An Admin Must Reset The User MFA", HTTPStatus.INTERNAL_SERVER_ERROR)
+
 #API
 ERROR_VALIDATION_ERROR      = E("S000300", "Request Data Incorrect Format", HTTPStatus.BAD_REQUEST)
 ERROR_DOMAIN_NAME_TAKEN     = E("S000301", "Domain's Name Already Taken", HTTPStatus.BAD_REQUEST)

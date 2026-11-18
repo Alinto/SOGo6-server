@@ -77,9 +77,7 @@ class UserProfileGetRetSchema(ApiBaseResponse):
                 "SOGO_U_TIME_FORMAT": "HH:mm"
             },
             "USER_MAIL_GENERAL_SETTINGS": {},
-            "USER_SECURITY": {
-                "SOGO_U_MFA_ENABLE": False
-            }
+            "USER_SECURITY": {}
             },
             "ui": {
             "SOGO_D_ALLOW_EXT_MAIL_ACCOUNT": True,

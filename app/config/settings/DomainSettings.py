@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Type, Any
 import os
 
-from marshmallow import fields, validate, validates, ValidationError, post_load
+from marshmallow import fields, validate, validates, validates_schema, ValidationError, post_load
 
 from app.config.settings.SogoSchema import SogoSchema
 from app.utils import errors as err
@@ -57,6 +57,7 @@ class AuthSettings(SogoSchema):
         "SOGO_D_LOGIN_MFA": ("SOGO_D_AUTH_TYPE", "plain"),
         "SOGO_D_LOGIN_MFA_METHOD": ("SOGO_D_LOGIN_MFA", True),
         "SOGO_D_LOGIN_MFA_FORCE": ("SOGO_D_LOGIN_MFA", True),
+        "SOGO_D_LOGIN_MFA_TOTP_ISSUER": ("SOGO_D_LOGIN_MFA", True),
 
     }
     is_secret = {"SOGO_D_OPENID_CLIENT_SECRET",}
@@ -99,9 +100,22 @@ class AuthSettings(SogoSchema):
     SOGO_D_PWD_RECOVERY_METHOD = fields.List(fields.String(), validate=validate.ContainsOnly(('secretQuestion', 'secondaryEmail', 'apiCall')))
     SOGO_D_PWD_RECOVERY_FORCE = fields.Boolean(load_default=False, dump_default=False) #Force users to set a recovery method, overwrite SOGO_D_PWD_RECOVERY
     SOGO_D_PWD_RECOVERY_DELAY = fields.Integer(load_default=86400, dump_default=86400,validate=validate.Range(min=0)) #Delay in seconds before the user can ask again for a password recovery, 0 means there's no limit
-    SOGO_D_LOGIN_MFA = fields.Boolean(load_default=True, dump_default=True) #Enable or not users to set a MFA method for password
-    SOGO_D_LOGIN_MFA_METHOD = fields.List(fields.String(), validate=validate.ContainsOnly(('totp',)))
-    SOGO_D_LOGIN_MFA_FORCE = fields.Boolean(load_default=False, dump_default=False) #Force users to set a recovery method, overwrite SOGO_D_PWD_RECOVERY
+    #MFA is active only if SOGO_D_LOGIN_MFA is True AND SOGO_D_LOGIN_MFA_METHOD is not empty.
+    SOGO_D_LOGIN_MFA = fields.Boolean(load_default=True, dump_default=True) #Enable or not users to set a MFA method for the webmail login
+    SOGO_D_LOGIN_MFA_METHOD = fields.List(fields.String(), validate=validate.ContainsOnly(('totp',))) #MFA methods users can choose from. 'external_otp' will be added later
+    SOGO_D_LOGIN_MFA_FORCE = fields.Boolean(load_default=False, dump_default=False) #Force users to set a MFA method: a user without method must set one up at the next login
+    SOGO_D_LOGIN_MFA_TOTP_ISSUER = fields.String(load_default="SOGo", dump_default="SOGo", validate=validate.Length(min=1, max=64)) #Issuer name shown in the authenticator app
+
+    @validates_schema
+    def validate_mfa(self, data: dict, **kwargs: dict) -> None:
+        """
+        MFA can't be enforced without any allowed method.
+
+        :raises ValidationError: if SOGO_D_LOGIN_MFA_FORCE is True with an empty SOGO_D_LOGIN_MFA_METHOD
+        """
+        if data.get("SOGO_D_LOGIN_MFA", True) and data.get("SOGO_D_LOGIN_MFA_FORCE", False) \
+                and not data.get("SOGO_D_LOGIN_MFA_METHOD"):
+            raise ValidationError({"SOGO_D_LOGIN_MFA_FORCE": ["MFA cannot be enforced when SOGO_D_LOGIN_MFA_METHOD is empty"]})
 
 class AuthSettingsObj(SettingsObj):
     """
@@ -133,6 +147,7 @@ class AuthSettingsObj(SettingsObj):
     SOGO_D_LOGIN_MFA: bool = True
     SOGO_D_LOGIN_MFA_METHOD: list[str] = []
     SOGO_D_LOGIN_MFA_FORCE: bool = False
+    SOGO_D_LOGIN_MFA_TOTP_ISSUER: str = "SOGo"
 
 
 class UserSourceSettings(SogoSchema):

@@ -37,6 +37,7 @@ class UserProfile:
         self.acl_received : list|None = None
         self.delegation_given : list|None = None
         self.delegation_received : list|None = None
+        self.mfa_method : dict|None = None
 
     def __repr__(self) -> str:
 

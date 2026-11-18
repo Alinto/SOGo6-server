@@ -2,8 +2,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from app.module.admin.ModuleAdminUser import ModuleAdminUser
+from app.module.auth.mfa.ModuleMfa import ModuleMfa
 from app.utils.api.ApiBaseResponse import create_api_base_response
-from app.utils.exceptions import RequestException
+from app.utils.exceptions import RequestException, BugException
 from app.utils.logger.logger import logger_api
 
 if TYPE_CHECKING:
@@ -21,6 +22,7 @@ class InterfaceApiAdminUser:
         :param process_setting: the process settings
         :type process_setting: ProcessSetting
         """
+        self.process_setting = process_setting
         self.module = ModuleAdminUser()
 
     def get_active_users(self, collection_param: CollectionPaginateArgs) -> tuple[int, dict[str, Any], int]:
@@ -88,3 +90,21 @@ class InterfaceApiAdminUser:
             logger_api.error("Request exception in revoke_inactive_users: %s", str(ex))
             return create_api_base_response(None, ex.error)
         return create_api_base_response({"revoked": revoked_count})
+
+    def reset_user_mfa(self, uid: str) -> tuple[dict[str, Any], int]:
+        """
+        Clear the MFA method of a user (lost device) and revoke their sessions.
+        The user is back to the setup in preferences, or to the forced enrollment if MFA is enforced.
+
+        :param uid: uid of the user
+        :type uid: str
+        :return: Tuple of (API response dict, HTTP status code)
+        :rtype: Tuple[Dict[str, Any], int]
+        """
+        try:
+            had_method = ModuleMfa(self.process_setting).admin_reset(uid)
+            revoked_count = self.module.revoke_users(uids=[uid])
+        except (RequestException, BugException) as ex:
+            logger_api.error("Exception in reset_user_mfa: %s", str(ex))
+            return create_api_base_response(None, ex.error)
+        return create_api_base_response({"uid": uid, "had_method": had_method, "revoked": revoked_count})
