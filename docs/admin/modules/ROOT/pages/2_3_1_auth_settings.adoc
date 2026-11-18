@@ -66,12 +66,23 @@ during a B spantime, this user will be block for C minutes. (NOT IMPLEMENTED)
 * **SOGO_D_LOGIN_CHECK_BLOCK_TIME**: integer, default to 300 (5 minutes) = 300
 
 
-You can set rules abour Multi-factor Authentication (MFA) (NOT IMPLEMENTED)
+You can set rules about Multi-factor Authentication (MFA). MFA only applies to the webmail login with
+`SOGO_D_AUTH_TYPE = plain` (SSO logins rely on the identity provider; DAV, ActiveSync and IMAP are not concerned).
+MFA is active when `SOGO_D_LOGIN_MFA` is True *and* `SOGO_D_LOGIN_MFA_METHOD` is not empty.
 
-* **SOGO_D_LOGIN_MFA**: a boolean, default to True. Allow users to set or not MFA (Legacy parameter)
-* **SOGO_D_LOGIN_MFA_METHOD**: list of strings. MFA method allowed to set. Only 'totp' for now.
-* **SOGO_D_LOGIN_MFA_FORCE**: aboolean, default to False. Force users to set MFA after login. (Force means := if the user login via SOGo,
-it will have a view to setup this before accessing its mails. If they use Outlook/Thunderbird, nothing happend.)
+* **SOGO_D_LOGIN_MFA**: a boolean, default to True. Allow users to set MFA.
+* **SOGO_D_LOGIN_MFA_METHOD**: list of strings. MFA methods users can choose from. Only 'totp' for now ('external_otp' will come later).
+* **SOGO_D_LOGIN_MFA_FORCE**: a boolean, default to False. Force users to have a MFA method. A user without method must set one up
+at their next webmail login before getting a session. Refused if `SOGO_D_LOGIN_MFA_METHOD` is empty.
+* **SOGO_D_LOGIN_MFA_TOTP_ISSUER**: a string, default to "SOGo". Name shown in the authenticator app (Google Authenticator, FreeOTP, Aegis...).
+
+The TOTP secrets of the users are encrypted with a key derived from the environment variable `SOGO_P_VOUCHER_SECRET`.
+*Changing `SOGO_P_VOUCHER_SECRET` makes every stored TOTP secret unreadable*: users must then set up their MFA again
+(an admin has to reset it).
+
+A user who lost their device is reset by an admin with `DELETE /api/admin/v1/users/<uid>/mfa`. It also revokes their sessions.
+The user is then back to the setup in their preferences, or to the forced setup at the next login if MFA is enforced.
+There are no recovery codes.
 
 === Openid SSO
 

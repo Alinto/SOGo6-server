@@ -259,3 +259,52 @@ def test_revoke_inactive_users_cache_failure(monkeypatch):
 
     assert status_code == 500
     assert result["error_code"] == err.ERROR_CACHE_REVOKE_INACTIVE_FAILED.c
+
+
+# ========== Tests for reset_user_mfa ==========
+
+class FakeModuleMfa:
+    """Fake ModuleMfa for the admin reset."""
+    reset_args = None
+    reset_result = True
+    reset_exception = None
+
+    def __init__(self, process, auth_settings=None):
+        self.process = process
+
+    def admin_reset(self, uid):
+        FakeModuleMfa.reset_args = uid
+        if FakeModuleMfa.reset_exception is not None:
+            raise FakeModuleMfa.reset_exception
+        return FakeModuleMfa.reset_result
+
+
+def test_reset_user_mfa_success(monkeypatch):
+    """The method is cleared and the sessions of the user revoked."""
+    fake_module = FakeModuleAdminUser()
+    patch_module_on_interface(monkeypatch, fake_module)
+    FakeModuleMfa.reset_exception = None
+    monkeypatch.setattr("app.interface.admin.InterfaceApiAdminUser.ModuleMfa", FakeModuleMfa)
+
+    interface = InterfaceApiAdminUser(process_setting=None)
+    result, status_code = interface.reset_user_mfa("alice@example.com")
+
+    assert status_code == 200
+    assert result["data"] == {"uid": "alice@example.com", "had_method": True, "revoked": 2}
+    assert FakeModuleMfa.reset_args == "alice@example.com"
+    assert fake_module.revoke_users_args == (["alice@example.com"], None)
+
+
+def test_reset_user_mfa_unknown_user(monkeypatch):
+    fake_module = FakeModuleAdminUser()
+    patch_module_on_interface(monkeypatch, fake_module)
+    FakeModuleMfa.reset_exception = RequestException("not found", err.ERROR_USER_PROFILE_NOT_FOUND)
+    monkeypatch.setattr("app.interface.admin.InterfaceApiAdminUser.ModuleMfa", FakeModuleMfa)
+
+    interface = InterfaceApiAdminUser(process_setting=None)
+    result, status_code = interface.reset_user_mfa("nobody@example.com")
+
+    assert status_code == err.ERROR_USER_PROFILE_NOT_FOUND.h
+    assert result["error_code"] == err.ERROR_USER_PROFILE_NOT_FOUND.c
+    assert fake_module.revoke_users_args is None
+    FakeModuleMfa.reset_exception = None

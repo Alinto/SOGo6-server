@@ -68,7 +68,27 @@ class ApiAuthUserLogin(MethodView):
         if auth_header and auth_header.token:
             voucher_data = auth_header.token
         interface_api : InterfaceAuthUser = g.inter
-        return interface_api.plain_login(new_data, voucher_data)
+        return interface_api.plain_login(new_data, voucher_data, request.remote_addr)
+
+
+@blp.route("/mfa/verify")
+class ApiAuthUserMfaVerify(MethodView):
+    """
+    Action, second step of the login: check the code of the second factor.
+
+    Only reachable with an MFA voucher (returned by /auth/login with `mfa_required`) in the
+    Authorization header. On success the MFA session is deleted and the user session is issued.
+    """
+
+    @blp.arguments(sch.AuthUserMfaCodeSchema, example=sch.AuthUserMfaCodeSchema.example(), error_status_code=400)
+    @blp.response(200)
+    def post(self, new_data: dict) -> ResponseReturnValue:
+        """
+        Action, check the MFA code and return the user voucher (jwt_token).
+        After 5 wrong codes the MFA session is deleted and the user must log in again.
+        """
+        interface_api: InterfaceAuthUser = g.inter
+        return interface_api.mfa_verify(g.get("mfa_session"), new_data["code"], request.remote_addr)
 
 
 @blp.route("/callback/<string:domain>")

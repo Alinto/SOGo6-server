@@ -634,3 +634,40 @@ def test_logout_user_empty_voucher_raises_request_exception(monkeypatch):
 
         with pytest.raises(RequestException, match="Wrong data type for voucher"):
             module.logout_user("")
+
+
+# ========== Domain settings merged on top of the default ones ==========
+
+DEFAULT_DOMAIN_RAW = {
+    "AUTH_SETTINGS": {"SOGO_D_AUTH_TYPE": "plain", "SOGO_D_LOGIN_MFA": True,
+                      "SOGO_D_LOGIN_MFA_METHOD": ["totp"], "SOGO_D_LOGIN_MFA_FORCE": False},
+    "USER_SOURCE": {"source1": {"type": "ldap", "host": "ldap.default.com"}},
+}
+
+
+def test_domain_diff_without_auth_settings_uses_defaults(monkeypatch):
+    """The domain table only stores the diff: a domain overriding nothing in AUTH_SETTINGS gets the defaults."""
+    fake_client = FakeClientSQL()
+    fake_client.select_result = [({"MAIL_SETTINGS": {"x": 1}},)]
+    patch_import_manager(monkeypatch, fake_client)
+
+    module = ModuleAuth(FakeProcessSettings(), FakeSystemSettings(), get_default_auth_settings(),
+                        get_default_user_sources(), DEFAULT_DOMAIN_RAW)
+    auth, sources = module._get_domain_auth_and_user_source_settings("example.com")  # noqa: SLF001
+
+    assert auth.SOGO_D_LOGIN_MFA_METHOD == ["totp"]
+    assert sources["source1"].host == "ldap.default.com"
+
+
+def test_domain_diff_partial_override(monkeypatch):
+    fake_client = FakeClientSQL()
+    fake_client.select_result = [({"AUTH_SETTINGS": {"SOGO_D_LOGIN_MFA_FORCE": True}},)]
+    patch_import_manager(monkeypatch, fake_client)
+
+    module = ModuleAuth(FakeProcessSettings(), FakeSystemSettings(), get_default_auth_settings(),
+                        get_default_user_sources(), DEFAULT_DOMAIN_RAW)
+    auth = module.get_auth_settings_for_user("alice@example.com")
+
+    assert auth.SOGO_D_LOGIN_MFA_FORCE is True
+    assert auth.SOGO_D_LOGIN_MFA_METHOD == ["totp"]
+    assert auth.SOGO_D_AUTH_TYPE == "plain"

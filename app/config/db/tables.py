@@ -97,6 +97,8 @@ All queries will have WHERE uid = <uid>
 # private_salt: unique salt generated for the user.
 # delegation_given: delegation given to users
 # delegation_received: delegation received from users
+# mfa_method: active MFA method of the user ({"provider", "secret", "created_at", "last_used_at"}), NULL/empty if none.
+#             Only written once the enrollment is confirmed. Never sent to the frontend.
 COL_USER_UID              = Column(name="uid", data_type="str", extra_args={"max_len": 512}, is_unique=True)
 COL_USER_DEFAULTS         = Column(name="preferences", data_type="dict")
 COL_USER_FOLDERS          = Column(name="folders", data_type="dict")
@@ -106,6 +108,7 @@ COL_USER_FILTERS          = Column(name="filters", data_type="dict", is_nullable
 COL_USER_PRIVATE_SALT     = Column(name="private_salt", data_type= "str", extra_args={"max_len": 4096})
 COL_USER_DELEGATION_GIVEN = Column(name="delegation_given", data_type="list", extra_args={"data_type": "str", "extra_args": {"max_len": 512}}, is_nullable=True)
 COL_USER_DELEGATION_GOT   = Column(name="delegation_received", data_type="list", extra_args={"data_type": "str", "extra_args": {"max_len": 512}}, is_nullable=True)
+COL_USER_MFA_METHOD       = Column(name="mfa_method", data_type="dict", is_nullable=True)
 ALL_USER_COL              = [COL_ID,
                              COL_HASH,
                              COL_USER_UID,
@@ -117,6 +120,7 @@ ALL_USER_COL              = [COL_ID,
                              COL_USER_PRIVATE_SALT,
                              COL_USER_DELEGATION_GIVEN,
                              COL_USER_DELEGATION_GOT,
+                             COL_USER_MFA_METHOD, #Keep it last: some reads index the columns by position
                              ]
 IDX_USER_UID = Index(name="idx_user_uid", columns=(COL_USER_UID.name,), unique=True)
 IDX_USER_HASH = Index(name="idx_user_hash", columns=(COL_HASH.name,), unique=True)

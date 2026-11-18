@@ -88,6 +88,25 @@ TTL_1D = 86400
 TTL_1H =  3600
 TTL_5M =   300
 
+#MFA
+MFA_KIND_CLAIM = "kind"          #Claim of the voucher telling it is an MFA voucher, not a user one
+MFA_KIND       = "mfa"
+MFA_STAGE_CLAIM = "stage"
+MFA_STAGE_VERIFY = "verify"      #The user has a method and must give a code
+MFA_STAGE_ENROLL = "enroll"      #MFA is enforced and the user has no method: must set one up
+MFA_SESSION_PREFIX = "mfa:session:"
+MFA_ENROLL_PREFIX  = "mfa:enroll:"
+MFA_TOTP_USED_PREFIX = "mfa:totp_used:"
+MFA_RL_USER_PREFIX = "mfa:rl:user:"
+MFA_RL_IP_PREFIX   = "mfa:rl:ip:"
+TTL_MFA_SESSION_VERIFY = 300     #Time to type the code after the password
+TTL_MFA_SESSION_ENROLL = 600     #Time to install an app, scan the QR code and confirm
+TTL_MFA_ENROLL         = 600     #Pending (not confirmed) enrollment
+MFA_MAX_ATTEMPTS       = 5       #Failed codes per MFA session before it is deleted
+MFA_RL_WINDOW          = 300     #Window of the rate-limit counters, in seconds
+MFA_RL_USER_MAX        = 10      #Failed codes per user during MFA_RL_WINDOW
+MFA_RL_IP_MAX          = 50      #Failed codes per IP during MFA_RL_WINDOW
+
 # HTTP LIMITS
 # Hard cap on the HTTP request body size, wired into Flask's MAX_CONTENT_LENGTH at startup.
 # Rejects oversized uploads (e.g. calendar .ics imports) at the WSGI layer before any

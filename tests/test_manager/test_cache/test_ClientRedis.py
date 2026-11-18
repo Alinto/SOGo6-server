@@ -821,3 +821,36 @@ class TestSortFieldToZset:
         assert SORT_FIELD_TO_ZSET[cs.SESSION_LAST_SEEN] == cs.ZSET_USER_SESSIONS_ACTIVITY
         assert SORT_FIELD_TO_ZSET[cs.USER_UID] == cs.ZSET_USER_SESSIONS_UID
         assert SORT_FIELD_TO_ZSET[cs.USER_DOMAIN] == cs.ZSET_USER_SESSIONS_DOMAIN
+
+
+class TestHashIncr:
+    """hash_incr uses HINCRBY and returns the new value."""
+
+    def test_hash_incr(self):
+        client = make_client()
+        client.redis.hincrby = MagicMock(return_value=3)
+        assert client.hash_incr("mfa:session:x", "attempts") == 3
+        client.redis.hincrby.assert_called_once_with("mfa:session:x", "attempts", 1)
+
+
+class TestIncr:
+    """incr sets the TTL only when the counter is created."""
+
+    def test_incr_first_sets_ttl(self):
+        client = make_client()
+        client.redis.incr = MagicMock(return_value=1)
+        client.redis.expire = MagicMock()
+        assert client.incr("mfa:rl:user:a", 300) == 1
+        client.redis.expire.assert_called_once_with("mfa:rl:user:a", 300)
+
+    def test_incr_next_keeps_ttl(self):
+        client = make_client()
+        client.redis.incr = MagicMock(return_value=2)
+        client.redis.expire = MagicMock()
+        assert client.incr("mfa:rl:user:a", 300) == 2
+        client.redis.expire.assert_not_called()
+
+    def test_incr_ttl_below_1(self):
+        client = make_client()
+        with pytest.raises(BugException):
+            client.incr("mfa:rl:user:a", 0)

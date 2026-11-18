@@ -190,6 +190,11 @@ class VoucherUserService:
         # the plaintext is converted to ciphertext
         # token = self.fernet_session.encrypt(js_dumps(payload).encode("utf-8"))
 
+        if payload.get(cs.MFA_KIND_CLAIM) == cs.MFA_KIND:
+            #An MFA voucher is never a user session
+            logger_auth.warning("MFA voucher used as a user voucher for %s", payload.get(cs.USER_UID))
+            return UserAnonymous()
+
         session_key_crypted: str = payload[cs.SESSION_KEY]
         voucher_user_uid: str = payload[cs.USER_UID]
 

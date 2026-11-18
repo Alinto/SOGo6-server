@@ -50,10 +50,8 @@ class UserSecuritySettings(SogoSchema):
 
     subparent = "USER_SECURITY"
 
-    #MFA -> May need more parameters enc check (E.g. totp needs to validate a code before accepting it)
-    SOGO_U_MFA_ENABLE = fields.Boolean(load_default=False, dump_default=False) #Enable MFA for the user
-    SOGO_U_MFA_METHOD = fields.String() #Choice of the method, values must be from SOGO_D_LOGIN_MFA_METHOD
-    SOGO_U_MFA_PARAM = fields.Dict() #Dict with extra parameters for the MFA method if needed
+    #MFA is not a preference: the user's method lives in the column mfa_method of the user profile
+    #and is managed through the /mfa endpoints only (a preference could be changed without any code).
     #Password recovery (#TODO encrypt all of that in the database)
     SOGO_U_PWD_RECOVERY = fields.String() #Must be None/empty or a value of SOGO_D_PWD_RECOVERY_METHOD
     SOGO_U_PWD_QUESTION = fields.String() #Written by the user

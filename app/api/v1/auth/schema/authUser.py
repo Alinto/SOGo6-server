@@ -1,4 +1,4 @@
-from marshmallow import Schema, fields
+from marshmallow import Schema, fields, validate
 
 from app.utils.api.ApiBaseResponse import ApiBaseResponse
 
@@ -30,3 +30,16 @@ class AuthUserBasicPostSchema(Schema):
             "password": "sogo"
         }
 
+
+class AuthUserMfaCodeSchema(Schema):
+    """
+    Body with the code of the second factor
+    """
+    code = fields.String(required=True, validate=validate.Length(min=1, max=64))
+
+    @classmethod
+    def example(cls) -> dict:
+        """
+        Example for POST /auth/mfa/verify
+        """
+        return {"code": "123456"}

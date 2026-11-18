@@ -1,5 +1,6 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
+from copy import deepcopy
 
 
 from app.auth.User import User
@@ -9,6 +10,7 @@ from app.config.settings.DomainSettings import AuthSettings, AuthSettingsObj, Us
 from app.module.common_module import get_sogo6_database
 from app.service import sogo_cache
 from app.utils.db.Condition import EqualCondition
+from app.utils.dict import merge_patch
 from app.utils.exceptions import RequestException
 from app.utils.strings import get_domain_from_mail
 
@@ -25,7 +27,8 @@ class ModuleAuth:
     def __init__(self, process: ProcessSetting,
                  system: SystemSettingsObj,
                  default_auth_settings: AuthSettingsObj,
-                 default_us_source: dict[str, UserSourceSettingsObj]):
+                 default_us_source: dict[str, UserSourceSettingsObj],
+                 default_domain_settings: dict | None = None):
         """
         Initialize the authentication module
 
@@ -37,6 +40,8 @@ class ModuleAuth:
         :type default_auth_settings: AuthSettingsObj
         :param default_us_source: Default user source settings mapped by source UID
         :type default_us_source: dict[str, UserSourceSettingsObj]
+        :param default_domain_settings: Raw default domain settings, used to merge the domain diff on top of them
+        :type default_domain_settings: dict | None
         """
         self.process_settings = process
 
@@ -47,6 +52,7 @@ class ModuleAuth:
 
         self.default_auth = default_auth_settings
         self.default_us = default_us_source
+        self.default_domain_settings = default_domain_settings
 
     def _check_domain(self, uid:str) -> str:
         """
@@ -88,13 +94,35 @@ class ModuleAuth:
                                                 [tbl.COL_DOMAIN_SETTINGS],
                                                 condition=condition))
             if len(result) == 1:
-                domain_auth_settings = AuthSettingsObj(result[0][0][AuthSettings.subparent]) #result[0][0]: first column of the first row of the result
-                domain_user_source_raw = result[0][0][UserSourceSettings.subparent]
-                domain_user_source = {}
-                for source_uid, source_settings in domain_user_source_raw.items():
-                    domain_user_source[source_uid] = UserSourceSettingsObj(source_settings)
+                #The table only stores the diff with the default domain settings: merge it on top of them.
+                domain_diff: dict = result[0][0] or {} #result[0][0]: first column of the first row of the result
+                if self.default_domain_settings is not None:
+                    domain_settings = deepcopy(self.default_domain_settings)
+                    merge_patch(domain_diff, domain_settings)
+                else:
+                    domain_settings = domain_diff
+                if AuthSettings.subparent in domain_settings:
+                    domain_auth_settings = AuthSettingsObj(domain_settings[AuthSettings.subparent])
+                if UserSourceSettings.subparent in domain_settings:
+                    domain_user_source_raw = domain_settings[UserSourceSettings.subparent]
+                    domain_user_source = {}
+                    for source_uid, source_settings in domain_user_source_raw.items():
+                        domain_user_source[source_uid] = UserSourceSettingsObj(source_settings)
 
         return domain_auth_settings, domain_user_source
+
+    def get_auth_settings_for_user(self, uid: str) -> AuthSettingsObj:
+        """
+        Return the effective authentication settings (default merged with the domain ones) for this uid
+
+        :param uid: username/mail/uid of the user
+        :type uid: str
+        :return: The authentication settings of the user's domain
+        :rtype: AuthSettingsObj
+        """
+        domain = self._check_domain(uid)
+        auth_settings, _ = self._get_domain_auth_and_user_source_settings(domain)
+        return auth_settings
 
     def get_login_mech(self, uid:str) -> dict:
         """

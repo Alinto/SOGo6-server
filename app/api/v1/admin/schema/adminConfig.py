@@ -111,7 +111,8 @@ class AdminConfigDefaultDomainGetSchema(ApiBaseResponse):
                     "SOGO_D_LOGIN_MFA_METHOD": [
                         "totp"
                     ],
-                    "SOGO_D_LOGIN_MFA_FORCE": False
+                    "SOGO_D_LOGIN_MFA_FORCE": False,
+                    "SOGO_D_LOGIN_MFA_TOTP_ISSUER": "SOGo"
                 },
                 "USER_SOURCE": {
                     "us_french": {
@@ -258,7 +259,8 @@ class AdminConfigDefaultDomainPatchSchema(Schema):
                         "SOGO_D_LOGIN_MFA_METHOD": [
                             "totp"
                         ],
-                        "SOGO_D_LOGIN_MFA_FORCE": False
+                        "SOGO_D_LOGIN_MFA_FORCE": False,
+                        "SOGO_D_LOGIN_MFA_TOTP_ISSUER": "SOGo"
                     },
                     "USER_SOURCE": {
                         "us_french": {
@@ -444,7 +446,8 @@ class AdminConfigDomainGetSchema(ApiBaseResponse):
                         "SOGO_D_LOGIN_MFA_METHOD": [
                             "totp"
                         ],
-                        "SOGO_D_LOGIN_MFA_FORCE": False
+                        "SOGO_D_LOGIN_MFA_FORCE": False,
+                        "SOGO_D_LOGIN_MFA_TOTP_ISSUER": "SOGo"
                     },
                     "USER_SOURCE": {
                         "us_french": {
@@ -598,7 +601,8 @@ class AdminConfigDomainPostSchema(Schema):
                     "SOGO_D_LOGIN_MFA_METHOD": [
                         "totp"
                     ],
-                    "SOGO_D_LOGIN_MFA_FORCE": False
+                    "SOGO_D_LOGIN_MFA_FORCE": False,
+                    "SOGO_D_LOGIN_MFA_TOTP_ISSUER": "SOGo"
                 },
                 "USER_SOURCE": {
                     "us_french": {
@@ -747,7 +751,8 @@ class AdminConfigDomainPatchSchema(Schema):
                     "SOGO_D_LOGIN_MFA_METHOD": [
                         "totp"
                     ],
-                    "SOGO_D_LOGIN_MFA_FORCE": False
+                    "SOGO_D_LOGIN_MFA_FORCE": False,
+                    "SOGO_D_LOGIN_MFA_TOTP_ISSUER": "SOGo"
                 },
                 "USER_SOURCE": {
                     "us_french": {

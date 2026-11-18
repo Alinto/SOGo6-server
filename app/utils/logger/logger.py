@@ -58,6 +58,7 @@ logger_calendar = getLogger("sogolog.calendar")
 logger_agent = getLogger("sogolog.agent")
 logger_contact = getLogger("sogolog.contact")
 logger_ldap = getLogger("sogolog.ldap")
+logger_mfa = getLogger("sogolog.mfa") #Audit log of MFA events. Never log a code, a secret or a password
 
 logger_imap.setLevel(WARNING)
 # logger_cache.setLevel(DEBUG)

@@ -26,9 +26,7 @@ class UserPeferencesGetRetSchema(ApiBaseResponse):
                 "SOGO_U_EXT_AVATAR_ENABLED": False,
                 "SOGO_U_PROFILE_PICTURE": "default"
             },
-            "USER_SECURITY": {
-                "SOGO_U_MFA_ENABLE": False
-            },
+            "USER_SECURITY": {},
             "USER_CONTACT_GENERAL": {
                 "SOGO_U_ADDRESSBOOK_CREATION_NOTIF": True
             },

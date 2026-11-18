@@ -203,8 +203,21 @@ def init_get_user_domain_settings(user: User, default_domain_settings: dict) -> 
     :return: The merged domain settings for the user's domain
     :rtype: dict
     """
+    return init_get_domain_settings(user.domain, default_domain_settings)
+
+def init_get_domain_settings(domain: str, default_domain_settings: dict) -> dict:
+    """
+    Return the settings of a domain, merged on top of the default domain settings.
+
+    :param domain: The domain name, can be empty (domainless login)
+    :type domain: str
+    :param default_domain_settings: The default domain settings
+    :type default_domain_settings: dict
+    :return: The merged domain settings
+    :rtype: dict
+    """
     config_module = ModuleAdminConfig(process_config)
-    domain_diff = config_module.get_one_domain_setting_diff(user.domain)
+    domain_diff = config_module.get_one_domain_setting_diff(domain)
 
     merged = deepcopy(default_domain_settings)
     merge_patch(domain_diff, merged)

@@ -14,9 +14,11 @@ from marshmallow.exceptions import ValidationError
 from app.auth.User import User, UserAnonymous
 from app.auth.Admin import Admin, AdminAnonymous
 from app.auth.service.VoucherUserService import VoucherUserService
+from app.auth.service.VoucherMfaService import VoucherMfaService, MfaSession
+from app.auth.mfa_access import is_endpoint_allowed_for_mfa_stage
 from app.auth.service.VoucherAdminService import VoucherAdminService
 from app.config.settings.ProcessSetting import process_config
-from app.config.init_config import init_worker, init_get_system_and_default_domain_settings, init_get_user_domain_settings
+from app.config.init_config import init_worker, init_get_system_and_default_domain_settings, init_get_user_domain_settings, init_get_domain_settings
 import app.utils.errors as err
 from app.utils.api.ApiBaseResponse import create_api_base_response, ApiBaseResponse
 from app.utils import constants as cs
@@ -152,11 +154,18 @@ def register_before_request(base_blueprint: Blueprint, kind: str, sogo_state: in
         auth_header = request.authorization
         user: User | Admin = UserAnonymous()
         admin: Admin = AdminAnonymous()
+        mfa_session: MfaSession | None = None
+        mfa_voucher_invalid = False
 
         if auth_header:
             if auth_header.type == 'bearer':
                 if kind == cs.API_BASIC:
-                    user = VoucherUserService(process_config).generate_user_from_voucher(auth_header.token)
+                    if VoucherMfaService.is_mfa_voucher(auth_header.token):
+                        #MFA voucher: the user stays anonymous, only some endpoints accept it (see check_non_anonymous_endpoint)
+                        mfa_session = VoucherMfaService(process_config).read_session(auth_header.token)
+                        mfa_voucher_invalid = mfa_session is None
+                    else:
+                        user = VoucherUserService(process_config).generate_user_from_voucher(auth_header.token)
                 elif kind == cs.API_ADMIN:
                     admin = VoucherAdminService(process_config).generate_admin_from_voucher(auth_header.token)
             elif auth_header.type == 'basic' and current_app.config[cs.ALLOW_AUTH_BASIC]:
@@ -166,6 +175,8 @@ def register_before_request(base_blueprint: Blueprint, kind: str, sogo_state: in
 
         if kind == cs.API_BASIC:
             g.user = user
+            g.mfa_session = mfa_session
+            g.mfa_voucher_invalid = mfa_voucher_invalid
         elif kind == cs.API_ADMIN:
             g.admin = admin
         return None
@@ -188,6 +199,11 @@ def register_before_request(base_blueprint: Blueprint, kind: str, sogo_state: in
             if (isinstance(g.user, UserAnonymous)
                     and request.endpoint not in anon_endpoints
                     and not _is_public_endpoint()):
+                mfa_session: MfaSession | None = g.get("mfa_session")
+                if mfa_session is not None and is_endpoint_allowed_for_mfa_stage(mfa_session.stage, request.endpoint, request.method):
+                    return None
+                if g.get("mfa_voucher_invalid"):
+                    return create_api_base_response(error=err.ERROR_MFA_SESSION_INVALID)
                 return create_api_base_response(error=err.ERROR_AUTHENTICATED_ROUTE)
             return None
 
@@ -248,7 +264,12 @@ def register_before_request(base_blueprint: Blueprint, kind: str, sogo_state: in
                 if 'user' in g:
                     user: User = g.user
                     if isinstance(user, UserAnonymous):
-                        g.user_domain_settings = default_domain_settings
+                        mfa_session: MfaSession | None = g.get("mfa_session")
+                        if mfa_session is not None:
+                            #MFA endpoints need the settings of the user's domain
+                            g.user_domain_settings = init_get_domain_settings(mfa_session.domain, default_domain_settings)
+                        else:
+                            g.user_domain_settings = default_domain_settings
                     else:
                         g.user_domain_settings = init_get_user_domain_settings(user, default_domain_settings)
                         inter = InterfaceAuthUser(process_config, system_settings, g.user_domain_settings, user=user)

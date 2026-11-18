@@ -46,6 +46,41 @@ class FakeModuleAuth:
         """Revoke the session associated with the given voucher."""
         self.logout_user_args = voucher_data
 
+    def get_auth_settings_for_user(self, uid):
+        """Return the effective auth settings of the user's domain."""
+        return {"auth_settings_for": uid}
+
+
+class FakeModuleMfa:
+    """Fake ModuleMfa for testing InterfaceAuthUser."""
+    start_login_result = None
+    verify_login_result = None
+    verify_login_exception = None
+    instances: list = []
+
+    def __init__(self, process, auth_settings):
+        self.process = process
+        self.auth_settings = auth_settings
+        self.start_login_args = None
+        self.verify_login_args = None
+        FakeModuleMfa.instances.append(self)
+
+    def start_login(self, user, ip=None):
+        """No second factor by default."""
+        self.start_login_args = (user, ip)
+        return FakeModuleMfa.start_login_result
+
+    def verify_login(self, mfa_session, code, ip=None):
+        """Check the MFA code."""
+        self.verify_login_args = (mfa_session, code, ip)
+        if FakeModuleMfa.verify_login_exception is not None:
+            raise FakeModuleMfa.verify_login_exception
+        return FakeModuleMfa.verify_login_result
+
+    def issue_user_voucher(self, user):
+        """Issue the user session."""
+        return {"jwt_token": f"user-voucher-{user.uid}"}
+
 
 class FakeModuleUserSource:
     """Fake ModuleUserSource for testing."""
@@ -194,6 +229,14 @@ def patch_modules_on_interface(monkeypatch, fake_module_auth, fake_module_user_p
     monkeypatch.setattr(
         "app.interface.auth.InterfaceAuthUser.ModuleMail",
         FakeModuleMail
+    )
+    FakeModuleMfa.start_login_result = None
+    FakeModuleMfa.verify_login_result = None
+    FakeModuleMfa.verify_login_exception = None
+    FakeModuleMfa.instances = []
+    monkeypatch.setattr(
+        "app.interface.auth.InterfaceAuthUser.ModuleMfa",
+        FakeModuleMfa
     )
 
 
@@ -554,3 +597,101 @@ def test_logout_invalid_voucher_type_returns_error_response(monkeypatch):
 
     assert status_code == err.ERROR_WRONG_AUTHORIZATION_TYPE.h
     assert result["error_code"] == err.ERROR_WRONG_AUTHORIZATION_TYPE.c
+
+
+# ========== Tests for the MFA step of plain_login and mfa_verify ==========
+
+def _mfa_interface(monkeypatch, fake_auth=None):
+    fake_auth = fake_auth or FakeModuleAuth(None, None, None, None)
+    fake_auth.get_user_and_domain_user_sources_result = (FakeUser("testuser@example.com", "secret123"), {"source1": {}})
+    fake_profile = FakeModuleUserProfile(None, None)
+    fake_profile.is_user_profile_present_result = True
+    fake_us_instance = FakeModuleUserSource({})
+    patch_modules_on_interface(monkeypatch, fake_auth, fake_profile, lambda sources: fake_us_instance)
+    interface = InterfaceAuthUser(
+        process={"test": "config"},
+        system={"SYSTEM_SETTINGS": {"test": "value"}},
+        default_domain={"AUTH_SETTINGS": {"test": "value"}, "USER_SOURCE": {}},
+        user=ANONYMOUS_USER
+    )
+    return interface, fake_auth
+
+
+def test_plain_login_mfa_required_issues_no_user_session(monkeypatch):
+    """With an MFA method, only the MFA voucher is returned."""
+    interface, fake_auth = _mfa_interface(monkeypatch)
+    FakeModuleMfa.start_login_result = {"mfa_required": True, "provider": "totp", "mfa_token": "mfa-token"}
+
+    result, status_code = interface.plain_login({"username": "testuser@example.com", "password": "secret123"}, ip="1.2.3.4")
+
+    assert status_code == 200
+    assert result["data"] == {"mfa_required": True, "provider": "totp", "mfa_token": "mfa-token"}
+    assert fake_auth.generate_voucher_from_user_args is None
+    mfa = FakeModuleMfa.instances[-1]
+    assert mfa.auth_settings == {"auth_settings_for": "testuser@example.com"}
+    assert mfa.start_login_args[1] == "1.2.3.4"
+
+
+def test_plain_login_enrollment_required(monkeypatch):
+    interface, fake_auth = _mfa_interface(monkeypatch)
+    FakeModuleMfa.start_login_result = {"enrollment_required": True, "allowed_methods": ["totp"], "mfa_token": "t"}
+
+    result, status_code = interface.plain_login({"username": "testuser@example.com", "password": "secret123"})
+
+    assert status_code == 200
+    assert result["data"]["enrollment_required"] is True
+    assert fake_auth.generate_voucher_from_user_args is None
+
+
+def test_plain_login_mfa_error(monkeypatch):
+    interface, fake_auth = _mfa_interface(monkeypatch)
+    def boom(self, user, ip=None):
+        raise RequestException("no profile", err.ERROR_USER_PROFILE_NOT_FOUND)
+    monkeypatch.setattr(FakeModuleMfa, "start_login", boom)
+
+    result, status_code = interface.plain_login({"username": "testuser@example.com", "password": "secret123"})
+
+    assert status_code == err.ERROR_USER_PROFILE_NOT_FOUND.h
+    assert fake_auth.generate_voucher_from_user_args is None
+
+
+class FakeMfaSession:
+    """Fake MfaSession."""
+    def __init__(self, stage="verify"):
+        self.uid = "testuser@example.com"
+        self.stage = stage
+
+
+def test_mfa_verify_without_session(monkeypatch):
+    interface, _ = _mfa_interface(monkeypatch)
+    result, status_code = interface.mfa_verify(None, "123456")
+    assert status_code == 401
+    assert result["error_code"] == err.ERROR_MFA_SESSION_INVALID.c
+
+
+def test_mfa_verify_enroll_session_refused(monkeypatch):
+    interface, _ = _mfa_interface(monkeypatch)
+    result, _status = interface.mfa_verify(FakeMfaSession(stage="enroll"), "123456")
+    assert result["error_code"] == err.ERROR_MFA_SESSION_INVALID.c
+
+
+def test_mfa_verify_success(monkeypatch):
+    interface, _ = _mfa_interface(monkeypatch)
+    FakeModuleMfa.verify_login_result = FakeUser("testuser@example.com", "secret123")
+    session = FakeMfaSession()
+
+    result, status_code = interface.mfa_verify(session, "123456", "1.2.3.4")
+
+    assert status_code == 200
+    assert result["data"] == {"jwt_token": "user-voucher-testuser@example.com"}
+    assert FakeModuleMfa.instances[-1].verify_login_args == (session, "123456", "1.2.3.4")
+
+
+def test_mfa_verify_wrong_code(monkeypatch):
+    interface, _ = _mfa_interface(monkeypatch)
+    FakeModuleMfa.verify_login_exception = RequestException("wrong", err.ERROR_MFA_CODE_INVALID)
+
+    result, status_code = interface.mfa_verify(FakeMfaSession(), "000000")
+
+    assert status_code == 401
+    assert result["error_code"] == err.ERROR_MFA_CODE_INVALID.c

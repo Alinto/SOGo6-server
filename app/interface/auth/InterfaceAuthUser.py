@@ -7,6 +7,7 @@ from app.config.settings.DomainSettings import AuthSettingsObj, AuthSettings, Us
 from app.config.settings.UserSettings import UserGeneralSettings
 from app.module.auth.ModuleAuth import ModuleAuth
 from app.module.auth.ModuleUserSource import ModuleUserSource
+from app.module.auth.mfa.ModuleMfa import ModuleMfa
 from app.module.calendar.ModuleCalendar import ModuleCalendar
 from app.module.contact.ModuleContact import ModuleContact
 from app.module.mail.ModuleMail import ModuleMail
@@ -21,6 +22,7 @@ from app.utils import constants as cs
 if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
     from app.auth.User import User
+    from app.auth.service.VoucherMfaService import MfaSession
 
 
 class InterfaceAuthUser:
@@ -40,7 +42,7 @@ class InterfaceAuthUser:
         self.process = process
         self.default_domain = default_domain
         self.user = user
-        self.module_auth = ModuleAuth(process, system_settings, default_auth, default_us_source)
+        self.module_auth = ModuleAuth(process, system_settings, default_auth, default_us_source, default_domain)
         self.module_user_profile = ModuleUserProfile(process, default_domain)
         self._module_calendar: ModuleCalendar = ModuleCalendar(process)
         self._module_contact: ModuleContact = ModuleContact(process)
@@ -81,16 +83,22 @@ class InterfaceAuthUser:
         module_us = ModuleUserSource(domain_user_sources)
         return module_us.check_login(user), user, module_us
 
-    def plain_login(self, data:dict, voucher_data:str = "") -> tuple[dict, int]:
+    def plain_login(self, data:dict, voucher_data:str = "", ip: str | None = None) -> tuple[dict, int]:
         """
         Check a plain login uid/password.
         If the user is already authenticated as this uid, no new session is created
         and the current voucher is returned as is.
 
+        If a second factor is needed, no user session is created: the response holds an MFA voucher
+        (`mfa_token`) and either `mfa_required` (the user must call /auth/mfa/verify) or
+        `enrollment_required` (MFA enforced, the user must set up a method with /mfa then /mfa/confirm).
+
         :param data: Dictionary containing 'username' and 'password' keys
         :type data: dict
         :param voucher_data: The raw JWT token from the Authorization header, if any
         :type voucher_data: str
+        :param ip: client IP, for the MFA audit log
+        :type ip: str | None
         :return: Tuple containing the API response dict and HTTP status code
         :rtype: tuple[dict, int]
         """
@@ -103,9 +111,6 @@ class InterfaceAuthUser:
 
         if not success:
             return create_api_base_response(None, err.ERROR_LOGIN_FAILED)
-
-        # Generate the voucher for the authenticated user
-        ret = self.module_auth.generate_voucher_from_user(user)
 
         try:
             if not self.module_user_profile.is_user_profile_present(uid):
@@ -123,6 +128,45 @@ class InterfaceAuthUser:
             logger_api.error("Request exception when onboarding user %s: %s", uid, str(ex))
             return create_api_base_response(None, ex.error)
 
+        # Second factor: no user session before it is checked
+        try:
+            auth_settings = self.module_auth.get_auth_settings_for_user(uid)
+            mfa_ret = ModuleMfa(self.process, auth_settings).start_login(user, ip)
+        except RequestException as ex:
+            logger_api.error("Request exception when starting MFA for user %s: %s", uid, str(ex))
+            return create_api_base_response(None, ex.error)
+        except BugException as ex:
+            logger_api.error("Bug exception when starting MFA for user %s: %s", uid, str(ex))
+            return create_api_base_response(None, ex.error)
+        if mfa_ret is not None:
+            return create_api_base_response(mfa_ret)
+
+        # Generate the voucher for the authenticated user
+        ret = self.module_auth.generate_voucher_from_user(user)
+        return create_api_base_response(ret)
+
+    def mfa_verify(self, mfa_session: MfaSession | None, code: str, ip: str | None = None) -> tuple[dict, int]:
+        """
+        Check the second factor of an MFA session at stage verify and issue the user session
+
+        :param mfa_session: MFA session from the voucher
+        :type mfa_session: MfaSession | None
+        :param code: code given by the user
+        :type code: str
+        :param ip: client IP, for rate limiting and audit
+        :type ip: str | None
+        :return: Tuple containing the API response dict ({"jwt_token": ...}) and HTTP status code
+        :rtype: tuple[dict, int]
+        """
+        if mfa_session is None or mfa_session.stage != cs.MFA_STAGE_VERIFY:
+            return create_api_base_response(None, err.ERROR_MFA_SESSION_INVALID)
+        try:
+            auth_settings = self.module_auth.get_auth_settings_for_user(mfa_session.uid)
+            module_mfa = ModuleMfa(self.process, auth_settings)
+            user = module_mfa.verify_login(mfa_session, code, ip)
+            ret = module_mfa.issue_user_voucher(user)
+        except (RequestException, BugException) as ex:
+            return create_api_base_response(None, ex.error)
         return create_api_base_response(ret)
 
     def check_user_and_fill_info(self, user:User) -> tuple[bool, User]:

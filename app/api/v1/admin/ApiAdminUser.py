@@ -128,3 +128,22 @@ class ApiAdminUserInactive(MethodView):
         response, status_code = interface.revoke_inactive_users(timestamp=timestamp)
 
         return response, status_code
+
+
+@blp.route("/<string:uid>/mfa")
+class ApiAdminUserMfa(MethodView):
+    """
+    Resource, the MFA method of a user
+    """
+
+    @blp.response(200)
+    def delete(self, uid: str) -> ResponseReturnValue:
+        """
+        Resource, reset the MFA of a user (lost device) and revoke their sessions.
+
+        The user is back to the setup in preferences, or to the forced enrollment
+        at the next login if MFA is enforced for their domain.
+        """
+        logger_api.debug("Calling ApiAdminUserMfa: reset MFA of %s", uid)
+        interface: InterfaceApiAdminUser = g.inter
+        return interface.reset_user_mfa(uid)
