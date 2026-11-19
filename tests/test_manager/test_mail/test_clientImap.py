@@ -2443,3 +2443,75 @@ class TestEmptyFolder:
         result = client.empty_folder("parent/child")
 
         assert result == 2
+
+
+# ===========================================================================
+# Tests: special folders qualified with the personal namespace prefix
+# ===========================================================================
+
+class TestSpecialFoldersNamespacePrefix:
+    def _client_with_namespace(self, namespace: bytes, folders_map=None) -> tuple[ClientImap, "FakeIMAPConnection"]:
+        fake_conn = FakeIMAPConnection()
+        fake_conn.namespace_response = ("OK", [namespace])
+        client = make_client(folders_map=folders_map)
+        client.connection = fake_conn
+        client.authenticated = True
+        client.namespace()
+        return client, fake_conn
+
+    def test_bare_names_get_the_personal_prefix(self):
+        client, _ = self._client_with_namespace(b'(("INBOX/" "/")) NIL NIL')
+        assert client.get_folders_map() == {
+            cs.MAIL_FOLDER_INBOX:    "INBOX",
+            cs.MAIL_FOLDER_SENT:     "INBOX/Sent",
+            cs.MAIL_FOLDER_DRAFT:    "INBOX/Drafts",
+            cs.MAIL_FOLDER_JUNK:     "INBOX/Junk",
+            cs.MAIL_FOLDER_TRASH:    "INBOX/Trash",
+            cs.MAIL_FOLDER_TEMPLATE: "INBOX/Templates",
+        }
+
+    def test_folder_types_are_detected_on_prefixed_paths(self):
+        client, _ = self._client_with_namespace(b'(("INBOX/" "/")) NIL NIL')
+        assert client._get_special_folder_type("INBOX/Trash") == cs.MAIL_FOLDER_TRASH
+        assert client._get_special_folder_type('"INBOX/Drafts"') == cs.MAIL_FOLDER_DRAFT
+        assert client._get_special_folder_type("Trash") is None
+
+    def test_no_prefix_keeps_configured_names(self):
+        client, _ = self._client_with_namespace(b'(("" "/")) NIL NIL')
+        assert client.get_folders_map() == DEFAULT_FOLDERS_MAP
+
+    def test_prefix_without_trailing_delimiter(self):
+        client, _ = self._client_with_namespace(b'(("INBOX" ".")) NIL NIL')
+        assert client.get_folders_map()[cs.MAIL_FOLDER_TRASH] == "INBOX.Trash"
+
+    def test_already_qualified_names_are_kept(self):
+        folders_map = dict(DEFAULT_FOLDERS_MAP)
+        folders_map[cs.MAIL_FOLDER_TRASH] = "INBOX/Corbeille"
+        folders_map[cs.MAIL_FOLDER_JUNK] = "inbox/Junk Email"
+        folders_map[cs.MAIL_FOLDER_TEMPLATE] = "Shared/Templates"
+        client, _ = self._client_with_namespace(
+            b'(("INBOX/" "/")) NIL (("Shared/" "/"))', folders_map=folders_map)
+        folders = client.get_folders_map()
+        assert folders[cs.MAIL_FOLDER_TRASH] == "INBOX/Corbeille"
+        assert folders[cs.MAIL_FOLDER_JUNK] == "inbox/Junk Email"
+        assert folders[cs.MAIL_FOLDER_TEMPLATE] == "Shared/Templates"
+        assert folders[cs.MAIL_FOLDER_DRAFT] == "INBOX/Drafts"
+
+    def test_get_folders_map_returns_a_copy(self):
+        client, _ = self._client_with_namespace(b'(("INBOX/" "/")) NIL NIL')
+        client.get_folders_map()[cs.MAIL_FOLDER_TRASH] = "Other"
+        assert client.get_folders_map()[cs.MAIL_FOLDER_TRASH] == "INBOX/Trash"
+
+    def test_delete_copies_to_the_prefixed_trash(self):
+        client, fake_conn = self._client_with_namespace(b'(("INBOX/" "/")) NIL NIL')
+        fake_conn.select_response = ('OK', [b'10'])
+        fake_conn.uid_response = ('OK', [b''])
+        with mock.patch.object(fake_conn, "uid", wraps=fake_conn.uid) as mock_uid:
+            client.delete_mails_by_uid('INBOX', '85')
+        mock_uid.assert_any_call('COPY', '85', '"INBOX/Trash"')
+
+    def test_create_special_folder_uses_the_prefixed_path(self):
+        client, _ = self._client_with_namespace(b'(("INBOX/" "/")) NIL NIL')
+        with mock.patch.object(client, "_imap_create_folder") as mock_create:
+            client.create_special_folder(cs.MAIL_FOLDER_TRASH)
+        mock_create.assert_called_once_with('"INBOX/Trash"', auto_sub=True, no_error_if_exist=True)

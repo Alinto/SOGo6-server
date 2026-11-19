@@ -52,7 +52,6 @@ class ModuleMail:
     def __init__(self, user: User, mail_settings: MailSettingsObj, process_setting: ProcessSetting | None = None):
         self.user = user
         self.mail_settings = mail_settings
-        self.domain_mail_folder_name: dict = {}
         self._process_setting: ProcessSetting | None = process_setting
         self._db: ClientSQL | None = None
 
@@ -91,10 +90,8 @@ class ModuleMail:
             #Update folder name defined by user
             user_mail_view_settings = UserMailViewSettingsObj(self.user.profile.preferences.get(UserMailViewSettings.subparent, {}))
             user_mail_folder_name = user_mail_view_settings.get_user_mail_folder_map()
-            domain_mail_folder_name: dict = user_mail_conf["args"]["folders_map"]
-            domain_mail_folder_name.update(user_mail_folder_name)
-
-            self.domain_mail_folder_name = domain_mail_folder_name
+            # The client qualifies these names with the IMAP namespace prefix, see get_folders_map()
+            user_mail_conf["args"]["folders_map"].update(user_mail_folder_name)
 
             #DEPRECATED but legacy
             if self.mail_settings.SOGO_D_MAIL_SERVER_TYPE == "imap" and self.user.imap_host:
@@ -233,7 +230,7 @@ class ModuleMail:
         for folder_type in special_folder_types:
             if folder_type not in existing_types:
                 try:
-                    client.create_folder(self.domain_mail_folder_name[folder_type], "")
+                    client.create_special_folder(folder_type)
                     logger_mail_server.info(
                         "Created special folder '%s' for account '%s'",
                         folder_type, account_id
@@ -1255,7 +1252,7 @@ class ModuleMail:
             # --- Fetch existing draft to preserve attachments, or start fresh ---
             message: EmailMessage
             if mail_server_uid is not None:
-                folder_path = self.domain_mail_folder_name[cs.MAIL_FOLDER_DRAFT]
+                folder_path = client.get_folders_map()[cs.MAIL_FOLDER_DRAFT]
                 raw_eml = client.fetch_mail_raw(folder_path, mail_server_uid)
                 message = cast(EmailMessage, email_existing.message_from_string(raw_eml, _class=EmailMessage, policy=email.policy.default)) # type: ignore [arg-type]
             else:
@@ -1385,7 +1382,7 @@ class ModuleMail:
                 # --- Fetch existing draft or start with an empty message ---
                 message: EmailMessage
                 if mail_server_uid is not None:
-                    folder_path = self.domain_mail_folder_name[cs.MAIL_FOLDER_DRAFT]
+                    folder_path = client.get_folders_map()[cs.MAIL_FOLDER_DRAFT]
                     raw_eml = client.fetch_mail_raw(folder_path, mail_server_uid)
                     # Parse directly as EmailMessage (policy=default) so we can call add_attachment() on it
                     message = cast(EmailMessage, email_existing.message_from_string(raw_eml, _class=EmailMessage, policy=email.policy.default)) # type: ignore [arg-type]
@@ -1453,7 +1450,7 @@ class ModuleMail:
                     raise RequestException(err.ERROR_TMP_DRAFT_ATTACHMENT_NOT_FOUND.m, error=err.ERROR_TMP_DRAFT_ATTACHMENT_NOT_FOUND)
 
                 client = self._open_client_for(account_id)
-                folder_path = self.domain_mail_folder_name[cs.MAIL_FOLDER_DRAFT]
+                folder_path = client.get_folders_map()[cs.MAIL_FOLDER_DRAFT]
                 raw_eml = client.fetch_mail_raw(folder_path, mail_server_uid)
                 message = cast(EmailMessage, email_existing.message_from_string(raw_eml, policy=email.policy.default)) # type: ignore [arg-type]
 
@@ -1525,7 +1522,7 @@ class ModuleMail:
             return []
 
         client = self._open_client_for(account_id)
-        folder_path = self.domain_mail_folder_name[cs.MAIL_FOLDER_DRAFT]
+        folder_path = client.get_folders_map()[cs.MAIL_FOLDER_DRAFT]
         raw_eml = client.fetch_mail_raw(folder_path, mail_server_uid)
         message = email_existing.message_from_string(raw_eml, policy=email.policy.default) # type: ignore [arg-type]
 
@@ -1568,7 +1565,7 @@ class ModuleMail:
             raise RequestException(err.ERROR_TMP_DRAFT_ATTACHMENT_NOT_FOUND.m, error=err.ERROR_TMP_DRAFT_ATTACHMENT_NOT_FOUND)
 
         client = self._open_client_for(account_id)
-        folder_path = self.domain_mail_folder_name[cs.MAIL_FOLDER_DRAFT]
+        folder_path = client.get_folders_map()[cs.MAIL_FOLDER_DRAFT]
         raw_eml = client.fetch_mail_raw(folder_path, mail_server_uid)
         message = email_existing.message_from_string(raw_eml, policy=email.policy.default) # type: ignore [arg-type]
 
@@ -2005,7 +2002,7 @@ class ModuleMail:
         :rtype: dict[str, Any]
         :raises RequestException: If operation fails
         """
-        junk_folder = self.domain_mail_folder_name.get(cs.MAIL_FOLDER_JUNK, "Junk")
+        junk_folder = client.get_folders_map().get(cs.MAIL_FOLDER_JUNK, "Junk")
         client.copy_mail_to_mailbox(folder_name, mail_uid, junk_folder, create_dest=True)
         self._flag_deleted_and_expunge(client, folder_name, mail_uid)
         return {"action": "spam", "mail_uid": mail_uid, "moved_to": junk_folder}
@@ -2022,11 +2019,11 @@ class ModuleMail:
         :rtype: dict[str, Any]
         :raises RequestException: If folder_name is not of type MAIL_FOLDER_JUNK, or if operation fails
         """
-        junk_folder = self.domain_mail_folder_name.get(cs.MAIL_FOLDER_JUNK, "Junk")
+        junk_folder = client.get_folders_map().get(cs.MAIL_FOLDER_JUNK, "Junk")
         if folder_name != junk_folder:
             raise RequestException(f"Action 'ham' is only allowed on the Junk folder ('{junk_folder}'), not on '{folder_name}'", err.ERROR_INVALID_ACTION)
 
-        inbox_folder = self.domain_mail_folder_name.get(cs.MAIL_FOLDER_INBOX, "INBOX")
+        inbox_folder = client.get_folders_map().get(cs.MAIL_FOLDER_INBOX, "INBOX")
         client.copy_mail_to_mailbox(folder_name, mail_uid, inbox_folder)
         self._flag_deleted_and_expunge(client, folder_name, mail_uid)
 
@@ -2044,7 +2041,7 @@ class ModuleMail:
         :rtype: dict[str, Any]
         :raises RequestException: If operation fails
         """
-        junk_folder = self.domain_mail_folder_name.get(cs.MAIL_FOLDER_JUNK, "Junk")
+        junk_folder = client.get_folders_map().get(cs.MAIL_FOLDER_JUNK, "Junk")
         client.copy_mail_to_mailbox(folder_name, mail_uid, junk_folder, create_dest=True)
         client.delete_mails_by_uid(folder_name, mail_uid, move_to_trash=False, permanently=True)
         return {"action": "illegal", "mail_uid": mail_uid, "moved_to": junk_folder}
@@ -2061,7 +2058,7 @@ class ModuleMail:
         :rtype: dict[str, Any]
         :raises RequestException: If operation fails
         """
-        junk_folder = self.domain_mail_folder_name.get(cs.MAIL_FOLDER_JUNK, "Junk")
+        junk_folder = client.get_folders_map().get(cs.MAIL_FOLDER_JUNK, "Junk")
         client.copy_mail_to_mailbox(folder_name, mail_uid, junk_folder, create_dest=True)
         client.delete_mails_by_uid(folder_name, mail_uid, move_to_trash=False, permanently=True)
         return {"action": "phishing", "mail_uid": mail_uid, "moved_to": junk_folder}

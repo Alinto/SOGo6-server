@@ -485,10 +485,12 @@ class ClientImap(ClientMailServer):
         self.port   = port
         self.encryption = encryption
         self.auth_mech  = auth_mech
-        self.folders_map_type_to_name = folders_map
-        self.folders_map_name_to_type = {v: k for k, v in folders_map.items()}
-        if len(self.folders_map_type_to_name) != len(self.folders_map_name_to_type):
-            raise BugException("Two or more folders types have the same name", err.ERROR_CONFIG_ERROR)
+        # Folder names as configured (domain settings + user preferences), relative to the
+        # personal namespace. They are qualified with its prefix once it is known (see namespace()).
+        self._configured_folders_map: dict = dict(folders_map)
+        self.folders_map_type_to_name: dict = {}
+        self.folders_map_name_to_type: dict = {}
+        self._set_folders_map(self._configured_folders_map)
 
         self.connection: imaplib.IMAP4 | None = None
 
@@ -669,6 +671,74 @@ class ClientImap(ClientMailServer):
             # An empty prefix would match every folder path in self._get_delimiter_for
             if prefix:
                 self.others_prefixes[prefix] = delimiter or self.default_delimiter
+
+        # Special folders are configured by their bare name ("Trash"), but on a server whose
+        # personal namespace has a prefix ("INBOX/"), the real folder is "INBOX/Trash".
+        self._set_folders_map({
+            folder_type: self._qualify_special_folder_path(folder_name)
+            for folder_type, folder_name in self._configured_folders_map.items()
+        })
+
+    def _set_folders_map(self, folders_map: dict) -> None:
+        """
+        Set the map from folder type to folder path, and its reverse.
+
+        :param folders_map: dict of {folder type: folder path}
+        :type folders_map: dict
+        :raises BugException: If two folder types share the same path.
+        """
+        name_to_type = {v: k for k, v in folders_map.items()}
+        if len(folders_map) != len(name_to_type):
+            raise BugException("Two or more folders types have the same name", err.ERROR_CONFIG_ERROR)
+        self.folders_map_type_to_name = folders_map
+        self.folders_map_name_to_type = name_to_type
+
+    def _qualify_special_folder_path(self, folder_name: str) -> str:
+        """
+        Return the real path of a configured special folder, by adding the prefix of the
+        default personal namespace when the name does not already belong to a namespace.
+
+        INBOX is never prefixed: it is always reachable by this name.
+
+        :param folder_name: The folder name as configured, e.g. "Trash"
+        :type folder_name: str
+        :return: The folder path on the server, e.g. "INBOX/Trash"
+        :rtype: str
+        """
+        prefix = self.default_prefix
+        if not prefix or not folder_name or folder_name.upper() == "INBOX":
+            return folder_name
+        if self.default_delimiter and not prefix.endswith(self.default_delimiter):
+            prefix += self.default_delimiter
+        if folder_name.startswith(prefix):
+            return folder_name
+        # INBOX is case-insensitive (RFC 9051), so is a prefix starting with it
+        if prefix.upper().startswith("INBOX") and folder_name.upper().startswith(prefix.upper()):
+            return folder_name
+        # A folder chosen in another namespace (shared, other users) is already a full path
+        if any(folder_name.startswith(other_prefix) for other_prefix in self.others_prefixes):
+            return folder_name
+        return prefix + folder_name
+
+    def get_folders_map(self) -> dict[str, str]:
+        """
+        Return the map from special folder type to the folder path on the server.
+
+        :return: dict of {folder type: folder path}
+        :rtype: dict[str, str]
+        """
+        return dict(self.folders_map_type_to_name)
+
+    def create_special_folder(self, folder_type: str) -> None:
+        """
+        Create the special folder of the given type, at its real path, if it does not exist.
+
+        :param folder_type: The folder type, e.g. cs.MAIL_FOLDER_TRASH
+        :type folder_type: str
+        :raises RequestException: If folder creation fails.
+        """
+        folder_path = self._fix_folder_path(self.folders_map_type_to_name[folder_type])
+        self._imap_create_folder(quote(folder_path), auto_sub=True, no_error_if_exist=True)
 
     def _get_delimiter_for(self, folder_path:str) -> str:
         """
