@@ -88,6 +88,15 @@ class ClientMailServer(metaclass=ABCMeta):
         """Login to the mail server."""
 
     @abstractmethod
+    def get_folders_map(self) -> dict[str, str]:
+        """Return the map from special folder type (see MAIL_SERVER_FOLDER_TYPE in
+        utils.constants) to the real path of that folder on the mail server."""
+
+    @abstractmethod
+    def create_special_folder(self, folder_type: str) -> None:
+        """Create the special folder of the given type at its real path, if it does not exist."""
+
+    @abstractmethod
     def list_folders(self, with_rights: bool = False) -> list[dict[str, Any]]:
         """List all folders for the user, each item is:
 

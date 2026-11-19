@@ -7,6 +7,7 @@ from io import BytesIO
 from unittest.mock import MagicMock
 from app.module.mail.ModuleMail import ModuleMail
 from app.utils import errors as err
+from app.utils import constants as cs
 from app.utils.exceptions import RequestException
 from app.utils.api.paginate_sort_filter import CollectionPaginateArgs
 from app.factory.share.shareMailFolder import FOLDER_PERMISSION_CODE_TO_RIGHT
@@ -41,8 +42,12 @@ class FakeClientMailServer:
         self.get_acl_result = [('user1@example.com', {'userCanViewFolder': 1})]
         self.get_acl_raw_result = [('user1@example.com', 'lr')]
 
+        # Special folder paths, as resolved by the client (see ClientMailServer.get_folders_map)
+        self.folders_map = {}
+
         # Call tracking
         self.create_folder_calls = []
+        self.create_special_folder_calls = []
         self.delete_folder_calls = []
         self.copy_mail_to_mailbox_calls = []
         self.add_flags_calls = []
@@ -80,6 +85,12 @@ class FakeClientMailServer:
             return self.get_folder_with_subfolders_result
         # Default: just return the folder itself
         return [folder_path]
+
+    def get_folders_map(self):
+        return dict(self.folders_map)
+
+    def create_special_folder(self, folder_type):
+        self.create_special_folder_calls.append(folder_type)
 
     def create_folder(self, folder_name, parent_path=None):
         self.create_folder_calls.append((folder_name, parent_path))
@@ -870,8 +881,8 @@ def test_perform_mail_action_move_missing_destination(monkeypatch):
 def test_perform_mail_action_spam_success(monkeypatch):
     """Test marking a mail as spam."""
     module, fake_client = _make_module(monkeypatch)
-    # domain_mail_folder_name is empty by default so "Junk" is the fallback
-    module.domain_mail_folder_name = {}
+    # No JUNK folder mapped, so "Junk" is the fallback
+    fake_client.folders_map = {}
 
     action_data = {"action": "spam"}
     result = module.perform_mail_action(ACCOUNT_ID, "INBOX", "42", action_data)
@@ -887,7 +898,7 @@ def test_perform_mail_action_spam_success(monkeypatch):
 def test_perform_mail_action_ham_success(monkeypatch):
     """Test marking a mail as ham (not spam)."""
     module, fake_client = _make_module(monkeypatch)
-    module.domain_mail_folder_name = {}
+    fake_client.folders_map = {}
 
     action_data = {"action": "ham"}
     result = module.perform_mail_action(ACCOUNT_ID, "Junk", "42", action_data)
@@ -904,7 +915,7 @@ def test_perform_mail_action_ham_success(monkeypatch):
 def test_perform_mail_action_ham_refused_on_non_junk_folder(monkeypatch, folder_name):
     """Test ham is refused on any folder which is not of type MAIL_FOLDER_JUNK, with no IMAP command sent."""
     module, fake_client = _make_module(monkeypatch)
-    module.domain_mail_folder_name = {"JUNK": "Junk", "INBOX": "INBOX", "SENT": "Sent", "TRASH": "Trash"}
+    fake_client.folders_map = {"JUNK": "Junk", "INBOX": "INBOX", "SENT": "Sent", "TRASH": "Trash"}
 
     with pytest.raises(RequestException) as exc_info:
         module.perform_mail_action(ACCOUNT_ID, folder_name, "42", {"action": "ham"})
@@ -918,7 +929,7 @@ def test_perform_mail_action_ham_refused_on_non_junk_folder(monkeypatch, folder_
 def test_perform_mail_action_ham_uses_configured_junk_name(monkeypatch):
     """Test ham follows the folder mapped to MAIL_FOLDER_JUNK, not the literal name 'Junk'."""
     module, fake_client = _make_module(monkeypatch)
-    module.domain_mail_folder_name = {"JUNK": "Spam", "INBOX": "INBOX"}
+    fake_client.folders_map = {"JUNK": "Spam", "INBOX": "INBOX"}
 
     with pytest.raises(RequestException):
         module.perform_mail_action(ACCOUNT_ID, "Junk", "42", {"action": "ham"})
@@ -1061,8 +1072,8 @@ def test_perform_mail_batch_action_move_missing_destination(monkeypatch):
 def test_perform_mail_batch_action_spam_success(monkeypatch):
     """Test batch-marking multiple mails as spam in a single IMAP call."""
     module, fake_client = _make_module(monkeypatch)
-    # domain_mail_folder_name is empty by default so "Junk" is the fallback
-    module.domain_mail_folder_name = {}
+    # No JUNK folder mapped, so "Junk" is the fallback
+    fake_client.folders_map = {}
 
     batch_action_data = {"uids": [42, 43], "action": "spam"}
     result = module.perform_mail_batch_action(ACCOUNT_ID, "INBOX", batch_action_data)
@@ -1078,7 +1089,7 @@ def test_perform_mail_batch_action_spam_success(monkeypatch):
 def test_perform_mail_batch_action_ham_success(monkeypatch):
     """Test batch-marking multiple mails as ham (not spam) in a single IMAP call."""
     module, fake_client = _make_module(monkeypatch)
-    module.domain_mail_folder_name = {}
+    fake_client.folders_map = {}
 
     batch_action_data = {"uids": [42, 43], "action": "ham"}
     result = module.perform_mail_batch_action(ACCOUNT_ID, "Junk", batch_action_data)
@@ -1155,7 +1166,7 @@ def test_perform_folder_batch_action_move_uses_same_range_for_every_command(monk
 def test_perform_folder_batch_action_ham_on_junk_folder(monkeypatch):
     """Test ham on the whole Junk folder: mails moved to INBOX and expunged from Junk."""
     module, fake_client = _make_module(monkeypatch)
-    module.domain_mail_folder_name = {"JUNK": "Spam", "INBOX": "INBOX"}
+    fake_client.folders_map = {"JUNK": "Spam", "INBOX": "INBOX"}
 
     result = module.perform_folder_batch_action(ACCOUNT_ID, "Spam", {"action": "ham"})
 
@@ -1168,7 +1179,7 @@ def test_perform_folder_batch_action_ham_on_junk_folder(monkeypatch):
 def test_perform_folder_batch_action_ham_refused_on_non_junk_folder(monkeypatch):
     """Test ham on a whole non-Junk folder is refused and nothing is touched."""
     module, fake_client = _make_module(monkeypatch)
-    module.domain_mail_folder_name = {}
+    fake_client.folders_map = {}
 
     with pytest.raises(RequestException) as exc_info:
         module.perform_folder_batch_action(ACCOUNT_ID, "Spamish", {"action": "ham"})
@@ -1182,7 +1193,7 @@ def test_perform_folder_batch_action_ham_refused_on_non_junk_folder(monkeypatch)
 def test_perform_mailbox_batch_action_ham_only_processes_junk_folder(monkeypatch):
     """Test mailbox-wide ham: the Junk folder is processed, any other folder is reported in errors."""
     module, fake_client = _make_module(monkeypatch)
-    module.domain_mail_folder_name = {"JUNK": "Junk", "INBOX": "INBOX"}
+    fake_client.folders_map = {"JUNK": "Junk", "INBOX": "INBOX"}
 
     result = module.perform_mailbox_batch_action(ACCOUNT_ID, {"uids": {"Junk": [42], "Sent": [43]}, "action": "ham"})
 
@@ -2163,3 +2174,32 @@ def test_empty_folder_missing_type_in_response(monkeypatch):
     # Should raise because type defaults to empty string which is not TRASH or JUNK
     with pytest.raises(RequestException, match="cannot be emptied"):
         module.empty_folder(ACCOUNT_ID, "SomeFolder")
+
+
+# ========== Special folders resolved by the client ==========
+
+def test_create_special_folders_if_not_exist_creates_missing_types(monkeypatch):
+    """Missing special folders are created by type, at the path the client resolves."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.list_folders_result = [
+        {'name': 'INBOX', 'path': 'INBOX', 'type': cs.MAIL_FOLDER_INBOX},
+        {'name': 'Trash', 'path': 'INBOX/Trash', 'type': cs.MAIL_FOLDER_TRASH},
+    ]
+
+    module.create_special_folders_if_not_exist(ACCOUNT_ID)
+
+    assert sorted(fake_client.create_special_folder_calls) == sorted([
+        cs.MAIL_FOLDER_SENT, cs.MAIL_FOLDER_DRAFT, cs.MAIL_FOLDER_JUNK, cs.MAIL_FOLDER_TEMPLATE,
+    ])
+    assert fake_client.create_folder_calls == []
+
+
+def test_perform_mail_action_spam_uses_the_resolved_junk_path(monkeypatch):
+    """Spam goes to the junk folder path resolved by the client (namespace prefix included)."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.folders_map = {"JUNK": "INBOX/Junk", "INBOX": "INBOX"}
+
+    result = module.perform_mail_action(ACCOUNT_ID, "INBOX", "42", {"action": "spam"})
+
+    assert result["moved_to"] == "INBOX/Junk"
+    assert ("INBOX", "42", "INBOX/Junk") in fake_client.copy_mail_to_mailbox_calls
