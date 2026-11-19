@@ -15,7 +15,7 @@ from app.utils import constants as cs
 from app.utils import errors as err
 from app.utils.exceptions import RequestException
 from app.utils.logger.logger import logger_dav
-from app.utils.strings import get_domain_from_mail
+from app.utils.strings import get_domain_from_mail, lower_login_domain
 
 if TYPE_CHECKING:
     from app.config.settings.ProcessSetting import ProcessSetting
@@ -146,8 +146,7 @@ class DavAuthenticator:
             or any(char.isspace() or char in DAV_LOGIN_FORBIDDEN_CHARS for char in login)
         ):
             raise RequestException(error=err.ERROR_LOGIN_FAILED)
-        local_part, separator, domain = login.partition("@")
-        return local_part + separator + domain.lower()
+        return lower_login_domain(login)
 
     @staticmethod
     def _check_login_domain(login: str, system_settings: SystemSettingsObj) -> None:

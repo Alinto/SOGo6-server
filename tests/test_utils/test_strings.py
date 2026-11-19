@@ -1,6 +1,6 @@
 import pytest
 
-from app.utils.strings import get_domain_from_mail, strip_accents, parse_url_str, quote, unquote
+from app.utils.strings import get_domain_from_mail, lower_login_domain, strip_accents, parse_url_str, quote, unquote
 
 def test_get_domain_from_mail():
     with pytest.raises(TypeError):
@@ -8,6 +8,10 @@ def test_get_domain_from_mail():
     assert get_domain_from_mail("aa") is None
     assert get_domain_from_mail("aa@bb.com") == "bb.com"
     assert get_domain_from_mail("aa@bb@cc") is None
+
+def test_lower_login_domain():
+    assert lower_login_domain("Alice@EXAMPLE.org") == "Alice@example.org"
+    assert lower_login_domain("Alice") == "Alice"
 
 def test_strip_accents_diacritics():
     assert strip_accents("Réunion Joël") == "reunion joel"

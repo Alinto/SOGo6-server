@@ -11,6 +11,10 @@ DAV_ROOT_PATH: str = "/dav/"
 WELL_KNOWN_CALDAV_PATH: str = "/.well-known/caldav"
 WELL_KNOWN_CARDDAV_PATH: str = "/.well-known/carddav"
 
+# Names of the homes of the calendars and of the address books, under the principal of a user.
+DAV_CALENDAR_HOME: str = "Calendar"
+DAV_ADDRESSBOOK_HOME: str = "Contacts"
+
 # Methods served by the DAV server, each one by its own handler. Listed in the Allow header; any other
 # method is answered 405.
 DAV_METHODS: frozenset[str] = frozenset({"OPTIONS"})
@@ -27,8 +31,9 @@ DAV_AUTH_CHALLENGE: str = f'Basic realm="{DAV_AUTH_REALM}", charset="UTF-8"'
 # Characters of LDAP filters and DNs (RFC 4515 section 3, RFC 4514 section 2.4), refused in a login: the
 # login is inserted in both, and a wildcard would match another account. A leading "#" is refused as well, a
 # DN value starting with it is read as hexadecimal BER. "+" is kept on purpose for mail subaddresses,
-# although it separates the values of a DN.
-DAV_LOGIN_FORBIDDEN_CHARS: frozenset[str] = frozenset('*()\\,=;<>"')
+# although it separates the values of a DN. "/" is refused too: the login is a segment of the path of the
+# principal of the user.
+DAV_LOGIN_FORBIDDEN_CHARS: frozenset[str] = frozenset('*()\\,=;<>"/')
 
 # Cache keys of the wrong passwords of a login and of a blocked login, the login is appended.
 DAV_LOGIN_FAILURE_PREFIX: str = "dav_login_failure:"

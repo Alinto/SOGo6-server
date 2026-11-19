@@ -44,6 +44,32 @@ The DAV server never imports the REST layer (`app.api`): no Smorest, no JSON mid
 The DAV server follows the same layers as the other entry points (xref:1_4_archi_interfaces.adoc[], xref:agent.adoc[]).
 A handler deals with the protocol of one HTTP method (XML, `Depth`, `If-Match`, multistatus) whatever the resource targeted; the glue between modules and serializers lives in the `InterfaceDav*` classes, one per domain, next to the `InterfaceApi*` and `InterfaceAgent*` ones in `app/interface/<domain>/`.
 
+----
+  Flask (DavApp)
+       |
+       v
+  DavDispatcher        method -> handler, error -> HTTP status
+       |
+       v
+  DavHandler.handle    authentication: DavAuthenticator, Basic credentials -> DavContext
+       |
+       v
+  DavHandler.process   protocol of the HTTP method: body, Depth, multistatus
+       |
+       v
+  DavResource          resource of the path, found by DavResourceResolver: properties, members
+       |
+       v
+  InterfaceDav*        glue between the modules, in app/interface/<domain>/
+       |
+       v
+  Module*              business logic
+----
+
+The handler never calls an interface: it does not know whether the path targets a principal, a calendar or a contact, and asks the resource (see <<Resources>>).
+A resource never calls a module or a manager: it reads the authenticated user of the `DavContext`, loaded by `InterfaceAuthUser` during the authentication, or calls the `InterfaceDav*` of its domain.
+The root, the principal and the homes only read the user: no `InterfaceDav*` exists yet, as the calendars and the address books are not served over DAV.
+
 [cols="1,1,1,1"]
 |===
 | Layer | REST API | Agent | DAV
@@ -62,6 +88,11 @@ A handler deals with the protocol of one HTTP method (XML, `Depth`, `If-Match`, 
 | `MethodView` and schemas
 | `Job`
 | `DavHandler`, with `app/manager/dav/protocol` for the XML
+
+| Target of the request
+| -
+| -
+| `DavResource*`, found by `DavResourceResolver`
 
 | Glue between modules
 | `InterfaceApi*`
@@ -90,6 +121,32 @@ A handler deals with the protocol of one HTTP method (XML, `Depth`, `If-Match`, 
 `DAV_METHODS` lists the methods served, each one by its own handler: it feeds the routes, the `Allow` header of OPTIONS and of 405 responses. Serving a new method means adding its handler in `build_app` and the method to `DAV_METHODS`; a unit test checks that both match.
 
 The path given to the handlers is relative to `/dav/` and percent-decoded: `/dav/alice%40example.org/` reaches them as `alice@example.org/`.
+
+== Resources
+
+A path below `/dav/` targets a resource of the DAV tree of the authenticated user. The tree only holds the resources of that user: the other accounts are neither listed nor reachable.
+
+----
+  /dav/                     DavRootResource             member: the principal of the user
+  /dav/<login>/             DavPrincipalResource        members: the two homes
+  /dav/<login>/Calendar/    DavCalendarHomeResource     home of the calendars
+  /dav/<login>/Contacts/    DavAddressBookHomeResource  home of the address books
+----
+
+`<login>` is the login of the Basic authentication. The homes have no members: the calendars and the address books are not served over DAV.
+
+* *DavPath* - Builds the paths of the tree: the only class knowing the layout of the URLs.
+* *DavResource* - Abstract resource: its path, its properties by name (`properties()`), and its members (`children()`), listed by a PROPFIND with `Depth: 1`. `properties()` gives the properties of every resource, `resourcetype` and `current-user-principal`, followed by the own properties of the resource.
+* *DavPrincipalResource* - The principal of the user (RFC 3744), which is also the collection holding the two homes. Its properties are converted from the user by `UserSerializerDavProps`.
+* *DavCalendarHomeResource*, *DavAddressBookHomeResource* - The homes; their only own property is their name (`displayname`).
+* *DavResourceResolver* - Finds the resource of a path, by comparing the path to the paths of `DavPath`. The login of the path is compared as the Basic login: the domain is case-insensitive, the local part is not. Any other path, a path of another user included, is answered 404 (`ERROR_DAV_RESOURCE_NOT_FOUND`), which does not disclose whether the account exists.
+
+=== Properties of a business model
+
+A resource built from a business model never builds its properties itself: a serializer of `app/dav/serializer`, named `<Model>SerializerDavProps`, converts the model into its properties, by name in Clark notation.
+These serializers belong to the DAV server and not to `app/manager/dav/protocol`: they depend on the business models, on `DavPath` and on the choices of the server (properties exposed, paths), which a DAV client does not share.
+
+* *UserSerializerDavProps* - Converts the user into the properties of its principal: its name (`displayname`), its `principal-URL`, the homes of its calendars and address books (`calendar-home-set`, `addressbook-home-set`) and its mail address followed by its aliases (`calendar-user-address-set`, as `mailto:` URIs), so that an invitation sent to an alias is matched to the principal. `alternate-URI-set` and `group-membership`, required by RFC 3744 section 4, are empty.
 
 == XML protocol
 
@@ -170,7 +227,7 @@ The login is inserted in the LDAP filters and DNs, and in the SQL queries of the
 * a space: LDAP ignores the spaces around a value, while the domain settings are looked up with the exact domain name;
 * a non-printable character: control, invisible (zero width space, soft hyphen...);
 * a leading `#`: a DN value starting with it is read as hexadecimal BER (RFC 4514 section 2.4), another spelling of the same account with its own counters;
-* a character of the LDAP filters and DNs (`DAV_LOGIN_FORBIDDEN_CHARS`): `* ( ) \ , = ; < > "`. A wildcard would test the password against another account;
+* a character of `DAV_LOGIN_FORBIDDEN_CHARS`: the characters of the LDAP filters and DNs `* ( ) \ , = ; < > "`, as a wildcard would test the password against another account, and `/`, as the login is a segment of the path of the principal of the user, `/dav/<login>/` (see <<Resources>>);
 * more than one `@`.
 
 `+` is accepted on purpose, for subaddresses (`alice+tag@example.org`), although it separates the values of an LDAP DN: such logins only work with SQL user sources and with LDAP sources that search the DN of the user (`US_LDAP_BIND_FIELD`). When the DN is built from the login, the bind fails.

@@ -136,6 +136,7 @@ def test_empty_password_refused(env):
         "alice@example.org ",
         "alice @example.org",
         "#616c696365@example.org",
+        "ali/ce@example.org",
     ],
 )
 def test_login_altering_queries_refused(env, login):

@@ -60,6 +60,11 @@ def get_domain_from_mail(string_input: str) -> str|None:
             return tmp[1]
     return None
 
+def lower_login_domain(login: str) -> str:
+    """Lower the case of the domain of a login (RFC 4343), keeping the local part as is."""
+    local_part, separator, domain = login.partition("@")
+    return local_part + separator + domain.lower()
+
 def get_domain_from_contact(string_input: str) -> str|None:
     """
     A contact is either directly a mail "foo@bar.nu" or a full name

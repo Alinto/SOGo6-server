@@ -34,3 +34,19 @@ DAV_RESPONSE: str = "{DAV:}response"
 DAV_HREF: str = "{DAV:}href"
 DAV_PROPSTAT: str = "{DAV:}propstat"
 DAV_STATUS: str = "{DAV:}status"
+
+# Properties locating the account of the user (RFC 4918 section 15, RFC 5397 section 3, RFC 3744 section 4,
+# RFC 4791 section 6.2.1, RFC 6638 section 2.4.1, RFC 6352 section 7.1.1).
+DAV_RESOURCETYPE: str = "{DAV:}resourcetype"
+DAV_DISPLAYNAME: str = "{DAV:}displayname"
+DAV_CURRENT_USER_PRINCIPAL: str = "{DAV:}current-user-principal"
+DAV_PRINCIPAL_URL: str = "{DAV:}principal-URL"
+DAV_ALTERNATE_URI_SET: str = "{DAV:}alternate-URI-set"
+DAV_GROUP_MEMBERSHIP: str = "{DAV:}group-membership"
+CALDAV_CALENDAR_HOME_SET: str = "{urn:ietf:params:xml:ns:caldav}calendar-home-set"
+CALDAV_CALENDAR_USER_ADDRESS_SET: str = "{urn:ietf:params:xml:ns:caldav}calendar-user-address-set"
+CARDDAV_ADDRESSBOOK_HOME_SET: str = "{urn:ietf:params:xml:ns:carddav}addressbook-home-set"
+
+# Resource types (RFC 4918 section 14.3, RFC 3744 section 4).
+DAV_COLLECTION: str = "{DAV:}collection"
+DAV_PRINCIPAL: str = "{DAV:}principal"
