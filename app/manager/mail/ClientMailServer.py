@@ -467,6 +467,24 @@ class ClientMailServer(metaclass=ABCMeta):
         """
 
     @abstractmethod
+    def move_mail_to_mailbox(self, folder_path: str, mail_uid: str|list[str], dest_folder_path: str, create_dest: bool = False) -> None:
+        """Move a mail (or list of mails) from one mailbox to another using UID.
+
+        Implementations must use an atomic move when the server supports it, rather than
+        copy + delete (see ClientImap.move_mail_to_mailbox).
+
+        :param folder_path: The source folder_path.
+        :type folder_path: str
+        :param mail_uid: The UID or list of UIDs of the mail(s) to move.
+        :type mail_uid: str|list[str]
+        :param dest_folder_path: The destination folder_path.
+        :type dest_folder_path: str
+        :param create_dest: True if the folder needs to be created (or ensure that it's already exist)
+        :type create_dest: bool
+        :raises RequestException: If the operation fails.
+        """
+
+    @abstractmethod
     def get_folder_uid_range(self, folder_path: str) -> str | None:
         """Return a UID set covering every mail currently in a folder, without listing the UIDs.
 

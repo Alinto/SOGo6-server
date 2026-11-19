@@ -824,7 +824,8 @@ class ModuleMail:
         The behaviour is driven by the user preference ``SOGO_U_MAIL_DELETE_BEHAVIOR``
         stored in the user's mail general settings:
 
-        * ``MOVE_TO_TRASH_AND_EXPUNGE`` (default): copy to Trash + flag Deleted + expunge.
+        * ``MOVE_TO_TRASH_AND_EXPUNGE`` (default): move to Trash (IMAP MOVE if supported,
+          otherwise copy to Trash + flag Deleted + expunge).
         * ``FLAG_DELETED_ONLY``: flag Deleted only (mail appears struck-through/greyed in UI).
         * ``EXPUNGE_ONLY``: flag Deleted + expunge, no copy to Trash.
         * ``MOVE_TO_TRASH_ONLY``: copy to Trash + flag Deleted, no expunge.
@@ -982,7 +983,8 @@ class ModuleMail:
         The deletion behaviour is driven by the user preference
         ``SOGO_U_MAIL_DELETE_BEHAVIOR`` stored in the user's mail general settings:
 
-        * ``MOVE_TO_TRASH_AND_EXPUNGE`` (default): copy to Trash + flag Deleted + expunge.
+        * ``MOVE_TO_TRASH_AND_EXPUNGE`` (default): move to Trash (IMAP MOVE if supported,
+          otherwise copy to Trash + flag Deleted + expunge).
         * ``FLAG_DELETED_ONLY``: flag Deleted only (mail appears struck-through/greyed in UI).
         * ``EXPUNGE_ONLY``: flag Deleted + expunge, no copy to Trash.
         * ``MOVE_TO_TRASH_ONLY``: copy to Trash + flag Deleted, no expunge.
@@ -1989,8 +1991,7 @@ class ModuleMail:
         if not destination or not isinstance(destination, str):
             raise RequestException("Missing or invalid destination folder for move action", err.ERROR_MISSING_ACTION_DATA)
 
-        client.copy_mail_to_mailbox(folder_name, mail_uid, destination)
-        self._flag_deleted_and_expunge(client, folder_name, mail_uid)
+        client.move_mail_to_mailbox(folder_name, mail_uid, destination)
 
         return {"action": "move", "mail_uid": mail_uid, "from_folder": folder_name, "to_folder": destination}
 
@@ -2006,8 +2007,7 @@ class ModuleMail:
         :raises RequestException: If operation fails
         """
         junk_folder = self.domain_mail_folder_name.get(cs.MAIL_FOLDER_JUNK, "Junk")
-        client.copy_mail_to_mailbox(folder_name, mail_uid, junk_folder, create_dest=True)
-        self._flag_deleted_and_expunge(client, folder_name, mail_uid)
+        client.move_mail_to_mailbox(folder_name, mail_uid, junk_folder, create_dest=True)
         return {"action": "spam", "mail_uid": mail_uid, "moved_to": junk_folder}
 
     def _action_ham(self, client: ClientMailServer, folder_name: str, mail_uid: str|list[str]) -> dict[str, Any]:
@@ -2027,14 +2027,13 @@ class ModuleMail:
             raise RequestException(f"Action 'ham' is only allowed on the Junk folder ('{junk_folder}'), not on '{folder_name}'", err.ERROR_INVALID_ACTION)
 
         inbox_folder = self.domain_mail_folder_name.get(cs.MAIL_FOLDER_INBOX, "INBOX")
-        client.copy_mail_to_mailbox(folder_name, mail_uid, inbox_folder)
-        self._flag_deleted_and_expunge(client, folder_name, mail_uid)
+        client.move_mail_to_mailbox(folder_name, mail_uid, inbox_folder)
 
         return {"action": "ham", "mail_uid": mail_uid, "moved_to": inbox_folder}
 
     def _action_illegal(self, client: ClientMailServer, folder_name: str, mail_uid: str|list[str]) -> dict[str, Any]:
-        """Report a mail or a list of mails as illegal content, copy them to the Junk folder
-        and permanently remove them (no Trash copy) from their source folder.
+        """Report a mail or a list of mails as illegal content and move them to the Junk folder
+        (no Trash copy).
 
         :param folder_name: The name of the folder
         :type folder_name: str
@@ -2045,13 +2044,12 @@ class ModuleMail:
         :raises RequestException: If operation fails
         """
         junk_folder = self.domain_mail_folder_name.get(cs.MAIL_FOLDER_JUNK, "Junk")
-        client.copy_mail_to_mailbox(folder_name, mail_uid, junk_folder, create_dest=True)
-        client.delete_mails_by_uid(folder_name, mail_uid, move_to_trash=False, permanently=True)
+        client.move_mail_to_mailbox(folder_name, mail_uid, junk_folder, create_dest=True)
         return {"action": "illegal", "mail_uid": mail_uid, "moved_to": junk_folder}
 
     def _action_phishing(self, client: ClientMailServer, folder_name: str, mail_uid: str|list[str]) -> dict[str, Any]:
-        """Report a mail or a list of mails as phishing, copy them to the Junk folder
-        and permanently remove them (no Trash copy) from their source folder.
+        """Report a mail or a list of mails as phishing and move them to the Junk folder
+        (no Trash copy).
 
         :param folder_name: The name of the folder
         :type folder_name: str
@@ -2062,8 +2060,7 @@ class ModuleMail:
         :raises RequestException: If operation fails
         """
         junk_folder = self.domain_mail_folder_name.get(cs.MAIL_FOLDER_JUNK, "Junk")
-        client.copy_mail_to_mailbox(folder_name, mail_uid, junk_folder, create_dest=True)
-        client.delete_mails_by_uid(folder_name, mail_uid, move_to_trash=False, permanently=True)
+        client.move_mail_to_mailbox(folder_name, mail_uid, junk_folder, create_dest=True)
         return {"action": "phishing", "mail_uid": mail_uid, "moved_to": junk_folder}
 
     def _action_copy(self, client: ClientMailServer, folder_name: str, mail_uid: str|list[str], destination: Any) -> dict[str, Any]:
@@ -2085,18 +2082,6 @@ class ModuleMail:
         client.copy_mail_to_mailbox(folder_name, mail_uid, destination)
 
         return {"action": "copy", "mail_uid": mail_uid, "from_folder": folder_name, "to_folder": destination}
-
-    def _flag_deleted_and_expunge(
-        self, client: ClientMailServer, folder_name: str, mail_uid: str|list[str]
-    ) -> None:
-        """Flag mails as deleted then expunge the source folder.
-
-        IMAP COPY + ``\\Deleted`` is not a move until EXPUNGE: without it the
-        original stays visible in the source folder (and a later move copies it
-        again, producing duplicates).
-        """
-        client.add_flags_to_mail(folder_name, mail_uid, ['\\Deleted'])
-        client.expunge_folder(folder_name, do_children=False)
 
     def _action_delete(self, client: ClientMailServer, folder_name: str, mail_uid: str|list[str], account_id: str) -> dict[str, Any]:
         """Delete a mail or a list of mails, honoring the user's ``SOGO_U_MAIL_DELETE_BEHAVIOR`` preference.
