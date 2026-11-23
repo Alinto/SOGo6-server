@@ -1,6 +1,0 @@
-= SOGo 6 - Install from source
-
-
-#TODO
-Clone the repo and README.md
-

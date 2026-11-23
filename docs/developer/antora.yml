@@ -1,6 +1,0 @@
-name: SOGo6-DevDoc
-title: SOGo 6 - Dev Doc
-version: alpha
-start_page: 0_index.adoc
-nav:
-- modules/ROOT/nav.adoc

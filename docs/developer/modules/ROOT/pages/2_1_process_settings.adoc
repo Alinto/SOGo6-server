@@ -1,8 +1,0 @@
-= Process Settings
-
-Those settings are mandatory to start SOGo.
-
-They contain Gunicorn and Flask settings.
-They contain settings required by SOGo as its database or Redis configuration.
-
-They're either ENV or placed in a configuration file #TODO Only env for now

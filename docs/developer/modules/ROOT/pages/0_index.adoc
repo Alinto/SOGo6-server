@@ -1,8 +1,0 @@
-= Introduction
-
-Hello, this webpage contains the documentation for SOGo developers!
-
-[WARNING]
-====
-This documentation is still under construction.
-====
