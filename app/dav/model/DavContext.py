@@ -15,7 +15,8 @@ class DavContext:
 
     The DAV counterpart of what the REST API keeps in Flask ``g``. ``user`` is authenticated, filled
     with its directory info and profile, and keeps the password in memory for the mail servers. ``cache``
-    is not closed: its connection is closed when it is freed with the request.
+    is not closed: its connection is closed when it is freed with the request. ``account_alias`` is the part
+    after "!" of a login "<login>!<alias>", None without "!": it ends the account in the paths (see DavPath).
     """
 
     process_settings: ProcessSetting
@@ -23,3 +24,4 @@ class DavContext:
     user_domain_settings: dict
     user: User
     cache: ClientRedis
+    account_alias: str | None

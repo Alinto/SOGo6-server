@@ -14,8 +14,12 @@ if TYPE_CHECKING:
 class DavAddressBookHomeResource(DavResource):
     """Collection of the address books of the user (RFC 6352 section 7.1.1)."""
 
-    def __init__(self, user: User) -> None:
-        super().__init__(path=DavPath.addressbook_home(user), user=user)
+    def __init__(self, user: User, account_alias: str | None) -> None:
+        super().__init__(
+            path=DavPath.addressbook_home(user=user, account_alias=account_alias),
+            user=user,
+            account_alias=account_alias,
+        )
 
     def _own_properties(self) -> dict[str, DavPropValue]:
         return {DAV_DISPLAYNAME: DAV_ADDRESSBOOK_HOME}

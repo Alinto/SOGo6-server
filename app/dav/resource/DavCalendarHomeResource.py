@@ -14,8 +14,12 @@ if TYPE_CHECKING:
 class DavCalendarHomeResource(DavResource):
     """Collection of the calendars of the user (RFC 4791 section 6.2.1)."""
 
-    def __init__(self, user: User) -> None:
-        super().__init__(path=DavPath.calendar_home(user), user=user)
+    def __init__(self, user: User, account_alias: str | None) -> None:
+        super().__init__(
+            path=DavPath.calendar_home(user=user, account_alias=account_alias),
+            user=user,
+            account_alias=account_alias,
+        )
 
     def _own_properties(self) -> dict[str, DavPropValue]:
         return {DAV_DISPLAYNAME: DAV_CALENDAR_HOME}

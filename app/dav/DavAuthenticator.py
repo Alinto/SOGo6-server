@@ -7,7 +7,7 @@ from app.auth.User import User
 from app.config.init_config import init_get_system_and_default_domain_settings, init_get_user_domain_settings
 from app.config.settings.DomainSettings import AuthSettings, AuthSettingsObj
 from app.config.settings.SystemSettings import SystemSettings, SystemSettingsObj
-from app.dav.DavConst import DAV_LOGIN_FORBIDDEN_CHARS
+from app.dav.DavConst import DAV_ACCOUNT_ALIAS_SEPARATOR, DAV_LOGIN_FORBIDDEN_CHARS
 from app.dav.DavLoginLimiter import DavLoginLimiter
 from app.dav.model.DavContext import DavContext
 from app.interface.auth.InterfaceAuthUser import InterfaceAuthUser
@@ -34,7 +34,7 @@ class DavAuthenticator:
         self._process_settings: ProcessSetting = process_settings
         self._require_secure: bool = require_secure
 
-    def authenticate(self, request: DavRequest, cache: ClientRedis) -> DavContext:
+    def authenticate(self, request: DavRequest, cache: ClientRedis) -> DavContext:  # pylint: disable=too-many-locals
         """
         Check the Basic credentials of the request and build its context.
 
@@ -42,6 +42,8 @@ class DavAuthenticator:
         section 11). That refusal is a 403: a 401 would carry the Basic challenge, forbidden as well.
 
         A user signing in for the first time is onboarded once the domain of its account accepts passwords.
+
+        A login "<login>!<alias>" signs in as the login, the alias is kept in the context.
 
         :param request: The DAV request
         :type request: DavRequest
@@ -57,6 +59,7 @@ class DavAuthenticator:
         if self._require_secure and not request.secure:
             raise RequestException(error=err.ERROR_DAV_INSECURE_CONNECTION)
         login, password = DavAuthenticator._parse_basic(request.headers.get("authorization", ""))
+        login, account_alias = DavAuthenticator._split_account_alias(login)
         login = DavAuthenticator._normalize_login(login)
         if not password:
             # An empty password asks LDAP for an unauthenticated bind (RFC 4513 section 5.1.2), that some
@@ -108,6 +111,7 @@ class DavAuthenticator:
             user_domain_settings=user_domain_settings,
             user=user_found,
             cache=cache,
+            account_alias=account_alias,
         )
 
     @staticmethod
@@ -131,6 +135,21 @@ class DavAuthenticator:
         return login, password
 
     @staticmethod
+    def _split_account_alias(login: str) -> tuple[str, str | None]:
+        """Split a login "<login>!<alias>" into the login checked against the user source and the alias of its
+        account, None without "!" (see DAV_ACCOUNT_ALIAS_SEPARATOR).
+
+        An empty login or alias, or an alias with a character refused in a login, is refused like a wrong
+        password: the alias is part of the path of the principal.
+        """
+        login, separator, account_alias = login.partition(DAV_ACCOUNT_ALIAS_SEPARATOR)
+        if not separator:
+            return login, None
+        if not login or not account_alias or DavAuthenticator._has_forbidden_char(account_alias):
+            raise RequestException(error=err.ERROR_LOGIN_FAILED)
+        return login, account_alias
+
+    @staticmethod
     def _normalize_login(login: str) -> str:
         """Refuse the logins that would alter the queries of the user source, and lower the case of the
         domain (RFC 4343): the domain settings are looked up with the exact domain name.
@@ -139,14 +158,14 @@ class DavAuthenticator:
         "#" or a character of ``DAV_LOGIN_FORBIDDEN_CHARS`` are refused like a wrong password. A space would
         change the domain looked up in the settings, while LDAP ignores it. The local part is kept as is.
         """
-        if (
-            not login.isprintable()
-            or login.count("@") > 1
-            or login.startswith("#")
-            or any(char.isspace() or char in DAV_LOGIN_FORBIDDEN_CHARS for char in login)
-        ):
+        if login.count("@") > 1 or login.startswith("#") or DavAuthenticator._has_forbidden_char(login):
             raise RequestException(error=err.ERROR_LOGIN_FAILED)
         return lower_login_domain(login)
+
+    @staticmethod
+    def _has_forbidden_char(value: str) -> bool:
+        """Whether a value has a space, a non-printable character or a character of DAV_LOGIN_FORBIDDEN_CHARS."""
+        return not value.isprintable() or any(char.isspace() or char in DAV_LOGIN_FORBIDDEN_CHARS for char in value)
 
     @staticmethod
     def _check_login_domain(login: str, system_settings: SystemSettingsObj) -> None:

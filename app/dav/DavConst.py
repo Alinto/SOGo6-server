@@ -35,6 +35,11 @@ DAV_AUTH_CHALLENGE: str = f'Basic realm="{DAV_AUTH_REALM}", charset="UTF-8"'
 # principal of the user.
 DAV_LOGIN_FORBIDDEN_CHARS: frozenset[str] = frozenset('*()\\,=;<>"/')
 
+# Separator of the login "<login>!<alias>" of an account alias. macOS Contacts syncs a single address book per
+# account and tells its accounts apart by login: the user adds one account per address book, the alias being
+# the key of the address book. A login cannot contain it.
+DAV_ACCOUNT_ALIAS_SEPARATOR: str = "!"
+
 # Cache keys of the wrong passwords of a login and of a blocked login, the login is appended.
 DAV_LOGIN_FAILURE_PREFIX: str = "dav_login_failure:"
 DAV_LOGIN_BLOCKED_PREFIX: str = "dav_login_blocked:"

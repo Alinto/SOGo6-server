@@ -14,14 +14,16 @@ if TYPE_CHECKING:
 
 
 class DavResource(ABC):
-    """Resource of the DAV tree of the authenticated user, with its properties and its members.
+    """Resource of the DAV tree of an account, with its properties and its members.
 
     ``path`` is the absolute path of the resource, not percent-encoded, ending with "/" for a collection.
+    The account is the authenticated user and the alias of its login, None without alias (see DavPath).
     """
 
-    def __init__(self, path: str, user: User) -> None:
+    def __init__(self, path: str, user: User, account_alias: str | None) -> None:
         self.path: str = path
         self._user: User = user
+        self._account_alias: str | None = account_alias
 
     @final
     def properties(self) -> dict[str, DavPropValue]:
@@ -29,7 +31,9 @@ class DavResource(ABC):
         its own ones."""
         properties: dict[str, DavPropValue] = {
             DAV_RESOURCETYPE: DavResourceType(types=self._resource_types()),
-            DAV_CURRENT_USER_PRINCIPAL: DavHrefs(hrefs=(DavPath.principal(self._user),)),
+            DAV_CURRENT_USER_PRINCIPAL: DavHrefs(
+                hrefs=(DavPath.principal(user=self._user, account_alias=self._account_alias),)
+            ),
         }
         properties.update(self._own_properties())
         return properties

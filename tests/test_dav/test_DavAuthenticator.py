@@ -214,6 +214,7 @@ def test_context_with_filled_user(env):
     assert context.user.password == "secret"
     assert context.user_domain_settings is USER_DOMAIN
     assert context.cache is CACHE
+    assert context.account_alias is None
     assert env.interface.onboarded == [("example.org", CACHE)]
     assert env.interface_class.call_args.kwargs["default_domain"] is USER_DOMAIN
 
@@ -259,3 +260,38 @@ def test_account_domain_with_other_case_not_reloaded(env):
         _authenticator().authenticate(_request(), CACHE)
     assert settings.call_count == 1
     assert env.interface_class.call_count == 1
+
+
+# ========== Tests for the account alias ==========
+
+
+def test_account_alias(env):
+    context = _authenticator().authenticate(_request(credentials="alice@Example.org!Work:secret"), CACHE)
+    assert env.interface.checked == [("alice@example.org", "secret")]
+    assert context.account_alias == "Work"
+
+
+def test_account_alias_failure_counted_for_login(env):
+    env.interface.result = False
+    with pytest.raises(RequestException):
+        _authenticator().authenticate(_request(credentials="alice@example.org!work:wrong"), CACHE)
+    assert env.limiter.checked == [("alice@example.org", 5)]
+    assert env.limiter.failures == [("alice@example.org", "wrong", 5)]
+
+
+def test_account_alias_split_on_first_separator(env):
+    with patch(
+        "app.dav.DavAuthenticator.init_get_system_and_default_domain_settings",
+        return_value=({SystemSettings.subparent: {"SOGO_S_DOMAINLESS_LOGIN": True}}, {}),
+    ):
+        context = _authenticator().authenticate(_request(credentials="alice!x@example.org:secret"), CACHE)
+    assert env.interface.checked == [("alice", "secret")]
+    assert context.account_alias == "x@example.org"
+
+
+@pytest.mark.parametrize("login", ["alice@example.org!", "!work", "alice@example.org!wo/rk", "alice@example.org!wo rk"])
+def test_malformed_account_alias_refused(env, login):
+    with pytest.raises(RequestException) as ex:
+        _authenticator().authenticate(_request(credentials=login + ":secret"), CACHE)
+    assert ex.value.error is err.ERROR_LOGIN_FAILED
+    assert not env.interface.checked

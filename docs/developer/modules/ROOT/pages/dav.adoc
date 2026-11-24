@@ -124,29 +124,45 @@ The path given to the handlers is relative to `/dav/` and percent-decoded: `/dav
 
 == Resources
 
-A path below `/dav/` targets a resource of the DAV tree of the authenticated user. The tree only holds the resources of that user: the other accounts are neither listed nor reachable.
+A path below `/dav/` targets a resource of the DAV tree of the account of the request. The tree only holds the resources of that account: the other accounts are neither listed nor reachable.
 
 ----
-  /dav/                     DavRootResource             member: the principal of the user
-  /dav/<login>/             DavPrincipalResource        members: the two homes
-  /dav/<login>/Calendar/    DavCalendarHomeResource     home of the calendars
-  /dav/<login>/Contacts/    DavAddressBookHomeResource  home of the address books
+  /dav/                       DavRootResource             member: the principal of the account
+  /dav/<account>/             DavPrincipalResource        members: the two homes
+  /dav/<account>/Calendar/    DavCalendarHomeResource     home of the calendars
+  /dav/<account>/Contacts/    DavAddressBookHomeResource  home of the address books
 ----
 
-`<login>` is the login of the Basic authentication. The homes have no members: the calendars and the address books are not served over DAV.
+`<account>` is the login of the Basic authentication, followed by `!<alias>` for an account signed in with an alias (see <<account-alias>>). The homes have no members: the calendars and the address books are not served over DAV.
 
-* *DavPath* - Builds the paths of the tree: the only class knowing the layout of the URLs.
-* *DavResource* - Abstract resource: its path, its properties by name (`properties()`), and its members (`children()`), listed by a PROPFIND with `Depth: 1`. `properties()` gives the properties of every resource, `resourcetype` and `current-user-principal`, followed by the own properties of the resource.
-* *DavPrincipalResource* - The principal of the user (RFC 3744), which is also the collection holding the two homes. Its properties are converted from the user by `UserSerializerDavProps`.
+* *DavPath* - Builds the paths of the tree of an account, from its user and the alias of its login, and normalizes the paths of the requests to compare them: the only class knowing the layout of the URLs. A normalized path ends with `/` and has no empty segment. Its account is read as the Basic login: the domain is case-insensitive, the local part is not, and the alias is kept as is.
+* *DavResource* - Abstract resource of an account, built with the user and the alias of its login: its path, its properties by name (`properties()`), and its members (`children()`), listed by a PROPFIND with `Depth: 1`. `properties()` gives the properties of every resource, `resourcetype` and `current-user-principal`, followed by the own properties of the resource.
+* *DavPrincipalResource* - The principal of the account (RFC 3744), which is also the collection holding the two homes. Its properties are the paths of the account, `principal-URL` and the homes of its calendars and address books (`calendar-home-set`, `addressbook-home-set`), followed by the properties converted from the user by `UserSerializerDavProps`.
 * *DavCalendarHomeResource*, *DavAddressBookHomeResource* - The homes; their only own property is their name (`displayname`).
-* *DavResourceResolver* - Finds the resource of a path, by comparing the path to the paths of `DavPath`. The login of the path is compared as the Basic login: the domain is case-insensitive, the local part is not. Any other path, a path of another user included, is answered 404 (`ERROR_DAV_RESOURCE_NOT_FOUND`), which does not disclose whether the account exists.
+* *DavResourceResolver* - Finds the resource of a path, by comparing the path normalized by `DavPath` to the paths of the account, and builds it with the user and the alias of the `DavContext`: the only class of the tree reading the context. Any other path, a path of another user or of another alias included, is answered 404 (`ERROR_DAV_RESOURCE_NOT_FOUND`), which does not disclose whether the account exists.
+
+[[account-alias]]
+=== Account alias: one address book per account (macOS Contacts)
+
+macOS Contacts syncs a single address book per CardDAV account and picks it through its own discovery: it ignores the principal URL of a configuration profile, follows `current-user-principal`, and tells its accounts apart by login.
+To sync several address books, the user adds one account per address book, with the login `<login>!<alias>`, `<alias>` being the key of the address book.
+
+The authentication, the paths and the resolution handle the alias as a part of the account, without reading it as an address book:
+
+* *Authentication* - `DavAuthenticator` splits the alias off before any other check: the password, the blocking counters and the onboarding are the ones of the login. The alias is kept in `DavContext.account_alias`. An empty login or alias, or an alias with a character refused in a login, is refused like a wrong password. `!` is always the separator: a login can never contain it.
+* *Paths* - the principal of the account is `/dav/<login>!<alias>/`, and every path of its tree derives from it: `current-user-principal`, `principal-URL` and the homes keep the alias, so that macOS stays on the tree of that account.
+* *Resolution* - an account with an alias only reaches the tree of that alias, an account without alias only the canonical tree. The alias of the path is compared as is, case included.
+
+The alias is not checked at sign-in: an alias that is not the key of an address book of the user gives an account without address book, which discloses nothing.
+The calendars of the account are not restricted: Calendar on macOS syncs several calendars per account.
 
 === Properties of a business model
 
 A resource built from a business model never builds its properties itself: a serializer of `app/dav/serializer`, named `<Model>SerializerDavProps`, converts the model into its properties, by name in Clark notation.
-These serializers belong to the DAV server and not to `app/manager/dav/protocol`: they depend on the business models, on `DavPath` and on the choices of the server (properties exposed, paths), which a DAV client does not share.
+These serializers belong to the DAV server and not to `app/manager/dav/protocol`: they depend on the business models and on the choices of the server (properties exposed), which a DAV client does not share.
+The properties depending on the account and not on the model only, as the paths, are added by the resource.
 
-* *UserSerializerDavProps* - Converts the user into the properties of its principal: its name (`displayname`), its `principal-URL`, the homes of its calendars and address books (`calendar-home-set`, `addressbook-home-set`) and its mail address followed by its aliases (`calendar-user-address-set`, as `mailto:` URIs), so that an invitation sent to an alias is matched to the principal. `alternate-URI-set` and `group-membership`, required by RFC 3744 section 4, are empty.
+* *UserSerializerDavProps* - Converts the user into the properties of its principal: its name (`displayname`) and its mail address followed by its aliases (`calendar-user-address-set`, as `mailto:` URIs), so that an invitation sent to an alias is matched to the principal. `alternate-URI-set` and `group-membership`, required by RFC 3744 section 4, are empty.
 
 == XML protocol
 
@@ -230,6 +246,8 @@ The login is inserted in the LDAP filters and DNs, and in the SQL queries of the
 * a character of `DAV_LOGIN_FORBIDDEN_CHARS`: the characters of the LDAP filters and DNs `* ( ) \ , = ; < > "`, as a wildcard would test the password against another account, and `/`, as the login is a segment of the path of the principal of the user, `/dav/<login>/` (see <<Resources>>);
 * more than one `@`.
 
+`!` never reaches these checks: it separates the login from the alias of the account (see <<account-alias>>), the login is the part before it.
+
 `+` is accepted on purpose, for subaddresses (`alice+tag@example.org`), although it separates the values of an LDAP DN: such logins only work with SQL user sources and with LDAP sources that search the DN of the user (`US_LDAP_BIND_FIELD`). When the DN is built from the login, the bind fails.
 The domain part of the login is lowercased: domain names ignore case (RFC 4343), the domain settings are looked up with the exact name. The local part is kept as is.
 
@@ -247,6 +265,7 @@ These are the authentication settings of the login domain, read before the block
 * *Blocked login* - answered 429 without querying the user source, even with the right password: the brute force cannot go on during the block. A 401 would make the client ask the password again, in vain.
 * *Login variants* - the counters are shared by the variants of a login that the user sources take as the same (case, accents, Unicode compatibility forms): the default MariaDB collations ignore accents, `álice@example.org` finds the account `alice@example.org`.
 * *What counts* - the refusals of the user source, and the password refused by the domain of the account. Malformed credentials and 403 answers do not count.
+* *Account alias* - the counters are the ones of the login, without its alias: changing the alias at each try does not escape the block.
 
 `DavLoginLimiter` keeps, per login, a Redis hash whose fields are keyed fingerprints of the wrong passwords (HMAC-SHA256, key derived from `SOGO_AES_ENC_KEY`): a dump of the cache gives away neither the wrong passwords, often typos of the right one, nor a way to brute-force them.
 Each wrong password adds its field with one `HSET`: requests sent in parallel never overwrite each other's fingerprints, which a read then write of a list would do. Each one also restarts the time to live of the hash.
@@ -260,7 +279,7 @@ Anyone knowing a login can block the DAV access of that account. The block only 
 
 === Request context
 
-Handlers receive a `DavContext`: process and system settings, settings of the user domain, the user filled with its directory info and profile, and the cache client of the request.
+Handlers receive a `DavContext`: process and system settings, settings of the user domain, the user filled with its directory info and profile, the cache client of the request, and the alias of the login, if any.
 The user keeps the password in memory, for the mail servers.
 A handler that needs an interface builds it from the context, with the same arguments as the `InterfaceApi*` classes.
 The cache client comes from `sogo_cache()`, called by `DavHandler.handle`. Nobody closes it: CPython frees it once the request no longer references it, and the redis-py destructor then closes its connection. A client shared by `sogo_cache()` stays open.
