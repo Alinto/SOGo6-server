@@ -433,6 +433,46 @@ class TestLogin:
         assert fake_conn.logged_in is True
         assert client.authenticated is True
 
+    def test_login_reads_capabilities_from_login_response(self):
+        fake_conn = FakeIMAPConnection()
+        fake_conn.state = "NONAUTH"
+        client = make_client()
+        client.connection = fake_conn
+
+        with mock.patch.object(client, "namespace"):
+            client.login("user@example.com", "password")
+
+        assert client.capabilities == {"IMAP4rev1", "LIST-EXTENDED", "LIST-STATUS", "ACL"}
+        assert client.supports_move is False
+
+    def test_login_python_3_14_capabilities_workaround_gives_a_set(self):
+        """CAPABILITY missing from response() but present in the login data (python 3.14.7 issue)."""
+        fake_conn = FakeIMAPConnection()
+        fake_conn.state = "NONAUTH"
+        fake_conn.login = lambda u, p: ("OK", [b"[CAPABILITY IMAP4rev1 MOVE ACL] Logged in"])
+        fake_conn.response = lambda name: ("OK", [None])
+        client = make_client()
+        client.connection = fake_conn
+
+        with mock.patch.object(client, "namespace"):
+            client.login("user@example.com", "password")
+
+        assert client.capabilities == {"IMAP4rev1", "MOVE", "ACL"}
+        assert client.supports_move is True
+
+    def test_login_asks_capabilities_when_not_sent_with_login(self):
+        fake_conn = FakeIMAPConnection()
+        fake_conn.state = "NONAUTH"
+        fake_conn.response = lambda name: ("OK", [None])
+        fake_conn.capability = lambda: ("OK", [b"IMAP4rev1 MOVE"])
+        client = make_client()
+        client.connection = fake_conn
+
+        with mock.patch.object(client, "namespace"):
+            client.login("user@example.com", "password")
+
+        assert client.supports_move is True
+
     def test_login_invalid_credentials_raises(self):
         fake_conn = FakeIMAPConnection()
         fake_conn.state = "NONAUTH"
@@ -1366,6 +1406,124 @@ class TestDeleteMailsByUid:
             store_call_args = mock_uid.call_args_list[1][0]
             assert store_call_args[0] == "STORE"
             assert store_call_args[1] == "100,101,102"
+
+
+class TestDeleteMailsByUidMove:
+    """Delete to Trash must use an atomic UID MOVE when the server supports it (RFC 6851).
+
+    COPY + STORE \\Deleted + EXPUNGE is not atomic: on servers sharing one object (and one set
+    of flags) between mailboxes (e.g. Stalwart), \\Deleted also lands on the Trash copy, and a
+    client expunging Trash before the source is expunged makes the deleted mail come back.
+    """
+
+    @staticmethod
+    def _client(capabilities):
+        fake_conn = FakeIMAPConnection()
+        fake_conn.select_response = ("OK", [b"3"])
+        fake_conn.uid_response = ("OK", [b""])
+        fake_conn.expunge_response = ("OK", [b""])
+        client = authenticated_client(fake_conn)
+        client.capabilities = set(capabilities)
+        return client, fake_conn
+
+    def test_move_to_trash_uses_uid_move_when_supported(self):
+        client, fake_conn = self._client({"IMAP4rev1", "MOVE"})
+        with mock.patch.object(fake_conn, "uid", wraps=fake_conn.uid) as mock_uid, \
+             mock.patch.object(fake_conn, "expunge", wraps=fake_conn.expunge) as mock_expunge:
+            client.delete_mails_by_uid("INBOX", ["100", "101"], move_to_trash=True, permanently=True)
+        mock_uid.assert_called_once()
+        assert mock_uid.call_args[0] == ("MOVE", "100,101", '"Trash"')
+        mock_expunge.assert_not_called()
+
+    def test_move_to_trash_falls_back_to_copy_store_expunge(self):
+        client, fake_conn = self._client({"IMAP4rev1"})
+        with mock.patch.object(fake_conn, "uid", wraps=fake_conn.uid) as mock_uid, \
+             mock.patch.object(fake_conn, "expunge", wraps=fake_conn.expunge) as mock_expunge:
+            client.delete_mails_by_uid("INBOX", ["100", "101"], move_to_trash=True, permanently=True)
+        assert [c[0][0] for c in mock_uid.call_args_list] == ["COPY", "STORE"]
+        mock_expunge.assert_called_once()
+
+    def test_move_to_trash_creates_missing_trash_and_retries(self):
+        client, fake_conn = self._client({"IMAP4rev1", "MOVE"})
+        responses = iter([("NO", [b"[TRYCREATE] Mailbox doesn't exist: Trash"]), ("OK", [b""])])
+        with mock.patch.object(fake_conn, "uid", side_effect=lambda *a, **k: next(responses)) as mock_uid:
+            client.delete_mails_by_uid("INBOX", "100", move_to_trash=True, permanently=True)
+        assert [c[0][0] for c in mock_uid.call_args_list] == ["MOVE", "MOVE"]
+        assert '"Trash"' in fake_conn.folders
+
+    def test_move_to_trash_only_keeps_flagged_source_even_with_move(self):
+        """MOVE_TO_TRASH_ONLY keeps the source mail flagged Deleted: no MOVE, no expunge."""
+        client, fake_conn = self._client({"IMAP4rev1", "MOVE"})
+        with mock.patch.object(fake_conn, "uid", wraps=fake_conn.uid) as mock_uid, \
+             mock.patch.object(fake_conn, "expunge", wraps=fake_conn.expunge) as mock_expunge:
+            client.delete_mails_by_uid("INBOX", "100", move_to_trash=True, permanently=False)
+        assert [c[0][0] for c in mock_uid.call_args_list] == ["COPY", "STORE"]
+        mock_expunge.assert_not_called()
+
+    @pytest.mark.parametrize("capabilities", [{"IMAP4rev1", "MOVE"}, {"IMAP4rev1"}])
+    def test_delete_inside_trash_does_not_move_to_itself(self, capabilities):
+        client, fake_conn = self._client(capabilities)
+        with mock.patch.object(fake_conn, "uid", wraps=fake_conn.uid) as mock_uid, \
+             mock.patch.object(fake_conn, "expunge", wraps=fake_conn.expunge) as mock_expunge:
+            client.delete_mails_by_uid("Trash", "100", move_to_trash=True, permanently=True)
+        assert [c[0][0] for c in mock_uid.call_args_list] == ["STORE"]
+        mock_expunge.assert_called_once()
+
+
+# ===========================================================================
+# Tests: move_mail_to_mailbox
+# ===========================================================================
+
+class TestMoveMailToMailbox:
+    @staticmethod
+    def _client(capabilities):
+        fake_conn = FakeIMAPConnection()
+        fake_conn.select_response = ("OK", [b"3"])
+        fake_conn.uid_response = ("OK", [b""])
+        fake_conn.expunge_response = ("OK", [b""])
+        client = authenticated_client(fake_conn)
+        client.capabilities = set(capabilities)
+        return client, fake_conn
+
+    def test_uses_uid_move_when_supported(self):
+        client, fake_conn = self._client({"IMAP4rev1", "MOVE"})
+        with mock.patch.object(fake_conn, "uid", wraps=fake_conn.uid) as mock_uid, \
+             mock.patch.object(fake_conn, "expunge", wraps=fake_conn.expunge) as mock_expunge:
+            client.move_mail_to_mailbox("INBOX", "1:4391", "Archive")
+        mock_uid.assert_called_once()
+        assert mock_uid.call_args[0] == ("MOVE", "1:4391", '"Archive"')
+        mock_expunge.assert_not_called()
+        assert fake_conn.selected_mailbox == '"INBOX"'
+
+    def test_falls_back_to_copy_store_expunge(self):
+        client, fake_conn = self._client({"IMAP4rev1"})
+        with mock.patch.object(fake_conn, "uid", wraps=fake_conn.uid) as mock_uid, \
+             mock.patch.object(fake_conn, "expunge", wraps=fake_conn.expunge) as mock_expunge:
+            client.move_mail_to_mailbox("INBOX", ["100", "101"], "Archive")
+        calls = [c[0] for c in mock_uid.call_args_list]
+        assert calls[0] == ("COPY", "100,101", '"Archive"')
+        assert calls[1][0:2] == ("STORE", "100,101")
+        mock_expunge.assert_called_once()
+
+    def test_move_error_raises(self):
+        client, fake_conn = self._client({"IMAP4rev1", "MOVE"})
+        fake_conn.uid_response = ("NO", [b"Permission denied"])
+        with pytest.raises(RequestException) as exc_info:
+            client.move_mail_to_mailbox("INBOX", "100", "Archive")
+        assert exc_info.value.error == err.ERROR_IMAP_FAILED
+
+    def test_move_to_missing_normal_folder_raises_not_found(self):
+        client, fake_conn = self._client({"IMAP4rev1", "MOVE"})
+        fake_conn.uid_response = ("NO", [b"[TRYCREATE] Mailbox doesn't exist: Archive"])
+        with pytest.raises(RequestException) as exc_info:
+            client.move_mail_to_mailbox("INBOX", "100", "Archive")
+        assert exc_info.value.error == err.ERROR_FOLDER_NAME_NOT_FOUND
+
+    def test_not_authenticated_raises(self):
+        client = make_client()
+        client.connection = None
+        with pytest.raises(BugException):
+            client.move_mail_to_mailbox("INBOX", "100", "Archive")
 
 
 # ===========================================================================

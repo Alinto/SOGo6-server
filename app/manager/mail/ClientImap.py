@@ -623,10 +623,15 @@ class ClientImap(ClientMailServer):
                 # The capabiltiies are nos in the datas [b'[CAPABILITY IMAP4rev1 XXX YYY ...] Logged in']
                 raw = datas[0].decode()
                 if raw.startswith("[CAPABILITY ") and raw.endswith("] Logged in"):
-                    capabilities = raw[12:-11]
-                    self.capabilities = capabilities.split()
+                    self.capabilities = set(raw[12:-11].split())
             else:
                 self.capabilities = set(capabilities.decode().split())
+            if not self.capabilities:
+                # The server did not send its capabilities with the login response: ask for them
+                # (they may differ from the pre-authentication ones, e.g. MOVE, ACL...).
+                success, cap_datas = self._exec_imap4_method(self.connection.capability)
+                if success and cap_datas and cap_datas[0]:
+                    self.capabilities = set(cap_datas[0].decode().split())
 
             #Get namespace
             self.namespace()
@@ -1589,24 +1594,56 @@ class ClientImap(ClientMailServer):
         :raises RequestException: if the copy failed
         :raises BugException: if manager not in a correct state (connected or authenticated)
         """
-        logger_imap.debug("UID COPY '%s' to '%s'", mail_uid, dest_mailbox)
+        self._uid_copy_or_move('COPY', mail_uid, dest_mailbox)
+
+    @property
+    def supports_move(self) -> bool:
+        """True if the server advertises the MOVE extension (RFC 6851)."""
+        return "MOVE" in self.capabilities
+
+    def uid_move(self, mail_uid: str|list|Iterator, dest_mailbox: str) -> None:
+        """
+        Atomically move mails from the selected folder to another folder (UID MOVE, RFC 6851).
+
+        The caller must check :attr:`supports_move` first.
+
+        :param mail_uid: uid (or list of uids) of the mails
+        :type mail_uid: int | str | list | Iterator
+        :param dest_mailbox: folder where to move to
+        :type dest_mailbox: str
+        :raises RequestException: if dest_mailbox is not ascii
+        :raises RequestException: if dest_mailbox does not exist
+        :raises RequestException: if the move failed
+        :raises BugException: if manager not in a correct state (connected or authenticated)
+        """
+        self._uid_copy_or_move('MOVE', mail_uid, dest_mailbox)
+
+    def _uid_copy_or_move(self, command: str, mail_uid: str|list|Iterator, dest_mailbox: str) -> None:
+        """Run UID COPY or UID MOVE from the selected folder to dest_mailbox.
+
+        A missing special destination folder (Trash, Junk...) is created then the command retried.
+
+        :param command: 'COPY' or 'MOVE'
+        :type command: str
+        """
+        logger_imap.debug("UID %s '%s' to '%s'", command, mail_uid, dest_mailbox)
         if self.connection is not None and self.authenticated:
             if not dest_mailbox.isascii():
                 raise RequestException(f"Mailbox name is not ascii: {dest_mailbox}", err.ERROR_IMAP_NOT_ASCII)
             if isinstance(mail_uid, (Iterator, list)):
                 mail_uid = ','.join(mail_uid)
             dest_mailbox_quoted = quote(dest_mailbox)
-            success, datas = self._exec_imap4_method(self.connection.uid, 'COPY', mail_uid, dest_mailbox_quoted)
+            success, datas = self._exec_imap4_method(self.connection.uid, command, mail_uid, dest_mailbox_quoted)
             # Beware, if the uid does not exist, IMAP4 still return OK with data to None. Not a big problem, though.
             if not success and _is_mailbox_nonexistent_error(datas) and self._create_special_folder_if_missing(dest_mailbox_quoted):
-                # Retry the copy after folder creation
-                success, datas = self._exec_imap4_method(self.connection.uid, 'COPY', mail_uid, dest_mailbox_quoted)
+                # Retry after folder creation
+                success, datas = self._exec_imap4_method(self.connection.uid, command, mail_uid, dest_mailbox_quoted)
             if not success:
                 if _is_mailbox_nonexistent_error(datas):
                     raise RequestException(f"Folder '{dest_mailbox}' does not exist", err.ERROR_FOLDER_NAME_NOT_FOUND)
                 else:
-                    logger_imap.error("UID COPY failed for UID %s to %s", mail_uid, dest_mailbox)
-                    raise RequestException(f"UID COPY failed for UID {mail_uid} to {dest_mailbox}", err.ERROR_IMAP_FAILED)
+                    logger_imap.error("UID %s failed for UID %s to %s", command, mail_uid, dest_mailbox)
+                    raise RequestException(f"UID {command} failed for UID {mail_uid} to {dest_mailbox}", err.ERROR_IMAP_FAILED)
         else:
             raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
 
@@ -2323,6 +2360,53 @@ class ClientImap(ClientMailServer):
         else:
             raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
 
+    def move_mail_to_mailbox(self, folder_path: str, mail_uid: str|list[str], dest_folder_path: str, create_dest: bool = False) -> None:
+        """Move a mail (or list of mails) from one mailbox to another using UID.
+
+        Uses a single atomic UID MOVE when the server supports it (RFC 6851). Otherwise falls
+        back to UID COPY + STORE \\Deleted + EXPUNGE of the source folder.
+
+        The fallback is not atomic and, on servers storing a copied mail as one object shared by
+        several mailboxes with a single set of flags (e.g. Stalwart), \\Deleted also lands on the
+        copy: if another client expunges the destination before the source is expunged, the mail
+        is lost from the destination and stays in the source.
+
+        :param folder_path: The source folder_path.
+        :type folder_path: str
+        :param mail_uid: The UID or list of UIDs of the mail(s) to move.
+        :type mail_uid: str|list[str]
+        :param dest_folder_path: The destination folder_path.
+        :type dest_folder_path: str
+        :param create_dest: True if the folder needs to be created (or ensure that it's already exist)
+        :type create_dest: bool
+        :raises RequestException: If the operation fails.
+        """
+        logger_imap.info("Moving mail UID '%s' from '%s' to '%s'", mail_uid, folder_path, dest_folder_path)
+        if self.connection is not None and self.authenticated:
+            if not folder_path.isascii() or not dest_folder_path.isascii():
+                raise RequestException(f"Mailbox name is not ascii: {folder_path} and/or {dest_folder_path}", err.ERROR_IMAP_NOT_ASCII)
+            folder_path = quote(self._fix_folder_path(folder_path))
+            dest_folder_path = quote(dest_folder_path)
+            if create_dest:
+                self._imap_create_folder(folder_path=dest_folder_path, no_error_if_exist=True)
+            self.select_mailbox(folder_path)
+            self._uid_move_selected(folder_path, mail_uid, dest_folder_path)
+        else:
+            raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
+
+    def _uid_move_selected(self, folder_path: str, mail_uid: str|list|Iterator, dest_folder_path: str) -> None:
+        """Move mails out of the already selected folder_path: UID MOVE if supported,
+        UID COPY + STORE \\Deleted + EXPUNGE otherwise."""
+        if self.supports_move:
+            self.uid_move(mail_uid, dest_folder_path)
+            return
+        if isinstance(mail_uid, Iterator):
+            # Consumed by both COPY and STORE
+            mail_uid = list(mail_uid)
+        self.uid_copy(mail_uid, dest_folder_path)
+        self.uid_store_flags(mail_uid, ['\\Deleted'], operation='+FLAGS')
+        self.expunge_folder(folder_path, do_children=False)
+
     def add_flags_to_mail(self, folder_path: str, mail_uid: str|list[str], flags: list[str]) -> None:
         """Add flags to a mail (or list of mails) using UID.
         Wrapper selecting folder then using uid_store_flags primitive.
@@ -2409,10 +2493,15 @@ class ClientImap(ClientMailServer):
     def delete_mails_by_uid(self, folder_path: str, mail_uid: str|list[str], move_to_trash: bool = True, permanently: bool = True) -> None:
         """Delete a specific mail by UID according to the requested behaviour.
 
-        * ``move_to_trash=True,  permanently=True``  – copy to Trash, flag Deleted, expunge (default).
+        * ``move_to_trash=True,  permanently=True``  – move to Trash (default): a single atomic
+          UID MOVE if the server supports it, otherwise copy to Trash, flag Deleted, expunge.
         * ``move_to_trash=False, permanently=False`` – flag Deleted only.
         * ``move_to_trash=False, permanently=True``  – flag Deleted then expunge, no Trash copy.
-        * ``move_to_trash=True,  permanently=False`` – copy to Trash and flag Deleted, no expunge.
+        * ``move_to_trash=True,  permanently=False`` – copy to Trash and flag Deleted, no expunge
+          (the source mail is kept, flagged Deleted, on purpose: no MOVE here).
+
+        When the folder is the Trash folder itself, ``move_to_trash`` is ignored: the mail is
+        not copied/moved onto itself.
 
         :param folder_path: The folder containing the mail.
         :type folder_path: str
@@ -2432,10 +2521,18 @@ class ClientImap(ClientMailServer):
             if not folder_path.isascii():
                 raise RequestException(f"Mailbox name is not ascii: {folder_path}", err.ERROR_IMAP_NOT_ASCII)
             folder_path = quote(self._fix_folder_path(folder_path))
+            if move_to_trash and self._get_special_folder_type(folder_path) == cs.MAIL_FOLDER_TRASH:
+                move_to_trash = False
             self.select_mailbox(folder_path)
+            trash_folder_path = self.folders_map_type_to_name[cs.MAIL_FOLDER_TRASH]
+            if move_to_trash and permanently:
+                self._uid_move_selected(folder_path, mail_uid, trash_folder_path)
+                return
+            if isinstance(mail_uid, Iterator):
+                mail_uid = list(mail_uid)
             # Optionally copy to Trash before flagging
             if move_to_trash:
-                self.uid_copy(mail_uid, self.folders_map_type_to_name[cs.MAIL_FOLDER_TRASH])
+                self.uid_copy(mail_uid, trash_folder_path)
             # Flag mail as deleted
             self.uid_store_flags(mail_uid, ['\\Deleted'], operation='+FLAGS')
             # Optionally expunge immediately

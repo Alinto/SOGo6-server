@@ -45,6 +45,7 @@ class FakeClientMailServer:
         self.create_folder_calls = []
         self.delete_folder_calls = []
         self.copy_mail_to_mailbox_calls = []
+        self.move_mail_to_mailbox_calls = []
         self.add_flags_calls = []
         self.remove_flags_calls = []
         self.delete_mails_by_uid_calls = []
@@ -134,6 +135,9 @@ class FakeClientMailServer:
 
     def copy_mail_to_mailbox(self, src_folder, mail_uid, dest_folder, create_dest=False):
         self.copy_mail_to_mailbox_calls.append((src_folder, mail_uid, dest_folder))
+
+    def move_mail_to_mailbox(self, src_folder, mail_uid, dest_folder, create_dest=False):
+        self.move_mail_to_mailbox_calls.append((src_folder, mail_uid, dest_folder))
 
     def add_flags_to_mail(self, folder_name, mail_uid, flags):
         self.add_flags_calls.append((folder_name, mail_uid, flags))
@@ -853,9 +857,9 @@ def test_perform_mail_action_move_success(monkeypatch):
     assert result["mail_uid"] == "42"
     assert result["from_folder"] == "INBOX"
     assert result["to_folder"] == "Archive"
-    assert ("INBOX", "42", "Archive") in fake_client.copy_mail_to_mailbox_calls
-    assert ("INBOX", "42", ['\\Deleted']) in fake_client.add_flags_calls
-    assert ("INBOX", False) in fake_client.expunge_folder_calls
+    assert ("INBOX", "42", "Archive") in fake_client.move_mail_to_mailbox_calls
+    assert fake_client.add_flags_calls == []
+    assert fake_client.expunge_folder_calls == []
 
 
 def test_perform_mail_action_move_missing_destination(monkeypatch):
@@ -879,9 +883,9 @@ def test_perform_mail_action_spam_success(monkeypatch):
     assert result["action"] == "spam"
     assert result["mail_uid"] == "42"
     assert result["moved_to"] == "Junk"
-    assert ("INBOX", "42", "Junk") in fake_client.copy_mail_to_mailbox_calls
-    assert ("INBOX", "42", ['\\Deleted']) in fake_client.add_flags_calls
-    assert ("INBOX", False) in fake_client.expunge_folder_calls
+    assert ("INBOX", "42", "Junk") in fake_client.move_mail_to_mailbox_calls
+    assert fake_client.add_flags_calls == []
+    assert fake_client.expunge_folder_calls == []
 
 
 def test_perform_mail_action_ham_success(monkeypatch):
@@ -895,9 +899,9 @@ def test_perform_mail_action_ham_success(monkeypatch):
     assert result["action"] == "ham"
     assert result["mail_uid"] == "42"
     assert result["moved_to"] == "INBOX"
-    assert ("Junk", "42", "INBOX") in fake_client.copy_mail_to_mailbox_calls
-    assert ("Junk", "42", ['\\Deleted']) in fake_client.add_flags_calls
-    assert ("Junk", False) in fake_client.expunge_folder_calls
+    assert ("Junk", "42", "INBOX") in fake_client.move_mail_to_mailbox_calls
+    assert fake_client.add_flags_calls == []
+    assert fake_client.expunge_folder_calls == []
 
 
 @pytest.mark.parametrize("folder_name", ["INBOX", "Sent", "Trash", "Junk/Sub", "Archive"])
@@ -910,7 +914,7 @@ def test_perform_mail_action_ham_refused_on_non_junk_folder(monkeypatch, folder_
         module.perform_mail_action(ACCOUNT_ID, folder_name, "42", {"action": "ham"})
 
     assert exc_info.value.error == err.ERROR_INVALID_ACTION
-    assert fake_client.copy_mail_to_mailbox_calls == []
+    assert fake_client.move_mail_to_mailbox_calls == []
     assert fake_client.add_flags_calls == []
     assert fake_client.expunge_folder_calls == []
 
@@ -925,7 +929,21 @@ def test_perform_mail_action_ham_uses_configured_junk_name(monkeypatch):
 
     result = module.perform_mail_action(ACCOUNT_ID, "Spam", "42", {"action": "ham"})
     assert result["moved_to"] == "INBOX"
-    assert ("Spam", "42", "INBOX") in fake_client.copy_mail_to_mailbox_calls
+    assert ("Spam", "42", "INBOX") in fake_client.move_mail_to_mailbox_calls
+
+
+@pytest.mark.parametrize("action", ["illegal", "phishing"])
+def test_perform_mail_action_report_moves_to_junk(monkeypatch, action):
+    """Test illegal/phishing reports move the mail to Junk in a single move (no Trash copy)."""
+    module, fake_client = _make_module(monkeypatch)
+    module.domain_mail_folder_name = {}
+
+    result = module.perform_mail_action(ACCOUNT_ID, "INBOX", "42", {"action": action})
+
+    assert result["moved_to"] == "Junk"
+    assert fake_client.move_mail_to_mailbox_calls == [("INBOX", "42", "Junk")]
+    assert fake_client.copy_mail_to_mailbox_calls == []
+    assert fake_client.delete_mails_by_uid_calls == []
 
 
 def test_perform_mail_action_copy_success(monkeypatch):
@@ -1044,9 +1062,9 @@ def test_perform_mail_batch_action_move_success(monkeypatch):
     assert result["mail_uid"] == ["42", "43"]
     assert result["from_folder"] == "INBOX"
     assert result["to_folder"] == "Archive"
-    assert ("INBOX", ["42", "43"], "Archive") in fake_client.copy_mail_to_mailbox_calls
-    assert ("INBOX", ["42", "43"], ['\\Deleted']) in fake_client.add_flags_calls
-    assert ("INBOX", False) in fake_client.expunge_folder_calls
+    assert ("INBOX", ["42", "43"], "Archive") in fake_client.move_mail_to_mailbox_calls
+    assert fake_client.add_flags_calls == []
+    assert fake_client.expunge_folder_calls == []
 
 
 def test_perform_mail_batch_action_move_missing_destination(monkeypatch):
@@ -1070,9 +1088,9 @@ def test_perform_mail_batch_action_spam_success(monkeypatch):
     assert result["action"] == "spam"
     assert result["mail_uid"] == ["42", "43"]
     assert result["moved_to"] == "Junk"
-    assert ("INBOX", ["42", "43"], "Junk") in fake_client.copy_mail_to_mailbox_calls
-    assert ("INBOX", ["42", "43"], ['\\Deleted']) in fake_client.add_flags_calls
-    assert ("INBOX", False) in fake_client.expunge_folder_calls
+    assert ("INBOX", ["42", "43"], "Junk") in fake_client.move_mail_to_mailbox_calls
+    assert fake_client.add_flags_calls == []
+    assert fake_client.expunge_folder_calls == []
 
 
 def test_perform_mail_batch_action_ham_success(monkeypatch):
@@ -1086,9 +1104,9 @@ def test_perform_mail_batch_action_ham_success(monkeypatch):
     assert result["action"] == "ham"
     assert result["mail_uid"] == ["42", "43"]
     assert result["moved_to"] == "INBOX"
-    assert ("Junk", ["42", "43"], "INBOX") in fake_client.copy_mail_to_mailbox_calls
-    assert ("Junk", ["42", "43"], ['\\Deleted']) in fake_client.add_flags_calls
-    assert ("Junk", False) in fake_client.expunge_folder_calls
+    assert ("Junk", ["42", "43"], "INBOX") in fake_client.move_mail_to_mailbox_calls
+    assert fake_client.add_flags_calls == []
+    assert fake_client.expunge_folder_calls == []
 
 
 def test_perform_mail_batch_action_copy_success(monkeypatch):
@@ -1141,28 +1159,28 @@ def test_perform_folder_batch_action_tag_uses_uid_range(monkeypatch):
 
 
 def test_perform_folder_batch_action_move_uses_same_range_for_every_command(monkeypatch):
-    """Test moving a whole folder: COPY and STORE \\Deleted share the same frozen UID range."""
+    """Test moving a whole folder: the move uses the frozen UID range."""
     module, fake_client = _make_module(monkeypatch)
 
     result = module.perform_folder_batch_action(ACCOUNT_ID, "INBOX", {"action": "move", "data": "Archive"})
 
     assert result["to_folder"] == "Archive"
-    assert ("INBOX", "1:4391", "Archive") in fake_client.copy_mail_to_mailbox_calls
-    assert ("INBOX", "1:4391", ['\\Deleted']) in fake_client.add_flags_calls
-    assert ("INBOX", False) in fake_client.expunge_folder_calls
+    assert ("INBOX", "1:4391", "Archive") in fake_client.move_mail_to_mailbox_calls
+    assert fake_client.add_flags_calls == []
+    assert fake_client.expunge_folder_calls == []
 
 
 def test_perform_folder_batch_action_ham_on_junk_folder(monkeypatch):
-    """Test ham on the whole Junk folder: mails moved to INBOX and expunged from Junk."""
+    """Test ham on the whole Junk folder: mails moved to INBOX."""
     module, fake_client = _make_module(monkeypatch)
     module.domain_mail_folder_name = {"JUNK": "Spam", "INBOX": "INBOX"}
 
     result = module.perform_folder_batch_action(ACCOUNT_ID, "Spam", {"action": "ham"})
 
     assert result["moved_to"] == "INBOX"
-    assert fake_client.copy_mail_to_mailbox_calls == [("Spam", "1:4391", "INBOX")]
-    assert ("Spam", "1:4391", ['\\Deleted']) in fake_client.add_flags_calls
-    assert ("Spam", False) in fake_client.expunge_folder_calls
+    assert fake_client.move_mail_to_mailbox_calls == [("Spam", "1:4391", "INBOX")]
+    assert fake_client.add_flags_calls == []
+    assert fake_client.expunge_folder_calls == []
 
 
 def test_perform_folder_batch_action_ham_refused_on_non_junk_folder(monkeypatch):
@@ -1174,7 +1192,7 @@ def test_perform_folder_batch_action_ham_refused_on_non_junk_folder(monkeypatch)
         module.perform_folder_batch_action(ACCOUNT_ID, "Spamish", {"action": "ham"})
 
     assert exc_info.value.error == err.ERROR_INVALID_ACTION
-    assert fake_client.copy_mail_to_mailbox_calls == []
+    assert fake_client.move_mail_to_mailbox_calls == []
     assert fake_client.add_flags_calls == []
     assert fake_client.expunge_folder_calls == []
 
@@ -1188,7 +1206,7 @@ def test_perform_mailbox_batch_action_ham_only_processes_junk_folder(monkeypatch
 
     assert list(result["results"]) == ["Junk"]
     assert result["errors"] == {"Sent": err.ERROR_INVALID_ACTION.c}
-    assert fake_client.copy_mail_to_mailbox_calls == [("Junk", ["42"], "INBOX")]
+    assert fake_client.move_mail_to_mailbox_calls == [("Junk", ["42"], "INBOX")]
 
 
 def test_perform_folder_batch_action_empty_folder(monkeypatch):
