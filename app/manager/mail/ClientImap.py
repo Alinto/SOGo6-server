@@ -20,6 +20,11 @@ from app.utils import errors as err
 from app.utils import constants as cs
 from app.utils.strings import quote, unquote, imap_join_folders, escape_imap_string
 
+# System flags never returned by get_all_tags (lowercase: IMAP flags are case-insensitive)
+_EXCLUDED_SYSTEM_TAGS: frozenset[str] = frozenset(
+    flag.lower() for flag in ('\\Deleted', '\\Draft', '\\Flagged', '\\Seen', '\\Answered')
+)
+
 # Maximum debug output from imaplib
 if logger_imap.level < WARNING:
     imaplib.Debug = 4  # type: ignore[attr-defined]
@@ -881,6 +886,9 @@ class ClientImap(ClientMailServer):
         untagged FLAGS response, without fetching any message. The cost is therefore
         proportional to the number of folders, not to the number of messages.
 
+        The system flags \\Deleted, \\Draft, \\Flagged, \\Seen and \\Answered are excluded
+        (case-insensitive, as IMAP flags are). Returned tags are raw IMAP values (not decoded).
+
         :return: Set of tag names.
         :rtype: set[str]
         :raises RequestException: If not connected to the server.
@@ -899,7 +907,10 @@ class ClientImap(ClientMailServer):
                 for raw_flags in flags_data:
                     if not raw_flags:
                         continue
-                    tags.update(raw_flags.decode().strip('()').split())
+                    tags.update(
+                        flag for flag in raw_flags.decode().strip('()').split()
+                        if flag.lower() not in _EXCLUDED_SYSTEM_TAGS
+                    )
             return tags
         else:
             raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")

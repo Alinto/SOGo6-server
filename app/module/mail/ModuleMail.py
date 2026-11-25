@@ -168,6 +168,8 @@ class ModuleMail:
     def get_all_mail_tags(self, account_id:str) -> list[str]:
         """Retrieve the sorted list of all distinct tags used across every mail of every folder.
 
+        Tags encoded with :func:`encode_imap_tag` are decoded back to their original value.
+
         :param account_id: The account identifier ("0" for main, hash for external)
         :type account_id: str
         :return: Sorted list of tag names.
@@ -176,7 +178,7 @@ class ModuleMail:
         """
         client = self._open_client_for(account_id)
 
-        return sorted(client.get_all_tags())
+        return sorted({decode_imap_tag(tag) for tag in client.get_all_tags()})
 
     def get_one_folder(self, account_id:str, folder_path: str) -> dict[str, Any]:
         """Retrieve details of a specific mail folder.

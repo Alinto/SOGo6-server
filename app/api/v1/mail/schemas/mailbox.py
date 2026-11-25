@@ -483,12 +483,23 @@ class MailboxListResponseSchema(ApiBaseResponse):
         }
 
 
+class MailboxTagSchema(Schema):
+    """
+    Schema for a single mail tag of the mailbox
+    """
+    name = fields.String(required=True)
+    color = fields.String(required=True, allow_none=True, metadata={"description": "Tag color, null for a tag only found on the IMAP server"})
+    is_default = fields.Boolean(required=True)
+
+
 class MailboxTagsResponseSchema(ApiBaseResponse):
     """
-    Schema for response when listing all mail tags of the mailbox
-    The 'data' field contains a sorted list of tag names
+    Schema for response when listing all mail tags of the mailbox.
+
+    The 'data' field merges the mail categories from the user preferences
+    (USER_MAIL_CATEGORY_SETTINGS.SOGO_U_MAIL_CATEGORIES) with the tags found on the IMAP server.
     """
-    data = fields.List(fields.String(), required=False, allow_none=True)
+    data = fields.List(fields.Nested(MailboxTagSchema), required=False, allow_none=True)
 
     @classmethod
     def example(cls) -> dict:
@@ -501,9 +512,9 @@ class MailboxTagsResponseSchema(ApiBaseResponse):
             "error_code": 0,
             "error_msg": "",
             "data": [
-                "Facture",
-                "Projet-X",
-                "Urgent"
+                {"name": "Facture", "color": "#22c55e", "is_default": False},
+                {"name": "Urgent", "color": "#ef4444", "is_default": True},
+                {"name": "Projet-X", "color": None, "is_default": False}
             ]
         }
 
