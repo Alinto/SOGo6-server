@@ -14,7 +14,7 @@ This is the most important setting.
 
 * **SOGO_D_AUTH_TYPE**: a string, one of:
 ** `plain`: Means the User login with one username/mail/uid and a password. You must set a User Source that can macth the credentials.
-** `openid`: Not Implemented yet
+** `openid`: The User logs in on an OpenID Connect server (Keycloak, ...). See <<_openid_sso>>.
 ** `cas`: Not Implemented yet
 ** `saml2`: Not Implemented yet
 
@@ -73,9 +73,65 @@ You can set rules abour Multi-factor Authentication (MFA) (NOT IMPLEMENTED)
 * **SOGO_D_LOGIN_MFA_FORCE**: aboolean, default to False. Force users to set MFA after login. (Force means := if the user login via SOGo,
 it will have a view to setup this before accessing its mails. If they use Outlook/Thunderbird, nothing happend.)
 
+[#_openid_sso]
 === Openid SSO
 
-NOT IMPLEMENTED
+SOGo is an OpenID Connect client (authorization code flow, with PKCE). The user gives its email to SOGo, logs in on the
+OpenID server, and is sent back to SOGo. The user is then searched in the User Sources with the email given by the OpenID
+server: the User Sources must still be set. The password of the User Sources is never used: a domain using `openid`
+refuses the login with a password.
+
+The access token given by the OpenID server is used as password for the mail servers (XOAUTH2/OAUTHBEARER).
+
+==== Settings
+
+* **SOGO_D_OPENID_CONFIG_URL**: url of the discovery document, like `https://sso.example.com/realms/myrealm/.well-known/openid-configuration`.
+It is kept in memory for one hour: restart SOGo to apply a change of the OpenID server configuration sooner.
+* **SOGO_D_OPENID_CLIENT_NAME** (required): client id. It must be a confidential client, with the standard flow.
+* **SOGO_D_OPENID_CLIENT_SECRET** (required): client secret.
+* **SOGO_D_OPENID_SCOPE**: string, default to `openid profile email`.
+* **SOGO_D_OPENID_EMAIL**: string, default to `email`. Claim with the email of the user, used to find it in the User Sources.
+* **SOGO_D_OPENID_REQUIRE_EMAIL_VERIFIED**: boolean, default to True. The claim `email_verified` must be true.
+Only set it to False if the users cannot change the claim of SOGO_D_OPENID_EMAIL on the OpenID server
+(no self-registration, no account console, no identity brokering...), else a user could set the email of someone else.
+* **SOGO_D_OPENID_FETCH_USER_PROFILE**: boolean, default to True. Read the claims from the userinfo endpoint. False to read them
+from the id_token (AD FS).
+* **SOGO_D_OPENID_ALLOW_REDIRECT** (required): list of urls of the SOGo web interface where the user can be sent back after the login,
+with its session token. The url must have the same origin and start with the path of one of them:
+`https://mail.example.com/en/auth/login/sso` only allows this page, `https://mail.example.com/` allows the whole site.
+List only urls serving the SOGo web interface, with no open redirect.
+* **SOGO_D_OPENID_TOKEN_CHECK_INTERVAL**: integer, default to 0. The access token is checked on the OpenID server on every request (introspection
+endpoint, or userinfo). Once valid, it is not checked again for this number of seconds. 30 to 60 is advised: with 0, each request of
+the web interface makes a request to the OpenID server. A token revoked on the OpenID server is still accepted during this interval.
+* **SOGO_D_OPENID_REFRESH_ENABLE**: boolean, default to True. Refresh the access token before it expires.
+If False, the user must log in again when the access token expires (5 minutes by default on Keycloak).
+* **SOGO_D_OPENID_ENDSESSION_ENABLED**: boolean, default to False. On logout, the tokens are always revoked if the OpenID server has
+a revocation endpoint. If True, the user is also logged out of the OpenID server (end_session_endpoint), and so of all applications
+using it. If False, the session stays open on the OpenID server: on a shared computer, the next login does not ask for a password.
+
+==== OpenID server configuration
+
+* Valid redirect URI: `https://<api>/api/user/v1/auth/callback/openid/<domain>` for each domain, in lower case.
+With SOGO_S_DOMAINLESS_LOGIN, `<domain>` is `none`.
+* Valid post logout redirect URI (if SOGO_D_OPENID_ENDSESSION_ENABLED): `https://<web interface>/<locale>/auth/login`.
+* The mail servers must accept the access tokens given to this client (audience, introspection credentials).
+
+[NOTE]
+====
+* The session in SOGo lasts 24 hours, whatever the length of the session on the OpenID server. It ends sooner if the access token cannot be
+refreshed anymore (session ended on the OpenID server, user disabled...).
+* A user logged in with a password in a domain that now uses `openid` must log in again.
+====
+
+==== Deployment
+
+`GET /api/user/v1/auth/mode` can be called without being logged in. For a domain using `openid`, each call keeps a few hundred bytes in Redis
+for 5 minutes, until the user comes back from the OpenID server:
+
+* Limit the rate of this url per IP on the reverse proxy (nginx `limit_req`, ...).
+* Set `maxmemory` on Redis with the policy `volatile-ttl`: when Redis is full, the keys closest to their expiration (SSO states, token checks)
+are removed before the user sessions. With `noeviction`, nobody can log in anymore; with `allkeys-lru` or `volatile-lru`, users are logged out.
+* Monitor the number of `sso_state:*` keys.
 
 === CAS SSO
 

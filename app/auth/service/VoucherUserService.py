@@ -223,20 +223,11 @@ class VoucherUserService:
             return UserAnonymous()
 
         #Get the sensitive data and try to decrypt it with session_token
-        sensitive_data_encrypted = user_session_data[cs.SESSION_SENSITIVE]
-        try:
-            session_fernet = Fernet(urlsafe_b64encode(session_token.encode("utf-8")))
-            sensitive_data = session_fernet.decrypt(sensitive_data_encrypted)
-        except (ValueError,InvalidToken) as e:
-            raise RequestException("Cannot decrypt usser session with session token given in Voucher") from e
-
-        try:
-            #sensitive data is supposed to be a json. At least check that
-            user_data = js_loads(sensitive_data)
-        except JSONDecodeError as e:
-            raise BugException("sensitive data for user session is not a json") from e
+        user_data = self._decrypt_sensitive_data(user_session_data[cs.SESSION_SENSITIVE], session_token)
 
         user = User.init_from_user_session(user_data)
+        user.session_id = session_id
+        user.session_key = session_token
         # Update the last activity timestamp in both the hash and the sorted set
         new_last_seen = int(time.time())
         logger.debug("Updating last_activity for session %s: %s -> %s", session_id, user_session_data.get(cs.SESSION_LAST_SEEN), new_last_seen)
@@ -266,3 +257,82 @@ class VoucherUserService:
         cache.close()
 
         return user
+
+    @staticmethod
+    def _decrypt_sensitive_data(sensitive_data_encrypted: Any, session_token: str) -> dict:
+        """
+        Decrypt the sensitive part of a user session with the session token given in the voucher
+
+        :param sensitive_data_encrypted: Encrypted sensitive data, as stored in redis
+        :type sensitive_data_encrypted: Any
+        :param session_token: Session token from the voucher
+        :type session_token: str
+        :raises RequestException: If the data cannot be decrypted with this token
+        :raises BugException: If the decrypted data is not a json
+        :return: The sensitive data (see User.get_user_session)
+        :rtype: dict
+        """
+        try:
+            session_fernet = Fernet(urlsafe_b64encode(session_token.encode("utf-8")))
+            sensitive_data = session_fernet.decrypt(sensitive_data_encrypted)
+        except (ValueError,InvalidToken) as e:
+            raise RequestException("Cannot decrypt usser session with session token given in Voucher") from e
+
+        try:
+            #sensitive data is supposed to be a json. At least check that
+            return js_loads(sensitive_data)
+        except JSONDecodeError as e:
+            raise BugException("sensitive data for user session is not a json") from e
+
+    def read_user_session(self, session_id: str, session_key: str) -> dict|None:
+        """
+        Read again the sensitive data of a user session, without touching its activity.
+        Used to see the changes made by a concurrent request of the same session (refreshed access token).
+
+        :param session_id: User.session_id
+        :type session_id: str
+        :param session_key: User.session_key
+        :type session_key: str
+        :raises RequestException: If the data cannot be decrypted with this key
+        :return: The sensitive data (see User.get_user_session), None if the session does not exist anymore
+        :rtype: dict|None
+        """
+        cache = sogo_cache()
+        try:
+            user_session_data = cache.hashget(f"user_session:{session_id}")
+        finally:
+            cache.close()
+        if not user_session_data:
+            return None
+        return self._decrypt_sensitive_data(user_session_data[cs.SESSION_SENSITIVE], session_key)
+
+    def save_user_session(self, user: User) -> bool:
+        """
+        Save again the sensitive data of the user session of this user (e.g. after a refresh of the SSO access token).
+        The voucher is unchanged: it only references the session, and the session keeps its TTL.
+
+        :param user: User read from a voucher (session_id and session_key are set)
+        :type user: User
+        :raises BugException: If the session cannot be encrypted
+        :return: False if the user has no session or the session does not exist anymore
+        :rtype: bool
+        """
+        if not user.session_id or not user.session_key:
+            return False
+        key = f"user_session:{user.session_id}"
+        try:
+            session_fernet = Fernet(urlsafe_b64encode(user.session_key.encode("utf-8")))
+            sensitive_data = session_fernet.encrypt(js_dumps(user.get_user_session()).encode("utf-8"))
+        except (ValueError,InvalidToken) as e:
+            raise BugException("Cannot encrypt user session") from e
+
+        cache = sogo_cache()
+        try:
+            #hset would create again an expired (or revoked) session, without TTL
+            if not cache.hashget(key):
+                logger_auth.info("User session for %s is expired or revoked, cannot save it", user.uid)
+                return False
+            cache.hashset(key, {cs.SESSION_SENSITIVE: sensitive_data}, ttl=0)
+        finally:
+            cache.close()
+        return True

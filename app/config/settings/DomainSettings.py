@@ -44,6 +44,7 @@ class AuthSettings(SogoSchema):
         "SOGO_D_OPENID_ENDSESSION_ENABLED": ("SOGO_D_AUTH_TYPE", "openid"),
         "SOGO_D_OPENID_FETCH_USER_PROFILE": ("SOGO_D_AUTH_TYPE", "openid"),
         "SOGO_D_OPENID_ALLOW_REDIRECT": ("SOGO_D_AUTH_TYPE", "openid"),
+        "SOGO_D_OPENID_REQUIRE_EMAIL_VERIFIED": ("SOGO_D_AUTH_TYPE", "openid"),
 
         "SOGO_D_SAML2_URL": ("SOGO_D_AUTH_TYPE", "saml2"),
 
@@ -82,7 +83,13 @@ class AuthSettings(SogoSchema):
     SOGO_D_OPENID_REFRESH_ENABLE       = fields.Boolean(load_default=True, dump_default=True) # Allowed or not sogo to refresh token if the openid server has the mechanism
     SOGO_D_OPENID_ENDSESSION_ENABLED   = fields.Boolean(load_default=False, dump_default=False) # Allowed or not sogo to logout from the openid server instead of just the webmail
     SOGO_D_OPENID_FETCH_USER_PROFILE   = fields.Boolean(load_default=True, dump_default=True) # sogo will fetch the user profile to get the user's email. If no, directly fetch from the token.
-    SOGO_D_OPENID_ALLOW_REDIRECT       = fields.List(fields.Url()) #List of UI redirect link that are allowed after the obtention of access_token. See openid flow pdf.
+    #List of UI urls allowed as redirection after a SSO login. The redirection must have the same origin (scheme://host[:port])
+    #and its path must start with the path of one of them: https://mail.example.com/en/auth/login/sso only allows this page,
+    #https://mail.example.com/ allows the whole origin. The token is sent to this url, it must only serve the SOGo UI.
+    SOGO_D_OPENID_ALLOW_REDIRECT       = fields.List(fields.Url(schemes={'http','https'}, require_tld=False))
+    #The user is matched on the SOGO_D_OPENID_EMAIL claim: require the claim email_verified to be true.
+    #Only disable it if the users cannot change this claim on the openid server (claim not editable, or not an email like upn).
+    SOGO_D_OPENID_REQUIRE_EMAIL_VERIFIED = fields.Boolean(load_default=True, dump_default=True)
 
     #IF SOGO_D_AUTH_TYPE = 'saml2'
     SOGO_D_SAML2_URL  = fields.Url(schemes={'http','https'}, require_tld=False) #TODO saml2 configuration....
@@ -95,7 +102,7 @@ class AuthSettings(SogoSchema):
     SOGO_D_LOGIN_CHECK_TIME_SPAN   = fields.Integer(load_default=600, dump_default=600,validate=validate.Range(min=5)) #Time span when user can do SOGO_D_LOGIN_CHECK_MAX_ATTEMPT failed login attempt
     SOGO_D_LOGIN_CHECK_BLOCK_TIME  = fields.Integer(load_default=300, dump_default=300,validate=validate.Range(min=5)) #Time span where a user is forbidden to login after too many fail attempt.
 
-    SOGO_D_PWD_RECOVERY = fields.Boolean(load_default=True, dump_default=True) #Enable or not users to set a method for password recovery
+    SOGO_D_PWD_RECOVERY = fields.Boolean(load_default=False, dump_default=False) #Enable or not users to set a method for password recovery
     SOGO_D_PWD_RECOVERY_METHOD = fields.List(fields.String(), validate=validate.ContainsOnly(('secretQuestion', 'secondaryEmail', 'apiCall')))
     SOGO_D_PWD_RECOVERY_FORCE = fields.Boolean(load_default=False, dump_default=False) #Force users to set a recovery method, overwrite SOGO_D_PWD_RECOVERY
     SOGO_D_PWD_RECOVERY_DELAY = fields.Integer(load_default=86400, dump_default=86400,validate=validate.Range(min=0)) #Delay in seconds before the user can ask again for a password recovery, 0 means there's no limit
@@ -121,12 +128,13 @@ class AuthSettingsObj(SettingsObj):
     SOGO_D_OPENID_ENDSESSION_ENABLED: bool = False
     SOGO_D_OPENID_FETCH_USER_PROFILE: bool = True
     SOGO_D_OPENID_ALLOW_REDIRECT: list[str] = []
+    SOGO_D_OPENID_REQUIRE_EMAIL_VERIFIED: bool = True
     SOGO_D_SAML2_URL: str = ""
     SOGO_D_PWD_CHANGE_ENABLED: bool = False
     SOGO_D_LOGIN_CHECK_MAX_ATTEMPT: int = 0
     SOGO_D_LOGIN_CHECK_TIME_SPAN: int = 600
     SOGO_D_LOGIN_CHECK_BLOCK_TIME: int = 300
-    SOGO_D_PWD_RECOVERY: bool = True
+    SOGO_D_PWD_RECOVERY: bool = False
     SOGO_D_PWD_RECOVERY_METHOD: list[str] = []
     SOGO_D_PWD_RECOVERY_FORCE: bool = False
     SOGO_D_PWD_RECOVERY_DELAY: int = 86400
