@@ -7,6 +7,7 @@ from app.dav.DavApp import DavApp
 from app.dav.DavAuthenticator import DavAuthenticator
 from app.dav.DavDispatcher import DavDispatcher
 from app.dav.handler.DavOptionsHandler import DavOptionsHandler
+from app.dav.handler.DavPropfindHandler import DavPropfindHandler
 from app.service import set_agent, set_cache
 from app.utils import constants as cs
 from app.utils.logger.logger import logger_dav
@@ -32,6 +33,9 @@ def build_app(require_secure: bool = True) -> Flask:
         logger_dav.warning("SOGo is not configured yet, every DAV request will be answered 503")
 
     authenticator: DavAuthenticator = DavAuthenticator(process_config, require_secure=require_secure)
-    handlers: list[DavHandler] = [DavOptionsHandler(authenticator=authenticator)]
+    handlers: list[DavHandler] = [
+        DavOptionsHandler(authenticator=authenticator),
+        DavPropfindHandler(authenticator=authenticator),
+    ]
     dispatcher: DavDispatcher = DavDispatcher(handlers=handlers, sogo_state=sogo_state)
     return DavApp(dispatcher).create_flask_app()

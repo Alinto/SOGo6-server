@@ -55,6 +55,15 @@ def test_request_exception_uses_error_status():
     handler = FakePropfindHandler(error=err.ERROR_SHARE_NOT_FOUND)
     response = _dispatch(handler, DavRequest(method="PROPFIND", path="bob@example.org/"))
     assert response.status == HTTPStatus.NOT_FOUND
+    assert response.body == b""
+
+
+def test_failed_condition_named_in_body():
+    handler = FakePropfindHandler(error=err.ERROR_DAV_PROPFIND_INFINITE_DEPTH)
+    response = _dispatch(handler, DavRequest(method="PROPFIND", path=""))
+    assert response.status == HTTPStatus.FORBIDDEN
+    assert response.headers == {"Content-Type": "application/xml; charset=utf-8"}
+    assert response.body.endswith(b'<D:error xmlns:D="DAV:"><D:propfind-finite-depth /></D:error>')
 
 
 def test_unauthorized_carries_challenge():

@@ -17,7 +17,10 @@ DAV_ADDRESSBOOK_HOME: str = "Contacts"
 
 # Methods served by the DAV server, each one by its own handler. Listed in the Allow header; any other
 # method is answered 405.
-DAV_METHODS: frozenset[str] = frozenset({"OPTIONS"})
+DAV_METHODS: frozenset[str] = frozenset({"OPTIONS", "PROPFIND"})
+
+# Content-Type of the XML bodies: multistatus and error responses.
+DAV_XML_CONTENT_TYPE: str = "application/xml; charset=utf-8"
 
 # Compliance classes announced in the DAV header of OPTIONS responses (RFC 4918 section 18).
 DAV_COMPLIANCE_CLASSES: tuple[str, ...] = ("1",)

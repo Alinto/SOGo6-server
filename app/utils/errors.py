@@ -305,6 +305,8 @@ ERROR_DAV_PASSWORD_LOGIN_DISABLED = E("S001201", "Password Login Is Disabled For
 ERROR_DAV_LOGIN_BLOCKED           = E("S001202", "Login Blocked After Too Many Wrong Passwords", HTTPStatus.TOO_MANY_REQUESTS)
 ERROR_DAV_XML_INVALID             = E("S001203", "Request Body Is Not Valid DAV XML", HTTPStatus.BAD_REQUEST)
 ERROR_DAV_RESOURCE_NOT_FOUND      = E("S001204", "DAV Resource Not Found", HTTPStatus.NOT_FOUND)
+ERROR_DAV_PROPFIND_INFINITE_DEPTH = E("S001205", "PROPFIND Depth Must Be 0 Or 1", HTTPStatus.FORBIDDEN)
+ERROR_DAV_DEPTH_INVALID           = E("S001206", "Depth Header Must Be 0, 1 Or Infinity", HTTPStatus.BAD_REQUEST)
 
 #the bugs
 ERROR_UNKOWN = E("S999999", "Undefined Error", HTTPStatus.INTERNAL_SERVER_ERROR)

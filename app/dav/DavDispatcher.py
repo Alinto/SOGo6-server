@@ -4,8 +4,11 @@ from typing import TYPE_CHECKING
 import logging
 from http import HTTPStatus
 
-from app.dav.DavConst import DAV_AUTH_CHALLENGE
+from app.dav.DavConst import DAV_AUTH_CHALLENGE, DAV_XML_CONTENT_TYPE
 from app.dav.model.DavResponse import DavResponse
+from app.manager.dav.protocol.DavProtocolConst import DAV_PROPFIND_FINITE_DEPTH
+from app.manager.dav.protocol.model.DavError import DavError
+from app.manager.dav.protocol.serializer.DavErrorSerializerXml import DavErrorSerializerXml
 from app.utils import constants as cs
 from app.utils import errors as err
 from app.utils.exceptions import RequestException
@@ -23,12 +26,17 @@ class DavDispatcher:
     instead of dropping the account. The WSGI layer only lets through the methods of ``DAV_METHODS``,
     which all have a handler: a method without one is a wiring error, answered 501. A
     ``RequestException`` raised by a handler, authentication included, is turned into the HTTP status of
-    its error; unexpected exceptions are left to the WSGI layer, which logs them.
+    its error, with an XML body naming the condition the request failed when the error has one (RFC 4918
+    section 16); unexpected exceptions are left to the WSGI layer, which logs them.
     """
+
+    # Condition named in the body of an error response, by error raised
+    _CONDITIONS: dict[err.E, str] = {err.ERROR_DAV_PROPFIND_INFINITE_DEPTH: DAV_PROPFIND_FINITE_DEPTH}
 
     def __init__(self, handlers: list[DavHandler], sogo_state: int) -> None:
         self._handlers: dict[str, DavHandler] = {handler.method: handler for handler in handlers}
         self._sogo_state: int = sogo_state
+        self._error_serializer: DavErrorSerializerXml = DavErrorSerializerXml()
 
     def dispatch(self, request: DavRequest) -> DavResponse:
         """Run the handler of the request method and return its response.
@@ -53,4 +61,11 @@ class DavDispatcher:
             logger_dav.log(log_level, "%s /%s failed: %s %s", request.method, request.path, ex.error.c, ex.error.m)
             if status == HTTPStatus.UNAUTHORIZED:
                 return DavResponse(status=status, headers={"WWW-Authenticate": DAV_AUTH_CHALLENGE})
-            return DavResponse(status=status)
+            condition: str | None = DavDispatcher._CONDITIONS.get(ex.error)
+            if condition is None:
+                return DavResponse(status=status)
+            return DavResponse(
+                status=status,
+                headers={"Content-Type": DAV_XML_CONTENT_TYPE},
+                body=self._error_serializer.serialize(DavError(condition=condition)),
+            )

@@ -20,6 +20,7 @@ The server reuses the business modules of the REST API (xref:calendar.adoc[], xr
   DavHandler.handle             DavAuthenticator: Basic credentials -> DavContext, then process()
        |
        +-- DavOptionsHandler    OPTIONS
+       +-- DavPropfindHandler   PROPFIND
        +-- ...                  one handler per HTTP method
        |
        v  DavResponse
@@ -30,12 +31,13 @@ The server reuses the business modules of the REST API (xref:calendar.adoc[], xr
 
 * *build_app* - Builds the application for both launchers, like the REST API: initialises the worker (configuration state, cache, agent client), creates the authenticator, the handlers and the dispatcher.
 * *DavApp* - Converts each Flask request into a `DavRequest`, hands it to the dispatcher and converts the `DavResponse` back. Redirects the well-known URIs. Turns off the Flask behaviours meant for web applications (see below).
-* *DavDispatcher* - Routes a request to the handler of its HTTP method. Answers 503 while SOGo is not configured, and the HTTP status of the error when the handler raises a `RequestException`, authentication included. A 401 always carries the Basic challenge.
+* *DavDispatcher* - Routes a request to the handler of its HTTP method. Answers 503 while SOGo is not configured, and the HTTP status of the error when the handler raises a `RequestException`, authentication included. A 401 always carries the Basic challenge, and an error tied to a condition of the protocol an XML body naming it (see <<error-bodies>>).
 * *DavAuthenticator* - Checks the Basic credentials of a request and builds its `DavContext` (see <<Authentication>>).
 * *DavLoginLimiter* - Counts the wrong passwords of each login in Redis and blocks the login once the limit of its domain is reached (see <<login-blocking>>).
 * *DavContext* - Configuration, user and cache client of one request, handed to `process`: the DAV counterpart of Flask `g` in the REST API.
 * *DavHandler* - Abstract handler of one HTTP method. Its `handle` method, which handlers cannot override, gets the cache client of the request, authenticates the request then calls `process`, the method each handler implements. Handlers only see `DavRequest`, `DavContext` and `DavResponse`, never Flask, so they are tested without a WSGI layer.
 * *DavOptionsHandler* - Answers OPTIONS with the `DAV` compliance classes and the `Allow` methods.
+* *DavPropfindHandler* - Answers PROPFIND with the properties of the resources (see <<PROPFIND>>).
 
 The DAV server never imports the REST layer (`app.api`): no Smorest, no JSON middleware, no `ApiBaseResponse`.
 
@@ -164,6 +166,29 @@ The properties depending on the account and not on the model only, as the paths,
 
 * *UserSerializerDavProps* - Converts the user into the properties of its principal: its name (`displayname`) and its mail address followed by its aliases (`calendar-user-address-set`, as `mailto:` URIs), so that an invitation sent to an alias is matched to the principal. `alternate-URI-set` and `group-membership`, required by RFC 3744 section 4, are empty.
 
+[[PROPFIND]]
+== PROPFIND
+
+`DavPropfindHandler` answers a PROPFIND (RFC 4918 section 9.1) with a multistatus, 207 in `application/xml`: one response for the resource of the path and, with `Depth: 1`, one for each of its members.
+
+* *Depth* - `0` or `1`. `infinity`, which a request without `Depth` stands for, is refused with 403 and the condition `DAV:propfind-finite-depth` (`ERROR_DAV_PROPFIND_INFINITE_DEPTH`), as RFC 4918 section 9.1.1 allows: listing a whole tree would read every calendar and address book of the account. Any other value is malformed (RFC 4918 section 10.2) and answered 400 (`ERROR_DAV_DEPTH_INVALID`).
+* *prop* - the properties asked: the ones of the resource in a 200 propstat, the other ones in a 404 propstat.
+* *propname* - the names of all the properties of the resource, without their value.
+* *allprop* - the properties defined by WebDAV (`DAV_ALLPROP_PROPERTIES`, RFC 4918 section 15), plus the ones of the include element. A request without body is an allprop. The other specifications ask not to return their properties in an allprop (RFC 3744, RFC 4791, RFC 6352, RFC 6638), and RFC 5397 leaves `current-user-principal` to the server: clients ask for them by name.
+
+A property shows up once per resource, even when asked twice.
+
+[[error-bodies]]
+=== Error bodies
+
+An error tied to a precondition or a postcondition of the protocol is answered with an XML body naming the condition (RFC 4918 section 16):
+
+----
+<D:error xmlns:D="DAV:"><D:propfind-finite-depth /></D:error>
+----
+
+A handler only raises its `RequestException`: the dispatcher looks the error up in its table of conditions, and writes the body with `DavErrorSerializerXml`. The other errors have no body.
+
 == XML protocol
 
 The XML of WebDAV, CalDAV and CardDAV is read and written in `app/manager/dav/protocol`, with the `xml.etree` module of the standard library: no DAV library. The package depends neither on Flask nor on the DAV server, so that a DAV client can reuse it.
@@ -172,9 +197,12 @@ Element and property names use the Clark notation of ElementTree, `\{namespace\}
 
 * *PropfindRequest* - The properties asked by a PROPFIND: all of them (allprop, with the extra ones of its include element), their names only (propname), or a list (prop).
 * *DavMultistatus* - The responses of a multistatus, one *DavPropResponse* per resource: its path, the properties found with their value, the names of the missing ones. A value is a text, or a value written as child elements: *DavHrefs* (references to resources), *DavResourceType*.
+* *DavError* - The body of an error response: the name of the condition the request failed (see <<error-bodies>>).
 * *PropfindRequestDeserializerXml* - Reads a PROPFIND body. A PROPFIND without body asks for all the properties (RFC 4918 section 9.1). A malformed body, or a body declaring a document type, is refused with 400 (`ERROR_DAV_XML_INVALID`). The body is given to the parser by chunks of 4 KB, so that a document type stops the parse at the end of its chunk; expat bounds the expansion of the entities of that chunk. Unknown elements are ignored, as WebDAV requires for its extensions (RFC 4918 section 17).
 * *DavMultistatusSerializerXml* - Writes a multistatus: for each resource, the properties found in a 200 propstat and the missing ones in a 404 propstat. An href is the percent-encoded path of the resource, `@` kept as is. The characters XML 1.0 forbids, as the control characters, are removed from the text values.
-The namespaces get fixed prefixes (`D:` WebDAV, `C:` CalDAV, `CR:` CardDAV, `CS:` CalendarServer, `IC:` Apple iCal), which keep the logs of the clients readable.
+* *DavErrorSerializerXml* - Writes an error body: an `error` element holding the condition as an empty element (RFC 4918 section 16).
+
+The namespaces get fixed prefixes (`D:` WebDAV, `C:` CalDAV, `CR:` CardDAV, `CS:` CalendarServer, `IC:` Apple iCal), which keep the logs of the clients readable. They are registered once, when the package of the serializers is loaded: ElementTree keeps them in a registry shared by the whole process.
 
 == Authentication
 

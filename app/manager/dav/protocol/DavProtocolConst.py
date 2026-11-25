@@ -47,6 +47,28 @@ CALDAV_CALENDAR_HOME_SET: str = "{urn:ietf:params:xml:ns:caldav}calendar-home-se
 CALDAV_CALENDAR_USER_ADDRESS_SET: str = "{urn:ietf:params:xml:ns:caldav}calendar-user-address-set"
 CARDDAV_ADDRESSBOOK_HOME_SET: str = "{urn:ietf:params:xml:ns:carddav}addressbook-home-set"
 
+# Properties defined by WebDAV (RFC 4918 section 15), the only live properties an allprop returns (RFC 4918
+# section 9.1): the specifications of the other ones ask not to return them (RFC 3744, RFC 4791, RFC 6352,
+# RFC 6638) or leave it to the server (RFC 5397).
+DAV_ALLPROP_PROPERTIES: frozenset[str] = frozenset(
+    {
+        "{DAV:}creationdate",
+        DAV_DISPLAYNAME,
+        "{DAV:}getcontentlanguage",
+        "{DAV:}getcontentlength",
+        "{DAV:}getcontenttype",
+        "{DAV:}getetag",
+        "{DAV:}getlastmodified",
+        "{DAV:}lockdiscovery",
+        DAV_RESOURCETYPE,
+        "{DAV:}supportedlock",
+    }
+)
+
 # Resource types (RFC 4918 section 14.3, RFC 3744 section 4).
 DAV_COLLECTION: str = "{DAV:}collection"
 DAV_PRINCIPAL: str = "{DAV:}principal"
+
+# Body of an error response and the conditions it names (RFC 4918 sections 14.5 and 16).
+DAV_ERROR: str = "{DAV:}error"
+DAV_PROPFIND_FINITE_DEPTH: str = "{DAV:}propfind-finite-depth"

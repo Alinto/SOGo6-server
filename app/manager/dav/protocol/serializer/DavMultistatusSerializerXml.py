@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 import re
 from http import HTTPStatus
 from urllib.parse import quote
-from xml.etree.ElementTree import Element, SubElement, register_namespace, tostring
+from xml.etree.ElementTree import Element, SubElement, tostring
 
 from app.manager.dav.protocol.DavProtocolConst import (
     DAV_HREF,
@@ -13,7 +13,6 @@ from app.manager.dav.protocol.DavProtocolConst import (
     DAV_PROPSTAT,
     DAV_RESPONSE,
     DAV_STATUS,
-    NS_PREFIXES,
 )
 from app.manager.dav.protocol.model.DavHrefs import DavHrefs
 from app.manager.dav.protocol.model.DavMultistatus import DavMultistatus
@@ -22,11 +21,6 @@ from app.utils.serializer.Serializer import Serializer
 
 if TYPE_CHECKING:
     from app.manager.dav.protocol.model.DavPropResponse import DavPropResponse, DavPropValue
-
-# ElementTree keeps its prefixes in a registry shared by the whole process. They are registered once, when the
-# module is loaded: registering them at each serialization would change the registry under concurrent ones.
-for _prefix, _namespace in NS_PREFIXES.items():
-    register_namespace(_prefix, _namespace)
 
 
 class DavMultistatusSerializerXml(Serializer[DavMultistatus, bytes]):
