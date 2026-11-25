@@ -112,8 +112,7 @@ class InterfaceAuthUser:
             return create_api_base_response(None, err.ERROR_LOGIN_FAILED)
 
         try:
-            # Not closed: CPython frees the client once the onboarding is done, and the redis-py destructor
-            # then closes its connection. A client shared by sogo_cache() stays open.
+            # Never closed: the client of sogo_cache() is shared by every request of the worker
             self.onboard_user_and_fill_info(user=user, cache=sogo_cache())
         except RequestException as ex:
             logger_api.error("Request exception when onboarding user %s: %s", uid, str(ex))

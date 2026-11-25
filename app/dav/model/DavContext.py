@@ -11,12 +11,12 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class DavContext:
-    """Configuration, user and cache client of one DAV request, built by the authentication of the handler.
+    """Configuration, user and cache client handed to one DAV request, built by the authentication of the handler.
 
     The DAV counterpart of what the REST API keeps in Flask ``g``. ``user`` is authenticated, filled
     with its directory info and profile, and keeps the password in memory for the mail servers. ``cache``
-    is not closed: its connection is closed when it is freed with the request. ``account_alias`` is the part
-    after "!" of a login "<login>!<alias>", None without "!": it ends the account in the paths (see DavPath).
+    is the client of sogo_cache(), shared by every request of the worker: never closed. ``account_alias`` is the
+    part after "!" of a login "<login>!<alias>", None without "!": it ends the account in the paths (see DavPath).
     """
 
     process_settings: ProcessSetting

@@ -561,9 +561,6 @@ class FakeSogoCache:
         self.revoke_user_sessions_by_key_args = redis_keys
         return len(redis_keys)
 
-    def close(self):
-        pass
-
 
 def test_logout_user_success(monkeypatch):
     """Test that logout_user extracts the Redis key and calls revoke."""

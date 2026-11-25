@@ -83,7 +83,6 @@ class VoucherUserService:
             f"user_session:{user_session_id}",
             string_to_sort_score(user.domain),
         )
-        cache.close()
 
         #Generate the voucher
         voucher_payload = user.get_voucher_payload()
@@ -263,6 +262,5 @@ class VoucherUserService:
             string_to_sort_score(user.domain),
         )
         logger.info("From voucher get user: %s", user)
-        cache.close()
 
         return user

@@ -42,17 +42,18 @@ You can use extra param in the query but SOGo 6 will add those by itself:
 * `decode_responses="Yes"`: to receive strings directly instead of bytes.
 * `protocol=3`: if `SOGO_P_REDIS_RESP_3` is set to True (see below)
 
+Each SOGo 6 process keeps its connections to Redis open and reuses them. After a restart of Redis, they are opened
+again by the next command, without error.
 
 '''
 
 * **SOGO_P_REDIS_RESP_3**: bool = True # Version of RESP, 3 is strongly recommended
 
-https://redis.io/docs/latest/develop/reference/protocol-spec/#resp-versions[RESP 3] is needed by the
-redis python client https://redis.io/docs/latest/develop/clients/redis-py/connect/#connect-using-client-side-caching[`redis-py`] to support client-caching.
+SOGo 6 talks to Redis with https://redis.io/docs/latest/develop/reference/protocol-spec/#resp-versions[RESP 3]
+when this parameter is True (needs Redis 6.0).
 
-Client caching allows the client to make a query only if the data has been updated since the last time. Hence, saving time and resources.
-
-https://redis.io/docs/latest/develop/reference/protocol-spec/#resp-versions
+The https://redis.io/docs/latest/develop/clients/redis-py/connect/#connect-using-client-side-caching[client side cache]
+of `redis-py`, which RESP 3 allows, is turned off: it is not thread-safe. Every read is sent to Redis.
 
 == Database settings
 

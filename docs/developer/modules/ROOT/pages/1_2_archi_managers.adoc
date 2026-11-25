@@ -214,6 +214,24 @@ It handles Redis communication
 
 It uses https://redis.io/docs/latest/develop/clients/redis-py/[redis-py]
 
+Each worker (REST API, DAV server, agent) creates one `ClientRedis` at start-up and registers it with `set_cache()`.
+`sogo_cache()` returns that client: it is shared by all the requests and threads of the worker.
+
+The client is never closed by the code using it. `redis-py` keeps its connections in a pool: each command takes a
+connection and gives it back, so the connection is reused by the next command without a new TCP connection and
+authentication. Closing the shared client would cut the connections that other threads are using. The connections
+are closed when the worker stops. Only the client of the start-up checks (`ModuleInitSogo.check_cache`), created
+before the workers, is closed.
+
+The client side cache of `redis-py` (`CacheConfig`) is not used: it is not thread-safe. To read the invalidation
+messages sent by Redis, it takes the connection that filled the entry, even when another thread is reading on it,
+and switches it to non-blocking: that thread then times out.
+
+After a restart of Redis, the pool finds the connections closed by the server and opens new ones: the commands do
+not fail. A connection dropped without being closed, by a firewall for instance, is only noticed when a command
+sent on it times out, and no socket timeout is set. A worker process forked after the creation of the client, as
+the children of the agent, opens its own connections.
+
 === Client Agent
 
 The agent is the external service to handle asynchronous tasks and queueing. Only Celery is planned.

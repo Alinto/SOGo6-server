@@ -5,7 +5,6 @@ from typing import cast, Type
 import logging
 
 from redis import Redis, exceptions as rexc, ConnectionPool
-from redis.cache import CacheConfig
 from yarl import URL
 
 from app.utils.exceptions import AggravatedException, BugException
@@ -39,7 +38,9 @@ class ClientRedis():
         That wats all parameters are in the query
 
         SOGo force the decode_responses=True.
-        SOGo will use RESP3 that allow caching (needs REDIS 6.0)
+        SOGo will use RESP3 (needs REDIS 6.0), without the client side cache of redis-py (CacheConfig): it is
+        not thread-safe, it reads the invalidation messages on the connection of another thread, which then
+        times out. The client is shared by all the threads of a worker.
         SOGo greatly encourages the use of username/password with that can only access one redis db
         Such db being only for this user/SOGo.
 
@@ -52,17 +53,11 @@ class ClientRedis():
 
         redis_url = URL(url_str)
         redis_url = redis_url.update_query(decode_responses="Yes")
-        self.cache = False
         if resp3:
             redis_url = redis_url.update_query(protocol=3)
-            self.cache = True
-            redis_connstring = str(redis_url)
-            logger_cache.info("Setting Redis client with cache for %s", redis_connstring)
-            self.redis = Redis.from_url(redis_connstring, cache_config=CacheConfig())
-        else:
-            redis_connstring = str(redis_url)
-            logger_cache.info("Setting Redis client for %s", redis_connstring)
-            self.redis = Redis.from_url(redis_connstring)
+        redis_connstring = str(redis_url)
+        logger_cache.info("Setting Redis client for %s", redis_connstring)
+        self.redis = Redis.from_url(redis_connstring)
 
     def ping(self) -> None:
         """

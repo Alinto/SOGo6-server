@@ -34,8 +34,8 @@ The server reuses the business modules of the REST API (xref:calendar.adoc[], xr
 * *DavDispatcher* - Routes a request to the handler of its HTTP method. Answers 503 while SOGo is not configured, and the HTTP status of the error when the handler raises a `RequestException`, authentication included. A 401 always carries the Basic challenge, and an error tied to a condition of the protocol an XML body naming it (see <<error-bodies>>).
 * *DavAuthenticator* - Checks the Basic credentials of a request and builds its `DavContext` (see <<Authentication>>).
 * *DavLoginLimiter* - Counts the wrong passwords of each login in Redis and blocks the login once the limit of its domain is reached (see <<login-blocking>>).
-* *DavContext* - Configuration, user and cache client of one request, handed to `process`: the DAV counterpart of Flask `g` in the REST API.
-* *DavHandler* - Abstract handler of one HTTP method. Its `handle` method, which handlers cannot override, gets the cache client of the request, authenticates the request then calls `process`, the method each handler implements. Handlers only see `DavRequest`, `DavContext` and `DavResponse`, never Flask, so they are tested without a WSGI layer.
+* *DavContext* - Configuration, user and cache client handed to `process` for one request: the DAV counterpart of Flask `g` in the REST API.
+* *DavHandler* - Abstract handler of one HTTP method. Its `handle` method, which handlers cannot override, gets the cache client of the worker, authenticates the request then calls `process`, the method each handler implements. Handlers only see `DavRequest`, `DavContext` and `DavResponse`, never Flask, so they are tested without a WSGI layer.
 * *DavOptionsHandler* - Answers OPTIONS with the `DAV` compliance classes and the `Allow` methods.
 * *DavPropfindHandler* - Answers PROPFIND with the properties of the resources (see <<PROPFIND>>).
 
@@ -307,10 +307,10 @@ Anyone knowing a login can block the DAV access of that account. The block only 
 
 === Request context
 
-Handlers receive a `DavContext`: process and system settings, settings of the user domain, the user filled with its directory info and profile, the cache client of the request, and the alias of the login, if any.
+Handlers receive a `DavContext`: process and system settings, settings of the user domain, the user filled with its directory info and profile, the cache client of the worker, and the alias of the login, if any.
 The user keeps the password in memory, for the mail servers.
 A handler that needs an interface builds it from the context, with the same arguments as the `InterfaceApi*` classes.
-The cache client comes from `sogo_cache()`, called by `DavHandler.handle`. Nobody closes it: CPython frees it once the request no longer references it, and the redis-py destructor then closes its connection. A client shared by `sogo_cache()` stays open.
+The cache client comes from `sogo_cache()`, called by `DavHandler.handle`: one client per worker, shared by all its requests and threads, never closed by a request. It runs without the client side cache of redis-py, which is not thread-safe.
 
 == Flask behaviours turned off
 

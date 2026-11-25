@@ -27,14 +27,13 @@ class DavHandler(ABC):
     def handle(self, request: DavRequest) -> DavResponse:
         """Authenticate the request, then process it.
 
-        The cache client of the request is shared by the authentication and the processing through the
+        The cache client of the worker is shared by the authentication and the processing through the
         context.
 
         :raises RequestException: when the authentication or the operation fails; the dispatcher
             answers with the HTTP status carried by the error
         """
-        # Not closed: CPython frees the client once the request no longer references it, and the redis-py
-        # destructor then closes its connection. A client shared by sogo_cache() stays open.
+        # Never closed: the client of sogo_cache() is shared by every request of the worker
         context: DavContext = self._authenticator.authenticate(request, sogo_cache())
         return self.process(request, context)
 

@@ -59,7 +59,6 @@ class VoucherAdminService:
 
         cache = sogo_cache()
         cache.hashset(f"admin_session:{admin_session_id}", admin_session, 30 * 60)
-        cache.close()
 
         # Generate the voucher
         voucher_payload = {
@@ -150,7 +149,6 @@ class VoucherAdminService:
 
             #Update ttl and lest seen
             cache.hashset(redis_key, {cs.SESSION_LAST_SEEN: int(time.time())}, ttl=30*60)
-            cache.close()
 
             logger_auth.info("Admin authenticated with uid: %s", admin_uid)
             return Admin(uid=admin_uid)

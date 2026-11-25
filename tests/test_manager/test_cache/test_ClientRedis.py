@@ -171,7 +171,6 @@ class FakeRedis:
 def make_client(resp3: bool = False) -> ClientRedis:
     """
     Build a ClientRedis bypassing the real Redis.from_url call.
-    resp3=False avoids the CacheConfig import complexity.
     """
     with patch("app.manager.cache.ClientRedis.Redis") as MockRedis:
         MockRedis.from_url.return_value = FakeRedis()
@@ -186,18 +185,15 @@ def make_client(resp3: bool = False) -> ClientRedis:
 # ===========================================================================
 
 class TestClientRedisInit:
-    def test_init_resp3_false_sets_cache_false(self):
+    def test_init_resp3_false(self):
         with patch("app.manager.cache.ClientRedis.Redis") as MockRedis:
-            MockRedis.from_url.return_value = MagicMock()
-            client = ClientRedis("redis://localhost:6379/0", resp3=False)
-        assert client.cache is False
+            ClientRedis("redis://localhost:6379/0", resp3=False)
+        MockRedis.from_url.assert_called_once_with("redis://localhost:6379/0?decode_responses=Yes")
 
-    def test_init_resp3_true_sets_cache_true(self):
+    def test_init_resp3_without_client_cache(self):
         with patch("app.manager.cache.ClientRedis.Redis") as MockRedis:
-            with patch("app.manager.cache.ClientRedis.CacheConfig"):
-                MockRedis.from_url.return_value = MagicMock()
-                client = ClientRedis("redis://localhost:6379/0", resp3=True)
-        assert client.cache is True
+            ClientRedis("redis://localhost:6379/0", resp3=True)
+        MockRedis.from_url.assert_called_once_with("redis://localhost:6379/0?decode_responses=Yes&protocol=3")
 
     def test_init_creates_redis_instance(self):
         with patch("app.manager.cache.ClientRedis.Redis") as MockRedis:
