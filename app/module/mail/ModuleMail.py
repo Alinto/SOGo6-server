@@ -1,13 +1,14 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Iterator, cast
 
+from datetime import datetime, timezone
 import email as email_existing
 import email.mime.text
 import email.policy
 from email.header import decode_header, make_header
 from email.message import EmailMessage
 from email.message import Message
-from email.utils import parseaddr, getaddresses, make_msgid, formatdate
+from email.utils import parseaddr, getaddresses, make_msgid, formatdate, parsedate_to_datetime
 from hashlib import sha256
 from io import BytesIO
 from re import search as reg_search
@@ -867,6 +868,52 @@ class ModuleMail:
                 paths.extend(ModuleMail._flatten_selectable_folder_paths(children))
         return paths
 
+    @staticmethod
+    def _parse_mail_date(date_header: Any) -> datetime | None:
+        """Parse a mail ``Date`` header (RFC 2822) into an aware datetime.
+
+        A date without timezone is considered UTC so that every parsed date can be compared.
+
+        :param date_header: The raw ``Date`` header value (str or email Header), may be empty.
+        :type date_header: Any
+        :return: The aware datetime, or None if the header is missing or cannot be parsed.
+        :rtype: datetime | None
+        """
+        if not date_header:
+            return None
+        try:
+            parsed = parsedate_to_datetime(str(date_header))
+        except (TypeError, ValueError, IndexError):
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed
+
+    @classmethod
+    def _sort_mails_by_date(cls, mails: list[dict[str, Any]], reverse: bool) -> list[dict[str, Any]]:
+        """Sort parsed mails by their real ``Date`` header value.
+
+        The raw header string cannot be sorted directly (it starts with the weekday name).
+        Mails whose date is missing or invalid are always placed last, whatever the order.
+
+        :param mails: Parsed mails (as returned by ``_parse_mail``).
+        :type mails: list[dict[str, Any]]
+        :param reverse: True for descending order (most recent first).
+        :type reverse: bool
+        :return: A new sorted list.
+        :rtype: list[dict[str, Any]]
+        """
+        dated: list[tuple[datetime, dict[str, Any]]] = []
+        undated: list[dict[str, Any]] = []
+        for mail in mails:
+            parsed = cls._parse_mail_date(mail.get("date"))
+            if parsed is None:
+                undated.append(mail)
+            else:
+                dated.append((parsed, mail))
+        dated.sort(key=lambda item: item[0], reverse=reverse)
+        return [mail for _, mail in dated] + undated
+
     def search_mails(self, account_id: str, search_params: dict, collection_param: CollectionPaginateArgs, deleted: bool = False) -> tuple[list[dict[str, Any]], int]:
         """Execute an advanced search across one or multiple folders.
 
@@ -961,14 +1008,15 @@ class ModuleMail:
         reverse = sort_order == "desc"
 
         sort_key_map: dict[str, Any] = {
-            "date":      lambda m: m.get("date", ""),
             "sender":    lambda m: m.get("from", {}).get("email", ""),
             "subject":   lambda m: m.get("subject", ""),
             "size":      lambda m: m.get("size", 0),
-            "relevance": lambda m: m.get("date", ""),  # fallback: by date TODO: what??
         }
-        key_fn = sort_key_map.get(sort_by, sort_key_map["date"])
-        all_mails.sort(key=key_fn, reverse=reverse)
+        if sort_by in sort_key_map:
+            all_mails.sort(key=sort_key_map[sort_by], reverse=reverse)
+        else:
+            # "date", "relevance" (no relevance score yet: falls back to date) and unknown values
+            all_mails = self._sort_mails_by_date(all_mails, reverse)
 
         # --- Paginate ---
         total = len(all_mails)
