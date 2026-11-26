@@ -33,6 +33,9 @@ from .schemas.addressbook import (
     ContactSharePutSchema,
     ContactSharePostSchema,
     ContactShareResponseSchema,
+    SharedAddressBookListResponseSchema,
+    SharedAddressBookResponseSchema,
+    SharedAddressBookSubscribeSchema,
 )
 from .schemas.contact import (
     ContactCreateSchema,
@@ -188,6 +191,39 @@ class ApiAddressBookShare(MethodView):
             return create_api_base_response(None, ERROR_SHARE_ANY_AUTH_DISABLED)
         interface: InterfaceApiContactContact = g.inter
         return interface.post_addressbook_share(key, body)
+
+
+@blp.route("/shared-addressbooks")
+class ApiSharedAddressBookList(MethodView):
+    """API to discover the address books shared with the current user.
+
+    Sharing an address book only offers it: it shows in GET /addressbooks (and in the transverse
+    contact search and autocompletion) once the recipient subscribes.
+    """
+
+    @blp.response(200, SharedAddressBookListResponseSchema)
+    def get(self) -> ResponseReturnValue:
+        """List the address books shared with the user (directly or with anyone in their domain) and whether they subscribed."""
+        logger_api.debug("GET /shared-addressbooks user=%s", g.user.uid)
+        interface: InterfaceApiContactContact = g.inter
+        return interface.get_shared_addressbooks()
+
+
+@blp.route("/shared-addressbooks/<string:key>")
+class ApiSharedAddressBookSubscribe(MethodView):
+    """API to subscribe to, or unsubscribe from, an address book shared with the current user."""
+
+    @blp.arguments(SharedAddressBookSubscribeSchema, example=SharedAddressBookSubscribeSchema.example())
+    @blp.response(200, SharedAddressBookResponseSchema)
+    def put(self, body: dict, key: str) -> ResponseReturnValue:
+        """Subscribe to (``subscribe: 1``) or unsubscribe from (``subscribe: 0``) a shared address book.
+
+        Subscribing requires can_view on the address book. Unsubscribing leaves the owner's share
+        untouched. Both are idempotent.
+        """
+        logger_api.debug("PUT /shared-addressbooks/%s user=%s body=%s", key, g.user.uid, body)
+        interface: InterfaceApiContactContact = g.inter
+        return interface.set_addressbook_subscription(key, body)
 
 
 @blp.route("/addressbooks/<string:key>/contacts")

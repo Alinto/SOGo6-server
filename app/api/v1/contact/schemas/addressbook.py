@@ -112,6 +112,14 @@ class ContactShareUserSchema(Schema):
         validate=validate.OneOf(["user", "anyone"]),
     )
     rights = fields.Nested(ContactShareRightsSchema, required=True, metadata={"description": "Permission rights for this user"})
+    subscribe = fields.Boolean(
+        load_default=False, load_only=True,
+        metadata={"description": "Also subscribe the user to the address book, so it shows in their address book list. "
+                                 "Ignored for user_class 'anyone' and for rights without can_view. "
+                                 "Without it, the user subscribes on their own "
+                                 "(PUT /shared-addressbooks/{key} with {'subscribe': 1}).",
+                  "example": False},
+    )
 
     @validates_schema
     def validate_user_identity(self, data: dict[str, Any], **kwargs: Any) -> None:  # pylint: disable=unused-argument
@@ -125,6 +133,49 @@ class ContactShareUserSchema(Schema):
             errors["uid"] = ["Missing data for required field."]
         if errors:
             raise ValidationError(errors)
+
+
+class SharedAddressBookSchema(AddressBookSchema):
+    """An address book shared with the current user, as listed by the discovery endpoint."""
+
+    rights     = fields.Nested(ContactShareRightsSchema, dump_only=True,
+                               metadata={"description": "The current user's own rights on the address book."})
+    subscribed = fields.Boolean(dump_only=True,
+                                metadata={"description": "True when the address book is in the user's subscriptions (shown in GET /addressbooks)."})
+
+
+class SharedAddressBookListDataSchema(Schema):
+    """Data payload for the shared address book list response."""
+
+    addressbooks = fields.List(fields.Nested(SharedAddressBookSchema))
+    total_count  = fields.Integer()
+
+
+class SharedAddressBookListResponseSchema(ApiBaseResponse):
+    """Response schema for the shared address book discovery endpoint."""
+
+    data = fields.Nested(SharedAddressBookListDataSchema, allow_none=True)
+
+
+class SharedAddressBookResponseSchema(ApiBaseResponse):
+    """Response schema for a subscription change on a shared address book."""
+
+    data = fields.Nested(SharedAddressBookSchema, allow_none=True)
+
+
+class SharedAddressBookSubscribeSchema(Schema):
+    """Request body for PUT /shared-addressbooks/{key}."""
+
+    subscribe = fields.Boolean(
+        required=True,
+        metadata={"description": "1 (or true) to subscribe to the shared address book, 0 (or false) to unsubscribe.",
+                  "example": 1},
+    )
+
+    @staticmethod
+    def example() -> dict[str, Any]:
+        """Example data for Swagger documentation."""
+        return {"subscribe": 1}
 
 
 class ContactSharePatchSchema(ContactShareUserSchema):

@@ -1,0 +1,185 @@
+
+Claude
+Partagé.e.s par Quentin. Ceci est une copie d’une conversation entre Claude et Quentin. Le contenu peut inclure des éléments non vérifiés ou dangereux qui ne représentent pas les positions d’Anthropic. La capture partagée peut contenir des pièces jointes et des données non affichées ici.
+In imap command namespace I see this from the rfc
+The NAMESPACE command causes a single untagged NAMESPACE response to be returned. The untagged NAMESPACE response contains the prefix and hierarchy delimiter to the server's Personal Namespace(s), Other Users' Namespace(s), and Shared Namespace(s) that the server wishes to expose.
+
+But in the response how to know if a namespace if personnal or not ?
+
+Tu ne peux pas le deviner à partir d’un préfixe ou d’un délimiteur : c’est la position dans la réponse qui indique le type. La réponse NAMESPACE contient toujours trois éléments, dans cet ordre fixe :
+
+* NAMESPACE (("" "/")) (("Other Users/" "/")) (("Shared/" "/"))
+            ^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^
+            1. Personal  2. Other Users'        3. Shared
+1er élément : namespace(s) personnel(s)
+2e élément : namespace(s) des autres utilisateurs
+3e élément : namespace(s) partagé(s)
+Chaque élément est soit une liste de namespaces (("préfixe" "délimiteur") ...), soit NIL si le serveur n’en expose pas de ce type.
+
+Exemples :Z
+
+* NAMESPACE (("" "/")) NIL NIL
+Seulement un namespace personnel, sans préfixe, délimiteur /.Z
+
+* NAMESPACE (("INBOX." ".")) (("user." ".")) (("shared." "."))
+Style Courier/Cyrus : le personnel est préfixé par INBOX., les autres utilisateurs par user., le partagé par shared..
+
+* NAMESPACE (("" "/")) (("Other Users/" "/")) (("Public Folders/" "/"))
+Style Dovecot/Exchange, avec des noms libres.
+
+Points importants :
+
+Le nom du préfixe est libre : Shared/, Public Folders/, #shared/, etc. N’essaie jamais de l’interpréter, seule la position compte.
+Un même élément peut contenir plusieurs namespaces, par exemple (("" "/") ("#mbox/" "/")) pour le personnel.
+Les extensions éventuelles (RFC 2342, section 5) s’ajoutent après le délimiteur dans chaque paire, par exemple ("" "/" "TRANSLATION" ("Boîte")). Un client doit ignorer celles qu’il ne comprend pas.
+Côté parsing, il suffit donc de lire les trois éléments dans l’ordre et d’affecter personal, other_users et shared selon l’index, en gérant le cas NIL.
+
+what'st he diff between other users and shared
+
+The difference is ownership.
+
+Other Users’ namespace holds the personal mailboxes of other individual users, which they have shared with you (usually through IMAP ACLs). Each one is still someone’s private mailbox tree, and the owner is identifiable.
+
+Other Users/alice/INBOX
+Other Users/alice/Projects
+Typical use: a manager viewing an assistant’s inbox, or a colleague who shared one folder with you.
+
+Shared namespace holds mailboxes that belong to no particular user. They are common resources created by an admin, such as a company-wide announcements folder, a support@ team mailbox, or a bulletin board.
+
+Shared/support
+Shared/announcements
+Typical use: a team mailbox that several people read or post to, where it doesn’t matter who “owns” it.
+
+Other Users	Shared
+Owner	A specific user	Nobody, it is a common resource
+Path contains	The owner’s name (Other Users/alice/...)	Just a resource name
+Access granted by	The owner (via ACL)	An admin (via ACL)
+Dovecot config	type = shared with %%u in the prefix	type = public
+In practice, many servers expose only one of them or neither (NIL), and some admins use “shared” mailboxes for what is technically the other-users case. So rely on the position in the response, as explained above, rather than assuming the semantics.
+
+So my method is not ok to parse namespace response
+    def namespace(self) -> None:
+        """
+        Request the namespaces accessible for this user
+        https://datatracker.ietf.org/doc/html/rfc9051#section-6.3.10
+
+        There is a lot to say about namespace but what we want here is to
+        get the delimiter for the associated prefix.
+
+        :raises RequestException: _description_
+        :raises BugException: _description_
+        """
+if self.connection is not None and self.authenticated:
+success, datas = self._exec_imap4_method(self.connection.namespace)
+if not success:
+raise RequestException("Failed to list mailboxes", err.ERROR_IMAP_FAILED)
+
+def _extract_namespace(namespace_str:str, is_default:bool = False) -> None:
+"""
+                A imap namespace response is either 'NIL' or
+                '(("prefix1" "delimiter1" "extra_param_optionnal")("prefix2" "delimiter2"))
+
+                The first namespace group is the personal one, the others ("other users" and
+                "shared") hold folders the user does not own.
+                """
+if namespace_str == "NIL":
+return None
+##Removing the first '((' and last '))', then split ')('
+namespace_list = namespace_str[2:-2].split(")(")
+for idx, namespace in enumerate(namespace_list):
+_, prefix, _, delimiter, *_ = namespace.split('"')
+if is_default and idx == 0:
+self.default_prefix = prefix
+self.default_delimiter = delimiter
+else:
+if not is_default and prefix:
+self.foreign_prefixes.add(prefix)
+if not prefix:
+prefix = cs.IMAP_DEFAULT_DELIMITER
+self.others_prefixes[prefix] = delimiter
+return None
+
+for idx, namespaces in enumerate(re.findall(r'\(\(.*?\)\)', datas[0].decode())):
+_extract_namespace(namespaces, idx == 0)
+else:
+raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
+
+Not quite. It works for the common case (("" "/")) NIL NIL, but it has several problems.
+
+1. NIL groups are lost, so you can’t tell the groups apart.
+re.findall(r'\(\(.*?\)\)', ...) only returns the groups that are actually lists. For (("" "/")) NIL (("Shared/" "/")) you get 2 matches, so shared ends up at idx == 1 as if it were “other users”. Your if namespace_str == "NIL" branch can never run, since the regex never matches NIL. If you ever need to distinguish other users from shared, this design can’t do it.
+
+2. Extensions break the regex.
+With (("" "/" "TRANSLATION" ("Boîte"))) the non-greedy \)\) stops too early, inside the extension.
+
+3. split(")(") assumes no whitespace between entries.
+(("" "/") ("#mbox/" "/")) is valid IMAP, but your split won’t cut on ) (.
+
+4. A NIL delimiter crashes the unpacking.
+RFC 2342 allows ("" NIL) for a flat namespace. namespace.split('"') then yields too few items and _, prefix, _, delimiter, *_ = ... raises ValueError.
+
+5. Secondary personal namespaces land in others_prefixes.
+For (("" "/") ("#mbox/" "/")), idx 0 is the default, but the second entry falls into the else branch (is_default is true, idx != 0) and is stored as “other”. An empty prefix also gets replaced by cs.IMAP_DEFAULT_DELIMITER, which looks like a prefix/delimiter mix-up.
+
+6. Minor.
+The error message says “Failed to list mailboxes” but this is the NAMESPACE command, and the nested function is redefined on every call.
+
+The robust approach is a small tokenizer that builds nested lists, instead of regex splitting. It handles NIL, whitespace, quoted strings with escapes, and extensions:
+
+python
+_NS_TOKEN = re.compile(r'\(|\)|"((?:[^"\\]|\\.)*)"|(\S+?)(?=[\s()]|$)')
+
+def parse_namespace_response(raw: str) -> tuple[list, list, list]:
+    """
+    Parse '(("" "/")) NIL (("Shared/" "/"))' into
+    (personal, other_users, shared), each a list of (prefix, delimiter | None).
+    """
+    stack: list[list] = [[]]
+    for m in _NS_TOKEN.finditer(raw):
+        tok = m.group(0)
+        if tok == "(":
+            stack.append([])
+        elif tok == ")":
+            done = stack.pop()
+            stack[-1].append(done)
+        elif m.group(1) is not None:                      # quoted string
+            stack[-1].append(re.sub(r"\\(.)", r"\1", m.group(1)))
+        elif tok.upper() == "NIL":
+            stack[-1].append(None)
+        else:                                             # other atom, ignore
+            stack[-1].append(tok)
+
+    if len(stack) != 1 or len(stack[0]) != 3:
+        raise ValueError(f"Malformed NAMESPACE response: {raw!r}")
+
+    result = []
+    for group in stack[0]:
+        # group is None (NIL) or a list of entries [prefix, delimiter, *ext]
+        entries = [(e[0], e[1]) for e in group] if group else []
+        result.append(entries)
+    return tuple(result)  # type: ignore[return-value]
+Then your method becomes:
+
+python
+def namespace(self) -> None:
+    if self.connection is None or not self.authenticated:
+        raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehand")
+
+    success, datas = self._exec_imap4_method(self.connection.namespace)
+    if not success:
+        raise RequestException("Failed to get namespaces", err.ERROR_IMAP_FAILED)
+
+    personal, other_users, shared = parse_namespace_response(datas[0].decode())
+
+    if personal:
+        self.default_prefix, self.default_delimiter = personal[0]
+
+    for prefix, delimiter in personal[1:] + other_users + shared:
+        if prefix:
+            self.foreign_prefixes.add(prefix)
+        self.others_prefixes[prefix] = delimiter
+Things to decide on your side:
+
+delimiter can be None (flat namespace). Decide what your code does then, for example fall back to your default delimiter.
+If you later need to treat other users and shared differently, you already have them separated, so you can keep two dicts.
+Secondary personal namespaces are now stored with the foreign ones. If you’d rather keep them separate, add a third collection.

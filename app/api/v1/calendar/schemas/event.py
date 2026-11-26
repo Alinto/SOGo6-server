@@ -79,7 +79,7 @@ class CalendarEventQueryArgsSchema(Schema):
     )
     only_subscribe = fields.Boolean(
         load_default=True,
-        metadata={"description": "When true, only return events from calendars the user marked as subscribed (folders.CALENDAR.* = true)."},
+        metadata={"description": "When true, only return events from calendars the user marked as subscribed (folders.CALENDAR.*.display = true)."},
     )
 
 

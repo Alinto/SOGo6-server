@@ -43,6 +43,13 @@ class CardAddressBook:  # pylint: disable=too-many-instance-attributes
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
+    # Transient - the acting user's own rights on the book (ContactShareRightsSchema shape), not
+    # persisted. None when not resolved.
+    rights: dict[str, bool] | None = None
+    # Transient - for a book shared with the acting user: whether they subscribed to it
+    # (folders.ADDRESSBOOKS.SUBS). None when not resolved (owned books, plain listings).
+    subscribed: bool | None = None
+
     # sync_config is deliberately excluded: external CardDAV sync metadata (incl. credentials) is
     # written by the sync engine, never through a user update.
     _MUTABLE_FIELDS: ClassVar[frozenset[str]] = frozenset({"name", "description", "is_default"})
