@@ -5,6 +5,7 @@ from io import BytesIO
 
 from marshmallow import ValidationError
 
+from app.config.settings.UserSettings import UserMailCategorySettings
 from app.config.settings.DomainSettings import UserModuleSettings, UserModuleSettingsObj, MailSettings, MailSettingsObj
 from app.module.mail.ModuleMail import ModuleMail
 from app.module.mail.ModuleMailOutgoing import ModuleMailOutgoing
@@ -71,7 +72,13 @@ class InterfaceApiMailMailbox:
         return create_api_base_response(list_accounts)
 
     def get_mailbox_tags(self, account_id: str) -> tuple[dict, int]:
-        """Get all distinct tags used across every mail in every folder of the specified mailbox.
+        """Get all the tags of the specified mailbox.
+
+        Merges the mail categories defined in the user preferences
+        (USER_MAIL_CATEGORY_SETTINGS.SOGO_U_MAIL_CATEGORIES) with the distinct tags used across every
+        mail of every folder on the IMAP server. Preference categories come first, in their stored
+        order, then the IMAP-only tags (sorted) with a ``None`` color. A tag present in both is
+        returned once, with its preference values.
 
         :param account_id: The account identifier ("0" for main account, hash for external)
         :type account_id: str
@@ -82,11 +89,44 @@ class InterfaceApiMailMailbox:
             return create_api_base_response(error=err.ERROR_EXTERNAL_ACCOUNT_FORBIDDEN)
 
         try:
-            tags = self.mail_module.get_all_mail_tags(account_id)
-            return create_api_base_response(tags)
+            imap_tags = self.mail_module.get_all_mail_tags(account_id)
+            preferences = self.module_user_profile.get_user_preferences(self.user.uid)
         except RequestException as ex:
             logger_api.error("Request exception in get_mailbox_tags for user %s, account %s: %s", self.user.uid, account_id, str(ex))
             return create_api_base_response(None, ex.error)
+
+        categories: list[dict] = preferences.get(UserMailCategorySettings.subparent, {}).get("SOGO_U_MAIL_CATEGORIES") or []
+        return create_api_base_response(self._merge_tags(categories, imap_tags))
+
+    @staticmethod
+    def _merge_tags(categories: list[dict], imap_tags: list[str]) -> list[dict]:
+        """Merge the user preference categories with the IMAP tags into a single uniform list.
+
+        :param categories: Categories from the user preferences (name, color, is_default)
+        :type categories: list[dict]
+        :param imap_tags: Tag names found on the IMAP server
+        :type imap_tags: list[str]
+        :return: List of tags as dicts with name, color and is_default
+        :rtype: list[dict]
+        """
+        result: list[dict] = []
+        seen: set[str] = set()
+        for category in categories:
+            name = category.get("name")
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            result.append({
+                "name": name,
+                "color": category.get("color"),
+                "is_default": bool(category.get("is_default", False)),
+            })
+        for tag in imap_tags:
+            if tag in seen:
+                continue
+            seen.add(tag)
+            result.append({"name": tag, "color": None, "is_default": False})
+        return result
 
     def create_mailbox(self, account_data: dict) -> tuple[dict, int]:
         """Create a new mailbox (add external account).

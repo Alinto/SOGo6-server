@@ -14,6 +14,7 @@ from app.manager.mail.ClientImap import (
 from app.utils.exceptions import RequestException, BugException
 from app.utils import constants as cs
 from app.utils import errors as err
+from app.utils.strings import encode_imap_tag
 from app.utils.constants import (
     USER_CAN_VIEW_FOLDER, USER_CAN_READ_MAILS, USER_CAN_MARK_MAILS_READ,
     USER_CAN_INSERT_MAILS, USER_CAN_POST_MAILS, USER_CAN_CREATE_SUBFOLDERS,
@@ -1864,14 +1865,32 @@ class TestListFolders:
 # ===========================================================================
 
 class TestGetAllTags:
-    def test_get_all_tags_returns_all_flags(self):
+    def test_get_all_tags_excludes_system_flags(self):
         fake_conn = FakeIMAPConnection()
         fake_conn.list_response = ("OK", [b'(\\HasNoChildren) "." "INBOX"'])
         fake_conn.flags_response = ("OK", [b'(\\Answered \\Flagged \\Deleted \\Seen \\Draft Urgent Projet-X)'])
         client = authenticated_client(fake_conn)
 
         tags = client.get_all_tags()
-        assert tags == {"\\Answered", "\\Flagged", "\\Deleted", "\\Seen", "\\Draft", "Urgent", "Projet-X"}
+        assert tags == {"Urgent", "Projet-X"}
+
+    def test_get_all_tags_excludes_system_flags_case_insensitively(self):
+        fake_conn = FakeIMAPConnection()
+        fake_conn.list_response = ("OK", [b'(\\HasNoChildren) "." "INBOX"'])
+        fake_conn.flags_response = ("OK", [b'(\\seen \\FLAGGED \\deleted Urgent)'])
+        client = authenticated_client(fake_conn)
+
+        tags = client.get_all_tags()
+        assert tags == {"Urgent"}
+
+    def test_get_all_tags_keeps_other_backslash_flags(self):
+        fake_conn = FakeIMAPConnection()
+        fake_conn.list_response = ("OK", [b'(\\HasNoChildren) "." "INBOX"'])
+        fake_conn.flags_response = ("OK", [b'(\\Seen $Forwarded Urgent)'])
+        client = authenticated_client(fake_conn)
+
+        tags = client.get_all_tags()
+        assert tags == {"$Forwarded", "Urgent"}
 
     def test_get_all_tags_unions_across_folders(self):
         fake_conn = FakeIMAPConnection()
@@ -1883,7 +1902,7 @@ class TestGetAllTags:
         client = authenticated_client(fake_conn)
 
         tags = client.get_all_tags()
-        assert tags == {"\\Seen", "Urgent"}
+        assert tags == {"Urgent"}
 
     def test_get_all_tags_skips_unselectable_folders(self):
         fake_conn = FakeIMAPConnection()
@@ -2295,6 +2314,49 @@ class TestBuildSearchCriteria:
             {"bcc": ["a@b.com", "c@d.com"]}, deleted=False
         )
         assert criteria == '(NOT DELETED (OR BCC "a@b.com" BCC "c@d.com"))'
+
+    def test_labels_with_and_operator_require_every_label(self):
+        client = make_client()
+        criteria = client.build_search_criteria(
+            {"labels": ["tutu", "toto", "tata"]}, deleted=False
+        )
+        assert criteria == '(NOT DELETED (KEYWORD "tutu" KEYWORD "toto" KEYWORD "tata"))'
+
+    def test_labels_with_or_operator_match_any_label(self):
+        client = make_client()
+        criteria = client.build_search_criteria(
+            {"operator": "OR", "labels": ["tutu", "toto", "tata"]}, deleted=False
+        )
+        assert criteria == (
+            '(NOT DELETED (OR KEYWORD "tutu" (OR KEYWORD "toto" KEYWORD "tata")))'
+        )
+
+    def test_labels_with_or_operator_and_text_match_any_criterion(self):
+        client = make_client()
+        criteria = client.build_search_criteria(
+            {"operator": "OR", "labels": ["tutu", "toto", "tata"], "text": "contrat urgent"},
+            deleted=False,
+        )
+        assert criteria == (
+            '(NOT DELETED OR TEXT "contrat urgent" '
+            '(OR KEYWORD "tutu" (OR KEYWORD "toto" KEYWORD "tata")))'
+        )
+
+    def test_single_label_has_no_group(self):
+        client = make_client()
+        for operator in ("AND", "OR"):
+            criteria = client.build_search_criteria(
+                {"operator": operator, "labels": ["tutu"]}, deleted=False
+            )
+            assert criteria == '(NOT DELETED KEYWORD "tutu")'
+
+    def test_labels_are_encoded_like_stored_tags(self):
+        client = make_client()
+        criteria = client.build_search_criteria(
+            {"labels": ["très urgent"]}, deleted=False
+        )
+        assert criteria == f'(NOT DELETED KEYWORD "{encode_imap_tag("très urgent")}")'
+        assert "très urgent" not in criteria
 
     def test_no_user_criteria_and_deleted_true_returns_all(self):
         client = make_client()

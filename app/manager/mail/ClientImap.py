@@ -18,7 +18,12 @@ from app.utils.logger.logger import logger_imap
 from app.manager.mail.ClientMailServer import ClientMailServer
 from app.utils import errors as err
 from app.utils import constants as cs
-from app.utils.strings import quote, unquote, imap_join_folders, escape_imap_string
+from app.utils.strings import quote, unquote, imap_join_folders, escape_imap_string, encode_imap_tag
+
+# System flags never returned by get_all_tags (lowercase: IMAP flags are case-insensitive)
+_EXCLUDED_SYSTEM_TAGS: frozenset[str] = frozenset(
+    flag.lower() for flag in ('\\Deleted', '\\Draft', '\\Flagged', '\\Seen', '\\Answered')
+)
 
 # Maximum debug output from imaplib
 if logger_imap.level < WARNING:
@@ -881,6 +886,9 @@ class ClientImap(ClientMailServer):
         untagged FLAGS response, without fetching any message. The cost is therefore
         proportional to the number of folders, not to the number of messages.
 
+        The system flags \\Deleted, \\Draft, \\Flagged, \\Seen and \\Answered are excluded
+        (case-insensitive, as IMAP flags are). Returned tags are raw IMAP values (not decoded).
+
         :return: Set of tag names.
         :rtype: set[str]
         :raises RequestException: If not connected to the server.
@@ -899,7 +907,10 @@ class ClientImap(ClientMailServer):
                 for raw_flags in flags_data:
                     if not raw_flags:
                         continue
-                    tags.update(raw_flags.decode().strip('()').split())
+                    tags.update(
+                        flag for flag in raw_flags.decode().strip('()').split()
+                        if flag.lower() not in _EXCLUDED_SYSTEM_TAGS
+                    )
             return tags
         else:
             raise BugException("Not authenticated meaning self.connect() and self.login() was not called beforehands")
@@ -2680,6 +2691,10 @@ class ClientImap(ClientMailServer):
         whose ``To`` *or* ``Cc`` header contains the address (OR-ed across the two
         headers). ``bcc`` only matches against the ``Bcc`` header.
 
+        ``labels`` follows the top-level ``operator``: with "AND" a mail must carry
+        *every* given label, with "OR" carrying *any* of them is enough. Each label is
+        encoded with ``encode_imap_tag`` so it matches the keyword stored on the mail.
+
         * "AND" (default): groups are simply space-joined (IMAP's implicit AND).
         * "OR": groups are combined with a right-nested IMAP ``OR`` operator, so that
           a mail matches if it satisfies *any* of the provided criteria.
@@ -2747,8 +2762,12 @@ class ClientImap(ClientMailServer):
             field_groups.append('HEADER Content-Type "multipart/mixed"')
 
         if search_params.get("labels"):
-            label_parts = [f'KEYWORD "{label}"' for label in search_params["labels"]]
-            field_groups.append(_group_imap_search_parts(label_parts))
+            label_parts = [
+                f'KEYWORD "{escape_imap_string(encode_imap_tag(label))}"'
+                for label in search_params["labels"]
+            ]
+            group_labels = _group_imap_search_parts_or if operator == "OR" else _group_imap_search_parts
+            field_groups.append(group_labels(label_parts))
 
         if search_params.get("size"):
             size = search_params["size"]

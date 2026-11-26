@@ -1607,9 +1607,10 @@ def test_put_folder_share_with_multiple_users(monkeypatch):
 # ===========================================================================
 
 def _make_search_mail_dict(uid='1', subject='Test', from_='sender@example.com',
-                            to='recipient@example.com', seen=False, folder='INBOX'):
+                            to='recipient@example.com', seen=False, folder='INBOX',
+                            date='Mon, 1 Jan 2024 10:00:00 +0000'):
     """Build a mail dict as returned by search_mails_with_content."""
-    msg = _make_email_message(subject=subject, from_=from_, to=to)
+    msg = _make_email_message(subject=subject, from_=from_, to=to, date=date)
     return (folder, {
         'uid': uid,
         'mail': msg,
@@ -1733,6 +1734,76 @@ def test_search_mails_sort_by_subject_desc(monkeypatch):
 
     assert result[0]['subject'] == 'Zebra'
     assert result[1]['subject'] == 'Apple'
+
+
+def _date_sort_fixture():
+    """Mails whose alphabetical Date header order differs from the chronological one."""
+    return [
+        _make_search_mail_dict(uid='1', date='Wed, 1 Jan 2025 10:00:00 +0000'),  # 3rd
+        _make_search_mail_dict(uid='2', date='Fri, 15 Mar 2024 09:00:00 +0000'),  # 2nd
+        _make_search_mail_dict(uid='3', date=''),                                 # no date
+        _make_search_mail_dict(uid='4', date='Mon, 1 Jan 2024 10:00:00 +0000'),   # 1st
+        _make_search_mail_dict(uid='5', date='Wed, 1 Jan 2025 10:30:00 +0200'),   # 1 Jan 2025 08:30 UTC, before uid 1
+    ]
+
+
+def test_search_mails_sort_by_date_asc(monkeypatch):
+    """Dates are compared chronologically (timezones included), not as strings."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.search_mails_result = _date_sort_fixture()
+
+    collection = CollectionPaginateArgs(page=1, page_size=10, sort_by='date', sort_order='asc')
+    result, _ = module.search_mails(ACCOUNT_ID, {}, collection)
+
+    assert [m['uid'] for m in result] == ['4', '2', '5', '1', '3']
+
+
+def test_search_mails_sort_by_date_desc(monkeypatch):
+    """Most recent first; mails without a date stay last."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.search_mails_result = _date_sort_fixture()
+
+    collection = CollectionPaginateArgs(page=1, page_size=10, sort_by='date', sort_order='desc')
+    result, _ = module.search_mails(ACCOUNT_ID, {}, collection)
+
+    assert [m['uid'] for m in result] == ['1', '5', '2', '4', '3']
+
+
+def test_search_mails_sort_by_date_paginates_in_order(monkeypatch):
+    """Page 2 continues the date order of page 1."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.search_mails_result = _date_sort_fixture()
+
+    collection = CollectionPaginateArgs(page=2, page_size=2, sort_by='date', sort_order='desc')
+    result, total = module.search_mails(ACCOUNT_ID, {}, collection)
+
+    assert total == 5
+    assert [m['uid'] for m in result] == ['2', '4']
+
+
+def test_search_mails_sort_by_relevance_falls_back_to_date(monkeypatch):
+    """Relevance has no score yet and sorts like date."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.search_mails_result = _date_sort_fixture()
+
+    collection = CollectionPaginateArgs(page=1, page_size=10, sort_by='relevance', sort_order='desc')
+    result, _ = module.search_mails(ACCOUNT_ID, {}, collection)
+
+    assert [m['uid'] for m in result] == ['1', '5', '2', '4', '3']
+
+
+def test_search_mails_sort_by_date_invalid_header_is_last(monkeypatch):
+    """An unparsable Date header is treated like a missing one."""
+    module, fake_client = _make_module(monkeypatch)
+    fake_client.search_mails_result = [
+        _make_search_mail_dict(uid='1', date='not a date'),
+        _make_search_mail_dict(uid='2', date='Mon, 1 Jan 2024 10:00:00 +0000'),
+    ]
+
+    collection = CollectionPaginateArgs(page=1, page_size=10, sort_by='date', sort_order='asc')
+    result, _ = module.search_mails(ACCOUNT_ID, {}, collection)
+
+    assert [m['uid'] for m in result] == ['2', '1']
 
 
 def test_search_mails_specific_folders(monkeypatch):

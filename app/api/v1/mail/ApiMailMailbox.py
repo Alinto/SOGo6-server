@@ -278,7 +278,12 @@ class ApiMailBoxesAccountTags(MethodView):
     @blp.response(200, MailboxTagsResponseSchema)
     def get(self, account_id: str) -> ResponseReturnValue:
         """
-        List all distinct tags used across every mail in every folder of the specified mailbox
+        List all the tags of the specified mailbox
+
+        Merges the mail categories of the user preferences (``USER_MAIL_CATEGORY_SETTINGS.SOGO_U_MAIL_CATEGORIES``,
+        set via PATCH /preferences) with the distinct tags used across every mail in every folder of the mailbox.
+        Each tag has the form ``{"name": str, "color": str | null, "is_default": bool}``; tags found only on the
+        IMAP server have a ``null`` color and ``is_default`` false.
         """
         logger_api.debug("Calling ApiMailBoxesAccountTags.get for account_id: %s", account_id)
         interface: InterfaceApiMailMailbox = g.inter

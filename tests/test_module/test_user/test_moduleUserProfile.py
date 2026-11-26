@@ -2,10 +2,13 @@
 Ces tests utilisent un fake ClientSQL pour tester la logique métier du module.
 """
 
+import base64
+import os
 from unittest import mock
 import pytest
 
 from app.module.user.ModuleUserProfile import ModuleUserProfile
+from app.utils.maths import crypto_utils
 from app.utils.exceptions import BugException, RequestException, AggravatedException
 from app.config.db import tables as tbl
 from app.utils import errors as err
@@ -539,6 +542,8 @@ def test_get_account_detail_not_found(monkeypatch):
 
 def test_create_external_account_success(monkeypatch):
     """Test creating an external account."""
+    # Passwords are encrypted: do not depend on SOGO_AES_ENC_KEY being set in the test environment
+    monkeypatch.setattr(crypto_utils, 'SOGO_AES_ENC_KEY', base64.b64encode(os.urandom(32)).decode('utf-8'))
     fake_client = FakeClientSQL()
     fake_client.select_result = [({},)]
     fake_client.update_result = 1
