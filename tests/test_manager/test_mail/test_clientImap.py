@@ -1864,14 +1864,32 @@ class TestListFolders:
 # ===========================================================================
 
 class TestGetAllTags:
-    def test_get_all_tags_returns_all_flags(self):
+    def test_get_all_tags_excludes_system_flags(self):
         fake_conn = FakeIMAPConnection()
         fake_conn.list_response = ("OK", [b'(\\HasNoChildren) "." "INBOX"'])
         fake_conn.flags_response = ("OK", [b'(\\Answered \\Flagged \\Deleted \\Seen \\Draft Urgent Projet-X)'])
         client = authenticated_client(fake_conn)
 
         tags = client.get_all_tags()
-        assert tags == {"\\Answered", "\\Flagged", "\\Deleted", "\\Seen", "\\Draft", "Urgent", "Projet-X"}
+        assert tags == {"Urgent", "Projet-X"}
+
+    def test_get_all_tags_excludes_system_flags_case_insensitively(self):
+        fake_conn = FakeIMAPConnection()
+        fake_conn.list_response = ("OK", [b'(\\HasNoChildren) "." "INBOX"'])
+        fake_conn.flags_response = ("OK", [b'(\\seen \\FLAGGED \\deleted Urgent)'])
+        client = authenticated_client(fake_conn)
+
+        tags = client.get_all_tags()
+        assert tags == {"Urgent"}
+
+    def test_get_all_tags_keeps_other_backslash_flags(self):
+        fake_conn = FakeIMAPConnection()
+        fake_conn.list_response = ("OK", [b'(\\HasNoChildren) "." "INBOX"'])
+        fake_conn.flags_response = ("OK", [b'(\\Seen $Forwarded Urgent)'])
+        client = authenticated_client(fake_conn)
+
+        tags = client.get_all_tags()
+        assert tags == {"$Forwarded", "Urgent"}
 
     def test_get_all_tags_unions_across_folders(self):
         fake_conn = FakeIMAPConnection()
@@ -1883,7 +1901,7 @@ class TestGetAllTags:
         client = authenticated_client(fake_conn)
 
         tags = client.get_all_tags()
-        assert tags == {"\\Seen", "Urgent"}
+        assert tags == {"Urgent"}
 
     def test_get_all_tags_skips_unselectable_folders(self):
         fake_conn = FakeIMAPConnection()
