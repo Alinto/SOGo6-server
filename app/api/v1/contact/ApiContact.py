@@ -33,6 +33,10 @@ from .schemas.addressbook import (
     ContactSharePutSchema,
     ContactSharePostSchema,
     ContactShareResponseSchema,
+    SharedAddressBookListResponseSchema,
+    SharedAddressBookResponseSchema,
+    SharedAddressBookSubscribeSchema,
+    SharedAddressBookUserListResponseSchema,
 )
 from .schemas.contact import (
     ContactCreateSchema,
@@ -42,6 +46,7 @@ from .schemas.contact import (
     ContactSearchQueryArgsSchema,
     ContactAutocompleteQueryArgsSchema,
     ContactAutocompleteResponseSchema,
+    SharedAddressBookQueryArgsSchema,
 )
 from .schemas.list import (
     ListCreateSchema,
@@ -188,6 +193,66 @@ class ApiAddressBookShare(MethodView):
             return create_api_base_response(None, ERROR_SHARE_ANY_AUTH_DISABLED)
         interface: InterfaceApiContactContact = g.inter
         return interface.post_addressbook_share(key, body)
+
+
+@blp.route("/shared-addressbooks/users")
+class ApiSharedAddressBookUserList(MethodView):
+    """API to discover the users sharing address books with the current user.
+
+    Sharing an address book only offers it: it shows in GET /addressbooks (and in the transverse
+    contact search and autocompletion) once the recipient subscribes.
+    """
+
+    @blp.response(200, SharedAddressBookUserListResponseSchema)
+    @blp.arguments(SharedAddressBookQueryArgsSchema, location="query", arg_name="query_args")
+    @collection_paginate(blp, can_sort=False, can_filter=False)
+    def get(self, query_args: dict, collection_param: CollectionPaginateArgs) -> CustomPaginateResponse:
+        """List the users sharing at least one address book with the user (directly or with anyone in their domain).
+
+        Each user carries ``mail`` and ``username``: the owner's complete name from the user source.
+
+        Query parameters:
+        - ``search``: optional, case-insensitive substring matched against ``mail`` or ``username``
+          (minimum 2 non-whitespace characters, otherwise 422).
+        - ``page`` (default 1) / ``page_size`` (default 20, max 100): pagination.
+
+        Users are ordered by ``username``, then ``mail``. The total number of matching users is
+        returned in the ``X-Pagination`` response header, not in the body.
+        """
+        logger_api.debug("GET /shared-addressbooks/users user=%s args=%s params=%s", g.user.uid, query_args, collection_param)
+        interface: InterfaceApiContactContact = g.inter
+        return interface.get_shared_addressbook_users(collection_param, search=query_args.get("search"))
+
+
+@blp.route("/shared-addressbooks/<string:key>")
+class ApiSharedAddressBookSubscribe(MethodView):
+    """API to list the address books a user shares with the current user, and to subscribe to or unsubscribe from one.
+
+    The path parameter is the owner's mail on GET, the address book key on PUT.
+    """
+
+    @blp.response(200, SharedAddressBookListResponseSchema)
+    def get(self, key: str) -> ResponseReturnValue:
+        """List the address books the user ``key`` (owner's mail) shares with the user, and whether they subscribed.
+
+        Each address book carries ``username``: the owner's complete name from the user source.
+        Address books are ordered by ``name``; the list is not paginated.
+        """
+        logger_api.debug("GET /shared-addressbooks/%s user=%s", key, g.user.uid)
+        interface: InterfaceApiContactContact = g.inter
+        return interface.get_shared_addressbooks_of(key)
+
+    @blp.arguments(SharedAddressBookSubscribeSchema, example=SharedAddressBookSubscribeSchema.example())
+    @blp.response(200, SharedAddressBookResponseSchema)
+    def put(self, body: dict, key: str) -> ResponseReturnValue:
+        """Subscribe to (``subscribe: 1``) or unsubscribe from (``subscribe: 0``) a shared address book.
+
+        Subscribing requires can_view on the address book. Unsubscribing leaves the owner's share
+        untouched. Both are idempotent.
+        """
+        logger_api.debug("PUT /shared-addressbooks/%s user=%s body=%s", key, g.user.uid, body)
+        interface: InterfaceApiContactContact = g.inter
+        return interface.set_addressbook_subscription(key, body)
 
 
 @blp.route("/addressbooks/<string:key>/contacts")

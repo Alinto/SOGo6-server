@@ -1,4 +1,4 @@
-from marshmallow import Schema, fields, validate
+from marshmallow import EXCLUDE, Schema, fields
 
 from app.utils.api.ApiBaseResponse import ApiBaseResponse
 
@@ -88,15 +88,32 @@ class UserPreferencesPatch(Schema):
             }
         }
 
+class UserPreferencesFolderEntry(Schema):
+    """
+    One folder entry of PATCH /preferences/folders, only the display toggle can be changed (``name`` is ignored)
+    """
+    class Meta:
+        unknown = EXCLUDE
+
+    display = fields.Boolean(required=True)
+
+
+def _folders_sections_field() -> fields.Dict:
+    """
+    ``{owner_key: {folder_id: {"display": bool}}}`` part of PATCH /preferences/folders
+    """
+    return fields.Dict(keys=fields.String(),
+                       values=fields.Dict(keys=fields.String(), values=fields.Nested(UserPreferencesFolderEntry)))
+
+
 class UserPreferencesFoldersPatch(Schema):
     """
     Schema of the body expected for PATCH /preferences/folders
 
-    Updates a single folder key's boolean value within the folders column (CALENDAR or ADDRESSBOOKS)
+    Same format as the GET response: updates the display toggle of the given folder keys only (CALENDAR or ADDRESSBOOKS)
     """
-    resource = fields.String(required=True, validate=validate.OneOf(["CALENDAR", "ADDRESSBOOKS"]))
-    id = fields.String(required=True)
-    value = fields.Boolean(required=True)
+    CALENDAR = _folders_sections_field()
+    ADDRESSBOOKS = _folders_sections_field()
 
     @classmethod
     def example(cls) -> dict:
@@ -107,7 +124,17 @@ class UserPreferencesFoldersPatch(Schema):
         :rtype: dict
         """
         return {
-            "resource": "CALENDAR",
-            "id": "3c4b0bc9-3aab-4243-abb2-75a5edc8c239",
-            "value": True
+            "CALENDAR": {
+                "OWNER": {
+                    "3c4b0bc9-3aab-4243-abb2-75a5edc8c239": {"display": True}
+                },
+                "SUBS": {
+                    "6900c985-b7ce-4cf3-b7a1-45b9948ad24a": {"display": False}
+                }
+            },
+            "ADDRESSBOOKS": {
+                "OWNER": {
+                    "76cfa1cd-2ed7-4f14-8975-0904b166f40f": {"display": True}
+                }
+            }
         }

@@ -1,0 +1,234 @@
+"""Unit tests for InterfaceApiCalendarCalendar - shared calendar discovery, subscription and share-time subscribe."""
+from unittest.mock import MagicMock
+
+from app.interface.calendar.InterfaceApiCalendarCalendar import InterfaceApiCalendarCalendar
+from app.module.calendar.ModuleCalendar import ModuleCalendar
+from app.module.calendar.model.CalCalendar import CalCalendar
+from app.module.calendar.serializer.CalCalendarSerializerDict import CalCalendarSerializerDict
+from app.module.calendar.serializer.CalCalendarsSerializerList import CalCalendarsSerializerList
+from app.auth.User import User
+from app.utils import constants as cs
+from app.utils.api.paginate_sort_filter import CollectionPaginateArgs
+from app.utils import errors as err
+from app.utils.exceptions import RequestException
+
+_ME = "bob@example.com"
+_VIEW_RIGHTS = {"public": "view-all", "confidential": "none", "private": "none",
+                "can_create_objects": False, "can_erase_objects": False}
+_NO_VIEW_RIGHTS = {"public": "none", "confidential": "none", "private": "none",
+                   "can_create_objects": True, "can_erase_objects": False}
+
+
+def _build_interface(subs=None):
+    inter = object.__new__(InterfaceApiCalendarCalendar)
+    inter.user = MagicMock()
+    inter.user.uid = _ME
+    inter.user.mail = _ME
+    inter.user.folders = {"CALENDAR": {"OWNER": {"mine": True}, "SUBS": dict(subs or {})}}
+    inter.module = MagicMock()
+    inter.module.get_all_calendars.return_value = []
+    inter.module.get_calendar_share.return_value = []
+    inter.module.get_calendar.return_value.calendar = _cal("k")
+    inter.module.with_personal_name.side_effect = ModuleCalendar.with_personal_name
+    inter._calendar_serializer = CalCalendarSerializerDict()
+    inter._calendars_serializer = CalCalendarsSerializerList()
+    inter._events_serializer = MagicMock(serialize=MagicMock(return_value=[]))
+    inter._task_serializer = MagicMock()
+    inter._process_setting = MagicMock(SOGO_P_PUBLIC_BASE_URL="")
+    inter._user_module = MagicMock()
+    inter._share_targets = {}
+    # Every uid resolves to itself, "anyone" to the pseudo-user.
+    inter._resolve_to_user = lambda entry: cs.ANYONE_TO_USER if entry.get("user_class") == cs.USER_CLASS_ANY else entry["uid"]
+    inter._serialize_share_entries = MagicMock(return_value=[])
+    return inter
+
+
+def _cal(key, owner="alice@example.com"):
+    return CalCalendar(key=key, user_uid=owner, name=key)
+
+
+def _subs_added(inter):
+    return [c.args for c in inter._user_module.add_folder_key.call_args_list]
+
+
+def _subs_values(inter):
+    return [c.kwargs["value"] for c in inter._user_module.add_folder_key.call_args_list]
+
+
+# ========== listings: passthrough, the module resolves subscriptions ==========
+
+def test_get_all_calendars_only_passes_the_user():
+    inter = _build_interface(subs={"a": True})
+    inter.get_all_calendars()
+    inter.module.get_all_calendars.assert_called_once_with(inter.user)
+
+
+def test_get_events_does_not_pass_subscriptions():
+    inter = _build_interface(subs={"a": True})
+    inter.module.get_all_events.return_value = []
+    inter.get_events(None, {})
+    assert len(inter.module.get_all_events.call_args.args) == 6  # calendar_user, start, end, search, key, subscribed_keys
+
+
+def test_get_tasks_does_not_pass_subscriptions():
+    inter = _build_interface(subs={"a": True})
+    inter.module.get_all_tasks.return_value = []
+    inter.get_tasks(None, {})
+    assert len(inter.module.get_all_tasks.call_args.args) == 5  # calendar_user, start, end, search, key
+
+
+# ========== discovery ==========
+
+def _with_owner_names(inter, names):
+    """Make the user source resolve each owner uid in names to that cn; any other uid is unknown (ANON)."""
+    def resolve(uid):
+        target = User(uid=uid, cn=names.get(uid, ""))
+        target.user_class = cs.USER_CLASS_USER if uid in names else cs.USER_CLASS_ANON
+        return target
+    inter._resolve_share_target = resolve
+
+
+def _shared_users(inter, search=None, page=1, page_size=20):
+    total, response, _ = inter.get_shared_calendar_users(CollectionPaginateArgs(page=page, page_size=page_size), search=search)
+    return total, response["data"]["users"]
+
+
+def _shared_of(inter, account_id):
+    response, _ = inter.get_shared_calendars_of(account_id)
+    return response["data"]["calendars"]
+
+
+def test_get_shared_calendar_users_lists_each_owner_once():
+    inter = _build_interface()
+    _with_owner_names(inter, {"alice@example.com": "Alice Liddell"})
+    inter.module.get_shared_calendars.return_value = [_cal("a"), _cal("b"), _cal("c", owner="ghost@example.com")]
+    total, users = _shared_users(inter)
+    assert total == 2
+    assert users == [{"mail": "ghost@example.com", "username": ""}, {"mail": "alice@example.com", "username": "Alice Liddell"}]
+
+
+def test_get_shared_calendar_users_search_matches_mail_or_username_case_insensitive():
+    inter = _build_interface()
+    _with_owner_names(inter, {"alice@example.com": "Alice", "u42@example.com": "Sogo Admin", "carol@example.com": "Carol"})
+    inter.module.get_shared_calendars.return_value = [
+        _cal("by-owner", owner="sogo-tests1@example.com"),
+        _cal("by-username", owner="u42@example.com"),
+        _cal("no-match", owner="carol@example.com"),
+    ]
+    total, users = _shared_users(inter, search=" SOG ")
+    assert total == 2
+    assert sorted(u["mail"] for u in users) == ["sogo-tests1@example.com", "u42@example.com"]
+
+
+def test_get_shared_calendar_users_paginates_sorted_by_username():
+    inter = _build_interface()
+    _with_owner_names(inter, {f"u{i}@example.com": f"User {i}" for i in range(5)})
+    inter.module.get_shared_calendars.return_value = [_cal(f"k{i}", owner=f"u{i}@example.com") for i in (3, 0, 4, 1, 2)]
+    total, users = _shared_users(inter, page=2, page_size=2)
+    assert total == 5
+    assert [u["mail"] for u in users] == ["u2@example.com", "u3@example.com"]
+
+
+def test_get_shared_calendars_of_keeps_only_the_owner_calendars():
+    inter = _build_interface()
+    _with_owner_names(inter, {"alice@example.com": "Alice Liddell"})
+    subscribed, offered = _cal("b"), _cal("a")
+    subscribed.subscribed, offered.subscribed = True, False
+    inter.module.get_shared_calendars.return_value = [subscribed, _cal("other", owner="carol@example.com"), offered]
+    calendars = _shared_of(inter, "Alice@Example.com")
+    assert [(c["key"], c["subscribed"], c["username"]) for c in calendars] == [
+        ("a", False, "Alice Liddell"), ("b", True, "Alice Liddell"),
+    ]
+
+
+def test_get_shared_calendars_of_unknown_owner_is_empty():
+    inter = _build_interface()
+    _with_owner_names(inter, {})
+    inter.module.get_shared_calendars.return_value = [_cal("a")]
+    assert _shared_of(inter, "nobody@example.com") == []
+
+
+# ========== subscribe / unsubscribe ==========
+
+def test_subscribe_writes_subs_without_overwriting_and_returns_module_calendar():
+    inter = _build_interface()
+    calendar = _cal("a")
+    calendar.subscribed = True
+    inter.module.require_subscribable.return_value = calendar
+    response, _ = inter.set_calendar_subscription("a", {"subscribe": True})
+    assert response["error_code"] == "S000000"
+    assert response["data"]["subscribed"] is True
+    inter._user_module.add_folder_key.assert_called_once_with(_ME, "CALENDAR", "a", owner_key="SUBS", keep_existing=True,
+                                                              value={"display": True, "name": "a"})
+
+
+def test_resubscribe_returns_personal_name():
+    inter = _build_interface(subs={"a": {"display": False, "name": "Mine"}})
+    inter.module.require_subscribable.return_value = _cal("a")
+    response, _ = inter.set_calendar_subscription("a", {"subscribe": True})
+    assert response["data"]["name"] == "Mine"
+
+
+def test_subscribe_refused_writes_nothing():
+    inter = _build_interface()
+    inter.module.require_subscribable.side_effect = RequestException(error=err.ERROR_CALENDAR_NOT_FOUND)
+    response, _ = inter.set_calendar_subscription("a", {"subscribe": True})
+    assert response["error_code"] == err.ERROR_CALENDAR_NOT_FOUND.c
+    inter._user_module.add_folder_key.assert_not_called()
+
+
+def test_unsubscribe_removes_key_without_access_check():
+    inter = _build_interface(subs={"a": True})
+    response, _ = inter.set_calendar_subscription("a", {"subscribe": False})
+    assert response["error_code"] == "S000000"
+    assert response["data"] == {"key": "a", "subscribed": False}
+    inter._user_module.remove_folder_key.assert_called_once_with(_ME, "CALENDAR", "a", owner_key="SUBS")
+    inter.module.get_calendar.assert_not_called()
+    inter.module.require_subscribable.assert_not_called()
+
+
+# ========== share-time subscription ==========
+
+def test_patch_share_does_not_subscribe_by_default():
+    inter = _build_interface()
+    inter.patch_calendar_share("k", [{"uid": "carol@example.com", "user_class": "user", "rights": _VIEW_RIGHTS}])
+    inter._user_module.add_folder_key.assert_not_called()
+
+
+def test_patch_share_subscribes_when_asked():
+    inter = _build_interface()
+    inter.patch_calendar_share("k", [{"uid": "carol@example.com", "user_class": "user",
+                                      "rights": _VIEW_RIGHTS, "subscribe": True}])
+    assert _subs_added(inter) == [("carol@example.com", "CALENDAR", "k")]
+    assert _subs_values(inter) == [{"display": True, "name": "k"}]
+    assert inter._user_module.add_folder_key.call_args.kwargs["keep_existing"] is True
+
+
+def test_patch_share_never_subscribes_anyone():
+    inter = _build_interface()
+    inter.patch_calendar_share("k", [{"user_class": cs.USER_CLASS_ANY, "rights": _VIEW_RIGHTS, "subscribe": True}])
+    inter._user_module.add_folder_key.assert_not_called()
+
+
+def test_patch_share_does_not_subscribe_without_view_right():
+    inter = _build_interface()
+    inter.patch_calendar_share("k", [{"uid": "carol@example.com", "user_class": "user",
+                                      "rights": _NO_VIEW_RIGHTS, "subscribe": True}])
+    inter._user_module.add_folder_key.assert_not_called()
+
+
+def test_put_share_subscribes_only_flagged_users():
+    inter = _build_interface()
+    inter.put_calendar_share("k", [
+        {"uid": "carol@example.com", "user_class": "user", "rights": _VIEW_RIGHTS, "subscribe": True},
+        {"uid": "dave@example.com", "user_class": "user", "rights": _VIEW_RIGHTS},
+    ])
+    assert _subs_added(inter) == [("carol@example.com", "CALENDAR", "k")]
+
+
+def test_post_share_grants_full_rights_and_honours_subscribe():
+    inter = _build_interface()
+    inter.post_calendar_share("k", [{"uid": "carol@example.com", "user_class": "user",
+                                     "rights": _NO_VIEW_RIGHTS, "subscribe": True}])
+    inter.module.grant_calendar_share.assert_called_once_with(inter.user, "k", ["carol@example.com"])
+    assert _subs_added(inter) == [("carol@example.com", "CALENDAR", "k")]

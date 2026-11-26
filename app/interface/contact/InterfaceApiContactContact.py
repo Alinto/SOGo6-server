@@ -10,6 +10,7 @@ from app.config.settings.DomainSettings import (
     UserModuleSettingsObj,
 )
 from app.factory.share.RepositoryAcl import AclEntry
+from app.factory.share.shareContact import FULL_MODIFY_RIGHTS, ShareContact
 from app.module.auth.ModuleUserSource import ModuleUserSource
 from app.module.contact.ContactConst import AUTOCOMPLETE_DEFAULT_LIMIT
 from app.module.contact.ModuleContact import ModuleContact
@@ -47,7 +48,6 @@ if TYPE_CHECKING:
     from app.module.contact.model.CardContact import CardContact
     from app.module.contact.model.CardList import CardList
     from app.module.contact.model.ContactImportResult import ContactImportResult
-    from app.module.contact.source.ContactSource import ContactSource
     from collections.abc import Callable
 
     from app.utils.api.paginate_sort_filter import CollectionPaginateArgs, CustomPaginateResponse
@@ -86,7 +86,11 @@ class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attribute
     # Address books
     #
     def get_all_addressbooks(self) -> tuple[dict[str, Any], int]:
-        """List the address books owned by the current user."""
+        """List the address books of the current user.
+
+        Owned books plus the shared ones the user subscribed to (folders.ADDRESSBOOKS.SUBS), then the
+        directory books. Shared books not subscribed to are only listed by GET /shared-addressbooks/{account_id}.
+        """
         try:
             #Get user's address book
             books: list[CardAddressBook] = self.module.get_all_addressbooks(self.user)
@@ -109,8 +113,8 @@ class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attribute
             if gab:
                 return create_api_base_response(gab)
             #Check of personnal books
-            source: ContactSource = self.module.get_addressbook(self.user, key)
-            return create_api_base_response(self._addressbook_serializer.serialize(source.addressbook))
+            book: CardAddressBook = self.module.get_displayed_addressbook(self.user, key)
+            return create_api_base_response(self._addressbook_serializer.serialize(book))
         except RequestException as ex:
             logger_api.error("get_addressbook failed for user %s key %s: %s", self.user.uid, key, ex)
             return create_api_base_response(None, ex.error)
@@ -136,10 +140,22 @@ class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attribute
             return create_api_base_response(None, ex.error)
 
     def update_addressbook(self, key: str, body: dict[str, Any]) -> tuple[dict[str, Any], int]:
-        """Apply partial updates to an address book (mutable fields only)."""
+        """Apply partial updates to an address book (mutable fields only).
+
+        On a book shared with the user, ``name`` is the user's own name for it: ModuleUserProfile
+        stores it in folders.ADDRESSBOOKS.SUBS, the book row (seen by its owner and the other
+        subscribers) is not renamed. Any other field stays owner-only (ModuleContact refuses it).
+        """
         try:
-            updated: CardAddressBook = self.module.update_addressbook(self.user, key, body)
-            return create_api_base_response(self._addressbook_serializer.serialize(updated))
+            book: CardAddressBook = self.module.get_addressbook(self.user, key).addressbook
+            shared_update, personal_name = self.module.split_personal_update(self.user, book, body)
+            if shared_update:
+                book = self.module.update_addressbook(self.user, key, shared_update)
+            if personal_name is not None:
+                self.user.profile.folders = self._user_module.update_folder_name(
+                    self.user.uid, "ADDRESSBOOKS", key, personal_name, owner_key="SUBS",
+                )
+            return create_api_base_response(self._addressbook_serializer.serialize(self.module.with_personal_name(self.user, book)))
         except RequestException as ex:
             logger_api.error("update_addressbook failed for user %s key %s: %s", self.user.uid, key, ex)
             return create_api_base_response(None, ex.error)
@@ -153,6 +169,84 @@ class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attribute
             return create_api_base_response(None)
         except RequestException as ex:
             logger_api.error("delete_addressbook failed for user %s key %s: %s", self.user.uid, key, ex)
+            return create_api_base_response(None, ex.error)
+
+    #
+    # Shared address books - subscriptions
+    #
+    def get_shared_addressbook_users(self, collection_param: CollectionPaginateArgs, search: str | None = None) -> CustomPaginateResponse:
+        """List the users sharing at least one address book with the user (direct or "anyone" share).
+
+        Each user is ``{"mail", "username"}``: ``username`` is the owner's complete name (US_FIELD_CN)
+        resolved through the user sources - which is why the search and the pagination happen here and
+        not in ModuleContact: the architecture rule forbids the contact module calling the user source module.
+        ``search`` keeps the users whose mail or username contains it (case-insensitive).
+        The list is sorted (username, mail) so the pages are stable; the total count goes to
+        the X-Pagination header.
+
+        :return: A tuple (total_count, API response dict, status code).
+        """
+        try:
+            owners: set[str] = {book.user_uid for book in self.module.get_shared_addressbooks(self.user)}
+            users: list[dict[str, str]] = [{"mail": owner, "username": self._owner_username(owner)} for owner in owners]
+            if search:
+                needle: str = search.strip().casefold()
+                users = [u for u in users if needle in u["mail"].casefold() or needle in u["username"].casefold()]
+            users.sort(key=lambda u: (u["username"].casefold(), u["mail"].casefold()))
+            page: list[dict[str, str]] = users[collection_param.first_item:collection_param.last_item + 1]
+            return len(users), *create_api_base_response({"users": page})
+        except RequestException as ex:
+            logger_api.error("get_shared_addressbook_users failed for user %s: %s", self.user.uid, ex)
+            return 0, *create_api_base_response(None, ex.error)
+
+    def get_shared_addressbooks_of(self, account_id: str) -> tuple[dict[str, Any], int]:
+        """List every address book account_id shares with the user, with rights and subscription state.
+
+        Each address book gets ``username``, the owner's complete name (US_FIELD_CN). The match on the
+        owner is case-insensitive; an owner sharing nothing with the user gives an empty list.
+        The list is sorted by address book name.
+        """
+        try:
+            owner: str = account_id.casefold()
+            books: list[CardAddressBook] = [
+                book for book in self.module.get_shared_addressbooks(self.user) if book.user_uid.casefold() == owner
+            ]
+            serialized: list[dict[str, Any]] = self._addressbooks_serializer.serialize(books)
+            for book_dict in serialized:
+                book_dict["username"] = self._owner_username(book_dict["owner"])
+            serialized.sort(key=lambda b: (b["name"] or "").casefold())
+            return create_api_base_response({"addressbooks": serialized})
+        except RequestException as ex:
+            logger_api.error("get_shared_addressbooks_of failed for user %s account %s: %s", self.user.uid, account_id, ex)
+            return create_api_base_response(None, ex.error)
+
+    def _owner_username(self, owner_uid: str) -> str:
+        """Return the owner's complete name (US_FIELD_CN) from the user sources, "" when no source knows them."""
+        owner: User = self._resolve_share_target(owner_uid)
+        return owner.cn if owner.user_class == cs.USER_CLASS_USER else ""
+
+    def set_addressbook_subscription(self, key: str, body: dict[str, Any]) -> tuple[dict[str, Any], int]:
+        """Subscribe to, or unsubscribe from, a shared address book according to ``body["subscribe"]``.
+
+        ModuleContact checks the right, ModuleUserProfile owns folders.ADDRESSBOOKS.SUBS.
+        Subscribing requires can_view and stores ``{"display": true, "name": <book name>}``; an existing
+        subscription keeps its display toggle and the user's own name.
+        Unsubscribing has no access check, so a subscription whose share was revoked can still be cleaned up.
+        Neither touches the ACL: a subscription grants nothing.
+
+        :return: API envelope with the address book, its rights and ``subscribed: true`` on subscribe,
+            or ``{"key", "subscribed": false}`` on unsubscribe (the book may no longer be visible).
+        """
+        try:
+            if not body["subscribe"]:
+                self._user_module.remove_folder_key(self.user.uid, "ADDRESSBOOKS", key, owner_key="SUBS")
+                return create_api_base_response({"key": key, "subscribed": False})
+            book: CardAddressBook = self.module.require_subscribable(self.user, key)
+            self._user_module.add_folder_key(self.user.uid, "ADDRESSBOOKS", key, owner_key="SUBS", keep_existing=True,
+                                             value={"display": True, "name": book.name})
+            return create_api_base_response(self._addressbook_serializer.serialize(self.module.with_personal_name(self.user, book)))
+        except RequestException as ex:
+            logger_api.error("set_addressbook_subscription failed for user %s key %s: %s", self.user.uid, key, ex)
             return create_api_base_response(None, ex.error)
 
     #
@@ -182,9 +276,9 @@ class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attribute
         :return: API envelope with updated user permissions.
         """
         try:
-            users: list[dict[str, Any]] = [{"uid": self._resolve_to_user(entry), "rights": entry["rights"]} for entry in body]
+            users: list[dict[str, Any]] = [self._share_user(entry) for entry in body]
             entries: list[AclEntry] = self.module.patch_addressbook_share(self.user, key, users)
-            self._grant_folder_subs_keys([u["uid"] for u in users], key)
+            self._grant_folder_subs_keys(users, key)
             return create_api_base_response(self._serialize_share_entries(entries))
         except RequestException as ex:
             logger_api.error("patch_addressbook_share failed for user %s key %s: %s", self.user.uid, key, ex)
@@ -201,10 +295,10 @@ class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attribute
         """
         try:
             previous_uids: set[str] = {entry.to_user for entry in self.module.get_addressbook_share(self.user, key)}
-            users: list[dict[str, Any]] = [{"uid": self._resolve_to_user(entry), "rights": entry["rights"]} for entry in body]
+            users: list[dict[str, Any]] = [self._share_user(entry) for entry in body]
             entries: list[AclEntry] = self.module.put_addressbook_share(self.user, key, users)
             new_uids: set[str] = {u["uid"] for u in users}
-            self._grant_folder_subs_keys(new_uids, key)
+            self._grant_folder_subs_keys(users, key)
             for revoked_uid in previous_uids - new_uids:
                 if revoked_uid == cs.ANYONE_TO_USER:
                     continue
@@ -222,13 +316,24 @@ class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attribute
         :return: API envelope with updated user permissions.
         """
         try:
-            target_uids: list[str] = [self._resolve_to_user(entry) for entry in body]
-            entries: list[AclEntry] = self.module.grant_addressbook_share(self.user, key, target_uids)
-            self._grant_folder_subs_keys(target_uids, key)
+            users: list[dict[str, Any]] = [self._share_user(entry, FULL_MODIFY_RIGHTS) for entry in body]
+            entries: list[AclEntry] = self.module.grant_addressbook_share(self.user, key, [u["uid"] for u in users])
+            self._grant_folder_subs_keys(users, key)
             return create_api_base_response(self._serialize_share_entries(entries))
         except RequestException as ex:
             logger_api.error("post_addressbook_share failed for user %s key %s: %s", self.user.uid, key, ex)
             return create_api_base_response(None, ex.error)
+
+    def _share_user(self, entry: dict[str, Any], rights: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Build the ``{"uid", "rights", "subscribe"}`` share entry from a request body item.
+
+        ``rights`` overrides the body's rights (POST always grants full rights, whatever is sent).
+        """
+        return {
+            "uid": self._resolve_to_user(entry),
+            "rights": rights if rights is not None else entry["rights"],
+            "subscribe": bool(entry.get("subscribe", False)),
+        }
 
     def _resolve_to_user(self, entry: dict[str, Any]) -> str:
         """Resolve the ACL to_user for a share entry.
@@ -259,16 +364,26 @@ class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attribute
             self._share_targets[to_user] = target
         return target
 
-    def _grant_folder_subs_keys(self, target_uids: Iterable[str], key: str) -> None:
-        """Add ``key`` to folders.ADDRESSBOOKS.SUBS for each target uid so it surfaces in their webmail.
+    def _grant_folder_subs_keys(self, users: Iterable[dict[str, Any]], key: str) -> None:
+        """Subscribe the share targets the owner asked to subscribe (``"subscribe": true``).
 
-        Cross-module orchestration (ModuleContact + ModuleUserProfile) is intentionally kept in
-        this interface layer, since a module must never call another module directly.
+        A share only offers the address book: the recipient subscribes on their own through
+        PUT /shared-addressbooks/{key} ({"subscribe": 1}). The owner may still force it
+        per user, as SOGo's "subscribe user" does - but never for the "anyone" pseudo-user (it has no
+        folders, and subscribing a whole domain is not the owner's call), nor for rights without can_view.
+        The subscription starts with the book's current name, which each subscriber may then rename;
+        an existing subscription is left untouched so its display toggle and personal name are kept.
         """
-        for target_uid in target_uids:
-            if target_uid == cs.ANYONE_TO_USER:
-                continue # The "anyone" pseudo-user has no real folders to update, so skip it.
-            self._user_module.add_folder_key(target_uid, "ADDRESSBOOKS", key, owner_key="SUBS")
+        targets: list[str] = [
+            user["uid"] for user in users
+            if user["subscribe"] and user["uid"] != cs.ANYONE_TO_USER and ShareContact.grants_view(user["rights"])
+        ]
+        if not targets:
+            return
+        name: str = self.module.get_addressbook(self.user, key).addressbook.name
+        for target_uid in targets:
+            self._user_module.add_folder_key(target_uid, "ADDRESSBOOKS", key, owner_key="SUBS", keep_existing=True,
+                                             value={"display": True, "name": name})
 
     def _serialize_share_entries(self, entries: list[AclEntry]) -> list[dict[str, Any]]:
         """Resolve each ACL entry's to_user into the API's ContactShareUserSchema shape.
@@ -352,7 +467,7 @@ class InterfaceApiContactContact:  # pylint: disable=too-many-instance-attribute
             if len(query.strip()) < self._user_module_settings.SOGO_D_AUTOCOMPLETION_MIN_LEN:
                 return create_api_base_response({"suggestions": []})
             
-            #Personnal AddressBooks
+            #Personnal AddressBooks (owned + subscribed shared ones)
             contacts, _ = self.module.get_contacts(self.user, search=query, limit=AUTOCOMPLETE_DEFAULT_LIMIT, resolve_images=False)
             lists = self.module.search_all_lists(self.user, search=query, limit=AUTOCOMPLETE_DEFAULT_LIMIT)
 

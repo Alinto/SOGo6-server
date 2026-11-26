@@ -4,7 +4,7 @@ from typing import Any
 from marshmallow import Schema, fields, validate, validates_schema, ValidationError
 
 from app.api.v1.calendar.schemas.components import CalendarRightsSchema
-from app.api.v1.calendar.schemas.event import DateTimeEndUtcField, DateTimeUtcField
+from app.api.v1.calendar.schemas.event import _SEARCH_MAX_LENGTH, _validate_search, DateTimeEndUtcField, DateTimeUtcField
 from app.module.calendar.model.enums.EventVisibility import EventVisibility
 from app.utils.api.ApiBaseResponse import ApiBaseResponse
 
@@ -38,6 +38,7 @@ class CalendarCreateSchema(Schema):
 class CalendarUpdateSchema(Schema):
     """Request body for updating a calendar (all fields optional)."""
 
+    # On a calendar shared with the user, the name is the user's own name for it (the owner's is untouched)
     name        = fields.String(validate=validate.Length(min=1, max=255),
                                 metadata={"example": "Work"})
     color       = fields.String(validate=validate.Regexp(_COLOR_REGEX),
@@ -95,6 +96,80 @@ class CalendarResponseSchema(ApiBaseResponse):
     """Response schema for a single calendar."""
 
     data = fields.Nested(CalendarSchema, allow_none=True)
+
+
+class SharedCalendarSchema(CalendarSchema):
+    """A calendar shared with the current user, as listed by the discovery endpoint."""
+
+    subscribed = fields.Boolean(dump_only=True,
+                                metadata={"description": "True when the calendar is in the user's subscriptions (shown in GET /calendars)."})
+    username   = fields.String(dump_only=True,
+                               metadata={"description": "Complete name of the owner, read from the user source (US_FIELD_CN). "
+                                                        "Empty when no user source knows the owner.", "example": "John Doe"})
+
+
+class SharedCalendarQueryArgsSchema(Schema):
+    """Query string for GET /shared-calendars/users."""
+
+    search = fields.String(load_default=None, allow_none=True,
+                           validate=[validate.Length(max=_SEARCH_MAX_LENGTH), _validate_search],
+                           metadata={"description": "Case-insensitive substring matched against the owner mail and the owner "
+                                                    "username (min 2 non-whitespace characters). Omit to list everything.",
+                                     "example": "doe"})
+
+
+class SharedCalendarUserSchema(Schema):
+    """A user sharing at least one calendar with the current user."""
+
+    mail     = fields.String(dump_only=True, metadata={"description": "Mail of the owner.", "example": "john.doe@example.com"})
+    username = fields.String(dump_only=True,
+                             metadata={"description": "Complete name of the owner, read from the user source (US_FIELD_CN). "
+                                                      "Empty when no user source knows the owner.", "example": "John Doe"})
+
+
+class SharedCalendarUserListDataSchema(Schema):
+    """Data payload for the shared calendar owners list. The total count is in the X-Pagination header."""
+
+    users = fields.List(fields.Nested(SharedCalendarUserSchema))
+
+
+class SharedCalendarUserListResponseSchema(ApiBaseResponse):
+    """Response schema for GET /shared-calendars/users."""
+
+    data = fields.Nested(SharedCalendarUserListDataSchema, allow_none=True)
+
+
+class SharedCalendarSubscribeSchema(Schema):
+    """Request body for PUT /shared-calendars/{key}."""
+
+    subscribe = fields.Boolean(
+        required=True,
+        metadata={"description": "1 (or true) to subscribe to the shared calendar, 0 (or false) to unsubscribe.",
+                  "example": 1},
+    )
+
+    @staticmethod
+    def example() -> dict[str, Any]:
+        """Example data for Swagger documentation."""
+        return {"subscribe": 1}
+
+
+class SharedCalendarListDataSchema(Schema):
+    """Data payload for GET /shared-calendars/{account_id}: every calendar a given user shares with the current user."""
+
+    calendars   = fields.List(fields.Nested(SharedCalendarSchema))
+
+
+class SharedCalendarListResponseSchema(ApiBaseResponse):
+    """Response schema for GET /shared-calendars/{account_id}."""
+
+    data = fields.Nested(SharedCalendarListDataSchema, allow_none=True)
+
+
+class SharedCalendarResponseSchema(ApiBaseResponse):
+    """Response schema for a subscription change on a shared calendar."""
+
+    data = fields.Nested(SharedCalendarSchema, allow_none=True)
 
 
 class CalendarExportQueryArgsSchema(Schema):
@@ -199,6 +274,13 @@ class CalendarShareUserSchema(Schema):
         validate=validate.OneOf(["user", "anyone"]),
     )
     rights = fields.Nested(CalendarShareRightsSchema, required=True, metadata={"description": "Permission rights for this user"})
+    subscribe = fields.Boolean(
+        load_default=False, load_only=True,
+        metadata={"description": "Also subscribe the user to the calendar, so it shows in their calendar list. "
+                                 "Ignored for user_class 'anyone' and for rights granting no visibility. "
+                                 "Without it, the user subscribes on their own (PUT /shared-calendars/{key} with {'subscribe': 1}).",
+                  "example": False},
+    )
 
     @validates_schema
     def validate_user_identity(self, data: dict[str, Any], **kwargs: Any) -> None:  # pylint: disable=unused-argument

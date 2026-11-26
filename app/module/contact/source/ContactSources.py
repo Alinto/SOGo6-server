@@ -3,12 +3,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from app.config.db import tables as tbl
+from app.factory.share.shareContact import RIGHT_VIEW
 from app.module.contact.model.enums.CardSourceType import CardSourceType
 from app.module.contact.repository.RepositoryAddressBook import RepositoryAddressBook
 from app.module.contact.repository.RepositoryContact import RepositoryContact
 from app.module.contact.repository.RepositoryContactList import RepositoryContactList
 from app.module.contact.source.ContactSourceDb import SORTABLE_COLUMNS, ContactSourceDb
-from app.utils import constants as cs
 from app.utils import errors as err
 from app.utils.db.Condition import Order
 from app.utils.exceptions import RequestException
@@ -16,6 +16,8 @@ from app.utils.logger.logger import logger_contact
 from app.utils.strings import get_domain_from_mail
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from app.config.settings.DomainSettings import UserSourceSettingsObj
     from app.factory.share.shareContact import ShareContact
     from app.manager.db.ClientSQL import ClientSQL
@@ -72,13 +74,14 @@ class ContactSources:
         logger_contact.error("Unknown source_type=%s for address book key=%s", addressbook.source_type, addressbook.key)
         raise RequestException(error=err.ERROR_CONTACT_ADDRESSBOOK_NOT_SUPPORTED)
 
-    def _get_shared_addressbooks(self, user_uid: str) -> list[CardAddressBook]:
+    def get_shared_addressbooks(self, user_uid: str) -> list[CardAddressBook]:
         """Return every address book shared with user_uid, directly or via an "anyone" share.
 
         Directly: sogo6_acl entries where to_user=user_uid. Via "anyone": sogo6_acl entries where
         to_user="<default>", restricted to books whose owner shares user_uid's mail domain (see
         ShareContact.get_user_or_anyone). Skips entries whose key no longer resolves to a book
-        (deleted resource, stale ACL row) and books owned by user_uid.
+        (deleted resource, stale ACL row) and books owned by user_uid. Rights are not checked here:
+        an entry without can_view is still returned.
         """
         if self._share is None:
             return []
@@ -88,10 +91,10 @@ class ContactSources:
             book: CardAddressBook | None = self._repo_addressbook.find_by_key_only(entry.key)
             if book is not None and book.key not in seen_keys and book.user_uid != user_uid:
                 shared.append(book)
-                seen_keys.add(book.key)
+                seen_keys.add(entry.key)
         user_domain: str | None = get_domain_from_mail(user_uid)
         if user_domain:
-            for entry in self._share.get_keys_shared_with(cs.ANYONE_TO_USER):
+            for entry in self._share.get_keys_shared_with_anyone_in_domain(user_domain):
                 if entry.key in seen_keys:
                     continue
                 book = self._repo_addressbook.find_by_key_only(entry.key)
@@ -102,9 +105,47 @@ class ContactSources:
         return shared
 
     def get_all(self, user_uid: str, user_sources: dict[str, UserSourceSettingsObj] | None = None) -> list[ContactSource]:
-        """Return a source for every address book owned by, or shared with, user_uid (directory later)."""
+        """Return a source for every address book owned by, or shared with, user_uid (directory later).
+
+        This is the access-resolution set: it ignores subscriptions. Listings shown to the user
+        (address book list, transverse contact search, autocompletion) go through :meth:`get_listed`.
+        """
         owned: list[CardAddressBook] = self._repo_addressbook.find_all(user_uid)
-        return [self.get(book, user_sources) for book in owned + self._get_shared_addressbooks(user_uid)]
+        return [self.get(book, user_sources) for book in owned + self.get_shared_addressbooks(user_uid)]
+
+    def get_listed(
+        self, user_uid: str, shared_keys: Iterable[str], user_sources: dict[str, UserSourceSettingsObj] | None = None,
+    ) -> list[ContactSource]:
+        """Return the address books listed for user_uid: every owned book, plus the shared ones in shared_keys.
+
+        shared_keys are the user's subscriptions (folders.ADDRESSBOOKS.SUBS). Each one is resolved
+        through :meth:`get_by_key` and must still grant can_view, so a subscription whose share was
+        revoked or downgraded (or whose book was deleted) is silently dropped: a subscription never
+        grants access on its own.
+        """
+        owned: list[CardAddressBook] = self._repo_addressbook.find_all(user_uid)
+        sources: list[ContactSource] = [self.get(book, user_sources) for book in owned]
+        seen_keys: set[str | None] = {book.key for book in owned}
+        for key in shared_keys:
+            if key in seen_keys:
+                continue
+            source: ContactSource | None = self.get_by_key(user_uid, key, user_sources)
+            if source is None or self._share is None:
+                continue
+            book: CardAddressBook = source.addressbook
+            if self._share.has_right(user_uid, book.user_uid, key, RIGHT_VIEW):
+                sources.append(source)
+                seen_keys.add(key)
+        return sources
+
+    def _listing_sources(
+        self, user_uid: str, listed_shared_keys: Iterable[str] | None,
+        user_sources: dict[str, UserSourceSettingsObj] | None,
+    ) -> list[ContactSource]:
+        """Sources spanned by a transverse listing: the listed ones, or every accessible one when None."""
+        if listed_shared_keys is None:
+            return self.get_all(user_uid, user_sources)
+        return self.get_listed(user_uid, listed_shared_keys, user_sources)
 
     def get_default(self, user_uid: str) -> ContactSource | None:
         """Return the default address book source for user_uid, or None if the user has none."""
@@ -135,6 +176,7 @@ class ContactSources:
         self, user_uid: str, search: str | None = None, offset: int = 0, limit: int = 0,
         sort_by: str | None = None, order: Order = Order.ASC, addressbook_key: str | None = None,
         user_sources: dict[str, UserSourceSettingsObj] | None = None, resolve_ab: bool = True,
+        listed_shared_keys: Iterable[str] | None = None,
     ) -> tuple[list[CardContact], int]:
         """Return a page of contacts plus the total count.
 
@@ -155,6 +197,8 @@ class ContactSources:
         :param addressbook_key: Restrict to one book, or None to span all the user's books.
         :param user_sources: Domain user sources keyed by source_uid; the US_IS_ADDRESSBOOK ones are surfaced as directory books (None = local DB only).
         :param resolve_ab: When True, stamp each contact with its address book name for the response.
+        :param listed_shared_keys: Transverse case only - when not None, span the owned books plus
+            these shared ones (see :meth:`get_listed`); when None, every accessible book.
         :return: A tuple (contacts page, total count matching the filter).
         """
         if addressbook_key is not None:
@@ -166,7 +210,7 @@ class ContactSources:
                 self._stamp_addressbook_name(page, {source.addressbook.key: source.addressbook.name})
             return page, source.count_contacts(search)
 
-        sources = self.get_all(user_uid, user_sources)
+        sources = self._listing_sources(user_uid, listed_shared_keys, user_sources)
         book_names: dict[str | None, str] = {src.addressbook.key: src.addressbook.name for src in sources}
 
         if all(isinstance(src, ContactSourceDb) for src in sources):
@@ -193,6 +237,7 @@ class ContactSources:
     def search_all_lists(
         self, user_uid: str, search: str | None = None, limit: int = 0,
         user_sources: dict[str, UserSourceSettingsObj] | None = None, resolve_ab: bool = True,
+        listed_shared_keys: Iterable[str] | None = None,
     ) -> list[CardList]:
         """Return the user's distribution lists across every book (transverse), for autocomplete.
 
@@ -200,8 +245,9 @@ class ContactSources:
         number of lists, not on members). Each surviving list is stamped with its originating address
         book name and has its members fully resolved to their CardContact (exhaustively, so a
         suggestion can expand to every recipient); resolution stays within the list's own book.
+        listed_shared_keys restricts the shared books spanned, as in :meth:`get_contacts`.
         """
-        sources = self.get_all(user_uid, user_sources)
+        sources = self._listing_sources(user_uid, listed_shared_keys, user_sources)
         source_by_book: dict[str | None, ContactSource] = {src.addressbook.key: src for src in sources}
         lists: list[CardList] = []
         for source in sources:

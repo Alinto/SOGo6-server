@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from app.config.db import tables as tbl
-from app.utils.db.Condition import AndCondition, EqualCondition
+from app.utils.db.Condition import AndCondition, EqualCondition, LikeCondition
 from app.utils.exceptions import BugException
 
 if TYPE_CHECKING:
@@ -85,6 +85,27 @@ class RepositoryAcl:
         condition = AndCondition(
             EqualCondition(tbl.COL_ACL_TYPE.name, resource_type),
             EqualCondition(tbl.COL_ACL_TO_USER.name, to_user),
+        )
+        rows = self._db.select_from_table(
+            table=tbl.TABLE_ACL,
+            columns=tbl.TABLE_ACL.columns,
+            condition=condition,
+        )
+        return [self._row_to_entry(row) for row in rows]
+
+    def find_all_for_to_user_by_owner_domain(self, resource_type: str, to_user: str, owner_domain: str) -> list[AclEntry]:
+        """Return every resource shared with to_user whose owner belongs to owner_domain.
+
+        Used for the "anyone" pseudo-user: the domain is filtered in SQL so a lookup never loads
+        every other domain's "anyone" shares. LIKE is a coarse prefilter only (``_`` is a LIKE
+        wildcard): callers must still compare the owner's exact domain.
+        """
+        condition = AndCondition(
+            AndCondition(
+                EqualCondition(tbl.COL_ACL_TYPE.name, resource_type),
+                EqualCondition(tbl.COL_ACL_TO_USER.name, to_user),
+            ),
+            LikeCondition(tbl.COL_ACL_OWNER.name, f"%@{owner_domain}"),
         )
         rows = self._db.select_from_table(
             table=tbl.TABLE_ACL,
