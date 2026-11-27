@@ -91,3 +91,8 @@ def test_resolve_tz_valid():
 
 def test_resolve_tz_fallback_to_utc():
     assert resolve_tz("Invalid/Timezone") == ZoneInfo("UTC")
+
+
+def test_resolve_tz_malformed_name_fallback_to_utc():
+    assert resolve_tz("/UTC") == ZoneInfo("UTC")
+    assert resolve_tz("a//b") == ZoneInfo("UTC")

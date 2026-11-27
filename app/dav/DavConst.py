@@ -15,6 +15,13 @@ WELL_KNOWN_CARDDAV_PATH: str = "/.well-known/carddav"
 DAV_CALENDAR_HOME: str = "Calendar"
 DAV_ADDRESSBOOK_HOME: str = "Contacts"
 
+# Name of the default calendar and of the default address book in the paths, as SOGo 5 named them: the clients of
+# an account set up on SOGo 5 keep their URLs.
+DAV_DEFAULT_COLLECTION: str = "personal"
+
+# Components a calendar holds (RFC 4791 section 5.2.3).
+DAV_CALENDAR_COMPONENTS: tuple[str, ...] = ("VEVENT", "VTODO")
+
 # Methods served by the DAV server, each one by its own handler. Listed in the Allow header; any other
 # method is answered 405.
 DAV_METHODS: frozenset[str] = frozenset({"OPTIONS", "PROPFIND"})
@@ -22,7 +29,9 @@ DAV_METHODS: frozenset[str] = frozenset({"OPTIONS", "PROPFIND"})
 # Content-Type of the XML bodies: multistatus and error responses.
 DAV_XML_CONTENT_TYPE: str = "application/xml; charset=utf-8"
 
-# Compliance classes announced in the DAV header of OPTIONS responses (RFC 4918 section 18).
+# Compliance classes announced in the DAV header of OPTIONS responses (RFC 4918 section 18). "calendar-access"
+# promises every MUST of CalDAV (RFC 4791 sections 2 and 5.1), reports and ETags included: it is announced once
+# they are served.
 DAV_COMPLIANCE_CLASSES: tuple[str, ...] = ("1",)
 
 # Protection space announced in the Basic challenge (RFC 7617 section 2).

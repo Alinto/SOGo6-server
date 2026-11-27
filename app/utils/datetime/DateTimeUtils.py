@@ -30,10 +30,11 @@ def today_iso() -> str:
 
 
 def resolve_tz(tz_name: str) -> ZoneInfo:
-    """Return a ZoneInfo for the given IANA timezone name, falling back to UTC on unknown names."""
+    """Return a ZoneInfo for the given IANA timezone name, falling back to UTC on unknown or malformed names
+    (an absolute path or a path that is not normalized, such as "/UTC" or "a//b", raises ValueError)."""
     try:
         return ZoneInfo(tz_name)
-    except (ZoneInfoNotFoundError, KeyError):
+    except (ZoneInfoNotFoundError, KeyError, ValueError):
         return ZoneInfo("UTC")
 
 

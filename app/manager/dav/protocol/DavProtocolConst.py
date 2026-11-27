@@ -65,9 +65,36 @@ DAV_ALLPROP_PROPERTIES: frozenset[str] = frozenset(
     }
 )
 
-# Resource types (RFC 4918 section 14.3, RFC 3744 section 4).
+# Properties of a calendar collection (RFC 4791 section 5.2), plus the change tag of CalendarServer and the color
+# of Apple.
+CALDAV_CALENDAR_DESCRIPTION: str = "{urn:ietf:params:xml:ns:caldav}calendar-description"
+CALDAV_CALENDAR_TIMEZONE: str = "{urn:ietf:params:xml:ns:caldav}calendar-timezone"
+CALDAV_SUPPORTED_CALENDAR_COMPONENT_SET: str = "{urn:ietf:params:xml:ns:caldav}supported-calendar-component-set"
+CALDAV_COMP: str = "{urn:ietf:params:xml:ns:caldav}comp"
+CALENDARSERVER_GETCTAG: str = "{http://calendarserver.org/ns/}getctag"
+APPLE_ICAL_CALENDAR_COLOR: str = "{http://apple.com/ns/ical/}calendar-color"
+
+# Privileges of a resource (RFC 3744 sections 3, 5.3 and 5.4, RFC 4791 section 6.1).
+DAV_SUPPORTED_PRIVILEGE_SET: str = "{DAV:}supported-privilege-set"
+DAV_SUPPORTED_PRIVILEGE: str = "{DAV:}supported-privilege"
+DAV_CURRENT_USER_PRIVILEGE_SET: str = "{DAV:}current-user-privilege-set"
+DAV_PRIVILEGE: str = "{DAV:}privilege"
+DAV_ABSTRACT: str = "{DAV:}abstract"
+DAV_DESCRIPTION: str = "{DAV:}description"
+DAV_READ: str = "{DAV:}read"
+CALDAV_READ_FREE_BUSY: str = "{urn:ietf:params:xml:ns:caldav}read-free-busy"
+
+# Language attribute of the descriptions (XML 1.0 section 2.12).
+XML_LANG: str = "{http://www.w3.org/XML/1998/namespace}lang"
+
+# RFC 3744 section 5.3 requires the language of every privilege description (xml:lang). The descriptions are
+# written in the code, in English, and not translated after Accept-Language: one language for all of them.
+DAV_DESCRIPTION_LANGUAGE: str = "en"
+
+# Resource types (RFC 4918 section 14.3, RFC 3744 section 4, RFC 4791 section 4.2).
 DAV_COLLECTION: str = "{DAV:}collection"
 DAV_PRINCIPAL: str = "{DAV:}principal"
+CALDAV_CALENDAR: str = "{urn:ietf:params:xml:ns:caldav}calendar"
 
 # Body of an error response and the conditions it names (RFC 4918 sections 14.5 and 16).
 DAV_ERROR: str = "{DAV:}error"

@@ -70,7 +70,7 @@ A handler deals with the protocol of one HTTP method (XML, `Depth`, `If-Match`, 
 
 The handler never calls an interface: it does not know whether the path targets a principal, a calendar or a contact, and asks the resource (see <<Resources>>).
 A resource never calls a module or a manager: it reads the authenticated user of the `DavContext`, loaded by `InterfaceAuthUser` during the authentication, or calls the `InterfaceDav*` of its domain.
-The root, the principal and the homes only read the user: no `InterfaceDav*` exists yet, as the calendars and the address books are not served over DAV.
+The resolver builds `InterfaceDavCalendar` and calls it to find a calendar; the home of the calendars calls it to list the calendars. The root and the principal only read the user and hand the interface down to their members. The address books are not served over DAV yet.
 
 [cols="1,1,1,1"]
 |===
@@ -129,19 +129,48 @@ The path given to the handlers is relative to `/dav/` and percent-decoded: `/dav
 A path below `/dav/` targets a resource of the DAV tree of the account of the request. The tree only holds the resources of that account: the other accounts are neither listed nor reachable.
 
 ----
-  /dav/                       DavRootResource             member: the principal of the account
-  /dav/<account>/             DavPrincipalResource        members: the two homes
-  /dav/<account>/Calendar/    DavCalendarHomeResource     home of the calendars
-  /dav/<account>/Contacts/    DavAddressBookHomeResource  home of the address books
+  /dav/                              DavRootResource             member: the principal of the account
+  /dav/<account>/                    DavPrincipalResource        members: the two homes
+  /dav/<account>/Calendar/           DavCalendarHomeResource     members: the calendars of the user
+  /dav/<account>/Calendar/<name>/    DavCalendarResource         calendar, read only, without member yet
+  /dav/<account>/Contacts/           DavAddressBookHomeResource  home of the address books
 ----
 
-`<account>` is the login of the Basic authentication, followed by `!<alias>` for an account signed in with an alias (see <<account-alias>>). The homes have no members: the calendars and the address books are not served over DAV.
+`<account>` is the login of the Basic authentication, followed by `!<alias>` for an account signed in with an alias (see <<account-alias>>).
+`<name>` is `personal` for the default calendar (`DAV_DEFAULT_COLLECTION`, given by the resolver to `InterfaceDavCalendar`, which names the calendars) and the key of the calendar for the other ones: SOGo 5 named the default calendar `personal`, and the clients of an account set up on SOGo 5 keep their URLs (see <<calendars>>). The address books are not served over DAV yet.
 
 * *DavPath* - Builds the paths of the tree of an account, from its user and the alias of its login, and normalizes the paths of the requests to compare them: the only class knowing the layout of the URLs. A normalized path ends with `/` and has no empty segment. Its account is read as the Basic login: the domain is case-insensitive, the local part is not, and the alias is kept as is.
-* *DavResource* - Abstract resource of an account, built with the user and the alias of its login: its path, its properties by name (`properties()`), and its members (`children()`), listed by a PROPFIND with `Depth: 1`. `properties()` gives the properties of every resource, `resourcetype` and `current-user-principal`, followed by the own properties of the resource.
+* *DavResource* - Abstract resource of an account, built with the user and the alias of its login, and with the interface a resource needs to list its members: its path, its properties by name (`properties()`), and its members (`children()`), listed by a PROPFIND with `Depth: 1`. `properties()` gives the properties of every resource, `resourcetype` and `current-user-principal`, followed by the own properties of the resource.
 * *DavPrincipalResource* - The principal of the account (RFC 3744), which is also the collection holding the two homes. Its properties are the paths of the account, `principal-URL` and the homes of its calendars and address books (`calendar-home-set`, `addressbook-home-set`), followed by the properties converted from the user by `UserSerializerDavProps`.
-* *DavCalendarHomeResource*, *DavAddressBookHomeResource* - The homes; their only own property is their name (`displayname`).
-* *DavResourceResolver* - Finds the resource of a path, by comparing the path normalized by `DavPath` to the paths of the account, and builds it with the user and the alias of the `DavContext`: the only class of the tree reading the context. Any other path, a path of another user or of another alias included, is answered 404 (`ERROR_DAV_RESOURCE_NOT_FOUND`), which does not disclose whether the account exists.
+* *DavCalendarHomeResource*, *DavAddressBookHomeResource* - The homes; their only own property is their name (`displayname`). The home of the calendars lists the calendars of the user through `InterfaceDavCalendar`.
+* *DavCalendarResource* - A calendar of the user (see <<calendars>>).
+* *DavResourceResolver* - Finds the resource of a path among the paths of the account, and builds it from the `DavContext` and `InterfaceDavCalendar`. Any other path, of another user or another alias included, is answered 404 (`ERROR_DAV_RESOURCE_NOT_FOUND`), which does not disclose whether the account exists.
+
+[[calendars]]
+=== Calendars
+
+The home of the calendars lists all the calendars owned by the user, whatever their source (local, ICS or CalDAV subscription), through `InterfaceDavCalendar.get_all_calendars`.
+The calendars shared by other users are not listed, and their keys are not found: the interface asks the module for the calendars the user owns only (`ModuleCalendar.get_all_owned_calendars`, which does not read the shares), and looks a name up among the listed calendars only (`InterfaceDavCalendar.get_calendar`). Listed, a default calendar shared by another user would take the path of `personal`, held by the default calendar of the user.
+
+The default calendar is listed as `personal`, as on SOGo 5: DAVx5 and the Apple clients read the home again at each sync, and a calendar found under another name would be deleted and created again on the device. A request may also name it by its key, and gets the path it asked for. The name is case-sensitive.
+
+The resource gives the `resourcetype`, `collection` and `calendar` (RFC 4791 section 4.2).
+The properties of a calendar are converted by `CalCalendarSerializerDavProps` (see <<business-model-properties>>):
+
+* `displayname`, `calendar-description` (when set) and the Apple `calendar-color` (when set).
+* `getctag` of CalendarServer - the `ctag` of the calendar, changed with every object of the calendar: clients compare it before syncing.
+* `supported-calendar-component-set` - `VEVENT` and `VTODO` (`DAV_CALENDAR_COMPONENTS`).
+
+`InterfaceDavCalendar` adds:
+
+* `calendar-timezone` - the time zone of the calendar, as a VCALENDAR holding its VTIMEZONE alone (RFC 4791 section 5.2.2), written by `CalCalendarTimezoneSerializerIcal` of the calendar module: the DAV server does not write iCalendar itself. An unknown time zone is written as UTC. The VTIMEZONE of a time zone is built once per process.
+
+`DavCalendarResource` adds:
+
+* `supported-privilege-set` (RFC 3744 section 5.3) - `read`, which aggregates the `read-free-busy` privilege of CalDAV (RFC 4791 section 6.1.1).
+* `current-user-privilege-set` (RFC 3744 section 5.4) - `read` and `read-free-busy`, an aggregate privilege being listed with the privileges it holds. The calendars are not written over DAV yet: clients show them read only instead of failing on each change.
+
+OPTIONS does not announce `calendar-access` yet: it promises every requirement of CalDAV (RFC 4791 sections 2 and 5.1), among which the calendar reports, the ETags and `supported-report-set`. It is announced once they are served. Thunderbird does not need it to add a calendar.
 
 [[account-alias]]
 === Account alias: one address book per account (macOS Contacts)
@@ -158,13 +187,20 @@ The authentication, the paths and the resolution handle the alias as a part of t
 The alias is not checked at sign-in: an alias that is not the key of an address book of the user gives an account without address book, which discloses nothing.
 The calendars of the account are not restricted: Calendar on macOS syncs several calendars per account.
 
+[[business-model-properties]]
 === Properties of a business model
 
-A resource built from a business model never builds its properties itself: a serializer of `app/dav/serializer`, named `<Model>SerializerDavProps`, converts the model into its properties, by name in Clark notation.
-These serializers belong to the DAV server and not to `app/manager/dav/protocol`: they depend on the business models and on the choices of the server (properties exposed), which a DAV client does not share.
+The properties of a business model are never built by hand: a serializer of `app/dav/serializer`, named `<Model>SerializerDavProps`, converts the model into its properties, by name in Clark notation.
+These serializers belong to the DAV server:
+
+* not to `app/manager/dav/protocol`, which knows no business model: they depend on the models and on the choices of the server (properties exposed), which a DAV client does not share;
+* not to the modules, which return business objects and the formats of their domain (iCalendar, vCard), never DAV properties.
+
+A model read through an interface is converted by that interface, with the serializer the resolver gives to its constructor: the interface returns DAV properties without depending on `app/dav`, its parameter being typed on the `Serializer` contract. The interface adds the values written in a format of the domain by a serializer of the module, as the time zone of a calendar.
 The properties depending on the account and not on the model only, as the paths, are added by the resource.
 
-* *UserSerializerDavProps* - Converts the user into the properties of its principal: its name (`displayname`) and its mail address followed by its aliases (`calendar-user-address-set`, as `mailto:` URIs), so that an invitation sent to an alias is matched to the principal. `alternate-URI-set` and `group-membership`, required by RFC 3744 section 4, are empty.
+* *CalCalendarSerializerDavProps* - Converts a calendar into the properties of its collection, given to `InterfaceDavCalendar` by the resolver (see <<calendars>>).
+* *UserSerializerDavProps* - Converts the user of the `DavContext` into the properties of its principal, applied by `DavPrincipalResource`: its name (`displayname`) and its mail address followed by its aliases (`calendar-user-address-set`, as `mailto:` URIs), so that an invitation sent to an alias is matched to the principal. `alternate-URI-set` and `group-membership`, required by RFC 3744 section 4, are empty.
 
 [[PROPFIND]]
 == PROPFIND
@@ -196,7 +232,7 @@ As for the calendars and the contacts, the messages are models (`model/`) conver
 Element and property names use the Clark notation of ElementTree, `\{namespace\}name`, for instance `{DAV:}displayname`.
 
 * *PropfindRequest* - The properties asked by a PROPFIND: all of them (allprop, with the extra ones of its include element), their names only (propname), or a list (prop).
-* *DavMultistatus* - The responses of a multistatus, one *DavPropResponse* per resource: its path, the properties found with their value, the names of the missing ones. A value is a text, or a value written as child elements: *DavHrefs* (references to resources), *DavResourceType*.
+* *DavMultistatus* - The responses of a multistatus, one *DavPropResponse* per resource: its path, the properties found with their value, the names of the missing ones. A value is a text, or a value written as child elements: *DavHrefs* (references to resources), *DavResourceType*, *DavComponentSet* (`comp` elements of `supported-calendar-component-set`), *DavPrivilegeSet* (`privilege` elements of `current-user-privilege-set`), *DavSupportedPrivilegeSet* (tree of *DavSupportedPrivilege* of `supported-privilege-set`, each one with its description and the privileges it aggregates).
 * *DavError* - The body of an error response: the name of the condition the request failed (see <<error-bodies>>).
 * *PropfindRequestDeserializerXml* - Reads a PROPFIND body. A PROPFIND without body asks for all the properties (RFC 4918 section 9.1). A malformed body, or a body declaring a document type, is refused with 400 (`ERROR_DAV_XML_INVALID`). The body is given to the parser by chunks of 4 KB, so that a document type stops the parse at the end of its chunk; expat bounds the expansion of the entities of that chunk. Unknown elements are ignored, as WebDAV requires for its extensions (RFC 4918 section 17).
 * *DavMultistatusSerializerXml* - Writes a multistatus: for each resource, the properties found in a 200 propstat and the missing ones in a 404 propstat. An href is the percent-encoded path of the resource, `@` kept as is. The characters XML 1.0 forbids, as the control characters, are removed from the text values.
@@ -309,7 +345,7 @@ Anyone knowing a login can block the DAV access of that account. The block only 
 
 Handlers receive a `DavContext`: process and system settings, settings of the user domain, the user filled with its directory info and profile, the cache client of the worker, and the alias of the login, if any.
 The user keeps the password in memory, for the mail servers.
-A handler that needs an interface builds it from the context, with the same arguments as the `InterfaceApi*` classes.
+Handlers pass it to `DavResourceResolver`, which builds `InterfaceDavCalendar` from it, with the process settings, the user and the cache client, along with the serializer of the calendar properties and the name of the default calendar (see <<Resources>>): a handler never builds an interface.
 The cache client comes from `sogo_cache()`, called by `DavHandler.handle`: one client per worker, shared by all its requests and threads, never closed by a request. It runs without the client side cache of redis-py, which is not thread-safe.
 
 == Flask behaviours turned off

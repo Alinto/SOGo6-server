@@ -1,7 +1,12 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
-from app.dav.DavConst import DAV_ACCOUNT_ALIAS_SEPARATOR, DAV_ADDRESSBOOK_HOME, DAV_CALENDAR_HOME, DAV_ROOT_PATH
+from app.dav.DavConst import (
+    DAV_ACCOUNT_ALIAS_SEPARATOR,
+    DAV_ADDRESSBOOK_HOME,
+    DAV_CALENDAR_HOME,
+    DAV_ROOT_PATH,
+)
 from app.utils.strings import lower_login_domain
 
 if TYPE_CHECKING:
@@ -11,12 +16,14 @@ if TYPE_CHECKING:
 class DavPath:
     """Paths of the DAV tree of an account, absolute, not percent-encoded and ending with "/":
 
-    /dav/                        root
-    /dav/<account>/              principal
-    /dav/<account>/Calendar/     home of the calendars
-    /dav/<account>/Contacts/     home of the address books
+    /dav/                             root
+    /dav/<account>/                   principal
+    /dav/<account>/Calendar/          home of the calendars
+    /dav/<account>/Calendar/<name>/   calendar
+    /dav/<account>/Contacts/          home of the address books
 
-    <account> is the login of the user, followed by "!<alias>" for an account signed in with an alias.
+    <account> is the login of the user, followed by "!<alias>" for an account signed in with an alias. <name> is
+    "personal" for the default calendar, as on SOGo 5, and the key of the calendar for the other ones.
     """
 
     @staticmethod
@@ -53,3 +60,8 @@ class DavPath:
     def addressbook_home(user: User, account_alias: str | None) -> str:
         """Return the path of the home of the address books of the account of a user."""
         return f"{DavPath.principal(user=user, account_alias=account_alias)}{DAV_ADDRESSBOOK_HOME}/"
+
+    @staticmethod
+    def calendar(user: User, account_alias: str | None, name: str) -> str:
+        """Return the path of a calendar of the account of a user, from its name in the path."""
+        return f"{DavPath.calendar_home(user=user, account_alias=account_alias)}{name}/"

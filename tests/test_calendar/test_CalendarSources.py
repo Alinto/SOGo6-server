@@ -49,6 +49,17 @@ def test_get_by_share_token_returns_none_when_absent():
     assert sources.get_by_share_token("tok") is None
 
 
+# ========== get_all_owned ==========
+
+def test_get_all_owned_does_not_read_shares():
+    sources = _build_sources()
+    sources._share = MagicMock()
+    sources._repo_calendar.find_all.return_value = [_cal()]
+    assert [source.calendar.key for source in sources.get_all_owned("u")] == ["cal-key"]
+    sources._repo_calendar.find_all.assert_called_once_with("u")
+    sources._share.get_keys_shared_with.assert_not_called()
+
+
 # ========== _apply_action - INSERT reminder handling ==========
 
 def test_apply_action_insert_carries_attendee_reminders_on_split():

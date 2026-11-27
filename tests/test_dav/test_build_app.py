@@ -62,7 +62,10 @@ def test_options_answered_by_dav_handler():
 
 def test_propfind_answered_with_multistatus():
     client = _build().test_client()
-    with patch("app.dav.DavAuthenticator.DavAuthenticator.authenticate", return_value=CONTEXT):
+    with (
+        patch("app.dav.DavAuthenticator.DavAuthenticator.authenticate", return_value=CONTEXT),
+        patch("app.dav.resource.DavResourceResolver.InterfaceDavCalendar"),
+    ):
         response = client.open(
             "/dav/",
             method="PROPFIND",

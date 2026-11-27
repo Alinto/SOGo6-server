@@ -3,11 +3,15 @@
 from app.auth.User import User
 from app.dav.resource.DavAddressBookHomeResource import DavAddressBookHomeResource
 from app.dav.resource.DavCalendarHomeResource import DavCalendarHomeResource
+from app.dav.resource.DavCalendarResource import DavCalendarResource
 from app.dav.resource.DavPrincipalResource import DavPrincipalResource
 from app.dav.resource.DavRootResource import DavRootResource
 from app.dav.serializer.UserSerializerDavProps import UserSerializerDavProps
 from app.manager.dav.protocol.model.DavHrefs import DavHrefs
+from app.manager.dav.protocol.model.DavPrivilegeSet import DavPrivilegeSet
 from app.manager.dav.protocol.model.DavResourceType import DavResourceType
+from app.manager.dav.protocol.model.DavSupportedPrivilege import DavSupportedPrivilege
+from app.manager.dav.protocol.model.DavSupportedPrivilegeSet import DavSupportedPrivilegeSet
 
 PRINCIPAL = "/dav/alice@example.org/"
 ALIAS_PRINCIPAL = "/dav/alice@example.org!work/"
@@ -15,6 +19,16 @@ COLLECTION = "{DAV:}collection"
 CURRENT_USER_PRINCIPAL = "{DAV:}current-user-principal"
 PRINCIPAL_URL = "{DAV:}principal-URL"
 ADDRESSBOOK_HOME_SET = "{urn:ietf:params:xml:ns:carddav}addressbook-home-set"
+DEFAULT_CALENDAR = {"{DAV:}displayname": "Personal"}
+WORK_CALENDAR = {"{DAV:}displayname": "Work", "{urn:ietf:params:xml:ns:caldav}calendar-timezone": "VTIMEZONE"}
+
+
+class FakeCalendarInterface:
+    def __init__(self, calendars=None):
+        self.calendars = calendars or {}
+
+    def get_all_calendars(self):
+        return self.calendars
 
 
 def _user():
@@ -29,7 +43,7 @@ USER = _user()
 
 
 def test_root():
-    root = DavRootResource(user=USER, account_alias=None)
+    root = DavRootResource(user=USER, account_alias=None, calendar_interface=FakeCalendarInterface())
     assert root.path == "/dav/"
     assert root.properties() == {
         "{DAV:}resourcetype": DavResourceType(types=(COLLECTION,)),
@@ -42,7 +56,7 @@ def test_root():
 
 
 def test_principal():
-    principal = DavPrincipalResource(user=USER, account_alias=None)
+    principal = DavPrincipalResource(user=USER, account_alias=None, calendar_interface=FakeCalendarInterface())
     assert principal.path == PRINCIPAL
     assert principal.properties() == {
         "{DAV:}resourcetype": DavResourceType(types=(COLLECTION, "{DAV:}principal")),
@@ -60,7 +74,10 @@ def test_principal():
 
 def test_homes():
     for home, name in (
-        (DavCalendarHomeResource(user=USER, account_alias=None), "Calendar"),
+        (
+            DavCalendarHomeResource(user=USER, account_alias=None, calendar_interface=FakeCalendarInterface()),
+            "Calendar",
+        ),
         (DavAddressBookHomeResource(user=USER, account_alias=None), "Contacts"),
     ):
         assert home.path == f"{PRINCIPAL}{name}/"
@@ -72,11 +89,46 @@ def test_homes():
         assert not home.children()
 
 
+def test_calendar_home_lists_calendars():
+    interface = FakeCalendarInterface({"personal": DEFAULT_CALENDAR, "k-work": WORK_CALENDAR})
+    home = DavCalendarHomeResource(user=USER, account_alias=None, calendar_interface=interface)
+    assert [child.path for child in home.children()] == [
+        PRINCIPAL + "Calendar/personal/",
+        PRINCIPAL + "Calendar/k-work/",
+    ]
+
+
+# ========== Tests for DavCalendarResource ==========
+
+
+def test_calendar():
+    calendar = DavCalendarResource(user=USER, account_alias=None, name="k-work", properties=WORK_CALENDAR)
+    assert calendar.path == PRINCIPAL + "Calendar/k-work/"
+    read_free_busy = "{urn:ietf:params:xml:ns:caldav}read-free-busy"
+    assert calendar.properties() == {
+        "{DAV:}resourcetype": DavResourceType(types=(COLLECTION, "{urn:ietf:params:xml:ns:caldav}calendar")),
+        CURRENT_USER_PRINCIPAL: DavHrefs(hrefs=(PRINCIPAL,)),
+        **WORK_CALENDAR,
+        "{DAV:}supported-privilege-set": DavSupportedPrivilegeSet(
+            privileges=(
+                DavSupportedPrivilege(
+                    privilege="{DAV:}read",
+                    description="Read the calendar and its objects",
+                    contained=(DavSupportedPrivilege(privilege=read_free_busy, description="Read the free busy time"),),
+                ),
+            )
+        ),
+        "{DAV:}current-user-privilege-set": DavPrivilegeSet(privileges=("{DAV:}read", read_free_busy)),
+    }
+    assert not calendar.children()
+
+
 # ========== Tests for the account alias ==========
 
 
 def test_alias_paths():
-    root = DavRootResource(user=USER, account_alias="work")
+    interface = FakeCalendarInterface({"personal": DEFAULT_CALENDAR})
+    root = DavRootResource(user=USER, account_alias="work", calendar_interface=interface)
     assert root.properties()[CURRENT_USER_PRINCIPAL] == DavHrefs(hrefs=(ALIAS_PRINCIPAL,))
     principal = root.children()[0]
     assert principal.path == ALIAS_PRINCIPAL
@@ -86,3 +138,4 @@ def test_alias_paths():
         ALIAS_PRINCIPAL + "Calendar/",
         ALIAS_PRINCIPAL + "Contacts/",
     ]
+    assert [child.path for child in principal.children()[0].children()] == [ALIAS_PRINCIPAL + "Calendar/personal/"]

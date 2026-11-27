@@ -9,6 +9,7 @@ from app.auth.User import User
 from app.dav.handler.DavPropfindHandler import DavPropfindHandler
 from app.dav.model.DavContext import DavContext
 from app.dav.model.DavRequest import DavRequest
+from app.dav.resource import DavResourceResolver as resolver_module
 from app.dav.resource.DavPrincipalResource import DavPrincipalResource
 from app.manager.dav.protocol.model.DavHrefs import DavHrefs
 from app.manager.dav.protocol.model.DavPropResponse import DavPropResponse
@@ -41,6 +42,19 @@ class FakeMultistatusSerializer:
     def serialize(self, data):
         self.multistatuses.append(data)
         return b"<multistatus/>"
+
+
+class FakeCalendarInterface:
+    def __init__(self, **_):
+        pass
+
+    def get_all_calendars(self):
+        return {}
+
+
+@pytest.fixture(autouse=True)
+def calendar_interface(monkeypatch):
+    monkeypatch.setattr(resolver_module, "InterfaceDavCalendar", FakeCalendarInterface)
 
 
 def _context():
@@ -128,7 +142,9 @@ def test_prop_found_and_missing():
 
 def test_propname():
     _, multistatus = _process(PropfindRequest(kind=PropfindKind.PROPNAME))
-    names = DavPrincipalResource(user=CONTEXT.user, account_alias=None).properties()
+    names = DavPrincipalResource(
+        user=CONTEXT.user, account_alias=None, calendar_interface=FakeCalendarInterface()
+    ).properties()
     assert multistatus.responses == (DavPropResponse(href=PRINCIPAL, found={name: "" for name in names}),)
 
 

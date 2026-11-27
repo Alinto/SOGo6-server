@@ -2,11 +2,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from app.manager.dav.protocol.model.DavComponentSet import DavComponentSet
 from app.manager.dav.protocol.model.DavHrefs import DavHrefs
+from app.manager.dav.protocol.model.DavPrivilegeSet import DavPrivilegeSet
 from app.manager.dav.protocol.model.DavResourceType import DavResourceType
+from app.manager.dav.protocol.model.DavSupportedPrivilegeSet import DavSupportedPrivilegeSet
 
 # Value of a property: the text of a text property, or a value written as child elements
-DavPropValue = str | DavHrefs | DavResourceType
+DavPropValue = str | DavHrefs | DavResourceType | DavComponentSet | DavPrivilegeSet | DavSupportedPrivilegeSet
 
 
 @dataclass(frozen=True)

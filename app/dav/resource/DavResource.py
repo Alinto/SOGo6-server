@@ -43,7 +43,8 @@ class DavResource(ABC):
         return []
 
     def _own_properties(self) -> dict[str, DavPropValue]:
-        """Return the properties specific to the resource."""
+        """Return the properties specific to the resource, by name in Clark notation: properties() adds them to the
+        ones of every resource."""
         return {}
 
     @abstractmethod

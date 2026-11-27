@@ -86,9 +86,13 @@ class CalendarSources:
 
     def get_all(self, user_uid: str) -> list[CalendarSource]:
         """Return a source for every calendar owned by, or shared with, user_uid."""
-        owned: list[CalCalendar] = self._repo_calendar.find_all(user_uid)
+        owned: list[CalendarSource] = self.get_all_owned(user_uid)
         shared: list[CalCalendar] = self._get_shared_calendars(user_uid)
-        return [self.get(cal) for cal in owned + shared]
+        return owned + [self.get(cal) for cal in shared]
+
+    def get_all_owned(self, user_uid: str) -> list[CalendarSource]:
+        """Return a source for every calendar owned by user_uid, without reading the shares."""
+        return [self.get(cal) for cal in self._repo_calendar.find_all(user_uid)]
 
     def get_default(self, user_uid: str) -> CalendarSource | None:
         """Return the default writable calendar source for user_uid, or None if the user has no local calendar."""

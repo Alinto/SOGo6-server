@@ -17,24 +17,29 @@ from app.manager.dav.protocol.model.DavHrefs import DavHrefs
 
 if TYPE_CHECKING:
     from app.auth.User import User
+    from app.interface.calendar.InterfaceDavCalendar import InterfaceDavCalendar
     from app.manager.dav.protocol.model.DavPropResponse import DavPropValue
 
 
 class DavPrincipalResource(DavResource):
     """Principal of the account of the request (RFC 3744 section 2), locating its calendars and address books.
 
-    It is also the collection holding the two homes.
+    It is also the collection holding the two homes. It keeps the calendar interface to build the home of the
+    calendars, which lists them.
     """
 
-    def __init__(self, user: User, account_alias: str | None) -> None:
+    def __init__(self, user: User, account_alias: str | None, calendar_interface: InterfaceDavCalendar) -> None:
         super().__init__(
             path=DavPath.principal(user=user, account_alias=account_alias), user=user, account_alias=account_alias
         )
+        self._calendar_interface: InterfaceDavCalendar = calendar_interface
 
     def children(self) -> list[DavResource]:
         """Return the home of the calendars and the home of the address books."""
         return [
-            DavCalendarHomeResource(user=self._user, account_alias=self._account_alias),
+            DavCalendarHomeResource(
+                user=self._user, account_alias=self._account_alias, calendar_interface=self._calendar_interface
+            ),
             DavAddressBookHomeResource(user=self._user, account_alias=self._account_alias),
         ]
 

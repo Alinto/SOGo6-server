@@ -121,6 +121,15 @@ class ModuleCalendar:  # pylint: disable=too-many-public-methods
                 source: CalendarSource | None = self._sources.get_by_key(user.uid, key)
                 if source is not None:
                     sources.append(source)
+        return self._calendars_with_permissions(user=user, sources=sources)
+
+    def get_all_owned_calendars(self, user: User) -> list[CalCalendar]:
+        """Return the calendars owned by the user, populated with the user's permissions. Unlike
+        get_all_calendars, the calendars shared with the user are not read."""
+        return self._calendars_with_permissions(user=user, sources=self._sources.get_all_owned(user.uid))
+
+    def _calendars_with_permissions(self, user: User, sources: list[CalendarSource]) -> list[CalCalendar]:
+        """Return the calendars of the sources, each one populated with the permissions of the user."""
         calendars: list[CalCalendar] = []
         for source in sources:
             cal: CalCalendar = source.calendar

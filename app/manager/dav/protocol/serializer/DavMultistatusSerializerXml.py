@@ -7,20 +7,31 @@ from urllib.parse import quote
 from xml.etree.ElementTree import Element, SubElement, tostring
 
 from app.manager.dav.protocol.DavProtocolConst import (
+    CALDAV_COMP,
+    DAV_ABSTRACT,
+    DAV_DESCRIPTION,
+    DAV_DESCRIPTION_LANGUAGE,
     DAV_HREF,
     DAV_MULTISTATUS,
+    DAV_PRIVILEGE,
     DAV_PROP,
     DAV_PROPSTAT,
     DAV_RESPONSE,
     DAV_STATUS,
+    DAV_SUPPORTED_PRIVILEGE,
+    XML_LANG,
 )
+from app.manager.dav.protocol.model.DavComponentSet import DavComponentSet
 from app.manager.dav.protocol.model.DavHrefs import DavHrefs
 from app.manager.dav.protocol.model.DavMultistatus import DavMultistatus
+from app.manager.dav.protocol.model.DavPrivilegeSet import DavPrivilegeSet
 from app.manager.dav.protocol.model.DavResourceType import DavResourceType
+from app.manager.dav.protocol.model.DavSupportedPrivilegeSet import DavSupportedPrivilegeSet
 from app.utils.serializer.Serializer import Serializer
 
 if TYPE_CHECKING:
     from app.manager.dav.protocol.model.DavPropResponse import DavPropResponse, DavPropValue
+    from app.manager.dav.protocol.model.DavSupportedPrivilege import DavSupportedPrivilege
 
 
 class DavMultistatusSerializerXml(Serializer[DavMultistatus, bytes]):
@@ -63,9 +74,29 @@ class DavMultistatusSerializerXml(Serializer[DavMultistatus, bytes]):
         elif isinstance(value, DavResourceType):
             for resource_type in value.types:
                 SubElement(prop, resource_type)
+        elif isinstance(value, DavComponentSet):
+            for component in value.components:
+                SubElement(prop, CALDAV_COMP, attrib={"name": component})
+        elif isinstance(value, DavPrivilegeSet):
+            for privilege in value.privileges:
+                SubElement(SubElement(prop, DAV_PRIVILEGE), privilege)
+        elif isinstance(value, DavSupportedPrivilegeSet):
+            for supported in value.privileges:
+                DavMultistatusSerializerXml._append_supported_privilege(parent=prop, supported=supported)
         else:
             prop.text = DavMultistatusSerializerXml._FORBIDDEN_CHARS.sub("", value)
         return prop
+
+    @staticmethod
+    def _append_supported_privilege(parent: Element, supported: DavSupportedPrivilege) -> None:
+        """Append a supported privilege, then the privileges it aggregates as its children."""
+        node: Element = SubElement(parent, DAV_SUPPORTED_PRIVILEGE)
+        SubElement(SubElement(node, DAV_PRIVILEGE), supported.privilege)
+        if supported.abstract:
+            SubElement(node, DAV_ABSTRACT)
+        SubElement(node, DAV_DESCRIPTION, attrib={XML_LANG: DAV_DESCRIPTION_LANGUAGE}).text = supported.description
+        for contained in supported.contained:
+            DavMultistatusSerializerXml._append_supported_privilege(parent=node, supported=contained)
 
     @staticmethod
     def _append_propstat(node: Element, props: list[Element], status: HTTPStatus) -> None:
